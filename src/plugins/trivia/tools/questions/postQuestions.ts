@@ -15,8 +15,8 @@ import {
   type GetTriviaConfigFn,
 } from "../../core/configBridge.js";
 import { requireWritableGame } from "../../core/gamesRegistry.js";
-import { resolveLiveAnswersVisible } from "../../core/liveAnswersResolver.js";
-import { resolveRevealResponses } from "../../core/revealResponsesResolver.js";
+import { resolveCascade } from "../../domain/resolveCascade.js";
+import type { CascadeContext } from "../../core/cascadeAxes.js";
 import { findSeasonBySlug } from "../../core/seasonTimeline.js";
 import { getAllAnswerTypeHandlers, getAnswerTypeHandler } from "../../answerTypes/registry.js";
 import type { TriviaDataLayer, TriviaQuestion } from "../../core/types.js";
@@ -330,18 +330,17 @@ export function createPostQuestionsTool(
               ? game.format?.questions[question.slot.index]
               : undefined;
           const slot = slotFromSeason ?? slotFromGame;
-          const liveAnswersVisible = resolveLiveAnswersVisible({
-            slot,
-            season: season ?? undefined,
+          // Single resolution path. Unlike get_ideas, post-time honors game-format
+          // slots too, so `slot` (season-or-game) is the slot tier here.
+          const cascadeCtx: CascadeContext = {
+            slot: slot ?? null,
+            slotIndex: question.slot?.index ?? null,
+            season,
             game,
-            config: triviaConfig ?? undefined,
-          });
-          const revealResponses = resolveRevealResponses({
-            slot,
-            season: season ?? undefined,
-            game,
-            config: triviaConfig ?? undefined,
-          });
+            config: triviaConfig ?? null,
+          };
+          const liveAnswersVisible = resolveCascade("liveAnswersVisible", cascadeCtx).value;
+          const revealResponses = resolveCascade("revealResponses", cascadeCtx).value;
 
           await scoped.updateQuestion(item.questionId, {
             postedAt: tsToPostedAt(ts),

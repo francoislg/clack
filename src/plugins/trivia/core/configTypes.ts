@@ -5,6 +5,10 @@
  * The plugin owns its own type definitions.
  */
 
+// Type-only import — `cascadeAxes.ts` imports value types back from here, but every
+// edge is `import type`, so there is no runtime cycle.
+import type { CascadeAxes } from "./cascadeAxes.js";
+
 /** Feature flag + author prompt for the trivia seasons mechanism. */
 export interface TriviaSeasonsConfig {
   enabled: boolean;
@@ -218,7 +222,7 @@ export const DEFAULT_JUDGE_LENIENCY: JudgeLeniency = "strict-with-typos";
  * from this list on every load: each entry produces two plugin-managed cron jobs
  * (`<name>:question` and `<name>:reveal`).
  */
-export interface TriviaGame {
+export interface TriviaGame extends CascadeAxes {
   /** Unique identifier within `games[]`; used in `specKey`. Must match `^[a-z0-9-]+$`, length 1–32. */
   name: string;
   /** Slack channel ID where this game runs (e.g. `C123ABC`). */
@@ -242,26 +246,10 @@ export interface TriviaGame {
   timezone: string;
   /** When `false`, the plugin skips this entry during cron reconcile AND per-game write tools refuse. Defaults to `true`. */
   enabled?: boolean;
-  /**
-   * Optional per-game tier on the cascading axis configuration. Each field uses the
-   * EXACT same shape as the corresponding workspace-tier field on `TriviaConfig` and
-   * sits between season and workspace in the cascade
-   * (slot → season → game → workspace → built-in default). When absent, the game
-   * tier is skipped and the cascade falls through directly from season to workspace.
-   */
-  answersFormat?: TriviaAnswersFormatWeights;
-  questionType?: TriviaQuestionTypeWeights;
-  /** Per-game tier of the prompt-medium axis. Cascade slot → season → game → workspace → default. */
-  promptMedium?: PromptMediumWeights;
-  freeformAnswerShape?: TriviaFreeformAnswerShapeWeights;
-  contexts?: TriviaContextEntry[];
-  difficulty?: TriviaDifficultyConfig;
-  /**
-   * Per-game tier of the bucket-roll ratio axis. Same cascade as the other weighted
-   * axes (slot → season → game → workspace → built-in default). Whole-object replace
-   * per tier; per-format keying (boolean / choice / freeform).
-   */
-  difficultyRatio?: TriviaDifficultyRatioConfig;
+  // The cascading-axis fields (answersFormat, questionType, promptMedium,
+  // freeformAnswerShape, contexts, difficulty, difficultyRatio, instructions,
+  // additionalInstructions, liveAnswersVisible, revealResponses, hint, judgeLeniency)
+  // are inherited from CascadeAxes — the single source of truth.
   /**
    * Optional per-game question composition (slot list). Cascade:
    *   `season.format → game.format → (single-question fallback)`.
@@ -282,51 +270,10 @@ export interface TriviaGame {
    */
   theme?: string;
   /**
-   * Optional per-game free-form guidance string with REPLACE cascade semantics.
-   * Cascade: `slot.instructions → season.instructions → game.instructions →
-   * workspace.instructions → null`. Surfaced to Claude via the `get_ideas`
-   * and `process_reveal_answers` MCP tool response payloads — see the
-   * `trivia-prompt-instructions` capability.
-   */
-  instructions?: string;
-  /**
-   * Optional per-game free-form guidance string with CUMULATIVE cascade
-   * semantics. Every non-empty tier is concatenated in
-   * `workspace → game → season → slot` order, each segment tier-labeled.
-   * Surfaced to Claude via the `get_ideas` and `process_reveal_answers`
-   * MCP tool response payloads — see the `trivia-prompt-instructions` capability.
-   */
-  additionalInstructions?: string;
-  /**
-   * Per-game tier of the live-roster-footer visibility axis. Cascade:
-   *   `slot → season → game → workspace → true`.
-   * When `true` (the cascaded default), the live "📝 Answered" footer reveals
-   * each answerer's pick alongside their name. When `false`, the footer shows
-   * names only.
-   */
-  liveAnswersVisible?: boolean;
-  /**
-   * Per-game tier of the reveal-time participation disclosure axis. Cascade:
-   *   `slot → season → game → workspace → "yes"`.
-   * Controls how much per-question participation detail surfaces in the
-   * reveal message — see `RevealResponsesMode` for semantics.
-   */
-  revealResponses?: RevealResponsesMode;
-  /**
-   * Per-game tier of the hint axis. Cascade:
-   *   `slot → season → game → workspace → { mode: "none" }`.
-   * Whole-object replace per tier. See `TriviaHintConfig`.
-   */
-  hint?: TriviaHintConfig;
-  /**
-   * Per-game tier of the reveal-judge leniency axis. Cascade:
-   *   `slot → season → game → workspace → "strict-with-typos"`.
-   * Whole-value replace per tier. See `JudgeLeniency`.
-   */
-  judgeLeniency?: JudgeLeniency;
-  /**
    * Per-game tier of the "All Time" leaderboard-row visibility axis. Cascade:
-   *   `game → workspace → "end-of-season-only"`. See `TriviaAllTimeRowMode`.
+   *   `game → workspace → "end-of-season-only"`. NOT a CascadeAxes member — it
+   *   resolves only at game+workspace, never the per-question (slot/season) tiers.
+   *   See `TriviaAllTimeRowMode` and `resolveAllTimeRow`.
    */
   allTimeRow?: TriviaAllTimeRowMode;
 }
@@ -336,35 +283,11 @@ export interface TriviaGame {
  * overrides for every cascading axis — when absent, the slot inherits from the
  * season → game → workspace → built-in default cascade.
  */
-export interface SeasonFormatSlot {
+export interface SeasonFormatSlot extends CascadeAxes {
   label?: string;
   categories?: string[];
-  answersFormat?: TriviaAnswersFormatWeights;
-  questionType?: TriviaQuestionTypeWeights;
-  /** Highest-precedence tier of the prompt-medium axis. */
-  promptMedium?: PromptMediumWeights;
-  freeformAnswerShape?: TriviaFreeformAnswerShapeWeights;
-  contexts?: TriviaContextEntry[];
-  difficulty?: TriviaDifficultyConfig;
-  difficultyRatio?: TriviaDifficultyRatioConfig;
-  /**
-   * Highest-precedence tier of the replace-cascade `instructions` axis —
-   * see the `trivia-prompt-instructions` capability.
-   */
-  instructions?: string;
-  /**
-   * Highest-precedence tier of the cumulative-cascade `additionalInstructions`
-   * axis — see the `trivia-prompt-instructions` capability.
-   */
-  additionalInstructions?: string;
-  /** Highest-precedence tier of the live-roster-footer visibility axis. */
-  liveAnswersVisible?: boolean;
-  /** Highest-precedence tier of the reveal-time disclosure axis. */
-  revealResponses?: RevealResponsesMode;
-  /** Highest-precedence tier of the hint axis. Whole-object replace per tier. */
-  hint?: TriviaHintConfig;
-  /** Highest-precedence tier of the reveal-judge leniency axis. Whole-value replace per tier. */
-  judgeLeniency?: JudgeLeniency;
+  // All cascading-axis fields are the highest-precedence (slot) tier and are
+  // inherited from CascadeAxes — the single source of truth.
 }
 
 /**
@@ -391,62 +314,23 @@ export interface OffDay {
  * Top-level shape of `data/plugins/trivia/config.json`. The file's JSON root IS this
  * object (no `trivia` wrapper key).
  */
-export interface TriviaConfig {
+export interface TriviaConfig extends CascadeAxes {
   seasons?: TriviaSeasonsConfig;
-  /** Workspace default; overridable per-season via SeasonEntry.answersFormat and per-game via TriviaGame.answersFormat. */
-  answersFormat?: TriviaAnswersFormatWeights;
-  /** Workspace default; overridable per-season / per-game / per-slot. */
-  questionType?: TriviaQuestionTypeWeights;
-  /** Workspace default for the prompt-medium axis; overridable per-season / per-game / per-slot. */
-  promptMedium?: PromptMediumWeights;
-  /** Workspace default; freeform-branch only. */
-  freeformAnswerShape?: TriviaFreeformAnswerShapeWeights;
-  /** Optional lens axis. */
-  contexts?: TriviaContextEntry[];
-  /** Bounds for choice-question option counts. */
+  // The 13 cascading-axis fields are the workspace tier and are inherited from
+  // CascadeAxes — the single source of truth.
+  /** Bounds for choice-question option counts. Workspace-only — not a cascade axis. */
   choices?: TriviaChoicesConfig;
-  /** Per-game-type difficulty ranges. */
-  difficulty?: TriviaDifficultyConfig;
-  /**
-   * Per-game-type bucket-roll ratio. Independent from `difficulty` (which sets the
-   * 1–10 range per bucket); this controls how often each bucket is rolled. Same
-   * cascade as the other weighted axes; whole-object replace per tier.
-   */
-  difficultyRatio?: TriviaDifficultyRatioConfig;
   /** Declarative trivia games. */
   games?: TriviaGame[];
   /** Plugin-level off-days, shared by every entry in `games[]`. */
   offDays?: OffDay[];
-  /** Workspace default for the live-roster-footer visibility axis. */
-  liveAnswersVisible?: boolean;
-  /** Workspace default for the reveal-time disclosure axis. */
-  revealResponses?: RevealResponsesMode;
-  /**
-   * Workspace tier of the hint axis. Cascade:
-   *   `slot → season → game → workspace → { mode: "none" }`.
-   * Whole-object replace per tier. See `TriviaHintConfig`.
-   */
-  hint?: TriviaHintConfig;
-  /**
-   * Workspace tier of the reveal-judge leniency axis. Cascade:
-   *   `slot → season → game → workspace → "strict-with-typos"`. See `JudgeLeniency`.
-   */
-  judgeLeniency?: JudgeLeniency;
   /**
    * Workspace tier of the "All Time" leaderboard-row visibility axis. Cascade:
-   *   `game → workspace → "end-of-season-only"`. See `TriviaAllTimeRowMode`.
+   *   `game → workspace → "end-of-season-only"`. NOT a CascadeAxes member — it
+   *   resolves only at game+workspace, never the per-question tiers.
+   *   See `TriviaAllTimeRowMode`.
    */
   allTimeRow?: TriviaAllTimeRowMode;
-  /**
-   * Workspace tier of the replace-cascade `instructions` axis — see the
-   * `trivia-prompt-instructions` capability.
-   */
-  instructions?: string;
-  /**
-   * Workspace tier of the cumulative-cascade `additionalInstructions` axis —
-   * see the `trivia-prompt-instructions` capability.
-   */
-  additionalInstructions?: string;
 }
 
 /** Defaults applied when `choices` is absent or only partially specified. */

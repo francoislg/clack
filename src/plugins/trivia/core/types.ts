@@ -1,18 +1,13 @@
 import type { KnownBlock } from "@slack/types";
 import type {
   SeasonFormat,
-  TriviaAnswersFormatWeights,
-  TriviaQuestionTypeWeights,
-  PromptMediumWeights,
   TriviaFreeformAnswerShape,
-  TriviaFreeformAnswerShapeWeights,
-  TriviaContextEntry,
-  TriviaDifficultyConfig,
-  TriviaDifficultyRatioConfig,
-  TriviaHintConfig,
   JudgeLeniency,
   RevealResponsesMode,
 } from "./configTypes.js";
+// SeasonEntry extends CascadeAxes (the per-season tier of every cascading axis).
+// Type-only circular import with cascadeAxes.ts — no runtime cycle.
+import type { CascadeAxes } from "./cascadeAxes.js";
 
 /**
  * Answer-shape discriminator (renamed from `type`). Absent only on pre-migration legacy rows;
@@ -245,7 +240,7 @@ export interface TriviaSeasonsConfig {
   prompt: string;
 }
 
-export interface SeasonEntry {
+export interface SeasonEntry extends CascadeAxes {
   slug: string;
   startedAt: number;
   expectedEndAt: number;
@@ -265,83 +260,14 @@ export interface SeasonEntry {
    */
   categories?: string[];
   /**
-   * Optional per-season answer-format weights. Absent → `get_ideas` falls back to
-   * `config.trivia.answersFormat`. Mid-season mutation is permitted (unlike `startedAt`).
-   */
-  answersFormat?: TriviaAnswersFormatWeights;
-  /**
-   * Optional per-season fact-vs-topical weights. Absent → falls back to `config.trivia.questionType`.
-   * Mid-season mutation is permitted.
-   */
-  questionType?: TriviaQuestionTypeWeights;
-  /**
-   * Optional per-season prompt-medium weights. Absent → cascade falls through to
-   * `game.promptMedium → config.trivia.promptMedium → DEFAULT_PROMPT_MEDIUM_WEIGHTS`.
-   * Mid-season mutation is permitted.
-   */
-  promptMedium?: PromptMediumWeights;
-  /**
-   * Optional per-season freeform answer-shape weights. Absent → falls back to `config.trivia.freeformAnswerShape`.
-   * Freeform-branch only; ignored by boolean/choice. Mid-season mutation is permitted.
-   */
-  freeformAnswerShape?: TriviaFreeformAnswerShapeWeights;
-  /**
-   * Optional per-season lens list. Absent → falls back to `config.trivia.contexts`
-   * (which itself may be absent). Mid-season mutation is permitted.
-   */
-  contexts?: TriviaContextEntry[];
-  /**
-   * Optional per-season per-game-type difficulty overrides. Each game type
-   * (boolean/choice/freeform) is independently overridable; within each game type,
-   * easy/medium/hard cascade independently (per-field merge). Absent → falls back
-   * to `config.trivia.difficulty` → `DEFAULT_DIFFICULTY_RANGES[format]`. Mid-season
-   * mutation is permitted.
-   */
-  difficulty?: TriviaDifficultyConfig;
-  /**
-   * Optional per-season bucket-roll ratio. Whole-object replace per cascade tier
-   * (slot → season → game → workspace → `DEFAULT_DIFFICULTY_RATIO[format]`) — the
-   * season either provides a full `{ easy, medium, hard }` weight map for the format,
-   * or cascades through. Mid-season mutation is permitted.
-   */
-  difficultyRatio?: TriviaDifficultyRatioConfig;
-  /**
    * Optional per-season question composition. Mid-season mutation is permitted —
    * changes take effect on the next question-cron fire.
    */
   format?: SeasonFormat;
-  /**
-   * Per-season tier of the live-roster-footer visibility axis. Cascade:
-   *   `slot → season → game → workspace → true`.
-   */
-  liveAnswersVisible?: boolean;
-  /**
-   * Per-season tier of the reveal-time participation disclosure axis. Cascade:
-   *   `slot → season → game → workspace → "yes"`.
-   */
-  revealResponses?: RevealResponsesMode;
-  /**
-   * Per-season tier of the replace-cascade `instructions` axis — see the
-   * `trivia-prompt-instructions` capability. Mid-season mutation is permitted.
-   */
-  instructions?: string;
-  /**
-   * Per-season tier of the cumulative-cascade `additionalInstructions` axis —
-   * see the `trivia-prompt-instructions` capability. Mid-season mutation is permitted.
-   */
-  additionalInstructions?: string;
-  /**
-   * Per-season tier of the hint axis. Cascade:
-   *   `slot → season → game → workspace → { mode: "none" }`.
-   * Whole-object replace per tier. Mid-season mutation is permitted.
-   */
-  hint?: TriviaHintConfig;
-  /**
-   * Per-season tier of the reveal-judge leniency axis. Cascade:
-   *   `slot → season → game → workspace → "strict-with-typos"`.
-   * Whole-value replace per tier. Mid-season mutation is permitted. See `JudgeLeniency`.
-   */
-  judgeLeniency?: JudgeLeniency;
+  // The per-season tier of every cascading axis (answersFormat, questionType,
+  // promptMedium, freeformAnswerShape, contexts, difficulty, difficultyRatio,
+  // instructions, additionalInstructions, liveAnswersVisible, revealResponses, hint,
+  // judgeLeniency) is inherited from CascadeAxes — the single source of truth.
 }
 
 export interface SeasonsState {

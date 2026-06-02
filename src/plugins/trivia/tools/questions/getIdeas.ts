@@ -3,19 +3,16 @@ import { tool } from "@anthropic-ai/claude-agent-sdk";
 import { textResult, errorResult } from "../../../../tools/helpers.js";
 import { getAnswerTypeHandler } from "../../answerTypes/registry.js";
 import { findCurrentSeason } from "../../core/seasonTimeline.js";
-import { resolveAnswersFormat } from "../../domain/questionTypes.js";
-import { resolveQuestionType } from "../../domain/factTopical.js";
-import { resolvePromptMedium } from "../../domain/promptMediums.js";
-import { resolveContexts, rollContextPriority } from "../../domain/contexts.js";
-import { resolveDifficultyRanges, resolveDifficultyRatio } from "../../domain/difficulty.js";
+import { rollContextPriority } from "../../domain/contexts.js";
 import { resolveEffectiveFormat } from "../../domain/format.js";
-import { effectiveHintMode, resolveHintConfig } from "../../domain/hint.js";
+import { effectiveHintMode } from "../../domain/hint.js";
 import {
   resolveActiveCategories,
   resolveActiveCategoriesWithSource,
 } from "../../domain/categories.js";
 import { resolveTheme } from "../../domain/theme.js";
-import { resolveAdditionalInstructions, resolveInstructions } from "../../domain/instructions.js";
+import { resolveCascade } from "../../domain/resolveCascade.js";
+import type { CascadeContext } from "../../core/cascadeAxes.js";
 import { weightedPick } from "../../domain/weightedPick.js";
 import {
   defaultGetGames,
@@ -149,16 +146,23 @@ export function createGetIdeasTool(
 
       const firstFireOfSeason = currentSeasonEntry !== null && questions.length === 0;
       const theme = resolveTheme(currentSeasonEntry, gameEntry) ?? undefined;
-      const instructions =
-        resolveInstructions(currentSeasonEntry, slotIndexForResolution, gameEntry, config) ??
-        undefined;
+
+      // Single resolution path: every cascading axis resolves through `resolveCascade`.
+      // The slot tier is the season-format slot only, matching the legacy resolvers.
+      const cascadeCtx: CascadeContext = {
+        slot:
+          slotIndexForResolution !== null && currentSeasonEntry?.format !== undefined
+            ? (currentSeasonEntry.format.questions[slotIndexForResolution] ?? null)
+            : null,
+        slotIndex: slotIndexForResolution,
+        season: currentSeasonEntry,
+        game: gameEntry,
+        config,
+      };
+
+      const instructions = resolveCascade("instructions", cascadeCtx).value ?? undefined;
       const additionalInstructions =
-        resolveAdditionalInstructions(
-          currentSeasonEntry,
-          slotIndexForResolution,
-          gameEntry,
-          config,
-        ) ?? undefined;
+        resolveCascade("additionalInstructions", cascadeCtx).value ?? undefined;
 
       const exclusionWindow = Math.min(10, Math.floor(slotCategories.length / 3));
       const recentCategories = new Set(
@@ -196,64 +200,31 @@ export function createGetIdeasTool(
             }
           : null;
 
-      const answersFormatWeights = resolveAnswersFormat(
-        currentSeasonEntry,
-        slotIndexForResolution,
-        gameEntry,
-        config,
-      );
+      const answersFormatWeights = resolveCascade("answersFormat", cascadeCtx).value;
       const pickedAnswersFormat: TriviaAnswersFormat =
         weightedPick(answersFormatWeights) ?? "boolean";
 
-      const questionTypeWeights = resolveQuestionType(
-        currentSeasonEntry,
-        slotIndexForResolution,
-        gameEntry,
-        config,
-      );
+      const questionTypeWeights = resolveCascade("questionType", cascadeCtx).value;
       const pickedQuestionType: TriviaQuestionType = weightedPick(questionTypeWeights) ?? "fact";
 
-      const promptMediumWeights = resolvePromptMedium(
-        currentSeasonEntry,
-        slotIndexForResolution,
-        gameEntry,
-        config,
-      );
+      const promptMediumWeights = resolveCascade("promptMedium", cascadeCtx).value;
       const pickedPromptMedium: TriviaPromptMedium = weightedPick(promptMediumWeights) ?? "text";
 
-      const contexts = resolveContexts(
-        currentSeasonEntry,
-        slotIndexForResolution,
-        gameEntry,
-        config,
-      );
+      const contexts = resolveCascade("contexts", cascadeCtx).value;
       const contextPriority = contexts !== null ? rollContextPriority(contexts) : null;
 
-      const ratioWeights = resolveDifficultyRatio(
-        currentSeasonEntry,
-        slotIndexForResolution,
-        gameEntry,
-        config,
-        pickedAnswersFormat,
-      );
+      const ratioWeights = resolveCascade("difficultyRatio", cascadeCtx, {
+        answersFormat: pickedAnswersFormat,
+      }).value;
       const pickedBucket = weightedPick(ratioWeights) ?? "medium";
       const suggestedDifficulty: SuggestedDifficulty = BUCKET_TO_LABEL[pickedBucket];
 
-      const difficultyRanges = resolveDifficultyRanges(
-        currentSeasonEntry,
-        slotIndexForResolution,
-        gameEntry,
-        config,
-        pickedAnswersFormat,
-      );
+      const difficultyRanges = resolveCascade("difficulty", cascadeCtx, {
+        answersFormat: pickedAnswersFormat,
+      }).value;
       const suggestedDifficultyRange = difficultyRanges[pickedBucket];
 
-      const resolvedHint = resolveHintConfig(
-        slotIndexForResolution,
-        currentSeasonEntry,
-        gameEntry,
-        config,
-      );
+      const resolvedHint = resolveCascade("hint", cascadeCtx).value;
       const suggestedHintMode = effectiveHintMode(resolvedHint, pickedBucket);
       const hintGuidance =
         suggestedHintMode !== "none"

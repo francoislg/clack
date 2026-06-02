@@ -10,28 +10,24 @@ import {
 } from "../../core/configBridge.js";
 import type {
   SeasonFormat,
-  TriviaAnswersFormatWeights,
-  TriviaQuestionTypeWeights,
-  TriviaFreeformAnswerShapeWeights,
-  TriviaContextEntry,
-  TriviaDifficultyConfig,
-  TriviaDifficultyRatioConfig,
   TriviaChoicesConfig,
-  TriviaHintConfig,
   TriviaAllTimeRowMode,
-  JudgeLeniency,
   TriviaSeasonsConfig,
+  TriviaHintConfig,
+  JudgeLeniency,
+  RevealResponsesMode,
   OffDay,
 } from "../../core/configTypes.js";
+import type { CascadeAxes } from "../../core/cascadeAxes.js";
+import { AXIS_KEYS, copyAxisIfSet } from "../../domain/resolveCascade.js";
 
-interface AxisOverrides {
-  answersFormat?: TriviaAnswersFormatWeights;
-  questionType?: TriviaQuestionTypeWeights;
-  freeformAnswerShape?: TriviaFreeformAnswerShapeWeights;
-  contexts?: TriviaContextEntry[];
-  difficulty?: TriviaDifficultyConfig;
-  difficultyRatio?: TriviaDifficultyRatioConfig;
-}
+/**
+ * Per-game cascade-axis overrides. Projected from `AXIS_KEYS` (the registry's axis set),
+ * so every cascading axis — including `promptMedium`, `liveAnswersVisible`,
+ * `revealResponses`, `instructions`, `additionalInstructions` — surfaces automatically;
+ * adding a future axis to the registry surfaces it here with no edit.
+ */
+type AxisOverrides = Partial<CascadeAxes>;
 
 interface ListGamesEntry {
   name: string;
@@ -49,38 +45,30 @@ interface ListGamesEntry {
   format?: SeasonFormat;
   categories?: string[];
   theme?: string;
+  // These axes also appear in axisOverrides; kept top-level for backward compat.
   instructions?: string;
   additionalInstructions?: string;
   liveAnswersVisible?: boolean;
-  revealResponses?: "no" | "just-winners" | "just-correctness" | "yes";
+  revealResponses?: RevealResponsesMode;
   hint?: TriviaHintConfig;
-  allTimeRow?: TriviaAllTimeRowMode;
   judgeLeniency?: JudgeLeniency;
+  allTimeRow?: TriviaAllTimeRowMode;
 }
 
 export type FindOwnedCronJobsFn = () => Promise<Array<{ id: string; specKey: string }>>;
 const defaultFindOwnedCronJobs: FindOwnedCronJobsFn = async () => [];
 
-interface WorkspaceDefaults {
-  answersFormat?: TriviaAnswersFormatWeights;
-  questionType?: TriviaQuestionTypeWeights;
-  freeformAnswerShape?: TriviaFreeformAnswerShapeWeights;
-  contexts?: TriviaContextEntry[];
-  difficulty?: TriviaDifficultyConfig;
-  difficultyRatio?: TriviaDifficultyRatioConfig;
+// The 13 cascade axes (projected from AXIS_KEYS) plus the non-axis workspace fields.
+type WorkspaceDefaults = Partial<CascadeAxes> & {
   choices?: TriviaChoicesConfig;
   seasons?: TriviaSeasonsConfig;
   offDays?: OffDay[];
-  instructions?: string;
-  additionalInstructions?: string;
-  hint?: TriviaHintConfig;
   allTimeRow?: TriviaAllTimeRowMode;
-  judgeLeniency?: JudgeLeniency;
-}
+};
 
 const DESCRIPTION = `List the trivia games configured in this deployment (data/plugins/trivia/config.json's \`games[]\`), plus the workspace tier of the cascading axis configuration (\`workspaceDefaults\`) AND each entry's per-game \`axisOverrides\`, so admins can audit configuration without reading the file by hand.
 
-By default, disabled games are excluded; pass \`includeDisabled: true\` to surface them too. Each game entry includes \`questionCron\`, \`revealCron\`, \`timezone\`, \`enabled\`, and an \`axisOverrides\` block surfacing the game's per-game cascade tier (\`answersFormat\`, \`questionType\`, \`freeformAnswerShape\`, \`contexts\`, \`difficulty\`, \`difficultyRatio\`). Each axis field is present IF AND ONLY IF the game's entry literally set it. The block is always included on every entry (possibly as \`{}\`). Per-game \`format\` (slot composition), \`categories\` (narrowed pool), \`theme\` (narrative label), and \`prepCron\` (opt-in pre-staging schedule) also surface on each entry IF AND ONLY IF set. When \`prepCron\` is set, the entry also includes \`nextPrepFire\` (epoch ms of the prep cron's next fire in the game's timezone) so admins can sanity-check the schedule.
+By default, disabled games are excluded; pass \`includeDisabled: true\` to surface them too. Each game entry includes \`questionCron\`, \`revealCron\`, \`timezone\`, \`enabled\`, and an \`axisOverrides\` block surfacing the game's per-game cascade tier for EVERY cascading axis (registry-driven — \`answersFormat\`, \`questionType\`, \`promptMedium\`, \`freeformAnswerShape\`, \`contexts\`, \`difficulty\`, \`difficultyRatio\`, \`hint\`, \`judgeLeniency\`, \`instructions\`, \`additionalInstructions\`, \`liveAnswersVisible\`, \`revealResponses\`). Each axis field is present IF AND ONLY IF the game's entry literally set it. The block is always included on every entry (possibly as \`{}\`). Per-game \`format\` (slot composition), \`categories\` (narrowed pool), \`theme\` (narrative label), and \`prepCron\` (opt-in pre-staging schedule) also surface on each entry IF AND ONLY IF set. When \`prepCron\` is set, the entry also includes \`nextPrepFire\` (epoch ms of the prep cron's next fire in the game's timezone) so admins can sanity-check the schedule.
 
 Each entry also surfaces the underlying cron job UUIDs — \`questionJobId\`, \`revealJobId\`, and (when \`prepCron\` is set) \`prepJobId\` — when the trivia plugin's reconcile has registered the corresponding jobs. Pass these to \`run_scheduled_message_now({id})\` to fire a slot on-demand without a separate \`list_scheduled_messages\` lookup.
 
@@ -116,16 +104,8 @@ export function createListGamesTool(
       }
 
       const entries: ListGamesEntry[] = filtered.map((g) => {
-        const axisOverrides: AxisOverrides = {
-          ...(g.answersFormat !== undefined ? { answersFormat: g.answersFormat } : {}),
-          ...(g.questionType !== undefined ? { questionType: g.questionType } : {}),
-          ...(g.freeformAnswerShape !== undefined
-            ? { freeformAnswerShape: g.freeformAnswerShape }
-            : {}),
-          ...(g.contexts !== undefined ? { contexts: g.contexts } : {}),
-          ...(g.difficulty !== undefined ? { difficulty: g.difficulty } : {}),
-          ...(g.difficultyRatio !== undefined ? { difficultyRatio: g.difficultyRatio } : {}),
-        };
+        const axisOverrides: AxisOverrides = {};
+        for (const key of AXIS_KEYS) copyAxisIfSet(axisOverrides, g, key);
 
         // Compute next-prep-fire epoch ms only when prepCron is set. Wrapped in
         // try/catch so a malformed cron expression (shouldn't reach here — the
@@ -164,6 +144,7 @@ export function createListGamesTool(
           ...(g.format !== undefined ? { format: g.format } : {}),
           ...(g.categories !== undefined ? { categories: g.categories } : {}),
           ...(g.theme !== undefined ? { theme: g.theme } : {}),
+          // Kept top-level for backward compat; also present in axisOverrides now.
           ...(g.instructions !== undefined ? { instructions: g.instructions } : {}),
           ...(g.additionalInstructions !== undefined
             ? { additionalInstructions: g.additionalInstructions }
@@ -179,32 +160,15 @@ export function createListGamesTool(
       });
 
       const triviaCfg = getTriviaConfigFn();
-      const workspaceDefaults: WorkspaceDefaults = {
-        ...(triviaCfg?.answersFormat !== undefined
-          ? { answersFormat: triviaCfg.answersFormat }
-          : {}),
-        ...(triviaCfg?.questionType !== undefined ? { questionType: triviaCfg.questionType } : {}),
-        ...(triviaCfg?.freeformAnswerShape !== undefined
-          ? { freeformAnswerShape: triviaCfg.freeformAnswerShape }
-          : {}),
-        ...(triviaCfg?.contexts !== undefined ? { contexts: triviaCfg.contexts } : {}),
-        ...(triviaCfg?.difficulty !== undefined ? { difficulty: triviaCfg.difficulty } : {}),
-        ...(triviaCfg?.difficultyRatio !== undefined
-          ? { difficultyRatio: triviaCfg.difficultyRatio }
-          : {}),
-        ...(triviaCfg?.choices !== undefined ? { choices: triviaCfg.choices } : {}),
-        ...(triviaCfg?.seasons !== undefined ? { seasons: triviaCfg.seasons } : {}),
-        ...(triviaCfg?.offDays !== undefined ? { offDays: triviaCfg.offDays } : {}),
-        ...(triviaCfg?.instructions !== undefined ? { instructions: triviaCfg.instructions } : {}),
-        ...(triviaCfg?.additionalInstructions !== undefined
-          ? { additionalInstructions: triviaCfg.additionalInstructions }
-          : {}),
-        ...(triviaCfg?.hint !== undefined ? { hint: triviaCfg.hint } : {}),
-        ...(triviaCfg?.allTimeRow !== undefined ? { allTimeRow: triviaCfg.allTimeRow } : {}),
-        ...(triviaCfg?.judgeLeniency !== undefined
-          ? { judgeLeniency: triviaCfg.judgeLeniency }
-          : {}),
-      };
+      const workspaceDefaults: WorkspaceDefaults = {};
+      if (triviaCfg) {
+        for (const key of AXIS_KEYS) copyAxisIfSet(workspaceDefaults, triviaCfg, key);
+        // Non-axis workspace fields kept alongside the cascade axes.
+        if (triviaCfg.choices !== undefined) workspaceDefaults.choices = triviaCfg.choices;
+        if (triviaCfg.seasons !== undefined) workspaceDefaults.seasons = triviaCfg.seasons;
+        if (triviaCfg.offDays !== undefined) workspaceDefaults.offDays = triviaCfg.offDays;
+        if (triviaCfg.allTimeRow !== undefined) workspaceDefaults.allTimeRow = triviaCfg.allTimeRow;
+      }
 
       return textResult({ games: entries, workspaceDefaults, total: entries.length });
     },
