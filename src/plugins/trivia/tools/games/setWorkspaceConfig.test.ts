@@ -73,6 +73,7 @@ const emptyArgs = {
   additionalInstructions: undefined,
   hint: undefined,
   allTimeRow: undefined,
+  judgeLeniency: undefined,
 };
 
 describe("set_workspace_config", () => {
@@ -96,6 +97,19 @@ describe("set_workspace_config", () => {
     const tool = createSetWorkspaceConfigTool();
     await tool.handler({ ...emptyArgs, answersFormat: null }, SESSION);
     assert.equal(loadTriviaConfig()?.answersFormat, undefined);
+  });
+
+  it("sets and clears workspace judgeLeniency", async () => {
+    primeBridge({});
+    const tool = createSetWorkspaceConfigTool();
+    const set = parseToolResult(
+      await tool.handler({ ...emptyArgs, judgeLeniency: "lenient" }, SESSION),
+    );
+    assert.ok(set.updatedFields.includes("judgeLeniency"));
+    assert.equal(loadTriviaConfig()?.judgeLeniency, "lenient");
+
+    await tool.handler({ ...emptyArgs, judgeLeniency: null }, SESSION);
+    assert.equal(loadTriviaConfig()?.judgeLeniency, undefined);
   });
 
   it("omit-to-keep preserves untouched fields", async () => {

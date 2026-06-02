@@ -18,10 +18,12 @@ import {
   promptMediumZod,
   triviaDifficultyRatioZod,
   triviaHintZod,
+  triviaJudgeLeniencyZod,
   validateAnswersFormatMap,
   validateContextsList,
   validateFreeformAnswerShapeMap,
   validateHintConfig,
+  validateJudgeLeniency,
   validateQuestionTypeMap,
   validatePromptMediumMap,
   validateTriviaDifficultyMap,
@@ -110,6 +112,7 @@ interface RawSlot {
   instructions?: string | null;
   additionalInstructions?: string | null;
   hint?: unknown | null;
+  judgeLeniency?: unknown | null;
 }
 
 interface RawFormat {
@@ -252,6 +255,11 @@ export function validateFormat(
       if (!validated.ok) return validated;
       out.hint = validated.value;
     }
+    if (slot.judgeLeniency !== undefined && slot.judgeLeniency !== null) {
+      const validated = validateJudgeLeniency(slot.judgeLeniency, `${slotLabel}.judgeLeniency`);
+      if (!validated.ok) return validated;
+      out.judgeLeniency = validated.value;
+    }
     normalized.push(out);
   }
   return { ok: true, value: { questions: normalized } };
@@ -283,6 +291,7 @@ const seasonFormatSlotZod = z.object({
   instructions: z.string().optional(),
   additionalInstructions: z.string().optional(),
   hint: triviaHintZod.optional(),
+  judgeLeniency: triviaJudgeLeniencyZod.optional(),
 });
 
 /**

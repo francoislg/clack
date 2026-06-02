@@ -10,6 +10,7 @@ import type {
   TriviaDifficultyConfig,
   TriviaDifficultyRatioConfig,
   TriviaHintConfig,
+  JudgeLeniency,
   RevealResponsesMode,
 } from "./configTypes.js";
 
@@ -179,6 +180,15 @@ export interface TriviaQuestion {
     text: string;
     clickedBy?: string[];
   };
+  /**
+   * Reveal-judge leniency preset, resolved from the cascade
+   * `slot → season → game → workspace → "strict-with-typos"` and stamped by
+   * `save_question` at generation time so a mid-cycle config change does not
+   * retroactively re-judge already-posed questions. Read by the freeform reveal
+   * judge to select its matching-forgiveness fragments. Absent on legacy /
+   * non-freeform rows; absence SHALL be read as `"strict-with-typos"`.
+   */
+  judgeLeniency?: JudgeLeniency;
 }
 
 // `cheatAttempts` is cumulative across seasons — season rollover does not reset it.
@@ -326,6 +336,12 @@ export interface SeasonEntry {
    * Whole-object replace per tier. Mid-season mutation is permitted.
    */
   hint?: TriviaHintConfig;
+  /**
+   * Per-season tier of the reveal-judge leniency axis. Cascade:
+   *   `slot → season → game → workspace → "strict-with-typos"`.
+   * Whole-value replace per tier. Mid-season mutation is permitted. See `JudgeLeniency`.
+   */
+  judgeLeniency?: JudgeLeniency;
 }
 
 export interface SeasonsState {

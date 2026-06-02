@@ -27,6 +27,7 @@ import {
   triviaAllTimeRowZod,
   triviaDifficultyRatioZod,
   triviaHintZod,
+  triviaJudgeLeniencyZod,
   validateHintConfig,
   type ParseIssue,
 } from "../../core/configParsers/axes.js";
@@ -132,6 +133,12 @@ const structuralFieldsSchema = {
     .optional()
     .describe(
       'Per-game tier of the "All Time" leaderboard-row visibility axis. One of `"always"` | `"never"` | `"end-of-season-only"`. Controls the All-Time surface at reveal time — the normal-reveal `All Time` row AND the season-finale All-Time table (also requires prior seasons to exist). `"end-of-season-only"` (the workspace default) shows All Time only on the season\'s last fire. Cascade: `game → workspace → "end-of-season-only"`. On UPDATE: explicit null clears the field.',
+    ),
+  judgeLeniency: triviaJudgeLeniencyZod
+    .nullable()
+    .optional()
+    .describe(
+      'Per-game tier of the reveal-judge leniency axis for freeform answers. One of `"strict"` | `"strict-with-typos"` | `"lenient"`. `"strict"` forgives only case, numeral↔word substitution, decade-form, and singular/plural; `"strict-with-typos"` (the workspace default) adds typo + loose-writing tolerance; `"lenient"` accepts any rendering that unmistakably shows the player knew the answer. Resolved at save time and stamped on each freeform question. Cascade: `slot → season → game → workspace → "strict-with-typos"`. Whole-value replace per tier. On UPDATE: explicit null clears the field.',
     ),
 };
 
@@ -364,6 +371,7 @@ export function createUpsertGameTool(getGamesFn: GetGamesFn = defaultGetGames) {
           ? { revealResponses: existing.revealResponses }
           : {}),
         ...(existing?.hint !== undefined ? { hint: existing.hint } : {}),
+        ...(existing?.judgeLeniency !== undefined ? { judgeLeniency: existing.judgeLeniency } : {}),
         ...(existing?.allTimeRow !== undefined ? { allTimeRow: existing.allTimeRow } : {}),
       };
       if (args.format === null) delete mergedStructural.format;
@@ -387,6 +395,9 @@ export function createUpsertGameTool(getGamesFn: GetGamesFn = defaultGetGames) {
       else if (parsedHint !== undefined) mergedStructural.hint = parsedHint;
       if (args.allTimeRow === null) delete mergedStructural.allTimeRow;
       else if (args.allTimeRow !== undefined) mergedStructural.allTimeRow = args.allTimeRow;
+      if (args.judgeLeniency === null) delete mergedStructural.judgeLeniency;
+      else if (args.judgeLeniency !== undefined)
+        mergedStructural.judgeLeniency = args.judgeLeniency;
 
       const enabled = args.enabled ?? existing?.enabled ?? true;
 
@@ -424,6 +435,7 @@ export function createUpsertGameTool(getGamesFn: GetGamesFn = defaultGetGames) {
         hasLiveAnswersVisible: mergedStructural.liveAnswersVisible !== undefined,
         hasRevealResponses: mergedStructural.revealResponses !== undefined,
         hasHint: mergedStructural.hint !== undefined,
+        hasJudgeLeniency: mergedStructural.judgeLeniency !== undefined,
         hasAllTimeRow: mergedStructural.allTimeRow !== undefined,
         slotCount: mergedStructural.format?.questions.length ?? 0,
       });

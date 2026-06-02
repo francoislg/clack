@@ -36,9 +36,11 @@ import {
   promptMediumZod,
   triviaDifficultyRatioZod,
   triviaHintZod,
+  triviaJudgeLeniencyZod,
   validateHintConfig,
 } from "../../core/configParsers/axes.js";
 import type {
+  JudgeLeniency,
   RevealResponsesMode,
   SeasonFormat,
   TriviaAnswersFormatWeights,
@@ -186,6 +188,12 @@ export function createUpsertSeasonTool(
         .describe(
           'Per-season tier of the hint axis. Object shape `{ mode: "none" | "button" | "inline", minDifficulty?: "easy" | "medium" | "hard" }`. Cascade: `slot → season → game → workspace → { mode: "none" }`. Whole-object replace per tier. `button` is per-player opt-in safety net; `inline` is a room-wide difficulty floor adjustment — pick deliberately. On UPDATE: passing `null` clears the field. Mid-season mutation permitted.',
         ),
+      judgeLeniency: triviaJudgeLeniencyZod
+        .nullable()
+        .optional()
+        .describe(
+          'Per-season tier of the reveal-judge leniency axis for freeform answers. One of `"strict"` | `"strict-with-typos"` | `"lenient"`. `"strict"` forgives only case, numeral↔word substitution, decade-form, and singular/plural; `"strict-with-typos"` (the workspace default) adds typo + loose-writing tolerance; `"lenient"` accepts any rendering that unmistakably shows the player knew the answer. Resolved at save time and stamped on each freeform question. Cascade: `slot → season → game → workspace → "strict-with-typos"`. Whole-value replace per tier. On UPDATE: passing `null` clears the field. Mid-season mutation permitted.',
+        ),
     },
     async (args) => {
       try {
@@ -316,6 +324,11 @@ export function createUpsertSeasonTool(
           hint = validated.value;
         }
 
+        const judgeLeniency: JudgeLeniency | undefined =
+          args.judgeLeniency === undefined || args.judgeLeniency === null
+            ? undefined
+            : args.judgeLeniency;
+
         const liveAnswersVisible: boolean | undefined =
           args.liveAnswersVisible === undefined || args.liveAnswersVisible === null
             ? undefined
@@ -348,6 +361,7 @@ export function createUpsertSeasonTool(
           ...(instructions !== undefined ? { instructions } : {}),
           ...(additionalInstructions !== undefined ? { additionalInstructions } : {}),
           ...(hint !== undefined ? { hint } : {}),
+          ...(judgeLeniency !== undefined ? { judgeLeniency } : {}),
         };
 
         try {
@@ -383,6 +397,7 @@ export function createUpsertSeasonTool(
           hasInstructions: entry.instructions !== undefined,
           hasAdditionalInstructions: entry.additionalInstructions !== undefined,
           hasHint: entry.hint !== undefined,
+          hasJudgeLeniency: entry.judgeLeniency !== undefined,
         });
       }
 
@@ -538,6 +553,13 @@ export function createUpsertSeasonTool(
         updatedHint = validated.value;
       }
 
+      let updatedJudgeLeniency: JudgeLeniency | undefined = existing.judgeLeniency;
+      if (args.judgeLeniency === null) {
+        updatedJudgeLeniency = undefined;
+      } else if (args.judgeLeniency !== undefined) {
+        updatedJudgeLeniency = args.judgeLeniency;
+      }
+
       const updated: SeasonEntry = {
         slug: existing.slug,
         startedAt: args.startedAt ?? existing.startedAt,
@@ -572,6 +594,7 @@ export function createUpsertSeasonTool(
           ? { additionalInstructions: updatedAdditionalInstructions }
           : {}),
         ...(updatedHint !== undefined ? { hint: updatedHint } : {}),
+        ...(updatedJudgeLeniency !== undefined ? { judgeLeniency: updatedJudgeLeniency } : {}),
       };
 
       const effectiveEnd = updated.endedAt ?? updated.expectedEndAt;
@@ -614,6 +637,7 @@ export function createUpsertSeasonTool(
         hasInstructions: updated.instructions !== undefined,
         hasAdditionalInstructions: updated.additionalInstructions !== undefined,
         hasHint: updated.hint !== undefined,
+        hasJudgeLeniency: updated.judgeLeniency !== undefined,
       });
     },
   );

@@ -16,6 +16,7 @@ import {
   parseTriviaAxisBag,
   validateAllTimeRowMode,
   validateHintConfig,
+  validateJudgeLeniency,
   validateTriviaChoicesConfig,
   type ParseIssue,
 } from "./configParsers/axes.js";
@@ -163,6 +164,12 @@ function parseTriviaConfigObject(raw: JsonObject, logger: PluginLogger): TriviaC
     const r = validateAllTimeRowMode(raw.allTimeRow, "trivia.allTimeRow");
     if (r.ok) out.allTimeRow = r.value;
     else allIssues.push({ field: "trivia.allTimeRow", error: r.error });
+  }
+
+  if (raw.judgeLeniency !== undefined && raw.judgeLeniency !== null) {
+    const r = validateJudgeLeniency(raw.judgeLeniency, "trivia.judgeLeniency");
+    if (r.ok) out.judgeLeniency = r.value;
+    else allIssues.push({ field: "trivia.judgeLeniency", error: r.error });
   }
 
   if (raw.instructions !== undefined && raw.instructions !== null) {

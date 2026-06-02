@@ -35,6 +35,7 @@ function makeArgs(overrides: Partial<UpsertArgs>): UpsertArgs {
     instructions: undefined,
     additionalInstructions: undefined,
     hint: undefined,
+    judgeLeniency: undefined,
     ...overrides,
   };
 }

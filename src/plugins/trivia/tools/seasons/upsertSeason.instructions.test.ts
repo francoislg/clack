@@ -29,6 +29,7 @@ function baseArgs(slug: string, startedAt: number) {
     instructions: undefined,
     additionalInstructions: undefined,
     hint: undefined,
+    judgeLeniency: undefined,
   };
 }
 

@@ -37,6 +37,7 @@ function toSearchResult(
   if (q.suggestedDifficulty !== undefined) result.suggestedDifficulty = q.suggestedDifficulty;
   if (q.difficulty !== undefined) result.difficulty = q.difficulty;
   if (q.context !== undefined) result.context = q.context;
+  if (q.judgeLeniency !== undefined) result.judgeLeniency = q.judgeLeniency;
   if (q.sourceUrl !== undefined) result.sourceUrl = q.sourceUrl;
   if (q.eventDate !== undefined) result.eventDate = q.eventDate;
   if (matchedKeywords !== null) result.matchedKeywords = matchedKeywords;

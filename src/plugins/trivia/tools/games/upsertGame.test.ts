@@ -106,6 +106,7 @@ function args(overrides: Partial<UpsertGameArgs> & Pick<UpsertGameArgs, "name">)
     additionalInstructions: undefined,
     hint: undefined,
     allTimeRow: undefined,
+    judgeLeniency: undefined,
     ...overrides,
   };
 }
@@ -635,5 +636,57 @@ describe("upsert_game — prepCron", () => {
     assert.equal(result.action, "created");
     const game = loadTriviaConfig()?.games?.[0];
     assert.equal(game?.prepCron, undefined);
+  });
+});
+
+describe("upsert_game — judgeLeniency", () => {
+  beforeEach(() => {
+    _resetTriviaConfigBridge();
+  });
+
+  it("creates a game carrying a judgeLeniency override", async () => {
+    primeBridge({ games: [] });
+    const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
+    const result = parseToolResult(
+      await tool.handler(
+        args({
+          name: "lenient-game",
+          channel: "C1",
+          questionCron: "0 9 * * *",
+          revealCron: "0 17 * * *",
+          timezone: "UTC",
+          judgeLeniency: "lenient",
+        }),
+        SESSION,
+      ),
+    );
+    assert.equal(result.hasJudgeLeniency, true);
+    assert.equal(loadTriviaConfig()?.games?.[0]?.judgeLeniency, "lenient");
+  });
+
+  it("updates and then clears judgeLeniency on an existing game", async () => {
+    primeBridge({
+      games: [
+        {
+          name: "g",
+          channel: "C1",
+          questionCron: "0 9 * * *",
+          revealCron: "0 17 * * *",
+          timezone: "UTC",
+          enabled: true,
+          judgeLeniency: "strict",
+        },
+      ],
+    });
+    const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
+
+    await tool.handler(args({ name: "g", judgeLeniency: "lenient" }), SESSION);
+    assert.equal(loadTriviaConfig()?.games?.[0]?.judgeLeniency, "lenient");
+
+    const cleared = parseToolResult(
+      await tool.handler(args({ name: "g", judgeLeniency: null }), SESSION),
+    );
+    assert.equal(cleared.hasJudgeLeniency, false);
+    assert.equal(loadTriviaConfig()?.games?.[0]?.judgeLeniency, undefined);
   });
 });

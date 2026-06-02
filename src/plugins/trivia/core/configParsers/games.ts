@@ -11,6 +11,7 @@ import type {
   JsonValue,
   OffDay,
   RevealResponsesMode,
+  JudgeLeniency,
   TriviaAllTimeRowMode,
   TriviaGame,
   TriviaHintConfig,
@@ -20,6 +21,7 @@ import {
   parseTriviaAxisBag,
   validateAllTimeRowMode,
   validateHintConfig,
+  validateJudgeLeniency,
   type ParseIssue,
 } from "./axes.js";
 import { validateFormat } from "./format.js";
@@ -275,6 +277,13 @@ export function parseTriviaGame(
     else issues.push({ field: `${fieldPrefix}.allTimeRow`, error: r.error });
   }
 
+  let judgeLeniency: JudgeLeniency | undefined;
+  if (e.judgeLeniency !== undefined && e.judgeLeniency !== null) {
+    const r = validateJudgeLeniency(e.judgeLeniency, `${fieldPrefix}.judgeLeniency`);
+    if (r.ok) judgeLeniency = r.value;
+    else issues.push({ field: `${fieldPrefix}.judgeLeniency`, error: r.error });
+  }
+
   seenNames.add(name);
   return {
     game: {
@@ -294,6 +303,7 @@ export function parseTriviaGame(
       ...(liveAnswersVisible !== undefined ? { liveAnswersVisible } : {}),
       ...(revealResponses !== undefined ? { revealResponses } : {}),
       ...(hint !== undefined ? { hint } : {}),
+      ...(judgeLeniency !== undefined ? { judgeLeniency } : {}),
       ...(allTimeRow !== undefined ? { allTimeRow } : {}),
     },
     issues,
