@@ -3,9 +3,7 @@
 ## Purpose
 
 Support for free-form trivia questions where users submit text answers that are judged at reveal time using a Haiku-class Claude model. Includes answer storage, modal UI for submission, batch judging, and reveal rendering.
-
 ## Requirements
-
 ### Requirement: Freeform Answer Format
 
 The trivia plugin SHALL support `"freeform"` as a third value of `TriviaQuestion.answersFormat`, alongside `"boolean"` and `"choice"`. A freeform question carries `expectedAnswer: string` (required, the canonical answer authored at generation time), and MAY carry `acceptableAnswers?: string[]` (variants pre-enumerated by the question author) and `gradingNotes?: string` (a hint to the reveal-time judge about acceptable forms or edge cases). A freeform question SHALL NOT carry `isTrue`, `choices`, or `correctIndex`.
@@ -158,61 +156,6 @@ When `config.json` `language` is `"fr"`, each of these surfaces SHALL render the
 - **THEN** the surrounding labels are the FR translations
 - **AND** the authored values appear verbatim in the rendered output
 
-### Requirement: Reveal-Time Batch Judging via Small Model
-
-`process_reveal_answers` SHALL detect freeform questions within the batch it is about to process. For every freeform question in that batch, it SHALL collect all pending `SubmittedAnswer` rows (those with `correct === undefined`) for that question, assemble a single batched judge prompt covering all of them, invoke a small/fast Claude model (Haiku-class) via `sdk.askClaude`, parse the per-answer verdicts, and apply each verdict via `updateAnswer`. The judge prompt SHALL include for each freeform question: the `statement`, the `expectedAnswer`, the `acceptableAnswers[]` (if any), and the `gradingNotes` (if any). Each answer entry in the batched prompt SHALL include `userId` (or a stable identifier from the row) and the `answerText`.
-
-The judge SHALL accept correct answers regardless of the natural language in which the user types them. When `answerText` is an unambiguous translation of `expectedAnswer` or any entry in `acceptableAnswers[]` — including translations of named entities (cities, countries, people, works), common nouns, and direct translations of free-form descriptions — the judge SHALL return `correct: true`. This cross-language acceptance SHALL NOT override any other rule: multi-guess hedges, too-broad answers, out-of-tolerance values, and ambiguous translations all continue to be rejected with their existing reasons.
-
-#### Scenario: Batch judge runs once per reveal
-
-- **WHEN** `process_reveal_answers` is processing a batch containing two freeform questions, each with three pending answers (six total submissions)
-- **THEN** exactly one `sdk.askClaude` call is made
-- **AND** the prompt contains all six submissions grouped under their respective questions
-- **AND** the parsed response yields six per-answer verdicts
-- **AND** six `updateAnswer` calls flip each row's `correct` from undefined to the verdict
-
-#### Scenario: Multi-guess shotgun rejected
-
-- **WHEN** the judge sees an `answerText` of `"Paris or London"` against `expectedAnswer: "Paris"`
-- **THEN** the judge returns `correct: false` with reason `multiple-guess`
-- **AND** the resulting `SubmittedAnswer` is updated with `correct: false`
-
-#### Scenario: Qualifier-style answer accepted
-
-- **WHEN** the judge sees an `answerText` of `"Tokyo, Japan"` or `"Paris (France)"` against `expectedAnswer: "Tokyo"` or `expectedAnswer: "Paris"` respectively
-- **THEN** the judge returns `correct: true`
-- **AND** the resulting `SubmittedAnswer` is updated with `correct: true`
-
-#### Scenario: No freeform questions in batch
-
-- **WHEN** `process_reveal_answers` is processing a batch with only boolean and choice questions
-- **THEN** no `sdk.askClaude` call is made
-- **AND** the existing reveal flow is unchanged
-
-#### Scenario: Question with no pending answers
-
-- **WHEN** a freeform question is in the batch but has zero pending `SubmittedAnswer` rows
-- **THEN** that question contributes no entries to the judge prompt
-- **AND** if all freeform questions in the batch have no submissions, no `sdk.askClaude` call is made
-
-#### Scenario: Cross-language named entity accepted
-
-- **WHEN** the judge sees an `answerText` of `"Empire romain"` against `expectedAnswer: "Roman Empire"` (with no `acceptableAnswers` entries)
-- **THEN** the judge returns `correct: true`
-- **AND** the resulting `SubmittedAnswer` is updated with `correct: true`
-
-#### Scenario: Cross-language free-form descriptor accepted
-
-- **WHEN** the judge sees an `answerText` of `"photosynthèse"` against `expectedAnswer: "photosynthesis"`
-- **THEN** the judge returns `correct: true`
-
-#### Scenario: Ambiguous cross-language match still rejected
-
-- **WHEN** the judge sees an `answerText` whose natural-language translation could match either `expectedAnswer` or a materially different concept (e.g. an answer that translates to a near-but-wrong term)
-- **THEN** the judge returns `correct: false`
-- **AND** existing rejection reasons (`typo-too-far`, `multiple-guess`, etc.) still apply when relevant
-
 ### Requirement: Reveal Payload Includes Quoted Answer Text
 
 The reveal payload produced by `process_reveal_answers` for a freeform question SHALL include each voter's `answerText` in the `voters.correct[]` and `voters.incorrect[]` entries, so the renderer can quote the player's submission. Boolean and choice voter lists are unaffected (their entries do not gain an `answerText` field).
@@ -304,4 +247,121 @@ Normalization SHALL be maximally conservative to eliminate false-accept risk: it
 - **WHEN** a player's `answerText` is `"Paris or London"` against `expectedAnswer: "Paris"`
 - **THEN** the exact-match pre-check does not fire (the strings are not equal after normalization)
 - **AND** the model judge returns `correct: false` with reason `multiple-guess` as before
+
+### Requirement: Per-Answer Reveal-Time Judging via Small Model
+
+`process_reveal_answers` SHALL detect freeform questions within the batch it is about to process. For every freeform question, it SHALL collect all pending `SubmittedAnswer` rows (those with `correct === undefined`) and judge EACH submission with its OWN `sdk.askClaude` call to a small/fast Claude model (Haiku-class) — there is NO batched prompt and NO echoed per-row key. The per-answer prompt SHALL include the question's `statement`, `expectedAnswer`, `acceptableAnswers[]` (if any), `gradingNotes` (if any), and the single `answerText` under judgment. The model SHALL return a single verdict `{ correct: boolean, reason?: string }`, which maps to its submission positionally and is applied via `updateAnswer`. Per-answer calls MAY run with bounded concurrency.
+
+The judge SHALL accept correct answers regardless of the natural language in which the user types them. When `answerText` is an unambiguous translation of `expectedAnswer` or any entry in `acceptableAnswers[]` — including translations of named entities (cities, countries, people, works), common nouns, and direct translations of free-form descriptions — the judge SHALL return `correct: true`. This cross-language acceptance SHALL NOT override any other rule: multi-guess hedges, too-broad answers, out-of-tolerance values, and ambiguous translations all continue to be rejected with their existing reasons.
+
+#### Scenario: One judge call per submission
+
+- **WHEN** `process_reveal_answers` processes a freeform question with three pending answers
+- **THEN** three independent `sdk.askClaude` calls are made, one per submission
+- **AND** each call's prompt contains exactly that submission's `answerText`
+- **AND** each returned verdict flips its row's `correct` from undefined via `updateAnswer`
+
+#### Scenario: No freeform questions in batch
+
+- **WHEN** `process_reveal_answers` processes a batch with only boolean and choice questions
+- **THEN** no `sdk.askClaude` call is made
+- **AND** the existing reveal flow is unchanged
+
+#### Scenario: Question with no pending answers
+
+- **WHEN** a freeform question is in the batch but has zero pending `SubmittedAnswer` rows
+- **THEN** no judge call is made for that question
+
+#### Scenario: Multi-guess shotgun rejected
+
+- **WHEN** the judge sees an `answerText` of `"Paris or London"` against `expectedAnswer: "Paris"`
+- **THEN** the judge returns `correct: false` with reason `multiple-guess`
+- **AND** the resulting `SubmittedAnswer` is updated with `correct: false`
+
+#### Scenario: Qualifier-style answer accepted
+
+- **WHEN** the judge sees an `answerText` of `"Tokyo, Japan"` or `"Paris (France)"` against `expectedAnswer: "Tokyo"` or `expectedAnswer: "Paris"` respectively
+- **THEN** the judge returns `correct: true`
+- **AND** the resulting `SubmittedAnswer` is updated with `correct: true`
+
+#### Scenario: Minor typo accepted
+
+- **WHEN** the judge sees an `answerText` of `"Ryan Reynold"` against `expectedAnswer: "Ryan Reynolds"` (a `name`-shape question, one character off)
+- **THEN** the judge returns `correct: true`
+- **AND** the resulting `SubmittedAnswer` is updated with `correct: true`
+
+#### Scenario: Date answer on the inclusive tolerance boundary accepted
+
+- **WHEN** the judge sees an `answerText` of `"1995"` against `expectedAnswer: "2000"` with `gradingNotes: "Accept any year in [1995, 2005] (±5 of 2000)."` (a `date`-shape question)
+- **THEN** the judge returns `correct: true` because `1995` is inside the inclusive window
+- **AND** the resulting `SubmittedAnswer` is updated with `correct: true`
+
+#### Scenario: Cross-language named entity accepted
+
+- **WHEN** the judge sees an `answerText` of `"Empire romain"` against `expectedAnswer: "Roman Empire"` (with no `acceptableAnswers` entries)
+- **THEN** the judge returns `correct: true`
+- **AND** the resulting `SubmittedAnswer` is updated with `correct: true`
+
+#### Scenario: Cross-language free-form descriptor accepted
+
+- **WHEN** the judge sees an `answerText` of `"photosynthèse"` against `expectedAnswer: "photosynthesis"`
+- **THEN** the judge returns `correct: true`
+
+#### Scenario: Ambiguous cross-language match still rejected
+
+- **WHEN** the judge sees an `answerText` whose natural-language translation could match either `expectedAnswer` or a materially different concept (e.g. an answer that translates to a near-but-wrong term)
+- **THEN** the judge returns `correct: false`
+- **AND** existing rejection reasons (`typo-too-far`, `multiple-guess`, etc.) still apply when relevant
+
+### Requirement: Resilient Verdict Resolution — Re-Ask and Never Score a Dropped Verdict Wrong
+
+The judge SHALL parse each response strictly to `{ correct: boolean, reason?: string }`. When a response is not parseable into that shape (malformed JSON, missing or non-boolean `correct`), or the call itself errors, the judge SHALL re-ask the model up to a bounded retry budget before giving up on that submission. A dropped or malformed verdict SHALL NEVER be committed as `correct: false`.
+
+When the retry budget is exhausted for a submission, the reveal SHALL leave that row pending (`correct` remains undefined), SHALL NOT stamp the question's `processedAt`, and SHALL surface an error for the question. Because reveal selection re-picks rows with `correct === undefined`, a subsequent reveal run SHALL re-judge only the still-pending submissions. One unresolved submission SHALL NOT block judging of the other submissions, and the reveal flow SHALL continue processing the rest of the batch.
+
+#### Scenario: Re-ask on a malformed verdict, then succeed
+
+- **WHEN** the judge's first response for a submission is not a clean `{ correct: boolean }` object
+- **AND** a re-ask within the retry budget returns a valid verdict
+- **THEN** that valid verdict is applied to the row
+- **AND** the row is never marked `correct: false` on account of the malformed first response
+
+#### Scenario: Exhausted retries leave the row pending, not wrong
+
+- **WHEN** every attempt within the retry budget for a submission fails to yield a valid verdict
+- **THEN** the row's `correct` remains undefined (pending) — it is NOT set to `false`
+- **AND** the question's `processedAt` is NOT stamped
+- **AND** `process_reveal_answers` surfaces an error for that question
+- **AND** the other submissions for the question are still judged and committed
+
+### Requirement: Shape-Specific Judge Prompts
+
+The per-answer judge's system prompt SHALL be composed of a shared core (commit-to-a-single-answer rule, the universal integrity guards — reject multi-guess, reject too-broad, reject materially-different, treat acceptable variants as additional correct, honor grading Notes — and the strict-JSON output contract), PLUS a matching-forgiveness block selected by the question's resolved `judgeLeniency` preset (see the `trivia-judge-leniency` capability), PLUS one shape rule block selected by the question's `freeformAnswerShape`. The leniency preset and the shape block are orthogonal: the preset governs how forgiving string matching is; the shape block governs value semantics for that shape.
+
+The `date` block SHALL state that a stated tolerance window is inclusive of both endpoints and that the answer's format (bare year, decade form, explicit range) does not matter as long as the value falls in the window. The `name` / `place` / `title` block SHALL state unambiguous cross-language acceptance and its shape-specific guards (accept synonyms and reasonable variants; reject too-broad answers). Typo tolerance SHALL NOT be hardcoded in the shape block: it is contributed by the `strict-with-typos` preset (the default) and is absent under the `strict` preset. Each block SHALL omit rules irrelevant to its shape.
+
+The resolved preset SHALL be read from the question record's `judgeLeniency` stamp, defaulting to `strict-with-typos` when the stamp is absent.
+
+#### Scenario: Date question uses the inclusive-tolerance block
+
+- **WHEN** the judge prompt is built for a question with `freeformAnswerShape: "date"`
+- **THEN** the system prompt states the tolerance window is inclusive of both endpoints
+- **AND** states that a bare year, decade form, or explicit range are all acceptable when the value is in the window
+
+#### Scenario: Name/place/title question uses the named-entity block
+
+- **WHEN** the judge prompt is built for a question with `freeformAnswerShape` of `name`, `place`, or `title`
+- **THEN** the system prompt states unambiguous cross-language acceptance and the named-entity guards (synonyms accepted, too-broad rejected)
+
+#### Scenario: Default preset preserves typo tolerance
+
+- **WHEN** the judge prompt is built for a question whose resolved `judgeLeniency` is `strict-with-typos` (the default, including legacy unstamped records)
+- **THEN** the matching-forgiveness block includes the minor-typo tolerance and loose-writing tolerance
+- **AND** for named-entity answers (name/place/title) the effective rule set matches the pre-change default judge behavior; the same tolerance also applies to the other freeform shapes (where typo tolerance was previously absent)
+
+#### Scenario: Strict preset omits typo tolerance
+
+- **WHEN** the judge prompt is built for a question whose resolved `judgeLeniency` is `strict`
+- **THEN** the matching-forgiveness block omits the typo tolerance
+- **AND** still forgives case, numeral↔word substitution, decade form, and singular/plural variants
 

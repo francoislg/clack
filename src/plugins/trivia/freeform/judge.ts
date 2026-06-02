@@ -1,5 +1,6 @@
 import type { ClackSdk } from "../../sdk.js";
-import type { TriviaFreeformAnswerShape } from "../core/configTypes.js";
+import type { JudgeLeniency, TriviaFreeformAnswerShape } from "../core/configTypes.js";
+import { DEFAULT_JUDGE_LENIENCY } from "../core/configTypes.js";
 import type { TriviaQuestion } from "../core/types.js";
 import { isExactMatch } from "./normalize.js";
 
@@ -59,8 +60,48 @@ Universal rules (apply to every question):
 const NAMED_ENTITY_RULES = `This answer names a SPECIFIC ENTITY (a person, character, brand, organization, species, place, or creative work).
 - Accept common synonyms, alternative spellings, and reasonable variants.
 - LANGUAGE: accept any UNAMBIGUOUS translation of the expected answer (or an acceptable variant) into another language — named entities ("Roman Empire" ↔ "Empire romain", "Tokyo" ↔ "東京" ↔ "Tokio") and common nouns alike. If the rendering could plausibly mean a materially different thing, REJECT it.
-- ACCEPT minor typos when the intent is unambiguous — ~1 character off for short answers (≤5 chars), up to ~2 for longer ones (e.g. "Pariss", "Tokio" for "Tokyo"). REJECT (reason: "typo-too-far") when the typo is large enough that the answer becomes ambiguous or could be a different entity ("Pars" → Paris or Mars?).
 - REJECT (reason: "too-broad") an answer so wide it just names a category ("somewhere in Europe" for a city, "a mammal" for a species).`;
+
+// ── Matching-forgiveness fragments ───────────────────────────────────────────
+// Named rule fragments composed into per-preset arrays below. The active
+// `judgeLeniency` preset selects which fragments the judge prompt carries; they
+// govern only HOW LOOSELY a typed answer may match the expected one. They are
+// orthogonal to the shape block (which governs value semantics) and never
+// override the universal integrity guards in SHARED_RULES (multi-guess,
+// too-broad, materially-different). Case- and punctuation-insensitivity is
+// already universal in SHARED_RULES, so it is not repeated here.
+const SUBSTITUTION_RULE =
+  '- Accept interchangeable renderings of the SAME value: a numeral for its spelled-out form and vice-versa ("20" ↔ "Vingt" ↔ "twenty"), and equivalent numeral systems.';
+const DECADE_RULE =
+  '- When the expected answer is a YEAR, accept the decade form of that same year ("2020s" for "2020").';
+const PLURAL_RULE =
+  '- Accept singular/plural variants of the expected answer (a trailing "s"/"es", etc.).';
+const TYPO_RULE =
+  '- Accept minor typos when the intent is unambiguous — ~1 character off for short answers (≤5 chars), up to ~2 for longer ones (e.g. "Pariss"). REJECT (reason: "typo-too-far") when the typo is large enough that the answer becomes ambiguous or could be a different entity ("Pars" → Paris or Mars?).';
+const LOOSE_WRITING_RULE =
+  '- Be forgiving of extra or missing spacing and punctuation, missing or wrong accents/diacritics, and homophone spellings ("lieux" ↔ "lieues").';
+const KNOWS_IT_RULE =
+  '- Judge SOLELY whether the player demonstrably KNEW the answer. Ignore spelling, typos, accents, and edit distance entirely. ACCEPT any rendering an informed human would recognize as unmistakably the expected answer — however loosely written ("20 mille lieux sous les mers" for "Vingt mille lieues sous les mers") — PROVIDED it could not plausibly mean a DIFFERENT valid answer. A long, distinctive answer absorbs many slips and stays unambiguous; a short, collision-prone one cannot (REJECT (reason: "typo-too-far") "Pars" → Paris or Mars?).';
+
+const STRICT_FRAGMENTS = [SUBSTITUTION_RULE, DECADE_RULE, PLURAL_RULE];
+const STRICT_WITH_TYPOS_FRAGMENTS = [...STRICT_FRAGMENTS, TYPO_RULE, LOOSE_WRITING_RULE];
+const LENIENT_FRAGMENTS = [KNOWS_IT_RULE];
+
+/**
+ * The matching-forgiveness fragments for each `judgeLeniency` preset. `strict`
+ * forgives only structured equivalences; `strict-with-typos` (the default) adds
+ * typo + loose-writing tolerance — the prior judge behavior for named-entity
+ * answers, now applied across all freeform shapes;
+ * `lenient` replaces the micro-rules with a single intent test.
+ */
+const LENIENCY_PRESETS: Record<JudgeLeniency, string[]> = {
+  strict: STRICT_FRAGMENTS,
+  "strict-with-typos": STRICT_WITH_TYPOS_FRAGMENTS,
+  lenient: LENIENT_FRAGMENTS,
+};
+
+const MATCHING_FORGIVENESS_HEADER =
+  "Matching forgiveness (how loosely the typed answer may match the expected one):";
 
 const PHRASE_RULES = `This answer is a PHRASE (a quote, idiom, motto, slogan, or line of dialogue).
 - Accept any rendition that preserves the wording of the expected phrase: a longer or shorter span of the same quote, minor word-order or punctuation differences, and unambiguous translations.
@@ -97,12 +138,20 @@ const OUTPUT_RULES = `Output STRICT JSON only — no prose, no explanation, no m
 - "correct" MUST be a boolean (true or false).
 - Include a short "reason" label ONLY when correct is false (e.g. "multiple-guess", "too-broad", "typo-too-far", "out-of-tolerance", "materially-different"). Omit "reason" when correct is true.`;
 
-/** Build the per-answer judge prompt, tailored to the question's freeform shape. */
+/**
+ * Build the per-answer judge prompt, tailored to the question's freeform shape
+ * AND its resolved `judgeLeniency` preset. The preset (read from the question's
+ * stamp, defaulting to `strict-with-typos` when absent) selects the
+ * matching-forgiveness block; the shape selects the value-semantics block. The
+ * two are orthogonal and both compose under the universal SHARED_RULES.
+ */
 export function buildSingleJudgePrompt(question: TriviaQuestion, answerText: string): JudgePrompt {
   const shapeRules = question.freeformAnswerShape
     ? SHAPE_RULES[question.freeformAnswerShape]
     : NAMED_ENTITY_RULES;
-  const system = [SHARED_RULES, "", shapeRules, "", OUTPUT_RULES].join("\n");
+  const leniency = question.judgeLeniency ?? DEFAULT_JUDGE_LENIENCY;
+  const forgiveness = [MATCHING_FORGIVENESS_HEADER, ...LENIENCY_PRESETS[leniency]].join("\n");
+  const system = [SHARED_RULES, "", forgiveness, "", shapeRules, "", OUTPUT_RULES].join("\n");
 
   const lines: string[] = [
     `Question: ${question.statement}`,

@@ -198,6 +198,7 @@ describe("upsert_season tool", () => {
         instructions: undefined,
         additionalInstructions: undefined,
         hint: undefined,
+        judgeLeniency: undefined,
       },
       SESSION,
     );
@@ -213,6 +214,48 @@ describe("upsert_season tool", () => {
     assert.equal(parsed.hasCategories, false);
     assert.equal(parsed.inheritsCategories, true);
     assert.equal(parsed.categoriesCount, 0);
+  });
+
+  it("create then update: carries and clears a per-season judgeLeniency override", async () => {
+    const tool = createUpsertSeasonTool(data, fixtureGetGames);
+    const future = Date.now() + 30 * DAY;
+    const baseArgs = {
+      game: FIXTURE_GAME_NAME,
+      slug: "lenient-season",
+      startedAt: future,
+      expectedEndAt: future + 30 * DAY,
+      endedAt: undefined,
+      categories: undefined,
+      answersFormat: undefined,
+      questionType: undefined,
+      promptMedium: undefined,
+      freeformAnswerShape: undefined,
+      contexts: undefined,
+      difficulty: undefined,
+      difficultyRatio: undefined,
+      theme: undefined,
+      format: undefined,
+      liveAnswersVisible: undefined,
+      revealResponses: undefined,
+      instructions: undefined,
+      additionalInstructions: undefined,
+      hint: undefined,
+    };
+
+    const created = parseToolResult(
+      await tool.handler({ ...baseArgs, judgeLeniency: "lenient" }, SESSION),
+    );
+    assert.equal(created.action, "created");
+    assert.equal(created.hasJudgeLeniency, true);
+    const scoped = data.forGame(FIXTURE_GAME_NAME);
+    assert.equal((await scoped.loadSeasonsState())?.seasons[0]?.judgeLeniency, "lenient");
+
+    const cleared = parseToolResult(
+      await tool.handler({ ...baseArgs, judgeLeniency: null }, SESSION),
+    );
+    assert.equal(cleared.action, "updated");
+    assert.equal(cleared.hasJudgeLeniency, false);
+    assert.equal((await scoped.loadSeasonsState())?.seasons[0]?.judgeLeniency, undefined);
   });
 
   it("create: provided categories REPLACE baseline (not augment), deduped", async () => {
@@ -239,6 +282,7 @@ describe("upsert_season tool", () => {
         instructions: undefined,
         additionalInstructions: undefined,
         hint: undefined,
+        judgeLeniency: undefined,
       },
       SESSION,
     );
@@ -272,6 +316,7 @@ describe("upsert_season tool", () => {
         instructions: undefined,
         additionalInstructions: undefined,
         hint: undefined,
+        judgeLeniency: undefined,
       },
       SESSION,
     );
@@ -307,6 +352,7 @@ describe("upsert_season tool", () => {
         instructions: undefined,
         additionalInstructions: undefined,
         hint: undefined,
+        judgeLeniency: undefined,
       },
       SESSION,
     );
@@ -342,6 +388,7 @@ describe("upsert_season tool", () => {
         instructions: undefined,
         additionalInstructions: undefined,
         hint: undefined,
+        judgeLeniency: undefined,
       },
       SESSION,
     );
@@ -380,6 +427,7 @@ describe("upsert_season tool", () => {
         instructions: undefined,
         additionalInstructions: undefined,
         hint: undefined,
+        judgeLeniency: undefined,
       },
       SESSION,
     );
@@ -419,6 +467,7 @@ describe("upsert_season tool", () => {
         instructions: undefined,
         additionalInstructions: undefined,
         hint: undefined,
+        judgeLeniency: undefined,
       },
       SESSION,
     );
@@ -454,6 +503,7 @@ describe("upsert_season tool", () => {
         instructions: undefined,
         additionalInstructions: undefined,
         hint: undefined,
+        judgeLeniency: undefined,
       },
       SESSION,
     );
@@ -487,6 +537,7 @@ describe("upsert_season tool", () => {
         instructions: undefined,
         additionalInstructions: undefined,
         hint: undefined,
+        judgeLeniency: undefined,
       },
       SESSION,
     );
@@ -519,6 +570,7 @@ describe("upsert_season tool", () => {
         instructions: undefined,
         additionalInstructions: undefined,
         hint: undefined,
+        judgeLeniency: undefined,
       },
       SESSION,
     );
@@ -551,6 +603,7 @@ describe("upsert_season tool", () => {
         instructions: undefined,
         additionalInstructions: undefined,
         hint: undefined,
+        judgeLeniency: undefined,
       },
       SESSION,
     );
@@ -586,6 +639,7 @@ describe("upsert_season tool", () => {
         instructions: undefined,
         additionalInstructions: undefined,
         hint: undefined,
+        judgeLeniency: undefined,
       },
       SESSION,
     );
@@ -623,6 +677,7 @@ describe("upsert_season tool", () => {
         instructions: undefined,
         additionalInstructions: undefined,
         hint: undefined,
+        judgeLeniency: undefined,
       },
       SESSION,
     );
@@ -656,6 +711,7 @@ describe("upsert_season tool", () => {
         instructions: undefined,
         additionalInstructions: undefined,
         hint: undefined,
+        judgeLeniency: undefined,
       },
       SESSION,
     );
@@ -696,6 +752,7 @@ describe("upsert_season tool", () => {
         instructions: undefined,
         additionalInstructions: undefined,
         hint: undefined,
+        judgeLeniency: undefined,
       },
       SESSION,
     );
@@ -733,6 +790,7 @@ describe("upsert_season tool", () => {
         instructions: undefined,
         additionalInstructions: undefined,
         hint: undefined,
+        judgeLeniency: undefined,
       },
       SESSION,
     );
@@ -765,6 +823,7 @@ describe("upsert_season tool", () => {
           instructions: undefined,
           additionalInstructions: undefined,
           hint: undefined,
+          judgeLeniency: undefined,
         },
         SESSION,
       );
@@ -798,6 +857,7 @@ describe("upsert_season tool", () => {
         instructions: undefined,
         additionalInstructions: undefined,
         hint: undefined,
+        judgeLeniency: undefined,
       },
       SESSION,
     );
@@ -834,6 +894,7 @@ describe("upsert_season tool", () => {
         instructions: undefined,
         additionalInstructions: undefined,
         hint: undefined,
+        judgeLeniency: undefined,
       },
       SESSION,
     );
@@ -859,6 +920,7 @@ describe("upsert_season tool", () => {
         instructions: undefined,
         additionalInstructions: undefined,
         hint: undefined,
+        judgeLeniency: undefined,
       },
       SESSION,
     );
@@ -1548,6 +1610,7 @@ describe("find_previous_questions with timeline-based current", () => {
         instructions: undefined,
         additionalInstructions: undefined,
         hint: undefined,
+        judgeLeniency: undefined,
       },
     ]);
     const tool = createFindPreviousQuestionsTool(data, fixtureGetGames);
@@ -1627,6 +1690,7 @@ describe("add_categories with target dispatch", () => {
         instructions: undefined,
         additionalInstructions: undefined,
         hint: undefined,
+        judgeLeniency: undefined,
       },
     ]);
     const tool = createAddCategoriesTool(data, fixtureGetGames);

@@ -188,6 +188,32 @@ export const ALL_TIME_ROW_KEYS = ["always", "never", "end-of-season-only"] as co
 export const DEFAULT_ALL_TIME_ROW: TriviaAllTimeRowMode = "end-of-season-only";
 
 /**
+ * Reveal-judge leniency axis for freeform answers. Cascades `slot → season →
+ * game → workspace → "strict-with-typos"` with **whole-value replace per tier**.
+ * Selects which matching-forgiveness rule fragments the freeform judge prompt
+ * composes (the preset is orthogonal to the `freeformAnswerShape` block):
+ *   - `"strict"` — forgive only case, numeral↔word substitution ("20" ↔ "Vingt"),
+ *     decade form for a year ("2020s" ↔ "2020"), and singular/plural variants.
+ *   - `"strict-with-typos"` — everything `strict` forgives PLUS a 1–2 character
+ *     typo tolerance and loose-writing tolerance (spacing, punctuation, accents,
+ *     homophones). The default — preserves the prior judge behavior for
+ *     named-entity answers and applies the same tolerance to the other shapes.
+ *   - `"lenient"` — judge solely whether the player demonstrably knew the answer,
+ *     ignoring edit distance, while still requiring the answer could not
+ *     plausibly mean a different valid answer.
+ * The universal integrity guards (multi-guess, too-broad, materially-different)
+ * apply under every preset. Resolved at `save_question` time and stamped on the
+ * question record; the reveal judge reads the stamp.
+ */
+export type JudgeLeniency = "strict" | "strict-with-typos" | "lenient";
+
+/** The three accepted `judgeLeniency` values, for zod/validator reuse. */
+export const JUDGE_LENIENCY_KEYS = ["strict", "strict-with-typos", "lenient"] as const;
+
+/** Built-in fallback when no `judgeLeniency` is set at any cascade tier. */
+export const DEFAULT_JUDGE_LENIENCY: JudgeLeniency = "strict-with-typos";
+
+/**
  * One trivia game declared in plugin config. The trivia plugin reconciles its cron jobs
  * from this list on every load: each entry produces two plugin-managed cron jobs
  * (`<name>:question` and `<name>:reveal`).
@@ -293,6 +319,12 @@ export interface TriviaGame {
    */
   hint?: TriviaHintConfig;
   /**
+   * Per-game tier of the reveal-judge leniency axis. Cascade:
+   *   `slot → season → game → workspace → "strict-with-typos"`.
+   * Whole-value replace per tier. See `JudgeLeniency`.
+   */
+  judgeLeniency?: JudgeLeniency;
+  /**
    * Per-game tier of the "All Time" leaderboard-row visibility axis. Cascade:
    *   `game → workspace → "end-of-season-only"`. See `TriviaAllTimeRowMode`.
    */
@@ -331,6 +363,8 @@ export interface SeasonFormatSlot {
   revealResponses?: RevealResponsesMode;
   /** Highest-precedence tier of the hint axis. Whole-object replace per tier. */
   hint?: TriviaHintConfig;
+  /** Highest-precedence tier of the reveal-judge leniency axis. Whole-value replace per tier. */
+  judgeLeniency?: JudgeLeniency;
 }
 
 /**
@@ -393,6 +427,11 @@ export interface TriviaConfig {
    * Whole-object replace per tier. See `TriviaHintConfig`.
    */
   hint?: TriviaHintConfig;
+  /**
+   * Workspace tier of the reveal-judge leniency axis. Cascade:
+   *   `slot → season → game → workspace → "strict-with-typos"`. See `JudgeLeniency`.
+   */
+  judgeLeniency?: JudgeLeniency;
   /**
    * Workspace tier of the "All Time" leaderboard-row visibility axis. Cascade:
    *   `game → workspace → "end-of-season-only"`. See `TriviaAllTimeRowMode`.

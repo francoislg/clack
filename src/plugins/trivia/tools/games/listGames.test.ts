@@ -85,6 +85,35 @@ describe("list_games — per-game entries", () => {
     assert.equal("allTimeRow" in without.games[0], false);
   });
 
+  it("surfaces per-game judgeLeniency when set, omits it when absent", async () => {
+    const games: readonly TriviaGame[] = [
+      {
+        name: "lenient-game",
+        channel: "C400000000",
+        questionCron: "0 9 * * 1-5",
+        revealCron: "0 17 * * 1-5",
+        timezone: "UTC",
+        enabled: true,
+        judgeLeniency: "lenient",
+      },
+    ];
+    const withValue = parseToolResult(
+      await createListGamesTool(() => games, emptyTriviaConfig).handler(
+        { includeDisabled: undefined },
+        SESSION,
+      ),
+    );
+    assert.equal(withValue.games[0].judgeLeniency, "lenient");
+
+    const without = parseToolResult(
+      await createListGamesTool(fixtureGetGames, emptyTriviaConfig).handler(
+        { includeDisabled: undefined },
+        SESSION,
+      ),
+    );
+    assert.equal("judgeLeniency" in without.games[0], false);
+  });
+
   it("surfaces prepCron and nextPrepFire when set", async () => {
     const games: readonly TriviaGame[] = [
       {
@@ -144,6 +173,13 @@ describe("list_games — workspaceDefaults block", () => {
     const parsed = parseToolResult(await tool.handler({ includeDisabled: undefined }, SESSION));
     assert.ok(parsed.workspaceDefaults !== undefined, "workspaceDefaults key must be present");
     assert.deepEqual(parsed.workspaceDefaults, {});
+  });
+
+  it("surfaces the workspace judgeLeniency default when set", async () => {
+    const cfg: TriviaConfig = { judgeLeniency: "strict" };
+    const tool = createListGamesTool(fixtureGetGames, () => cfg);
+    const parsed = parseToolResult(await tool.handler({ includeDisabled: undefined }, SESSION));
+    assert.equal(parsed.workspaceDefaults.judgeLeniency, "strict");
   });
 
   it("surfaces every workspace axis that is explicitly set; omits the rest", async () => {

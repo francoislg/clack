@@ -20,6 +20,7 @@ import {
   triviaAllTimeRowZod,
   triviaDifficultyRatioZod,
   triviaHintZod,
+  triviaJudgeLeniencyZod,
   validateHintConfig,
   validateTriviaChoicesConfig,
   type ParseIssue,
@@ -116,6 +117,12 @@ export function createSetWorkspaceConfigTool() {
         .optional()
         .describe(
           'Workspace tier of the "All Time" leaderboard-row visibility axis. One of `"always"` | `"never"` | `"end-of-season-only"`. Controls the All-Time surface at reveal time — the normal-reveal `All Time` row AND the season-finale All-Time table (also requires prior seasons to exist). `"end-of-season-only"` (the built-in default) shows All Time only on the season\'s last fire; `"always"` shows it on every reveal; `"never"` hides it everywhere. Cascade: `game → workspace → "end-of-season-only"`. null clears.',
+        ),
+      judgeLeniency: triviaJudgeLeniencyZod
+        .nullable()
+        .optional()
+        .describe(
+          'Workspace tier of the reveal-judge leniency axis for freeform answers. One of `"strict"` | `"strict-with-typos"` | `"lenient"`. `"strict"` forgives only case, numeral↔word substitution, decade-form, and singular/plural; `"strict-with-typos"` (the built-in default) adds typo + loose-writing tolerance; `"lenient"` accepts any rendering that unmistakably shows the player knew the answer. Resolved at save time and stamped on each freeform question. Cascade: `slot → season → game → workspace → "strict-with-typos"`. null clears.',
         ),
     },
     async (args) => {
@@ -273,6 +280,15 @@ export function createSetWorkspaceConfigTool() {
       } else if (args.allTimeRow !== undefined) {
         next.allTimeRow = args.allTimeRow;
         updatedFields.push("allTimeRow");
+      }
+
+      // judgeLeniency: apply or clear.
+      if (args.judgeLeniency === null) {
+        delete next.judgeLeniency;
+        updatedFields.push("judgeLeniency (cleared)");
+      } else if (args.judgeLeniency !== undefined) {
+        next.judgeLeniency = args.judgeLeniency;
+        updatedFields.push("judgeLeniency");
       }
 
       // instructions: validate + apply.

@@ -30,6 +30,7 @@ function baseArgs(slug: string, future: number) {
     instructions: undefined,
     additionalInstructions: undefined,
     hint: undefined,
+    judgeLeniency: undefined,
   };
 }
 

@@ -17,6 +17,8 @@ import { findCurrentSeason } from "../../core/seasonTimeline.js";
 import { resolveAnswersFormat } from "../../domain/questionTypes.js";
 import { resolveQuestionType } from "../../domain/factTopical.js";
 import { resolveContexts } from "../../domain/contexts.js";
+import { resolveJudgeLeniency } from "../../domain/judgeLeniency.js";
+import { DEFAULT_JUDGE_LENIENCY } from "../../core/configTypes.js";
 import { resolveEffectiveFormat } from "../../domain/format.js";
 import { resolveActiveCategoriesWithSource } from "../../domain/categories.js";
 import {
@@ -337,6 +339,22 @@ export function createSaveQuestionTool(
         storedContext = args.context;
       }
 
+      // judgeLeniency axis: resolve the effective preset from the cascade and
+      // stamp it on the record so the reveal judge scores this question by the
+      // policy in effect when it was posed (immune to later config edits). Only
+      // freeform questions are judged, and only a non-default override is worth
+      // recording — absence reads as DEFAULT_JUDGE_LENIENCY.
+      const resolvedJudgeLeniency = resolveJudgeLeniency(
+        slotIndexForResolution,
+        currentSeasonEntry,
+        gameEntry,
+        config,
+      );
+      const judgeLeniencyStamp =
+        answersFormat === "freeform" && resolvedJudgeLeniency !== DEFAULT_JUDGE_LENIENCY
+          ? resolvedJudgeLeniency
+          : null;
+
       const currentSeasonSlug = currentSeasonEntry?.slug ?? null;
       const slotStamp =
         effectiveFormat !== null && args.slot !== undefined
@@ -363,6 +381,7 @@ export function createSaveQuestionTool(
         ...(args.difficulty !== undefined ? { difficulty: args.difficulty } : {}),
         ...(storedContext !== null ? { context: storedContext } : {}),
         ...(normalizedHint !== undefined ? { hint: normalizedHint } : {}),
+        ...(judgeLeniencyStamp !== null ? { judgeLeniency: judgeLeniencyStamp } : {}),
         ...questionTypeOutcome.recordExtras,
       };
 

@@ -86,6 +86,50 @@ describe("buildSingleJudgePrompt", () => {
   });
 });
 
+describe("buildSingleJudgePrompt — judgeLeniency presets", () => {
+  it("defaults to strict-with-typos (typo + loose-writing tolerance) when unstamped", () => {
+    const { system } = buildSingleJudgePrompt(makeQuestion({}), "x");
+    assert.ok(/Matching forgiveness/i.test(system));
+    assert.ok(/~1 character off/i.test(system), "default must carry typo tolerance");
+    assert.ok(/homophone/i.test(system), "default must carry loose-writing tolerance");
+    assert.ok(/interchangeable renderings/i.test(system));
+  });
+
+  it("an explicit strict-with-typos stamp matches the unstamped default byte-for-byte", () => {
+    const a = buildSingleJudgePrompt(makeQuestion({}), "x").system;
+    const b = buildSingleJudgePrompt(
+      makeQuestion({ judgeLeniency: "strict-with-typos" }),
+      "x",
+    ).system;
+    assert.equal(a, b);
+  });
+
+  it("strict omits typo + loose-writing but keeps substitution/decade/plural", () => {
+    const { system } = buildSingleJudgePrompt(makeQuestion({ judgeLeniency: "strict" }), "x");
+    assert.ok(/interchangeable renderings/i.test(system));
+    assert.ok(/decade form/i.test(system));
+    assert.ok(/singular\/plural/i.test(system));
+    assert.ok(!/~1 character off/i.test(system), "strict must NOT carry typo tolerance");
+    assert.ok(!/homophone/i.test(system), "strict must NOT carry loose-writing tolerance");
+  });
+
+  it("lenient uses the knows-it intent test and drops the typo micro-rules", () => {
+    const { system } = buildSingleJudgePrompt(makeQuestion({ judgeLeniency: "lenient" }), "x");
+    assert.ok(/demonstrably KNEW/i.test(system));
+    assert.ok(/could not plausibly mean a DIFFERENT/i.test(system));
+    assert.ok(!/~1 character off/i.test(system));
+    assert.ok(!/interchangeable renderings/i.test(system));
+  });
+
+  it("keeps the universal integrity guards under every preset", () => {
+    for (const judgeLeniency of ["strict", "strict-with-typos", "lenient"] as const) {
+      const { system } = buildSingleJudgePrompt(makeQuestion({ judgeLeniency }), "x");
+      assert.ok(/multiple-guess/i.test(system), `${judgeLeniency} keeps the multi-guess guard`);
+      assert.ok(/STRICT JSON/i.test(system), `${judgeLeniency} keeps the JSON output contract`);
+    }
+  });
+});
+
 describe("parseSingleVerdict", () => {
   it("parses a well-formed correct verdict", () => {
     const v = parseSingleVerdict(JSON.stringify({ correct: true }));

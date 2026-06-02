@@ -41,6 +41,7 @@ describe("upsert_season — answersFormat argument", () => {
         instructions: undefined,
         additionalInstructions: undefined,
         hint: undefined,
+        judgeLeniency: undefined,
       },
       SESSION,
     );
@@ -78,6 +79,7 @@ describe("upsert_season — answersFormat argument", () => {
         instructions: undefined,
         additionalInstructions: undefined,
         hint: undefined,
+        judgeLeniency: undefined,
       },
       SESSION,
     );
@@ -114,6 +116,7 @@ describe("upsert_season — answersFormat argument", () => {
         instructions: undefined,
         additionalInstructions: undefined,
         hint: undefined,
+        judgeLeniency: undefined,
       },
       SESSION,
     );
@@ -139,6 +142,7 @@ describe("upsert_season — answersFormat argument", () => {
         instructions: undefined,
         additionalInstructions: undefined,
         hint: undefined,
+        judgeLeniency: undefined,
       },
       SESSION,
     );
@@ -176,6 +180,7 @@ describe("upsert_season — answersFormat argument", () => {
         instructions: undefined,
         additionalInstructions: undefined,
         hint: undefined,
+        judgeLeniency: undefined,
       },
       SESSION,
     );
@@ -201,6 +206,7 @@ describe("upsert_season — answersFormat argument", () => {
         instructions: undefined,
         additionalInstructions: undefined,
         hint: undefined,
+        judgeLeniency: undefined,
       },
       SESSION,
     );
@@ -237,6 +243,7 @@ describe("upsert_season — answersFormat argument", () => {
         instructions: undefined,
         additionalInstructions: undefined,
         hint: undefined,
+        judgeLeniency: undefined,
       },
       SESSION,
     );
@@ -263,6 +270,7 @@ describe("upsert_season — answersFormat argument", () => {
         instructions: undefined,
         additionalInstructions: undefined,
         hint: undefined,
+        judgeLeniency: undefined,
       },
       SESSION,
     );
@@ -299,6 +307,7 @@ describe("upsert_season — answersFormat argument", () => {
         instructions: undefined,
         additionalInstructions: undefined,
         hint: undefined,
+        judgeLeniency: undefined,
       },
       SESSION,
     );
@@ -351,6 +360,7 @@ describe("upsert_season — answersFormat argument", () => {
         instructions: undefined,
         additionalInstructions: undefined,
         hint: undefined,
+        judgeLeniency: undefined,
       },
       SESSION,
     );

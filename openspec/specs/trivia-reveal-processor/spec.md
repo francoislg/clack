@@ -3,14 +3,12 @@
 ## Purpose
 
 The trivia plugin exposes a `process_reveal_answers` MCP tool that absorbs all deterministic work previously performed by Claude across multiple tool calls (`fetch_channel_messages`, `find_previous_questions`, `get_question_history`, `submit_answers`, `retrieve_scores`, and seasonally `check_season_status` + `upsert_season`). The tool processes pending trivia questions for a game in default mode (oldest unprocessed) or reprocesses specified questions when an admin re-runs an analysis. It excludes the bot, flagged cheaters, and (for choice questions) multi-react voters from every field of its payload. When seasons are enabled, the tool performs rollover inline and reports the outcome via structured metadata.
-
 ## Requirements
-
 ### Requirement: `process_reveal_answers` MCP tool
 
 The trivia plugin SHALL register an `admin`-tier MCP tool named `process_reveal_answers` that takes `{ game: string, reprocessQuestionIds?: string[] }` and returns a structured `ProcessRevealResult` payload. The tool SHALL absorb the deterministic work previously performed by Claude across `fetch_channel_messages`, `find_previous_questions`, `get_question_history`, `submit_answers` (now removed), `retrieve_scores`, and (when seasons are enabled) `check_season_status` + `upsert_season` for the scheduled reveal flow.
 
-For boolean and choice questions, the tool SHALL derive scored answers by **reading `games/<game>/answers.json` directly** (the rows already written by the button-click handlers); the tool SHALL NOT derive scoring from Slack message reactions. For freeform questions, the tool SHALL continue to read `answers.json` and assign verdicts via the inline batch judge as before.
+For boolean and choice questions, the tool SHALL derive scored answers by **reading `games/<game>/answers.json` directly** (the rows already written by the button-click handlers); the tool SHALL NOT derive scoring from Slack message reactions. For freeform questions, the tool SHALL continue to read `answers.json` and assign verdicts via the per-answer reveal judge (see the "Freeform Reveal Invokes Per-Answer Judge" requirement).
 
 For ALL formats, the tool SHALL fetch the question's Slack message reactions purely as commentary signal — the bot's own user ID and every flagged cheater for the question SHALL be stripped from reaction lists, and the remaining per-user emoji sets SHALL be surfaced in the payload's `reactions` field for the reveal renderer to riff on.
 
@@ -100,7 +98,7 @@ The tool SHALL classify users as follows:
 
 A user who answered correctly AND reacted appears in BOTH `voters.correct` AND `voters.reactions` — the buckets are not mutually exclusive.
 
-For freeform questions, the inline batch judge runs as today and writes verdicts into `answers.json` before the buckets are assembled.
+For freeform questions, the per-answer reveal judge runs and writes verdicts into `answers.json` before the buckets are assembled.
 
 #### Scenario: Tool registers at admin tier
 
@@ -609,32 +607,6 @@ The introduction of `process_reveal_answers` SHALL NOT remove the registration o
 - **WHEN** Claude (in any session with sufficient role) attempts to call `submit_answers`, `get_question_history`, `find_previous_questions`, `retrieve_scores`, or `check_season_status`
 - **THEN** the call resolves to the existing tool implementation with unchanged behavior
 
-### Requirement: Freeform Reveal Invokes Inline Batch Judge
-
-`process_reveal_answers` SHALL detect any freeform questions in the batch it is about to process. For each freeform question with at least one pending `SubmittedAnswer` row (`correct === undefined`), the tool SHALL collect those rows and include them in a single batched judge prompt sent via `sdk.askClaude` to a small/fast Claude model (Haiku-class, default `"claude-haiku-4-5-20251001"`). The prompt SHALL include for each question its `statement`, `expectedAnswer`, `acceptableAnswers[]` (if any), and `gradingNotes` (if any), and for each pending submission the row's stable key and `answerText`. The tool SHALL parse per-row verdicts from the response and SHALL call `updateAnswer(rowKey, { correct: <verdict> })` for each row to flip `correct` from undefined to the judged value.
-
-When the batch contains no freeform questions, OR when every freeform question in the batch has zero pending rows, NO `sdk.askClaude` call SHALL be made.
-
-#### Scenario: Batch with freeform invokes judge once
-
-- **WHEN** `process_reveal_answers` is processing a batch with two freeform questions, each with three pending answers
-- **THEN** exactly one `sdk.askClaude` call is made
-- **AND** the prompt contains six submissions grouped under their respective questions
-- **AND** exactly six `updateAnswer` calls flip each row's `correct` from undefined to the judged value
-
-#### Scenario: No freeform in batch — no judge call
-
-- **WHEN** `process_reveal_answers` is processing a batch containing only boolean and choice questions
-- **THEN** zero `sdk.askClaude` calls are made
-- **AND** the existing reveal flow (reaction fetch → categorize → write `SubmittedAnswer`) runs unchanged
-
-#### Scenario: Freeform question with no submissions
-
-- **WHEN** the batch contains a freeform question that nobody answered
-- **THEN** that question contributes no entries to the judge prompt
-- **AND** if all freeform questions in the batch have no submissions, no `sdk.askClaude` call is made
-- **AND** the reveal payload for that question reports empty `voters.correct` and `voters.incorrect` lists
-
 ### Requirement: Freeform Judge Prompt Multi-Guess Rule
 
 The reveal-time judge prompt SHALL instruct the model to mark as `correct: false` (with reason `multiple-guess`) any answer that hedges between two or more distinct guesses (e.g. `"Paris or London"`, `"either A or B"`, `"A | B | C"`), even when one of the guesses matches the expected answer. The prompt SHALL explicitly carve out single-answer-with-qualifier forms — `"Tokyo, Japan"`, `"Paris (capital of France)"`, `"rock and roll"` — as valid single-guess answers that should be judged on their merit.
@@ -740,3 +712,30 @@ After `process_reveal_answers` successfully processes a question (`processedAt` 
 
 - **WHEN** the reveal-card edit for a question fails
 - **THEN** the tool still returns its reveals, leaderboard, and (when enabled) season status
+
+### Requirement: Freeform Reveal Invokes Per-Answer Judge
+
+`process_reveal_answers` SHALL detect any freeform questions in the batch it is about to process. For each freeform question with at least one pending `SubmittedAnswer` row (`correct === undefined`), the tool SHALL judge EACH pending submission with its OWN `sdk.askClaude` call to a small/fast Claude model (Haiku-class, default `"claude-haiku-4-5-20251001"`) — there is no single batched prompt and no echoed per-row key. Each call's prompt SHALL include the question's `statement`, `expectedAnswer`, `acceptableAnswers[]` (if any), `gradingNotes` (if any), and the single `answerText` under judgment. The tool SHALL parse a single verdict `{ correct: boolean, reason?: string }` per call and SHALL call `updateAnswer(rowKey, { correct: <verdict> })` to flip `correct` from undefined to the judged value. Per-answer calls MAY run with bounded concurrency.
+
+When the batch contains no freeform questions, OR when every freeform question in the batch has zero pending rows, NO `sdk.askClaude` call SHALL be made.
+
+#### Scenario: One judge call per pending submission
+
+- **WHEN** `process_reveal_answers` is processing a batch with two freeform questions, each with three pending answers
+- **THEN** six `sdk.askClaude` calls are made, one per submission
+- **AND** each call's prompt contains exactly that submission's `answerText`
+- **AND** exactly six `updateAnswer` calls flip each row's `correct` from undefined to the judged value
+
+#### Scenario: No freeform in batch — no judge call
+
+- **WHEN** `process_reveal_answers` is processing a batch containing only boolean and choice questions
+- **THEN** zero `sdk.askClaude` calls are made
+- **AND** the existing reveal flow (reaction fetch → categorize → write `SubmittedAnswer`) runs unchanged
+
+#### Scenario: Freeform question with no submissions
+
+- **WHEN** the batch contains a freeform question that nobody answered
+- **THEN** that question contributes no judge calls
+- **AND** if all freeform questions in the batch have no submissions, no `sdk.askClaude` call is made
+- **AND** the reveal payload for that question reports empty `voters.correct` and `voters.incorrect` lists
+
