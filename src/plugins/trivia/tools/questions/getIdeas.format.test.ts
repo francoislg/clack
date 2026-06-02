@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { createInMemoryDataLayer, FIXTURE_GAME_NAME, fixtureGetGames } from "../../testHelpers.js";
 import { createGetIdeasTool } from "./getIdeas.js";
 import { parseToolResult } from "../../../../tools/testHelpers.js";
-import type { TriviaConfig } from "../../core/configTypes.js";
+import type { TriviaConfig, TriviaGame } from "../../core/configTypes.js";
 import type { TriviaDataLayer, SeasonEntry } from "../../core/types.js";
 
 const SESSION = { sessionId: "test" };
@@ -132,6 +132,32 @@ describe("get_ideas — format meta and slot routing", () => {
     });
     const tool = createGetIdeasTool(data, () => SEASONS_ON_CONFIG, fixtureGetGames);
     // Run several times; with deterministic weights the type roll is constant
+    for (let i = 0; i < 10; i++) {
+      const parsed = parseToolResult(
+        await tool.handler({ game: FIXTURE_GAME_NAME, slot: 0 }, SESSION),
+      );
+      assert.equal(parsed.suggestedAnswersFormat, "choice", `iteration ${i}`);
+    }
+  });
+
+  it("uses a GAME-format slot's answersFormat when no season format is active", async () => {
+    // The intended behavior change: game-format slot overrides now resolve (previously
+    // dropped because get_ideas read the slot tier from the season format only).
+    const gameWithFormat: TriviaGame = {
+      name: FIXTURE_GAME_NAME,
+      channel: "C100000000",
+      questionCron: "0 9 * * 1-5",
+      revealCron: "0 17 * * 1-5",
+      timezone: "UTC",
+      answersFormat: { boolean: 1, choice: 0, freeform: 0 }, // game default = boolean
+      format: { questions: [{ answersFormat: { boolean: 0, choice: 1, freeform: 0 } }] }, // slot 0 = choice
+    };
+    const cfg = makeConfig({ answersFormat: { boolean: 1, choice: 0, freeform: 0 } });
+    const tool = createGetIdeasTool(
+      data,
+      () => cfg,
+      () => [gameWithFormat],
+    );
     for (let i = 0; i < 10; i++) {
       const parsed = parseToolResult(
         await tool.handler({ game: FIXTURE_GAME_NAME, slot: 0 }, SESSION),

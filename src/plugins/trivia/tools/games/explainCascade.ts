@@ -4,6 +4,7 @@ import { textResult, errorResult } from "../../../../tools/helpers.js";
 import { findCurrentSeason } from "../../core/seasonTimeline.js";
 import { resolveEffectiveFormat } from "../../domain/format.js";
 import { AXIS_KEYS, resolveCascade } from "../../domain/resolveCascade.js";
+import { buildCascadeContext } from "../../domain/cascadeContext.js";
 import {
   defaultGetGames,
   defaultGetTriviaConfig,
@@ -39,7 +40,7 @@ Arguments:
 
 For each coordinate the response carries an \`axes\` map keyed by axis name. A normal axis entry is \`{ value, tier, ladder }\` where \`tier\` is one of \`slot|season|game|workspace|default|merged\` and \`ladder\` lists each concrete tier's raw contribution. The answersFormat-keyed axes carry \`{ byAnswersFormat: { boolean, choice, freeform } }\` instead (or a single \`{ value, tier, ladder }\` when \`answersFormat\` is supplied).
 
-Resolution is identical to what \`get_ideas\` (generation axes) and \`post_questions\` (\`liveAnswersVisible\`/\`revealResponses\`) actually use — all three call the same resolver, so this audit cannot drift from runtime behavior. Per-slot axis overrides are read from the active SEASON's format only (game-format slots do not carry per-question axis overrides), matching runtime.`;
+Resolution is identical to what \`get_ideas\` (generation axes) and \`post_questions\` (\`liveAnswersVisible\`/\`revealResponses\`) actually use — all three build the slot tier via the same \`buildCascadeContext\` helper and call the same resolver, so this audit cannot drift from runtime behavior. Per-slot axis overrides are read from the EFFECTIVE format (\`season.format ?? game.format\`): a game-format slot's overrides apply when no season format is active; an active season's format replaces the game's wholesale.`;
 
 /** Resolve every axis for one coordinate. */
 function explainCoordinate(
@@ -102,15 +103,8 @@ export function createExplainCascadeTool(
       const effectiveFormat = resolveEffectiveFormat(currentSeasonEntry, gameEntry);
       const answersFormat = args.answersFormat;
 
-      // Build the context for one slot index (null = single-question coordinate). The slot
-      // tier is the SEASON format's slot only, matching the runtime resolvers.
-      const buildContext = (slotIndex: number | null): CascadeContext => {
-        const slot =
-          slotIndex !== null && currentSeasonEntry?.format !== undefined
-            ? (currentSeasonEntry.format.questions[slotIndex] ?? null)
-            : null;
-        return { slot, slotIndex, season: currentSeasonEntry, game: gameEntry, config };
-      };
+      const buildContext = (slotIndex: number | null): CascadeContext =>
+        buildCascadeContext(currentSeasonEntry, gameEntry, slotIndex, config);
 
       // Slot supplied → validate range and explain that one coordinate.
       if (args.slot !== undefined) {

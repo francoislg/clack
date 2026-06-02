@@ -16,7 +16,7 @@ import {
 } from "../../core/configBridge.js";
 import { requireWritableGame } from "../../core/gamesRegistry.js";
 import { resolveCascade } from "../../domain/resolveCascade.js";
-import type { CascadeContext } from "../../core/cascadeAxes.js";
+import { buildCascadeContext } from "../../domain/cascadeContext.js";
 import { findSeasonBySlug } from "../../core/seasonTimeline.js";
 import { getAllAnswerTypeHandlers, getAnswerTypeHandler } from "../../answerTypes/registry.js";
 import type { TriviaDataLayer, TriviaQuestion } from "../../core/types.js";
@@ -312,33 +312,16 @@ export function createPostQuestionsTool(
           // record alongside the durable post metadata. Reading the stamped
           // values later (roster rebuild, reveal payload) avoids re-resolving
           // and isolates posted questions against mid-round config edits.
-          //
-          // Slot config lives in season.format.questions[index] when the
-          // active season has its own format, else game.format.questions[index]
-          // when the game has a workspace-level format. The question's
-          // `slot.index` matches whichever tier owns the format.
           const season =
             question.season && seasonsState
               ? findSeasonBySlug(seasonsState, question.season)
               : null;
-          const slotFromSeason =
-            question.slot && season?.format
-              ? season.format.questions[question.slot.index]
-              : undefined;
-          const slotFromGame =
-            question.slot && !season?.format
-              ? game.format?.questions[question.slot.index]
-              : undefined;
-          const slot = slotFromSeason ?? slotFromGame;
-          // Single resolution path. Unlike get_ideas, post-time honors game-format
-          // slots too, so `slot` (season-or-game) is the slot tier here.
-          const cascadeCtx: CascadeContext = {
-            slot: slot ?? null,
-            slotIndex: question.slot?.index ?? null,
+          const cascadeCtx = buildCascadeContext(
             season,
             game,
-            config: triviaConfig ?? null,
-          };
+            question.slot?.index ?? null,
+            triviaConfig ?? null,
+          );
           const liveAnswersVisible = resolveCascade("liveAnswersVisible", cascadeCtx).value;
           const revealResponses = resolveCascade("revealResponses", cascadeCtx).value;
 

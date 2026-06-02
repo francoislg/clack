@@ -131,7 +131,11 @@ export const triviaPlugin: ClackPlugin = async (sdk: ClackSdk) => {
 
   // trivia:management server — gated game/season lifecycle tools (categories tools above
   // are on the same handle).
-  management.registerTool("admin", createUpsertGameTool(), sdk.t("label.upsert_game"));
+  management.registerTool(
+    "admin",
+    createUpsertGameTool(undefined, data),
+    sdk.t("label.upsert_game"),
+  );
   management.registerTool("admin", createDeleteGameTool(), sdk.t("label.delete_game"));
   management.registerTool(
     "admin",

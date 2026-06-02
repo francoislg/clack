@@ -12,7 +12,7 @@ import {
 } from "../../domain/categories.js";
 import { resolveTheme } from "../../domain/theme.js";
 import { resolveCascade } from "../../domain/resolveCascade.js";
-import type { CascadeContext } from "../../core/cascadeAxes.js";
+import { buildCascadeContext } from "../../domain/cascadeContext.js";
 import { weightedPick } from "../../domain/weightedPick.js";
 import {
   defaultGetGames,
@@ -147,18 +147,12 @@ export function createGetIdeasTool(
       const firstFireOfSeason = currentSeasonEntry !== null && questions.length === 0;
       const theme = resolveTheme(currentSeasonEntry, gameEntry) ?? undefined;
 
-      // Single resolution path: every cascading axis resolves through `resolveCascade`.
-      // The slot tier is the season-format slot only, matching the legacy resolvers.
-      const cascadeCtx: CascadeContext = {
-        slot:
-          slotIndexForResolution !== null && currentSeasonEntry?.format !== undefined
-            ? (currentSeasonEntry.format.questions[slotIndexForResolution] ?? null)
-            : null,
-        slotIndex: slotIndexForResolution,
-        season: currentSeasonEntry,
-        game: gameEntry,
+      const cascadeCtx = buildCascadeContext(
+        currentSeasonEntry,
+        gameEntry,
+        slotIndexForResolution,
         config,
-      };
+      );
 
       const instructions = resolveCascade("instructions", cascadeCtx).value ?? undefined;
       const additionalInstructions =
