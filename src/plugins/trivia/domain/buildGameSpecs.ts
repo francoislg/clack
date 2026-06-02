@@ -6,7 +6,7 @@ import {
   SEND_QUESTIONS_INSTRUCTIONS,
   PREP_QUESTIONS_INSTRUCTIONS,
   POST_QUESTIONS_INSTRUCTIONS,
-  PROCESS_REVEAL_INSTRUCTIONS,
+  buildProcessRevealInstructions,
 } from "../prompts/scheduledPrompts.js";
 
 // `WebSearch` is intentionally NOT in this list — it is a built-in Claude tool, globally
@@ -133,7 +133,10 @@ export function buildGameSpecs(games: TriviaGame[], offDays?: OffDay[]): CronJob
       name: `Trivia: ${game.name} — reveal`,
       cronExpression: game.revealCron,
       channel: game.channel,
-      prompt: substituteGame(PROCESS_REVEAL_INSTRUCTIONS, game.name),
+      // Built per call (not a const) so its leaderboard/podium labels resolve to the
+      // workspace language via the plugin translator wired at init. See
+      // `buildProcessRevealInstructions`.
+      prompt: substituteGame(buildProcessRevealInstructions(), game.name),
       timezone: game.timezone,
       requiredTools: REVEAL_REQUIRED_TOOLS,
       attachedTopics: ["trivia"],

@@ -33,6 +33,19 @@ export const en = {
   "reveal.n_incorrect": "❌ {count} got it wrong",
   "reveal.n_no_answer": "🤷 {count} didn't answer",
 
+  // Reveal leaderboard table row labels + season-finale podium labels. These travel the
+  // via-Claude path (Claude authors the `table`/podium via `submit_response`), but the prompt
+  // dictates them verbatim into cells/lines, so Claude copies the token without translating.
+  // Pre-localizing them here turns that verbatim-copy into the delivery mechanism. EN values
+  // MUST equal the prior prompt literals so English output stays byte-stable.
+  "leaderboard.this_round": "This Round",
+  "leaderboard.current_season": "Current Season",
+  "leaderboard.all_time": "All Time",
+  "leaderboard.first_place": "First place",
+  "leaderboard.second_place": "Second place",
+  "leaderboard.third_place": "Third place",
+  "leaderboard.participation": "Participation",
+
   // Hint button + inline label + ephemeral fallback (see `trivia-question-hints`).
   "button.hint": "💡 Get Hint!",
   "hint.inline_prefix": "💡 _Hint:_ {text}",
@@ -106,6 +119,14 @@ export const fr: Partial<Record<keyof typeof en, string>> = {
   "reveal.no_answer_label": "🤷 *Sans réponse :* {names}",
   "reveal.n_incorrect": "❌ {count} se sont trompés",
   "reveal.n_no_answer": "🤷 {count} n'ont pas répondu",
+
+  "leaderboard.this_round": "Ce tour",
+  "leaderboard.current_season": "Saison en cours",
+  "leaderboard.all_time": "Cumulatif",
+  "leaderboard.first_place": "Première place",
+  "leaderboard.second_place": "Deuxième place",
+  "leaderboard.third_place": "Troisième place",
+  // "leaderboard.participation" intentionally omitted — identical to EN ("Participation"), falls back.
 
   "button.hint": "💡 Indice !",
   "hint.inline_prefix": "💡 _Indice :_ {text}",

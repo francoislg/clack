@@ -1,11 +1,26 @@
-import { describe, it } from "vitest";
+import { describe, it, afterEach } from "vitest";
 import assert from "node:assert/strict";
 import {
   SEND_QUESTIONS_INSTRUCTIONS,
-  PROCESS_REVEAL_INSTRUCTIONS,
+  buildProcessRevealInstructions,
   PREP_QUESTIONS_INSTRUCTIONS,
   POST_QUESTIONS_INSTRUCTIONS,
 } from "./scheduledPrompts.js";
+import { setTriviaT, _resetTriviaT } from "../i18n/t.js";
+import { en, fr } from "../i18n/strings.js";
+
+// The reveal prompt is now a builder; with no `setTriviaT` call the translator falls back
+// to EN, so this renders the English labels these structural assertions expect.
+const PROCESS_REVEAL_INSTRUCTIONS = buildProcessRevealInstructions();
+
+/** Minimal French resolver mirroring the SDK's `t`: FR table with EN fallback + `{var}` interpolation. */
+function frResolver(key: string, vars?: Record<string, string | number>): string {
+  const frTable = fr as Record<string, string | undefined>;
+  const enTable = en as Record<string, string>;
+  let out = frTable[key] ?? enTable[key] ?? key;
+  if (vars) for (const [k, v] of Object.entries(vars)) out = out.replaceAll(`{${k}}`, String(v));
+  return out;
+}
 
 describe("SEND_QUESTIONS_INSTRUCTIONS (boolean path)", () => {
   it("is a non-empty prompt", () => {
@@ -513,6 +528,55 @@ describe("PROCESS_REVEAL_INSTRUCTIONS — renderer brief", () => {
   });
 });
 
+describe("buildProcessRevealInstructions — leaderboard label localization", () => {
+  // Always restore the EN-fallback resolver so the module-level const (and other suites)
+  // are unaffected by the French resolver these tests install.
+  afterEach(() => {
+    _resetTriviaT();
+  });
+
+  it("renders French leaderboard + podium labels when the translator is French", () => {
+    setTriviaT(frResolver);
+    const prompt = buildProcessRevealInstructions();
+
+    // Leaderboard row-label directives (backtick-quoted form) are localized.
+    assert.ok(prompt.includes('`"Ce tour"`'));
+    assert.ok(prompt.includes('`"Saison en cours"`'));
+    assert.ok(prompt.includes('`"Cumulatif"`'));
+
+    // Worked example table cells localize too, so Claude can't anchor on English examples.
+    assert.ok(prompt.includes('["Ce tour"'));
+    assert.ok(prompt.includes('["Saison en cours"'));
+    assert.ok(prompt.includes('["Cumulatif"'));
+
+    // Season-finale podium labels are localized.
+    assert.ok(prompt.includes("🥇 Première place"));
+    assert.ok(prompt.includes("🥈 Deuxième place"));
+    assert.ok(prompt.includes("🥉 Troisième place"));
+
+    // The English label forms must be gone (the directive + example-cell forms; prose concept
+    // refs like `Current Season` without inner quotes are intentionally left English).
+    assert.ok(!prompt.includes('`"Current Season"`'));
+    assert.ok(!prompt.includes('["Current Season"'));
+    assert.ok(!prompt.includes("First place"));
+  });
+
+  it("renders English labels by default (EN-fallback, byte-stable)", () => {
+    _resetTriviaT();
+    const prompt = buildProcessRevealInstructions();
+
+    assert.ok(prompt.includes('`"This Round"`'));
+    assert.ok(prompt.includes('`"Current Season"`'));
+    assert.ok(prompt.includes('`"All Time"`'));
+    assert.ok(prompt.includes('["This Round"'));
+    assert.ok(prompt.includes("🥇 First place"));
+
+    // No French label leaks into the default render.
+    assert.ok(!prompt.includes("Saison en cours"));
+    assert.ok(!prompt.includes("Première place"));
+  });
+});
+
 describe("SEND_QUESTIONS_INSTRUCTIONS — new-season opener branch", () => {
   it("references firstFireOfSeason as the trigger signal", () => {
     assert.match(SEND_QUESTIONS_INSTRUCTIONS, /firstFireOfSeason/);
@@ -730,5 +794,31 @@ describe("SEND_QUESTIONS_INSTRUCTIONS — HINT DRAFTING GATE", () => {
       hintFieldMentions !== null && hintFieldMentions.length >= 3,
       "expected ≥3 mentions of `hint` as an optional save_question field",
     );
+  });
+});
+
+describe("SEND_QUESTIONS_INSTRUCTIONS — EMOJI SELECTION GATE", () => {
+  it("defines the gate once with the non-spoiler constraint", () => {
+    const defs = SEND_QUESTIONS_INSTRUCTIONS.match(
+      /EMOJI SELECTION GATE \(shared across all paths/g,
+    );
+    assert.ok(defs !== null && defs.length === 1, "expected exactly one gate definition");
+    // anchors emojis to the category, not the answer
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /decorate the CATEGORY/);
+    // forbids answer-revealing emojis (the flag spoiler is the canonical example)
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /SPOILER/);
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /🇪🇨/);
+  });
+
+  it("is referenced by every generation path (3 text + 3 visual)", () => {
+    const refs = SEND_QUESTIONS_INSTRUCTIONS.match(/apply the EMOJI SELECTION GATE/g);
+    assert.ok(
+      refs !== null && refs.length >= 6,
+      "expected ≥6 references (fact boolean/choice/freeform + visual boolean/choice/freeform)",
+    );
+  });
+
+  it("leaves the visual paths' media.altText non-spoiler wording intact", () => {
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /not "the flag of Ecuador"/);
   });
 });
