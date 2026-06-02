@@ -101,9 +101,9 @@ export interface SeasonStatusOut {
 export interface RoundSummaryEntry {
   userId: string;
   displayName: string;
-  /** Count of reveals where this player appears in voters.correct. */
+  /** Count of revealed questions this player answered correctly. */
   correct: number;
-  /** Count of reveals where this player appears in ANY voter bucket. */
+  /** Count of revealed questions this player submitted a scored answer to. */
   answered: number;
   /** Present iff this player is tied for the highest `correct` count (and that count is > 0). */
   roundMvp?: true;
@@ -119,11 +119,11 @@ export interface ProcessRevealResult {
   reveals: ProcessRevealEntry[];
   leaderboard: LeaderboardEntry[];
   /**
-   * Omitted when ANY reveal entry in the batch has `revealResponses !== "yes"`.
-   * The aggregate per-player counts would leak across slots in the restricted
-   * modes, so the whole field is dropped instead of selectively masked.
+   * Always present — the per-player round scoreboard, derived from the scored
+   * answers independently of any entry's `revealResponses` (which governs only
+   * per-question display). `perPlayer` is empty when nobody answered this round.
    */
-  roundSummary?: RoundSummary;
+  roundSummary: RoundSummary;
   seasonStatus?: SeasonStatusOut;
   /**
    * Resolved decision for the All-Time leaderboard surface: the normal-reveal

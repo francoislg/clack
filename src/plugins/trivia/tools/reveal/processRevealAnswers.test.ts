@@ -234,7 +234,10 @@ describe("process_reveal_answers — orchestrator", () => {
     assert.equal(res.roundSummary.perPlayer[0].correct, 2);
   });
 
-  it("OMITS top-level `roundSummary` when any reveal entry is non-'yes'", async () => {
+  it("includes `roundSummary` in EVERY reveal mode, aggregating scored answers regardless of mode", async () => {
+    // revealResponses governs only per-question display — it must NOT touch the
+    // scoreboard. A batch spanning yes / no / just-winners still tallies all
+    // scored answers across all three questions.
     const data = createInMemoryDataLayer();
     const scoped = data.forGame(FIXTURE_GAME_NAME);
     await scoped.saveQuestion(
@@ -243,12 +246,93 @@ describe("process_reveal_answers — orchestrator", () => {
     await scoped.saveQuestion(
       makeQuestion({ id: "q2", batchId: "B", postedAt: 1_001, revealResponses: "no" }),
     );
+    await scoped.saveQuestion(
+      makeQuestion({ id: "q3", batchId: "B", postedAt: 1_002, revealResponses: "just-winners" }),
+    );
+    await data.saveUser({ userId: "U1", displayName: "Alice", joinedAt: 0 });
+    for (const [questionId, correct] of [
+      ["q1", true],
+      ["q2", true],
+      ["q3", false],
+    ] as const) {
+      await scoped.saveAnswer({ userId: "U1", questionId, answer: true, correct, timestamp: 500 });
+    }
+
+    const tool = createProcessRevealAnswersTool(
+      data,
+      fakeSdk(),
+      fixtureGetGames,
+      async () => [],
+      fakeSlackDeps(),
+    );
+
+    const res = parseToolResult(
+      await tool.handler({ game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined }, SESSION),
+    );
+    assert.equal(res.reveals.length, 3);
+    assert.ok(res.roundSummary !== undefined, "roundSummary is present in every mode");
+    assert.equal(res.roundSummary.totalQuestions, 3);
+    assert.equal(res.roundSummary.perPlayer.length, 1);
+    assert.equal(res.roundSummary.perPlayer[0].userId, "U1");
+    assert.equal(res.roundSummary.perPlayer[0].correct, 2, "correct across yes + no questions");
+    assert.equal(
+      res.roundSummary.perPlayer[0].answered,
+      3,
+      "answered all three regardless of mode",
+    );
+  });
+
+  it("includes `roundSummary` with an empty perPlayer when nobody answered this round", async () => {
+    const data = createInMemoryDataLayer();
+    const scoped = data.forGame(FIXTURE_GAME_NAME);
+    await scoped.saveQuestion(
+      makeQuestion({ id: "q1", batchId: "B", postedAt: 1_000, revealResponses: "yes" }),
+    );
+
+    const tool = createProcessRevealAnswersTool(
+      data,
+      fakeSdk(),
+      fixtureGetGames,
+      async () => [],
+      fakeSlackDeps(),
+    );
+
+    const res = parseToolResult(
+      await tool.handler({ game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined }, SESSION),
+    );
+    assert.equal(res.reveals.length, 1);
+    assert.ok(res.roundSummary !== undefined, "roundSummary is always present");
+    assert.equal(res.roundSummary.totalQuestions, 1);
+    assert.deepEqual(res.roundSummary.perPlayer, []);
+  });
+
+  it("excludes flagged cheaters from `roundSummary` (same scoring filter as the leaderboard)", async () => {
+    const data = createInMemoryDataLayer();
+    const scoped = data.forGame(FIXTURE_GAME_NAME);
+    await scoped.saveQuestion(
+      makeQuestion({ id: "q1", batchId: "B", postedAt: 1_000, revealResponses: "yes" }),
+    );
+    await data.saveUser({ userId: "U1", displayName: "Alice", joinedAt: 0 });
+    await data.saveUser({ userId: "U2", displayName: "Bob", joinedAt: 0 });
     await scoped.saveAnswer({
       userId: "U1",
       questionId: "q1",
       answer: true,
       correct: true,
       timestamp: 500,
+    });
+    await scoped.saveAnswer({
+      userId: "U2",
+      questionId: "q1",
+      answer: true,
+      correct: true,
+      timestamp: 600,
+    });
+    await scoped.saveCheat({
+      cheaterUserId: "U2",
+      questionId: "q1",
+      reason: "leaked answer",
+      detectedAt: new Date(700).toISOString(),
     });
 
     const tool = createProcessRevealAnswersTool(
@@ -262,42 +346,9 @@ describe("process_reveal_answers — orchestrator", () => {
     const res = parseToolResult(
       await tool.handler({ game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined }, SESSION),
     );
-    assert.equal(res.reveals.length, 2);
-    assert.equal(
-      res.roundSummary,
-      undefined,
-      "roundSummary must be omitted when any entry is non-yes",
-    );
-  });
-
-  it("OMITS roundSummary when any entry is 'just-correctness' too (not only 'no')", async () => {
-    const data = createInMemoryDataLayer();
-    const scoped = data.forGame(FIXTURE_GAME_NAME);
-    await scoped.saveQuestion(
-      makeQuestion({ id: "q1", batchId: "B", postedAt: 1_000, revealResponses: "yes" }),
-    );
-    await scoped.saveQuestion(
-      makeQuestion({
-        id: "q2",
-        batchId: "B",
-        postedAt: 1_001,
-        revealResponses: "just-correctness",
-      }),
-    );
-
-    const tool = createProcessRevealAnswersTool(
-      data,
-      fakeSdk(),
-      fixtureGetGames,
-      async () => [],
-      fakeSlackDeps(),
-    );
-
-    const res = parseToolResult(
-      await tool.handler({ game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined }, SESSION),
-    );
-    assert.equal(res.reveals.length, 2);
-    assert.equal(res.roundSummary, undefined);
+    assert.ok(res.roundSummary !== undefined);
+    const ids = res.roundSummary.perPlayer.map((p: { userId: string }) => p.userId);
+    assert.deepEqual(ids, ["U1"], "cheater U2 must be absent from the round scoreboard");
   });
 
   it("emits voters.revealResponses === 'no' with reactions-only shape (no correct/incorrect/noAnswer)", async () => {

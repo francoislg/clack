@@ -26,7 +26,8 @@ import {
 } from "./slack.js";
 import { pickSeasonMvp, applySeasonRollover } from "./rollover.js";
 import { refreshUserDisplayNames } from "./refreshDisplayNames.js";
-import { computeRoundSummary } from "./roundSummary.js";
+import { computeRoundSummary, type RoundAnswer } from "./roundSummary.js";
+import { isScoredAnswer } from "../../answerTypes/cheaterFilter.js";
 import type { ClackSdk } from "../../../sdk.js";
 import type { TriviaDataLayer, TriviaQuestion, SubmittedAnswer } from "../../core/types.js";
 import { getAllAnswerTypeHandlers, getAnswerTypeHandler } from "../../answerTypes/registry.js";
@@ -39,6 +40,8 @@ import type {
 } from "./types.js";
 
 const REVEAL_INSTRUCTION_NAME = "process_responses_instructions";
+
+const EMPTY_CHEATER_SET: ReadonlySet<string> = new Set<string>();
 
 const PER_FORMAT_ANSWER_SHAPES = getAllAnswerTypeHandlers()
   .map((h) => `    - ${h.revealAnswerShapeDescription}`)
@@ -61,7 +64,7 @@ ${PER_FORMAT_ANSWER_SHAPES}
     - \`{ revealResponses: "no", reactions }\` — reactions list only; no per-user vote info at all.
   - \`reactions\` (present in every variant) is the message's emoji reactions as COMMENTARY, not votes. Each \`ReactionVoter\` is \`{ userId, displayName, emojis: string[] }\` carrying every emoji that user reacted with so the renderer can riff on it. The bot and cheaters are stripped from every list.
 - \`leaderboard\`: same shape as retrieve_scores' return.
-- \`roundSummary\` (OPTIONAL): per-player aggregate across the round. Present ONLY when every reveal entry has \`revealResponses === "yes"\` — when ANY entry is \`"just-correctness"\`, \`"just-winners"\`, or \`"no"\`, the field is omitted (the tool cannot produce aggregates without per-user vote info).
+- \`roundSummary\` (ALWAYS present): \`{ totalQuestions, perPlayer: Array<{ userId, displayName, correct, answered, roundMvp? }> }\` — the per-player round scoreboard. It is an AGGREGATE derived from the scored answers (same source as \`leaderboard\`), so it is INDEPENDENT of every entry's \`revealResponses\` (which strictly governs per-question display verbosity) and is produced every round in every mode. \`perPlayer\` is empty only when nobody answered this round. Cheaters/bot are excluded (same scoring filter as the leaderboard). \`correct\` = revealed questions answered correctly; \`answered\` = revealed questions the player submitted a scored answer to.
 - \`seasonStatus\` (only when seasons enabled): \`{ currentSlug, isLastFireOfSeason, seasonClosed, newSeasonStarted?, mvp? }\`. When \`isLastFireOfSeason\` is true, the tool ALREADY stamped \`endedAt\` on the closing season and (when no continuation was queued) created a new starter season before returning — the renderer SHALL NOT call \`upsert_season\`.
 - \`instructions\` (optional string): resolved value of the REPLACE cascade \`slot → season → game → workspace\` of the free-form \`instructions\` axis. Present iff some tier sets a non-empty value. Honor verbatim as guidance during reveal rendering (verdict tone, voter-bucket commentary, closer line, leaderboard intro). Absent → ignore.
 - \`additionalInstructions\` (optional string): resolved value of the CUMULATIVE \`additionalInstructions\` axis — every non-empty tier concatenated in \`workspace → game → season → slot\` order, each segment tier-labeled (\`[Workspace]\` / \`[Game]\` / \`[Season]\` / \`[Slot N]\`). Honor every labeled rule verbatim. Absent → ignore.
@@ -291,12 +294,37 @@ export function createProcessRevealAnswersTool(
         });
       }
 
-      // Gate `roundSummary` on the discriminated `revealResponses` mode of
-      // EVERY reveal entry: aggregate per-player counts would leak across
-      // restricted slots, so the whole field drops out when any slot is
-      // anything other than "yes". Mixed-mode batches are rare in practice;
-      // selective masking would be a confusing compromise.
-      const allYes = reveals.length > 0 && reveals.every((r) => r.voters.revealResponses === "yes");
+      // The per-player round scoreboard is an AGGREGATE derived from the scored
+      // answers — the same source of truth as the leaderboard above — NOT from
+      // the reveal payload's `voters`. So it is independent of `revealResponses`
+      // (which strictly governs per-question display verbosity) and is produced
+      // every round in every mode. Cheaters/bot/pending rows are filtered with
+      // the standard `isScoredAnswer`, exactly as the leaderboard does.
+      const revealedQuestionIds = reveals.map((r) => r.questionId);
+      const cheats = await scoped.loadCheats();
+      const cheaterIdsByQuestion = new Map<string, Set<string>>();
+      for (const c of cheats) {
+        const set = cheaterIdsByQuestion.get(c.questionId) ?? new Set<string>();
+        set.add(c.cheaterUserId);
+        cheaterIdsByQuestion.set(c.questionId, set);
+      }
+      const revealedIdSet = new Set(revealedQuestionIds);
+      const scoredRoundAnswers: RoundAnswer[] = [];
+      for (const a of refreshedAnswers) {
+        if (!revealedIdSet.has(a.questionId)) continue;
+        const cheaterIds = cheaterIdsByQuestion.get(a.questionId) ?? EMPTY_CHEATER_SET;
+        if (!isScoredAnswer(a, cheaterIds, botUserId)) continue;
+        scoredRoundAnswers.push({
+          questionId: a.questionId,
+          userId: a.userId,
+          correct: a.correct === true,
+        });
+      }
+      const roundSummary = computeRoundSummary(
+        revealedQuestionIds,
+        scoredRoundAnswers,
+        (userId) => refreshedUsers.get(userId)?.displayName ?? userId,
+      );
 
       // Resolve the two free-form guidance axes for this reveal. Strategy for
       // multi-question batches: use the first target's slot index (when set).
@@ -324,7 +352,7 @@ export function createProcessRevealAnswersTool(
         game: args.game,
         reveals,
         leaderboard,
-        ...(allYes ? { roundSummary: computeRoundSummary(reveals) } : {}),
+        roundSummary,
         ...(seasonStatus ? { seasonStatus } : {}),
         ...(seasonStatus
           ? {
