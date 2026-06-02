@@ -50,6 +50,16 @@ export interface ClaudeRunHandle {
    * `submit_response` keeps the assistant in `tool_use`).
    */
   consumePendingPushedTexts(): string[];
+
+  /**
+   * True once this run has delivered a user-facing response (a successful primary
+   * `submit_response` delivery). After this flips true, `sendUpdate` rejects — a follow-up
+   * arriving after the response was already delivered must spawn a FRESH run (new streamer,
+   * new delivery context) rather than be absorbed here, where the per-run delivery latch
+   * would silently swallow it. The Slack handler treats the `sendUpdate` rejection as its
+   * cue to spawn fresh.
+   */
+  hasDelivered(): boolean;
 }
 
 /**
@@ -77,6 +87,13 @@ export interface ClaudeRunDriver extends ClaudeRunHandle {
    * Internal AbortController. Forwarded to the SDK's `query()` options. `stop()` aborts it.
    */
   readonly abortController: AbortController;
+
+  /**
+   * Mark that this run has delivered a user-facing response. Called by the delivery wrapper
+   * in `askClaude` when a primary `submit_response` delivery succeeds. Idempotent — only the
+   * first call has effect. Once set, `sendUpdate` rejects so later follow-ups spawn fresh runs.
+   */
+  markDelivered(): void;
 }
 
 export interface CreateRunHandleOptions {
@@ -122,6 +139,7 @@ export function createRunHandle(options: CreateRunHandleOptions): ClaudeRunDrive
 
   let status: ClaudeRunStatus = "running";
   let stopReason: string | undefined;
+  let delivered = false;
   let resolveFuture!: (value: ClaudeResponse) => void;
 
   const futureResponse = new Promise<ClaudeResponse>((resolve) => {
@@ -142,6 +160,13 @@ export function createRunHandle(options: CreateRunHandleOptions): ClaudeRunDrive
   async function sendUpdate(text: string): Promise<void> {
     if (status !== "running") {
       throw new Error(`Cannot sendUpdate: run is ${status}`);
+    }
+    // A response already reached the user in this run. Absorbing the follow-up here would
+    // route it into a delivery context whose one-shot latch is already spent (and whose
+    // streamer is already stopped), so it would never surface. Reject so the caller spawns
+    // a fresh run instead.
+    if (delivered) {
+      throw new Error("Cannot sendUpdate: run already delivered a response");
     }
     options.push(text);
   }
@@ -201,6 +226,10 @@ export function createRunHandle(options: CreateRunHandleOptions): ClaudeRunDrive
     stop,
     settle,
     fail,
+    markDelivered: () => {
+      delivered = true;
+    },
+    hasDelivered: () => delivered,
     hasPendingInput: () => options.isInputPending?.() ?? false,
     consumePendingPushedTexts: () => options.consumePendingPushedTexts?.() ?? [],
   };

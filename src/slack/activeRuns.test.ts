@@ -33,6 +33,7 @@ function fakeHandle(label: string): ClaudeRunHandle {
     status: "running",
     hasPendingInput: () => false,
     consumePendingPushedTexts: () => [],
+    hasDelivered: () => false,
   };
 }
 

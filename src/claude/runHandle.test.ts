@@ -54,6 +54,25 @@ describe("createRunHandle — sendUpdate", () => {
     h.driver.fail(new Error("boom"));
     await assert.rejects(h.driver.sendUpdate("late"), /settled/);
   });
+
+  it("rejects after markDelivered, even while still running", async () => {
+    const h = makeDriver();
+    h.driver.markDelivered();
+    assert.equal(h.driver.status, "running", "still running — only delivery latched");
+    await assert.rejects(h.driver.sendUpdate("late"), /already delivered/);
+    assert.deepEqual(h.pushed, [], "no push reached the input stream");
+  });
+});
+
+describe("createRunHandle — markDelivered", () => {
+  it("starts not-delivered and latches on markDelivered (idempotent)", () => {
+    const h = makeDriver();
+    assert.equal(h.driver.hasDelivered(), false);
+    h.driver.markDelivered();
+    assert.equal(h.driver.hasDelivered(), true);
+    h.driver.markDelivered();
+    assert.equal(h.driver.hasDelivered(), true);
+  });
 });
 
 describe("createRunHandle — settle", () => {

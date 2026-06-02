@@ -283,6 +283,7 @@ function runningHandle(): ClaudeRunHandle {
     status: "running",
     hasPendingInput: () => false,
     consumePendingPushedTexts: () => [],
+    hasDelivered: () => false,
   };
 }
 

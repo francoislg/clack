@@ -38,6 +38,7 @@ function fakeHandleFromResponse(response: ClaudeResponse): ClaudeRunHandle {
     status: "settled",
     hasPendingInput: () => false,
     consumePendingPushedTexts: () => [],
+    hasDelivered: () => false,
   };
 }
 

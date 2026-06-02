@@ -1,6 +1,6 @@
 import { type McpServerConfig, type SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import { clackSession } from "./query.js";
-import type { ClaudeRunHandle } from "./runHandle.js";
+import type { ClaudeRunDriver, ClaudeRunHandle } from "./runHandle.js";
 import {
   register as registerActiveRun,
   unregister as unregisterActiveRun,
@@ -183,11 +183,30 @@ interface QuerySetup {
   mcpManager: McpServerManager;
 }
 
+/**
+ * Wrap the caller's `DeliverFn` so a successful delivery latches `markDelivered()` on the
+ * run handle. Once latched, `sendUpdate` rejects and a follow-up spawns a fresh run instead
+ * of being absorbed into a run whose delivery context is already spent. Returns `undefined`
+ * untouched (test/cron contexts without a deliver callback).
+ */
+function wrapDeliverWithDeliveredMark(
+  deliver: DeliverFn | undefined,
+  markDelivered: () => void,
+): DeliverFn | undefined {
+  if (!deliver) return undefined;
+  return async (opts) => {
+    const result = await deliver(opts);
+    if (result.ok) markDelivered();
+    return result;
+  };
+}
+
 async function buildQuerySetup(
   session: SessionContext,
   options: AskClaudeOptions | undefined,
   hasPendingInput: () => boolean,
   consumePendingPushedTexts: () => string[],
+  markDelivered: () => void,
 ): Promise<QuerySetup> {
   const config = getConfig();
   const reposDir = getRepositoriesDir();
@@ -234,7 +253,7 @@ async function buildQuerySetup(
     changesWorkflowEnabled: options?.changesWorkflowEnabled ?? false,
     cronUserSchedules: config.cron?.userSchedules ?? false,
     slackClient: options?.slackClient,
-    deliver: options?.deliver,
+    deliver: wrapDeliverWithDeliveredMark(options?.deliver, markDelivered),
     availableImages: options?.availableImages,
     availableFiles: options?.availableFiles,
     requiredTools: options?.requiredTools,
@@ -421,13 +440,14 @@ export async function askClaude(
   // Forward-reference the run so the tool context can ask "is there pending input?"
   // before the run is constructed below. submit_response gates on this to refuse
   // finalizing while a sendUpdate push is unread.
-  let runRef: ClaudeRunHandle | undefined;
+  let runRef: ClaudeRunDriver | undefined;
   const { reposDir, systemPrompt, userPrompt, model, clackTools, mcpServers, mcpManager } =
     await buildQuerySetup(
       session,
       options,
       () => runRef?.hasPendingInput() ?? false,
       () => runRef?.consumePendingPushedTexts() ?? [],
+      () => runRef?.markDelivered(),
     );
 
   logger.debug(`Querying Claude via Agent SDK for session ${session.sessionId}...`);
