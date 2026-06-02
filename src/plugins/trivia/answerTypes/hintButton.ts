@@ -5,21 +5,26 @@
  *   1. Ack.
  *   2. Parse `questionId` from the action_id.
  *   3. Locate the owning game by scanning each known game's questions.json.
- *   4. Post an ephemeral message in the question's thread (visible only to the
- *      clicker) — hint text when present, "no hint available" fallback when
- *      the record carries no `hint` field (stale message, manual edit).
+ *   4. Open a modal (visible only to the clicker) via `views.open` — hint text
+ *      when present, "no hint available" fallback when the record carries no
+ *      `hint` field (stale message, manual edit). The modal is display-only
+ *      (Close button, no submit), so no view-submission handler is registered.
  *   5. If the question record has `hint.mode === "button"`, atomically add the
  *      clicker's user id to `hint.clickedBy` (deduped — Set semantics).
+ *
+ * Delivery is via modal ONLY — ephemerals were removed because a threaded
+ * ephemeral does not render when the question's thread has no replies.
  *
  * Click tracking is BUTTON-MODE ONLY. The handler never updates `clickedBy`
  * for `inline`-mode records (defensive — inline never produces a click) and
  * never surfaces `clickedBy` data anywhere user-facing.
  */
 
-import type { ChatPostEphemeralResponse } from "@slack/web-api";
+import type { ModalView, ViewsOpenResponse } from "@slack/web-api";
 import type { ClackSdk } from "../../sdk.js";
 import { triviaLogger as logger } from "../core/pluginLogger.js";
-import type { TriviaDataLayer, TriviaQuestion } from "../core/types.js";
+import type { TriviaDataLayer } from "../core/types.js";
+import { buildHintModal } from "./hintModal.js";
 
 /**
  * Regex passed to `sdk.registerAction` — SDK auto-prefixes with `plugin:trivia:`,
@@ -35,17 +40,15 @@ const HINT_ACTION_PREFIX = "plugin:trivia:hint:";
 
 /**
  * Narrow shape of the Slack `WebClient` the handler actually needs — only
- * `chat.postEphemeral`. Typing `getSlackClient` against this subset keeps
- * tests simple (they don't need to satisfy 60+ unused `WebClient` properties).
+ * `views.open`. Typing `getSlackClient` against this subset keeps tests simple
+ * (they don't need to satisfy 60+ unused `WebClient` properties).
  */
-interface PostEphemeralArgs {
-  channel: string;
-  user: string;
-  text: string;
-  thread_ts?: string;
+interface ViewsOpenArgs {
+  trigger_id: string;
+  view: ModalView;
 }
 interface HintSlackClient {
-  chat: { postEphemeral: (args: PostEphemeralArgs) => Promise<ChatPostEphemeralResponse> };
+  views: { open: (args: ViewsOpenArgs) => Promise<ViewsOpenResponse> };
 }
 
 interface HintInstallDeps {
@@ -85,48 +88,31 @@ export function installHintButtonHandler(
       return;
     }
 
-    const channelId =
-      "channel" in body &&
-      typeof body.channel === "object" &&
-      body.channel !== null &&
-      "id" in body.channel &&
-      typeof (body.channel as { id: unknown }).id === "string"
-        ? (body.channel as { id: string }).id
-        : null;
-    if (channelId === null) {
-      logger.warn("[trivia:hint] action body missing channel.id");
+    const triggerId =
+      "trigger_id" in body && typeof body.trigger_id === "string" ? body.trigger_id : null;
+    if (triggerId === null) {
+      logger.warn("[trivia:hint] action body missing trigger_id; cannot open modal");
       return;
     }
-
-    const threadTs =
-      "message" in body &&
-      typeof body.message === "object" &&
-      body.message !== null &&
-      "ts" in body.message &&
-      typeof (body.message as { ts: unknown }).ts === "string"
-        ? (body.message as { ts: string }).ts
-        : undefined;
 
     const game = await findGameForQuestion(data, getGameNames(), questionId);
     const scoped = game !== null ? data.forGame(game) : null;
     const question =
       scoped !== null ? (await scoped.loadQuestions()).find((q) => q.id === questionId) : undefined;
 
-    const text =
-      question?.hint !== undefined ? formatHintEphemeral(question, sdk.t) : sdk.t("hint.missing");
-
     const client = sdk.getSlackClient();
-    if (client !== null) {
-      try {
-        await client.chat.postEphemeral({
-          channel: channelId,
-          user: userId,
-          text,
-          ...(threadTs !== undefined ? { thread_ts: threadTs } : {}),
-        });
-      } catch (err) {
-        logger.warn(`[trivia:hint] postEphemeral failed: ${err}`);
-      }
+    if (client === null) {
+      logger.warn("[trivia:hint] Slack client unavailable; cannot open hint modal");
+      return;
+    }
+
+    try {
+      await client.views.open({
+        trigger_id: triggerId,
+        view: buildHintModal({ question, t: sdk.t }),
+      });
+    } catch (err) {
+      logger.warn(`[trivia:hint] views.open failed: ${err}`);
     }
 
     if (question?.hint?.mode === "button" && scoped !== null) {
@@ -146,12 +132,6 @@ export function extractQuestionIdFromActionId(actionId: string): string | null {
   const id = actionId.slice(HINT_ACTION_PREFIX.length);
   if (id.length === 0 || id.includes(":")) return null;
   return id;
-}
-
-function formatHintEphemeral(question: TriviaQuestion, t: ClackSdk["t"]): string {
-  if (question.hint === undefined) return t("hint.missing");
-  const prefix = t("hint.ephemeral_prefix", { text: question.hint.text });
-  return `${question.statement}\n${prefix}`;
 }
 
 async function findGameForQuestion(
