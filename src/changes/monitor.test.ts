@@ -636,6 +636,7 @@ function makeFakeHandle(): ActiveChangeState["handle"] {
     status: "running",
     hasPendingInput: () => false,
     consumePendingPushedTexts: () => [],
+    hasDelivered: () => false,
   };
   return handle;
 }

@@ -275,6 +275,7 @@ function fakeRunHandle(sendUpdate: (text: string) => Promise<void>): ClaudeRunHa
     status: "running",
     hasPendingInput: () => false,
     consumePendingPushedTexts: () => [],
+    hasDelivered: () => false,
   };
 }
 
@@ -306,6 +307,31 @@ describe("processMessage — concurrent same-thread dedup", () => {
     assert.equal(sendUpdate.mock.calls[0]![0], "follow-up");
     // Must NOT spawn a parallel run/streamer.
     assert.equal(mockExecuteAndDeliver.mock.calls.length, 0);
+  });
+
+  it("spawns a fresh run when the registered run rejects sendUpdate (already delivered)", async () => {
+    // Mirrors the real bug: the previous run already delivered its response (the run handle
+    // rejects sendUpdate), so the follow-up must NOT be absorbed-and-acked — it must spawn a
+    // fresh run with its own streamer/delivery context.
+    const sendUpdate = vi.fn<(text: string) => Promise<void>>(async () => {
+      throw new Error("Cannot sendUpdate: run already delivered a response");
+    });
+    registerActiveRun({ channelId: "C001", threadTs: THREAD }, fakeRunHandle(sendUpdate));
+
+    const deps = makeDeps();
+    const result = await processMessage(
+      makeParams({
+        triggerType: "directMessages",
+        threadTs: THREAD,
+        messageTs: "1700000000.000113",
+        messageText: "the button choice",
+      }),
+      deps,
+    );
+
+    assert.equal(sendUpdate.mock.calls.length, 1, "attempted the fast path once");
+    assert.notEqual(result.skipped, true, "did not short-circuit as a queued follow-up");
+    assert.equal(mockExecuteAndDeliver.mock.calls.length, 1, "fell through to a fresh spawn");
   });
 
   it("serializes two concurrent triggers: exactly one spawn, the other sendUpdate", async () => {

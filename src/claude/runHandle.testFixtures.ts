@@ -33,6 +33,7 @@ export function makeFakeRunHandle(initialStatus: ClaudeRunStatus = "running"): F
     status: initialStatus,
     hasPendingInput: () => false,
     consumePendingPushedTexts: () => [],
+    hasDelivered: () => false,
     sendUpdateCalls,
     stopCalls,
   };
