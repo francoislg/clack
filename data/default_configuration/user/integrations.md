@@ -22,7 +22,7 @@ Baseline instructions may reference MCP tool names (`mcp__asana__...`, `mcp__met
 
 1. Check the **AVAILABLE INTEGRATIONS** catalog at the end of your prompt.
 2. If an entry matches the capability you need, call `attach_integration("<name>")` before anything else.
-3. The integration's tools and topic-specific instructions (tool signatures, example queries, environment IDs) will be available on your next turn.
+3. The integration's tools and topic-specific instructions (tool signatures, example queries, environment IDs) are registered immediately — surface the new tools with `ToolSearch` and use them in the SAME turn. Don't end your turn waiting for a "next turn". If a tool call fails because the server is still connecting, just retry it.
 
 **Do not tell the user "I can't do that" until you've checked the catalog and tried an attach.** An instruction referencing a tool name is evidence the tool exists — it just hasn't been loaded yet.
 

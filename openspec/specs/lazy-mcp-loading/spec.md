@@ -67,7 +67,7 @@ The system SHALL attach only `alwaysLoad: true` MCP servers at the start of a ne
 
 The system SHALL expose an internal tool `attach_integration(name: string)` to Claude that dynamically attaches an MCP server and returns its topic instructions. The tool SHALL be available in query-mode sessions (reactions, DMs, mentions, autoRespond, threadReply, scheduled) and hidden in worker-mode. The tool SHALL resolve the requested name through a single unified resolver: first via `loadMcpServer(name)` (external `data/mcp.json` entries), then via the per-session plugin-registered server registry on `McpServerManager` (servers declared by plugins via `sdk.registerMcpServer`). The tool SHALL be idempotent against both the dynamically-attached set AND the session-start baseline: when the requested integration is already part of the session-start baseline (e.g. `alwaysLoad: true`) and the SDK reports it as `connected`, the tool SHALL skip `setMcpServers` entirely and return a short success message indicating the integration is always-loaded. When the requested integration is in the baseline but is NOT reported as `connected`, the tool SHALL fall through to a real attach as graceful recovery.
 
-When the unified resolver returns a server config (from either source), the tool SHALL call `setMcpServers(baseline ∪ attached ∪ {name})` and the server's tools become available on the next turn. When the resolver returns nothing AND the registry entry exists (genuine instructions-only entry — e.g., a `data/config.json` entry without an `mcp.json` server AND without a plugin-registered server), the tool SHALL skip `setMcpServers` and return only the topic instructions.
+When the unified resolver returns a server config (from either source), the tool SHALL call `setMcpServers(baseline ∪ attached ∪ {name})` and the server's tools become available immediately within the SAME turn — they land in the searchable tool pool, so Claude surfaces them via `ToolSearch` and calls them without ending its turn (a call that races a still-connecting server is simply retried). The tool result text SHALL instruct Claude to continue in-turn rather than waiting for a "next turn". When the resolver returns nothing AND the registry entry exists (genuine instructions-only entry — e.g., a `data/config.json` entry without an `mcp.json` server AND without a plugin-registered server), the tool SHALL skip `setMcpServers` and return only the topic instructions.
 
 #### Scenario: Successful attach brings tools and instructions (external MCP-backed)
 
@@ -77,7 +77,7 @@ When the unified resolver returns a server config (from either source), the tool
 - **THEN** the SDK's `setMcpServers` is called with the union of currently-attached servers and `metabase`
 - **AND** the tool's text result SHALL begin with the literal string `Attached integration: metabase.` followed by the concatenated contents of `{role}/topics/metabase/*.md` resolved through the cascade
 - **AND** when the topic folder contains multiple files (e.g., `metabase.md` and `company-dashboards.md`), all files are concatenated in alphabetical filename order under a single topic header; no per-file header is emitted
-- **AND** the Metabase MCP tools (e.g., `mcp__metabase__*`) become available for Claude's next turn
+- **AND** the Metabase MCP tools (e.g., `mcp__metabase__*`) become available to Claude within the same turn (surfaced via `ToolSearch`)
 
 #### Scenario: Successful attach brings tools and instructions (plugin-registered)
 
@@ -88,7 +88,7 @@ When the unified resolver returns a server config (from either source), the tool
 - **WHEN** Claude calls `attach_integration({ name: "trivia:management" })`
 - **THEN** `loadMcpServer("trivia:management")` returns undefined, then `McpServerManager.getPluginServer("trivia:management")` returns the SDK server config built from the plugin's handle
 - **AND** the SDK's `setMcpServers` is called with the union of currently-attached servers and the plugin's `trivia:management` server
-- **AND** the tools (e.g., `mcp__trivia_management__upsert_season`) become available for Claude's next turn
+- **AND** the tools (e.g., `mcp__trivia_management__upsert_season`) become available to Claude within the same turn (surfaced via `ToolSearch`)
 - **AND** `session.attachedIntegrations` records `"trivia:management"`
 - **AND** `mcpAttachHistory` records `outcome: "ok"` (NOT `"instructions_only"`, because tools were attached)
 
