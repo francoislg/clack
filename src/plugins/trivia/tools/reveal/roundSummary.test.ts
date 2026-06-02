@@ -1,45 +1,30 @@
 import { describe, it } from "vitest";
 import assert from "node:assert/strict";
-import { computeRoundSummary } from "./roundSummary.js";
-import type { ProcessRevealEntry, Voter } from "./types.js";
+import { computeRoundSummary, type RoundAnswer } from "./roundSummary.js";
 
-function voter(userId: string, displayName = userId): Voter {
-  return { userId, displayName };
+function ans(questionId: string, userId: string, correct: boolean): RoundAnswer {
+  return { questionId, userId, correct };
 }
 
-function reveal(
-  questionId: string,
-  correct: Voter[],
-  incorrect: Voter[] = [],
-  noAnswer: Voter[] = [],
-): ProcessRevealEntry {
-  return {
-    questionId,
-    statement: `S-${questionId}`,
-    category: "X",
-    emojis: ["❓"],
-    messageLink: "https://example.com",
-    wasReprocessed: false,
-    answer: { type: "boolean", isTrue: true },
-    voters: {
-      revealResponses: "yes",
-      correct,
-      incorrect,
-      noAnswer,
-      reactions: [],
-    },
-  };
-}
+// Default display-name resolver: capitalize the userId so case-insensitive sort
+// assertions read naturally. Individual tests override with an explicit map.
+const cap = (id: string) => id.charAt(0).toUpperCase() + id.slice(1);
 
 describe("computeRoundSummary", () => {
-  it("returns empty result for zero reveals", () => {
-    const out = computeRoundSummary([]);
+  it("returns empty result for zero questions", () => {
+    const out = computeRoundSummary([], [], cap);
     assert.equal(out.totalQuestions, 0);
     assert.deepEqual(out.perPlayer, []);
   });
 
-  it("length-1 single-voter result", () => {
-    const out = computeRoundSummary([reveal("q1", [voter("alice", "Alice")])]);
+  it("totalQuestions reflects revealed count even when a question went unanswered", () => {
+    const out = computeRoundSummary(["q1", "q2"], [ans("q1", "alice", true)], cap);
+    assert.equal(out.totalQuestions, 2);
+    assert.equal(out.perPlayer.length, 1);
+  });
+
+  it("length-1 single-correct result", () => {
+    const out = computeRoundSummary(["q1"], [ans("q1", "alice", true)], cap);
     assert.equal(out.totalQuestions, 1);
     assert.equal(out.perPlayer.length, 1);
     assert.equal(out.perPlayer[0].userId, "alice");
@@ -48,16 +33,21 @@ describe("computeRoundSummary", () => {
     assert.equal(out.perPlayer[0].roundMvp, true);
   });
 
-  it("length-3 aggregation example from spec", () => {
-    // alice: correct on Q1+Q2, incorrect on Q3 → 2/3
-    // bob: correct on Q1, didn't vote Q2, correct on Q3 → 2/2
+  it("length-3 aggregation across players", () => {
+    // alice: correct q1+q2, incorrect q3 → 2/3
+    // bob: correct q1, didn't answer q2, correct q3 → 2/2
     // carol: correct on all three → 3/3
-    const reveals = [
-      reveal("q1", [voter("alice", "Alice"), voter("bob", "Bob"), voter("carol", "Carol")]),
-      reveal("q2", [voter("alice", "Alice"), voter("carol", "Carol")]),
-      reveal("q3", [voter("bob", "Bob"), voter("carol", "Carol")], [voter("alice", "Alice")]),
+    const answers = [
+      ans("q1", "alice", true),
+      ans("q1", "bob", true),
+      ans("q1", "carol", true),
+      ans("q2", "alice", true),
+      ans("q2", "carol", true),
+      ans("q3", "alice", false),
+      ans("q3", "bob", true),
+      ans("q3", "carol", true),
     ];
-    const out = computeRoundSummary(reveals);
+    const out = computeRoundSummary(["q1", "q2", "q3"], answers, cap);
     assert.equal(out.totalQuestions, 3);
 
     const byId = new Map(out.perPlayer.map((p) => [p.userId, p]));
@@ -75,20 +65,19 @@ describe("computeRoundSummary", () => {
   });
 
   it("multiple MVPs when tied at the top", () => {
-    const reveals = [
-      reveal("q1", [voter("alice", "Alice"), voter("bob", "Bob")]),
-      reveal("q2", [voter("alice", "Alice"), voter("bob", "Bob")]),
+    const answers = [
+      ans("q1", "alice", true),
+      ans("q1", "bob", true),
+      ans("q2", "alice", true),
+      ans("q2", "bob", true),
     ];
-    const out = computeRoundSummary(reveals);
+    const out = computeRoundSummary(["q1", "q2"], answers, cap);
     assert.equal(out.perPlayer.filter((p) => p.roundMvp).length, 2);
   });
 
   it("no MVPs when nobody scored correct", () => {
-    const reveals = [
-      reveal("q1", [], [voter("alice", "Alice")]),
-      reveal("q2", [], [voter("alice", "Alice"), voter("bob", "Bob")]),
-    ];
-    const out = computeRoundSummary(reveals);
+    const answers = [ans("q1", "alice", false), ans("q2", "alice", false), ans("q2", "bob", false)];
+    const out = computeRoundSummary(["q1", "q2"], answers, cap);
     assert.equal(out.perPlayer.length, 2);
     assert.equal(
       out.perPlayer.filter((p) => p.roundMvp).length,
@@ -97,100 +86,60 @@ describe("computeRoundSummary", () => {
     );
   });
 
-  it("players with answered: 0 are omitted (only present-in-payload players tracked)", () => {
-    // dave is never in any reveal's voter list
-    const reveals = [reveal("q1", [voter("alice", "Alice")]), reveal("q2", [voter("bob", "Bob")])];
-    const out = computeRoundSummary(reveals);
-    const ids = out.perPlayer.map((p) => p.userId);
-    assert.ok(!ids.includes("dave"));
+  it("counts incorrect answers toward answered", () => {
+    const out = computeRoundSummary(["q1"], [ans("q1", "bob", false)], cap);
+    const bob = out.perPlayer.find((p) => p.userId === "bob");
+    assert.equal(bob?.answered, 1);
+    assert.equal(bob?.correct, 0);
   });
 
-  it("counts incorrect voters toward answered", () => {
-    const reveals = [reveal("q1", [], [voter("incorrect-bob", "Bob")])];
-    const out = computeRoundSummary(reveals);
+  it("ignores answers for questions NOT in the revealed set", () => {
+    // q2 is not a revealed question this fire — its answers must not count.
+    const out = computeRoundSummary(
+      ["q1"],
+      [ans("q1", "alice", true), ans("q2", "alice", true), ans("q2", "bob", true)],
+      cap,
+    );
+    assert.equal(out.totalQuestions, 1);
+    assert.equal(out.perPlayer.length, 1);
+    assert.equal(out.perPlayer[0].userId, "alice");
+    assert.equal(out.perPlayer[0].correct, 1);
+  });
+
+  it("is mode-independent — there is no revealResponses input at all", () => {
+    // The scoreboard derives purely from scored answers; the same answers always
+    // yield the same scoreboard regardless of how the reveal was displayed.
+    const answers = [ans("q1", "alice", true), ans("q1", "bob", false)];
+    const out = computeRoundSummary(["q1"], answers, cap);
+    assert.equal(out.totalQuestions, 1);
     const byId = new Map(out.perPlayer.map((p) => [p.userId, p]));
-    assert.equal(byId.get("incorrect-bob")?.answered, 1);
-    for (const p of out.perPlayer) {
-      assert.equal(p.correct, 0);
-    }
-  });
-
-  it("does NOT count noAnswer reactors toward answered", () => {
-    // noAnswer = reacted but didn't click; not a meaningful "answered" count.
-    const reveals = [reveal("q1", [voter("alice")], [], [voter("dave")])];
-    const out = computeRoundSummary(reveals);
-    const ids = out.perPlayer.map((p) => p.userId);
-    assert.ok(ids.includes("alice"));
-    assert.ok(!ids.includes("dave"));
-  });
-
-  it("ignores reveals with revealResponses === 'no' (no named buckets)", () => {
-    const reveals: ProcessRevealEntry[] = [
-      {
-        questionId: "q1",
-        statement: "S",
-        category: "X",
-        emojis: ["❓"],
-        messageLink: "https://example.com",
-        wasReprocessed: false,
-        answer: { type: "boolean", isTrue: true },
-        voters: { revealResponses: "no", reactions: [] },
-      },
-    ];
-    const out = computeRoundSummary(reveals);
-    assert.equal(out.totalQuestions, 1);
-    assert.deepEqual(out.perPlayer, []);
-  });
-
-  it("ignores reveals with revealResponses === 'just-winners' (no incorrect/noAnswer arrays)", () => {
-    const reveals: ProcessRevealEntry[] = [
-      {
-        questionId: "q1",
-        statement: "S",
-        category: "X",
-        emojis: ["❓"],
-        messageLink: "https://example.com",
-        wasReprocessed: false,
-        answer: { type: "boolean", isTrue: true },
-        voters: {
-          revealResponses: "just-winners",
-          correct: [voter("alice", "Alice")],
-          incorrectCount: 3,
-          noAnswerCount: 1,
-          reactions: [],
-        },
-      },
-    ];
-    // The variant carries no `incorrect`/`noAnswer` named arrays — the loop must
-    // skip it without throwing and contribute nothing to the per-player tallies.
-    const out = computeRoundSummary(reveals);
-    assert.equal(out.totalQuestions, 1);
-    assert.deepEqual(out.perPlayer, []);
+    assert.equal(byId.get("alice")?.correct, 1);
+    assert.equal(byId.get("bob")?.correct, 0);
+    assert.equal(byId.get("bob")?.answered, 1);
   });
 
   it("sorts by correct desc, then displayName asc (case-insensitive)", () => {
-    const reveals = [
-      reveal("q1", [voter("alice", "alice"), voter("bob", "Bob"), voter("carol", "Carol")]),
-    ];
-    const out = computeRoundSummary(reveals);
+    const names: Record<string, string> = { alice: "alice", bob: "Bob", carol: "Carol" };
+    const answers = [ans("q1", "alice", true), ans("q1", "bob", true), ans("q1", "carol", true)];
+    const out = computeRoundSummary(["q1"], answers, (id) => names[id] ?? id);
     assert.deepEqual(
       out.perPlayer.map((p) => p.displayName),
       ["alice", "Bob", "Carol"],
     );
   });
 
-  it("does not double-count a player who appears in multiple buckets of the same reveal", () => {
-    // Edge case: assume an upstream bucketing step doesn't perfectly dedupe.
-    // The same player should only count once per reveal for `answered`.
-    const reveals = [
-      reveal(
-        "q1",
-        [voter("alice", "Alice")],
-        [voter("alice", "Alice")], // also in incorrect (defensive)
-      ),
-    ];
-    const out = computeRoundSummary(reveals);
+  it("dedupes duplicate rows for the same (question, user) — correct if any row is correct", () => {
+    const answers = [ans("q1", "alice", false), ans("q1", "alice", true)];
+    const out = computeRoundSummary(["q1"], answers, cap);
     const alice = out.perPlayer.find((p) => p.userId === "alice");
-    assert.equal(alice?.answered, 1, "answered counted once per reveal");
+    assert.equal(alice?.answered, 1, "answered counted once per question");
+    assert.equal(alice?.correct, 1, "correct when any row for that question is correct");
+  });
+
+  it("resolves displayName via the supplied resolver, falling back to userId", () => {
+    const out = computeRoundSummary(["q1"], [ans("q1", "U123", true)], (id) =>
+      id === "U123" ? "Zoe" : id,
+    );
+    assert.equal(out.perPlayer[0].displayName, "Zoe");
   });
 });

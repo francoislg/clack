@@ -28,7 +28,7 @@ type ProcessRevealResult = {
       | { type: "boolean"; isTrue: boolean }
       | { type: "choice"; choices: string[]; correctIndex: number }
       | { type: "freeform"; expectedAnswer: string; acceptableAnswers?: string[]; gradingNotes?: string };
-    voters:                                                                           // discriminated union on the question's stamped revealResponses
+    voters:                                                                           // discriminated union on the question's stamped revealResponses (DISPLAY only)
       | { revealResponses: "yes";
           correct: Array<{ userId: string; displayName: string; answerText?: string }>;   // answerText present on freeform only
           incorrect: Array<{ userId: string; displayName: string; answerText?: string }>; // answerText present on freeform only
@@ -55,7 +55,7 @@ type ProcessRevealResult = {
     currentSeasonCorrect?: number;
     currentSeasonAnswered?: number;
   }>;
-  roundSummary?: {                                                                    // OMITTED when any reveal entry has revealResponses !== "yes"
+  roundSummary: {                                                                    // ALWAYS present; aggregate from scored answers, independent of revealResponses
     totalQuestions: number;
     perPlayer: Array<{
       userId: string;
@@ -75,17 +75,17 @@ type ProcessRevealResult = {
 };
 ```
 
-For each reveal entry, the tool SHALL read the question's stamped `revealResponses` value (defaulting to `"yes"` for legacy rows that pre-date this proposal) and SHALL emit the corresponding `voters` shape:
+For each reveal entry, the tool SHALL read the question's stamped `revealResponses` value (defaulting to `"yes"` for legacy rows that pre-date this proposal) and SHALL emit the corresponding `voters` shape. `revealResponses` governs ONLY this per-question `voters` DISPLAY shape — it has no effect on `roundSummary`, the leaderboard, or any aggregate:
 
 - `"yes"`: full voter buckets with names; freeform Voters in `correct[]` and `incorrect[]` carry `answerText`.
 - `"just-correctness"`: full voter buckets with names; freeform Voters in `correct[]` and `incorrect[]` have NO `answerText` field. The freeform judge still runs end-to-end (to score every submission); only the typed text is filtered from the payload.
 - `"no"`: ONLY the `reactions` array is emitted. The `correct`, `incorrect`, and `noAnswer` fields SHALL be physically absent from the payload variant.
 
-The `roundSummary` field SHALL be OMITTED from the payload when ANY reveal entry in the batch has `revealResponses !== "yes"`. When omitted, the field SHALL be entirely absent — no empty object, no `totalQuestions: 0` placeholder. When all entries have `revealResponses: "yes"`, the field SHALL be populated as today.
+The `roundSummary` field SHALL ALWAYS be present in the payload — it is a per-player AGGREGATE scoreboard derived from the SCORED ANSWERS (the same source as `leaderboard`), NOT from the redacted `voters` payload, and is therefore INDEPENDENT of every entry's `revealResponses`. Its `perPlayer` array SHALL be empty only when nobody answered any revealed question this fire. See the "Per-fire round summary in payload" requirement for the full shape and computation.
 
 The leaderboard and per-entry `reactions` list SHALL be present regardless of any reveal entry's `revealResponses` value — these aggregates do not disclose per-question correctness.
 
-The tool SHALL exclude the bot's own user ID and every user ID flagged as a cheater for the relevant question from EVERY field of the returned payload — `correct`, `incorrect`, `noAnswer`, and `reactions`. These exclusions SHALL be structural — the renderer SHALL NOT be required to filter the payload further. The tool SHALL determine the bot's user ID at call time (e.g. via `client.auth.test()`); it SHALL NOT hardcode a specific value.
+The tool SHALL exclude the bot's own user ID and every user ID flagged as a cheater for the relevant question from EVERY field of the returned payload — `correct`, `incorrect`, `noAnswer`, `reactions`, and the `roundSummary` aggregate. These exclusions SHALL be structural — the renderer SHALL NOT be required to filter the payload further. The tool SHALL determine the bot's user ID at call time (e.g. via `client.auth.test()`); it SHALL NOT hardcode a specific value.
 
 The tool SHALL NOT void or specially classify "multi-react" voters (users who reacted with multiple numbered or thumb emoji). Reactions are no longer interpreted as votes; multiple reactions are just multiple emoji in that user's `reactions[].emojis` array.
 
@@ -172,13 +172,6 @@ For freeform questions, the per-answer reveal judge runs and writes verdicts int
 - **AND** `voters.correct` contains a Voter `{ userId: "U1", displayName: ... }` with NO `answerText` field
 - **AND** `voters.incorrect` contains a Voter `{ userId: "U2", displayName: ... }` with NO `answerText` field
 
-#### Scenario: Question stamped revealResponses="just-correctness" on boolean still emits full buckets (no answerText to strip)
-
-- **GIVEN** a boolean question stamped `revealResponses: "just-correctness"`
-- **WHEN** `process_reveal_answers` runs
-- **THEN** `voters.revealResponses === "just-correctness"`
-- **AND** `voters.correct` and `voters.incorrect` contain named Voters (boolean voters never had `answerText` in any mode)
-
 #### Scenario: Question stamped revealResponses="no" emits only reactions
 
 - **GIVEN** a question `Q3` stamped `revealResponses: "no"` with several answer rows and several reactions on the Slack message
@@ -194,17 +187,12 @@ For freeform questions, the per-answer reveal judge runs and writes verdicts int
 - **THEN** `voters.revealResponses === "yes"` (the default is applied)
 - **AND** the payload variant carries the full `correct` / `incorrect` / `noAnswer` / `reactions` shape
 
-#### Scenario: roundSummary omitted when any reveal entry has restricted mode
+#### Scenario: roundSummary present and identical across reveal modes
 
-- **GIVEN** a 3-question batch where slot 0 stamped `revealResponses: "yes"`, slot 1 stamped `"just-correctness"`, slot 2 stamped `"yes"`
+- **GIVEN** a 3-question batch where slot 0 is `revealResponses: "yes"`, slot 1 is `"no"`, slot 2 is `"just-winners"`, and a player U1 has a scored answer on each
 - **WHEN** `process_reveal_answers` runs and selects this batch
-- **THEN** the returned payload has NO `roundSummary` field
-
-#### Scenario: roundSummary present when all reveal entries are "yes"
-
-- **GIVEN** a 3-question batch where all slots stamped `revealResponses: "yes"`
-- **WHEN** `process_reveal_answers` runs and selects this batch
-- **THEN** the returned payload has `roundSummary.totalQuestions === 3` with a populated `perPlayer` array
+- **THEN** the returned payload HAS a `roundSummary` field with `totalQuestions === 3`
+- **AND** `roundSummary.perPlayer` tallies U1's scored answers across ALL three questions regardless of each question's display mode
 
 #### Scenario: Leaderboard present regardless of revealResponses mode
 
@@ -454,7 +442,7 @@ When `isLastFireOfSeason` is `false`, the tool SHALL NOT perform any rollover, S
 
 ### Requirement: Per-fire round summary in payload
 
-The `ProcessRevealResult` payload returned by `process_reveal_answers` SHALL include a `roundSummary` field describing each player's correctness across this fire's revealed questions when all revealed questions have `revealResponses: "yes"`:
+The `ProcessRevealResult` payload returned by `process_reveal_answers` SHALL ALWAYS include a `roundSummary` field describing each player's correctness across this fire's revealed questions. It is a per-player AGGREGATE — never individual per-question responses — and is derived from the SCORED ANSWERS (the same `answers.json` source as `leaderboard`), so it is INDEPENDENT of every entry's `revealResponses` (which governs only per-question display):
 
 ```ts
 roundSummary: {
@@ -462,45 +450,53 @@ roundSummary: {
   perPlayer: Array<{
     userId: string;
     displayName: string;
-    correct: number; // count of reveals where this player appears in voters.correct
-    answered: number; // count of reveals where this player appears in any of voters.{correct, incorrect, noAnswer}
+    correct: number; // count of revealed questions this player answered correctly
+    answered: number; // count of revealed questions this player submitted a scored answer to (correct or incorrect)
     roundMvp?: true; // present iff this player is tied for the highest `correct` count this fire
   }>;
 }
 ```
 
-The field SHALL be OMITTED (not present as `undefined` or an empty object) when ANY reveal entry in the payload has `revealResponses !== "yes"`.
+The field SHALL be present in EVERY reveal mode and combination of modes. `perPlayer` SHALL be empty (`[]`) only when nobody submitted a scored answer to any revealed question this fire — including when `reveals` is empty (then `totalQuestions` is `0`). A reveal entry's `revealResponses` mode SHALL NOT affect whether a player appears in `roundSummary` or their counts: a player who answered a `"just-winners"` or `"no"` question is tallied exactly as one who answered a `"yes"` question.
 
-When all entries have `revealResponses: "yes"`, the field SHALL be present whenever `reveals.length >= 1` — including length-1 reveals (where it describes the one question). When `reveals.length === 0` (no pending questions), `roundSummary.totalQuestions` SHALL be `0` and `perPlayer` SHALL be `[]`.
+The scoring filter SHALL be identical to the leaderboard's: cheaters (per the question's `cheats.json`), the bot, and pending (pre-judge) freeform rows are excluded. Cheating handling is orthogonal to the reveal — cheated answers are always ignored.
 
-`perPlayer` SHALL include only players who appear in at least one reveal's voter list for this fire — players with `answered === 0` SHALL NOT be present.
+`perPlayer` SHALL include only players with `answered >= 1` — players who did not answer any revealed question this fire SHALL NOT be present.
 
 `perPlayer` SHALL be sorted by `correct` descending, ties broken by `displayName` ascending (case-insensitive, locale-sensitive comparison).
 
 `roundMvp: true` SHALL be set on EVERY player tied for the highest `correct` value in `perPlayer`. When no player has `correct > 0`, `roundMvp` SHALL be absent from all entries.
 
-The structural-exclusion guarantees of the `voters` field carry through to `roundSummary` — the bot and flagged cheaters are absent from the counts because they are absent from the source `voters` lists. The renderer SHALL NOT need to filter `perPlayer`.
+#### Scenario: roundSummary present in every mode, computed from scored answers
 
-#### Scenario: Length-1 reveal with "yes" mode still produces a roundSummary
-
-- **GIVEN** one pending question stamped `revealResponses: "yes"` with `voters.correct: [alice, bob]` and `voters.incorrect: [carol]`
+- **GIVEN** a 3-question batch with modes `"yes"`, `"no"`, `"just-winners"`
+- **AND** alice has a scored-correct answer on the `"yes"` and `"no"` questions, a scored-wrong answer on the `"just-winners"` question
 - **WHEN** `process_reveal_answers` returns
-- **THEN** `roundSummary.totalQuestions` equals `1`
-- **AND** `roundSummary.perPlayer` includes alice/bob with `correct: 1, answered: 1`, carol with `correct: 0, answered: 1`
-- **AND** alice and bob both carry `roundMvp: true` (tied for top); carol does not
+- **THEN** `roundSummary.totalQuestions` equals `3`
+- **AND** alice has `correct: 2, answered: 3` — her `"just-winners"` and `"no"` answers count identically to a `"yes"` answer
 
-#### Scenario: Length-3 reveal with mixed modes omits roundSummary
+#### Scenario: roundSummary present with empty perPlayer when nobody answered
 
-- **GIVEN** three pending questions, all stamped with `revealResponses: "yes"` except Q2 which has `revealResponses: "just-correctness"`
+- **GIVEN** a single revealed question that no one submitted a scored answer to
 - **WHEN** `process_reveal_answers` returns
-- **THEN** the payload has NO `roundSummary` field (even though most entries are "yes")
+- **THEN** the payload HAS a `roundSummary` field
+- **AND** `roundSummary.totalQuestions` equals `1`
+- **AND** `roundSummary.perPlayer` is `[]`
 
-#### Scenario: Length-3 reveal with all "yes" aggregates per player
+#### Scenario: Empty reveal still carries a roundSummary
 
-- **GIVEN** three pending questions, all stamped `revealResponses: "yes"`
-- **AND** alice voted correctly on Q1 and Q2, incorrectly on Q3
-- **AND** bob voted correctly on Q1, did not vote on Q2, voted correctly on Q3
-- **AND** carol voted correctly on all three
+- **GIVEN** no pending questions for the game
+- **WHEN** `process_reveal_answers` returns
+- **THEN** `reveals` is `[]`
+- **AND** `roundSummary.totalQuestions` is `0`
+- **AND** `roundSummary.perPlayer` is `[]`
+
+#### Scenario: Length-3 reveal aggregates per player
+
+- **GIVEN** three revealed questions (any modes)
+- **AND** alice answered correctly on Q1 and Q2, incorrectly on Q3
+- **AND** bob answered correctly on Q1, did not answer Q2, answered correctly on Q3
+- **AND** carol answered correctly on all three
 - **WHEN** `process_reveal_answers` returns
 - **THEN** `roundSummary.totalQuestions` equals `3`
 - **AND** alice has `correct: 2, answered: 3`
@@ -510,37 +506,29 @@ The structural-exclusion guarantees of the `voters` field carry through to `roun
 
 #### Scenario: Player who answered zero questions is omitted
 
-- **GIVEN** two pending questions, both stamped `revealResponses: "yes"`
-- **AND** dave voted on neither
+- **GIVEN** two revealed questions
+- **AND** dave answered neither
 - **WHEN** `process_reveal_answers` returns
 - **THEN** dave does NOT appear in `roundSummary.perPlayer`
 
 #### Scenario: Round MVPs share the title on a tie
 
-- **GIVEN** four players all scoring 2/3 correct on a 3-question fire, all stamped `revealResponses: "yes"`
+- **GIVEN** four players all scoring 2/3 correct on a 3-question fire
 - **WHEN** `process_reveal_answers` returns
 - **THEN** all four entries in `roundSummary.perPlayer` carry `roundMvp: true`
 
 #### Scenario: No correct answers → no MVPs
 
-- **GIVEN** a fire where every voter was incorrect on every question, all stamped `revealResponses: "yes"`
+- **GIVEN** a fire where every player answered incorrectly on every question
 - **WHEN** `process_reveal_answers` returns
 - **THEN** every entry in `roundSummary.perPlayer` has `correct: 0`
 - **AND** no entry carries `roundMvp`
 
-#### Scenario: Empty payload still carries a roundSummary
-
-- **GIVEN** no pending questions for the game
-- **WHEN** `process_reveal_answers` returns
-- **THEN** `reveals` is `[]`
-- **AND** `roundSummary.totalQuestions` is `0`
-- **AND** `roundSummary.perPlayer` is `[]`
-
 #### Scenario: Cheaters do not appear in roundSummary
 
-- **GIVEN** a question where bob is a flagged cheater
+- **GIVEN** a revealed question where bob answered correctly but is a flagged cheater for it
 - **WHEN** `process_reveal_answers` returns
-- **THEN** bob does NOT appear in `roundSummary.perPlayer` (structurally excluded from `voters`)
+- **THEN** bob does NOT appear in `roundSummary.perPlayer` (excluded by the same scoring filter as the leaderboard)
 
 ### Requirement: `processedAt` field on TriviaQuestion
 
@@ -655,7 +643,7 @@ The `incorrect` and `noAnswer` named arrays SHALL be physically absent from this
 
 The `incorrectCount` SHALL equal the number of voters whose `answers.json` row scored `correct === false` (after bot/cheater exclusion); `noAnswerCount` SHALL equal the number of users who reacted but have no scored answer row (after bot/cheater exclusion).
 
-The `roundSummary` field SHALL remain OMITTED whenever any reveal entry in the batch is `"just-winners"` (it is `!== "yes"`), consistent with the existing all-`"yes"` gate.
+The `"just-winners"` mode governs ONLY this per-question `voters` DISPLAY shape. It SHALL NOT suppress or alter `roundSummary`: a player who answered a `"just-winners"` question is tallied in the aggregate scoreboard exactly as for any other mode, because `roundSummary` is derived from the scored answers, not from the redacted `voters` payload.
 
 #### Scenario: Boolean question stamped just-winners names winners and counts missers
 
@@ -682,11 +670,12 @@ The `roundSummary` field SHALL remain OMITTED whenever any reveal entry in the b
 - **THEN** `voters.correct` is an empty array
 - **AND** `voters.incorrectCount` equals the number of wrong voters and is greater than 0
 
-#### Scenario: just-winners entry omits roundSummary in a multi-question batch
+#### Scenario: just-winners entry still contributes to roundSummary
 
-- **GIVEN** a batch of two reveal entries where at least one is stamped `revealResponses: "just-winners"`
+- **GIVEN** a batch of two reveal entries, one stamped `revealResponses: "just-winners"`, where U1 answered both (correct on the just-winners one)
 - **WHEN** `process_reveal_answers` returns the payload
-- **THEN** the top-level `roundSummary` field is entirely absent
+- **THEN** the top-level `roundSummary` field is present
+- **AND** U1's `roundSummary.perPlayer` entry counts the `"just-winners"` question in both `answered` and `correct`
 
 ### Requirement: Reveal flow edits each processed question's original message
 

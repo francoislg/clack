@@ -313,8 +313,8 @@ describe("PROCESS_REVEAL_INSTRUCTIONS — multi-question branch", () => {
     assert.match(PROCESS_REVEAL_INSTRUCTIONS, /≤ 2 short sentences/);
   });
 
-  it("single-question branch still drives the This Round row from roundSummary", () => {
-    assert.match(PROCESS_REVEAL_INSTRUCTIONS, /still drives the `This Round` leaderboard row/);
+  it("single-question branch always drives the This Round row from roundSummary", () => {
+    assert.match(PROCESS_REVEAL_INSTRUCTIONS, /always drives the `This Round` leaderboard row/);
   });
 });
 
@@ -407,10 +407,14 @@ describe("PROCESS_REVEAL_INSTRUCTIONS — renderer brief", () => {
     assert.doesNotMatch(PROCESS_REVEAL_INSTRUCTIONS, /multi-react voters/);
   });
 
-  it("describes roundSummary as OPTIONAL, omitted when any entry is non-'yes'", () => {
-    assert.match(PROCESS_REVEAL_INSTRUCTIONS, /roundSummary[^.]*OPTIONAL/);
-    assert.match(PROCESS_REVEAL_INSTRUCTIONS, /OMITTED/);
-    assert.match(
+  it("describes roundSummary as ALWAYS present and mode-independent", () => {
+    assert.match(PROCESS_REVEAL_INSTRUCTIONS, /roundSummary[^.]*ALWAYS present/);
+    assert.match(PROCESS_REVEAL_INSTRUCTIONS, /INDEPENDENT of `revealResponses`/);
+    // The render gate is an empty perPlayer (nobody answered), never the mode.
+    assert.match(PROCESS_REVEAL_INSTRUCTIONS, /`perPlayer` is EMPTY/);
+    // No mode-based omission of the scoreboard survives.
+    assert.doesNotMatch(PROCESS_REVEAL_INSTRUCTIONS, /roundSummary` is OMITTED/);
+    assert.doesNotMatch(
       PROCESS_REVEAL_INSTRUCTIONS,
       /`?"just-correctness"`?,\s+`?"just-winners"`?,\s+or\s+`?"no"`?/,
     );
@@ -440,11 +444,12 @@ describe("PROCESS_REVEAL_INSTRUCTIONS — renderer brief", () => {
     assert.match(PROCESS_REVEAL_INSTRUCTIONS, /look up the entry by `userId`/);
   });
 
-  it("gates the This Round row on roundSummary presence, not reveals.length", () => {
-    // Rendered whenever roundSummary is present, for any reveal count.
-    assert.match(PROCESS_REVEAL_INSTRUCTIONS, /whenever `roundSummary` is present/);
+  it("gates the This Round row on a non-empty perPlayer, not reveals.length or reveal mode", () => {
+    // Rendered whenever perPlayer is non-empty, for any reveal count and any mode.
+    assert.match(PROCESS_REVEAL_INSTRUCTIONS, /whenever `roundSummary\.perPlayer` is non-empty/);
     assert.match(PROCESS_REVEAL_INSTRUCTIONS, /ANY reveal count/);
-    // Shares the Round Summary gate when absent.
+    assert.match(PROCESS_REVEAL_INSTRUCTIONS, /ANY reveal mode/);
+    // Shares the Round Summary gate when empty.
     assert.match(PROCESS_REVEAL_INSTRUCTIONS, /the same gate that drops the Round Summary block/);
     // No longer gated on reveals.length > 1.
     assert.doesNotMatch(

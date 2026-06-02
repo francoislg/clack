@@ -1,57 +1,66 @@
-import type { ProcessRevealEntry, RoundSummary, RoundSummaryEntry } from "./types.js";
+import type { RoundSummary, RoundSummaryEntry } from "./types.js";
+
+/** One scored answer to a revealed question — already cheater/bot/pending-filtered by the caller. */
+export interface RoundAnswer {
+  questionId: string;
+  userId: string;
+  correct: boolean;
+}
 
 /**
- * Compute the per-fire round summary from a list of `ProcessRevealEntry`s.
+ * Compute the per-fire round scoreboard — a per-player AGGREGATE, never
+ * individual per-question responses.
  *
- * - `correct` counts reveals where the player appears in `voters.correct`.
- * - `answered` counts reveals where the player appears in either `correct`
- *   or `incorrect` (named-bucket presence). The `noAnswer` and `reactions`
- *   buckets track reactor-only participation and don't count as "answered."
- * - Reveal entries whose `voters.revealResponses` is `"no"` or `"just-winners"`
- *   carry no `incorrect` named bucket — they contribute zero to every player's
- *   tallies (which is the point of the restricted modes; we don't have the
- *   per-player data to tally). These batches never surface the summary anyway.
- * - Players with `answered === 0` are omitted from the result.
+ * It is derived from the scored answers (the same source of truth as the
+ * cumulative leaderboard), NOT from the reveal payload's `voters`. This keeps
+ * it INDEPENDENT of `revealResponses`, which strictly governs per-question
+ * display verbosity (who is named on each reveal) and has nothing to do with
+ * the scoreboard. The scoreboard is shown every round regardless of mode.
+ *
+ * - `correct` counts revealed questions the player answered correctly.
+ * - `answered` counts revealed questions the player submitted a scored answer
+ *   to (correct or incorrect). Reactors-who-didn't-answer don't count.
+ * - Cheaters/bot/pending rows are excluded UPSTREAM (caller filters with
+ *   `isScoredAnswer`) — cheating handling is orthogonal to the reveal.
+ * - Players with `answered === 0` are omitted.
  * - Sorted by `correct` descending, then `displayName` ascending
  *   (case-insensitive, locale-sensitive comparison).
  * - `roundMvp: true` is set on every player tied for the highest `correct`
- *   value in the result, IFF that highest value is > 0.
- *
- * Callers gate the field's presence on the result: the round summary should
- * only be surfaced when ALL reveal entries in the batch are
- * `revealResponses === "yes"` (mixed-mode batches lose the field entirely).
+ *   value, IFF that highest value is > 0.
  */
-export function computeRoundSummary(reveals: ProcessRevealEntry[]): RoundSummary {
-  const byUser = new Map<string, { displayName: string; correct: number; answered: number }>();
-  const seenInThisReveal = new Set<string>();
+export function computeRoundSummary(
+  revealedQuestionIds: readonly string[],
+  scoredAnswers: readonly RoundAnswer[],
+  displayNameFor: (userId: string) => string,
+): RoundSummary {
+  const revealed = new Set(revealedQuestionIds);
 
-  for (const reveal of reveals) {
-    seenInThisReveal.clear();
-    const buckets = reveal.voters;
-    if (buckets.revealResponses === "no" || buckets.revealResponses === "just-winners") continue;
-    const { correct, incorrect } = buckets;
-
-    const noteAnswered = (userId: string, displayName: string): void => {
-      const existing = byUser.get(userId);
-      if (existing === undefined) {
-        byUser.set(userId, { displayName, correct: 0, answered: 1 });
-      } else if (!seenInThisReveal.has(userId)) {
-        existing.answered += 1;
-      }
-      seenInThisReveal.add(userId);
-    };
-
-    for (const v of correct) {
-      noteAnswered(v.userId, v.displayName);
-      const entry = byUser.get(v.userId);
-      if (entry !== undefined) entry.correct += 1;
+  // Dedupe per (question, user) so a stray duplicate row can't double-count;
+  // a question is "correct" for a user if any of their scored rows is correct.
+  const perQuestion = new Map<string, Map<string, boolean>>();
+  for (const a of scoredAnswers) {
+    if (!revealed.has(a.questionId)) continue;
+    let users = perQuestion.get(a.questionId);
+    if (users === undefined) {
+      users = new Map<string, boolean>();
+      perQuestion.set(a.questionId, users);
     }
-    for (const v of incorrect) noteAnswered(v.userId, v.displayName);
+    users.set(a.userId, (users.get(a.userId) ?? false) || a.correct);
+  }
+
+  const byUser = new Map<string, { correct: number; answered: number }>();
+  for (const users of perQuestion.values()) {
+    for (const [userId, isCorrect] of users) {
+      const tally = byUser.get(userId) ?? { correct: 0, answered: 0 };
+      tally.answered += 1;
+      if (isCorrect) tally.correct += 1;
+      byUser.set(userId, tally);
+    }
   }
 
   const entries: RoundSummaryEntry[] = [];
-  for (const [userId, { displayName, correct, answered }] of byUser) {
-    entries.push({ userId, displayName, correct, answered });
+  for (const [userId, { correct, answered }] of byUser) {
+    entries.push({ userId, displayName: displayNameFor(userId), correct, answered });
   }
 
   entries.sort((a, b) => {
@@ -69,5 +78,5 @@ export function computeRoundSummary(reveals: ProcessRevealEntry[]): RoundSummary
     }
   }
 
-  return { totalQuestions: reveals.length, perPlayer: entries };
+  return { totalQuestions: revealedQuestionIds.length, perPlayer: entries };
 }
