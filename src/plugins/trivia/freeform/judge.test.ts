@@ -116,8 +116,9 @@ describe("parseSingleVerdict", () => {
 
 describe("judgeAnswer", () => {
   it("returns the verdict on the first clean response", async () => {
+    // "Lyon" is not the expected answer, so it falls through to the model path.
     const ask = scriptedAskClaude([JSON.stringify({ correct: true })]);
-    const v = await judgeAnswer(ask, makeQuestion({}), "Paris");
+    const v = await judgeAnswer(ask, makeQuestion({}), "Lyon");
     assert.equal(v.correct, true);
   });
 
@@ -138,6 +139,52 @@ describe("judgeAnswer", () => {
       () => judgeAnswer(ask, makeQuestion({}), "London", { maxAttempts: 3 }),
       /no usable verdict after 3 attempts/,
     );
+  });
+});
+
+describe("judgeAnswer exact-match short-circuit", () => {
+  /** An `askClaude` that fails the test if the model is ever consulted. */
+  const askThatMustNotRun: ClackSdk["askClaude"] = async () => {
+    throw new Error("askClaude should not be called for an exact match");
+  };
+
+  it("accepts an exact canonical answer without calling the model", async () => {
+    const v = await judgeAnswer(askThatMustNotRun, makeQuestion({}), "Paris");
+    assert.deepEqual(v, { correct: true, reason: "exact-match" });
+  });
+
+  it("accepts a case- and whitespace-variant match without calling the model", async () => {
+    const v = await judgeAnswer(
+      askThatMustNotRun,
+      makeQuestion({ expectedAnswer: "The Roman Empire" }),
+      "  the   ROMAN empire ",
+    );
+    assert.deepEqual(v, { correct: true, reason: "exact-match" });
+  });
+
+  it("accepts a match against an acceptable variant without calling the model", async () => {
+    const v = await judgeAnswer(
+      askThatMustNotRun,
+      makeQuestion({ expectedAnswer: "New York City", acceptableAnswers: ["NYC", "New York"] }),
+      "nyc",
+    );
+    assert.deepEqual(v, { correct: true, reason: "exact-match" });
+  });
+
+  it("falls through to the model when the answer is not an exact match", async () => {
+    let calls = 0;
+    const ask: ClackSdk["askClaude"] = async () => {
+      calls++;
+      return {
+        text: JSON.stringify({ correct: true }),
+        stopReason: "end_turn",
+        usage: { inputTokens: 0, outputTokens: 0 },
+      };
+    };
+    const v = await judgeAnswer(ask, makeQuestion({}), "Tokyo, Japan");
+    assert.equal(calls, 1);
+    assert.equal(v.correct, true);
+    assert.equal(v.reason, undefined);
   });
 });
 
