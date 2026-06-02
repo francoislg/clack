@@ -8,6 +8,7 @@ import {
   loadTriviaConfig,
 } from "../../core/configBridge.js";
 import { parseToolResult } from "../../../../tools/testHelpers.js";
+import { createInMemoryDataLayer } from "../../testHelpers.js";
 import type { ClackSdk } from "../../../sdk.js";
 import type { TriviaConfig, TriviaGame } from "../../core/configTypes.js";
 
@@ -688,5 +689,54 @@ describe("upsert_game — judgeLeniency", () => {
     );
     assert.equal(cleared.hasJudgeLeniency, false);
     assert.equal(loadTriviaConfig()?.games?.[0]?.judgeLeniency, undefined);
+  });
+});
+
+describe("upsert_game — shadowing detection", () => {
+  const DAY = 24 * 60 * 60 * 1000;
+
+  beforeEach(() => {
+    _resetTriviaConfigBridge();
+  });
+
+  it("reports season shadowing of a written axis field", async () => {
+    primeBridge({ games: [baseGame] });
+    const data = createInMemoryDataLayer();
+    const now = Date.now();
+    await data.forGame("main").saveSeasonsState({
+      seasons: [
+        {
+          slug: "active",
+          startedAt: now - DAY,
+          expectedEndAt: now + DAY,
+          answersFormat: { boolean: 1, choice: 0, freeform: 0 },
+        },
+      ],
+    });
+    const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? [], data);
+    const result = parseToolResult(
+      await tool.handler(
+        args({ name: "main", answersFormat: { boolean: 0, choice: 1, freeform: 0 } }),
+        SESSION,
+      ),
+    );
+    assert.deepEqual(result.shadowedBy, {
+      tier: "season",
+      slug: "active",
+      fields: ["answersFormat"],
+    });
+  });
+
+  it("omits shadowedBy when no active season overrides the written field", async () => {
+    primeBridge({ games: [baseGame] });
+    const data = createInMemoryDataLayer();
+    const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? [], data);
+    const result = parseToolResult(
+      await tool.handler(
+        args({ name: "main", answersFormat: { boolean: 0, choice: 1, freeform: 0 } }),
+        SESSION,
+      ),
+    );
+    assert.equal(result.shadowedBy, undefined);
   });
 });

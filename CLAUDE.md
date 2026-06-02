@@ -197,6 +197,10 @@ A **member** is any field that resolves through the per-question (slot/season) t
 
 `resolveCascade(key, ctx, opts?)` is the single resolution path — it returns `{ value, tier, ladder }` (the winning tier is `"merged"` for multi-tier custom merges). Both production consumers call it: `get_ideas` (the 11 generation axes) and `post_questions` (`liveAnswersVisible`/`revealResponses`). The `explain_cascade` MCP tool (member-gated) audits any `(game, slot)` coordinate through the same function, so the audit cannot drift from runtime. `list_games` projects `axisOverrides`/`workspaceDefaults` from `AXIS_KEYS`, so every axis surfaces automatically. **To add a new cascade axis, the only required touch-points are `CascadeAxes` + `AXIS_REGISTRY`** (plus a per-axis validator if config-settable); the parity test fails until the parser accepts it.
 
+**The `slot` tier reads from the EFFECTIVE format.** `buildCascadeContext(season, game, slotIndex, config)` (`domain/cascadeContext.ts`) is the ONE place that builds `CascadeContext.slot`, used by `get_ideas`, `post_questions`, and `explain_cascade`. The slot comes from `resolveEffectiveFormat(season, game)` = `season.format ?? game.format`, so a game-format slot's per-question axis overrides take effect when the game format is the active one (when a season format is active it replaces the game format wholesale — a single slot source, not a 6-tier chain).
+
+**Game-authoritative writes.** The game tier is the source of truth; a season holds only intentional deltas (omit-to-inherit, null-to-clear). `upsert_game` returns `shadowedBy: { tier: "season" | "slot", slug?, fields }` (`domain/shadowing.ts`) when a written field is masked by a higher tier — Claude surfaces it and offers to clear the season override so the edit falls through. The admin instruction defaults every edit to the game tier; seasons are written only when explicitly scoped.
+
 ### Migrations
 
 Numbered migrations in `src/migrations/`. Two priorities: `blocking` (run before startup) and `enhancement` (run in background, Claude-powered). Version tracked in `data/state/migration-version.json`. Use `/create-migration` to scaffold new migrations.
