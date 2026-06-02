@@ -20,9 +20,12 @@ import {
   validateNoOverlap,
 } from "../../core/seasonTimeline.js";
 import {
-  PROCESS_REVEAL_INSTRUCTIONS,
+  buildProcessRevealInstructions,
   CREATE_SCHEDULES_INSTRUCTIONS,
 } from "../../prompts/scheduledPrompts.js";
+
+// Reveal prompt is now a builder; EN-fallback render (no `setTriviaT`) for structural assertions.
+const PROCESS_REVEAL_INSTRUCTIONS = buildProcessRevealInstructions();
 import { getTriviaCheckInstruction } from "../../prompts/triviaCheckInstruction.js";
 import type { TriviaDataLayer, SeasonEntry } from "../../core/types.js";
 

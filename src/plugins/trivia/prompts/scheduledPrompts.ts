@@ -4,6 +4,8 @@
  * receives when the matching tool is invoked.
  */
 
+import { t } from "../i18n/t.js";
+
 /**
  * Reference line that replaces the previous inlined `GAME_SHOW_PERSONA` constant. The
  * persona, reveal tone, and season-finale tone now live in the `trivia` topic instructions
@@ -54,7 +56,7 @@ ADMIN GUIDANCE — when get_ideas returns \`instructions\` and/or \`additionalIn
    - These rules are NOT visible to viewers in the final post — they shape what you write, not what you say. Don't echo them back ("As per the admin's instruction…"). Just apply them silently.`;
 
 /**
- * Three shared gates referenced by every generation path. Printed ONCE at the top of
+ * Shared gates referenced by every generation path. Printed ONCE at the top of
  * `PER_SLOT_GENERATION_PATHS`; each path's step says "apply the X GATE" instead of
  * restating the body. Done to shrink the rendered prompt without losing nuance.
  */
@@ -96,6 +98,15 @@ const HINT_DRAFTING_GATE = `HINT DRAFTING GATE (shared across all paths — invo
      3. REWRITE IF BAD: if the draft fails self-review, rewrite as a softer semantic-neighborhood nudge and re-review. Retry budget: 2 rewrites.
      4. OMIT IF NO USEFUL NUDGE EXISTS: if after the rewrites you still can't produce a hint that nudges without revealing, OMIT the \`hint\` field on \`save_question\` — better no hint than a hint that gives the answer away. This is an acceptable outcome, not a failure.
      5. PASS TO save_question: when the hint passes self-review, include \`hint: { mode: suggestedHintMode, text: "<final text>" }\` in the save call. The \`mode\` MUST equal the \`suggestedHintMode\` returned by \`get_ideas\`.`;
+
+const EMOJI_SELECTION_GATE = `EMOJI SELECTION GATE (shared across all paths — invoke whenever a path step says "apply the EMOJI SELECTION GATE"):
+   The \`emojis\` you pick render into the card title at QUESTION time as \`<emoji> <Category>\` — BEFORE anyone votes. They decorate the CATEGORY, nothing more. So pick emojis for the category, never for the answer or the question's specific subject.
+   - HARD CONSTRAINT: no emoji may depict, encode, or hint at the answer or the specific thing the question is about. A topic-literal emoji that lets a player read the answer off the card is a SPOILER and is forbidden.
+     - ❌ "What colors are on Ecuador's flag?" → 🇪🇨 (the flag literally shows the colors)
+     - ❌ "What's the fastest land animal?" → 🐆 (names the answer)
+     - ❌ "How many sides does a stop sign have?" → 🛑 (the octagon reveals the count)
+   - DO: stay at the CATEGORY level or go generic — 🌍 / 🏳️ for a geography/flag question, 🐾 for an animal question, 🪧 for a road-sign question. Same principle the visual paths already apply to \`media.altText\` ("a national flag", not "the flag of Ecuador").
+   - Quick self-check before saving: "Could a player narrow down or read the answer off any of these emojis?" If yes for any emoji, swap it for a category-level or generic one.`;
 
 /**
  * Shared step sequence for generating a new FACT-typed boolean trivia question.
@@ -145,7 +156,7 @@ const QUESTION_FLOW_STEPS = `1. GET CATEGORY IDEAS AND SUGGESTIONS:
 
 6. DIFFICULTY RATING: apply the DIFFICULTY GATE (shared definition above) — BOOLEAN reframe rule applies (re-run the POLARITY SELF-CHECK from step 3 on any reframed statement before re-rating).
 
-7. Choose fun emojis that relate to the topic.
+7. Choose 1-4 emojis: apply the EMOJI SELECTION GATE (shared definition above).
 
 8. HINT (optional): apply the HINT DRAFTING GATE (shared definition above). When \`suggestedHintMode\` is non-\`"none"\`, the gate produces an optional \`hint\` field to include in the save_question call below.
 
@@ -200,7 +211,7 @@ const CHOICE_FLOW_STEPS = `1. GET CATEGORY IDEAS AND SUGGESTIONS:
 
 5. DIFFICULTY GATE: apply the DIFFICULTY GATE (shared definition above) — CHOICE reframe rule applies (correct answer's POSITION stays LOCKED at \`suggestedCorrectIndex\` during reframe; rewrite only the question text or distractors).
 
-6. Choose 1-4 fun emojis that relate to the topic.
+6. Choose 1-4 emojis: apply the EMOJI SELECTION GATE (shared definition above).
 
 7. HINT (optional): apply the HINT DRAFTING GATE (shared definition above). When \`suggestedHintMode\` is non-\`"none"\`, the gate produces an optional \`hint\` field to include in the save_question call below.
 
@@ -306,7 +317,7 @@ const FREEFORM_FACT_FLOW_STEPS = `1. GET CATEGORY IDEAS AND SUGGESTIONS:
 
 7. DIFFICULTY GATE: apply the DIFFICULTY GATE (shared definition above) — FREEFORM reframe rule applies (canonical \`expectedAnswer\` may need updating if the reframe changes what the question is asking about).
 
-8. Choose 1-4 fun emojis.
+8. Choose 1-4 emojis: apply the EMOJI SELECTION GATE (shared definition above).
 
 9. HINT (optional): apply the HINT DRAFTING GATE (shared definition above). When \`suggestedHintMode\` is non-\`"none"\`, the gate produces an optional \`hint\` field to include in the save_question call below.
 
@@ -407,7 +418,7 @@ const VISUAL_CHOICE_FLOW_STEPS = `1. Run the VISUAL RESEARCH SUBFLOW (shared def
 3. DISTRACTOR PLAUSIBILITY GATE (shared definition above — same four conditions; rewrite ONLY distractors, never the correct title at suggestedCorrectIndex).
 4. Apply the IMAGE-IS-QUESTION GATE (shared definition above), then the VISUAL VERIFIABILITY GATE (shared definition above).
 5. DIFFICULTY GATE (shared definition above) — CHOICE reframe rule (correct POSITION locked at suggestedCorrectIndex). (Dedup is handled by \`find_previous_subjects\` inside the subflow — do NOT also run the text DUPLICATE CHECK GATE here; the templated "Which … is shown?" prompt would false-positive against every prior visual question.)
-6. Choose 1–4 emojis. Compose \`media.altText\` — an accessibility description of the image that does NOT reveal the answer (describe generically, e.g. "a national flag" not "the flag of Ecuador").
+6. Choose 1–4 emojis: apply the EMOJI SELECTION GATE (shared definition above). Compose \`media.altText\` — an accessibility description of the image that does NOT reveal the answer (describe generically, e.g. "a national flag" not "the flag of Ecuador").
 7. HINT (optional): apply the HINT DRAFTING GATE (shared definition above).
 8. SAVE: call save_question with \`promptMedium: "image"\`, \`answersFormat: "choice"\`, \`questionType: "fact"\`, category, statement, choices, correctIndex (= suggestedCorrectIndex), \`media: { kind: "image", url: <imageUrl>, altText, subjectId, title, license?, attribution? }\`, emojis, suggestedDifficulty, difficulty, context?, hint?, slot?. Store the returned questionId AND slot.index for the post step.`;
 
@@ -420,7 +431,7 @@ const VISUAL_BOOLEAN_FLOW_STEPS = `1. Run the VISUAL RESEARCH SUBFLOW (shared de
 4. DUAL DEDUP CHECK (REQUIRED for image+boolean only): the subflow already ran \`find_previous_subjects\`. ADDITIONALLY apply the DUPLICATE CHECK GATE (shared definition above) against the CLAIM TEXT — an image+boolean claim ("This is the flag of Ecuador") can recur with a different image, so the claim must also be unique. Re-roll if EITHER check hits. (Image+choice and image+freeform do NOT use this dual-check — only image+boolean.)
 5. Apply the IMAGE-IS-QUESTION GATE (shared definition above), then the VISUAL VERIFIABILITY GATE (shared definition above).
 6. DIFFICULTY GATE (shared definition above) — BOOLEAN reframe rule (re-run the POLARITY SELF-CHECK on any reframe).
-7. Choose 1–4 emojis. Compose \`media.altText\` (generic; never reveal the answer).
+7. Choose 1–4 emojis: apply the EMOJI SELECTION GATE (shared definition above). Compose \`media.altText\` (generic; never reveal the answer).
 8. HINT (optional): apply the HINT DRAFTING GATE (shared definition above).
 9. SAVE: call save_question with \`promptMedium: "image"\`, \`answersFormat: "boolean"\`, \`questionType: "fact"\`, category, statement, isTrue (= suggestedAnswer), \`media: { kind: "image", url: <imageUrl>, altText, subjectId, title, license?, attribution? }\`, emojis, suggestedDifficulty, difficulty, context?, hint?, slot?. Store the returned questionId AND slot.index.`;
 
@@ -429,7 +440,7 @@ const VISUAL_FREEFORM_FLOW_STEPS = `1. Run the VISUAL RESEARCH SUBFLOW (shared d
    COUNTABLE-SHAPE WARNING: when \`suggestedFreeformAnswerShape\` is \`"countable"\`, do NOT ask the player to COUNT things visible in the image ("how many colors / spots / people / windows / strings" — those are read straight off the picture and fail the VISUAL VERIFIABILITY GATE). Instead, FIRST identify the subject, then ask a count the player must KNOW and that is NOT visible in the frame ("How many moons does this planet have?" shown Jupiter; "How many official languages does this country have?" shown a flag). If the identified subject has no such known, off-frame count, ABANDON the countable framing and write a plain identification prompt ("What animal is this?") instead — the shape is a nudge, not a mandate.
 3. Apply the IMAGE-IS-QUESTION GATE (shared definition above), then the VISUAL VERIFIABILITY GATE (shared definition above). (Dedup is handled by \`find_previous_subjects\` inside the subflow — do NOT run the text DUPLICATE CHECK GATE; the templated prompt would false-positive.)
 4. DIFFICULTY GATE (shared definition above) — FREEFORM reframe rule.
-5. Choose 1–4 emojis. Compose \`media.altText\` (generic; never reveal the answer).
+5. Choose 1–4 emojis: apply the EMOJI SELECTION GATE (shared definition above). Compose \`media.altText\` (generic; never reveal the answer).
 6. HINT (optional): apply the HINT DRAFTING GATE (shared definition above).
 7. SAVE: call save_question with \`promptMedium: "image"\`, \`answersFormat: "freeform"\`, \`questionType: "fact"\`, category, statement, expectedAnswer, acceptableAnswers?, gradingNotes?, freeformAnswerShape (= suggestedFreeformAnswerShape), \`media: { kind: "image", url: <imageUrl>, altText, subjectId, title, license?, attribution? }\`, emojis, suggestedDifficulty, difficulty, context?, hint?, slot?. Store the returned questionId AND slot.index.`;
 
@@ -461,6 +472,8 @@ ${DIFFICULTY_GATE}
 ${STATEMENT_CHOICES_NON_OVERLAP_GATE}
 
 ${HINT_DRAFTING_GATE}
+
+${EMOJI_SELECTION_GATE}
 
 === BOOLEAN PATH BODY (per question / per slot) ===
 
@@ -710,8 +723,17 @@ ${FORMAT_AND_POST_SECTION}`;
  *
  * Seasons-specific rendering is driven by the payload's `seasonStatus` field;
  * the prompt is identical regardless of `trivia.seasons.enabled`.
+ *
+ * Built as a function (not a top-level `const`) because its leaderboard row labels
+ * and season-finale podium labels are localized via the plugin translator `t()`,
+ * which is wired to the workspace language by `setTriviaT(sdk.t)` at plugin init.
+ * Evaluating at call time (from `buildGameSpecs`, post-init) picks up the configured
+ * language; the EN dictionary values equal the prior literals, so English output is
+ * byte-stable. Free prose (closers, transitions, verdicts) still relies on the
+ * LANGUAGE directive — only the dictated structural labels are pre-localized here.
  */
-export const PROCESS_REVEAL_INSTRUCTIONS = `${PERSONA_TOPIC_REFERENCE}
+export function buildProcessRevealInstructions(): string {
+  return `${PERSONA_TOPIC_REFERENCE}
 
 ${GAME_CONTEXT_DIRECTIVE}
 
@@ -810,8 +832,8 @@ Deliver today's trivia reveal. There are exactly TWO steps — the deterministic
    On the season's LAST fire, REPLACE the normal closer + leaderboard table with this dedicated finale. The verdict blocks above (header, explanation, per-question verdicts, Round Summary) render exactly as on any reveal; only the closer + \`table\` are swapped for the sequence below. "pts" everywhere means \`currentSeasonCorrect\` (no separate scoring concept).
 
    1. TRANSITION \`section\` — introduce the winners in the SEASON-FINALE TONE from the \`trivia\` topic (e.g. "🏆 *And now — your season champions!*").
-   2. SEASON WINNERS PODIUM — ONE \`section\` (mrkdwn) listing the FINAL current-season standings as a ranked vertical list. Rank by DISTINCT \`currentSeasonCorrect\` value: the top distinct value is \`🥇 First place\`, the 2nd \`🥈 Second place\`, the 3rd \`🥉 Third place\`. Players TIED on a value SHARE that place and medal (e.g. "🥇 *First place:* <@U_A> & <@U_B> — 18 pts"). Name each with \`<@USERID>\` and their pts. OMIT players with zero current-season participation.
-   3. PARTICIPATION TAIL — ONE \`section\` line listing every remaining participant (everyone below the top-3 distinct values) with pts, comma-separated, e.g. "*Participation:* 🎀 <@U_D> (8 pts), <@U_E> (5 pts)". The player(s) at the 4th distinct value carry the \`🎀\` ribbon; the rest are plain. Omit zero-participation players. If nobody falls below the podium, skip this line.
+   2. SEASON WINNERS PODIUM — ONE \`section\` (mrkdwn) listing the FINAL current-season standings as a ranked vertical list. Rank by DISTINCT \`currentSeasonCorrect\` value: the top distinct value is \`🥇 ${t("leaderboard.first_place")}\`, the 2nd \`🥈 ${t("leaderboard.second_place")}\`, the 3rd \`🥉 ${t("leaderboard.third_place")}\`. Players TIED on a value SHARE that place and medal (e.g. "🥇 *${t("leaderboard.first_place")}:* <@U_A> & <@U_B> — 18 pts"). Name each with \`<@USERID>\` and their pts. OMIT players with zero current-season participation. Use the place labels EXACTLY as written here (already in the output language) — do NOT translate or re-word them.
+   3. PARTICIPATION TAIL — ONE \`section\` line listing every remaining participant (everyone below the top-3 distinct values) with pts, comma-separated, e.g. "*${t("leaderboard.participation")}:* 🎀 <@U_D> (8 pts), <@U_E> (5 pts)". The player(s) at the 4th distinct value carry the \`🎀\` ribbon; the rest are plain. Omit zero-participation players. If nobody falls below the podium, skip this line.
    4. ALL-TIME TABLE — set the \`table\` parameter as a standalone all-time scoreboard ONLY when \`seasonStatus.hasPriorSeasons === true\` AND \`showAllTimeRow !== false\`. Introduce it with a one-line \`section\` ("And the all-time leaderboard:"). The table is a names-header row + an \`All Time\` row of \`String(totalCorrect)\`, columns ordered by \`totalCorrect\` descending, medaled by the DENSE-RANK MEDAL RULE below. When the gate fails — a single season (\`hasPriorSeasons\` false, where All Time would just duplicate the podium) OR \`showAllTimeRow\` is false (e.g. \`allTimeRow: "never"\`) — OMIT the \`table\` entirely.
    5. \`context\` CLOSER — e.g. "Thanks for playing — see you next season! 🎉". Do NOT preview the next season's slug even when \`seasonStatus.newSeasonStarted\` is present, and do NOT predict timing. The in-tool rollover already stamped the closing season's \`endedAt\` (and may have started a continuation) before returning — do NOT call \`upsert_season\` as a follow-up.
 
@@ -830,10 +852,11 @@ Deliver today's trivia reveal. There are exactly TWO steps — the deterministic
 
    STEP 3 — THE ROWS are ADDITIVE (each present or absent independently; all share the STEP-1 column order):
    - NAMES HEADER (always): top-left label cell of a single space \`" "\` (Slack rejects empty \`""\` cells with \`invalid_blocks\`), then one \`displayName\` cell per column, NO medals. EXCEPTION — the seasons-off no-\`This Round\` case (below) uses a compact 2-row shape with NO label column, so its names row has no leading label cell.
-   - \`This Round\` (TOP data row, whenever \`roundSummary\` is present — ANY reveal count, single- or multi-question): label \`"This Round"\`; each cell is \`String(correct)\` from \`roundSummary.perPlayer\` (looked up by \`userId\`), or the literal em-dash \`"—"\` for a columned player absent from \`perPlayer\`. OMITTED when \`roundSummary\` is absent (any entry is \`"just-correctness"\`/\`"just-winners"\`/\`"no"\` — the same gate that drops the Round Summary block).
-   - \`Current Season\` (seasons ON, ALWAYS — the anchor row): label \`"Current Season"\`; each cell \`String(currentSeasonCorrect)\`.
-   - \`All Time\` (seasons ON, ONLY when \`seasonStatus.hasPriorSeasons === true\` AND \`showAllTimeRow !== false\`): label \`"All Time"\`; each cell \`String(totalCorrect)\`. \`showAllTimeRow\` is the tool's resolved \`allTimeRow\` decision — when the field is ABSENT, treat it as \`true\`. OMIT this row when \`hasPriorSeasons\` is false (one season makes "All Time" redundant with "Current Season") or when \`showAllTimeRow\` is false (e.g. the default \`"end-of-season-only"\` on a non-finale day).
-   - SEASONS-OFF totals (\`seasonStatus\` ABSENT — no Current Season / All Time split): render ONE totals row of \`String(totalCorrect)\`. When a \`This Round\` row is present, label both rows (\`"This Round"\` / \`"All Time"\`) WITH a leading label column; when \`This Round\` is absent, use the compact 2-row shape (names + scores, NO label column).
+   - \`This Round\` (TOP data row, whenever \`roundSummary\` is present — ANY reveal count, single- or multi-question): label \`"${t("leaderboard.this_round")}"\`; each cell is \`String(correct)\` from \`roundSummary.perPlayer\` (looked up by \`userId\`), or the literal em-dash \`"—"\` for a columned player absent from \`perPlayer\`. OMITTED when \`roundSummary\` is absent (any entry is \`"just-correctness"\`/\`"just-winners"\`/\`"no"\` — the same gate that drops the Round Summary block).
+   - \`Current Season\` (seasons ON, ALWAYS — the anchor row): label \`"${t("leaderboard.current_season")}"\`; each cell \`String(currentSeasonCorrect)\`.
+   - \`All Time\` (seasons ON, ONLY when \`seasonStatus.hasPriorSeasons === true\` AND \`showAllTimeRow !== false\`): label \`"${t("leaderboard.all_time")}"\`; each cell \`String(totalCorrect)\`. \`showAllTimeRow\` is the tool's resolved \`allTimeRow\` decision — when the field is ABSENT, treat it as \`true\`. OMIT this row when \`hasPriorSeasons\` is false (one season makes "All Time" redundant with "Current Season") or when \`showAllTimeRow\` is false (e.g. the default \`"end-of-season-only"\` on a non-finale day).
+   - SEASONS-OFF totals (\`seasonStatus\` ABSENT — no Current Season / All Time split): render ONE totals row of \`String(totalCorrect)\`. When a \`This Round\` row is present, label both rows (\`"${t("leaderboard.this_round")}"\` / \`"${t("leaderboard.all_time")}"\`) WITH a leading label column; when \`This Round\` is absent, use the compact 2-row shape (names + scores, NO label column).
+   - LABEL CELLS ARE PRE-LOCALIZED. The row-label cells above (and in the examples below) are already rendered in the session's output language — use them EXACTLY as written. Do NOT translate, re-word, or substitute English equivalents. The medal glyphs, \`String(...)\` numbers, em-dash \`"—"\`, and the single-space \`" "\` header cell are language-neutral and stay as-is.
 
    DENSE-RANK MEDAL RULE — applied to EACH medaled row INDEPENDENTLY (\`This Round\`, \`Current Season\`, \`All Time\`, the seasons-off totals row, AND the finale podium/all-time table). Rank by DISTINCT value, descending: the 1st distinct value gets \`"🥇 "\`, the 2nd \`"🥈 "\`, the 3rd \`"🥉 "\`, the 4th \`"🎀 "\`. EVERY cell holding a value gets that value's medal — TIES SHARE (two players at the top value BOTH get \`"🥇 "\`). Cells with value \`0\`, em-dash cells, and absent players receive NO medal — never, not even to fill an otherwise-empty top-4 slot. Fewer than 4 distinct values → medal only the distinct values that exist. Use the Unicode glyphs, NOT \`:first_place_medal:\`/\`:ribbon:\` shortcodes (shortcodes render as literal text inside table cells).
 
@@ -847,9 +870,9 @@ Deliver today's trivia reveal. There are exactly TWO steps — the deterministic
        "type": "table",
        "rows": [
          [" ",              "Alice",   "Bob",     "Carol",  "Dave"],
-         ["This Round",     "🥇 3",    "🥇 3",    "🥈 1",   "0"   ],
-         ["Current Season", "🥉 5",    "🥇 12",   "🎀 3",   "🥈 8"],
-         ["All Time",       "🥈 9",    "🥇 30",   "🎀 4",   "🥉 6"]
+         ["${t("leaderboard.this_round")}",     "🥇 3",    "🥇 3",    "🥈 1",   "0"   ],
+         ["${t("leaderboard.current_season")}", "🥉 5",    "🥇 12",   "🎀 3",   "🥈 8"],
+         ["${t("leaderboard.all_time")}",       "🥈 9",    "🥇 30",   "🎀 4",   "🥉 6"]
        ],
        "column_settings": [
          { "align": "center" }, { "align": "center" }, { "align": "center" }, { "align": "center" }, { "align": "center" }
@@ -863,8 +886,8 @@ Deliver today's trivia reveal. There are exactly TWO steps — the deterministic
    \`\`\`
    { "table": { "type": "table", "rows": [
        [" ",              "Alice",  "Bob"],
-       ["This Round",     "🥇 2",   "🥈 1"],
-       ["Current Season", "🥇 5",   "🥈 3"]
+       ["${t("leaderboard.this_round")}",     "🥇 2",   "🥈 1"],
+       ["${t("leaderboard.current_season")}", "🥇 5",   "🥈 3"]
      ], "column_settings": [ { "align": "center" }, { "align": "center" }, { "align": "center" } ] } }
    \`\`\`
 
@@ -872,8 +895,8 @@ Deliver today's trivia reveal. There are exactly TWO steps — the deterministic
    \`\`\`
    { "table": { "type": "table", "rows": [
        [" ",          "Alice",  "Bob"],
-       ["This Round", "🥇 2",   "🥈 1"],
-       ["All Time",   "🥇 11",  "🥈 8"]
+       ["${t("leaderboard.this_round")}", "🥇 2",   "🥈 1"],
+       ["${t("leaderboard.all_time")}",   "🥇 11",  "🥈 8"]
      ], "column_settings": [ { "align": "center" }, { "align": "center" }, { "align": "center" } ] } }
    \`\`\`
    \`\`\`
@@ -888,6 +911,7 @@ Deliver today's trivia reveal. There are exactly TWO steps — the deterministic
 Slack mechanics: mention users with \`<@USERID>\`; \`*bold*\` does NOT render inside \`plain_text\` headers (emojis do); use mrkdwn sparingly elsewhere — emoji and energy do most of the work.
 
 NEVER predict timing — no "see you tomorrow", "next reveal in 24 hours", or similar. The next fire is on a separate schedule you have no visibility into.`;
+}
 
 /**
  * Legacy manual-setup template. Used by admins setting up trivia via Claude chat

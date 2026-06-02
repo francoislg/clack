@@ -137,6 +137,27 @@ The prompt SHALL NOT instruct Claude to render the legacy block #4 ("👍 TRUE �
 - **THEN** the returned text notes that Slack truncates button labels around 75 characters and instructs Claude to keep choice text concise
 - **AND** notes that the card body carries the full statement so any visual truncation in buttons does not cause information loss
 
+### Requirement: Emoji selection non-spoiler gate
+
+The scheduled question-generation prompt SHALL define a shared **EMOJI SELECTION GATE** that constrains the `emojis` field so it never reveals the answer. The gate SHALL follow the same shared-definition pattern as the prompt's other gates (`DUPLICATE CHECK GATE`, `DIFFICULTY GATE`, `STATEMENT–CHOICES NON-OVERLAP GATE`, `HINT DRAFTING GATE`): defined once and invoked from each generation path by wording such as "apply the EMOJI SELECTION GATE (shared definition above)."
+
+The gate SHALL instruct Claude that the per-question `emojis` decorate the **category** (the card title renders `<emoji> <Category>`), and SHALL forbid any emoji that depicts the answer or the question's specific subject — e.g. a country-flag emoji on a question about that country's flag, an animal emoji whose species is the answer, or a landmark emoji that identifies the answer. When a topic-literal emoji would leak the answer, the gate SHALL direct Claude to fall back to a category-level or generic emoji (e.g. 🌍/🏳️ for a geography/flag question, not 🇪🇨). This mirrors the non-spoiler treatment already required for `media.altText` on visual questions.
+
+Every emoji-selection step across all generation paths — fact boolean, fact choice, fact freeform, and the visual choice/boolean/freeform paths — SHALL invoke this gate in place of free-form "choose emojis relating to the topic" wording.
+
+#### Scenario: Gate is defined once and referenced by every path
+
+- **WHEN** `SEND_QUESTIONS_INSTRUCTIONS` (and the staged-prep / post prompts that share the per-slot generation blocks) is assembled
+- **THEN** it contains exactly one EMOJI SELECTION GATE definition
+- **AND** each of the six emoji-selection steps (fact boolean, fact choice, fact freeform, visual choice, visual boolean, visual freeform) references that gate rather than instructing Claude to "choose emojis relating to the topic" directly
+
+#### Scenario: Gate forbids answer-revealing emojis
+
+- **WHEN** the EMOJI SELECTION GATE text is rendered into the prompt
+- **THEN** it instructs Claude that emojis decorate the category, not the answer
+- **AND** it forbids emojis that depict the answer or the question's specific subject (e.g. a country-flag emoji on a flag question)
+- **AND** it directs Claude to fall back to a category-level or generic emoji when a topic-literal emoji would leak the answer
+
 ### Requirement: Six-Way Generation Matrix
 
 The scheduled question-posting prompt SHALL dispatch on the cross product of `suggestedAnswersFormat × suggestedQuestionType`, where `suggestedAnswersFormat ∈ { "boolean", "choice", "freeform" }` and `suggestedQuestionType ∈ { "fact", "topical" }`, producing six explicit generation paths:
@@ -504,9 +525,33 @@ The block labels in the question-card layout SHALL be worded so that common admi
 - **THEN** the prompt directs Claude to apply it only to that block
 - **AND** the warm-up patter, card, and other blocks are unaffected
 
+### Requirement: Reveal leaderboard labels are localized via the trivia dictionary
+
+The reveal prompt SHALL be constructed with its leaderboard structural label tokens already rendered in the configured language, sourced from the trivia i18n dictionary (`sdk.t()` / the registered `en`/`fr` tables), NOT emitted as fixed English literals for Claude to translate. This applies to every leaderboard row-label cell the prompt dictates: `This Round`, `Current Season`, `All Time`, and the seasons-off totals labels. Because the built prompt already carries the configured language's label, Claude copies the dictated token verbatim into the Slack `table` cell — the same verbatim-copy behavior that previously leaked English now delivers the localized label.
+
+The reveal prompt SHALL therefore be produced by a builder function (evaluated at cron-reconcile time, after the plugin translator is wired) rather than being a fixed string constant for the localized portions, so its labels resolve against the configured language via the plugin translator (the same `sdk.t` surface, accessed through the plugin's module-level `t`). The worked table examples embedded in the prompt SHALL render their label cells from the same dictionary as the instruction text, so a non-English workspace's examples show the localized labels and Claude cannot anchor on English example cells.
+
+The medal glyphs (`🥇`/`🥈`/`🥉`/`🎀`), the `String(...)` numeric value cells, the em-dash `"—"`, the single-space names-header label `" "`, and player `displayName` cells are language-neutral and SHALL NOT be routed through the dictionary. Free prose around the table (closers, transitions, per-question verdicts) continues to rely on the LANGUAGE directive.
+
+When the configured language is English the dictionary values equal the prior literals (`This Round`, `Current Season`, `All Time`), so the built prompt and resulting output are byte-identical to the pre-change behavior.
+
+#### Scenario: Built reveal prompt carries localized labels in a French workspace
+
+- **GIVEN** the configured language is French
+- **WHEN** the reveal prompt is built
+- **THEN** the leaderboard row-label tokens in the prompt are the French dictionary values (e.g. `Saison en cours`, `Cumulatif`) rather than English literals
+- **AND** the worked table examples in the prompt use those same French label cells
+- **AND** the medal glyphs, numeric value cells, and em-dash cells remain unchanged
+
+#### Scenario: English workspace prompt and output are byte-stable
+
+- **GIVEN** the configured language is English
+- **WHEN** the reveal prompt is built
+- **THEN** the leaderboard row labels resolve to `This Round`, `Current Season`, and `All Time` exactly as before the change
+
 ### Requirement: Reveal table leads with This Round
 
-The `PROCESS_REVEAL_INSTRUCTIONS` constant SHALL describe a `This Round` leaderboard-table row that is rendered as the FIRST data row (immediately below the names header, ABOVE `Current Season` / `All Time`) whenever `roundSummary` is present in the `process_reveal_answers` payload. The label cell SHALL contain the literal text `"This Round"`.
+The `PROCESS_REVEAL_INSTRUCTIONS` constant SHALL describe a `This Round` leaderboard-table row that is rendered as the FIRST data row (immediately below the names header, ABOVE `Current Season` / `All Time`) whenever `roundSummary` is present in the `process_reveal_answers` payload. The `This Round` label cell SHALL be the configured language's value for that label, sourced from the trivia i18n dictionary when the prompt is built — NOT a fixed English literal. (See "Reveal leaderboard labels are localized via the trivia dictionary" for the full localization rule covering every row label.)
 
 The row SHALL be sourced from `roundSummary.perPlayer`: for each player column, look up the entry by `userId`; render `String(correct)` when present, or the literal Unicode em-dash `"—"` when the player is on the leaderboard but absent from `roundSummary.perPlayer`. The empty string `""` SHALL NOT be used — Slack rejects empty `raw_text` cells with `invalid_blocks`.
 
