@@ -17,6 +17,7 @@ import { createGetQuestionHistoryTool } from "./tools/questions/getQuestionHisto
 import { createRetrieveScoresTool } from "./tools/answers/retrieveScores.js";
 import { createSaveCheatingTool } from "./tools/answers/saveCheating.js";
 import { createListGamesTool } from "./tools/games/listGames.js";
+import { createExplainCascadeTool } from "./tools/games/explainCascade.js";
 import { createUpsertGameTool } from "./tools/games/upsertGame.js";
 import { createDeleteGameTool } from "./tools/games/deleteGame.js";
 import { createSetWorkspaceConfigTool } from "./tools/games/setWorkspaceConfig.js";
@@ -126,6 +127,7 @@ export const triviaPlugin: ClackPlugin = async (sdk: ClackSdk) => {
     createListGamesTool(undefined, undefined, () => sdk.findOwnedCronJobs()),
     sdk.t("label.list_games"),
   );
+  sdk.registerTool("member", createExplainCascadeTool(data), sdk.t("label.explain_cascade"));
 
   // trivia:management server — gated game/season lifecycle tools (categories tools above
   // are on the same handle).
