@@ -216,6 +216,14 @@ export async function cleanupStaleWorktrees(retentionHours: number = 24): Promis
   const now = Date.now();
   const retentionMs = retentionHours * 60 * 60 * 1000;
 
+  // In reusable mode the pool owns `worker-N` folder lifecycle (idle release +
+  // quarantine). The mtime-based sweep must never delete them — a folder's
+  // top-level mtime is not reliably bumped by git operations in subdirs, so an
+  // active worker can look "stale" and get reaped out from under the in-memory
+  // pool, breaking the next acquire. Non-pool folders are still swept.
+  const reusableEnabled = getConfig().changesWorkflow?.reusableFolders?.enabled ?? false;
+  const isPoolFolder = (name: string): boolean => /^worker-\d+$/.test(name);
+
   logger.debug(`Cleaning up worktrees older than ${retentionHours} hours...`);
 
   const repoNames = readdirSync(worktreesDir).filter((name) => {
@@ -231,6 +239,9 @@ export async function cleanupStaleWorktrees(retentionHours: number = 24): Promis
     });
 
     for (const worktreeName of worktrees) {
+      if (reusableEnabled && isPoolFolder(worktreeName)) {
+        continue;
+      }
       const worktreePath = join(repoWorktreesDir, worktreeName);
       try {
         const stats = statSync(worktreePath);

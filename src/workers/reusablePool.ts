@@ -139,6 +139,9 @@ export class ReusablePool implements WorkerPool {
     const existing = this.findByBranch(repo.name, branch);
     if (existing) {
       if (existing.status === "idle") {
+        if (this.dropIfFolderMissing(existing)) {
+          return this.acquire(repo, branch, sessionId, options);
+        }
         return this.claim(existing, sessionId);
       }
       if (existing.status === "busy") {
@@ -152,6 +155,9 @@ export class ReusablePool implements WorkerPool {
     // 2. Idle worker for this repo?
     const idle = this.workers.find((w) => w.repo === repo.name && w.status === "idle");
     if (idle) {
+      if (this.dropIfFolderMissing(idle)) {
+        return this.acquire(repo, branch, sessionId, options);
+      }
       try {
         await switchBranch(idle, repo, branch);
       } catch (err) {
@@ -397,6 +403,25 @@ export class ReusablePool implements WorkerPool {
   private persist(): void {
     savePoolState(this.workers);
     for (const w of this.workers) writeWorkerSidecar(w);
+  }
+
+  /**
+   * Guard against an idle worker whose folder was deleted out-of-band (external
+   * cleanup, manual `rm`, container disk wipe). Reusing it would throw a
+   * simple-git construction error ("Cannot use simple-git on a directory that
+   * does not exist") deep inside `switchBranch`/dirty-check and fail the change
+   * with an opaque "Failed to create workspace". Instead, drop it from the pool
+   * so `acquire` falls through and re-provisions a fresh worker.
+   * Returns true when the worker was missing and removed.
+   */
+  private dropIfFolderMissing(worker: Worker): boolean {
+    if (existsSync(worker.worktreePath)) return false;
+    logger.warn(
+      `Worker ${worker.repo}/${worker.id} folder missing at ${worker.worktreePath}; dropping and re-provisioning`,
+    );
+    this.workers = this.workers.filter((w) => w !== worker);
+    this.persist();
+    return true;
   }
 
   /**
