@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import type { KnownBlock } from "@slack/types";
 import { extractQuestionIdFromActionId, installTellMeMoreHandler } from "./tellMeMoreHandler.js";
 import { createInMemoryDataLayer, FIXTURE_GAME_NAME } from "../testHelpers.js";
-import type { PluginActionHandler } from "../../sdk.js";
+import type { PluginActionHandler, SettableAttentionLevel } from "../../sdk.js";
 import type { TriviaQuestion } from "../core/types.js";
 
 interface UpdateCall {
@@ -22,6 +22,7 @@ interface StartCall {
   userId: string;
   prompt: string;
   additionalSystemPrompt?: string;
+  attentionLevel?: SettableAttentionLevel;
 }
 
 interface FakeSdk {
@@ -184,6 +185,7 @@ describe("installTellMeMoreHandler", () => {
     assert.equal(start.channel, "C1");
     assert.equal(start.threadTs, "1700000000.000000");
     assert.equal(start.userId, "U1");
+    assert.equal(start.attentionLevel, "high");
     assert.match(start.additionalSystemPrompt ?? "", /Nile is the longest river/);
   });
 

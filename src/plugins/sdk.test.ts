@@ -554,6 +554,7 @@ describe("ClackSdk", () => {
         userId: "U1",
         prompt: "tell me more",
         additionalSystemPrompt: "ctx",
+        attentionLevel: "high",
       });
 
       assert.equal(calls.length, 1);
@@ -562,6 +563,7 @@ describe("ClackSdk", () => {
       assert.equal(calls[0].threadTs, "5.5");
       assert.equal(calls[0].userId, "U1");
       assert.equal(calls[0].additionalSystemPrompt, "ctx");
+      assert.equal(calls[0].attentionLevel, "high");
     });
 
     it("is a no-op when the dep is not wired", async () => {
