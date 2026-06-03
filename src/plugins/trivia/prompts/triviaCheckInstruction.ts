@@ -218,12 +218,18 @@ export const TRIVIA_MANAGEMENT_INSTRUCTION = `# Managing trivia games, seasons, 
 
 The \`trivia:management\` integration gives you seven admin-only tools that mutate the trivia plugin's persisted config (\`data/plugins/trivia/config.json\`, per-game \`seasons.json\`, \`categories.json\`) directly. No confirm-and-apply flow — these write through immediately.
 
+## Default to the game tier — season is for overrides only
+
+**The game is the source of truth. ~99% of configuration edits belong on the game tier (\`upsert_game\`), or the workspace tier (\`set_workspace_config\`) when the admin says "all games."** A season holds ONLY intentional, scoped overrides — a themed month, a one-off event, "just for the current season." If the admin does not explicitly name a season or scope the change to one, write the GAME, not the season. Do NOT reach for \`upsert_season\` just because a season is active.
+
+When the scope is genuinely ambiguous (e.g. "make engineering questions harder" with no season named), default to the game tier and say so in one line — "Setting this on the engineering game; tell me if you meant just the current season" — then proceed. Don't stall on a question the default already answers.
+
 ## Dispatch heuristic — pick the right tool
 
 When an admin asks to change something, parse the verb and the scope first:
 
-- **"game"** or names a game without naming a season → \`upsert_game\` / \`delete_game\`.
-- **"season"** or names a season slug → \`upsert_season\` / \`delete_season\`.
+- **"game"**, names a game, OR no tier named at all → \`upsert_game\` / \`delete_game\`. **This is the default.**
+- **"season"**, names a season slug, OR scopes to "this season / the current season / just for now" → \`upsert_season\` / \`delete_season\`. Only when explicitly season-scoped.
 - **"add a category"** / **"remove the X category"** / names categories → \`add_categories\` / \`remove_categories\` (with \`target\` if scoped to a season).
 - **workspace-wide** rolls of any axis (e.g. "make all games default to mostly topical") → \`set_workspace_config\`.
 
@@ -237,9 +243,9 @@ The cascade (slot → season → game → workspace) means routing decisions mat
 
 1. **Which game** the admin means. If multiple games exist (\`list_games\` will tell you) and the request doesn't name one, ASK. Don't assume the current channel's game — admin sessions are often DMs with no implicit channel.
 2. **Which season**, if seasons are in play. "Add a question / category for the season" could mean the **current** season, a **queued future** season (there can be several), or the **global baseline** (\`categories.json\`, used as the seed for new seasons). Run \`list_seasons\` if you don't already know what's on the timeline; then ask the admin which one they mean unless context makes it unambiguous. For \`add_categories\` / \`remove_categories\`, encode the answer in the \`target\` arg (\`"current"\` / \`"<slug>"\` / \`"default"\` / \`"both"\`).
-3. **Which tier in the cascade**. "Make questions harder", "more topical questions", "switch to multiple-choice" — could be slot-level (one slot in a format), season-level (the whole current season), game-level (every season this game runs), or workspace-level (every game). When the admin didn't say, ask.
+3. **Which tier in the cascade**. "Make questions harder", "more topical questions", "switch to multiple-choice" — could be slot-level (one slot in a format), season-level (the whole current season), game-level (every season this game runs), or workspace-level (every game). When the admin didn't say, **default to the game tier** (per the rule above) and note it in one line — don't ask.
 
-When in doubt, briefly state in plain English what you're about to change and at which tier, and confirm before the tool call. Reads are free — use \`list_games\` / \`list_seasons\` to ground the question rather than guess.
+When the tier IS genuinely uncertain because the admin gestured at a season ("for this run", "the special event") without naming one, briefly state in plain English what you're about to change and at which tier, and confirm before the tool call. Reads are free — use \`list_games\` / \`list_seasons\` to ground the question rather than guess.
 
 ## Flag shadowed edits
 
@@ -341,10 +347,12 @@ To opt a game back OUT of pre-staging, call \`upsert_game(name: "<game>", prepCr
 
 ## Cascade-tier cheatsheet for axis questions
 
-- "Configure this for one specific game" → \`upsert_game\` with the axis field.
+Listed default-first — prefer the top entries; only descend to a season/slot tier when the admin explicitly scoped it there.
+
+- "Configure this for a game" / no tier named (**the default**) → \`upsert_game\` with the axis field.
 - "Configure this for every game" → \`set_workspace_config\` with the axis field.
-- "Configure this for the current season of one game" → \`upsert_season\` with the axis field at the season tier.
-- "Configure this for one specific question slot in a season" → \`upsert_season\` with \`format.questions[i].<axis>\`.
+- "Configure this just for the current season of one game" → \`upsert_season\` with the axis field at the season tier. Override only.
+- "Configure this for one specific question slot in a season" → \`upsert_season\` with \`format.questions[i].<axis>\`. Override only.
 
 When in doubt, call \`list_games\` first to see what the current state looks like — its response includes per-game \`axisOverrides\` and workspace-tier \`workspaceDefaults\`. For season state, \`list_seasons\` shows the full timeline per game.
 `;
