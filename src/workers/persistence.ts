@@ -8,9 +8,11 @@ import {
   writeFileSync,
 } from "node:fs";
 import { resolve, join } from "node:path";
+import { z } from "zod";
 import { getStateDir, getWorktreesDir } from "../config.js";
 import { logger } from "../logger.js";
 import { errorMessage } from "../errors.js";
+import { zodErrorToResult } from "../plugins/zodResult.js";
 import { getGitInstance } from "../repositories.js";
 import type { Worker, WorkerStatus } from "./types.js";
 
@@ -18,64 +20,33 @@ const WORKERS_STATE_FILE = "workers.json";
 const WORKER_SIDECAR = ".clack-worker-state.json";
 export const QUARANTINE_SIDECAR = ".clack-quarantine.json";
 
-// JSON-shaped input for validators — a real type rather than `unknown`.
-type JsonPrimitive = string | number | boolean | null;
-type JsonArray = JsonValue[];
-interface JsonObject {
-  [key: string]: JsonValue;
-}
-type JsonValue = JsonPrimitive | JsonArray | JsonObject;
+const WORKER_STATUSES = ["idle", "busy", "initializing", "quarantined", "failed"] as const;
 
-const VALID_STATUSES = new Set<string>(["idle", "busy", "initializing", "quarantined", "failed"]);
+/**
+ * Schema for one persisted worker. Mirrors the on-disk shape exactly (dates are
+ * ISO strings here; `fromPersisted` coerces them to `Date`). Replaces the prior
+ * hand-rolled `isPersistedWorker` guard.
+ */
+const persistedWorkerZod = z.object({
+  id: z.string(),
+  repo: z.string(),
+  worktreePath: z.string(),
+  currentBranch: z.string().nullable(),
+  status: z.enum(WORKER_STATUSES as readonly [WorkerStatus, ...WorkerStatus[]]),
+  setupComplete: z.boolean(),
+  setupVersionHash: z.string().nullable(),
+  claimedBy: z.string().nullable(),
+  lastUsedAt: z.string(),
+  createdAt: z.string(),
+});
 
-interface PersistedWorker {
-  id: string;
-  repo: string;
-  worktreePath: string;
-  currentBranch: string | null;
-  status: WorkerStatus;
-  setupComplete: boolean;
-  setupVersionHash: string | null;
-  claimedBy: string | null;
-  lastUsedAt: string;
-  createdAt: string;
-}
+const workersStateZod = z.object({
+  version: z.literal(1),
+  workers: z.array(persistedWorkerZod),
+});
 
-interface WorkersState {
-  version: 1;
-  workers: PersistedWorker[];
-}
-
-function isObject(value: JsonValue): value is JsonObject {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function isStatus(value: JsonValue): value is WorkerStatus {
-  return typeof value === "string" && VALID_STATUSES.has(value);
-}
-
-function isPersistedWorker(value: JsonValue): value is JsonObject & PersistedWorker {
-  if (!isObject(value)) return false;
-  return (
-    typeof value.id === "string" &&
-    typeof value.repo === "string" &&
-    typeof value.worktreePath === "string" &&
-    (typeof value.currentBranch === "string" || value.currentBranch === null) &&
-    isStatus(value.status) &&
-    typeof value.setupComplete === "boolean" &&
-    (typeof value.setupVersionHash === "string" || value.setupVersionHash === null) &&
-    (typeof value.claimedBy === "string" || value.claimedBy === null) &&
-    typeof value.lastUsedAt === "string" &&
-    typeof value.createdAt === "string"
-  );
-}
-
-function isWorkersState(value: JsonValue): value is JsonObject & WorkersState {
-  if (!isObject(value)) return false;
-  if (value.version !== 1) return false;
-  if (!Array.isArray(value.workers)) return false;
-  return value.workers.every(isPersistedWorker);
-}
+type PersistedWorker = z.infer<typeof persistedWorkerZod>;
+type WorkersState = z.infer<typeof workersStateZod>;
 
 function statePath(): string {
   return resolve(getStateDir(), WORKERS_STATE_FILE);
@@ -129,12 +100,14 @@ export function loadPoolState(): Worker[] {
   if (!existsSync(path)) return [];
   try {
     const raw = readFileSync(path, "utf-8");
-    const parsed: JsonValue = JSON.parse(raw);
-    if (!isWorkersState(parsed)) {
-      logger.warn(`workers.json has unexpected shape; ignoring`);
+    const result = workersStateZod.safeParse(JSON.parse(raw));
+    if (!result.success) {
+      logger.warn(
+        `workers.json has unexpected shape; ignoring: ${zodErrorToResult(result.error, "workers").error}`,
+      );
       return [];
     }
-    return parsed.workers.map(fromPersisted);
+    return result.data.workers.map(fromPersisted);
   } catch (err) {
     logger.warn(`Failed to load workers.json: ${errorMessage(err)}`);
     return [];
@@ -168,9 +141,9 @@ export function readWorkerSidecar(worktreePath: string): Worker | null {
   if (!existsSync(path)) return null;
   try {
     const raw = readFileSync(path, "utf-8");
-    const parsed: JsonValue = JSON.parse(raw);
-    if (!isPersistedWorker(parsed)) return null;
-    return fromPersisted(parsed);
+    const result = persistedWorkerZod.safeParse(JSON.parse(raw));
+    if (!result.success) return null;
+    return fromPersisted(result.data);
   } catch {
     return null;
   }

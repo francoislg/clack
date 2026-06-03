@@ -1,8 +1,10 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
+import { z } from "zod";
 import type { App } from "@slack/bolt";
 import { logger } from "./logger.js";
 import { fileExists } from "./fs.js";
+import { zodErrorToResult } from "./plugins/zodResult.js";
 
 // ============================================================================
 // Dependency Injection
@@ -47,6 +49,13 @@ const DEFAULT_ROLES: RolesConfig = {
   devs: [],
 };
 
+/** Schema for `roles.json`. Missing fields fall back to defaults, matching the prior `?? DEFAULTS` fill. */
+const rolesConfigZod = z.object({
+  owner: z.string().nullable().default(null),
+  admins: z.array(z.string()).default([]),
+  devs: z.array(z.string()).default([]),
+});
+
 let cachedRoles: RolesConfig | null = null;
 
 function getStateDir(): string {
@@ -71,15 +80,15 @@ export async function loadRoles(): Promise<RolesConfig> {
 
   try {
     const content = await deps.readFile(rolesPath, "utf-8");
-    const parsed = JSON.parse(content) as Partial<RolesConfig>;
-
-    // Ensure all fields exist with defaults
-    cachedRoles = {
-      owner: parsed.owner ?? null,
-      admins: parsed.admins ?? [],
-      devs: parsed.devs ?? [],
-    };
-
+    const result = rolesConfigZod.safeParse(JSON.parse(content));
+    if (!result.success) {
+      logger.warn(
+        `roles.json has unexpected shape; using defaults: ${zodErrorToResult(result.error, "roles").error}`,
+      );
+      cachedRoles = { ...DEFAULT_ROLES };
+      return cachedRoles;
+    }
+    cachedRoles = result.data;
     return cachedRoles;
   } catch (error) {
     logger.error("Failed to load roles:", error);
