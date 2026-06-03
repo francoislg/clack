@@ -31,6 +31,8 @@ export interface CasualTalkConfig {
    */
   die?: number;
   smallTalkTopics: string[];
+  /** When true, the built-in fallback topics are unioned with `smallTalkTopics`. */
+  useBuiltinFallbackTopics: boolean;
 }
 
 /** Normalize a channel entry to its canonical object form for downstream consumers. */

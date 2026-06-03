@@ -207,6 +207,7 @@ describe("casual-talk plugin load", () => {
       workHours: { start: 9, end: 16, tz: "UTC", days: [1, 2, 3, 4, 5] },
       expectedRate: "daily",
       smallTalkTopics: ["food", "weekend plans"],
+      useBuiltinFallbackTopics: true,
     };
     await saveConfig(sdk, config);
 

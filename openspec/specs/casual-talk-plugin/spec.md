@@ -35,6 +35,7 @@ interface CasualTalkConfig {
   expectedRate: "hourly" | "2-per-day" | "daily" | "2-per-week" | "weekly";
   die?: number;
   smallTalkTopics: string[];
+  useBuiltinFallbackTopics: boolean;
 }
 ```
 
@@ -45,15 +46,23 @@ Constraints:
 - `workHours.days` is a non-empty array of integers in `[0, 6]` (Sun=0, Sat=6).
 - `die`, when present, is an integer `>= 1`.
 - `channels` entries that are strings or objects with `id` SHALL pass the same Slack channel ID shape check used elsewhere (`isChannelId`).
+- `useBuiltinFallbackTopics` is a boolean. Its Zod schema SHALL apply a default of `true` (`z.boolean().default(true)`) so config files written before this field existed continue to parse; the field materializes on the next config save.
 
-When the file is missing, the plugin SHALL create it on first load with these defaults: `enabled: false`, `channels: []`, `workHours: { start: 9, end: 17, tz: "UTC", days: [1, 2, 3, 4, 5] }`, `expectedRate: "daily"`, `smallTalkTopics: []`.
+When the file is missing, the plugin SHALL create it on first load with these defaults: `enabled: false`, `channels: []`, `workHours: { start: 9, end: 17, tz: "UTC", days: [1, 2, 3, 4, 5] }`, `expectedRate: "daily"`, `smallTalkTopics: []`, `useBuiltinFallbackTopics: true`.
 
 #### Scenario: First load creates the config file with defaults
 
 - **GIVEN** no `data/plugins/casual-talk/config.json` exists
 - **WHEN** the plugin loads
 - **THEN** the file is created with the default shape above
+- **AND** `useBuiltinFallbackTopics` defaults to `true`
 - **AND** the plugin treats itself as disabled (no cron spec reconciled, no Claude session triggered)
+
+#### Scenario: Pre-existing config without the field parses with the default
+
+- **GIVEN** a `data/plugins/casual-talk/config.json` that omits `useBuiltinFallbackTopics` (written before this field existed)
+- **WHEN** the plugin loads
+- **THEN** parsing succeeds and the resolved config has `useBuiltinFallbackTopics: true`
 
 #### Scenario: Config validation rejects invalid workHours
 
@@ -171,7 +180,12 @@ The spec SHALL set:
 
 ### Requirement: Prompt Assembly
 
-The plugin SHALL assemble the cron job's `prompt` at reconcile time to embed: the resolved die `N`, the candidate channel list, and the small-talk topics. The prompt SHALL instruct Claude to:
+The plugin SHALL assemble the cron job's `prompt` at reconcile time to embed: the resolved die `N`, the candidate channel list, and the **effective fallback topics**. The effective fallback topics SHALL be computed from config as follows:
+
+- When `useBuiltinFallbackTopics` is `true`, the effective list is the de-duplicated union of the plugin's built-in topic constant followed by the admin's `smallTalkTopics` (built-ins first, custom appended, duplicates removed preserving first occurrence).
+- When `useBuiltinFallbackTopics` is `false`, the effective list is exactly `smallTalkTopics` (verbatim, the pre-feature behavior).
+
+The prompt SHALL instruct Claude to:
 
 1. Call `random_roll` with `min: 1, max: N, count: 1`.
 2. If the roll is not `1`, immediately call `submit_response({ skip_response: true })` and end the run.
@@ -196,11 +210,30 @@ Per-channel context SHALL include the channel ID and, when set on the config ent
 - **AND** the prompt notes the `promptSuggestion` "memes only" against `C456`
 - **AND** the prompt does NOT attach a suggestion to `C123`
 
-#### Scenario: Prompt embeds the small-talk topics
+#### Scenario: Built-ins enabled with no custom topics uses the built-in list
 
-- **GIVEN** `smallTalkTopics: ["food", "weekend plans"]`
+- **GIVEN** `useBuiltinFallbackTopics: true` and `smallTalkTopics: []`
 - **WHEN** the prompt is assembled
-- **THEN** the prompt lists the topics as fallback openers
+- **THEN** the prompt lists the plugin's built-in fallback topics as openers
+
+#### Scenario: Built-ins enabled with custom topics unions both
+
+- **GIVEN** `useBuiltinFallbackTopics: true` and `smallTalkTopics: ["food", "weekend plans"]`
+- **WHEN** the prompt is assembled
+- **THEN** the prompt lists every built-in topic AND `"food"` AND `"weekend plans"`
+- **AND** a custom topic that duplicates a built-in appears only once
+
+#### Scenario: Built-ins disabled falls back to verbatim custom topics
+
+- **GIVEN** `useBuiltinFallbackTopics: false` and `smallTalkTopics: ["food"]`
+- **WHEN** the prompt is assembled
+- **THEN** the prompt lists exactly `"food"` and none of the built-in topics
+
+#### Scenario: Built-ins disabled with no custom topics has no fallback openers
+
+- **GIVEN** `useBuiltinFallbackTopics: false` and `smallTalkTopics: []`
+- **WHEN** the prompt is assembled
+- **THEN** the prompt indicates there are no fallback topics (the pre-feature empty-list rendering), and Claude is to only join already-active conversations or skip
 
 #### Scenario: Prompt explicitly tells Claude to use post_to, not submit_response text
 
@@ -246,7 +279,7 @@ The plugin SHALL declare an on-demand MCP server `casual-talk:management` via `s
 
 ### Requirement: Admin Tool — `set_casual_talk_config`
 
-The plugin SHALL register a tool `set_casual_talk_config` that replaces the full config in one call. The tool's schema SHALL accept the full `CasualTalkConfig` shape, validate it via the same Zod schema used for file loading, persist it via `sdk.writeFile`, and trigger `sdk.requestSoftRestart`.
+The plugin SHALL register a tool `set_casual_talk_config` that replaces the full config in one call. The tool's schema SHALL accept the full `CasualTalkConfig` shape — including `useBuiltinFallbackTopics` — validate it via the same Zod schema used for file loading, persist it via `sdk.writeFile`, and trigger `sdk.requestSoftRestart`. `useBuiltinFallbackTopics` MAY be omitted from the tool input, in which case the schema default (`true`) applies.
 
 #### Scenario: Tool replaces config and triggers soft restart
 
@@ -255,6 +288,11 @@ The plugin SHALL register a tool `set_casual_talk_config` that replaces the full
 - **THEN** `data/plugins/casual-talk/config.json` is overwritten with the new shape
 - **AND** `sdk.requestSoftRestart("casual-talk config changed")` is called
 - **AND** the tool returns success
+
+#### Scenario: Tool accepts and persists useBuiltinFallbackTopics
+
+- **WHEN** an admin invokes `set_casual_talk_config` with `useBuiltinFallbackTopics: false`
+- **THEN** the persisted config has `useBuiltinFallbackTopics: false`
 
 #### Scenario: Tool rejects invalid config without persisting
 
@@ -419,6 +457,7 @@ Tool mappings for admin tools SHALL surface the affected entity in the Slack tas
 - `enable` → `"Enabling casual-talk"`
 - `disable` → `"Disabling casual-talk"`
 - `set_casual_talk_config` → `"Replacing casual-talk config"`
+- `toggle_builtin_fallback_topics` → `"Toggling built-in fallback topics — {enabled}"`
 
 #### Scenario: Tool label interpolates the channel id
 
@@ -450,6 +489,44 @@ Every config-mutating admin tool SHALL call `sdk.requestSoftRestart(reason)` on 
 - **WHEN** an admin invokes `set_expected_rate({ rate: "weekly" })`
 - **THEN** `requestSoftRestart` is called with a non-empty reason
 - **AND** on the next plugin init, the reconciled cron spec's `prompt` reflects the new die (e.g., 1/160 instead of 1/32)
+
+### Requirement: Built-in Fallback Topics Constant
+
+The plugin SHALL define a built-in fallback topics constant (`BUILTIN_FALLBACK_TOPICS`) — a small, curated, workplace-safe list of generic small-talk opener ideas — inside the plugin folder. The list SHALL be authored in English only, since topics are Claude-facing prompt content (Claude renders the eventual opener in the configured language per the LANGUAGE directive) and therefore are NOT routed through `sdk.t()`. The constant SHALL avoid politically, religiously, or otherwise sensitive subject matter, since it ships to every deployment.
+
+#### Scenario: Built-in topics are defined and non-empty
+
+- **WHEN** the plugin module loads
+- **THEN** `BUILTIN_FALLBACK_TOPICS` is a non-empty array of strings
+
+#### Scenario: Built-in topics are not localized
+
+- **WHEN** built-in topics are emitted into the prompt
+- **THEN** they are taken verbatim from the English constant and are NOT resolved through `sdk.t()`
+
+### Requirement: Admin Tool — `toggle_builtin_fallback_topics`
+
+The plugin SHALL register an admin tool `toggle_builtin_fallback_topics({ enabled: boolean })` bound to the `casual-talk:management` server. It SHALL set `config.useBuiltinFallbackTopics` to the supplied value and trigger `sdk.requestSoftRestart` on change. It SHALL be idempotent: when the flag already equals the requested value, the tool returns a success message indicating no change and does NOT trigger a soft restart.
+
+#### Scenario: Turning built-ins off when currently on
+
+- **GIVEN** `useBuiltinFallbackTopics: true`
+- **WHEN** an admin invokes `toggle_builtin_fallback_topics({ enabled: false })`
+- **THEN** `useBuiltinFallbackTopics` becomes `false`
+- **AND** a soft restart is triggered
+
+#### Scenario: Turning built-ins on when currently on is a no-op
+
+- **GIVEN** `useBuiltinFallbackTopics: true`
+- **WHEN** an admin invokes `toggle_builtin_fallback_topics({ enabled: true })`
+- **THEN** `useBuiltinFallbackTopics` remains `true`
+- **AND** no soft restart is triggered
+- **AND** the tool returns a success message noting the flag was already in that state
+
+#### Scenario: Tool result string resolves through the plugin dictionary
+
+- **WHEN** the tool returns its result message
+- **THEN** the message is resolved via `sdk.t(...)` and has both EN and FR entries in the plugin dictionary
 
 ### Requirement: Plugin Stays Inside Its Folder
 

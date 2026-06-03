@@ -48,6 +48,8 @@ export const casualTalkConfigSchema = z.object({
   expectedRate: z.enum(["hourly", "2-per-day", "daily", "2-per-week", "weekly"]),
   die: z.number().int().min(1).optional(),
   smallTalkTopics: z.array(z.string()),
+  // .default keeps configs written before this field existed parsing cleanly.
+  useBuiltinFallbackTopics: z.boolean().default(true),
 });
 
 export const DEFAULT_CONFIG: CasualTalkConfig = {
@@ -56,6 +58,7 @@ export const DEFAULT_CONFIG: CasualTalkConfig = {
   workHours: { start: 9, end: 17, tz: "UTC", days: [1, 2, 3, 4, 5] },
   expectedRate: "daily",
   smallTalkTopics: [],
+  useBuiltinFallbackTopics: true,
 };
 
 /**

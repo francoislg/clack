@@ -10,6 +10,7 @@ function baseConfig(overrides: Partial<CasualTalkConfig> = {}): CasualTalkConfig
     workHours: { start: 9, end: 16, tz: "UTC", days: [1, 2, 3, 4, 5] },
     expectedRate: "daily",
     smallTalkTopics: [],
+    useBuiltinFallbackTopics: true,
     ...overrides,
   };
 }
