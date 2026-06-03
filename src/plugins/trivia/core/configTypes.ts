@@ -192,6 +192,19 @@ export const ALL_TIME_ROW_KEYS = ["always", "never", "end-of-season-only"] as co
 export const DEFAULT_ALL_TIME_ROW: TriviaAllTimeRowMode = "end-of-season-only";
 
 /**
+ * "Tell me more" reveal-card affordance. When enabled, the revealed question card
+ * grows a button that, on click, kicks off a thread conversation asking Clack for
+ * deeper detail about the question/answer. Game+workspace tiers only (cascade
+ * `game → workspace → { enabled: false }`); NOT a per-question cascade axis.
+ */
+export interface TriviaTellMeMoreConfig {
+  enabled: boolean;
+}
+
+/** Built-in fallback when no `tellMeMore` is set at the game or workspace tier. */
+export const DEFAULT_TELL_ME_MORE: TriviaTellMeMoreConfig = { enabled: false };
+
+/**
  * Reveal-judge leniency axis for freeform answers. Cascades `slot → season →
  * game → workspace → "strict-with-typos"` with **whole-value replace per tier**.
  * Selects which matching-forgiveness rule fragments the freeform judge prompt
@@ -276,6 +289,12 @@ export interface TriviaGame extends CascadeAxes {
    *   See `TriviaAllTimeRowMode` and `resolveAllTimeRow`.
    */
   allTimeRow?: TriviaAllTimeRowMode;
+  /**
+   * Per-game tier of the "Tell me more" reveal affordance. Cascade:
+   *   `game → workspace → { enabled: false }`. NOT a CascadeAxes member.
+   *   See `TriviaTellMeMoreConfig` and `resolveTellMeMore`.
+   */
+  tellMeMore?: TriviaTellMeMoreConfig;
 }
 
 /**
@@ -331,6 +350,12 @@ export interface TriviaConfig extends CascadeAxes {
    *   See `TriviaAllTimeRowMode`.
    */
   allTimeRow?: TriviaAllTimeRowMode;
+  /**
+   * Workspace tier of the "Tell me more" reveal affordance. Cascade:
+   *   `game → workspace → { enabled: false }`. NOT a CascadeAxes member.
+   *   See `TriviaTellMeMoreConfig`.
+   */
+  tellMeMore?: TriviaTellMeMoreConfig;
 }
 
 /** Defaults applied when `choices` is absent or only partially specified. */

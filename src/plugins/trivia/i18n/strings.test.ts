@@ -10,6 +10,8 @@ import { en, fr } from "./strings.js";
  */
 const NEW_REVEAL_CARD_KEYS = [
   "button.see_your_answer",
+  "button.tell_me_more",
+  "tell_me_more.intro",
   "reveal.answer_was",
   "reveal.correct_label",
   "reveal.incorrect_label",
@@ -38,6 +40,7 @@ describe("reveal-card i18n parity", () => {
       ["reveal.no_answer_label", "{names}"],
       ["reveal.n_incorrect", "{count}"],
       ["reveal.n_no_answer", "{count}"],
+      ["tell_me_more.intro", "{user}"],
     ];
     for (const [key, placeholder] of placeholderKeys) {
       assert.ok(en[key].includes(placeholder), `EN ${key} missing ${placeholder}`);

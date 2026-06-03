@@ -36,6 +36,8 @@ function makeFakeSdk(): ClackSdk {
     findOwnedCronJobs: async () => [],
     dmOwner: async () => ({ ok: true as const }),
     getSlackClient: () => null,
+    sendMessage: async () => ({ ok: true as const, ts: "1", channel: "C" }),
+    startThreadConversation: async () => {},
     registerAction: () => {},
     registerView: () => {},
     actionId: (key: string) => `plugin:test:${key}`,

@@ -9,6 +9,7 @@ import { createSlackApp, startSlackApp, stopSlackApp } from "./slack/app.js";
 import { ensureWorktreeDirectories, cleanupWorktrees } from "./worktrees.js";
 import { discoverSkillPluginInfo } from "./skillPlugins.js";
 import { loadAndInstallPlugins } from "./plugins/registry.js";
+import { startThreadConversation } from "./slack/handlers/core.js";
 import { restoreWorkerSessions } from "./changes/restore.js";
 import { runWorktreeInstall, runWorktreeSetup } from "./changes/execution.js";
 import { initializePoolForBoot, provisionMinimumWorkers } from "./workers/index.js";
@@ -92,7 +93,7 @@ async function main(): Promise<void> {
   // Step 1.8: Load Clack plugins
   const pluginNames = getConfig().plugins;
   if (pluginNames && pluginNames.length > 0) {
-    await loadAndInstallPlugins(pluginNames, { requestSoftRestart });
+    await loadAndInstallPlugins(pluginNames, { requestSoftRestart, startThreadConversation });
   }
 
   // Step 1.9: Install pinned MCP packages. Each pinned entry in data/mcp.json

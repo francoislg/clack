@@ -36,6 +36,8 @@ function makeFakeSdk(): ClackSdk {
     findOwnedCronJobs: async () => [],
     dmOwner: async () => ({ ok: true as const }),
     getSlackClient: () => null,
+    sendMessage: async () => ({ ok: true as const, ts: "1", channel: "C" }),
+    startThreadConversation: async () => {},
     registerAction: () => {},
     registerView: () => {},
     actionId: (key: string) => `plugin:test:${key}`,
@@ -74,6 +76,7 @@ const emptyArgs = {
   hint: undefined,
   allTimeRow: undefined,
   judgeLeniency: undefined,
+  tellMeMore: undefined,
 };
 
 describe("set_workspace_config", () => {
@@ -97,6 +100,19 @@ describe("set_workspace_config", () => {
     const tool = createSetWorkspaceConfigTool();
     await tool.handler({ ...emptyArgs, answersFormat: null }, SESSION);
     assert.equal(loadTriviaConfig()?.answersFormat, undefined);
+  });
+
+  it("sets and clears workspace tellMeMore", async () => {
+    primeBridge({});
+    const tool = createSetWorkspaceConfigTool();
+    const set = parseToolResult(
+      await tool.handler({ ...emptyArgs, tellMeMore: { enabled: true } }, SESSION),
+    );
+    assert.ok(set.updatedFields.includes("tellMeMore"));
+    assert.deepEqual(loadTriviaConfig()?.tellMeMore, { enabled: true });
+
+    await tool.handler({ ...emptyArgs, tellMeMore: null }, SESSION);
+    assert.equal(loadTriviaConfig()?.tellMeMore, undefined);
   });
 
   it("sets and clears workspace judgeLeniency", async () => {

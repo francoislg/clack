@@ -29,6 +29,7 @@ import type {
   TriviaFreeformAnswerShapeWeights,
   TriviaHintConfig,
   TriviaQuestionTypeWeights,
+  TriviaTellMeMoreConfig,
   PromptMediumWeights,
 } from "../configTypes.js";
 import { ALL_TIME_ROW_KEYS, DEFAULT_TRIVIA_CHOICES, JUDGE_LENIENCY_KEYS } from "../configTypes.js";
@@ -258,6 +259,17 @@ export function validateAllTimeRowMode(
   return safeParseToResult(allTimeRowSchema, raw, fieldLabel);
 }
 
+const tellMeMoreSchema: z.ZodType<TriviaTellMeMoreConfig> = z
+  .object({ enabled: z.boolean() })
+  .strict();
+
+export function validateTellMeMore(
+  raw: unknown,
+  fieldLabel: string,
+): Result<TriviaTellMeMoreConfig> {
+  return safeParseToResult(tellMeMoreSchema, raw, fieldLabel);
+}
+
 const judgeLeniencySchema: z.ZodType<JudgeLeniency> = schemaFromChecker(
   (raw) => enumCheck(raw, JUDGE_LENIENCY_KEYS),
   (raw) => raw as JudgeLeniency,
@@ -452,6 +464,9 @@ export const triviaHintZod = z.object({
 export const triviaAllTimeRowZod = z.enum(
   ALL_TIME_ROW_KEYS as readonly [TriviaAllTimeRowMode, ...TriviaAllTimeRowMode[]],
 );
+
+/** Shared zod schema for the `tellMeMore` field (game+workspace; not a cascade axis). */
+export const triviaTellMeMoreZod = z.object({ enabled: z.boolean() }).strict();
 
 /** Shared zod schema for the `judgeLeniency` axis (structural; semantics in `validateJudgeLeniency`). */
 export const triviaJudgeLeniencyZod = z.enum(

@@ -645,3 +645,33 @@ export async function processMessage(
     });
   });
 }
+
+/**
+ * Backs `sdk.startThreadConversation`. Starts a streamed, session-creating Claude
+ * turn in a thread through the normal `processMessage` pipeline — full query
+ * toolset, common chat streamer (no `silentThinking`), and `autoResponseActive`
+ * so the thread auto-follows. `messageTs` is the thread anchor since there is no
+ * distinct triggering message. Bound into `ClackSdkDeps.startThreadConversation`
+ * at the `loadAndInstallPlugins` call sites.
+ */
+export async function startThreadConversation(params: {
+  client: App["client"];
+  channel: string;
+  threadTs: string;
+  userId: string;
+  prompt: string;
+  additionalSystemPrompt?: string;
+}): Promise<void> {
+  await processMessage({
+    client: params.client,
+    userId: params.userId,
+    channelId: params.channel,
+    messageTs: params.threadTs,
+    messageText: params.prompt,
+    threadTs: params.threadTs,
+    triggerType: "autoRespond",
+    ...(params.additionalSystemPrompt !== undefined
+      ? { additionalSystemPrompt: params.additionalSystemPrompt }
+      : {}),
+  });
+}

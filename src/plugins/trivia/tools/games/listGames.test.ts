@@ -85,6 +85,53 @@ describe("list_games — per-game entries", () => {
     assert.equal("allTimeRow" in without.games[0], false);
   });
 
+  it("surfaces per-game tellMeMore when set, omits it when absent", async () => {
+    const games: readonly TriviaGame[] = [
+      {
+        name: "more-on",
+        channel: "C300000000",
+        questionCron: "0 9 * * 1-5",
+        revealCron: "0 17 * * 1-5",
+        timezone: "UTC",
+        enabled: true,
+        tellMeMore: { enabled: true },
+      },
+    ];
+    const withValue = parseToolResult(
+      await createListGamesTool(() => games, emptyTriviaConfig).handler(
+        { includeDisabled: undefined },
+        SESSION,
+      ),
+    );
+    assert.deepEqual(withValue.games[0].tellMeMore, { enabled: true });
+
+    const without = parseToolResult(
+      await createListGamesTool(fixtureGetGames, emptyTriviaConfig).handler(
+        { includeDisabled: undefined },
+        SESSION,
+      ),
+    );
+    assert.equal("tellMeMore" in without.games[0], false);
+  });
+
+  it("surfaces workspaceDefaults.tellMeMore iff the workspace tier set it", async () => {
+    const withValue = parseToolResult(
+      await createListGamesTool(fixtureGetGames, () => ({ tellMeMore: { enabled: true } })).handler(
+        { includeDisabled: undefined },
+        SESSION,
+      ),
+    );
+    assert.deepEqual(withValue.workspaceDefaults.tellMeMore, { enabled: true });
+
+    const without = parseToolResult(
+      await createListGamesTool(fixtureGetGames, emptyTriviaConfig).handler(
+        { includeDisabled: undefined },
+        SESSION,
+      ),
+    );
+    assert.equal("tellMeMore" in without.workspaceDefaults, false);
+  });
+
   it("surfaces per-game judgeLeniency when set, omits it when absent", async () => {
     const games: readonly TriviaGame[] = [
       {

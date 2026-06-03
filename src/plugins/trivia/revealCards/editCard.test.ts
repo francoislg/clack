@@ -82,6 +82,7 @@ describe("editRevealIntoCard", () => {
       question: makeQuestion(),
       entry: makeEntry(),
       actionId,
+      tellMeMore: false,
     });
 
     assert.ok(captured !== undefined);
@@ -134,6 +135,7 @@ describe("editRevealIntoCard", () => {
       }),
       entry: makeEntry(),
       actionId,
+      tellMeMore: false,
     });
     assert.ok(captured !== undefined);
     assert.ok(!blockIds(captured.blocks).includes("freeform-answer-actions:Q1"));
@@ -148,6 +150,7 @@ describe("editRevealIntoCard", () => {
       question: makeQuestion({ postedBlocks: undefined }),
       entry: makeEntry(),
       actionId,
+      tellMeMore: false,
     });
     assert.equal(called, false);
   });
@@ -161,8 +164,49 @@ describe("editRevealIntoCard", () => {
       question: makeQuestion({ messageLink: "not-a-permalink" }),
       entry: makeEntry(),
       actionId,
+      tellMeMore: false,
     });
     assert.equal(called, false);
+  });
+
+  it("appends a Tell me more button when tellMeMore is enabled", async () => {
+    let captured: Captured | undefined;
+    await editRevealIntoCard({
+      updateMessage: async (channel, ts, blocks) => {
+        captured = { channel, ts, blocks };
+      },
+      question: makeQuestion(),
+      entry: makeEntry(),
+      actionId,
+      tellMeMore: true,
+    });
+
+    assert.ok(captured !== undefined);
+    const ids = blockIds(captured.blocks);
+    assert.ok(ids.includes("reveal-see-answer-actions:Q1"));
+    assert.ok(ids.includes("reveal-tell-me-more-actions:Q1"));
+
+    const block = captured.blocks.find((b) => b.block_id === "reveal-tell-me-more-actions:Q1");
+    assert.ok(block !== undefined && block.type === "actions");
+    const el = block.elements[0];
+    assert.ok(el.type === "button");
+    assert.equal(el.action_id, "plugin:trivia:tell-me-more:Q1");
+  });
+
+  it("omits the Tell me more button when tellMeMore is disabled", async () => {
+    let captured: Captured | undefined;
+    await editRevealIntoCard({
+      updateMessage: async (channel, ts, blocks) => {
+        captured = { channel, ts, blocks };
+      },
+      question: makeQuestion(),
+      entry: makeEntry(),
+      actionId,
+      tellMeMore: false,
+    });
+
+    assert.ok(captured !== undefined);
+    assert.ok(!blockIds(captured.blocks).includes("reveal-tell-me-more-actions:Q1"));
   });
 
   it("swallows an updateMessage failure (non-fatal)", async () => {
@@ -174,6 +218,7 @@ describe("editRevealIntoCard", () => {
         question: makeQuestion(),
         entry: makeEntry(),
         actionId,
+        tellMeMore: false,
       }),
     );
   });

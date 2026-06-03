@@ -56,6 +56,7 @@ describe("ClackSdk", () => {
       updateJob: deps?.updateJob,
       deleteJob: deps?.deleteJob,
       clackQuery: deps?.clackQuery ?? (() => emptyClackQuery()),
+      startThreadConversation: deps?.startThreadConversation,
       capabilities: deps?.capabilities,
     };
     return createClackSdk(pluginName, dataDir, fullDeps);
@@ -470,6 +471,122 @@ describe("ClackSdk", () => {
       assert.equal(args.unfurl_links, false);
       assert.ok(args && "unfurl_media" in args);
       assert.equal(args.unfurl_media, false);
+    });
+  });
+
+  describe("sendMessage", () => {
+    it("posts a top-level channel message and returns ts + channel", async () => {
+      const client = new WebClient();
+      const postSpy = vi.spyOn(client.chat, "postMessage").mockImplementation(async () => ({
+        ok: true,
+        ts: "111.222",
+        channel: "C1",
+      }));
+      const { sdk } = makeSdk("trivia", { getSlackClient: () => client });
+
+      const result = await sdk.sendMessage({ channel: "C1", text: "hi" });
+
+      assert.deepEqual(result, { ok: true, ts: "111.222", channel: "C1" });
+      const args = postSpy.mock.calls[0][0];
+      assert.equal(args?.channel, "C1");
+      assert.equal(args && "thread_ts" in args ? args.thread_ts : undefined, undefined);
+    });
+
+    it("posts a threaded reply when threadTs is given", async () => {
+      const client = new WebClient();
+      const postSpy = vi
+        .spyOn(client.chat, "postMessage")
+        .mockImplementation(async () => ({ ok: true, ts: "9.9", channel: "C1" }));
+      const { sdk } = makeSdk("trivia", { getSlackClient: () => client });
+
+      await sdk.sendMessage({ channel: "C1", text: "reply", threadTs: "5.5" });
+
+      const args = postSpy.mock.calls[0][0];
+      assert.equal(args && "thread_ts" in args ? args.thread_ts : undefined, "5.5");
+    });
+
+    it("rejects when neither text nor blocks is supplied", async () => {
+      const client = new WebClient();
+      const postSpy = vi.spyOn(client.chat, "postMessage");
+      const { sdk } = makeSdk("trivia", { getSlackClient: () => client });
+
+      const result = await sdk.sendMessage({ channel: "C1" });
+
+      assert.equal(result.ok, false);
+      assert.equal(postSpy.mock.calls.length, 0);
+    });
+
+    it("fails cleanly when the Slack client is not connected", async () => {
+      const { sdk } = makeSdk("trivia", { getSlackClient: () => null });
+      const result = await sdk.sendMessage({ channel: "C1", text: "hi" });
+      assert.equal(result.ok, false);
+      if (!result.ok) assert.match(result.error, /not connected/);
+    });
+
+    it("returns the error string when chat.postMessage throws", async () => {
+      const client = new WebClient();
+      vi.spyOn(client.chat, "postMessage").mockImplementation(async () => {
+        throw new Error("channel_not_found");
+      });
+      const { sdk } = makeSdk("trivia", { getSlackClient: () => client });
+      const result = await sdk.sendMessage({ channel: "C1", text: "hi" });
+      assert.equal(result.ok, false);
+      if (!result.ok) assert.match(result.error, /channel_not_found/);
+    });
+  });
+
+  describe("startThreadConversation", () => {
+    type StartParams = Parameters<NonNullable<ClackSdkDeps["startThreadConversation"]>>[0];
+
+    it("delegates to the injected dep with the resolved client and args", async () => {
+      const client = new WebClient();
+      const calls: StartParams[] = [];
+      const { sdk } = makeSdk("trivia", {
+        getSlackClient: () => client,
+        startThreadConversation: async (params) => {
+          calls.push(params);
+        },
+      });
+
+      await sdk.startThreadConversation({
+        channel: "C1",
+        threadTs: "5.5",
+        userId: "U1",
+        prompt: "tell me more",
+        additionalSystemPrompt: "ctx",
+      });
+
+      assert.equal(calls.length, 1);
+      assert.equal(calls[0].client, client);
+      assert.equal(calls[0].channel, "C1");
+      assert.equal(calls[0].threadTs, "5.5");
+      assert.equal(calls[0].userId, "U1");
+      assert.equal(calls[0].additionalSystemPrompt, "ctx");
+    });
+
+    it("is a no-op when the dep is not wired", async () => {
+      const client = new WebClient();
+      const { sdk } = makeSdk("trivia", { getSlackClient: () => client });
+      await assert.doesNotReject(
+        sdk.startThreadConversation({ channel: "C1", threadTs: "5.5", userId: "U1", prompt: "x" }),
+      );
+    });
+
+    it("is a no-op when the Slack client is not connected", async () => {
+      const calls: number[] = [];
+      const { sdk } = makeSdk("trivia", {
+        getSlackClient: () => null,
+        startThreadConversation: async () => {
+          calls.push(1);
+        },
+      });
+      await sdk.startThreadConversation({
+        channel: "C1",
+        threadTs: "5.5",
+        userId: "U1",
+        prompt: "x",
+      });
+      assert.equal(calls.length, 0);
     });
   });
 
