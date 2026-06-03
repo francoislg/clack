@@ -10,6 +10,7 @@ import {
   writeInstructionFile,
   deleteInstructionFile,
   getEffectiveContentLength,
+  searchInstructionFiles,
 } from "./configurationFiles.js";
 
 // ---------------------------------------------------------------------------
@@ -569,5 +570,115 @@ describe("getEffectiveContentLength", () => {
     writeOverrideFile("admin/custom-rule.md", "custom only content");
 
     assert.equal(getEffectiveContentLength("admin/custom-rule.md"), 19);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// searchInstructionFiles
+// ---------------------------------------------------------------------------
+
+describe("searchInstructionFiles", () => {
+  beforeEach(() => {
+    if (existsSync(tmpBase)) {
+      rmSync(tmpBase, { recursive: true });
+    }
+    mkdirSync(tmpBase, { recursive: true });
+    process.chdir(tmpBase);
+    writeSlackAuth();
+    writeConfig([{ name: "alpha", url: "https://github.com/org/alpha.git", description: "Alpha" }]);
+    loadConfig(configPath, true);
+  });
+
+  afterEach(() => {
+    process.chdir(originalCwd);
+  });
+
+  it("filters the listing to files whose content matches", () => {
+    writeDefaultFile("admin/topics/trivia/reveal-tone.md", "react with octagonal_sign to stop");
+    writeDefaultFile("dev/identity.md", "no match here");
+
+    const result = searchInstructionFiles("octagonal_sign");
+
+    const adminRole = result.roles.find((r) => r.role === "admin");
+    assert.ok(adminRole);
+    assert.equal(adminRole.topics[0].files[0].file, "reveal-tone.md");
+    assert.ok(!result.roles.some((r) => r.role === "dev"));
+    assert.equal(result.summary.files, 1);
+    assert.equal(result.summary.hits, 1);
+  });
+
+  it("annotates matching files with layer, line, and snippet", () => {
+    writeDefaultFile("user/identity.md", "line one\nfind the needle here\nline three");
+
+    const result = searchInstructionFiles("needle");
+
+    const entry = result.roles[0].files[0];
+    assert.equal(entry.file, "identity.md");
+    assert.equal(entry.matches.length, 1);
+    assert.deepEqual(entry.matches[0], {
+      layer: "default",
+      line: 2,
+      snippet: "find the needle here",
+    });
+  });
+
+  it("searches default and custom layers independently", () => {
+    writeDefaultFile("user/identity.md", "the keyword lives in default");
+    writeOverrideFile("user/identity.md", "override without it");
+    writeDefaultFile("dev/changes.md", "default plain");
+    writeOverrideFile("dev/changes.md", "the keyword lives in custom");
+
+    const result = searchInstructionFiles("keyword");
+
+    const userEntry = result.roles.find((r) => r.role === "user")?.files[0];
+    assert.ok(userEntry);
+    assert.deepEqual(
+      userEntry.matches.map((m) => m.layer),
+      ["default"],
+    );
+
+    const devEntry = result.roles.find((r) => r.role === "dev")?.files[0];
+    assert.ok(devEntry);
+    assert.deepEqual(
+      devEntry.matches.map((m) => m.layer),
+      ["custom"],
+    );
+  });
+
+  it("matches case-insensitively", () => {
+    writeDefaultFile("user/identity.md", "We award a Medal today");
+
+    const result = searchInstructionFiles("medal");
+
+    assert.equal(result.summary.files, 1);
+    assert.equal(result.roles[0].files[0].matches[0].line, 1);
+  });
+
+  it("returns an empty listing with zero summary when nothing matches", () => {
+    writeDefaultFile("user/identity.md", "totally unrelated");
+
+    const result = searchInstructionFiles("zzz-no-such-string");
+
+    assert.deepEqual(result.roles, []);
+    assert.deepEqual(result.preAnalysis, []);
+    assert.deepEqual(result.repos, []);
+    assert.equal(result.summary.files, 0);
+    assert.equal(result.summary.hits, 0);
+  });
+
+  it("covers pre-analysis and repo instruction files", () => {
+    writeDefaultFile("pre-analysis/context.md", "shared keyword context");
+    writeDefaultFile("alpha/changes_instructions.md", "repo keyword instructions");
+
+    const result = searchInstructionFiles("keyword");
+
+    assert.equal(result.preAnalysis.length, 1);
+    assert.equal(result.preAnalysis[0].file, "context.md");
+    assert.equal(result.preAnalysis[0].matches[0].layer, "default");
+
+    const repo = result.repos.find((r) => r.repo === "alpha");
+    assert.ok(repo);
+    assert.equal(repo.files[0].file, "changes_instructions.md");
+    assert.equal(repo.files[0].matches[0].layer, "default");
   });
 });
