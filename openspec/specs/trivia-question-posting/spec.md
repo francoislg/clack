@@ -668,7 +668,7 @@ When `process_reveal_answers` returns a reveal entry whose question has `media`,
 **Positioning:**
 
 - In a single-question reveal, the attribution block SHALL appear after the voter-bucket sections and before the closer `context` block that introduces the leaderboard.
-- In a multi-question reveal, each question's attribution block SHALL appear immediately after that question's compact verdict `section` block (before the `divider` that separates verdicts from the Round Summary). Each image-medium question carries its own attribution block, in question order. The cumulative-leaderboard closer remains last.
+- In a multi-question reveal, each question's attribution block SHALL appear immediately after that question's compact verdict `section` block (before the `divider` that separates verdicts from the closer + leaderboard). Each image-medium question carries its own attribution block, in question order. The cumulative-leaderboard closer remains last.
 
 #### Scenario: Reveal with attribution and license
 
@@ -686,4 +686,4 @@ When `process_reveal_answers` returns a reveal entry whose question has `media`,
 
 - **GIVEN** a 3-question reveal where Q1 and Q3 are image-medium (both have `media` with attribution) and Q2 is text-medium
 - **WHEN** the reveal is rendered
-- **THEN** Q1's compact verdict section is immediately followed by Q1's attribution context block, then Q2's verdict section (no attribution block), then Q3's verdict section followed by Q3's attribution context block, then the divider, then the Round Summary, then the cumulative-leaderboard closer
+- **THEN** Q1's compact verdict section is immediately followed by Q1's attribution context block, then Q2's verdict section (no attribution block), then Q3's verdict section followed by Q3's attribution context block, then the divider, then the cumulative-leaderboard closer (whose `This Round` table row carries the per-player round scoreboard)

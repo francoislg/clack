@@ -358,9 +358,9 @@ The `PROCESS_REVEAL_INSTRUCTIONS` constant SHALL explicitly branch on `reveals.l
 
 - `reveals.length === 0`: POST NOTHING — terminate the run with `submit_response({ skip_response: true })`. No acknowledgement and no leaderboard render when there is no batch to reveal; a silent skip is preferred over a "nothing to reveal" message.
 - `reveals.length === 1`: SINGLE-QUESTION layout — full per-voter-bucket sections (`correct`, `incorrect`, `noAnswer`) plus reactions commentary plus the leaderboard. The `This Round` leaderboard row SHALL be rendered whenever `roundSummary.perPlayer` is non-empty, per "Reveal table leads with This Round".
-- `reveals.length > 1`: MULTI-QUESTION layout — brief per-question verdicts plus a "Round Summary" section sourced from `roundSummary.perPlayer`. Trades verbose voter-bucket sections for an aggregate scoreboard. The leaderboard table SHALL carry the `This Round` row whenever `roundSummary.perPlayer` is non-empty, per "Reveal table leads with This Round".
+- `reveals.length > 1`: MULTI-QUESTION layout — brief per-question verdicts; the per-player round scoreboard is carried by the `This Round` leaderboard-table row (not a prose block). Trades verbose voter-bucket sections for the aggregate `This Round` row. The prompt SHALL NOT instruct a prose "Round Summary" `section` block, which would duplicate that row.
 
-The `This Round` row's presence SHALL be gated solely on `roundSummary.perPlayer` being non-empty — NOT on `reveals.length` and NOT on any entry's `revealResponses` mode. The same gate (empty `perPlayer`) that drops the Round Summary section block also drops the `This Round` row.
+The `This Round` row's presence SHALL be gated solely on `roundSummary.perPlayer` being non-empty — NOT on `reveals.length` and NOT on any entry's `revealResponses` mode.
 
 #### Scenario: Single-question branch describes the new voter buckets
 

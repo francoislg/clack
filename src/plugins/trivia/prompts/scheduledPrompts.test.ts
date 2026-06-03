@@ -302,11 +302,8 @@ describe("PROCESS_REVEAL_INSTRUCTIONS — multi-question branch", () => {
     assert.match(PROCESS_REVEAL_INSTRUCTIONS, /MUST NOT recompute it from `reveals\[\]\.voters`/);
   });
 
-  it("instructs the multi-question branch to mark roundMvp entries with the trophy emoji", () => {
-    assert.match(
-      PROCESS_REVEAL_INSTRUCTIONS,
-      /Prefix every entry whose `roundMvp: true` is set with `🏆`/,
-    );
+  it("forbids a prose Round Summary section block (the This Round table row carries it)", () => {
+    assert.match(PROCESS_REVEAL_INSTRUCTIONS, /Do NOT add a "Round Summary" `section` block/);
   });
 
   it("keeps per-question verdicts brief (≤ 2 short sentences)", () => {
@@ -449,8 +446,6 @@ describe("PROCESS_REVEAL_INSTRUCTIONS — renderer brief", () => {
     assert.match(PROCESS_REVEAL_INSTRUCTIONS, /whenever `roundSummary\.perPlayer` is non-empty/);
     assert.match(PROCESS_REVEAL_INSTRUCTIONS, /ANY reveal count/);
     assert.match(PROCESS_REVEAL_INSTRUCTIONS, /ANY reveal mode/);
-    // Shares the Round Summary gate when empty.
-    assert.match(PROCESS_REVEAL_INSTRUCTIONS, /the same gate that drops the Round Summary block/);
     // No longer gated on reveals.length > 1.
     assert.doesNotMatch(
       PROCESS_REVEAL_INSTRUCTIONS,

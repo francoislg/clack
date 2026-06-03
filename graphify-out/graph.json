@@ -14627,7 +14627,7 @@
       "label": "matchAll()",
       "file_type": "code",
       "source_file": "src/plugins/trivia/prompts/scheduledPrompts.test.ts",
-      "source_location": "L777",
+      "source_location": "L772",
       "id": "prompts_scheduledprompts_test_matchall",
       "community": 1,
       "norm_label": "matchall()"
@@ -84695,7 +84695,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "src/plugins/trivia/prompts/scheduledPrompts.test.ts",
-      "source_location": "L777",
+      "source_location": "L772",
       "weight": 1.0,
       "_src": "src_plugins_trivia_prompts_scheduledprompts_test_ts",
       "_tgt": "prompts_scheduledprompts_test_matchall",
