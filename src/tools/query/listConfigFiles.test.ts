@@ -30,13 +30,19 @@ function makeDeps(overrides: Partial<ListConfigFilesDeps> = {}): ListConfigFiles
       preAnalysis: [],
       repos: [],
     })),
+    searchInstructionFiles: vi.fn<ListConfigFilesDeps["searchInstructionFiles"]>((query) => ({
+      summary: { query, files: 0, hits: 0 },
+      roles: [],
+      preAnalysis: [],
+      repos: [],
+    })),
     ...overrides,
   };
 }
 
-function callTool(ctx: QueryToolContext, deps: ListConfigFilesDeps) {
+function callTool(ctx: QueryToolContext, deps: ListConfigFilesDeps, query?: string) {
   const toolDef = createListConfigFilesTool(ctx, deps);
-  return toolDef.handler({ _placeholder: undefined }, { sessionId: "test" });
+  return toolDef.handler({ query }, { sessionId: "test" });
 }
 
 // ---------------------------------------------------------------------------
@@ -190,5 +196,58 @@ describe("listConfigFiles tool", () => {
     assert.equal(parsed.preAnalysis.length, 1);
     assert.equal(parsed.preAnalysis[0].file, "context.md");
     assert.equal(parsed.preAnalysis[0].status, "customized");
+  });
+
+  it("returns the full listing and does not search when query is omitted", async () => {
+    const deps = makeDeps();
+    const result = await callTool(makeCtx(), deps);
+
+    const parsed = parseToolResult(result);
+    assert.deepEqual(parsed, { roles: [], preAnalysis: [], repos: [] });
+    assert.equal((deps.searchInstructionFiles as ReturnType<typeof vi.fn>).mock.calls.length, 0);
+    assert.equal((deps.listInstructionFiles as ReturnType<typeof vi.fn>).mock.calls.length, 1);
+  });
+
+  it("falls back to the full listing for a blank/whitespace query", async () => {
+    const deps = makeDeps();
+    const result = await callTool(makeCtx(), deps, "   ");
+
+    parseToolResult(result);
+    assert.equal((deps.searchInstructionFiles as ReturnType<typeof vi.fn>).mock.calls.length, 0);
+    assert.equal((deps.listInstructionFiles as ReturnType<typeof vi.fn>).mock.calls.length, 1);
+  });
+
+  it("delegates to searchInstructionFiles with the trimmed query", async () => {
+    const deps = makeDeps({
+      searchInstructionFiles: vi.fn<ListConfigFilesDeps["searchInstructionFiles"]>((query) => ({
+        summary: { query, files: 1, hits: 2 },
+        roles: [
+          {
+            role: "admin",
+            files: [
+              {
+                file: "identity.md",
+                status: "default",
+                matches: [{ layer: "default", line: 3, snippet: "the needle" }],
+              },
+            ],
+            topics: [],
+          },
+        ],
+        preAnalysis: [],
+        repos: [],
+      })),
+    });
+
+    const result = await callTool(makeCtx(), deps, "  needle  ");
+
+    const parsed = parseToolResult(result);
+    assert.equal(parsed.summary.query, "needle");
+    assert.equal(parsed.summary.files, 1);
+    assert.equal(parsed.roles[0].files[0].matches[0].snippet, "the needle");
+    assert.equal((deps.listInstructionFiles as ReturnType<typeof vi.fn>).mock.calls.length, 0);
+    assert.deepEqual((deps.searchInstructionFiles as ReturnType<typeof vi.fn>).mock.calls, [
+      ["needle"],
+    ]);
   });
 });

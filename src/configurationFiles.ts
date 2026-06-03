@@ -179,6 +179,127 @@ export function readInstructionFile(filepath: string): {
 }
 
 // ---------------------------------------------------------------------------
+// Search instruction file content
+// ---------------------------------------------------------------------------
+
+export interface MatchHit {
+  layer: "default" | "custom";
+  line: number;
+  snippet: string;
+}
+
+export type WithMatches<T> = T & { matches: MatchHit[] };
+
+export interface SearchTopicEntry {
+  topic: string;
+  files: WithMatches<FileEntry>[];
+}
+
+export interface SearchRoleEntry {
+  role: string;
+  files: WithMatches<FileEntry>[];
+  topics: SearchTopicEntry[];
+}
+
+export interface SearchRepoEntry {
+  repo: string;
+  files: WithMatches<RepoFileEntry>[];
+}
+
+export interface InstructionFileSearchResult {
+  summary: { query: string; files: number; hits: number };
+  roles: SearchRoleEntry[];
+  preAnalysis: WithMatches<FileEntry>[];
+  repos: SearchRepoEntry[];
+}
+
+const SNIPPET_MAX_LENGTH = 200;
+
+function scanLayer(
+  content: string | null,
+  layer: "default" | "custom",
+  needle: string,
+): MatchHit[] {
+  if (content === null) return [];
+  const hits: MatchHit[] = [];
+  const lines = content.split("\n");
+  for (let i = 0; i < lines.length; i++) {
+    if (lines[i].toLowerCase().includes(needle)) {
+      const trimmed = lines[i].trim();
+      const snippet =
+        trimmed.length > SNIPPET_MAX_LENGTH ? `${trimmed.slice(0, SNIPPET_MAX_LENGTH)}…` : trimmed;
+      hits.push({ layer, line: i + 1, snippet });
+    }
+  }
+  return hits;
+}
+
+function searchSingleFile(path: string, needle: string): MatchHit[] {
+  const { default_content, custom_content } = readInstructionFile(path);
+  return [
+    ...scanLayer(default_content, "default", needle),
+    ...scanLayer(custom_content, "custom", needle),
+  ];
+}
+
+/**
+ * Case-insensitive substring search across the content of every instruction file
+ * surfaced by `listInstructionFiles()`. Both the default and custom layers are
+ * scanned independently; each file is annotated with its hits and files with no
+ * hits are dropped, leaving the same listing shape filtered to matches plus a
+ * top-level `summary`. Paths are reconstructed from the trusted listing and read
+ * through `readInstructionFile`, so no new file-path input surface is introduced.
+ */
+export function searchInstructionFiles(query: string): InstructionFileSearchResult {
+  const needle = query.toLowerCase();
+  const listing = listInstructionFiles();
+  let fileCount = 0;
+  let hitCount = 0;
+
+  function annotate<T extends { file: string }>(
+    files: T[],
+    toPath: (file: string) => string,
+  ): WithMatches<T>[] {
+    const out: WithMatches<T>[] = [];
+    for (const entry of files) {
+      const matches = searchSingleFile(toPath(entry.file), needle);
+      if (matches.length > 0) {
+        out.push({ ...entry, matches });
+        fileCount++;
+        hitCount += matches.length;
+      }
+    }
+    return out;
+  }
+
+  const roles: SearchRoleEntry[] = [];
+  for (const role of listing.roles) {
+    const files = annotate(role.files, (f) => `${role.role}/${f}`);
+    const topics: SearchTopicEntry[] = [];
+    for (const topic of role.topics) {
+      const topicFiles = annotate(topic.files, (f) => `${role.role}/topics/${topic.topic}/${f}`);
+      if (topicFiles.length > 0) topics.push({ topic: topic.topic, files: topicFiles });
+    }
+    if (files.length > 0 || topics.length > 0) roles.push({ role: role.role, files, topics });
+  }
+
+  const preAnalysis = annotate(listing.preAnalysis, (f) => `pre-analysis/${f}`);
+
+  const repos: SearchRepoEntry[] = [];
+  for (const repo of listing.repos) {
+    const files = annotate(repo.files, (f) => `${repo.repo}/${f}`);
+    if (files.length > 0) repos.push({ repo: repo.repo, files });
+  }
+
+  return {
+    summary: { query, files: fileCount, hits: hitCount },
+    roles,
+    preAnalysis,
+    repos,
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Write instruction file
 // ---------------------------------------------------------------------------
 
