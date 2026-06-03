@@ -7,7 +7,7 @@ import { errorResult, textResult } from "../helpers.js";
 export function createSetExpectedRateTool(sdk: ClackSdk) {
   return tool(
     "set_expected_rate",
-    "Set the expected chattiness — either a named rate ('hourly', '2-per-day', 'daily', '2-per-week', 'weekly') OR an explicit die size. Note: the rate is TOTAL across all configured channels, NOT per-channel. With expectedRate 'daily' and 5 channels, you'd see ~1 post/day spread across the 5, i.e. 1 per channel every 5 days. Triggers a soft restart on success.",
+    "Set the expected chattiness — either a named rate ('hourly', '2-per-day', 'daily', '2-per-week', 'weekly') OR an explicit die size. Note: the rate is TOTAL across all configured channels, NOT per-channel. With expectedRate 'daily' and 5 channels, you'd see ~1 post/day spread across the 5, i.e. 1 per channel every 5 days. Takes effect on the next scheduled tick via config hot-reload.",
     {
       rate: z
         .enum(["hourly", "2-per-day", "daily", "2-per-week", "weekly"])
@@ -29,13 +29,11 @@ export function createSetExpectedRateTool(sdk: ClackSdk) {
       const config = await loadConfig(sdk);
       if (args.die !== undefined) {
         await saveConfig(sdk, { ...config, die: args.die });
-        sdk.requestSoftRestart("casual-talk: die override set");
         return textResult({ ok: true, message: sdk.t("rate_set_die", { die: args.die }) });
       }
       // args.rate is defined here
       const nextConfig = { ...config, expectedRate: args.rate!, die: undefined };
       await saveConfig(sdk, nextConfig);
-      sdk.requestSoftRestart("casual-talk: expected rate set");
       return textResult({ ok: true, message: sdk.t("rate_set_named", { rate: args.rate! }) });
     },
   );

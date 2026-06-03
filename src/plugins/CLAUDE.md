@@ -36,6 +36,18 @@ If two plugins independently need the "same" type, that's a sign you have two di
 
 Parsers, validators, and constants follow the same rule. The trivia plugin's `parseTriviaGames` lives under `src/plugins/trivia/core/`, NOT in `src/config.ts`.
 
+## 4. Prefer hot-reload over soft-restart
+
+When a plugin owns a file (config, data, instruction overrides), **react to changes by hot-reloading, not by `sdk.requestSoftRestart`** — unless the change touches something that can only be wired at init. A soft restart tears down and re-runs the whole plugin: it re-reconciles cron jobs, re-registers tools, and re-installs instructions, but it also coalesces concurrent restarts (rapid edits get "already in flight — skipping", so intermediate triggers are dropped) and, in container deployments, churns the process enough to wipe `docker logs` history. Reach for it only when nothing cheaper covers the change.
+
+Decide by what the changed value feeds:
+
+- **Read live by a tool handler** (a threshold, a flag, a list a tool iterates at call time) → **pure hot-reload.** `sdk.watchFile(file, cb)` where `cb` re-parses and updates an in-memory cache; the tool's synchronous accessor returns the new value on the next call. No restart.
+- **Baked into a cron prompt** (e.g. casual-talk embeds its channel list / die / topics into the cron job's prompt at `reconcileCronJobs` time) → **hot-reload by re-reconciling.** The `watchFile` callback rebuilds the prompt and calls `sdk.reconcileCronJobs(...)` again. `reconcileCronJobs` is idempotent and callable after init, so this updates the spec in place — still no restart.
+- **Wired only at init** — tool registration/gating (`registerTool` behind a config gate, like trivia's seasons-gated tools), `registerMcpServer`, or `addInstruction`/`addTopicInstruction` content → **soft restart is required**, because the SDK only exposes those during plugin load. Pair it with a cache reload (`watchFile` → update cache **and** `requestSoftRestart`) so tool calls in the debounce+restart gap still observe the new state. This is what `trivia/core/configBridge.ts` does, and why it can't fully escape the restart.
+
+The rule of thumb: a config field that only affects *runtime behavior* (prompts, thresholds, lists) is hot-reloadable; a field that affects the plugin's *surface area* (which tools/servers/instructions exist) needs a restart. If you find yourself soft-restarting for a runtime-only field, switch to `watchFile` + re-reconcile.
+
 ## Topics vs MCP Servers — two related-but-distinct concepts
 
 The bot uses two concepts joined by a shared name convention. When you author a plugin, knowing which is which prevents confused-mental-model bugs.

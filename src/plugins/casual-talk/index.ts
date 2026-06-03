@@ -21,7 +21,7 @@ import {
 } from "./tools/toggle.js";
 
 const MANAGEMENT_DESCRIPTION =
-  "Manage the casual-talk plugin: candidate channels, small-talk topics, chattiness rate, work hours, and the enabled flag. Tools here mutate `data/plugins/casual-talk/config.json` and trigger a soft restart so changes take effect immediately.";
+  "Manage the casual-talk plugin: candidate channels, small-talk topics, chattiness rate, work hours, and the enabled flag. Tools here mutate `data/plugins/casual-talk/config.json`; changes hot-reload and take effect on the next scheduled tick.";
 
 export const casualTalkPlugin: ClackPlugin = async (sdk: ClackSdk) => {
   // Casual-talk is a cron-driven plugin. Without the scheduler tick loop, none of its
@@ -79,48 +79,63 @@ export const casualTalkPlugin: ClackPlugin = async (sdk: ClackSdk) => {
     "Toggling built-in fallback topics — {enabled}",
   );
 
-  // Load config and reconcile the cron spec. If config is invalid, `loadConfig` throws
-  // and the harness catches it via the synthesizeErrorResult path — the plugin shows up
-  // on the Home Tab with its error banner.
-  let config;
-  try {
-    config = await loadConfig(sdk);
-  } catch (err) {
-    sdk.error(
-      `Failed to load casual-talk config: ${err instanceof Error ? err.message : String(err)}`,
-    );
-    return;
-  }
+  // The channel list, die, and topics are baked into the cron prompt at reconcile time,
+  // so a config change is picked up by rebuilding the prompt and reconciling again — no
+  // restart. On invalid config, record via `sdk.error` and leave the watcher running so a
+  // corrected file recovers on its own.
+  const reconcile = async (): Promise<void> => {
+    let config;
+    try {
+      config = await loadConfig(sdk);
+    } catch (err) {
+      sdk.error(
+        `Failed to load casual-talk config: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      return;
+    }
 
-  // Build the one cron spec, or pass [] to clear any prior spec when disabled or empty.
-  const specs: CronJobSpec[] = [];
-  if (config.enabled && config.channels.length > 0) {
-    const die = resolveDie(config);
-    const prompt = buildPrompt({
-      die,
-      rateLabel: rateLabel(config.expectedRate, die),
-      channels: config.channels,
-      smallTalkTopics: resolveFallbackTopics(config),
-    });
-    specs.push({
-      specKey: "chatter",
-      cronExpression: buildCronExpression(config.workHours),
-      // No `channel` field — channelless dispatch. See `channelless-cron-jobs` capability.
-      timezone: config.workHours.tz,
-      prompt,
-      name: "Casual chatter",
-      submitResponseMode: "skipped",
-      requiredTools: ["mcp__clack__random_roll"],
-      attachedTopics: ["casual-talk"],
-    });
-  } else if (config.enabled && config.channels.length === 0) {
-    sdk.logger.info("enabled but no channels configured — no cron spec reconciled");
-  }
+    const specs: CronJobSpec[] = [];
+    if (config.enabled && config.channels.length > 0) {
+      const die = resolveDie(config);
+      const prompt = buildPrompt({
+        die,
+        rateLabel: rateLabel(config.expectedRate, die),
+        channels: config.channels,
+        smallTalkTopics: resolveFallbackTopics(config),
+      });
+      specs.push({
+        specKey: "chatter",
+        cronExpression: buildCronExpression(config.workHours),
+        // No `channel` field — channelless dispatch. See `channelless-cron-jobs` capability.
+        timezone: config.workHours.tz,
+        prompt,
+        name: "Casual chatter",
+        submitResponseMode: "skipped",
+        requiredTools: ["mcp__clack__random_roll"],
+        attachedTopics: ["casual-talk"],
+      });
+    } else if (config.enabled && config.channels.length === 0) {
+      sdk.logger.info("enabled but no channels configured — no cron spec reconciled");
+    }
 
-  await sdk.reconcileCronJobs("casual-talk", specs);
-  if (specs.length > 0) {
-    sdk.logger.info(
-      `reconciled 1 cron spec (rate: ${rateLabel(config.expectedRate, resolveDie(config))})`,
-    );
-  }
+    await sdk.reconcileCronJobs("casual-talk", specs);
+    if (specs.length > 0) {
+      sdk.logger.info(
+        `reconciled 1 cron spec (rate: ${rateLabel(config.expectedRate, resolveDie(config))})`,
+      );
+    }
+  };
+
+  await reconcile();
+
+  // Hot-reload on every config edit (tool writes via saveConfig, or external edits). No
+  // soft restart: casual-talk's config only feeds the cron prompt, not tool gating or
+  // instructions. See "Prefer hot-reload over soft-restart" in src/plugins/CLAUDE.md.
+  sdk.watchFile("config.json", () => {
+    reconcile().catch((err: unknown) => {
+      sdk.error(
+        `Failed to re-reconcile casual-talk after config change: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    });
+  });
 };

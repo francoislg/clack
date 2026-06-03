@@ -12,7 +12,7 @@ function findChannelIndex(channels: CasualTalkChannel[], id: string): number {
 export function createAddChannelTool(sdk: ClackSdk) {
   return tool(
     "add_channel",
-    "Add a Slack channel to the casual-talk candidate list. The bot will consider this channel when it rolls a hit. Optionally include a promptSuggestion to give Claude a per-channel character hint (e.g. 'memes only — keep it visual'). If the channel is already in the list, the prompt suggestion is updated. Triggers a soft restart on success.",
+    "Add a Slack channel to the casual-talk candidate list. The bot will consider this channel when it rolls a hit. Optionally include a promptSuggestion to give Claude a per-channel character hint (e.g. 'memes only — keep it visual'). If the channel is already in the list, the prompt suggestion is updated. Takes effect on the next scheduled tick via config hot-reload.",
     {
       id: z.string().describe("Slack channel ID (C…, G…, or D…)"),
       promptSuggestion: z
@@ -32,14 +32,12 @@ export function createAddChannelTool(sdk: ClackSdk) {
         const next = [...config.channels];
         next[existingIdx] = updated;
         await saveConfig(sdk, { ...config, channels: next });
-        sdk.requestSoftRestart("casual-talk: channel updated");
         return textResult({ ok: true, message: sdk.t("channel_already_present", { id: args.id }) });
       }
       const newEntry: CasualTalkChannel = args.promptSuggestion
         ? { id: args.id, promptSuggestion: args.promptSuggestion }
         : args.id;
       await saveConfig(sdk, { ...config, channels: [...config.channels, newEntry] });
-      sdk.requestSoftRestart("casual-talk: channel added");
       return textResult({ ok: true, message: sdk.t("channel_added", { id: args.id }) });
     },
   );
@@ -48,7 +46,7 @@ export function createAddChannelTool(sdk: ClackSdk) {
 export function createRemoveChannelTool(sdk: ClackSdk) {
   return tool(
     "remove_channel",
-    "Remove a Slack channel from the casual-talk candidate list. Triggers a soft restart on success.",
+    "Remove a Slack channel from the casual-talk candidate list. Takes effect on the next scheduled tick via config hot-reload.",
     {
       id: z.string().describe("Slack channel ID to remove"),
     },
@@ -60,7 +58,6 @@ export function createRemoveChannelTool(sdk: ClackSdk) {
       }
       const next = config.channels.filter((_, i) => i !== idx);
       await saveConfig(sdk, { ...config, channels: next });
-      sdk.requestSoftRestart("casual-talk: channel removed");
       return textResult({ ok: true, message: sdk.t("channel_removed", { id: args.id }) });
     },
   );
@@ -69,7 +66,7 @@ export function createRemoveChannelTool(sdk: ClackSdk) {
 export function createSetChannelPromptSuggestionTool(sdk: ClackSdk) {
   return tool(
     "set_channel_prompt_suggestion",
-    "Update or clear the per-channel prompt suggestion. Pass an empty string to clear (the entry reverts to a bare channel ID). Triggers a soft restart on success.",
+    "Update or clear the per-channel prompt suggestion. Pass an empty string to clear (the entry reverts to a bare channel ID). Takes effect on the next scheduled tick via config hot-reload.",
     {
       id: z.string().describe("Slack channel ID"),
       promptSuggestion: z
@@ -88,7 +85,6 @@ export function createSetChannelPromptSuggestionTool(sdk: ClackSdk) {
           ? { id: args.id, promptSuggestion: args.promptSuggestion }
           : args.id;
       await saveConfig(sdk, { ...config, channels: next });
-      sdk.requestSoftRestart("casual-talk: channel prompt suggestion changed");
       const msgKey =
         args.promptSuggestion.length > 0 ? "prompt_suggestion_set" : "prompt_suggestion_cleared";
       return textResult({ ok: true, message: sdk.t(msgKey, { id: args.id }) });
