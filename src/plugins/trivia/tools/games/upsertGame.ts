@@ -31,6 +31,7 @@ import {
   triviaDifficultyRatioZod,
   triviaHintZod,
   triviaJudgeLeniencyZod,
+  triviaTellMeMoreZod,
   validateHintConfig,
   type ParseIssue,
 } from "../../core/configParsers/axes.js";
@@ -142,6 +143,12 @@ const structuralFieldsSchema = {
     .optional()
     .describe(
       'Per-game tier of the reveal-judge leniency axis for freeform answers. One of `"strict"` | `"strict-with-typos"` | `"lenient"`. `"strict"` forgives only case, numeral↔word substitution, decade-form, and singular/plural; `"strict-with-typos"` (the workspace default) adds typo + loose-writing tolerance; `"lenient"` accepts any rendering that unmistakably shows the player knew the answer. Resolved at save time and stamped on each freeform question. Cascade: `slot → season → game → workspace → "strict-with-typos"`. Whole-value replace per tier. On UPDATE: explicit null clears the field.',
+    ),
+  tellMeMore: triviaTellMeMoreZod
+    .nullable()
+    .optional()
+    .describe(
+      'Per-game tier of the "Tell me more" reveal affordance. Object shape `{ enabled: boolean }`. When enabled, the revealed question card grows a "Tell me more" button that starts a thread conversation asking Clack for deeper detail about the question/answer. Cascade: `game → workspace → { enabled: false }` (no season/slot tier). On UPDATE: explicit null clears the field.',
     ),
 };
 
@@ -379,6 +386,7 @@ export function createUpsertGameTool(
         ...(existing?.hint !== undefined ? { hint: existing.hint } : {}),
         ...(existing?.judgeLeniency !== undefined ? { judgeLeniency: existing.judgeLeniency } : {}),
         ...(existing?.allTimeRow !== undefined ? { allTimeRow: existing.allTimeRow } : {}),
+        ...(existing?.tellMeMore !== undefined ? { tellMeMore: existing.tellMeMore } : {}),
       };
       if (args.format === null) delete mergedStructural.format;
       else if (parsedFormat !== undefined) mergedStructural.format = parsedFormat;
@@ -401,6 +409,8 @@ export function createUpsertGameTool(
       else if (parsedHint !== undefined) mergedStructural.hint = parsedHint;
       if (args.allTimeRow === null) delete mergedStructural.allTimeRow;
       else if (args.allTimeRow !== undefined) mergedStructural.allTimeRow = args.allTimeRow;
+      if (args.tellMeMore === null) delete mergedStructural.tellMeMore;
+      else if (args.tellMeMore !== undefined) mergedStructural.tellMeMore = args.tellMeMore;
       if (args.judgeLeniency === null) delete mergedStructural.judgeLeniency;
       else if (args.judgeLeniency !== undefined)
         mergedStructural.judgeLeniency = args.judgeLeniency;
@@ -472,6 +482,7 @@ export function createUpsertGameTool(
         hasHint: mergedStructural.hint !== undefined,
         hasJudgeLeniency: mergedStructural.judgeLeniency !== undefined,
         hasAllTimeRow: mergedStructural.allTimeRow !== undefined,
+        hasTellMeMore: mergedStructural.tellMeMore !== undefined,
         slotCount: mergedStructural.format?.questions.length ?? 0,
       });
     },

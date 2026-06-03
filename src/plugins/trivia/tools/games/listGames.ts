@@ -14,6 +14,7 @@ import type {
   TriviaAllTimeRowMode,
   TriviaSeasonsConfig,
   TriviaHintConfig,
+  TriviaTellMeMoreConfig,
   JudgeLeniency,
   RevealResponsesMode,
   OffDay,
@@ -53,6 +54,7 @@ interface ListGamesEntry {
   hint?: TriviaHintConfig;
   judgeLeniency?: JudgeLeniency;
   allTimeRow?: TriviaAllTimeRowMode;
+  tellMeMore?: TriviaTellMeMoreConfig;
 }
 
 export type FindOwnedCronJobsFn = () => Promise<Array<{ id: string; specKey: string }>>;
@@ -64,6 +66,7 @@ type WorkspaceDefaults = Partial<CascadeAxes> & {
   seasons?: TriviaSeasonsConfig;
   offDays?: OffDay[];
   allTimeRow?: TriviaAllTimeRowMode;
+  tellMeMore?: TriviaTellMeMoreConfig;
 };
 
 const DESCRIPTION = `List the trivia games configured in this deployment (data/plugins/trivia/config.json's \`games[]\`), plus the workspace tier of the cascading axis configuration (\`workspaceDefaults\`) AND each entry's per-game \`axisOverrides\`, so admins can audit configuration without reading the file by hand.
@@ -155,6 +158,7 @@ export function createListGamesTool(
           ...(g.revealResponses !== undefined ? { revealResponses: g.revealResponses } : {}),
           ...(g.hint !== undefined ? { hint: g.hint } : {}),
           ...(g.allTimeRow !== undefined ? { allTimeRow: g.allTimeRow } : {}),
+          ...(g.tellMeMore !== undefined ? { tellMeMore: g.tellMeMore } : {}),
           ...(g.judgeLeniency !== undefined ? { judgeLeniency: g.judgeLeniency } : {}),
         };
       });
@@ -168,6 +172,7 @@ export function createListGamesTool(
         if (triviaCfg.seasons !== undefined) workspaceDefaults.seasons = triviaCfg.seasons;
         if (triviaCfg.offDays !== undefined) workspaceDefaults.offDays = triviaCfg.offDays;
         if (triviaCfg.allTimeRow !== undefined) workspaceDefaults.allTimeRow = triviaCfg.allTimeRow;
+        if (triviaCfg.tellMeMore !== undefined) workspaceDefaults.tellMeMore = triviaCfg.tellMeMore;
       }
 
       return textResult({ games: entries, workspaceDefaults, total: entries.length });

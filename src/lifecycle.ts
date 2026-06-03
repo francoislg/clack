@@ -26,6 +26,7 @@ import { clearAutoRespondCache } from "./autoRespond.js";
 import { clearCronJobsCache } from "./cronJobs.js";
 import { clearUserSkillBodyCache } from "./userSkillsBodyCache.js";
 import { loadAndInstallPlugins } from "./plugins/registry.js";
+import { startThreadConversation } from "./slack/handlers/core.js";
 import { getLoadedPlugins } from "./plugins/state.js";
 import { unregisterByPluginName as unregisterPluginInteractivity } from "./slack/pluginActionRegistry.js";
 
@@ -299,6 +300,7 @@ export async function restartAll(
       const pluginNames = config.plugins ?? [];
       await deps.loadAndInstallPlugins(pluginNames, {
         requestSoftRestart: (reason) => requestSoftRestart(reason, deps),
+        startThreadConversation,
       });
     } catch (error) {
       warnings.push(

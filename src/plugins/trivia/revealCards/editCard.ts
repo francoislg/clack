@@ -9,8 +9,10 @@
  * The rebuild:
  *   1. drops the answer-actions block (vote / freeform-answer buttons, plus any
  *      hint button sharing that block) by its `block_id` prefix,
- *   2. appends the static results footer (who got it right, per mode), and
- *   3. appends a single "See your answer" button.
+ *   2. appends the static results footer (who got it right, per mode),
+ *   3. appends a "See your answer" button, and
+ *   4. when `tellMeMore` is enabled, appends a "Tell me more" button in its own
+ *      actions block (so the click handler can drop just that block).
  */
 
 import type { KnownBlock } from "@slack/types";
@@ -35,6 +37,8 @@ export interface EditRevealParams {
   entry: ProcessRevealEntry;
   /** Plugin SDK action-id namespacer, e.g. `(key) => \`plugin:trivia:\${key}\``. */
   actionId: (key: string) => string;
+  /** When true, append a "Tell me more" button alongside "See your answer". */
+  tellMeMore: boolean;
 }
 
 /**
@@ -43,7 +47,7 @@ export interface EditRevealParams {
  * `messageLink`; swallows `chat.update` failures.
  */
 export async function editRevealIntoCard(params: EditRevealParams): Promise<void> {
-  const { updateMessage, question, entry, actionId } = params;
+  const { updateMessage, question, entry, actionId, tellMeMore } = params;
 
   if (question.postedBlocks === undefined) {
     logger.warn(
@@ -86,6 +90,20 @@ export async function editRevealIntoCard(params: EditRevealParams): Promise<void
   };
 
   const updatedBlocks: KnownBlock[] = [...bodyBlocks, ...footer, seeAnswerButton];
+
+  if (tellMeMore) {
+    updatedBlocks.push({
+      type: "actions",
+      block_id: `reveal-tell-me-more-actions:${question.id}`,
+      elements: [
+        {
+          type: "button",
+          action_id: actionId(`tell-me-more:${question.id}`),
+          text: { type: "plain_text", text: t("button.tell_me_more"), emoji: true },
+        },
+      ],
+    });
+  }
 
   try {
     await updateMessage(channel, ts, updatedBlocks);

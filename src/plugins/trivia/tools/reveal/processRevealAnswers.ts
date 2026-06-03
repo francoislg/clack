@@ -16,6 +16,7 @@ import {
 import { requireWritableGame } from "../../core/gamesRegistry.js";
 import { computeLeaderboard } from "../../domain/computeLeaderboard.js";
 import { resolveAllTimeRow, shouldShowAllTimeRow } from "../../domain/allTimeRow.js";
+import { resolveTellMeMore } from "../../domain/tellMeMore.js";
 import { findCurrentSeason } from "../../core/seasonTimeline.js";
 import { resolveCascade } from "../../domain/resolveCascade.js";
 import { buildCascadeContext } from "../../domain/cascadeContext.js";
@@ -215,6 +216,12 @@ export function createProcessRevealAnswersTool(
       // Each target's full reveal processing is owned by its answer-type
       // handler — the reveal flow just iterates, calls `handler.processReveal`,
       // and accumulates outcomes. No format-string branching lives here.
+      // Whether revealed cards get the "Tell me more" button (game → workspace → off).
+      const tellMeMoreEnabled = resolveTellMeMore(
+        getGamesFn().find((g) => g.name === args.game) ?? null,
+        getTriviaConfigFn(),
+      ).enabled;
+
       const entriesById = new Map<string, ProcessRevealEntry>();
       const revealDeps = {
         scoped,
@@ -258,6 +265,7 @@ export function createProcessRevealAnswersTool(
             question,
             entry,
             actionId: sdk.actionId,
+            tellMeMore: tellMeMoreEnabled,
           });
         } else {
           perIdErrors.push({ questionId: question.id, error: outcome.error });

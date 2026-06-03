@@ -21,6 +21,7 @@ import {
   triviaDifficultyRatioZod,
   triviaHintZod,
   triviaJudgeLeniencyZod,
+  triviaTellMeMoreZod,
   validateHintConfig,
   validateTriviaChoicesConfig,
   type ParseIssue,
@@ -123,6 +124,12 @@ export function createSetWorkspaceConfigTool() {
         .optional()
         .describe(
           'Workspace tier of the reveal-judge leniency axis for freeform answers. One of `"strict"` | `"strict-with-typos"` | `"lenient"`. `"strict"` forgives only case, numeral↔word substitution, decade-form, and singular/plural; `"strict-with-typos"` (the built-in default) adds typo + loose-writing tolerance; `"lenient"` accepts any rendering that unmistakably shows the player knew the answer. Resolved at save time and stamped on each freeform question. Cascade: `slot → season → game → workspace → "strict-with-typos"`. null clears.',
+        ),
+      tellMeMore: triviaTellMeMoreZod
+        .nullable()
+        .optional()
+        .describe(
+          'Workspace tier of the "Tell me more" reveal affordance. Object shape `{ enabled: boolean }`. When enabled, the revealed question card grows a "Tell me more" button that starts a thread conversation asking Clack for deeper detail about the question/answer. Cascade: `game → workspace → { enabled: false }`. null clears.',
         ),
     },
     async (args) => {
@@ -280,6 +287,15 @@ export function createSetWorkspaceConfigTool() {
       } else if (args.allTimeRow !== undefined) {
         next.allTimeRow = args.allTimeRow;
         updatedFields.push("allTimeRow");
+      }
+
+      // tellMeMore: apply or clear.
+      if (args.tellMeMore === null) {
+        delete next.tellMeMore;
+        updatedFields.push("tellMeMore (cleared)");
+      } else if (args.tellMeMore !== undefined) {
+        next.tellMeMore = args.tellMeMore;
+        updatedFields.push("tellMeMore");
       }
 
       // judgeLeniency: apply or clear.

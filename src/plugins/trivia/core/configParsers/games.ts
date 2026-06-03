@@ -15,6 +15,7 @@ import type {
   TriviaAllTimeRowMode,
   TriviaGame,
   TriviaHintConfig,
+  TriviaTellMeMoreConfig,
 } from "../configTypes.js";
 import {
   isRevealResponsesMode,
@@ -22,6 +23,7 @@ import {
   validateAllTimeRowMode,
   validateHintConfig,
   validateJudgeLeniency,
+  validateTellMeMore,
   type ParseIssue,
 } from "./axes.js";
 import { validateFormat } from "./format.js";
@@ -277,6 +279,13 @@ export function parseTriviaGame(
     else issues.push({ field: `${fieldPrefix}.allTimeRow`, error: r.error });
   }
 
+  let tellMeMore: TriviaTellMeMoreConfig | undefined;
+  if (e.tellMeMore !== undefined && e.tellMeMore !== null) {
+    const r = validateTellMeMore(e.tellMeMore, `${fieldPrefix}.tellMeMore`);
+    if (r.ok) tellMeMore = r.value;
+    else issues.push({ field: `${fieldPrefix}.tellMeMore`, error: r.error });
+  }
+
   let judgeLeniency: JudgeLeniency | undefined;
   if (e.judgeLeniency !== undefined && e.judgeLeniency !== null) {
     const r = validateJudgeLeniency(e.judgeLeniency, `${fieldPrefix}.judgeLeniency`);
@@ -305,6 +314,7 @@ export function parseTriviaGame(
       ...(hint !== undefined ? { hint } : {}),
       ...(judgeLeniency !== undefined ? { judgeLeniency } : {}),
       ...(allTimeRow !== undefined ? { allTimeRow } : {}),
+      ...(tellMeMore !== undefined ? { tellMeMore } : {}),
     },
     issues,
   };

@@ -43,6 +43,8 @@ function makeFakeSdk(state: FakeSdkState): ClackSdk {
     findOwnedCronJobs: async () => [],
     dmOwner: async () => ({ ok: true as const }),
     getSlackClient: () => null,
+    sendMessage: async () => ({ ok: true as const, ts: "1", channel: "C" }),
+    startThreadConversation: async () => {},
     registerAction: () => {},
     registerView: () => {},
     actionId: (key: string) => `plugin:test:${key}`,
@@ -108,6 +110,7 @@ function args(overrides: Partial<UpsertGameArgs> & Pick<UpsertGameArgs, "name">)
     hint: undefined,
     allTimeRow: undefined,
     judgeLeniency: undefined,
+    tellMeMore: undefined,
     ...overrides,
   };
 }
@@ -162,6 +165,33 @@ describe("upsert_game — create branch", () => {
     assert.equal(result.hasAxisOverrides, true);
     const game = loadTriviaConfig()?.games?.[0];
     assert.deepEqual(game?.answersFormat, { boolean: 0, choice: 1, freeform: 0 });
+  });
+
+  it("persists tellMeMore on the game (and reports hasTellMeMore)", async () => {
+    primeBridge({ games: [] });
+    const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
+    const result = parseToolResult(
+      await tool.handler(
+        args({
+          name: "engineering",
+          channel: "C1",
+          questionCron: "0 9 * * *",
+          revealCron: "0 17 * * *",
+          timezone: "UTC",
+          tellMeMore: { enabled: true },
+        }),
+        SESSION,
+      ),
+    );
+    assert.equal(result.hasTellMeMore, true);
+    assert.deepEqual(loadTriviaConfig()?.games?.[0]?.tellMeMore, { enabled: true });
+  });
+
+  it("clears tellMeMore on update when passed null", async () => {
+    primeBridge({ games: [{ ...baseGame, tellMeMore: { enabled: true } }] });
+    const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
+    await tool.handler(args({ name: "main", tellMeMore: null }), SESSION);
+    assert.equal(loadTriviaConfig()?.games?.[0]?.tellMeMore, undefined);
   });
 
   it("rejects create when scheduling fields are missing", async () => {

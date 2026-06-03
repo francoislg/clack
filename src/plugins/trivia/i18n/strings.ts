@@ -25,6 +25,10 @@ export const en = {
   // Post-reveal "See your answer" button appended to every question card at reveal.
   "button.see_your_answer": "🔎 See your answer",
 
+  // Post-reveal "Tell me more" button (when tellMeMore is enabled) + its intro reply.
+  "button.tell_me_more": "📚 Tell me more",
+  "tell_me_more.intro": "{user} asked for more on this one — here we go:",
+
   // Static reveal results footer (replaces the live roster footer at reveal).
   "reveal.answer_was": "*Answer:* {answer}",
   "reveal.correct_label": "✅ *Correct:* {names}",
@@ -114,6 +118,9 @@ export const fr: Partial<Record<keyof typeof en, string>> = {
   "button.answer": "Répondre",
 
   "button.see_your_answer": "🔎 Voir votre réponse",
+
+  "button.tell_me_more": "📚 En savoir plus",
+  "tell_me_more.intro": "{user} veut en savoir plus sur celle-ci — c'est parti :",
 
   "reveal.answer_was": "*Réponse :* {answer}",
   "reveal.correct_label": "✅ *Correct :* {names}",

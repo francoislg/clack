@@ -41,6 +41,7 @@ import { buildGameSpecs } from "./domain/buildGameSpecs.js";
 import { registerInteractiveHandlers } from "./answerTypes/installInteractions.js";
 import { installHintButtonHandler } from "./answerTypes/hintButton.js";
 import { installSeeAnswerHandler } from "./revealCards/seeAnswerHandler.js";
+import { installTellMeMoreHandler } from "./revealCards/tellMeMoreHandler.js";
 
 export const triviaPlugin: ClackPlugin = async (sdk: ClackSdk) => {
   // Trivia is built around scheduled question/reveal cron jobs — without the scheduler
@@ -171,6 +172,11 @@ export const triviaPlugin: ClackPlugin = async (sdk: ClackSdk) => {
   });
 
   installSeeAnswerHandler(sdk, {
+    data,
+    getGameNames: () => (loadTriviaConfig()?.games ?? []).map((g) => g.name),
+  });
+
+  installTellMeMoreHandler(sdk, {
     data,
     getGameNames: () => (loadTriviaConfig()?.games ?? []).map((g) => g.name),
   });

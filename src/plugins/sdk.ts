@@ -8,6 +8,8 @@ import {
   type McpSdkServerConfigWithInstance,
 } from "@anthropic-ai/claude-agent-sdk";
 import type { App } from "@slack/bolt";
+import type { KnownBlock } from "@slack/types";
+import type { ChatPostMessageArguments } from "@slack/web-api";
 import { CronExpressionParser } from "cron-parser";
 import { loadRoles, type UserRole } from "../roles.js";
 import type { RoleDir } from "../cascadingConfigResolver.js";
@@ -114,6 +116,49 @@ export interface AskClaudeResult {
     inputTokens: number;
     outputTokens: number;
   };
+}
+
+/**
+ * Options for {@link ClackSdk.sendMessage}. Supports exactly two delivery shapes:
+ * a top-level channel message (omit `threadTs`) or a threaded reply (set `threadTs`).
+ * At least one of `text` / `blocks` is required.
+ */
+export interface SendMessageOptions {
+  /** Target Slack channel ID (e.g. `C123ABC`). */
+  channel: string;
+  /**
+   * Message text. Required when `blocks` is omitted; also serves as the
+   * notification/accessibility fallback when `blocks` is set.
+   */
+  text?: string;
+  /** Optional Block Kit blocks. */
+  blocks?: KnownBlock[];
+  /** When set, the message is posted as a reply under this message `ts`. Omit for a top-level channel message. */
+  threadTs?: string;
+  /** Disable Slack link/media unfurling on the posted message. */
+  suppressUnfurls?: boolean;
+}
+
+export type SendMessageResult =
+  | { ok: true; ts: string; channel: string }
+  | { ok: false; error: string };
+
+/**
+ * Options for {@link ClackSdk.startThreadConversation}. Starts a full Claude Q&A
+ * turn (not the single-turn {@link ClackSdk.askClaude}) in a channel/thread,
+ * creating a real session so the thread auto-follows subsequent replies.
+ */
+export interface StartThreadConversationOptions {
+  /** Channel the conversation lives in. */
+  channel: string;
+  /** Message `ts` the conversation threads under (the conversation's anchor). */
+  threadTs: string;
+  /** User on whose behalf the turn runs — drives role resolution and session provenance. */
+  userId: string;
+  /** The user-turn text handed to Claude. */
+  prompt: string;
+  /** Extra system-prompt context (e.g. the trivia question + answer). */
+  additionalSystemPrompt?: string;
 }
 
 /**
@@ -298,6 +343,14 @@ export interface ClackSdk {
     options?: { suppressUnfurls?: boolean },
   ): Promise<{ ok: true } | { ok: false; error: string }>;
   /**
+   * Post a single Slack message — top-level in `channel`, or a threaded reply when
+   * `threadTs` is given. The narrow, fail-soft alternative to reaching for the raw
+   * client via {@link getSlackClient}: returns a `Result` (never throws) and applies
+   * unfurl options. Use this for plain text/block posts; `getSlackClient` remains for
+   * richer needs (`chat.update`, `views.open`, `files.uploadV2`).
+   */
+  sendMessage(opts: SendMessageOptions): Promise<SendMessageResult>;
+  /**
    * Lazily resolves the Slack WebClient at call time. Returns `null` when Slack
    * hasn't connected yet (e.g. plugin tools created at plugin-load time, before
    * the bot's socket session is up). Plugin authors needing direct Slack API access
@@ -344,6 +397,15 @@ export interface ClackSdk {
   viewCallbackId(key: string): string;
   /** Single-turn Claude call routed through the Agent SDK's `query`. */
   askClaude(opts: AskClaudeOptions): Promise<AskClaudeResult>;
+  /**
+   * Start a full Claude Q&A turn in a channel/thread via the bot's normal message
+   * pipeline (`processMessage`) — unlike {@link askClaude}, this creates a real
+   * session, runs with the full query toolset, uses the common chat streamer
+   * (thinking-card UX), and leaves the thread auto-following. Fire-and-forget:
+   * resolves once the turn is dispatched. A no-op (logged) when the capability
+   * was not wired into the SDK.
+   */
+  startThreadConversation(opts: StartThreadConversationOptions): Promise<void>;
   /**
    * Request a soft application restart. Fire-and-forget — the call returns
    * immediately and the restart runs asynchronously, guarded by a shared
@@ -482,6 +544,20 @@ export interface ClackSdkDeps {
   updateJob?: typeof updateJob;
   deleteJob?: typeof deleteJob;
   clackQuery: typeof defaultClackQuery;
+  /**
+   * Backs `sdk.startThreadConversation`. Bound at the `loadAndInstallPlugins` call
+   * sites to a closure over core's `processMessage` (which isn't reachable at SDK
+   * module-eval time without an import cycle). Absent → `startThreadConversation`
+   * is a logged no-op, mirroring `requestSoftRestart`.
+   */
+  startThreadConversation?: (params: {
+    client: App["client"];
+    channel: string;
+    threadTs: string;
+    userId: string;
+    prompt: string;
+    additionalSystemPrompt?: string;
+  }) => Promise<void>;
   /**
    * Soft-restart trigger surfaced as `sdk.requestSoftRestart`. Defaults to a
    * logged no-op so the SDK can be constructed before the lifecycle layer has
@@ -1003,6 +1079,77 @@ export function createClackSdk(
         logger.error(`[plugin:${pluginName}] dmOwner postMessage failed: ${error}`);
         return { ok: false, error };
       }
+    },
+
+    async sendMessage(opts: SendMessageOptions): Promise<SendMessageResult> {
+      const hasText = opts.text !== undefined && opts.text.length > 0;
+      const hasBlocks = opts.blocks !== undefined && opts.blocks.length > 0;
+      if (!hasText && !hasBlocks) {
+        const error = "sendMessage requires text or blocks";
+        logger.warn(`[plugin:${pluginName}] sendMessage failed: ${error}`);
+        return { ok: false, error };
+      }
+
+      const client = deps.getSlackClient();
+      if (!client) {
+        const error = "Slack client is not connected";
+        logger.warn(`[plugin:${pluginName}] sendMessage failed: ${error}`);
+        return { ok: false, error };
+      }
+
+      try {
+        // Cast to the Slack union: it requires text OR blocks non-optional, which
+        // we've guaranteed at runtime above but TS can't narrow through the spread.
+        const args = {
+          channel: opts.channel,
+          ...(opts.text !== undefined ? { text: opts.text } : {}),
+          ...(opts.blocks !== undefined ? { blocks: opts.blocks } : {}),
+          ...(opts.threadTs !== undefined ? { thread_ts: opts.threadTs } : {}),
+          ...unfurlOptions(opts.suppressUnfurls),
+        } as ChatPostMessageArguments;
+        const res = await client.chat.postMessage(args);
+        if (!res.ok || typeof res.ts !== "string") {
+          const error = `chat.postMessage returned ${res.ok ? "no ts" : "ok=false"}`;
+          logger.warn(`[plugin:${pluginName}] sendMessage failed: ${error}`);
+          return { ok: false, error };
+        }
+        return {
+          ok: true,
+          ts: res.ts,
+          channel: typeof res.channel === "string" ? res.channel : opts.channel,
+        };
+      } catch (err) {
+        const error = err instanceof Error ? err.message : String(err);
+        logger.error(`[plugin:${pluginName}] sendMessage failed: ${error}`);
+        return { ok: false, error };
+      }
+    },
+
+    async startThreadConversation(opts: StartThreadConversationOptions): Promise<void> {
+      const run = deps.startThreadConversation;
+      if (!run) {
+        pluginLogger.warn(
+          "startThreadConversation called but no handler was wired into ClackSdkDeps — ignoring",
+        );
+        return;
+      }
+      const client = deps.getSlackClient();
+      if (!client) {
+        pluginLogger.warn(
+          "startThreadConversation called before the Slack client connected — ignoring",
+        );
+        return;
+      }
+      await run({
+        client,
+        channel: opts.channel,
+        threadTs: opts.threadTs,
+        userId: opts.userId,
+        prompt: opts.prompt,
+        ...(opts.additionalSystemPrompt !== undefined
+          ? { additionalSystemPrompt: opts.additionalSystemPrompt }
+          : {}),
+      });
     },
 
     requestSoftRestart(reason: string): void {
