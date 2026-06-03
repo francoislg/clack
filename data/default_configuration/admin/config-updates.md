@@ -9,11 +9,17 @@ You can update bot configuration files when asked. Use `list_config_files` to se
 
 ### Tool input shape (semantic fields)
 
-All three tools address files by **discrete fields**, not path strings:
+All three tools address files by **discrete fields**, not path strings. There are two
+addressing modes, and you pass **exactly one** of `role` or `repo`:
 
-- `role` — one of `user`, `dev`, `admin`, `owner`
-- `topic` — optional integration name (e.g., `metabase`, `monday`) for topic-scoped files
-- `file` — bare filename ending in `.md` (no slashes)
+- **Role mode** — instruction files for a role:
+  - `role` — one of `user`, `dev`, `admin`, `owner`
+  - `topic` — optional integration name (e.g., `metabase`, `monday`) for topic-scoped files
+  - `file` — bare filename ending in `.md` (no slashes)
+- **Repo mode** — per-repository instruction files:
+  - `repo` — a configured repository name
+  - `file` — one of `changes_instructions.md`, `worktree_setup_instructions.md`, `worktree_install_instructions.md`
+  - (`topic` is not valid in repo mode)
 
 Examples:
 
@@ -23,6 +29,9 @@ Examples:
 
 // Topic-scoped file (loaded only when the metabase integration is attached)
 { "role": "dev", "topic": "metabase", "file": "rules.md" }
+
+// Per-repo changes-workflow instructions
+{ "repo": "applauz-monorepo", "file": "changes_instructions.md" }
 ```
 
 `list_config_files` returns the same shape it expects as input: each role entry has a `files` array (baseline files) and a `topics` array (topic-scoped groups), plus a top-level `preAnalysis` array and a `repos` list. You can pass entries from the listing back into `read_config_file` and `propose_config_update` directly.

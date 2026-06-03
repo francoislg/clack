@@ -3,6 +3,7 @@ import { resolve, sep } from "node:path";
 import { getConfig, getConfigurationDir, getDefaultConfigurationDir } from "./config.js";
 import { logger } from "./logger.js";
 import { interpolateVariables } from "./instructions.js";
+import { REPO_INSTRUCTION_FILES } from "./repoInstructionFiles.js";
 import {
   listRoleDirFiles,
   listRoleTopicDirFiles,
@@ -48,7 +49,7 @@ function getRepoEntries(): RepoEntry[] {
 
     for (const repo of config.repositories) {
       const files: RepoFileEntry[] = [];
-      for (const suffix of ["changes_instructions.md", "worktree_setup_instructions.md"]) {
+      for (const suffix of REPO_INSTRUCTION_FILES) {
         const fullPath = `${repo.name}/${suffix}`;
         const hasOverride = existsSync(resolve(configDir, fullPath));
         const hasDefault = existsSync(resolve(defaultDir, fullPath));
@@ -64,6 +65,15 @@ function getRepoEntries(): RepoEntry[] {
       repos.push({ repo: repo.name, files });
     }
     return repos;
+  } catch {
+    return [];
+  }
+}
+
+/** Names of all configured repositories, for validating repo-scoped config targets. */
+export function getConfiguredRepoNames(): string[] {
+  try {
+    return getConfig().repositories.map((r) => r.name);
   } catch {
     return [];
   }

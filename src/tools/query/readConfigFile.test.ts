@@ -33,6 +33,9 @@ function makeDeps(overrides: Partial<ReadConfigFileDeps> = {}): ReadConfigFileDe
       default_content: "file content",
       custom_content: null,
     })),
+    getConfiguredRepoNames: vi.fn<ReadConfigFileDeps["getConfiguredRepoNames"]>(() => [
+      "applauz-monorepo",
+    ]),
     ...overrides,
   };
 }
@@ -40,11 +43,16 @@ function makeDeps(overrides: Partial<ReadConfigFileDeps> = {}): ReadConfigFileDe
 function callTool(
   ctx: QueryToolContext,
   deps: ReadConfigFileDeps,
-  args: { role: "user" | "dev" | "admin" | "owner"; topic?: string; file: string },
+  args: {
+    role?: "user" | "dev" | "admin" | "owner";
+    topic?: string;
+    repo?: string;
+    file: string;
+  },
 ) {
   const toolDef = createReadConfigFileTool(ctx, deps);
   return toolDef.handler(
-    { role: args.role, topic: args.topic, file: args.file },
+    { role: args.role, topic: args.topic, repo: args.repo, file: args.file },
     { sessionId: "test" },
   );
 }
@@ -167,5 +175,96 @@ describe("readConfigFile tool", () => {
 
     assert.equal(mockReadInstructionFile.mock.calls.length, 1);
     assert.equal(mockReadInstructionFile.mock.calls[0][0], "dev/changes.md");
+  });
+
+  it("reads a repo-scoped file via the repo field", async () => {
+    const mockReadInstructionFile = vi.fn<ReadConfigFileDeps["readInstructionFile"]>(() => ({
+      default_content: "repo default",
+      custom_content: "repo override",
+    }));
+    const deps = makeDeps({ readInstructionFile: mockReadInstructionFile });
+
+    const result = await callTool(makeCtx(), deps, {
+      repo: "applauz-monorepo",
+      file: "changes_instructions.md",
+    });
+
+    const parsed = parseToolResult(result);
+    assert.equal(parsed.file, "applauz-monorepo/changes_instructions.md");
+    assert.equal(parsed.default_content, "repo default");
+    assert.equal(parsed.custom_content, "repo override");
+    assert.equal(
+      mockReadInstructionFile.mock.calls[0][0],
+      "applauz-monorepo/changes_instructions.md",
+    );
+  });
+
+  it("errors for an unknown repo without reading", async () => {
+    const mockReadInstructionFile = vi.fn<ReadConfigFileDeps["readInstructionFile"]>(() => ({
+      default_content: "x",
+      custom_content: null,
+    }));
+    const deps = makeDeps({ readInstructionFile: mockReadInstructionFile });
+
+    const result = await callTool(makeCtx(), deps, {
+      repo: "unknown-repo",
+      file: "changes_instructions.md",
+    });
+
+    const parsed = parseToolResult(result);
+    assert.ok(parsed.error);
+    assert.ok(parsed.error.includes("unknown-repo"));
+    assert.ok(parsed.error.includes("applauz-monorepo"));
+    assert.equal(result.isError, true);
+    assert.equal(mockReadInstructionFile.mock.calls.length, 0);
+  });
+
+  it("errors when neither role nor repo is provided", async () => {
+    const result = await callTool(makeCtx(), makeDeps(), {
+      file: "changes_instructions.md",
+    });
+
+    const parsed = parseToolResult(result);
+    assert.ok(parsed.error);
+    assert.ok(parsed.error.includes("exactly one"));
+    assert.equal(result.isError, true);
+  });
+
+  it("errors when both role and repo are provided", async () => {
+    const result = await callTool(makeCtx(), makeDeps(), {
+      role: "user",
+      repo: "applauz-monorepo",
+      file: "changes_instructions.md",
+    });
+
+    const parsed = parseToolResult(result);
+    assert.ok(parsed.error);
+    assert.ok(parsed.error.includes("exactly one"));
+    assert.equal(result.isError, true);
+  });
+
+  it("errors when repo mode is given a topic", async () => {
+    const result = await callTool(makeCtx(), makeDeps(), {
+      repo: "applauz-monorepo",
+      topic: "metabase",
+      file: "changes_instructions.md",
+    });
+
+    const parsed = parseToolResult(result);
+    assert.ok(parsed.error);
+    assert.ok(parsed.error.includes("topic"));
+    assert.equal(result.isError, true);
+  });
+
+  it("errors when repo mode is given a file outside the editable set", async () => {
+    const result = await callTool(makeCtx(), makeDeps(), {
+      repo: "applauz-monorepo",
+      file: "README.md",
+    });
+
+    const parsed = parseToolResult(result);
+    assert.ok(parsed.error);
+    assert.ok(parsed.error.includes("changes_instructions.md"));
+    assert.equal(result.isError, true);
   });
 });

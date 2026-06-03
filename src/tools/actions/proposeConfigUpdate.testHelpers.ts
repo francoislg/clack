@@ -27,6 +27,9 @@ export function makeDeps(overrides?: Partial<ProposeConfigUpdateDeps>): ProposeC
       default_content: null,
       custom_content: null,
     })),
+    getConfiguredRepoNames: vi.fn<ProposeConfigUpdateDeps["getConfiguredRepoNames"]>(() => [
+      "applauz-monorepo",
+    ]),
     ...overrides,
   };
 }
@@ -74,8 +77,9 @@ export function makeIntentStore(): IntentStore {
 }
 
 export type ProposeArgs = {
-  role: "user" | "dev" | "admin" | "owner";
+  role?: "user" | "dev" | "admin" | "owner";
   topic?: string;
+  repo?: string;
   file: string;
   content?: string;
   operation?: "append" | "replace" | "delete";
@@ -88,6 +92,7 @@ export function callTool(args: ProposeArgs, deps?: ProposeConfigUpdateDeps) {
   const fullArgs = {
     role: args.role,
     topic: args.topic,
+    repo: args.repo,
     file: args.file,
     content: args.content,
     operation: args.operation ?? "append",

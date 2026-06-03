@@ -367,6 +367,29 @@ describe("registerConfigUpdateActionHandler — success", () => {
     const msgArgs = postEphemeral.mock.calls[0]![0] as { text: string };
     assert.ok(msgArgs.text.includes("dev/topics/metabase/rules.md"));
   });
+
+  it("writes a repo-scoped intent path through to writeInstructionFile unchanged", async () => {
+    const handler = captureHandler();
+    const configIntent: StagedConfigUpdateIntent = {
+      type: "config_update",
+      operation: "write",
+      file: "applauz-monorepo/changes_instructions.md",
+      content: "repo changes",
+    };
+    mockGetStagedIntent.mockImplementation(async () => configIntent);
+    const args = makeHandlerArgs();
+
+    await handler(args);
+
+    assert.equal(mockWriteInstructionFile.mock.calls.length, 1);
+    const writeArgs = mockWriteInstructionFile.mock.calls[0]!;
+    assert.equal(writeArgs[0], "applauz-monorepo/changes_instructions.md");
+    assert.equal(writeArgs[1], "repo changes");
+
+    const postEphemeral = args.postEphemeral;
+    const msgArgs = postEphemeral.mock.calls[0]![0] as { text: string };
+    assert.ok(msgArgs.text.includes("applauz-monorepo/changes_instructions.md"));
+  });
 });
 
 // ============================================================================

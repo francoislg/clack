@@ -292,3 +292,116 @@ describe("proposeConfigUpdate tool — write paths (append/replace)", () => {
     assert.equal(store.getAll().size, 0);
   });
 });
+
+describe("proposeConfigUpdate tool — repo-scoped paths", () => {
+  it("composes a repo path from repo + file and stages a write intent", async () => {
+    const { result, store } = callTool({
+      repo: "applauz-monorepo",
+      file: "changes_instructions.md",
+      content: "do the thing",
+      operation: "replace",
+    });
+
+    const parsed = parseToolResult(await result);
+    assert.equal(parsed.file, "applauz-monorepo/changes_instructions.md");
+    const staged = store.resolve(parsed.ref);
+    assert.ok(staged);
+    assert.equal((staged as { operation: string }).operation, "write");
+    assert.equal((staged as { file: string }).file, "applauz-monorepo/changes_instructions.md");
+    assert.equal((staged as { content: string }).content, "do the thing");
+  });
+
+  it("appends to existing repo file content", async () => {
+    const deps = makeDeps({
+      readInstructionFile: vi.fn<ProposeConfigUpdateDeps["readInstructionFile"]>(() => ({
+        default_content: null,
+        custom_content: "existing setup",
+      })),
+    });
+
+    const { result, store } = callTool(
+      {
+        repo: "applauz-monorepo",
+        file: "worktree_setup_instructions.md",
+        content: "more setup",
+        operation: "append",
+      },
+      deps,
+    );
+
+    const parsed = parseToolResult(await result);
+    const staged = store.resolve(parsed.ref);
+    assert.equal((staged as { content: string }).content, "existing setup\n\nmore setup");
+  });
+
+  it("stages a delete intent for a repo override", async () => {
+    const deps = makeDeps({
+      readInstructionFile: vi.fn<ProposeConfigUpdateDeps["readInstructionFile"]>(() => ({
+        default_content: null,
+        custom_content: "custom repo instructions",
+      })),
+    });
+
+    const { result, store } = callTool(
+      {
+        repo: "applauz-monorepo",
+        file: "changes_instructions.md",
+        operation: "delete",
+      },
+      deps,
+    );
+
+    const parsed = parseToolResult(await result);
+    const staged = store.resolve(parsed.ref);
+    assert.ok(staged);
+    assert.equal((staged as { operation: string }).operation, "delete");
+    assert.equal((staged as { file: string }).file, "applauz-monorepo/changes_instructions.md");
+  });
+
+  it("errors for an unknown repo without staging", async () => {
+    const { result, store } = callTool({
+      repo: "ghost-repo",
+      file: "changes_instructions.md",
+      content: "x",
+      operation: "replace",
+    });
+
+    const awaited = await result;
+    assert.equal(awaited.isError, true);
+    const parsed = parseToolResult(awaited);
+    assert.ok(parsed.error.includes("ghost-repo"));
+    assert.ok(parsed.error.includes("applauz-monorepo"));
+    assert.equal(store.getAll().size, 0);
+  });
+
+  it("errors when repo file is outside the editable set without staging", async () => {
+    const { result, store } = callTool({
+      repo: "applauz-monorepo",
+      file: "secrets.md",
+      content: "x",
+      operation: "replace",
+    });
+
+    const awaited = await result;
+    assert.equal(awaited.isError, true);
+    const parsed = parseToolResult(awaited);
+    assert.ok(parsed.error.includes("changes_instructions.md"));
+    assert.equal(store.getAll().size, 0);
+  });
+
+  it("errors when both role and repo are provided without staging", async () => {
+    const { result, store } = callTool({
+      role: "admin",
+      repo: "applauz-monorepo",
+      file: "changes_instructions.md",
+      content: "x",
+      operation: "replace",
+    });
+
+    const awaited = await result;
+    assert.equal(awaited.isError, true);
+    const parsed = parseToolResult(awaited);
+    assert.ok(parsed.error.includes("exactly one"));
+    assert.equal(store.getAll().size, 0);
+  });
+});

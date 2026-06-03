@@ -4,7 +4,10 @@ import {
   ROLE_ENUM,
   TOPIC_PATTERN,
   FILE_PATTERN,
+  REPO_FILE_ENUM,
   buildInstructionPath,
+  buildConfigPath,
+  validateConfigTarget,
 } from "./configFieldSchemas.js";
 
 describe("configFieldSchemas", () => {
@@ -77,6 +80,84 @@ describe("configFieldSchemas", () => {
         buildInstructionPath("dev", "metabase", "rules.md"),
         "dev/topics/metabase/rules.md",
       );
+    });
+  });
+
+  describe("REPO_FILE_ENUM", () => {
+    it("accepts the three editable per-repo markdown files", () => {
+      for (const file of [
+        "changes_instructions.md",
+        "worktree_setup_instructions.md",
+        "worktree_install_instructions.md",
+      ]) {
+        assert.equal(REPO_FILE_ENUM.safeParse(file).success, true, `should accept ${file}`);
+      }
+    });
+
+    it("rejects the non-markdown dirty-ignore file and arbitrary names", () => {
+      assert.equal(REPO_FILE_ENUM.safeParse("worktree_dirty_ignore.txt").success, false);
+      assert.equal(REPO_FILE_ENUM.safeParse("README.md").success, false);
+    });
+  });
+
+  describe("buildConfigPath", () => {
+    it("composes a repo path in repo mode", () => {
+      assert.equal(
+        buildConfigPath({ repo: "applauz-monorepo", file: "changes_instructions.md" }),
+        "applauz-monorepo/changes_instructions.md",
+      );
+    });
+
+    it("composes a role path in role mode", () => {
+      assert.equal(buildConfigPath({ role: "user", file: "identity.md" }), "user/identity.md");
+    });
+
+    it("composes a topic path in role mode", () => {
+      assert.equal(
+        buildConfigPath({ role: "dev", topic: "metabase", file: "rules.md" }),
+        "dev/topics/metabase/rules.md",
+      );
+    });
+  });
+
+  describe("validateConfigTarget", () => {
+    it("accepts a valid role target", () => {
+      assert.equal(validateConfigTarget({ role: "user", file: "identity.md" }), null);
+    });
+
+    it("accepts a valid repo target", () => {
+      assert.equal(
+        validateConfigTarget({ repo: "applauz-monorepo", file: "changes_instructions.md" }),
+        null,
+      );
+    });
+
+    it("rejects when neither role nor repo is provided", () => {
+      const err = validateConfigTarget({ file: "identity.md" });
+      assert.ok(err && err.includes("exactly one"));
+    });
+
+    it("rejects when both role and repo are provided", () => {
+      const err = validateConfigTarget({
+        role: "user",
+        repo: "applauz-monorepo",
+        file: "changes_instructions.md",
+      });
+      assert.ok(err && err.includes("exactly one"));
+    });
+
+    it("rejects a topic in repo mode", () => {
+      const err = validateConfigTarget({
+        repo: "applauz-monorepo",
+        topic: "metabase",
+        file: "changes_instructions.md",
+      });
+      assert.ok(err && err.includes("topic"));
+    });
+
+    it("rejects a repo-mode file outside the editable set", () => {
+      const err = validateConfigTarget({ repo: "applauz-monorepo", file: "README.md" });
+      assert.ok(err && err.includes("changes_instructions.md"));
     });
   });
 });
