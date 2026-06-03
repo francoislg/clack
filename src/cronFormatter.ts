@@ -11,16 +11,40 @@ const DAY_NAME_MAP: Record<string, number> = {
   sat: 6,
 };
 
-export function humanReadableSchedule(cronExpression: string, timezone: string): string {
+// Returns undefined for an invalid zone so callers fall back to a safe default.
+function shortTzAbbreviation(date: Date, timezone: string): string | undefined {
+  try {
+    const parts = new Intl.DateTimeFormat("en-US", {
+      timeZone: timezone,
+      hour: "numeric",
+      timeZoneName: "short",
+    }).formatToParts(date);
+    return parts.find((p) => p.type === "timeZoneName")?.value;
+  } catch {
+    return undefined;
+  }
+}
+
+// When `viewerTimezone` is given, the tz abbreviation is appended only when the job's zone
+// resolves to a different abbreviation than the viewer's at the next-run instant; otherwise
+// (or when omitted) it is always appended.
+export function humanReadableSchedule(
+  cronExpression: string,
+  timezone: string,
+  viewerTimezone?: string,
+): string {
   try {
     const interval = CronExpressionParser.parse(cronExpression, { tz: timezone });
     const next = interval.next().toDate();
-    const timeStr = next.toLocaleTimeString("en-US", {
+    const baseTime = next.toLocaleTimeString("en-US", {
       hour: "numeric",
       minute: "2-digit",
       timeZone: timezone,
-      timeZoneName: "short",
     });
+    const jobAbbr = shortTzAbbreviation(next, timezone);
+    const showTz =
+      viewerTimezone === undefined || jobAbbr !== shortTzAbbreviation(next, viewerTimezone);
+    const timeStr = showTz && jobAbbr ? `${baseTime} ${jobAbbr}` : baseTime;
 
     const fields = cronExpression.split(/\s+/);
     if (fields.length < 5) return cronExpression;

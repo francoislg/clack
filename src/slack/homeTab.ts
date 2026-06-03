@@ -16,6 +16,8 @@ import { buildUserSkillsSection } from "./userSkillsHomeTab.js";
 import { getRules, type AutoRespondRule } from "../autoRespond.js";
 import { getJobs, getJobsByUser, type CronJob } from "../cronJobs.js";
 import { humanReadableSchedule } from "../cronFormatter.js";
+import { getSlackClient } from "./app.js";
+import { getUserInfo } from "./userCache.js";
 import { truncate } from "../text.js";
 import { t } from "../i18n/t.js";
 import type { ActiveWorker } from "../changes/activeState.js";
@@ -64,7 +66,12 @@ export interface HomeTabDeps {
   getRules: () => Promise<AutoRespondRule[]>;
   getJobs: () => Promise<CronJob[]>;
   getJobsByUser: (userId: string) => Promise<CronJob[]>;
-  humanReadableSchedule: (cronExpression: string, timezone: string) => string;
+  getUserTimezone: (userId: string) => Promise<string | undefined>;
+  humanReadableSchedule: (
+    cronExpression: string,
+    timezone: string,
+    viewerTimezone?: string,
+  ) => string;
 }
 
 export const defaultHomeTabDeps: HomeTabDeps = {
@@ -95,6 +102,11 @@ export const defaultHomeTabDeps: HomeTabDeps = {
   getRules,
   getJobs,
   getJobsByUser,
+  getUserTimezone: async (userId) => {
+    const client = getSlackClient();
+    if (!client) return undefined;
+    return (await getUserInfo(client, userId))?.tz;
+  },
   humanReadableSchedule,
 };
 
@@ -1624,6 +1636,7 @@ async function buildScheduledMessagesSection(
   const userSchedulesEnabled = deps.getConfig().cron?.userSchedules === true;
   const userJobs = userSchedulesEnabled ? allJobs.filter((j) => !j.pluginManaged) : [];
   const pluginJobs = isAdmin ? allJobs.filter((j) => j.pluginManaged) : [];
+  const viewerTz = await deps.getUserTimezone(userId);
 
   const blocks: (KnownBlock | Block)[] = [];
 
@@ -1635,7 +1648,7 @@ async function buildScheduledMessagesSection(
     });
 
     for (const job of userJobs) {
-      const schedule = deps.humanReadableSchedule(job.cronExpression, job.timezone);
+      const schedule = deps.humanReadableSchedule(job.cronExpression, job.timezone, viewerTz);
       const statusLabel = !job.enabled
         ? t("home.scheduled.paused_suffix")
         : job.lastRunStatus === "error"
@@ -1686,7 +1699,7 @@ async function buildScheduledMessagesSection(
     });
 
     for (const job of pluginJobs) {
-      const schedule = deps.humanReadableSchedule(job.cronExpression, job.timezone);
+      const schedule = deps.humanReadableSchedule(job.cronExpression, job.timezone, viewerTz);
       const statusLabel = !job.enabled
         ? t("home.scheduled.paused_suffix")
         : job.lastRunStatus === "error"
@@ -1720,8 +1733,8 @@ async function buildScheduledMessagesSection(
   return blocks;
 }
 
-function buildPluginCronJobModal(job: CronJob): View {
-  const schedule = humanReadableSchedule(job.cronExpression, job.timezone);
+function buildPluginCronJobModal(job: CronJob, viewerTimezone?: string): View {
+  const schedule = humanReadableSchedule(job.cronExpression, job.timezone, viewerTimezone);
   const ownerLabel = job.plugin ? ` · _plugin: ${escapeMrkdwn(job.plugin)}_` : "";
   const statusLabel = !job.enabled ? t("home.scheduled.paused_suffix") : "";
   const namePrefix = job.name ? `*${escapeMrkdwn(job.name)}*\n` : "";
@@ -1808,10 +1821,10 @@ function buildPluginCronJobModal(job: CronJob): View {
   };
 }
 
-export function buildCronJobModal(job?: CronJob): View {
+export function buildCronJobModal(job?: CronJob, viewerTimezone?: string): View {
   const isEdit = !!job;
   if (isEdit && job?.pluginManaged) {
-    return buildPluginCronJobModal(job);
+    return buildPluginCronJobModal(job, viewerTimezone);
   }
   const blocks: (KnownBlock | Block)[] = [
     {
