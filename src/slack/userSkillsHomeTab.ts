@@ -1,7 +1,7 @@
 import type { KnownBlock, View } from "@slack/types";
 import { t } from "../i18n/t.js";
 import type { UserRole } from "../roles.js";
-import { canCreateUserSkill, canEditUserSkill } from "../permissions.js";
+import { canCreateUserSkill, canEditUserSkillContent } from "../permissions.js";
 import type { UserSkill } from "../userSkills.js";
 
 /**
@@ -11,7 +11,9 @@ import type { UserSkill } from "../userSkills.js";
  *
  * Permissions:
  *   - `+ Create skill` visible to any user permitted by `canCreateUserSkill` (member+).
- *   - Edit / Disable / Restore visible per-row when `canEditUserSkill(role, owner, viewer)`.
+ *   - Edit visible per-row when `canEditUserSkillContent(role, owner, viewer, editableByAnyone)`.
+ *   - The editable-by-everyone checkbox and Disable/Restore inside the modal are gated by
+ *     `canManageUserSkill` (owner/admin only) via the `canManage` arg to `buildEditSkillModal`.
  *
  * Action IDs:
  *   `clack_user_skill_create_open`              — open create modal
@@ -33,11 +35,16 @@ export const CALLBACK_EDIT_SUBMIT = "clack_user_skill_edit_submit";
 export const BLOCK_NAME = "skill_name";
 export const BLOCK_DESCRIPTION = "skill_description";
 export const BLOCK_BODY = "skill_body";
+export const BLOCK_EDITABLE = "skill_editable";
 
 // Action IDs INSIDE modal input blocks
 export const ACTION_NAME_INPUT = "name_input";
 export const ACTION_DESCRIPTION_INPUT = "description_input";
 export const ACTION_BODY_INPUT = "body_input";
+export const ACTION_EDITABLE_INPUT = "editable_input";
+
+// Value of the single editable-by-everyone checkbox option
+export const EDITABLE_OPTION_VALUE = "editable_by_anyone";
 
 // Slack's `plain_text_input.initial_value` is capped at 3000 chars; above this we
 // render a read-only notice instead of risking a truncated/round-tripped edit.
@@ -85,13 +92,21 @@ export function buildUserSkillsSection(
   const sorted = [...skills].sort((a, b) => a.slug.localeCompare(b.slug));
   for (const skill of sorted) {
     const disabledBadge = skill.disabledAt ? ` ${t("userSkills.disabled_badge")}` : "";
-    const text = `*${skill.slug}*${disabledBadge} — <@${skill.ownerUserId}>`;
+    const editableBadge = skill.editableByAnyone ? ` ${t("userSkills.editable_badge")}` : "";
+    const text = `*${skill.slug}*${disabledBadge}${editableBadge} — <@${skill.ownerUserId}>`;
 
     const section: KnownBlock = {
       type: "section",
       text: { type: "mrkdwn", text },
     };
-    if (canEditUserSkill(viewerRole, skill.ownerUserId, viewerUserId)) {
+    if (
+      canEditUserSkillContent(
+        viewerRole,
+        skill.ownerUserId,
+        viewerUserId,
+        skill.editableByAnyone ?? false,
+      )
+    ) {
       section.accessory = {
         type: "button",
         text: { type: "plain_text", text: t("userSkills.edit_button"), emoji: true },
@@ -157,7 +172,12 @@ export function buildCreateSkillModal(): View {
   };
 }
 
-export function buildEditSkillModal(skill: UserSkill): View {
+export function buildEditSkillModal(skill: UserSkill, canManage: boolean): View {
+  const editableOption = {
+    text: { type: "plain_text" as const, text: t("userSkills.modal_editable_option") },
+    value: EDITABLE_OPTION_VALUE,
+  };
+
   const blocks: KnownBlock[] = [
     {
       type: "section",
@@ -199,8 +219,26 @@ export function buildEditSkillModal(skill: UserSkill): View {
           },
           hint: { type: "plain_text", text: t("userSkills.modal_body_hint") },
         },
-    { type: "divider" },
-    {
+  ];
+
+  // The editable-by-everyone checkbox and the lifecycle button are owner/admin-only.
+  // A member editing an everyone-editable skill they don't own sees content inputs only.
+  if (canManage) {
+    blocks.push({
+      type: "input",
+      block_id: BLOCK_EDITABLE,
+      optional: true,
+      label: { type: "plain_text", text: t("userSkills.modal_editable_label") },
+      element: {
+        type: "checkboxes",
+        action_id: ACTION_EDITABLE_INPUT,
+        options: [editableOption],
+        ...(skill.editableByAnyone ? { initial_options: [editableOption] } : {}),
+      },
+      hint: { type: "plain_text", text: t("userSkills.modal_editable_hint") },
+    });
+    blocks.push({ type: "divider" });
+    blocks.push({
       type: "actions",
       elements: skill.disabledAt
         ? [
@@ -226,8 +264,8 @@ export function buildEditSkillModal(skill: UserSkill): View {
               },
             },
           ],
-    },
-  ];
+    });
+  }
 
   return {
     type: "modal",

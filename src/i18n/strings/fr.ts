@@ -325,6 +325,7 @@ export const fr: Partial<Record<StringKey, string>> = {
   "userSkills.disable_button": "Désactiver",
   "userSkills.restore_button": "Restaurer",
   "userSkills.disabled_badge": "(désactivée)",
+  "userSkills.editable_badge": "(modifiable par tous)",
   "userSkills.owner_label": "Propriétaire",
   "userSkills.modal_create_title": "Créer une compétence",
   "userSkills.modal_edit_title": "Modifier la compétence",
@@ -340,6 +341,11 @@ export const fr: Partial<Record<StringKey, string>> = {
     "Le contenu complet du SKILL.md (markdown). Chargé à la demande quand Claude utilise cette compétence.",
   "userSkills.modal_body_too_long":
     ":warning: *Le contenu fait {length} caractères — trop long pour être édité dans ce modal (max {max}).* Demandez plutôt à Clack de le modifier (ex. DM à Clack : _« mets à jour le contenu de la compétence `<slug>` pour… »_). Enregistrer ici ne mettra à jour que la description ; le contenu sera préservé.",
+  "userSkills.modal_editable_label": "Autorisations",
+  "userSkills.modal_editable_option":
+    "Autoriser tout le monde à modifier le contenu de cette compétence",
+  "userSkills.modal_editable_hint":
+    "Une fois activé, tout membre peut modifier la description et le contenu. La désactivation, la restauration et ce réglage restent réservés au propriétaire/admin.",
   "userSkills.label.creating": "Création de la compétence `{slug}`",
   "userSkills.label.updating": "Mise à jour de la compétence `{slug}`",
   "userSkills.label.disabling": "Désactivation de la compétence `{slug}`",

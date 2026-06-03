@@ -33,6 +33,8 @@ export interface UserSkill {
   updatedAt: string;
   /** ISO timestamp; presence ⇒ disabled (soft-deleted). */
   disabledAt?: string;
+  /** When true, any member+ may edit this skill's content (not just owner/admins). Absent ⇒ false. */
+  editableByAnyone?: boolean;
 }
 
 export interface UserSkillMeta {
@@ -40,6 +42,7 @@ export interface UserSkillMeta {
   createdAt: string;
   updatedAt: string;
   disabledAt?: string;
+  editableByAnyone?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -156,11 +159,13 @@ function isValidMetaShape(value: unknown): value is UserSkillMeta {
     createdAt?: unknown;
     updatedAt?: unknown;
     disabledAt?: unknown;
+    editableByAnyone?: unknown;
   };
   if (typeof v.ownerUserId !== "string") return false;
   if (typeof v.createdAt !== "string") return false;
   if (typeof v.updatedAt !== "string") return false;
   if (v.disabledAt !== undefined && typeof v.disabledAt !== "string") return false;
+  if (v.editableByAnyone !== undefined && typeof v.editableByAnyone !== "boolean") return false;
   return true;
 }
 
@@ -239,6 +244,7 @@ function readMeta(slug: string): UserSkillMeta | null {
       updatedAt: parsed.updatedAt,
     };
     if (parsed.disabledAt !== undefined) result.disabledAt = parsed.disabledAt;
+    if (parsed.editableByAnyone !== undefined) result.editableByAnyone = parsed.editableByAnyone;
     return result;
   } catch (error) {
     logger.debug(`Failed to read user-skill .meta.json for '${slug}': ${error}`);
@@ -286,6 +292,7 @@ function readSkillFromDisk(slug: string): UserSkill | null {
     createdAt: meta.createdAt,
     updatedAt: meta.updatedAt,
     disabledAt: meta.disabledAt,
+    editableByAnyone: meta.editableByAnyone,
   };
 }
 
@@ -366,6 +373,7 @@ export interface CreateUserSkillInput {
   description: string;
   body: string;
   ownerUserId: string;
+  editableByAnyone?: boolean;
 }
 
 export function writeUserSkill(input: CreateUserSkillInput): UserSkill {
@@ -379,6 +387,7 @@ export function writeUserSkill(input: CreateUserSkillInput): UserSkill {
 
   const now = deps.now().toISOString();
   const existingMeta = readMeta(input.slug);
+  const editableByAnyone = input.editableByAnyone ?? existingMeta?.editableByAnyone;
 
   const meta: UserSkillMeta = existingMeta
     ? {
@@ -386,11 +395,13 @@ export function writeUserSkill(input: CreateUserSkillInput): UserSkill {
         createdAt: existingMeta.createdAt,
         updatedAt: now,
         ...(existingMeta.disabledAt !== undefined ? { disabledAt: existingMeta.disabledAt } : {}),
+        ...(editableByAnyone ? { editableByAnyone: true } : {}),
       }
     : {
         ownerUserId: input.ownerUserId,
         createdAt: now,
         updatedAt: now,
+        ...(editableByAnyone ? { editableByAnyone: true } : {}),
       };
 
   const description = input.description.trim();
@@ -408,6 +419,7 @@ export function writeUserSkill(input: CreateUserSkillInput): UserSkill {
     createdAt: meta.createdAt,
     updatedAt: meta.updatedAt,
     disabledAt: meta.disabledAt,
+    editableByAnyone: meta.editableByAnyone,
   };
 }
 
@@ -415,6 +427,7 @@ export interface UpdateUserSkillInput {
   slug: string;
   description?: string;
   body?: string;
+  editableByAnyone?: boolean;
 }
 
 export function updateUserSkill(input: UpdateUserSkillInput): UserSkill {
@@ -423,8 +436,12 @@ export function updateUserSkill(input: UpdateUserSkillInput): UserSkill {
   if (existing.disabledAt) {
     throw new Error(`Skill '${input.slug}' is disabled — restore it before updating`);
   }
-  if (input.description === undefined && input.body === undefined) {
-    throw new Error("Update requires at least one of `description` or `body`");
+  if (
+    input.description === undefined &&
+    input.body === undefined &&
+    input.editableByAnyone === undefined
+  ) {
+    throw new Error("Update requires at least one of `description`, `body`, or `editableByAnyone`");
   }
   if (input.description !== undefined) {
     const descCheck = validateDescription(input.description);
@@ -434,12 +451,14 @@ export function updateUserSkill(input: UpdateUserSkillInput): UserSkill {
   const now = deps.now().toISOString();
   const newDescription = (input.description ?? existing.description).trim();
   const newBody = input.body ?? existing.body;
+  const newEditableByAnyone = input.editableByAnyone ?? existing.editableByAnyone;
   const skillMd = renderSkillMd(existing.slug, newDescription, newBody);
 
   const meta: UserSkillMeta = {
     ownerUserId: existing.ownerUserId,
     createdAt: existing.createdAt,
     updatedAt: now,
+    ...(newEditableByAnyone ? { editableByAnyone: true } : {}),
   };
 
   writeAtomic(getSkillMdPath(existing.slug), skillMd);
@@ -452,6 +471,7 @@ export function updateUserSkill(input: UpdateUserSkillInput): UserSkill {
     ownerUserId: existing.ownerUserId,
     createdAt: existing.createdAt,
     updatedAt: now,
+    editableByAnyone: newEditableByAnyone,
   };
 }
 
@@ -466,6 +486,7 @@ export function disableUserSkill(slug: string): UserSkill {
     createdAt: existing.createdAt,
     updatedAt: now,
     disabledAt: now,
+    ...(existing.editableByAnyone ? { editableByAnyone: true } : {}),
   };
   writeAtomic(getMetaPath(slug), JSON.stringify(meta, null, 2));
 
@@ -482,6 +503,7 @@ export function restoreUserSkill(slug: string): UserSkill {
     ownerUserId: existing.ownerUserId,
     createdAt: existing.createdAt,
     updatedAt: now,
+    ...(existing.editableByAnyone ? { editableByAnyone: true } : {}),
   };
   writeAtomic(getMetaPath(slug), JSON.stringify(meta, null, 2));
 

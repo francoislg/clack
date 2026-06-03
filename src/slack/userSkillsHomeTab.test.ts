@@ -81,26 +81,40 @@ describe("buildUserSkillsSection", () => {
     const json = stringify(blocks);
     assert.ok(/disabled/.test(json));
   });
+
+  it("everyone-editable skill shows the editable badge in its row", () => {
+    const open = { ...skillByAlice, editableByAnyone: true };
+    const blocks = buildUserSkillsSection("U_ALICE", "member", [open]);
+    const json = stringify(blocks);
+    assert.ok(/editable by everyone/i.test(json));
+  });
+
+  it("non-owner member sees Edit on an everyone-editable skill", () => {
+    const open = { ...skillByAlice, editableByAnyone: true };
+    const blocks = buildUserSkillsSection("U_OTHER", "member", [open]);
+    const json = stringify(blocks);
+    assert.ok(/clack_user_skill_edit_open:copy-improver/.test(json));
+  });
 });
 
 describe("buildEditSkillModal", () => {
-  it("includes a Disable action for an enabled skill", () => {
-    const view = buildEditSkillModal(skillByAlice);
+  it("includes a Disable action for an enabled skill when the viewer can manage", () => {
+    const view = buildEditSkillModal(skillByAlice, true);
     const json = JSON.stringify(view);
     assert.ok(/clack_user_skill_disable:copy-improver/.test(json));
     assert.equal(/clack_user_skill_restore:copy-improver/.test(json), false);
   });
 
-  it("includes a Restore action for a disabled skill", () => {
+  it("includes a Restore action for a disabled skill when the viewer can manage", () => {
     const disabled = { ...skillByAlice, disabledAt: "t2" };
-    const view = buildEditSkillModal(disabled);
+    const view = buildEditSkillModal(disabled, true);
     const json = JSON.stringify(view);
     assert.ok(/clack_user_skill_restore:copy-improver/.test(json));
     assert.equal(/clack_user_skill_disable:copy-improver/.test(json), false);
   });
 
   it("renders an editable body input for normal-sized bodies", () => {
-    const view = buildEditSkillModal(skillByAlice);
+    const view = buildEditSkillModal(skillByAlice, true);
     const blocks = (view as { blocks: Array<{ block_id?: string; type: string }> }).blocks;
     const bodyBlock = blocks.find((b) => b.block_id === BLOCK_BODY);
     assert.ok(bodyBlock, "body input block should be present");
@@ -112,12 +126,39 @@ describe("buildEditSkillModal", () => {
       ...skillByAlice,
       body: "x".repeat(BODY_EDIT_MAX_CHARS + 1),
     };
-    const view = buildEditSkillModal(oversized);
+    const view = buildEditSkillModal(oversized, true);
     const blocks = (view as { blocks: Array<{ block_id?: string; type: string }> }).blocks;
     const bodyInput = blocks.find((b) => b.block_id === BLOCK_BODY);
     assert.equal(bodyInput, undefined, "body input block should be omitted");
     const json = JSON.stringify(view);
     assert.ok(/too long/i.test(json), "notice text should mention the length");
     assert.ok(/Clack/.test(json), "notice should point users at Clack");
+  });
+
+  it("shows the editable-by-everyone checkbox and Disable for a manager", () => {
+    const view = buildEditSkillModal(skillByAlice, true);
+    const json = JSON.stringify(view);
+    assert.ok(/skill_editable/.test(json), "checkbox block should be present");
+    assert.ok(/clack_user_skill_disable:copy-improver/.test(json));
+  });
+
+  it("pre-checks the checkbox when the skill is already everyone-editable", () => {
+    const open = { ...skillByAlice, editableByAnyone: true };
+    const view = buildEditSkillModal(open, true);
+    const json = JSON.stringify(view);
+    assert.ok(/initial_options/.test(json), "checkbox should be pre-selected");
+  });
+
+  it("hides the checkbox and Disable for a non-manager (content-only modal)", () => {
+    const open = { ...skillByAlice, editableByAnyone: true };
+    const view = buildEditSkillModal(open, false);
+    const blocks = (view as { blocks: Array<{ block_id?: string }> }).blocks;
+    assert.ok(
+      blocks.find((b) => b.block_id === BLOCK_BODY),
+      "body input still present",
+    );
+    const json = JSON.stringify(view);
+    assert.equal(/skill_editable/.test(json), false, "no checkbox for non-manager");
+    assert.equal(/clack_user_skill_disable/.test(json), false, "no disable for non-manager");
   });
 });

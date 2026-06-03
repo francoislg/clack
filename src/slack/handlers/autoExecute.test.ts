@@ -107,7 +107,8 @@ function makeDeps(): AutoExecuteDeps {
   return {
     canRequestChanges: (role: UserRole) => role !== "member",
     canCreateUserSkill: () => true,
-    canEditUserSkill: () => true,
+    canEditUserSkillContent: () => true,
+    canManageUserSkill: () => true,
     writeUserSkill: () => {
       throw new Error("not used in test");
     },

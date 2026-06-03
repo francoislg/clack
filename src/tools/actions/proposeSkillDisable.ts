@@ -3,7 +3,7 @@ import { tool } from "@anthropic-ai/claude-agent-sdk";
 import type { QueryToolContext } from "../types.js";
 import type { IntentStore } from "../server.js";
 import { textResult, errorResult } from "../helpers.js";
-import { canEditUserSkill } from "../../permissions.js";
+import { canManageUserSkill } from "../../permissions.js";
 import { readUserSkill as defaultReadUserSkill } from "../../userSkills.js";
 
 export interface ProposeSkillDisableDeps {
@@ -33,7 +33,7 @@ export function createProposeSkillDisableTool(
       const existing = deps.readUserSkill(args.name);
       if (!existing) return errorResult(`Skill '${args.name}' not found.`);
       if (existing.disabledAt) return errorResult(`Skill '${args.name}' is already disabled.`);
-      if (!canEditUserSkill(ctx.role, existing.ownerUserId, ctx.userId)) {
+      if (!canManageUserSkill(ctx.role, existing.ownerUserId, ctx.userId)) {
         return errorResult(
           `You do not have permission to disable skill '${args.name}'. Only the owner (<@${existing.ownerUserId}>) or an admin can disable.`,
         );

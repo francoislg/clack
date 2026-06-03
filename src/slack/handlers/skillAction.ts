@@ -3,7 +3,11 @@ import { logger } from "../../logger.js";
 import { getStagedIntent } from "../../sessions.js";
 import type { StagedIntent } from "../../tools/types.js";
 import { getRole } from "../../roles.js";
-import { canCreateUserSkill, canEditUserSkill } from "../../permissions.js";
+import {
+  canCreateUserSkill,
+  canEditUserSkillContent,
+  canManageUserSkill,
+} from "../../permissions.js";
 import { decodeActionValue } from "../blocks.js";
 import { activeSessions, type SessionInfo } from "../activeSessions.js";
 import {
@@ -183,7 +187,18 @@ async function applyUpdate(
     });
     return;
   }
-  if (!canEditUserSkill(role, existing.ownerUserId, userId)) {
+  const editsContent = intent.description !== undefined || intent.body !== undefined;
+  if (
+    editsContent &&
+    !canEditUserSkillContent(role, existing.ownerUserId, userId, existing.editableByAnyone ?? false)
+  ) {
+    await postEphemeralPermissionDenied(client, sessionInfo, userId, intent.slug);
+    return;
+  }
+  if (
+    intent.editableByAnyone !== undefined &&
+    !canManageUserSkill(role, existing.ownerUserId, userId)
+  ) {
     await postEphemeralPermissionDenied(client, sessionInfo, userId, intent.slug);
     return;
   }
@@ -192,6 +207,7 @@ async function applyUpdate(
       slug: intent.slug,
       description: intent.description,
       body: intent.body,
+      editableByAnyone: intent.editableByAnyone,
     });
     await client.chat.postMessage({
       channel: sessionInfo.channelId,
@@ -230,7 +246,7 @@ async function applyDisable(
     });
     return;
   }
-  if (!canEditUserSkill(role, existing.ownerUserId, userId)) {
+  if (!canManageUserSkill(role, existing.ownerUserId, userId)) {
     await postEphemeralPermissionDenied(client, sessionInfo, userId, intent.slug);
     return;
   }
@@ -273,7 +289,7 @@ async function applyRestore(
     });
     return;
   }
-  if (!canEditUserSkill(role, existing.ownerUserId, userId)) {
+  if (!canManageUserSkill(role, existing.ownerUserId, userId)) {
     await postEphemeralPermissionDenied(client, sessionInfo, userId, intent.slug);
     return;
   }

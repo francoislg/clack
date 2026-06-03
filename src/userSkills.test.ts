@@ -205,6 +205,79 @@ describe("disable + restore", () => {
   });
 });
 
+describe("editableByAnyone", () => {
+  beforeEach(() => {
+    setupTempDataDir();
+    withFixedTime();
+  });
+  afterEach(() => {
+    resetUserSkillsDeps();
+    if (existsSync(tmpBase)) rmSync(tmpBase, { recursive: true });
+  });
+
+  it("absent reads back as undefined (treated as false)", () => {
+    writeUserSkill({ slug: "foo", description: "d", body: "b", ownerUserId: "U" });
+    assert.equal(readUserSkill("foo")?.editableByAnyone, undefined);
+  });
+
+  it("round-trips true through create", () => {
+    writeUserSkill({
+      slug: "foo",
+      description: "d",
+      body: "b",
+      ownerUserId: "U",
+      editableByAnyone: true,
+    });
+    assert.equal(readUserSkill("foo")?.editableByAnyone, true);
+  });
+
+  it("update can set the flag", () => {
+    writeUserSkill({ slug: "foo", description: "d", body: "b", ownerUserId: "U" });
+    const updated = updateUserSkill({ slug: "foo", editableByAnyone: true });
+    assert.equal(updated.editableByAnyone, true);
+    assert.equal(readUserSkill("foo")?.editableByAnyone, true);
+  });
+
+  it("update can clear the flag", () => {
+    writeUserSkill({
+      slug: "foo",
+      description: "d",
+      body: "b",
+      ownerUserId: "U",
+      editableByAnyone: true,
+    });
+    const updated = updateUserSkill({ slug: "foo", editableByAnyone: false });
+    assert.equal(updated.editableByAnyone, false);
+    assert.equal(readUserSkill("foo")?.editableByAnyone, undefined);
+  });
+
+  it("is preserved across a content-only update", () => {
+    writeUserSkill({
+      slug: "foo",
+      description: "d",
+      body: "b",
+      ownerUserId: "U",
+      editableByAnyone: true,
+    });
+    updateUserSkill({ slug: "foo", body: "new body" });
+    assert.equal(readUserSkill("foo")?.editableByAnyone, true);
+  });
+
+  it("is preserved across disable and restore", () => {
+    writeUserSkill({
+      slug: "foo",
+      description: "d",
+      body: "b",
+      ownerUserId: "U",
+      editableByAnyone: true,
+    });
+    disableUserSkill("foo");
+    assert.equal(readUserSkill("foo")?.editableByAnyone, true);
+    restoreUserSkill("foo");
+    assert.equal(readUserSkill("foo")?.editableByAnyone, true);
+  });
+});
+
 describe("discoverUserSkills", () => {
   beforeEach(() => {
     setupTempDataDir();

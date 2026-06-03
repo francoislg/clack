@@ -191,6 +191,37 @@ describe("skillAction handler — update", () => {
     assert.equal(bundle.updateUserSkill.mock.calls.length, 1);
   });
 
+  it("allows non-owner member content edit when the skill is everyone-editable", async () => {
+    const intent: StagedIntent = { type: "skill_update", slug: "foo", body: "new" };
+    const bundle = makeDeps({
+      intent,
+      role: "member",
+      existing: { ...baseSkill, ownerUserId: "U_OTHER", editableByAnyone: true },
+    });
+    await invoke(bundle);
+    assert.equal(bundle.updateUserSkill.mock.calls.length, 1);
+  });
+
+  it("persists editableByAnyone from the staged intent for the owner", async () => {
+    const intent: StagedIntent = { type: "skill_update", slug: "foo", editableByAnyone: true };
+    const bundle = makeDeps({ intent, role: "member", existing: baseSkill });
+    await invoke(bundle);
+    assert.equal(bundle.updateUserSkill.mock.calls.length, 1);
+    assert.equal(bundle.updateUserSkill.mock.calls[0][0].editableByAnyone, true);
+  });
+
+  it("rejects a flag change by a non-manager (everyone-editable skill)", async () => {
+    const intent: StagedIntent = { type: "skill_update", slug: "foo", editableByAnyone: false };
+    const bundle = makeDeps({
+      intent,
+      role: "member",
+      existing: { ...baseSkill, ownerUserId: "U_OTHER", editableByAnyone: true },
+    });
+    const { postEphemeral } = await invoke(bundle);
+    assert.equal(bundle.updateUserSkill.mock.calls.length, 0);
+    assert.equal(postEphemeral.mock.calls.length, 1);
+  });
+
   it("rejects skill_update when skill no longer exists", async () => {
     const intent: StagedIntent = { type: "skill_update", slug: "ghost", body: "x" };
     const bundle = makeDeps({ intent, role: "admin", existing: null });
