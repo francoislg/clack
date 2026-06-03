@@ -106,7 +106,7 @@ describe("casual-talk admin tools", () => {
   });
 
   describe("set_casual_talk_config", () => {
-    it("replaces the config and triggers soft restart on valid input", async () => {
+    it("replaces the config on valid input without a soft restart (watcher reconciles)", async () => {
       const { sdk, restartCalls } = buildSdk(tempDir);
       const tool = createSetConfigTool(sdk);
 
@@ -121,7 +121,7 @@ describe("casual-talk admin tools", () => {
       });
 
       assert.equal(parsed.ok, true);
-      assert.equal(restartCalls.length, 1);
+      assert.equal(restartCalls.length, 0, "config edits hot-reload — no soft restart");
       const persisted = await loadConfig(sdk);
       assert.equal(persisted.expectedRate, "weekly");
       assert.equal(persisted.channels[0], "C123");
@@ -184,7 +184,7 @@ describe("casual-talk admin tools", () => {
   });
 
   describe("add_channel / remove_channel / set_channel_prompt_suggestion", () => {
-    it("add_channel appends a new bare-string channel and triggers soft restart", async () => {
+    it("add_channel appends a new bare-string channel without a soft restart", async () => {
       const { sdk, restartCalls } = buildSdk(tempDir);
       await saveConfig(sdk, DEFAULT_CONFIG);
       const tool = createAddChannelTool(sdk);
@@ -192,7 +192,7 @@ describe("casual-talk admin tools", () => {
       const { parsed } = await invoke(tool, { id: "C111", promptSuggestion: undefined });
 
       assert.equal(parsed.ok, true);
-      assert.equal(restartCalls.length, 1);
+      assert.equal(restartCalls.length, 0, "config edits hot-reload — no soft restart");
       const config = await loadConfig(sdk);
       assert.deepEqual(config.channels, ["C111"]);
     });
@@ -226,13 +226,13 @@ describe("casual-talk admin tools", () => {
 
       const { parsed } = await invoke(tool, { id: "C111" });
       assert.equal(parsed.ok, true);
-      assert.equal(restartCalls.length, 1);
+      assert.equal(restartCalls.length, 0, "config edits hot-reload — no soft restart");
       let config = await loadConfig(sdk);
       assert.deepEqual(config.channels, ["C222"]);
 
       const { raw } = await invoke(tool, { id: "C999" });
       assert.equal(raw.isError, true);
-      assert.equal(restartCalls.length, 1, "no restart on not-found");
+      assert.equal(restartCalls.length, 0, "no restart ever");
       config = await loadConfig(sdk);
       assert.deepEqual(config.channels, ["C222"]);
     });
@@ -257,16 +257,16 @@ describe("casual-talk admin tools", () => {
   });
 
   describe("add_small_talk_topic / remove_small_talk_topic", () => {
-    it("add_small_talk_topic appends and triggers restart; duplicate is no-op (no restart)", async () => {
+    it("add_small_talk_topic appends; never soft restarts", async () => {
       const { sdk, restartCalls } = buildSdk(tempDir);
       await saveConfig(sdk, DEFAULT_CONFIG);
       const tool = createAddSmallTalkTopicTool(sdk);
 
       await invoke(tool, { topic: "food" });
-      assert.equal(restartCalls.length, 1);
+      assert.equal(restartCalls.length, 0, "config edits hot-reload — no soft restart");
 
       await invoke(tool, { topic: "food" });
-      assert.equal(restartCalls.length, 1, "duplicate add is no-op — no extra restart");
+      assert.equal(restartCalls.length, 0, "duplicate add is a no-op");
 
       const config = await loadConfig(sdk);
       assert.deepEqual(config.smallTalkTopics, ["food"]);
@@ -279,11 +279,11 @@ describe("casual-talk admin tools", () => {
 
       const { parsed } = await invoke(tool, { topic: "food" });
       assert.equal(parsed.ok, true);
-      assert.equal(restartCalls.length, 1);
+      assert.equal(restartCalls.length, 0, "config edits hot-reload — no soft restart");
 
       const { raw } = await invoke(tool, { topic: "nonexistent" });
       assert.equal(raw.isError, true);
-      assert.equal(restartCalls.length, 1, "no restart on not-found");
+      assert.equal(restartCalls.length, 0, "no restart ever");
     });
   });
 
@@ -295,7 +295,7 @@ describe("casual-talk admin tools", () => {
 
       const { parsed } = await invoke(tool, { rate: "weekly" as const, die: undefined });
       assert.equal(parsed.ok, true);
-      assert.equal(restartCalls.length, 1);
+      assert.equal(restartCalls.length, 0, "config edits hot-reload — no soft restart");
 
       const config = await loadConfig(sdk);
       assert.equal(config.expectedRate, "weekly");
@@ -309,7 +309,7 @@ describe("casual-talk admin tools", () => {
 
       const { parsed } = await invoke(tool, { die: 17, rate: undefined });
       assert.equal(parsed.ok, true);
-      assert.equal(restartCalls.length, 1);
+      assert.equal(restartCalls.length, 0, "config edits hot-reload — no soft restart");
 
       const config = await loadConfig(sdk);
       assert.equal(config.die, 17);
@@ -339,7 +339,7 @@ describe("casual-talk admin tools", () => {
         days: [1, 2, 3, 4],
       });
       assert.equal(parsed.ok, true);
-      assert.equal(restartCalls.length, 1);
+      assert.equal(restartCalls.length, 0, "config edits hot-reload — no soft restart");
 
       const config = await loadConfig(sdk);
       assert.equal(config.workHours.start, 8);
@@ -380,14 +380,14 @@ describe("casual-talk admin tools", () => {
   });
 
   describe("enable / disable (idempotent)", () => {
-    it("enable flips disabled → enabled and triggers restart", async () => {
+    it("enable flips disabled → enabled without a soft restart", async () => {
       const { sdk, restartCalls } = buildSdk(tempDir);
       await saveConfig(sdk, DEFAULT_CONFIG);
       const tool = createEnableTool(sdk);
 
       const { parsed } = await invoke(tool, {});
       assert.equal(parsed.ok, true);
-      assert.equal(restartCalls.length, 1);
+      assert.equal(restartCalls.length, 0, "config edits hot-reload — no soft restart");
 
       const config = await loadConfig(sdk);
       assert.equal(config.enabled, true);
@@ -403,14 +403,14 @@ describe("casual-talk admin tools", () => {
       assert.equal(restartCalls.length, 0, "no restart on already-enabled");
     });
 
-    it("disable flips enabled → disabled and triggers restart", async () => {
+    it("disable flips enabled → disabled without a soft restart", async () => {
       const { sdk, restartCalls } = buildSdk(tempDir);
       await saveConfig(sdk, { ...DEFAULT_CONFIG, enabled: true });
       const tool = createDisableTool(sdk);
 
       const { parsed } = await invoke(tool, {});
       assert.equal(parsed.ok, true);
-      assert.equal(restartCalls.length, 1);
+      assert.equal(restartCalls.length, 0, "config edits hot-reload — no soft restart");
 
       const config = await loadConfig(sdk);
       assert.equal(config.enabled, false);
@@ -427,14 +427,14 @@ describe("casual-talk admin tools", () => {
   });
 
   describe("toggle_builtin_fallback_topics (idempotent)", () => {
-    it("flips on → off and triggers restart", async () => {
+    it("flips on → off without a soft restart", async () => {
       const { sdk, restartCalls } = buildSdk(tempDir);
       await saveConfig(sdk, { ...DEFAULT_CONFIG, useBuiltinFallbackTopics: true });
       const tool = createToggleBuiltinFallbackTopicsTool(sdk);
 
       const { parsed } = await invoke(tool, { enabled: false });
       assert.equal(parsed.ok, true);
-      assert.equal(restartCalls.length, 1);
+      assert.equal(restartCalls.length, 0, "config edits hot-reload — no soft restart");
 
       const config = await loadConfig(sdk);
       assert.equal(config.useBuiltinFallbackTopics, false);

@@ -120,4 +120,44 @@ describe("casual-talk prompt", () => {
     });
     assert.ok(prompt.includes("(no fallback topics configured)"));
   });
+
+  it("frames a hit as a commitment to post (decides where/what, not whether)", () => {
+    const prompt = buildPrompt({
+      die: 28,
+      rateLabel: "daily (1/28)",
+      channels: ["C111"],
+      smallTalkTopics: ["food"],
+    });
+    assert.ok(prompt.includes("WHERE and WHAT"));
+    assert.ok(prompt.toLowerCase().includes("not whether"));
+  });
+
+  it("with topics, the fresh opener is the default and skipping a hit is rare", () => {
+    const prompt = buildPrompt({
+      die: 28,
+      rateLabel: "daily (1/28)",
+      channels: ["C111"],
+      smallTalkTopics: ["food", "weekend plans"],
+    });
+    // Fresh opener is presented as the default, not an afterthought
+    assert.ok(prompt.includes("DEFAULT when no channel has an active conversation"));
+    // Step 4 narrows skipping to genuine impossibility
+    assert.ok(prompt.includes("Skipping a hit is RARE"));
+    assert.ok(prompt.includes("genuinely impossible"));
+    // The old easy-out wording must be gone
+    assert.ok(!prompt.includes("decided not to post"));
+  });
+
+  it("without topics, the run is chip-in-only and a quiet day legitimately skips", () => {
+    const prompt = buildPrompt({
+      die: 28,
+      rateLabel: "daily (1/28)",
+      channels: ["C111"],
+      smallTalkTopics: [],
+    });
+    assert.ok(prompt.includes("chip into already-active conversations"));
+    assert.ok(prompt.includes("expected outcome in this configuration"));
+    // The "rare skip" framing only applies when fresh openers are possible
+    assert.ok(!prompt.includes("Skipping a hit is RARE"));
+  });
 });

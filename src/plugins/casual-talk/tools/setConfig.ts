@@ -22,7 +22,7 @@ const workHoursInputSchema = z.object({
 export function createSetConfigTool(sdk: ClackSdk) {
   return tool(
     "set_casual_talk_config",
-    "Replace the entire casual-talk plugin config. Use this only when an admin wants to overwrite every field at once; for targeted changes, prefer the more specific tools (add_channel, set_expected_rate, etc.). Triggers a soft restart so the new config takes effect immediately.",
+    "Replace the entire casual-talk plugin config. Use this only when an admin wants to overwrite every field at once; for targeted changes, prefer the more specific tools (add_channel, set_expected_rate, etc.). Takes effect on the next scheduled tick via config hot-reload.",
     {
       enabled: z.boolean(),
       channels: z.array(channelInputSchema),
@@ -38,7 +38,6 @@ export function createSetConfigTool(sdk: ClackSdk) {
         return errorResult(sdk.t("validation_failed", { message: result.error.message }));
       }
       await saveConfig(sdk, result.data);
-      sdk.requestSoftRestart("casual-talk: full config replaced");
       return textResult({ ok: true, message: sdk.t("config_replaced") });
     },
   );

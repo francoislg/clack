@@ -7,7 +7,7 @@ import { errorResult, textResult } from "../helpers.js";
 export function createAddSmallTalkTopicTool(sdk: ClackSdk) {
   return tool(
     "add_small_talk_topic",
-    "Add a fallback small-talk topic. The bot uses these as opener ideas when no candidate channel has active conversation. Idempotent — duplicates are skipped. Triggers a soft restart on success (no restart on duplicate).",
+    "Add a fallback small-talk topic. The bot uses these as opener ideas when no candidate channel has active conversation. Idempotent — duplicates are skipped. Takes effect on the next scheduled tick via config hot-reload.",
     {
       topic: z.string().describe("Topic label, e.g. 'weekend plans' or 'pop culture'"),
     },
@@ -20,7 +20,6 @@ export function createAddSmallTalkTopicTool(sdk: ClackSdk) {
         ...config,
         smallTalkTopics: [...config.smallTalkTopics, args.topic],
       });
-      sdk.requestSoftRestart("casual-talk: small-talk topic added");
       return textResult({ ok: true, message: sdk.t("topic_added", { topic: args.topic }) });
     },
   );
@@ -29,7 +28,7 @@ export function createAddSmallTalkTopicTool(sdk: ClackSdk) {
 export function createRemoveSmallTalkTopicTool(sdk: ClackSdk) {
   return tool(
     "remove_small_talk_topic",
-    "Remove a small-talk topic by exact match. Triggers a soft restart on success.",
+    "Remove a small-talk topic by exact match. Takes effect on the next scheduled tick via config hot-reload.",
     {
       topic: z.string().describe("Topic label to remove (exact match)"),
     },
@@ -42,7 +41,6 @@ export function createRemoveSmallTalkTopicTool(sdk: ClackSdk) {
         ...config,
         smallTalkTopics: config.smallTalkTopics.filter((t) => t !== args.topic),
       });
-      sdk.requestSoftRestart("casual-talk: small-talk topic removed");
       return textResult({ ok: true, message: sdk.t("topic_removed", { topic: args.topic }) });
     },
   );
