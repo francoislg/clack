@@ -28,8 +28,8 @@ import {
   validatePromptMediumMap,
   validateTriviaDifficultyMap,
   validateTriviaDifficultyRatioMap,
-  type Result,
 } from "./axes.js";
+import { type Result } from "../../../zodResult.js";
 
 export function dedupePreservingOrder(values: string[]): string[] {
   const seen = new Set<string>();

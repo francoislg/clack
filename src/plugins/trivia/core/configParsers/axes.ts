@@ -1,17 +1,23 @@
 /**
- * Pure validators + shared axis-bag parser for the 5 cascading axes
- * (answersFormat, questionType, freeformAnswerShape, contexts, difficulty).
- * Used by every tier: workspace (file loader), game (parseTriviaGame),
- * season (upsert_season), slot (upsert_season's slot validation).
+ * Cascading-axis validation for the trivia config (answersFormat, questionType,
+ * promptMedium, freeformAnswerShape, contexts, difficulty, difficultyRatio, …).
+ *
+ * Each concept is ONE zod schema, composed from the pure primitives in
+ * `axisCheckers.ts`. The exported `validate*` functions are thin adapters:
+ * `safeParse` the schema, then format any error via the SDK's `zodErrorToResult`.
+ * Both the strict tool path and the lenient file-load path call the same
+ * adapters, so shape AND semantics have a single source of truth. The thin
+ * `*Zod` schemas further down are the structural arg schemas the MCP tool
+ * boundary needs.
  */
 
 import { z } from "zod";
 import type {
   DifficultyBucketWeights,
-  DifficultyRange,
   DifficultyRangesInput,
   HintMode,
   JsonObject,
+  JsonValue,
   JudgeLeniency,
   RevealResponsesMode,
   TriviaAllTimeRowMode,
@@ -26,9 +32,21 @@ import type {
   PromptMediumWeights,
 } from "../configTypes.js";
 import { ALL_TIME_ROW_KEYS, DEFAULT_TRIVIA_CHOICES, JUDGE_LENIENCY_KEYS } from "../configTypes.js";
-
-/** Tagged result so callers can decide how to react (throw / warn-and-drop / skip). */
-export type Result<T> = { ok: true; value: T } | { ok: false; error: string };
+import { type Result } from "../../../zodResult.js";
+import {
+  choicesCheck,
+  contextsCheck,
+  enumCheck,
+  hintCheck,
+  isJsonObject,
+  normalizeContexts,
+  normalizeWeights,
+  perFormatCheck,
+  rangesMapCheck,
+  safeParseToResult,
+  schemaFromChecker,
+  weightMapCheck,
+} from "./axisCheckers.js";
 
 /** One issue surfaced while parsing. `field` is a dot-joined path like `trivia.games[0].answersFormat`. */
 export interface ParseIssue {
@@ -50,9 +68,8 @@ export const FREEFORM_ANSWER_SHAPE_KEYS = [
 ] as const;
 export const DIFFICULTY_BUCKET_KEYS = ["easy", "medium", "hard"] as const;
 export const DIFFICULTY_FORMAT_KEYS = ["boolean", "choice", "freeform"] as const;
-const DIFFICULTY_RATIO_FORMAT_KEYS = ["boolean", "choice", "freeform"] as const;
 export const HINT_MODE_KEYS = ["none", "button", "inline"] as const;
-const HINT_ALLOWED_FIELDS = new Set(["mode", "minDifficulty"]);
+const HINT_ALLOWED_FIELDS = ["mode", "minDifficulty"] as const;
 
 /** The literal string set for `revealResponses` — shared across tiers. */
 export const REVEAL_RESPONSES_VALUES = ["no", "just-winners", "just-correctness", "yes"] as const;
@@ -65,427 +82,208 @@ export function isRevealResponsesMode(raw: unknown): raw is RevealResponsesMode 
   return typeof raw === "string" && (REVEAL_RESPONSES_VALUES as readonly string[]).includes(raw);
 }
 
+// --- Weight maps -----------------------------------------------------------
+
+const answersFormatSchema: z.ZodType<TriviaAnswersFormatWeights> = schemaFromChecker(
+  (raw) => weightMapCheck(raw, ANSWERS_FORMAT_KEYS, []),
+  (raw) => normalizeWeights(raw, ANSWERS_FORMAT_KEYS),
+);
+const questionTypeSchema: z.ZodType<TriviaQuestionTypeWeights> = schemaFromChecker(
+  (raw) => weightMapCheck(raw, QUESTION_TYPE_KEYS, []),
+  (raw) => normalizeWeights(raw, QUESTION_TYPE_KEYS),
+);
+const promptMediumSchema: z.ZodType<PromptMediumWeights> = schemaFromChecker(
+  (raw) => weightMapCheck(raw, PROMPT_MEDIUM_KEYS, []),
+  (raw) => normalizeWeights(raw, PROMPT_MEDIUM_KEYS),
+);
+const freeformAnswerShapeSchema: z.ZodType<TriviaFreeformAnswerShapeWeights> = schemaFromChecker(
+  (raw) => weightMapCheck(raw, FREEFORM_ANSWER_SHAPE_KEYS, []),
+  (raw) => normalizeWeights(raw, FREEFORM_ANSWER_SHAPE_KEYS),
+);
+const difficultyBucketWeightsSchema: z.ZodType<DifficultyBucketWeights> = schemaFromChecker(
+  (raw) => weightMapCheck(raw, DIFFICULTY_BUCKET_KEYS, []),
+  (raw) => normalizeWeights(raw, DIFFICULTY_BUCKET_KEYS),
+);
+
 export function validateAnswersFormatMap(
   raw: unknown,
   fieldLabel: string,
 ): Result<TriviaAnswersFormatWeights> {
-  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
-    return { ok: false, error: `'${fieldLabel}' must be an object` };
-  }
-  const out: Partial<TriviaAnswersFormatWeights> = {};
-  let positiveCount = 0;
-  for (const [key, value] of Object.entries(raw)) {
-    if (!(ANSWERS_FORMAT_KEYS as readonly string[]).includes(key)) {
-      return {
-        ok: false,
-        error: `'${fieldLabel}' contains unknown key '${key}' (allowed: ${ANSWERS_FORMAT_KEYS.join(", ")})`,
-      };
-    }
-    if (
-      typeof value !== "number" ||
-      !Number.isFinite(value) ||
-      !Number.isInteger(value) ||
-      value < 0
-    ) {
-      return {
-        ok: false,
-        error: `'${fieldLabel}.${key}' must be a non-negative integer (got ${JSON.stringify(value)})`,
-      };
-    }
-    out[key as (typeof ANSWERS_FORMAT_KEYS)[number]] = value;
-    if (value > 0) positiveCount++;
-  }
-  if (positiveCount === 0) {
-    return { ok: false, error: `'${fieldLabel}' must have at least one strictly positive weight` };
-  }
-  return {
-    ok: true,
-    value: { boolean: out.boolean ?? 0, choice: out.choice ?? 0, freeform: out.freeform ?? 0 },
-  };
+  return safeParseToResult(answersFormatSchema, raw, fieldLabel);
 }
-
 export function validateQuestionTypeMap(
   raw: unknown,
   fieldLabel: string,
 ): Result<TriviaQuestionTypeWeights> {
-  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
-    return { ok: false, error: `'${fieldLabel}' must be an object` };
-  }
-  const out: Partial<TriviaQuestionTypeWeights> = {};
-  let positiveCount = 0;
-  for (const [key, value] of Object.entries(raw)) {
-    if (!(QUESTION_TYPE_KEYS as readonly string[]).includes(key)) {
-      return {
-        ok: false,
-        error: `'${fieldLabel}' contains unknown key '${key}' (allowed: ${QUESTION_TYPE_KEYS.join(", ")})`,
-      };
-    }
-    if (
-      typeof value !== "number" ||
-      !Number.isFinite(value) ||
-      !Number.isInteger(value) ||
-      value < 0
-    ) {
-      return {
-        ok: false,
-        error: `'${fieldLabel}.${key}' must be a non-negative integer (got ${JSON.stringify(value)})`,
-      };
-    }
-    out[key as (typeof QUESTION_TYPE_KEYS)[number]] = value;
-    if (value > 0) positiveCount++;
-  }
-  if (positiveCount === 0) {
-    return { ok: false, error: `'${fieldLabel}' must have at least one strictly positive weight` };
-  }
-  return { ok: true, value: { fact: out.fact ?? 0, topical: out.topical ?? 0 } };
+  return safeParseToResult(questionTypeSchema, raw, fieldLabel);
 }
-
 export function validatePromptMediumMap(
   raw: unknown,
   fieldLabel: string,
 ): Result<PromptMediumWeights> {
-  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
-    return { ok: false, error: `'${fieldLabel}' must be an object` };
-  }
-  const out: Partial<PromptMediumWeights> = {};
-  let positiveCount = 0;
-  for (const [key, value] of Object.entries(raw)) {
-    if (!(PROMPT_MEDIUM_KEYS as readonly string[]).includes(key)) {
-      return {
-        ok: false,
-        error: `'${fieldLabel}' contains unknown key '${key}' (allowed: ${PROMPT_MEDIUM_KEYS.join(", ")})`,
-      };
-    }
-    if (
-      typeof value !== "number" ||
-      !Number.isFinite(value) ||
-      !Number.isInteger(value) ||
-      value < 0
-    ) {
-      return {
-        ok: false,
-        error: `'${fieldLabel}.${key}' must be a non-negative integer (got ${JSON.stringify(value)})`,
-      };
-    }
-    out[key as (typeof PROMPT_MEDIUM_KEYS)[number]] = value;
-    if (value > 0) positiveCount++;
-  }
-  if (positiveCount === 0) {
-    return { ok: false, error: `'${fieldLabel}' must have at least one strictly positive weight` };
-  }
-  return { ok: true, value: { text: out.text ?? 0, image: out.image ?? 0 } };
+  return safeParseToResult(promptMediumSchema, raw, fieldLabel);
 }
-
 export function validateFreeformAnswerShapeMap(
   raw: unknown,
   fieldLabel: string,
 ): Result<TriviaFreeformAnswerShapeWeights> {
-  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
-    return { ok: false, error: `'${fieldLabel}' must be an object` };
-  }
-  const out: Partial<TriviaFreeformAnswerShapeWeights> = {};
-  let positiveCount = 0;
-  for (const [key, value] of Object.entries(raw)) {
-    if (!(FREEFORM_ANSWER_SHAPE_KEYS as readonly string[]).includes(key)) {
-      return {
-        ok: false,
-        error: `'${fieldLabel}' contains unknown key '${key}' (allowed: ${FREEFORM_ANSWER_SHAPE_KEYS.join(", ")})`,
-      };
-    }
-    if (
-      typeof value !== "number" ||
-      !Number.isFinite(value) ||
-      !Number.isInteger(value) ||
-      value < 0
-    ) {
-      return {
-        ok: false,
-        error: `'${fieldLabel}.${key}' must be a non-negative integer (got ${JSON.stringify(value)})`,
-      };
-    }
-    out[key as (typeof FREEFORM_ANSWER_SHAPE_KEYS)[number]] = value;
-    if (value > 0) positiveCount++;
-  }
-  if (positiveCount === 0) {
-    return { ok: false, error: `'${fieldLabel}' must have at least one strictly positive weight` };
-  }
-  return {
-    ok: true,
-    value: {
-      name: out.name ?? 0,
-      place: out.place ?? 0,
-      phrase: out.phrase ?? 0,
-      title: out.title ?? 0,
-      date: out.date ?? 0,
-      countable: out.countable ?? 0,
-      other: out.other ?? 0,
-    },
-  };
+  return safeParseToResult(freeformAnswerShapeSchema, raw, fieldLabel);
 }
+export function validateDifficultyBucketWeights(
+  raw: unknown,
+  fieldLabel: string,
+): Result<DifficultyBucketWeights> {
+  return safeParseToResult(difficultyBucketWeightsSchema, raw, fieldLabel);
+}
+
+// --- Contexts --------------------------------------------------------------
+
+const contextsSchema: z.ZodType<TriviaContextEntry[]> = schemaFromChecker(
+  contextsCheck,
+  normalizeContexts,
+);
 
 export function validateContextsList(
   raw: unknown,
   fieldLabel: string,
 ): Result<TriviaContextEntry[]> {
-  if (!Array.isArray(raw)) {
-    return { ok: false, error: `'${fieldLabel}' must be an array` };
-  }
-  if (raw.length === 0) {
-    return { ok: false, error: `'${fieldLabel}' must be non-empty when present` };
-  }
-  const out: TriviaContextEntry[] = [];
-  const seenNames = new Set<string>();
-  for (let i = 0; i < raw.length; i++) {
-    const entry: unknown = raw[i];
-    if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
-      return { ok: false, error: `'${fieldLabel}[${i}]' must be an object` };
-    }
-    const e = entry as { name?: unknown; weight?: unknown };
-    if (typeof e.name !== "string") {
-      return { ok: false, error: `'${fieldLabel}[${i}].name' must be a string` };
-    }
-    if (seenNames.has(e.name)) {
-      return { ok: false, error: `'${fieldLabel}[${i}]' has duplicate name '${e.name}'` };
-    }
-    seenNames.add(e.name);
-    let weight: number | undefined;
-    if (e.weight !== undefined) {
-      if (typeof e.weight !== "number" || !Number.isFinite(e.weight) || e.weight <= 0) {
-        return {
-          ok: false,
-          error: `'${fieldLabel}[${i}].weight' must be a positive number (got ${JSON.stringify(e.weight)})`,
-        };
-      }
-      weight = e.weight;
-    }
-    out.push(weight === undefined ? { name: e.name } : { name: e.name, weight });
-  }
-  return { ok: true, value: out };
+  return safeParseToResult(contextsSchema, raw, fieldLabel);
 }
 
-function validateDifficultyRange(raw: unknown, fieldLabel: string): Result<DifficultyRange> {
-  if (!Array.isArray(raw) || raw.length !== 2) {
-    return { ok: false, error: `'${fieldLabel}' must be a [min, max] tuple` };
+// --- Difficulty ranges -----------------------------------------------------
+
+function normalizeRangesMap(raw: unknown): DifficultyRangesInput {
+  const obj = isJsonObject(raw) ? raw : {};
+  const out: DifficultyRangesInput = {};
+  for (const bucket of DIFFICULTY_BUCKET_KEYS) {
+    const value = obj[bucket];
+    if (Array.isArray(value) && value.length === 2) {
+      out[bucket] = [value[0] as number, value[1] as number];
+    }
   }
-  const [min, max] = raw;
-  if (typeof min !== "number" || !Number.isInteger(min) || min < 1 || min > 10) {
-    return {
-      ok: false,
-      error: `'${fieldLabel}[0]' must be an integer in [1, 10] (got ${JSON.stringify(min)})`,
-    };
-  }
-  if (typeof max !== "number" || !Number.isInteger(max) || max < 1 || max > 10) {
-    return {
-      ok: false,
-      error: `'${fieldLabel}[1]' must be an integer in [1, 10] (got ${JSON.stringify(max)})`,
-    };
-  }
-  if (min > max) {
-    return { ok: false, error: `'${fieldLabel}' min (${min}) must be <= max (${max})` };
-  }
-  return { ok: true, value: [min, max] };
+  return out;
 }
+
+const difficultyRangesMapSchema: z.ZodType<DifficultyRangesInput> = schemaFromChecker(
+  (raw) => rangesMapCheck(raw, [], DIFFICULTY_BUCKET_KEYS),
+  normalizeRangesMap,
+);
 
 export function validateDifficultyRangesMap(
   raw: unknown,
   fieldLabel: string,
 ): Result<DifficultyRangesInput> {
-  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
-    return { ok: false, error: `'${fieldLabel}' must be an object` };
-  }
-  const entries = raw as JsonObject;
-  const out: DifficultyRangesInput = {};
-  for (const key of Object.keys(entries)) {
-    if (!(DIFFICULTY_BUCKET_KEYS as readonly string[]).includes(key)) {
-      return {
-        ok: false,
-        error: `'${fieldLabel}' contains unknown key '${key}' (allowed: easy, medium, hard)`,
-      };
-    }
-  }
-  for (const bucket of DIFFICULTY_BUCKET_KEYS) {
-    if (entries[bucket] === undefined) continue;
-    const r = validateDifficultyRange(entries[bucket], `${fieldLabel}.${bucket}`);
-    if (!r.ok) return r;
-    out[bucket] = r.value;
-  }
-  return { ok: true, value: out };
+  return safeParseToResult(difficultyRangesMapSchema, raw, fieldLabel);
 }
 
-export function validateDifficultyBucketWeights(
-  raw: unknown,
-  fieldLabel: string,
-): Result<DifficultyBucketWeights> {
-  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
-    return { ok: false, error: `'${fieldLabel}' must be an object` };
+function normalizeDifficultyPerFormat(raw: unknown): TriviaDifficultyConfig {
+  const obj = isJsonObject(raw) ? raw : {};
+  const out: TriviaDifficultyConfig = {};
+  for (const fmt of DIFFICULTY_FORMAT_KEYS) {
+    if (obj[fmt] === undefined) continue;
+    out[fmt] = normalizeRangesMap(obj[fmt]);
   }
-  const out: Partial<DifficultyBucketWeights> = {};
-  let positiveCount = 0;
-  for (const [key, value] of Object.entries(raw)) {
-    if (!(DIFFICULTY_BUCKET_KEYS as readonly string[]).includes(key)) {
-      return {
-        ok: false,
-        error: `'${fieldLabel}' contains unknown key '${key}' (allowed: ${DIFFICULTY_BUCKET_KEYS.join(", ")})`,
-      };
-    }
-    if (
-      typeof value !== "number" ||
-      !Number.isFinite(value) ||
-      !Number.isInteger(value) ||
-      value < 0
-    ) {
-      return {
-        ok: false,
-        error: `'${fieldLabel}.${key}' must be a non-negative integer (got ${JSON.stringify(value)})`,
-      };
-    }
-    out[key as (typeof DIFFICULTY_BUCKET_KEYS)[number]] = value;
-    if (value > 0) positiveCount++;
-  }
-  if (positiveCount === 0) {
-    return { ok: false, error: `'${fieldLabel}' must have at least one strictly positive weight` };
-  }
-  return {
-    ok: true,
-    value: { easy: out.easy ?? 0, medium: out.medium ?? 0, hard: out.hard ?? 0 },
-  };
+  return out;
 }
 
-export function validateTriviaDifficultyRatioMap(
-  raw: unknown,
-  fieldLabel: string,
-): Result<TriviaDifficultyRatioConfig> {
-  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
-    return { ok: false, error: `'${fieldLabel}' must be an object` };
-  }
-  const entries = raw as JsonObject;
-  const out: TriviaDifficultyRatioConfig = {};
-  for (const key of Object.keys(entries)) {
-    if (!(DIFFICULTY_RATIO_FORMAT_KEYS as readonly string[]).includes(key)) {
-      return {
-        ok: false,
-        error: `'${fieldLabel}' contains unknown key '${key}' (allowed: ${DIFFICULTY_RATIO_FORMAT_KEYS.join(", ")})`,
-      };
-    }
-  }
-  for (const fmt of DIFFICULTY_RATIO_FORMAT_KEYS) {
-    if (entries[fmt] === undefined) continue;
-    const r = validateDifficultyBucketWeights(entries[fmt], `${fieldLabel}.${fmt}`);
-    if (!r.ok) return r;
-    out[fmt] = r.value;
-  }
-  return { ok: true, value: out };
-}
-
-export function validateHintConfig(raw: unknown, fieldLabel: string): Result<TriviaHintConfig> {
-  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
-    return { ok: false, error: `'${fieldLabel}' must be an object` };
-  }
-  const entries = raw as JsonObject;
-  for (const key of Object.keys(entries)) {
-    if (!HINT_ALLOWED_FIELDS.has(key)) {
-      return {
-        ok: false,
-        error: `'${fieldLabel}' contains unknown key '${key}' (allowed: mode, minDifficulty)`,
-      };
-    }
-  }
-  const mode = entries.mode;
-  if (typeof mode !== "string" || !(HINT_MODE_KEYS as readonly string[]).includes(mode)) {
-    return {
-      ok: false,
-      error: `'${fieldLabel}.mode' must be one of ${HINT_MODE_KEYS.join(", ")} (got ${JSON.stringify(mode)})`,
-    };
-  }
-  const out: TriviaHintConfig = { mode: mode as HintMode };
-  if (entries.minDifficulty !== undefined && entries.minDifficulty !== null) {
-    const min = entries.minDifficulty;
-    if (typeof min !== "string" || !(DIFFICULTY_BUCKET_KEYS as readonly string[]).includes(min)) {
-      return {
-        ok: false,
-        error: `'${fieldLabel}.minDifficulty' must be one of ${DIFFICULTY_BUCKET_KEYS.join(", ")} (got ${JSON.stringify(min)})`,
-      };
-    }
-    out.minDifficulty = min as (typeof DIFFICULTY_BUCKET_KEYS)[number];
-  }
-  return { ok: true, value: out };
-}
-
-export function validateAllTimeRowMode(
-  raw: unknown,
-  fieldLabel: string,
-): Result<TriviaAllTimeRowMode> {
-  if (typeof raw !== "string" || !(ALL_TIME_ROW_KEYS as readonly string[]).includes(raw)) {
-    return {
-      ok: false,
-      error: `'${fieldLabel}' must be one of ${ALL_TIME_ROW_KEYS.join(", ")} (got ${JSON.stringify(raw)})`,
-    };
-  }
-  return { ok: true, value: raw as TriviaAllTimeRowMode };
-}
-
-export function validateJudgeLeniency(raw: unknown, fieldLabel: string): Result<JudgeLeniency> {
-  if (typeof raw !== "string" || !(JUDGE_LENIENCY_KEYS as readonly string[]).includes(raw)) {
-    return {
-      ok: false,
-      error: `'${fieldLabel}' must be one of ${JUDGE_LENIENCY_KEYS.join(", ")} (got ${JSON.stringify(raw)})`,
-    };
-  }
-  return { ok: true, value: raw as JudgeLeniency };
-}
+const difficultyPerFormatSchema: z.ZodType<TriviaDifficultyConfig> = schemaFromChecker(
+  (raw) =>
+    perFormatCheck(raw, DIFFICULTY_FORMAT_KEYS, (value: JsonValue, prefix) =>
+      rangesMapCheck(value, prefix, DIFFICULTY_BUCKET_KEYS),
+    ),
+  normalizeDifficultyPerFormat,
+);
 
 export function validateTriviaDifficultyMap(
   raw: unknown,
   fieldLabel: string,
 ): Result<TriviaDifficultyConfig> {
-  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
-    return { ok: false, error: `'${fieldLabel}' must be an object` };
-  }
-  const entries = raw as JsonObject;
-  const out: TriviaDifficultyConfig = {};
-  for (const key of Object.keys(entries)) {
-    if (!(DIFFICULTY_FORMAT_KEYS as readonly string[]).includes(key)) {
-      return {
-        ok: false,
-        error: `'${fieldLabel}' contains unknown key '${key}' (allowed: ${DIFFICULTY_FORMAT_KEYS.join(", ")})`,
-      };
-    }
-  }
-  for (const fmt of DIFFICULTY_FORMAT_KEYS) {
-    if (entries[fmt] === undefined) continue;
-    const r = validateDifficultyRangesMap(entries[fmt], `${fieldLabel}.${fmt}`);
-    if (!r.ok) return r;
-    out[fmt] = r.value;
-  }
-  return { ok: true, value: out };
+  return safeParseToResult(difficultyPerFormatSchema, raw, fieldLabel);
 }
+
+function normalizeRatioPerFormat(raw: unknown): TriviaDifficultyRatioConfig {
+  const obj = isJsonObject(raw) ? raw : {};
+  const out: TriviaDifficultyRatioConfig = {};
+  for (const fmt of DIFFICULTY_FORMAT_KEYS) {
+    if (obj[fmt] === undefined) continue;
+    out[fmt] = normalizeWeights(obj[fmt], DIFFICULTY_BUCKET_KEYS);
+  }
+  return out;
+}
+
+const ratioPerFormatSchema: z.ZodType<TriviaDifficultyRatioConfig> = schemaFromChecker(
+  (raw) =>
+    perFormatCheck(raw, DIFFICULTY_FORMAT_KEYS, (value: JsonValue, prefix) =>
+      weightMapCheck(value, DIFFICULTY_BUCKET_KEYS, prefix),
+    ),
+  normalizeRatioPerFormat,
+);
+
+export function validateTriviaDifficultyRatioMap(
+  raw: unknown,
+  fieldLabel: string,
+): Result<TriviaDifficultyRatioConfig> {
+  return safeParseToResult(ratioPerFormatSchema, raw, fieldLabel);
+}
+
+// --- Hint / enums / choices ------------------------------------------------
+
+function normalizeHint(raw: unknown): TriviaHintConfig {
+  const obj = isJsonObject(raw) ? raw : {};
+  const out: TriviaHintConfig = { mode: obj.mode as HintMode };
+  if (obj.minDifficulty !== undefined && obj.minDifficulty !== null) {
+    out.minDifficulty = obj.minDifficulty as (typeof DIFFICULTY_BUCKET_KEYS)[number];
+  }
+  return out;
+}
+
+const hintSchema: z.ZodType<TriviaHintConfig> = schemaFromChecker(
+  (raw) => hintCheck(raw, HINT_MODE_KEYS, DIFFICULTY_BUCKET_KEYS, HINT_ALLOWED_FIELDS),
+  normalizeHint,
+);
+
+export function validateHintConfig(raw: unknown, fieldLabel: string): Result<TriviaHintConfig> {
+  return safeParseToResult(hintSchema, raw, fieldLabel);
+}
+
+const allTimeRowSchema: z.ZodType<TriviaAllTimeRowMode> = schemaFromChecker(
+  (raw) => enumCheck(raw, ALL_TIME_ROW_KEYS),
+  (raw) => raw as TriviaAllTimeRowMode,
+);
+
+export function validateAllTimeRowMode(
+  raw: unknown,
+  fieldLabel: string,
+): Result<TriviaAllTimeRowMode> {
+  return safeParseToResult(allTimeRowSchema, raw, fieldLabel);
+}
+
+const judgeLeniencySchema: z.ZodType<JudgeLeniency> = schemaFromChecker(
+  (raw) => enumCheck(raw, JUDGE_LENIENCY_KEYS),
+  (raw) => raw as JudgeLeniency,
+);
+
+export function validateJudgeLeniency(raw: unknown, fieldLabel: string): Result<JudgeLeniency> {
+  return safeParseToResult(judgeLeniencySchema, raw, fieldLabel);
+}
+
+function normalizeChoices(raw: unknown): TriviaChoicesConfig {
+  const obj = isJsonObject(raw) ? raw : {};
+  const min = obj.min ?? DEFAULT_TRIVIA_CHOICES.min;
+  const max = obj.max ?? DEFAULT_TRIVIA_CHOICES.max;
+  return { min: min as number, max: max as number };
+}
+
+const choicesSchema: z.ZodType<TriviaChoicesConfig> = schemaFromChecker(
+  (raw) => choicesCheck(raw, DEFAULT_TRIVIA_CHOICES),
+  normalizeChoices,
+);
 
 export function validateTriviaChoicesConfig(
   raw: unknown,
   fieldLabel: string,
 ): Result<TriviaChoicesConfig> {
-  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
-    return { ok: false, error: `'${fieldLabel}' must be an object` };
-  }
-  const entries = raw as JsonObject;
-  const min = entries.min ?? DEFAULT_TRIVIA_CHOICES.min;
-  const max = entries.max ?? DEFAULT_TRIVIA_CHOICES.max;
-  if (typeof min !== "number" || !Number.isInteger(min) || min < 2 || min > 4) {
-    return {
-      ok: false,
-      error: `'${fieldLabel}.min' must be an integer in [2, 4] (got ${JSON.stringify(min)})`,
-    };
-  }
-  if (typeof max !== "number" || !Number.isInteger(max) || max < 2 || max > 4) {
-    return {
-      ok: false,
-      error: `'${fieldLabel}.max' must be an integer in [2, 4] (got ${JSON.stringify(max)})`,
-    };
-  }
-  if (min > max) {
-    return { ok: false, error: `'${fieldLabel}' min (${min}) must be <= max (${max})` };
-  }
-  return { ok: true, value: { min, max } };
+  return safeParseToResult(choicesSchema, raw, fieldLabel);
 }
 
 /**
@@ -503,13 +301,11 @@ export interface TriviaAxisBag {
 }
 
 /**
- * Parse the 5-axis bag with per-field validation. Returns successfully-parsed
+ * Parse the axis bag with per-field validation. Returns successfully-parsed
  * axes AND any per-field issues. Callers decide whether to throw (strict,
  * management tools) or warn-and-drop (lenient, file loader). DRY for all four
- * cascade tiers.
- *
- * `fieldPrefix` is prepended to each axis label, e.g. `"trivia.games[0]"`
- * produces issues like `trivia.games[0].answersFormat`.
+ * cascade tiers. `fieldPrefix` is prepended to each axis label, e.g.
+ * `"trivia.games[0]"` produces issues like `trivia.games[0].answersFormat`.
  */
 export function parseTriviaAxisBag(
   raw: JsonObject,
@@ -557,18 +353,12 @@ export function parseTriviaAxisBag(
 }
 
 // ---------------------------------------------------------------------------
-// Shared zod schemas for tool input (axis bag).
-//
-// These shape-check JSON-from-Claude into the same key sets the validators
-// above accept. They DELIBERATELY don't enforce semantic rules (e.g. "at least
-// one positive weight") — every management tool feeds the result through the
-// validators / `parseTriviaAxisBag`, which own those checks. Keeping the zod
-// schemas thin means the two layers can never drift on the semantic rules:
-// there's exactly one place each rule is enforced.
-//
+// Shared zod schemas for tool input (axis bag). These are the STRUCTURAL arg
+// schemas at the MCP tool boundary; the deeper semantics live in the `validate*`
+// adapters above, which the tool handlers call after the SDK accepts the args.
 // Key sets are pinned with `satisfies` against the same `*_KEYS` constants the
-// validators use, so adding/removing a key in one place fails the compile
-// until the other place is updated.
+// validators use, so adding/removing a key in one place fails the compile until
+// the other place is updated.
 // ---------------------------------------------------------------------------
 
 const integerWeight = z.number().int().nonnegative().optional();
@@ -644,8 +434,7 @@ export const bucketWeightsZod = z
 
 /**
  * Shared zod schema for the per-format `difficultyRatio` axis. Reused by every
- * management tool that accepts the axis (`setWorkspaceConfig`, `upsertGame`,
- * `upsertSeason`, and the slot-tier inside `upsertSeason`).
+ * management tool that accepts the axis.
  */
 export const triviaDifficultyRatioZod = z.object({
   boolean: bucketWeightsZod.optional(),
@@ -653,41 +442,25 @@ export const triviaDifficultyRatioZod = z.object({
   freeform: bucketWeightsZod.optional(),
 });
 
-/**
- * Shared zod schema for the `hint` axis. Thin shape-check — semantic validation
- * (allowed `mode` / `minDifficulty` values, unknown-key rejection) lives in
- * `validateHintConfig`. Every management tool that accepts the axis funnels
- * through that validator so the two layers can't drift.
- */
+/** Shared zod schema for the `hint` axis (structural; semantics in `validateHintConfig`). */
 export const triviaHintZod = z.object({
   mode: z.enum(HINT_MODE_KEYS as readonly [HintMode, ...HintMode[]]),
   minDifficulty: z.enum(DIFFICULTY_BUCKET_KEYS as readonly ["easy", "medium", "hard"]).optional(),
 });
 
-/**
- * Shared zod schema for the `allTimeRow` axis. Thin enum-check; semantic
- * validation (the same three keys, unknown-value rejection) lives in
- * `validateAllTimeRowMode`, which every config-file parse funnels through.
- */
+/** Shared zod schema for the `allTimeRow` axis (structural; semantics in `validateAllTimeRowMode`). */
 export const triviaAllTimeRowZod = z.enum(
   ALL_TIME_ROW_KEYS as readonly [TriviaAllTimeRowMode, ...TriviaAllTimeRowMode[]],
 );
 
-/**
- * Shared zod schema for the `judgeLeniency` axis. Thin enum-check; semantic
- * validation (the same three presets, unknown-value rejection) lives in
- * `validateJudgeLeniency`, which every config-file parse funnels through.
- */
+/** Shared zod schema for the `judgeLeniency` axis (structural; semantics in `validateJudgeLeniency`). */
 export const triviaJudgeLeniencyZod = z.enum(
   JUDGE_LENIENCY_KEYS as readonly [JudgeLeniency, ...JudgeLeniency[]],
 );
 
 /**
- * The 6 zod schemas as a single map — handy for tools that splat them into
+ * The axis zod schemas as a single map — handy for tools that splat them into
  * the input schema with `...axisFieldsZod` rather than naming each axis.
- * Each is `.nullable().optional()`-ready (callers can chain `.nullable().optional()`
- * + `.describe(...)` to apply the standard "omit-to-keep / null-to-clear"
- * semantics that every management tool uses).
  */
 export const axisFieldsZod = {
   answersFormat: answersFormatZod,
