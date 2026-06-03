@@ -9,6 +9,7 @@ Plugin code MUST NOT import from `src/config.ts`, `src/logger.ts`, `src/slack/..
 The only exceptions are:
 
 - **The plugin SDK**: `import type { ClackSdk, ClackPlugin, CronJobSpec, ... } from "../sdk.js"` (or `"../../sdk.js"` from nested files).
+- **Shared SDK-layer leaf utilities**: small dependency-free modules that live in `src/plugins/` alongside `sdk.ts` and import only third-party packages (e.g. `src/plugins/zodResult.ts` — `Result<T>` + `zodErrorToResult`). They are part of the SDK surface and are shared by both plugins and bot core. They MUST stay leaves (import nothing from bot core or other plugins) so they cannot form an import cycle — this is why they live beside `sdk.ts` rather than *inside* it (a value import of the heavy `sdk.ts` barrel from a plugin's config core cycles through the plugin registry).
 - **Third-party packages**: `zod`, `@anthropic-ai/claude-agent-sdk`, `cron-parser`, `simple-git`, etc. — anything from `node_modules`.
 - **Node built-ins**: `node:fs`, `node:path`, etc. — but prefer the SDK's `readFile`/`writeFile`/`watchFile` for plugin-data I/O so paths stay scoped.
 

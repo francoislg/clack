@@ -17,8 +17,7 @@ import type {
   TriviaDifficultyConfig,
   TriviaDifficultyRatioConfig,
 } from "../core/configTypes.js";
-
-export type ValidateResult<T> = { ok: true; value: T } | { ok: false; error: string };
+import { type Result } from "../../zodResult.js";
 
 /**
  * Thin wrappers over the shared validators from `config.ts` — same allow-lists,
@@ -28,37 +27,35 @@ export type ValidateResult<T> = { ok: true; value: T } | { ok: false; error: str
  */
 export function validateAnswersFormat(
   raw: Record<string, number>,
-): ValidateResult<TriviaAnswersFormatWeights> {
+): Result<TriviaAnswersFormatWeights> {
   return validateAnswersFormatMap(raw, "answersFormat");
 }
 
 export function validateQuestionType(
   raw: Record<string, number>,
-): ValidateResult<TriviaQuestionTypeWeights> {
+): Result<TriviaQuestionTypeWeights> {
   return validateQuestionTypeMap(raw, "questionType");
 }
 
-export function validatePromptMedium(
-  raw: Record<string, number>,
-): ValidateResult<PromptMediumWeights> {
+export function validatePromptMedium(raw: Record<string, number>): Result<PromptMediumWeights> {
   return validatePromptMediumMap(raw, "promptMedium");
 }
 
 export function validateFreeformAnswerShape(
   raw: Record<string, number>,
-): ValidateResult<TriviaFreeformAnswerShapeWeights> {
+): Result<TriviaFreeformAnswerShapeWeights> {
   return validateFreeformAnswerShapeMap(raw, "freeformAnswerShape");
 }
 
-export function validateContexts(raw: unknown): ValidateResult<TriviaContextEntry[]> {
+export function validateContexts(raw: unknown): Result<TriviaContextEntry[]> {
   return validateContextsList(raw, "contexts");
 }
 
-export function validateDifficulty(raw: unknown): ValidateResult<TriviaDifficultyConfig> {
+export function validateDifficulty(raw: unknown): Result<TriviaDifficultyConfig> {
   return validateTriviaDifficultyMap(raw, "difficulty");
 }
 
-export function validateDifficultyRatio(raw: unknown): ValidateResult<TriviaDifficultyRatioConfig> {
+export function validateDifficultyRatio(raw: unknown): Result<TriviaDifficultyRatioConfig> {
   return validateTriviaDifficultyRatioMap(raw, "difficultyRatio");
 }
 
