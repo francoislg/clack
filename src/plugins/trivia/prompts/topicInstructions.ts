@@ -14,9 +14,8 @@
  * - FOUR-BLOCK question layout (header/section/card/context) shared by all answersFormat
  *   variants — the answer buttons are appended by `post_questions`, not by the prompt.
  * - Reveal block structure (per-bucket sections branched on `voters.revealResponses`,
- *   multi-question Round Summary aggregate gated on `roundSummary` presence, dual-totals
- *   leaderboard table).
- * - Round Summary block format.
+ *   dual-totals leaderboard table whose `This Round` row carries the per-player round
+ *   scoreboard from `roundSummary.perPlayer`).
  * - Season-finale block placement (the structural "insert ONE additional section block
  *   above the closer" rule).
  */
