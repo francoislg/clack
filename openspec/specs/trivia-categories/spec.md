@@ -3,9 +3,7 @@
 ## Purpose
 
 Management of the trivia question category pool, including seeding, administration, and discovery tools.
-
 ## Requirements
-
 ### Requirement: Category pool seeding
 
 The system SHALL seed `categories.json` with 50 hardcoded categories on first plugin load when the file is missing or empty.
@@ -368,7 +366,11 @@ The 1–10 bucket-to-range mapping (e.g. `easy: [4, 6]`, `medium: [7, 8]`, `hard
 
 ### Requirement: save_question validates category
 
-The `save_question` tool SHALL reject questions whose category is not in the active source pool. When `trivia.seasons.enabled` is `true` AND `findCurrentSeason(state, now)` returns a season, the active source pool is that season's `categories`. Otherwise (seasons disabled or in a gap), the active source pool is `categories.json`.
+The `save_question` tool SHALL reject questions whose category is not in the active source pool. The active source pool SHALL be resolved by the cascade `season.categories → game.categories → categories.json`, with the following ordering rules:
+
+1. When `trivia.seasons.enabled` is `true` AND `findCurrentSeason(state, now)` returns a season, the active source pool is that season's `categories`.
+2. Otherwise (seasons disabled or in a gap), the active source pool is the game's `categories` if `config.trivia.games[<game>].categories` is set.
+3. Otherwise, the active source pool is `categories.json`.
 
 #### Scenario: Valid category (seasons enabled)
 
@@ -382,8 +384,23 @@ The `save_question` tool SHALL reject questions whose category is not in the act
 - **WHEN** `save_question` is called with `category: "Sports"`
 - **THEN** the tool returns an error suggesting the use of `add_categories` (with `target: "current"` if the admin wants it just for this season)
 
-#### Scenario: Invalid category (seasons disabled)
+#### Scenario: Game categories used when seasons disabled
 
 - **GIVEN** seasons are disabled
+- **AND** `config.trivia.games[<game>].categories` is `["History"]`
+- **AND** `categories.json` also contains "Science"
+- **WHEN** `save_question` is called with `game: <game>, category: "Science"`
+- **THEN** the tool returns an error (the active pool is `["History"]` — the game tier wins over the global pool)
+
+#### Scenario: Falls through to categories.json when neither season nor game set
+
+- **GIVEN** seasons are disabled and the game has no `categories` field
+- **WHEN** `save_question` is called with `category: "Sports"` and `categories.json` contains "Sports"
+- **THEN** the question is saved
+
+#### Scenario: Invalid category (seasons disabled, no game categories)
+
+- **GIVEN** seasons are disabled and the game has no `categories` field
 - **WHEN** `save_question` is called with `category: "Unknown Topic"` and it does not exist in `categories.json`
 - **THEN** the tool returns an error suggesting the use of `add_categories`
+

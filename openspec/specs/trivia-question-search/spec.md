@@ -3,9 +3,7 @@
 ## Purpose
 
 Question creation and discovery for trivia questions, including validation, search, and storage. All operations are scoped per-game: every tool takes a required `game: string` argument validated against `config.trivia.games[]`, and reads/writes target `data/plugins/trivia/games/<name>/`.
-
 ## Requirements
-
 ### Requirement: Find previous questions tool
 
 The system SHALL provide a `find_previous_questions` MCP tool (member role) that searches past trivia questions by combining one or more array-shaped criteria with a top-level boolean combinator.
@@ -645,3 +643,4 @@ The cross-format error messages SHALL identify the offending field and the activ
 - **WHEN** `save_question` is called with `answersFormat: "freeform"` and `choices: ["a", "b"]` (mistakenly supplied)
 - **THEN** the tool returns an error identifying `choices` as not valid for freeform questions
 - **AND** no record is written
+
