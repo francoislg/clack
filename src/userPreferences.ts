@@ -1,7 +1,9 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
+import { z } from "zod";
 import { logger } from "./logger.js";
 import { fileExists } from "./fs.js";
+import { zodErrorToResult } from "./plugins/zodResult.js";
 
 // ============================================================================
 // Dependency Injection
@@ -47,6 +49,18 @@ const DEFAULT_PREFERENCES: UserPreferences = {
 
 type PreferencesMap = Record<string, Partial<UserPreferences>>;
 
+/**
+ * Schema for `user-preferences.json`. The deprecated `dmOptOut` is accepted on
+ * disk but NOT modeled here, so zod strips it — it never reaches the runtime map.
+ */
+const preferencesMapZod = z.record(
+  z.string(),
+  z.object({
+    reactionDelivery: z.enum(["dm", "thread"]).optional(),
+    notifyOnResponse: z.boolean().optional(),
+  }),
+);
+
 let cachedPreferences: PreferencesMap | null = null;
 
 function getStateDir(): string {
@@ -71,7 +85,15 @@ export async function loadPreferences(): Promise<PreferencesMap> {
 
   try {
     const content = await deps.readFile(prefsPath, "utf-8");
-    cachedPreferences = JSON.parse(content) as PreferencesMap;
+    const result = preferencesMapZod.safeParse(JSON.parse(content));
+    if (!result.success) {
+      logger.warn(
+        `user-preferences.json has unexpected shape; using empty: ${zodErrorToResult(result.error, "preferences").error}`,
+      );
+      cachedPreferences = {};
+      return cachedPreferences;
+    }
+    cachedPreferences = result.data;
     return cachedPreferences;
   } catch (error) {
     logger.error("Failed to load user preferences:", error);

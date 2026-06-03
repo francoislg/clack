@@ -84,6 +84,28 @@ describe("loadPreferences", () => {
 
     assert.deepEqual(result, {});
   });
+
+  it("strips the deprecated dmOptOut field on load", async () => {
+    const stored = { U1: { dmOptOut: true, reactionDelivery: "thread" } };
+    mockFileExists.mockImplementation(async () => true);
+    mockReadFile.mockImplementation(async () => JSON.stringify(stored));
+
+    const result = await loadPreferences();
+
+    // dmOptOut is accepted on disk but not surfaced into the runtime map.
+    assert.deepEqual(result, { U1: { reactionDelivery: "thread" } });
+  });
+
+  it("returns {} when the stored shape is invalid", async () => {
+    mockFileExists.mockImplementation(async () => true);
+    mockReadFile.mockImplementation(async () =>
+      JSON.stringify({ U1: { reactionDelivery: "carrier-pigeon" } }),
+    );
+
+    const result = await loadPreferences();
+
+    assert.deepEqual(result, {});
+  });
 });
 
 // ---------------------------------------------------------------------------
