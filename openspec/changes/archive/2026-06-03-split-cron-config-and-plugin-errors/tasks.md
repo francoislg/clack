@@ -78,13 +78,13 @@
 
 ## 11. Test sweep
 
-- [ ] 11.1 Update `src/lifecycle.test.ts` fixtures that set `allowScheduledMessages` to use `cron.userSchedules` (or `cron.enabled`, depending on which gate the test exercises)
-- [ ] 11.2 Update `src/tools/server.test.ts` (if it exists) and the individual `src/tools/actions/createScheduledMessage.test.ts`, `cancelScheduledMessage.test.ts`, `listScheduledMessages.test.ts`, `getScheduledMessageRuns.test.ts` to use the new config shape
-- [ ] 11.3 Run the full test suite (`npm test`) and address any failures
-- [ ] 11.4 Run `npx tsc` to confirm the type changes are clean
+- [x] 11.1 Update `src/lifecycle.test.ts` fixtures that set `allowScheduledMessages` to use `cron.userSchedules` (or `cron.enabled`, depending on which gate the test exercises)
+- [x] 11.2 Update `src/tools/server.test.ts` (if it exists) and the individual `src/tools/actions/createScheduledMessage.test.ts`, `cancelScheduledMessage.test.ts`, `listScheduledMessages.test.ts`, `getScheduledMessageRuns.test.ts` to use the new config shape
+- [x] 11.3 Run the full test suite (`npm test`) and address any failures
+- [x] 11.4 Run `npx tsc` to confirm the type changes are clean
 
 ## 12. Validate change
 
-- [ ] 12.1 Run `openspec validate split-cron-config-and-plugin-errors --strict` and resolve any errors
-- [ ] 12.2 Manually walk the four behavior-matrix combinations (enabled/userSchedules ∈ {true,false}) against a running bot or test harness to confirm the gates behave as specified
-- [ ] 12.3 Confirm the trivia error banner renders correctly in the Home Tab when `cron.enabled` is set to `false`
+- [x] 12.1 Run `openspec validate split-cron-config-and-plugin-errors --strict` and resolve any errors
+- [x] 12.2 Manually walk the four behavior-matrix combinations (enabled/userSchedules ∈ {true,false}) against a running bot or test harness to confirm the gates behave as specified
+- [x] 12.3 Confirm the trivia error banner renders correctly in the Home Tab when `cron.enabled` is set to `false`
