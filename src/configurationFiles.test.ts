@@ -221,9 +221,10 @@ describe("listInstructionFiles", () => {
 
     const alpha = result.repos.find((r) => r.repo === "alpha");
     assert.ok(alpha);
-    assert.equal(alpha.files.length, 2);
+    assert.equal(alpha.files.length, 3);
     assert.ok(alpha.files.some((f) => f.file === "changes_instructions.md"));
     assert.ok(alpha.files.some((f) => f.file === "worktree_setup_instructions.md"));
+    assert.ok(alpha.files.some((f) => f.file === "worktree_install_instructions.md"));
   });
 
   it("reports semantic status for repo files", () => {
@@ -247,7 +248,7 @@ describe("listInstructionFiles", () => {
     assert.equal(setupEntry.status, "custom-only");
   });
 
-  it("returns correct repo count: 1 entry per repo with 2 files each", () => {
+  it("returns correct repo count: 1 entry per repo with 3 files each", () => {
     writeSlackAuth();
     writeConfig([
       { name: "a", url: "https://github.com/org/a.git", description: "A" },
@@ -259,7 +260,7 @@ describe("listInstructionFiles", () => {
     const result = listInstructionFiles();
     assert.equal(result.repos.length, 3);
     for (const repo of result.repos) {
-      assert.equal(repo.files.length, 2);
+      assert.equal(repo.files.length, 3);
     }
   });
 });
@@ -307,6 +308,15 @@ describe("readInstructionFile", () => {
     const result = readInstructionFile("dev/custom-rule.md");
     assert.equal(result.default_content, null);
     assert.equal(result.custom_content, "custom only");
+  });
+
+  it("resolves a repo-scoped 2-segment path (default + override)", () => {
+    writeDefaultFile("repo/changes_instructions.md", "repo default");
+    writeOverrideFile("repo/changes_instructions.md", "repo override");
+
+    const result = readInstructionFile("repo/changes_instructions.md");
+    assert.equal(result.default_content, "repo default");
+    assert.equal(result.custom_content, "repo override");
   });
 
   it("returns both null when neither file exists", () => {

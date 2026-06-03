@@ -1,12 +1,12 @@
 import { tool } from "@anthropic-ai/claude-agent-sdk";
 import type { QueryToolContext } from "../types.js";
 import { textResult, errorResult } from "../helpers.js";
-import { readInstructionFile } from "../../configurationFiles.js";
+import { readInstructionFile, getConfiguredRepoNames } from "../../configurationFiles.js";
 import {
-  ROLE_ENUM,
-  TOPIC_PATTERN,
-  FILE_PATTERN,
-  buildInstructionPath,
+  CONFIG_TARGET_FIELDS,
+  validateConfigTarget,
+  buildConfigPath,
+  type ConfigTargetArgs,
 } from "./configFieldSchemas.js";
 
 export interface ReadConfigFileDeps {
@@ -14,10 +14,12 @@ export interface ReadConfigFileDeps {
     default_content: string | null;
     custom_content: string | null;
   };
+  getConfiguredRepoNames: () => string[];
 }
 
 export const defaultDeps: ReadConfigFileDeps = {
   readInstructionFile,
+  getConfiguredRepoNames,
 };
 
 export function createReadConfigFileTool(
@@ -27,23 +29,29 @@ export function createReadConfigFileTool(
   return tool(
     "read_config_file",
     "Read an instruction file. Returns both default and custom content for comparison. " +
-      "For baseline files, pass `role` and `file`. For topic-scoped files, also pass `topic`.",
-    {
-      role: ROLE_ENUM.describe("The role directory (one of: user, dev, admin, owner)"),
-      topic: TOPIC_PATTERN.optional().describe(
-        "Optional topic name for topic-scoped instruction files (e.g., 'metabase'). Omit for baseline files.",
-      ),
-      file: FILE_PATTERN.describe(
-        "The bare filename ending in `.md` (e.g., 'identity.md'). No slashes — use the `topic` field for topic-scoped paths.",
-      ),
-    },
-    async (args) => {
-      const path = buildInstructionPath(args.role, args.topic, args.file);
+      "For role baseline files, pass `role` and `file`; for topic-scoped files, also pass `topic`. " +
+      "For per-repo instruction files, pass `repo` and `file` instead.",
+    CONFIG_TARGET_FIELDS,
+    async (rawArgs) => {
+      const args = rawArgs as ConfigTargetArgs;
+
+      const targetError = validateConfigTarget(args);
+      if (targetError !== null) {
+        return errorResult(targetError);
+      }
+
+      if (args.repo !== undefined && !deps.getConfiguredRepoNames().includes(args.repo)) {
+        return errorResult(
+          `Unknown repository "${args.repo}". Configured repositories: ${deps.getConfiguredRepoNames().join(", ") || "(none)"}.`,
+        );
+      }
+
+      const path = buildConfigPath(args);
       const result = deps.readInstructionFile(path);
 
       if (result.default_content === null && result.custom_content === null) {
         return errorResult(
-          `File "${path}" not found. Verify the role/topic/file combination is correct.`,
+          `File "${path}" not found. Verify the role/topic/file or repo/file combination is correct.`,
         );
       }
 

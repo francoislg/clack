@@ -3,12 +3,12 @@ import { tool } from "@anthropic-ai/claude-agent-sdk";
 import type { QueryToolContext } from "../types.js";
 import type { IntentStore } from "../server.js";
 import { textResult, errorResult } from "../helpers.js";
-import { readInstructionFile } from "../../configurationFiles.js";
+import { readInstructionFile, getConfiguredRepoNames } from "../../configurationFiles.js";
 import {
-  ROLE_ENUM,
-  TOPIC_PATTERN,
-  FILE_PATTERN,
-  buildInstructionPath,
+  CONFIG_TARGET_FIELDS,
+  validateConfigTarget,
+  buildConfigPath,
+  type ConfigTargetArgs,
 } from "../query/configFieldSchemas.js";
 
 export interface ProposeConfigUpdateDeps {
@@ -16,10 +16,12 @@ export interface ProposeConfigUpdateDeps {
     default_content: string | null;
     custom_content: string | null;
   };
+  getConfiguredRepoNames: () => string[];
 }
 
 export const defaultProposeConfigUpdateDeps: ProposeConfigUpdateDeps = {
   readInstructionFile,
+  getConfiguredRepoNames,
 };
 
 export function createProposeConfigUpdateTool(
@@ -29,20 +31,15 @@ export function createProposeConfigUpdateTool(
 ) {
   return tool(
     "propose_config_update",
-    "Propose an update to an instruction file. For baseline files, pass `role` and `file`. " +
-      "For topic-scoped instructions, also pass `topic`. Validates the path and stages the intent. " +
+    "Propose an update to an instruction file. For role baseline files, pass `role` and `file`; " +
+      "for topic-scoped instructions, also pass `topic`. For per-repo instruction files, pass " +
+      "`repo` and `file` instead. Validates the path and stages the intent. " +
       "Returns a ref ID to use in submit_response. Default operation is 'append' which adds content " +
       "to the end of the existing file. Use 'replace' to rewrite the file. Use 'delete' to remove " +
       "a custom override — the file reverts to the shipped default if one exists, otherwise the " +
       "file is deleted entirely. `content` must be omitted when operation is 'delete'.",
     {
-      role: ROLE_ENUM.describe("The role directory (one of: user, dev, admin, owner)"),
-      topic: TOPIC_PATTERN.optional().describe(
-        "Optional topic name for topic-scoped instruction files (e.g., 'metabase'). Omit for baseline files.",
-      ),
-      file: FILE_PATTERN.describe(
-        "The bare filename ending in `.md` (e.g., 'identity.md'). No slashes — use the `topic` field for topic-scoped paths.",
-      ),
+      ...CONFIG_TARGET_FIELDS,
       content: z
         .string()
         .optional()
@@ -56,8 +53,24 @@ export function createProposeConfigUpdateTool(
           "'append' (default) adds content to the end of the existing file. 'replace' overwrites the entire file. 'delete' removes the custom override (reverts to shipped default if one exists, otherwise deletes the file).",
         ),
     },
-    async (args) => {
-      const path = buildInstructionPath(args.role, args.topic, args.file);
+    async (rawArgs) => {
+      const args = rawArgs as ConfigTargetArgs & {
+        content?: string;
+        operation: "append" | "replace" | "delete";
+      };
+
+      const targetError = validateConfigTarget(args);
+      if (targetError !== null) {
+        return errorResult(targetError);
+      }
+
+      if (args.repo !== undefined && !deps.getConfiguredRepoNames().includes(args.repo)) {
+        return errorResult(
+          `Unknown repository "${args.repo}". Configured repositories: ${deps.getConfiguredRepoNames().join(", ") || "(none)"}.`,
+        );
+      }
+
+      const path = buildConfigPath(args);
 
       if (args.operation === "delete") {
         if (args.content !== undefined && args.content !== "") {
