@@ -14,7 +14,25 @@ export function canCreateUserSkill(role: UserRole): boolean {
   return meetsMinimumRole(role, "member");
 }
 
-export function canEditUserSkill(
+/**
+ * Gates editing a skill's content (description/body). Widened by `editableByAnyone`:
+ * when a skill opts in, any member+ may edit its content, not just the owner/admins.
+ */
+export function canEditUserSkillContent(
+  role: UserRole,
+  ownerUserId: string,
+  callerUserId: string,
+  editableByAnyone: boolean,
+): boolean {
+  if (canManageUserSkill(role, ownerUserId, callerUserId)) return true;
+  return editableByAnyone && canCreateUserSkill(role);
+}
+
+/**
+ * Gates a skill's lifecycle (disable/restore) and toggling `editableByAnyone` itself.
+ * NOT affected by `editableByAnyone` — always owner or admin+.
+ */
+export function canManageUserSkill(
   role: UserRole,
   ownerUserId: string,
   callerUserId: string,

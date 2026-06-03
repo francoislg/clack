@@ -2,7 +2,11 @@ import type { App, BlockAction, ViewSubmitAction } from "@slack/bolt";
 import { logger } from "../../logger.js";
 import { errorMessage } from "../../errors.js";
 import { getRole } from "../../roles.js";
-import { canCreateUserSkill, canEditUserSkill } from "../../permissions.js";
+import {
+  canCreateUserSkill,
+  canEditUserSkillContent,
+  canManageUserSkill,
+} from "../../permissions.js";
 import {
   readUserSkill,
   writeUserSkill,
@@ -25,9 +29,12 @@ import {
   BLOCK_NAME,
   BLOCK_DESCRIPTION,
   BLOCK_BODY,
+  BLOCK_EDITABLE,
   ACTION_NAME_INPUT,
   ACTION_DESCRIPTION_INPUT,
   ACTION_BODY_INPUT,
+  ACTION_EDITABLE_INPUT,
+  EDITABLE_OPTION_VALUE,
 } from "../userSkillsHomeTab.js";
 import { publishHomeView } from "./homeTab.js";
 import { t } from "../../i18n/t.js";
@@ -78,12 +85,15 @@ function registerOpenEditModal(app: App): void {
       const role = await getRole(userId);
       const skill = readUserSkill(slug);
       if (!skill) return;
-      if (!canEditUserSkill(role, skill.ownerUserId, userId)) return;
+      if (
+        !canEditUserSkillContent(role, skill.ownerUserId, userId, skill.editableByAnyone ?? false)
+      )
+        return;
       const trigger = (body as { trigger_id?: string }).trigger_id;
       if (!trigger) return;
       await client.views.open({
         trigger_id: trigger,
-        view: buildEditSkillModal(skill),
+        view: buildEditSkillModal(skill, canManageUserSkill(role, skill.ownerUserId, userId)),
       });
     },
   );
@@ -100,7 +110,7 @@ function registerDisable(app: App): void {
       const role = await getRole(userId);
       const skill = readUserSkill(slug);
       if (!skill) return;
-      if (!canEditUserSkill(role, skill.ownerUserId, userId)) return;
+      if (!canManageUserSkill(role, skill.ownerUserId, userId)) return;
       try {
         disableUserSkill(slug);
       } catch (err) {
@@ -123,7 +133,7 @@ function registerRestore(app: App): void {
       const role = await getRole(userId);
       const skill = readUserSkill(slug);
       if (!skill) return;
-      if (!canEditUserSkill(role, skill.ownerUserId, userId)) return;
+      if (!canManageUserSkill(role, skill.ownerUserId, userId)) return;
       try {
         restoreUserSkill(slug);
       } catch (err) {
@@ -250,7 +260,14 @@ function registerEditSubmit(app: App): void {
     }
 
     const role = await getRole(userId);
-    if (!canEditUserSkill(role, existing.ownerUserId, userId)) {
+    if (
+      !canEditUserSkillContent(
+        role,
+        existing.ownerUserId,
+        userId,
+        existing.editableByAnyone ?? false,
+      )
+    ) {
       await ack({
         response_action: "errors",
         errors: { [BLOCK_DESCRIPTION]: "You do not have permission to edit this skill." },
@@ -267,13 +284,20 @@ function registerEditSubmit(app: App): void {
       return;
     }
 
+    // The editable-by-everyone checkbox is rendered only for managers; only honor it
+    // when the submitter can actually manage the skill (defense-in-depth).
+    const canManage = canManageUserSkill(role, existing.ownerUserId, userId);
+    const editableByAnyone = canManage
+      ? readCheckboxChecked(state, BLOCK_EDITABLE, ACTION_EDITABLE_INPUT, EDITABLE_OPTION_VALUE)
+      : undefined;
+
     try {
       // When the body input was omitted (body too long for the modal), preserve
       // the existing body — never round-trip through Slack and risk truncation.
       const updates =
         bodyText === null
-          ? { slug: metadata.slug, description }
-          : { slug: metadata.slug, description, body: bodyText };
+          ? { slug: metadata.slug, description, editableByAnyone }
+          : { slug: metadata.slug, description, body: bodyText, editableByAnyone };
       updateUserSkill(updates);
       await ack();
       await refreshHomeView(client, userId);
@@ -299,7 +323,10 @@ function extractSlug(body: BlockAction, prefix: string): string | null {
   return actionId.slice(prefix.length + 1);
 }
 
-type ModalState = Record<string, Record<string, { value?: string | null }>>;
+type ModalState = Record<
+  string,
+  Record<string, { value?: string | null; selected_options?: Array<{ value: string }> }>
+>;
 
 function readInputValue(state: ModalState, block: string, action: string): string | null {
   const blockState = state[block];
@@ -307,6 +334,17 @@ function readInputValue(state: ModalState, block: string, action: string): strin
   const inputState = blockState[action];
   if (!inputState) return null;
   return typeof inputState.value === "string" ? inputState.value : null;
+}
+
+function readCheckboxChecked(
+  state: ModalState,
+  block: string,
+  action: string,
+  optionValue: string,
+): boolean {
+  const selected = state[block]?.[action]?.selected_options;
+  if (!Array.isArray(selected)) return false;
+  return selected.some((opt) => opt.value === optionValue);
 }
 
 interface PrivateMetadata {

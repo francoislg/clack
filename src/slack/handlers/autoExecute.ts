@@ -9,7 +9,12 @@ import type { ClaudeResponse } from "../../claude/index.js";
 import type { Action, PostToAction } from "../../tools/types.js";
 import type { UserRole } from "../../roles.js";
 import type { TriggerType } from "../../changes/types.js";
-import { canRequestChanges, canCreateUserSkill, canEditUserSkill } from "../../permissions.js";
+import {
+  canRequestChanges,
+  canCreateUserSkill,
+  canEditUserSkillContent,
+  canManageUserSkill,
+} from "../../permissions.js";
 import {
   writeUserSkill,
   updateUserSkill,
@@ -39,7 +44,13 @@ import type { SlackDeliveryContext } from "./changeAction.js";
 export interface AutoExecuteDeps {
   canRequestChanges: (role: UserRole) => boolean;
   canCreateUserSkill: (role: UserRole) => boolean;
-  canEditUserSkill: (role: UserRole, ownerId: string, callerId: string) => boolean;
+  canEditUserSkillContent: (
+    role: UserRole,
+    ownerId: string,
+    callerId: string,
+    editableByAnyone: boolean,
+  ) => boolean;
+  canManageUserSkill: (role: UserRole, ownerId: string, callerId: string) => boolean;
   writeUserSkill: typeof writeUserSkill;
   updateUserSkill: typeof updateUserSkill;
   disableUserSkill: typeof disableUserSkill;
@@ -77,7 +88,8 @@ export interface AutoExecuteDeps {
 export const defaultAutoExecuteDeps: AutoExecuteDeps = {
   canRequestChanges,
   canCreateUserSkill,
-  canEditUserSkill,
+  canEditUserSkillContent,
+  canManageUserSkill,
   writeUserSkill,
   updateUserSkill,
   disableUserSkill,
@@ -308,15 +320,38 @@ export async function handleAutoExecuteActions(
             logger.warn(`Auto-execute skill_update: skill '${intent.slug}' not found`);
             break;
           }
-          if (!deps.canEditUserSkill(role, existing.ownerUserId, userId)) {
-            logger.warn(`Auto-execute skill_update blocked for role "${role}" on '${intent.slug}'`);
-            break;
+          {
+            const editsContent = intent.description !== undefined || intent.body !== undefined;
+            if (
+              editsContent &&
+              !deps.canEditUserSkillContent(
+                role,
+                existing.ownerUserId,
+                userId,
+                existing.editableByAnyone ?? false,
+              )
+            ) {
+              logger.warn(
+                `Auto-execute skill_update blocked for role "${role}" on '${intent.slug}'`,
+              );
+              break;
+            }
+            if (
+              intent.editableByAnyone !== undefined &&
+              !deps.canManageUserSkill(role, existing.ownerUserId, userId)
+            ) {
+              logger.warn(
+                `Auto-execute skill_update flag-change blocked for role "${role}" on '${intent.slug}'`,
+              );
+              break;
+            }
           }
           try {
             deps.updateUserSkill({
               slug: intent.slug,
               description: intent.description,
               body: intent.body,
+              editableByAnyone: intent.editableByAnyone,
             });
             await client.chat.postMessage({
               channel: channelId,
@@ -345,7 +380,7 @@ export async function handleAutoExecuteActions(
             logger.warn(`Auto-execute skill_disable: skill '${intent.slug}' not found`);
             break;
           }
-          if (!deps.canEditUserSkill(role, existing.ownerUserId, userId)) {
+          if (!deps.canManageUserSkill(role, existing.ownerUserId, userId)) {
             logger.warn(
               `Auto-execute skill_disable blocked for role "${role}" on '${intent.slug}'`,
             );
@@ -380,7 +415,7 @@ export async function handleAutoExecuteActions(
             logger.warn(`Auto-execute skill_restore: skill '${intent.slug}' not found`);
             break;
           }
-          if (!deps.canEditUserSkill(role, existing.ownerUserId, userId)) {
+          if (!deps.canManageUserSkill(role, existing.ownerUserId, userId)) {
             logger.warn(
               `Auto-execute skill_restore blocked for role "${role}" on '${intent.slug}'`,
             );

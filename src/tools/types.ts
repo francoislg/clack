@@ -279,6 +279,7 @@ export interface StagedSkillUpdateIntent {
   slug: string;
   description?: string;
   body?: string;
+  editableByAnyone?: boolean;
 }
 
 export interface StagedSkillDisableIntent {

@@ -40,12 +40,17 @@ function makeDeps(overrides?: Partial<ProposeSkillUpdateDeps>): ProposeSkillUpda
 async function call(
   ctx: QueryToolContext,
   deps: ProposeSkillUpdateDeps,
-  args: { name: string; description?: string; body?: string },
+  args: { name: string; description?: string; body?: string; editable_by_anyone?: boolean },
 ) {
   const intentStore = createIntentStore();
   const tool = createProposeSkillUpdateTool(ctx, intentStore, deps);
   const result = await tool.handler(
-    { name: args.name, description: args.description, body: args.body },
+    {
+      name: args.name,
+      description: args.description,
+      body: args.body,
+      editable_by_anyone: args.editable_by_anyone,
+    },
     {
       signal: new AbortController().signal,
       requestId: "r",
@@ -74,12 +79,42 @@ describe("propose_skill_update", () => {
     assert.ok(json.ref);
   });
 
-  it("non-owner non-admin rejected", async () => {
+  it("non-owner non-admin rejected on a default skill", async () => {
     const { result } = await call(makeCtx("member", "U_OTHER"), makeDeps(), {
       name: "foo",
       body: "new",
     });
     assert.match(toolResultText(result), /do not have permission/);
+  });
+
+  it("non-owner member can stage content update on an everyone-editable skill", async () => {
+    const deps = makeDeps({ readUserSkill: () => makeSkill({ editableByAnyone: true }) });
+    const { result, intentStore } = await call(makeCtx("member", "U_OTHER"), deps, {
+      name: "foo",
+      body: "new",
+    });
+    const json = parseToolResult(result as { content: readonly { type: string }[] });
+    assert.equal(intentStore.resolve(json.ref)?.type, "skill_update");
+  });
+
+  it("owner can set editable_by_anyone and it is staged on the intent", async () => {
+    const { result, intentStore } = await call(makeCtx("member", "U_OWNER"), makeDeps(), {
+      name: "foo",
+      editable_by_anyone: true,
+    });
+    const json = parseToolResult(result as { content: readonly { type: string }[] });
+    const intent = intentStore.resolve(json.ref);
+    assert.equal(intent?.type, "skill_update");
+    assert.equal((intent as { editableByAnyone?: boolean }).editableByAnyone, true);
+  });
+
+  it("non-manager rejected when changing editable_by_anyone", async () => {
+    const deps = makeDeps({ readUserSkill: () => makeSkill({ editableByAnyone: true }) });
+    const { result } = await call(makeCtx("member", "U_OTHER"), deps, {
+      name: "foo",
+      editable_by_anyone: false,
+    });
+    assert.match(toolResultText(result), /editable-by-everyone/);
   });
 
   it("rejects when no fields provided", async () => {

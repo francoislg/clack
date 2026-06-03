@@ -314,6 +314,7 @@ export const en = {
   "userSkills.disable_button": "Disable",
   "userSkills.restore_button": "Restore",
   "userSkills.disabled_badge": "(disabled)",
+  "userSkills.editable_badge": "(editable by everyone)",
   "userSkills.owner_label": "Owner",
   "userSkills.modal_create_title": "Create skill",
   "userSkills.modal_edit_title": "Edit skill",
@@ -329,6 +330,10 @@ export const en = {
     "The full SKILL.md content (markdown). Loaded on demand when Claude reaches for this skill.",
   "userSkills.modal_body_too_long":
     ":warning: *Body is {length} chars — too long to edit in this modal (max {max}).* Ask Clack to edit it instead (e.g. DM Clack: _“update the `<slug>` skill body to…”_). Saving here will only update the description; the body will be preserved.",
+  "userSkills.modal_editable_label": "Permissions",
+  "userSkills.modal_editable_option": "Allow anyone to edit this skill's content",
+  "userSkills.modal_editable_hint":
+    "When enabled, any member can edit the description and body. Disabling, restoring, and this setting stay owner/admin-only.",
   "userSkills.label.creating": "Creating skill `{slug}`",
   "userSkills.label.updating": "Updating skill `{slug}`",
   "userSkills.label.disabling": "Disabling skill `{slug}`",
