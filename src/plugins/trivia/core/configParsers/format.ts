@@ -138,131 +138,157 @@ export function validateFormat(
   }
   const normalized: SeasonFormatSlot[] = [];
   for (let i = 0; i < questions.length; i++) {
-    const slot = questions[i];
-    const slotLabel = `${fieldLabel}.questions[${i}]`;
-    const out: SeasonFormatSlot = {};
-    if (slot.label !== undefined && slot.label !== null) {
-      const trimmed = slot.label.trim();
-      if (trimmed.length === 0) {
-        return { ok: false, error: `'${slotLabel}.label' must be non-empty after trim` };
-      }
-      out.label = trimmed;
-    }
-    if (slot.categories !== undefined) {
-      if (!Array.isArray(slot.categories) || slot.categories.length === 0) {
-        return {
-          ok: false,
-          error: `'${slotLabel}.categories' must be a non-empty array when provided`,
-        };
-      }
-      const deduped = dedupePreservingOrder(slot.categories.filter((c) => c.length > 0));
-      if (deduped.length === 0) {
-        return {
-          ok: false,
-          error: `'${slotLabel}.categories' must contain at least one non-empty string`,
-        };
-      }
-      out.categories = deduped;
-    }
-    if (slot.answersFormat !== undefined && slot.answersFormat !== null) {
-      const validated = validateAnswersFormatMap(slot.answersFormat, `${slotLabel}.answersFormat`);
-      if (!validated.ok) return validated;
-      out.answersFormat = validated.value;
-    }
-    if (slot.questionType !== undefined && slot.questionType !== null) {
-      const validated = validateQuestionTypeMap(slot.questionType, `${slotLabel}.questionType`);
-      if (!validated.ok) return validated;
-      out.questionType = validated.value;
-    }
-    if (slot.promptMedium !== undefined && slot.promptMedium !== null) {
-      const validated = validatePromptMediumMap(slot.promptMedium, `${slotLabel}.promptMedium`);
-      if (!validated.ok) return validated;
-      out.promptMedium = validated.value;
-    }
-    if (slot.freeformAnswerShape !== undefined && slot.freeformAnswerShape !== null) {
-      const validated = validateFreeformAnswerShapeMap(
-        slot.freeformAnswerShape,
-        `${slotLabel}.freeformAnswerShape`,
-      );
-      if (!validated.ok) return validated;
-      out.freeformAnswerShape = validated.value;
-    }
-    if (slot.contexts !== undefined && slot.contexts !== null) {
-      const validated = validateContextsList(slot.contexts, `${slotLabel}.contexts`);
-      if (!validated.ok) return validated;
-      out.contexts = validated.value;
-    }
-    if (slot.difficulty !== undefined && slot.difficulty !== null) {
-      const validated = validateTriviaDifficultyMap(slot.difficulty, `${slotLabel}.difficulty`);
-      if (!validated.ok) return validated;
-      out.difficulty = validated.value;
-    }
-    if (slot.difficultyRatio !== undefined && slot.difficultyRatio !== null) {
-      const validated = validateTriviaDifficultyRatioMap(
-        slot.difficultyRatio,
-        `${slotLabel}.difficultyRatio`,
-      );
-      if (!validated.ok) return validated;
-      out.difficultyRatio = validated.value;
-    }
-    if (slot.liveAnswersVisible !== undefined && slot.liveAnswersVisible !== null) {
-      if (typeof slot.liveAnswersVisible !== "boolean") {
-        return {
-          ok: false,
-          error: `'${slotLabel}.liveAnswersVisible' must be a boolean`,
-        };
-      }
-      out.liveAnswersVisible = slot.liveAnswersVisible;
-    }
-    if (slot.revealResponses !== undefined && slot.revealResponses !== null) {
-      if (isRevealResponsesMode(slot.revealResponses)) {
-        out.revealResponses = slot.revealResponses;
-      } else {
-        return {
-          ok: false,
-          error: `'${slotLabel}.revealResponses' must be one of "no", "just-winners", "just-correctness", "yes"`,
-        };
-      }
-    }
-    if (slot.instructions !== undefined && slot.instructions !== null) {
-      if (typeof slot.instructions !== "string") {
-        return { ok: false, error: `'${slotLabel}.instructions' must be a string` };
-      }
-      const trimmed = slot.instructions.trim();
-      if (trimmed.length === 0) {
-        return {
-          ok: false,
-          error: `'${slotLabel}.instructions' must be non-empty after trim`,
-        };
-      }
-      out.instructions = trimmed;
-    }
-    if (slot.additionalInstructions !== undefined && slot.additionalInstructions !== null) {
-      if (typeof slot.additionalInstructions !== "string") {
-        return { ok: false, error: `'${slotLabel}.additionalInstructions' must be a string` };
-      }
-      const trimmed = slot.additionalInstructions.trim();
-      if (trimmed.length === 0) {
-        return {
-          ok: false,
-          error: `'${slotLabel}.additionalInstructions' must be non-empty after trim`,
-        };
-      }
-      out.additionalInstructions = trimmed;
-    }
-    if (slot.hint !== undefined && slot.hint !== null) {
-      const validated = validateHintConfig(slot.hint, `${slotLabel}.hint`);
-      if (!validated.ok) return validated;
-      out.hint = validated.value;
-    }
-    if (slot.judgeLeniency !== undefined && slot.judgeLeniency !== null) {
-      const validated = validateJudgeLeniency(slot.judgeLeniency, `${slotLabel}.judgeLeniency`);
-      if (!validated.ok) return validated;
-      out.judgeLeniency = validated.value;
-    }
-    normalized.push(out);
+    const r = validateSlotConfig(questions[i], `${fieldLabel}.questions[${i}]`);
+    if (!r.ok) return r;
+    normalized.push(r.value);
   }
   return { ok: true, value: { questions: normalized } };
+}
+
+/**
+ * Validate one slot's per-axis overrides (the shape shared by a format slot and a season
+ * `slotOverrides` entry). Returns the normalized `SeasonFormatSlot` or a labeled error.
+ */
+export function validateSlotConfig(slot: RawSlot, slotLabel: string): Result<SeasonFormatSlot> {
+  const out: SeasonFormatSlot = {};
+  if (slot.label !== undefined && slot.label !== null) {
+    const trimmed = slot.label.trim();
+    if (trimmed.length === 0) {
+      return { ok: false, error: `'${slotLabel}.label' must be non-empty after trim` };
+    }
+    out.label = trimmed;
+  }
+  if (slot.categories !== undefined) {
+    if (!Array.isArray(slot.categories) || slot.categories.length === 0) {
+      return {
+        ok: false,
+        error: `'${slotLabel}.categories' must be a non-empty array when provided`,
+      };
+    }
+    const deduped = dedupePreservingOrder(slot.categories.filter((c) => c.length > 0));
+    if (deduped.length === 0) {
+      return {
+        ok: false,
+        error: `'${slotLabel}.categories' must contain at least one non-empty string`,
+      };
+    }
+    out.categories = deduped;
+  }
+  if (slot.answersFormat !== undefined && slot.answersFormat !== null) {
+    const validated = validateAnswersFormatMap(slot.answersFormat, `${slotLabel}.answersFormat`);
+    if (!validated.ok) return validated;
+    out.answersFormat = validated.value;
+  }
+  if (slot.questionType !== undefined && slot.questionType !== null) {
+    const validated = validateQuestionTypeMap(slot.questionType, `${slotLabel}.questionType`);
+    if (!validated.ok) return validated;
+    out.questionType = validated.value;
+  }
+  if (slot.promptMedium !== undefined && slot.promptMedium !== null) {
+    const validated = validatePromptMediumMap(slot.promptMedium, `${slotLabel}.promptMedium`);
+    if (!validated.ok) return validated;
+    out.promptMedium = validated.value;
+  }
+  if (slot.freeformAnswerShape !== undefined && slot.freeformAnswerShape !== null) {
+    const validated = validateFreeformAnswerShapeMap(
+      slot.freeformAnswerShape,
+      `${slotLabel}.freeformAnswerShape`,
+    );
+    if (!validated.ok) return validated;
+    out.freeformAnswerShape = validated.value;
+  }
+  if (slot.contexts !== undefined && slot.contexts !== null) {
+    const validated = validateContextsList(slot.contexts, `${slotLabel}.contexts`);
+    if (!validated.ok) return validated;
+    out.contexts = validated.value;
+  }
+  if (slot.difficulty !== undefined && slot.difficulty !== null) {
+    const validated = validateTriviaDifficultyMap(slot.difficulty, `${slotLabel}.difficulty`);
+    if (!validated.ok) return validated;
+    out.difficulty = validated.value;
+  }
+  if (slot.difficultyRatio !== undefined && slot.difficultyRatio !== null) {
+    const validated = validateTriviaDifficultyRatioMap(
+      slot.difficultyRatio,
+      `${slotLabel}.difficultyRatio`,
+    );
+    if (!validated.ok) return validated;
+    out.difficultyRatio = validated.value;
+  }
+  if (slot.liveAnswersVisible !== undefined && slot.liveAnswersVisible !== null) {
+    if (typeof slot.liveAnswersVisible !== "boolean") {
+      return {
+        ok: false,
+        error: `'${slotLabel}.liveAnswersVisible' must be a boolean`,
+      };
+    }
+    out.liveAnswersVisible = slot.liveAnswersVisible;
+  }
+  if (slot.revealResponses !== undefined && slot.revealResponses !== null) {
+    if (isRevealResponsesMode(slot.revealResponses)) {
+      out.revealResponses = slot.revealResponses;
+    } else {
+      return {
+        ok: false,
+        error: `'${slotLabel}.revealResponses' must be one of "no", "just-winners", "just-correctness", "yes"`,
+      };
+    }
+  }
+  if (slot.instructions !== undefined && slot.instructions !== null) {
+    if (typeof slot.instructions !== "string") {
+      return { ok: false, error: `'${slotLabel}.instructions' must be a string` };
+    }
+    const trimmed = slot.instructions.trim();
+    if (trimmed.length === 0) {
+      return {
+        ok: false,
+        error: `'${slotLabel}.instructions' must be non-empty after trim`,
+      };
+    }
+    out.instructions = trimmed;
+  }
+  if (slot.additionalInstructions !== undefined && slot.additionalInstructions !== null) {
+    if (typeof slot.additionalInstructions !== "string") {
+      return { ok: false, error: `'${slotLabel}.additionalInstructions' must be a string` };
+    }
+    const trimmed = slot.additionalInstructions.trim();
+    if (trimmed.length === 0) {
+      return {
+        ok: false,
+        error: `'${slotLabel}.additionalInstructions' must be non-empty after trim`,
+      };
+    }
+    out.additionalInstructions = trimmed;
+  }
+  if (slot.hint !== undefined && slot.hint !== null) {
+    const validated = validateHintConfig(slot.hint, `${slotLabel}.hint`);
+    if (!validated.ok) return validated;
+    out.hint = validated.value;
+  }
+  if (slot.judgeLeniency !== undefined && slot.judgeLeniency !== null) {
+    const validated = validateJudgeLeniency(slot.judgeLeniency, `${slotLabel}.judgeLeniency`);
+    if (!validated.ok) return validated;
+    out.judgeLeniency = validated.value;
+  }
+  return { ok: true, value: out };
+}
+
+/**
+ * Validate a season `slotOverrides` map — each value is a per-slot axis bag validated
+ * exactly like a format slot. The map shape (object, integer-string keys) is enforced by
+ * the caller's zod schema (`slotOverridesZod`); this only runs the per-slot semantics.
+ */
+export function validateSlotOverrides(
+  raw: { [slotIndex: string]: RawSlot },
+  fieldLabel: string = "slotOverrides",
+): Result<Record<number, SeasonFormatSlot>> {
+  const out: Record<number, SeasonFormatSlot> = {};
+  for (const [key, slot] of Object.entries(raw)) {
+    const r = validateSlotConfig(slot, `${fieldLabel}.${key}`);
+    if (!r.ok) return r;
+    out[Number(key)] = r.value;
+  }
+  return { ok: true, value: out };
 }
 
 // ---------------------------------------------------------------------------
@@ -302,6 +328,12 @@ const seasonFormatSlotZod = z.object({
 export const seasonFormatZod = z.object({
   questions: z.array(seasonFormatSlotZod),
 });
+
+/**
+ * Shared zod schema for a season's `slotOverrides` map: integer-string keys → partial
+ * slot bags. Deep per-axis semantics are validated by `validateSlotOverrides`.
+ */
+export const slotOverridesZod = z.record(z.string().regex(/^\d+$/), seasonFormatSlotZod);
 
 /** Shared zod schema for the per-tier `categories` field. */
 export const triviaCategoriesZod = z.array(z.string());

@@ -200,6 +200,7 @@ describe("get_ideas — integration with upsert_season theme", () => {
           difficulty: undefined,
           difficultyRatio: undefined,
           format: undefined,
+          slotOverrides: undefined,
           liveAnswersVisible: undefined,
           revealResponses: undefined,
           instructions: undefined,

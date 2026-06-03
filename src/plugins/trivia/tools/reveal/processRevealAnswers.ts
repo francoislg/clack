@@ -17,7 +17,8 @@ import { requireWritableGame } from "../../core/gamesRegistry.js";
 import { computeLeaderboard } from "../../domain/computeLeaderboard.js";
 import { resolveAllTimeRow, shouldShowAllTimeRow } from "../../domain/allTimeRow.js";
 import { findCurrentSeason } from "../../core/seasonTimeline.js";
-import { resolveAdditionalInstructions, resolveInstructions } from "../../domain/instructions.js";
+import { resolveCascade } from "../../domain/resolveCascade.js";
+import { buildCascadeContext } from "../../domain/cascadeContext.js";
 import { findTriviaRevealJob, nextFireAfter } from "../../domain/seasonStatus.js";
 import {
   fetchMessageReactions as fetchReactionsViaSlackClient,
@@ -335,18 +336,17 @@ export function createProcessRevealAnswersTool(
       const currentSeasonForResolution = findCurrentSeason(await scoped.loadSeasonsState(), now);
       const firstSlotIndex =
         targets.length > 0 && targets[0].slot !== undefined ? targets[0].slot.index : null;
-      const resolvedInstructions = resolveInstructions(
+      const revealCascadeCtx = buildCascadeContext(
         currentSeasonForResolution,
-        firstSlotIndex,
         gameEntry,
+        firstSlotIndex,
         triviaConfig,
       );
-      const resolvedAdditionalInstructions = resolveAdditionalInstructions(
-        currentSeasonForResolution,
-        firstSlotIndex,
-        gameEntry,
-        triviaConfig,
-      );
+      const resolvedInstructions = resolveCascade("instructions", revealCascadeCtx).value;
+      const resolvedAdditionalInstructions = resolveCascade(
+        "additionalInstructions",
+        revealCascadeCtx,
+      ).value;
 
       const result: ProcessRevealResult = {
         game: args.game,

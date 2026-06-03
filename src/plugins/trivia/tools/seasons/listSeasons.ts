@@ -63,7 +63,7 @@ function mapSlot(slot: SeasonFormatSlot): ListSeasonsSlotEntry {
   };
 }
 
-const DESCRIPTION = `List every season on a specific game's trivia timeline with full details — slug, dates, status flag ("past" | "current" | "future"), and the season's explicitly-set axis configuration (theme, answersFormat, questionType, freeformAnswerShape, contexts, difficulty, difficultyRatio, format).
+const DESCRIPTION = `List every season on a specific game's trivia timeline with full details — slug, dates, status flag ("past" | "current" | "future"), and the season's explicitly-set axis configuration (theme, answersFormat, questionType, freeformAnswerShape, contexts, difficulty, difficultyRatio, format, slotOverrides).
 
 Each axis field (including \`categories\`) is present on a season entry IF AND ONLY IF the season explicitly set it. Absence means that season falls through to the next tier of the cascade. Every entry additionally carries \`resolvedCategoriesCount\` and \`resolvedCategoriesSource\` ("season" | "game" | "global") so you can audit inheritance without re-deriving the cascade.
 
@@ -135,6 +135,13 @@ export function createListSeasonsTool(
             : {}),
           ...(entry.format !== undefined
             ? { format: { questions: entry.format.questions.map(mapSlot) } }
+            : {}),
+          ...(entry.slotOverrides !== undefined
+            ? {
+                slotOverrides: Object.fromEntries(
+                  Object.entries(entry.slotOverrides).map(([k, slot]) => [k, mapSlot(slot)]),
+                ),
+              }
             : {}),
           ...(entry.instructions !== undefined ? { instructions: entry.instructions } : {}),
           ...(entry.additionalInstructions !== undefined

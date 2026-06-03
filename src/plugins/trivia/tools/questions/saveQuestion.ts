@@ -14,11 +14,8 @@ import {
 } from "../../questionTypes/registry.js";
 import type { TriviaGame } from "../../core/configTypes.js";
 import { findCurrentSeason } from "../../core/seasonTimeline.js";
-import { resolveAnswersFormat } from "../../domain/questionTypes.js";
-import { resolveQuestionType } from "../../domain/factTopical.js";
-import { resolveContexts } from "../../domain/contexts.js";
-import { resolveJudgeLeniency } from "../../domain/judgeLeniency.js";
-import { DEFAULT_JUDGE_LENIENCY } from "../../core/configTypes.js";
+import { resolveCascade } from "../../domain/resolveCascade.js";
+import { buildCascadeContext } from "../../domain/cascadeContext.js";
 import { resolveEffectiveFormat } from "../../domain/format.js";
 import { resolveActiveCategoriesWithSource } from "../../domain/categories.js";
 import {
@@ -268,6 +265,12 @@ export function createSaveQuestionTool(
       const config = getConfigFn();
       const slotIndexForResolution =
         effectiveFormat !== null && args.slot !== undefined ? args.slot.index : null;
+      const cascadeCtx = buildCascadeContext(
+        currentSeasonEntry,
+        gameEntry,
+        slotIndexForResolution,
+        config,
+      );
 
       const { pool: slotCategories, source: categoriesSource } = resolveActiveCategoriesWithSource(
         effectiveFormat,
@@ -290,24 +293,14 @@ export function createSaveQuestionTool(
       }
 
       if (effectiveFormat !== null && args.slot !== undefined) {
-        const slotAnswersWeights = resolveAnswersFormat(
-          currentSeasonEntry,
-          args.slot.index,
-          gameEntry,
-          config,
-        );
+        const slotAnswersWeights = resolveCascade("answersFormat", cascadeCtx).value;
         const weightForAnswers = slotAnswersWeights[answersFormat];
         if (weightForAnswers <= 0) {
           return errorResult(
             `Slot ${args.slot.index} does not permit "${answersFormat}" answers (answersFormat for this slot has zero weight on "${answersFormat}"). Re-roll get_ideas — its suggestedAnswersFormat reflects the slot's permitted formats.`,
           );
         }
-        const slotQuestionTypeWeights = resolveQuestionType(
-          currentSeasonEntry,
-          args.slot.index,
-          gameEntry,
-          config,
-        );
+        const slotQuestionTypeWeights = resolveCascade("questionType", cascadeCtx).value;
         const weightForQuestionType = slotQuestionTypeWeights[questionType];
         if (weightForQuestionType <= 0) {
           return errorResult(
@@ -317,12 +310,7 @@ export function createSaveQuestionTool(
       }
 
       // Context validation
-      const resolvedContexts = resolveContexts(
-        currentSeasonEntry,
-        slotIndexForResolution,
-        gameEntry,
-        config,
-      );
+      const resolvedContexts = resolveCascade("contexts", cascadeCtx).value;
       let storedContext: string | null = null;
       if (args.context !== undefined && args.context.length > 0) {
         if (resolvedContexts === null) {
@@ -339,21 +327,10 @@ export function createSaveQuestionTool(
         storedContext = args.context;
       }
 
-      // judgeLeniency axis: resolve the effective preset from the cascade and
-      // stamp it on the record so the reveal judge scores this question by the
-      // policy in effect when it was posed (immune to later config edits). Only
-      // freeform questions are judged, and only a non-default override is worth
-      // recording — absence reads as DEFAULT_JUDGE_LENIENCY.
-      const resolvedJudgeLeniency = resolveJudgeLeniency(
-        slotIndexForResolution,
-        currentSeasonEntry,
-        gameEntry,
-        config,
-      );
-      const judgeLeniencyStamp =
-        answersFormat === "freeform" && resolvedJudgeLeniency !== DEFAULT_JUDGE_LENIENCY
-          ? resolvedJudgeLeniency
-          : null;
+      // judgeLeniency axis: resolve the effective preset from the cascade and hand it to
+      // the handler. WHICH formats stamp it (freeform only) and WHEN (non-default) is the
+      // handler's call — save_question doesn't branch on the format string.
+      const resolvedJudgeLeniency = resolveCascade("judgeLeniency", cascadeCtx).value;
 
       const currentSeasonSlug = currentSeasonEntry?.slug ?? null;
       const slotStamp =
@@ -381,14 +358,17 @@ export function createSaveQuestionTool(
         ...(args.difficulty !== undefined ? { difficulty: args.difficulty } : {}),
         ...(storedContext !== null ? { context: storedContext } : {}),
         ...(normalizedHint !== undefined ? { hint: normalizedHint } : {}),
-        ...(judgeLeniencyStamp !== null ? { judgeLeniency: judgeLeniencyStamp } : {}),
         ...questionTypeOutcome.recordExtras,
       };
 
       // Handler validates per-format args AND attaches its format-specific
       // fields (isTrue / choices+correctIndex / expectedAnswer+...) in one
-      // step — no two-method dance, no opportunity to skip validation.
-      const outcome = handler.getSavedQuestion(base, args, { config: getConfigFn() });
+      // step — no two-method dance, no opportunity to skip validation. The
+      // judgeLeniency stamp is among the format-specific fields (freeform only).
+      const outcome = handler.getSavedQuestion(base, args, {
+        config: getConfigFn(),
+        resolvedJudgeLeniency,
+      });
       if (!outcome.ok) {
         return errorResult(outcome.error);
       }

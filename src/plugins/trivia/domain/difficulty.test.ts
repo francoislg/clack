@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import type { TriviaConfig, TriviaGame } from "../core/configTypes.js";
 import { DEFAULT_DIFFICULTY_RANGES, DEFAULT_DIFFICULTY_RATIO } from "../core/configTypes.js";
 import { resolveDifficultyRanges, resolveDifficultyRatio } from "./difficulty.js";
+import { buildCascadeContext } from "./cascadeContext.js";
+import type { CascadeContext } from "../core/cascadeAxes.js";
 import type { SeasonEntry } from "../core/types.js";
 
 function makeGame(overrides: Partial<TriviaGame> = {}): TriviaGame {
@@ -21,6 +23,15 @@ function makeConfig(trivia?: TriviaConfig): TriviaConfig {
   return trivia ?? {};
 }
 
+function ctx(
+  season: SeasonEntry | null,
+  slotIndex: number | null,
+  game: TriviaGame | null,
+  config: TriviaConfig | null,
+): CascadeContext {
+  return buildCascadeContext(season, game, slotIndex, config);
+}
+
 const NOW = 1_700_000_000_000;
 const HOUR = 60 * 60 * 1000;
 
@@ -34,11 +45,11 @@ const baseSeason: SeasonEntry = {
 describe("resolveDifficultyRanges", () => {
   it("returns DEFAULT_DIFFICULTY_RANGES per format when no source set", () => {
     assert.deepEqual(
-      resolveDifficultyRanges(null, null, null, null, "boolean"),
+      resolveDifficultyRanges(ctx(null, null, null, null), "boolean"),
       DEFAULT_DIFFICULTY_RANGES.boolean,
     );
     assert.deepEqual(
-      resolveDifficultyRanges(null, null, null, makeConfig(), "freeform"),
+      resolveDifficultyRanges(ctx(null, null, null, makeConfig()), "freeform"),
       DEFAULT_DIFFICULTY_RANGES.freeform,
     );
   });
@@ -52,10 +63,8 @@ describe("resolveDifficultyRanges", () => {
   });
 
   it("config override replaces only the fields it sets (per-field merge)", () => {
-    const cfg = makeConfig({
-      difficulty: { freeform: { hard: [6, 8] } },
-    });
-    const r = resolveDifficultyRanges(null, null, null, cfg, "freeform");
+    const cfg = makeConfig({ difficulty: { freeform: { hard: [6, 8] } } });
+    const r = resolveDifficultyRanges(ctx(null, null, null, cfg), "freeform");
     assert.deepEqual(r.hard, [6, 8]);
     assert.deepEqual(r.easy, DEFAULT_DIFFICULTY_RANGES.freeform.easy);
     assert.deepEqual(r.medium, DEFAULT_DIFFICULTY_RANGES.freeform.medium);
@@ -64,39 +73,54 @@ describe("resolveDifficultyRanges", () => {
   it("config override for one format does not affect another format", () => {
     const cfg = makeConfig({ difficulty: { freeform: { easy: [1, 3] } } });
     assert.deepEqual(
-      resolveDifficultyRanges(null, null, null, cfg, "boolean"),
+      resolveDifficultyRanges(ctx(null, null, null, cfg), "boolean"),
       DEFAULT_DIFFICULTY_RANGES.boolean,
     );
   });
 
   it("season override wins over config", () => {
     const cfg = makeConfig({ difficulty: { choice: { easy: [3, 4] } } });
-    const season: SeasonEntry = {
-      ...baseSeason,
-      difficulty: { choice: { easy: [5, 6] } },
-    };
-    const r = resolveDifficultyRanges(season, null, null, cfg, "choice");
+    const season: SeasonEntry = { ...baseSeason, difficulty: { choice: { easy: [5, 6] } } };
+    const r = resolveDifficultyRanges(ctx(season, null, null, cfg), "choice");
     assert.deepEqual(r.easy, [5, 6]);
   });
 
-  it("slot override wins over season + config", () => {
+  it("season-format slot override wins over season + config", () => {
     const cfg = makeConfig({ difficulty: { choice: { hard: [7, 8] } } });
     const season: SeasonEntry = {
       ...baseSeason,
       difficulty: { choice: { hard: [8, 9] } },
       format: { questions: [{ difficulty: { choice: { hard: [10, 10] } } }] },
     };
-    const r = resolveDifficultyRanges(season, 0, null, cfg, "choice");
+    const r = resolveDifficultyRanges(ctx(season, 0, null, cfg), "choice");
     assert.deepEqual(r.hard, [10, 10]);
+  });
+
+  it("game-format slot is the base under the season (game-base / season-override)", () => {
+    const game = makeGame({
+      format: { questions: [{ difficulty: { choice: { hard: [10, 10] } } }] },
+    });
+    // No season format/override: the game slot supplies the value.
+    const r = resolveDifficultyRanges(ctx(null, 0, game, makeConfig()), "choice");
+    assert.deepEqual(r.hard, [10, 10]);
+  });
+
+  it("season slot override wins over the game-format slot", () => {
+    const game = makeGame({
+      format: { questions: [{ difficulty: { choice: { hard: [5, 5] } } }] },
+    });
+    const season: SeasonEntry = {
+      ...baseSeason,
+      slotOverrides: { 0: { difficulty: { choice: { hard: [9, 9] } } } },
+    };
+    const r = resolveDifficultyRanges(ctx(season, 0, game, makeConfig()), "choice");
+    assert.deepEqual(r.hard, [9, 9]);
   });
 
   it("slot without difficulty falls back through season → game → config → default", () => {
     const cfg = makeConfig({ difficulty: { freeform: { easy: [1, 3] } } });
-    const season: SeasonEntry = {
-      ...baseSeason,
-      format: { questions: [{}] },
-    };
-    const r = resolveDifficultyRanges(season, 0, null, cfg, "freeform");
+    const season: SeasonEntry = { ...baseSeason, format: { questions: [{}] } };
+    const r = resolveDifficultyRanges(ctx(season, 0, null, cfg), "freeform");
     assert.deepEqual(r.easy, [1, 3]);
     assert.deepEqual(r.medium, DEFAULT_DIFFICULTY_RANGES.freeform.medium);
   });
@@ -108,7 +132,7 @@ describe("resolveDifficultyRanges", () => {
       difficulty: { boolean: { medium: [5, 6] } },
       format: { questions: [{ difficulty: { boolean: { hard: [9, 9] } } }] },
     };
-    const r = resolveDifficultyRanges(season, 0, null, cfg, "boolean");
+    const r = resolveDifficultyRanges(ctx(season, 0, null, cfg), "boolean");
     assert.deepEqual(r.easy, [2, 3]);
     assert.deepEqual(r.medium, [5, 6]);
     assert.deepEqual(r.hard, [9, 9]);
@@ -119,7 +143,7 @@ describe("resolveDifficultyRanges", () => {
       difficulty: { freeform: { easy: [2, 4], medium: [5, 6], hard: [7, 8] } },
     });
     const game = makeGame({ difficulty: { freeform: { hard: [8, 9] } } });
-    const r = resolveDifficultyRanges(null, null, game, cfg, "freeform");
+    const r = resolveDifficultyRanges(ctx(null, null, game, cfg), "freeform");
     assert.deepEqual(r.easy, [2, 4]);
     assert.deepEqual(r.medium, [5, 6]);
     assert.deepEqual(r.hard, [8, 9]);
@@ -127,25 +151,22 @@ describe("resolveDifficultyRanges", () => {
 
   it("season.difficulty wins over game.difficulty per sub-field", () => {
     const game = makeGame({ difficulty: { freeform: { hard: [8, 9] } } });
-    const season: SeasonEntry = {
-      ...baseSeason,
-      difficulty: { freeform: { hard: [9, 10] } },
-    };
-    const r = resolveDifficultyRanges(season, null, game, makeConfig(), "freeform");
+    const season: SeasonEntry = { ...baseSeason, difficulty: { freeform: { hard: [9, 10] } } };
+    const r = resolveDifficultyRanges(ctx(season, null, game, makeConfig()), "freeform");
     assert.deepEqual(r.hard, [9, 10]);
   });
 
   it("game.difficulty leaves other formats untouched", () => {
     const game = makeGame({ difficulty: { freeform: { hard: [8, 9] } } });
     assert.deepEqual(
-      resolveDifficultyRanges(null, null, game, makeConfig(), "boolean"),
+      resolveDifficultyRanges(ctx(null, null, game, makeConfig()), "boolean"),
       DEFAULT_DIFFICULTY_RANGES.boolean,
     );
   });
 
   it("game=null skips the per-game tier", () => {
     const cfg = makeConfig({ difficulty: { boolean: { easy: [3, 5] } } });
-    const r = resolveDifficultyRanges(null, null, null, cfg, "boolean");
+    const r = resolveDifficultyRanges(ctx(null, null, null, cfg), "boolean");
     assert.deepEqual(r.easy, [3, 5]);
   });
 });
@@ -153,11 +174,11 @@ describe("resolveDifficultyRanges", () => {
 describe("resolveDifficultyRatio", () => {
   it("returns DEFAULT_DIFFICULTY_RATIO per format when no source set", () => {
     assert.deepEqual(
-      resolveDifficultyRatio(null, null, null, null, "boolean"),
+      resolveDifficultyRatio(ctx(null, null, null, null), "boolean"),
       DEFAULT_DIFFICULTY_RATIO.boolean,
     );
     assert.deepEqual(
-      resolveDifficultyRatio(null, null, null, makeConfig(), "freeform"),
+      resolveDifficultyRatio(ctx(null, null, null, makeConfig()), "freeform"),
       DEFAULT_DIFFICULTY_RATIO.freeform,
     );
   });
@@ -172,10 +193,8 @@ describe("resolveDifficultyRatio", () => {
   });
 
   it("workspace difficultyRatio overrides built-in default (whole-object replace)", () => {
-    const cfg = makeConfig({
-      difficultyRatio: { boolean: { easy: 1, medium: 1, hard: 1 } },
-    });
-    assert.deepEqual(resolveDifficultyRatio(null, null, null, cfg, "boolean"), {
+    const cfg = makeConfig({ difficultyRatio: { boolean: { easy: 1, medium: 1, hard: 1 } } });
+    assert.deepEqual(resolveDifficultyRatio(ctx(null, null, null, cfg), "boolean"), {
       easy: 1,
       medium: 1,
       hard: 1,
@@ -183,23 +202,17 @@ describe("resolveDifficultyRatio", () => {
   });
 
   it("per-format keying — workspace boolean override does not affect freeform", () => {
-    const cfg = makeConfig({
-      difficultyRatio: { boolean: { easy: 0, medium: 0, hard: 1 } },
-    });
+    const cfg = makeConfig({ difficultyRatio: { boolean: { easy: 0, medium: 0, hard: 1 } } });
     assert.deepEqual(
-      resolveDifficultyRatio(null, null, null, cfg, "freeform"),
+      resolveDifficultyRatio(ctx(null, null, null, cfg), "freeform"),
       DEFAULT_DIFFICULTY_RATIO.freeform,
     );
   });
 
   it("game.difficultyRatio wins over workspace", () => {
-    const cfg = makeConfig({
-      difficultyRatio: { boolean: { easy: 1, medium: 1, hard: 1 } },
-    });
-    const game = makeGame({
-      difficultyRatio: { boolean: { easy: 0, medium: 1, hard: 0 } },
-    });
-    assert.deepEqual(resolveDifficultyRatio(null, null, game, cfg, "boolean"), {
+    const cfg = makeConfig({ difficultyRatio: { boolean: { easy: 1, medium: 1, hard: 1 } } });
+    const game = makeGame({ difficultyRatio: { boolean: { easy: 0, medium: 1, hard: 0 } } });
+    assert.deepEqual(resolveDifficultyRatio(ctx(null, null, game, cfg), "boolean"), {
       easy: 0,
       medium: 1,
       hard: 0,
@@ -207,61 +220,70 @@ describe("resolveDifficultyRatio", () => {
   });
 
   it("season.difficultyRatio wins over game", () => {
-    const game = makeGame({
-      difficultyRatio: { choice: { easy: 1, medium: 1, hard: 1 } },
-    });
+    const game = makeGame({ difficultyRatio: { choice: { easy: 1, medium: 1, hard: 1 } } });
     const season: SeasonEntry = {
       ...baseSeason,
       difficultyRatio: { choice: { easy: 5, medium: 0, hard: 0 } },
     };
-    assert.deepEqual(resolveDifficultyRatio(season, null, game, makeConfig(), "choice"), {
+    assert.deepEqual(resolveDifficultyRatio(ctx(season, null, game, makeConfig()), "choice"), {
       easy: 5,
       medium: 0,
       hard: 0,
     });
   });
 
-  it("slot.difficultyRatio wins over season + game + workspace", () => {
-    const cfg = makeConfig({
-      difficultyRatio: { boolean: { easy: 1, medium: 1, hard: 1 } },
-    });
-    const game = makeGame({
-      difficultyRatio: { boolean: { easy: 2, medium: 2, hard: 2 } },
-    });
+  it("season slot override wins over season + game + workspace", () => {
+    const cfg = makeConfig({ difficultyRatio: { boolean: { easy: 1, medium: 1, hard: 1 } } });
+    const game = makeGame({ difficultyRatio: { boolean: { easy: 2, medium: 2, hard: 2 } } });
     const season: SeasonEntry = {
       ...baseSeason,
       difficultyRatio: { boolean: { easy: 3, medium: 3, hard: 3 } },
-      format: {
-        questions: [{ difficultyRatio: { boolean: { easy: 9, medium: 0, hard: 0 } } }],
-      },
+      format: { questions: [{ difficultyRatio: { boolean: { easy: 9, medium: 0, hard: 0 } } }] },
     };
-    assert.deepEqual(resolveDifficultyRatio(season, 0, game, cfg, "boolean"), {
+    assert.deepEqual(resolveDifficultyRatio(ctx(season, 0, game, cfg), "boolean"), {
       easy: 9,
       medium: 0,
       hard: 0,
     });
   });
 
-  it("whole-object replace — lower-tier fields do NOT contribute when higher tier wins", () => {
-    const cfg = makeConfig({
-      difficultyRatio: { boolean: { easy: 1, medium: 5, hard: 4 } },
-    });
+  it("game-format slot supplies the value as the base when no season overrides it", () => {
     const game = makeGame({
-      difficultyRatio: { boolean: { easy: 9, medium: 0, hard: 0 } },
+      format: { questions: [{ difficultyRatio: { boolean: { easy: 7, medium: 0, hard: 0 } } }] },
     });
-    const r = resolveDifficultyRatio(null, null, game, cfg, "boolean");
+    assert.deepEqual(resolveDifficultyRatio(ctx(null, 0, game, makeConfig()), "boolean"), {
+      easy: 7,
+      medium: 0,
+      hard: 0,
+    });
+  });
+
+  it("season slotOverrides wins over the game-format slot (whole-object replace)", () => {
+    const game = makeGame({
+      format: { questions: [{ difficultyRatio: { boolean: { easy: 5, medium: 0, hard: 0 } } }] },
+    });
+    const season: SeasonEntry = {
+      ...baseSeason,
+      slotOverrides: { 0: { difficultyRatio: { boolean: { easy: 9, medium: 1, hard: 0 } } } },
+    };
+    assert.deepEqual(resolveDifficultyRatio(ctx(season, 0, game, makeConfig()), "boolean"), {
+      easy: 9,
+      medium: 1,
+      hard: 0,
+    });
+  });
+
+  it("whole-object replace — lower-tier fields do NOT contribute when higher tier wins", () => {
+    const cfg = makeConfig({ difficultyRatio: { boolean: { easy: 1, medium: 5, hard: 4 } } });
+    const game = makeGame({ difficultyRatio: { boolean: { easy: 9, medium: 0, hard: 0 } } });
+    const r = resolveDifficultyRatio(ctx(null, null, game, cfg), "boolean");
     assert.deepEqual(r, { easy: 9, medium: 0, hard: 0 });
   });
 
   it("slot without difficultyRatio falls back through season → game → workspace → default", () => {
-    const game = makeGame({
-      difficultyRatio: { choice: { easy: 7, medium: 2, hard: 1 } },
-    });
-    const season: SeasonEntry = {
-      ...baseSeason,
-      format: { questions: [{}] },
-    };
-    assert.deepEqual(resolveDifficultyRatio(season, 0, game, makeConfig(), "choice"), {
+    const game = makeGame({ difficultyRatio: { choice: { easy: 7, medium: 2, hard: 1 } } });
+    const season: SeasonEntry = { ...baseSeason, format: { questions: [{}] } };
+    assert.deepEqual(resolveDifficultyRatio(ctx(season, 0, game, makeConfig()), "choice"), {
       easy: 7,
       medium: 2,
       hard: 1,

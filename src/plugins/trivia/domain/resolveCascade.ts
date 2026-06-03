@@ -38,7 +38,13 @@ import type {
 import { CASCADE_TIER_ORDER } from "../core/cascadeAxes.js";
 import type { TriviaAnswersFormat } from "../core/types.js";
 import { resolveDifficultyRanges, resolveDifficultyRatio } from "./difficulty.js";
-import { resolveAdditionalInstructions } from "./instructions.js";
+
+/** Trimmed value, treating whitespace-only / absent as `undefined`. */
+function nonEmpty(raw: string | undefined): string | undefined {
+  if (raw === undefined) return undefined;
+  const trimmed = raw.trim();
+  return trimmed.length === 0 ? undefined : trimmed;
+}
 
 /** The three axes whose resolution is bespoke (not the generic first-wins walk). */
 type CustomAxisKey = "difficulty" | "difficultyRatio" | "additionalInstructions";
@@ -47,7 +53,13 @@ type FirstWinsKey = Exclude<keyof CascadeAxes, CustomAxisKey>;
 
 /** The four tier objects of a context, in precedence order. */
 function tierObjects(ctx: CascadeContext): Record<ConcreteTier, CascadeAxes | null> {
-  return { slot: ctx.slot, season: ctx.season, game: ctx.game, workspace: ctx.config };
+  return {
+    seasonSlot: ctx.seasonSlot,
+    season: ctx.season,
+    gameSlot: ctx.gameSlot,
+    game: ctx.game,
+    workspace: ctx.config,
+  };
 }
 
 /**
@@ -109,7 +121,7 @@ function resolveDifficultyCustom(
   opts: CustomResolveOpts,
 ): CascadeResolution<"difficulty"> {
   const format = requireFormat(opts, "difficulty");
-  const value = resolveDifficultyRanges(ctx.season, ctx.slotIndex, ctx.game, ctx.config, format);
+  const value = resolveDifficultyRanges(ctx, format);
   const tiers = tierObjects(ctx);
 
   const contributing: ConcreteTier[] = [];
@@ -134,7 +146,7 @@ function resolveDifficultyRatioCustom(
   opts: CustomResolveOpts,
 ): CascadeResolution<"difficultyRatio"> {
   const format = requireFormat(opts, "difficultyRatio");
-  const value = resolveDifficultyRatio(ctx.season, ctx.slotIndex, ctx.game, ctx.config, format);
+  const value = resolveDifficultyRatio(ctx, format);
   const tiers = tierObjects(ctx);
 
   let winnerTier: CascadeTier = "default";
@@ -154,24 +166,47 @@ function resolveDifficultyRatioCustom(
   return { value, tier: winnerTier, ladder };
 }
 
+/** Human-readable label for each tier's `additionalInstructions` segment. */
+const ADDITIONAL_INSTRUCTIONS_LABEL: Record<ConcreteTier, (slotIndex: number | null) => string> = {
+  workspace: () => "[Workspace]",
+  game: () => "[Game]",
+  gameSlot: (i) => `[Game Slot ${i ?? 0}]`,
+  season: () => "[Season]",
+  seasonSlot: (i) => `[Season Slot ${i ?? 0}]`,
+};
+
 /**
- * `additionalInstructions` custom resolver. CUMULATIVE: value delegates to
- * `resolveAdditionalInstructions` (which concatenates labeled segments). Provenance is
- * `"merged"` when more than one tier contributes a non-empty segment.
+ * `additionalInstructions` custom resolver. CUMULATIVE: concatenates each contributing
+ * tier's non-empty segment, broadest-first (`workspace → game → gameSlot → season →
+ * seasonSlot`), each prefixed with its tier label. Reads the context tiers directly so
+ * value and ladder cannot disagree. `"merged"` when more than one tier contributes.
  */
 function resolveAdditionalInstructionsCustom(
   ctx: CascadeContext,
 ): CascadeResolution<"additionalInstructions"> {
-  const value = resolveAdditionalInstructions(ctx.season, ctx.slotIndex, ctx.game, ctx.config);
   const tiers = tierObjects(ctx);
+  const broadestFirst = [...CASCADE_TIER_ORDER].reverse();
 
+  const segments: string[] = [];
   const contributing: ConcreteTier[] = [];
+  for (const tier of broadestFirst) {
+    const v = nonEmpty(tiers[tier]?.additionalInstructions);
+    if (v !== undefined) {
+      segments.push(`${ADDITIONAL_INSTRUCTIONS_LABEL[tier](ctx.slotIndex)} ${v}`);
+      contributing.push(tier);
+    }
+  }
+  const value = segments.length === 0 ? null : segments.join("\n\n");
+
   const ladder: CascadeLadderEntry<CascadeAxes["additionalInstructions"]>[] =
     CASCADE_TIER_ORDER.map((tier) => {
-      const raw = tiers[tier]?.additionalInstructions;
-      const present = raw !== undefined && raw.trim().length > 0;
-      if (present) contributing.push(tier);
-      return { tier, value: present ? raw : undefined, present, winner: present };
+      const present = contributing.includes(tier);
+      return {
+        tier,
+        value: present ? tiers[tier]?.additionalInstructions : undefined,
+        present,
+        winner: present,
+      };
     });
 
   const tier: CascadeTier =

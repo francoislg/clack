@@ -335,7 +335,7 @@ describe("freeformAnswerHandler", () => {
           freeformAnswerShape: "place",
           emojis: ["🇫🇷"],
         },
-        { config: null },
+        { config: null, resolvedJudgeLeniency: "strict-with-typos" },
       );
       assert.equal(out.ok, true);
       if (out.ok) {
@@ -356,7 +356,7 @@ describe("freeformAnswerHandler", () => {
           freeformAnswerShape: "place",
           emojis: ["🇫🇷"],
         },
-        { config: null },
+        { config: null, resolvedJudgeLeniency: "strict-with-typos" },
       );
       assert.equal(out.ok, false);
       if (!out.ok) assert.match(out.error, /expectedAnswer/);
@@ -375,7 +375,7 @@ describe("freeformAnswerHandler", () => {
           freeformAnswerShape: "phrase",
           emojis: ["🇫🇷"],
         },
-        { config: null },
+        { config: null, resolvedJudgeLeniency: "strict-with-typos" },
       );
       assert.equal(out.ok, false);
       if (!out.ok) assert.match(out.error, /200 characters/);
@@ -392,7 +392,7 @@ describe("freeformAnswerHandler", () => {
           expectedAnswer: "Paris",
           emojis: ["🇫🇷"],
         },
-        { config: null },
+        { config: null, resolvedJudgeLeniency: "strict-with-typos" },
       );
       assert.equal(out.ok, false);
       if (!out.ok) assert.match(out.error, /freeformAnswerShape/);
@@ -415,7 +415,7 @@ describe("freeformAnswerHandler", () => {
           freeformAnswerShape: "place",
           emojis: ["🇫🇷"],
         },
-        { config: null },
+        { config: null, resolvedJudgeLeniency: "strict-with-typos" },
       );
       assert.equal(out.ok, true);
       if (out.ok) {
@@ -428,16 +428,13 @@ describe("freeformAnswerHandler", () => {
   describe("rollGenerationSuggestions", () => {
     it("returns suggestedFreeformAnswerShape", () => {
       const out = freeformAnswerHandler.rollGenerationSuggestions({
-        config: null,
-        currentSeason: null,
-        slotIndex: null,
-        game: {
-          name: "main",
-          channel: "C",
-          questionCron: "0 9 * * *",
-          revealCron: "0 17 * * *",
-          timezone: "UTC",
-          enabled: true,
+        cascadeCtx: {
+          seasonSlot: null,
+          gameSlot: null,
+          slotIndex: null,
+          season: null,
+          game: null,
+          config: null,
         },
       });
       assert.equal(typeof out.suggestedFreeformAnswerShape, "string");

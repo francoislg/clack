@@ -230,7 +230,7 @@ describe("choiceAnswerHandler", () => {
           correctIndex: 2,
           emojis: ["🎸"],
         },
-        { config: { choices: { min: 2, max: 4 } } },
+        { config: { choices: { min: 2, max: 4 } }, resolvedJudgeLeniency: "strict-with-typos" },
       );
       assert.equal(out.ok, true);
       if (out.ok) {
@@ -251,7 +251,7 @@ describe("choiceAnswerHandler", () => {
           correctIndex: 5,
           emojis: ["🎸"],
         },
-        { config: { choices: { min: 2, max: 4 } } },
+        { config: { choices: { min: 2, max: 4 } }, resolvedJudgeLeniency: "strict-with-typos" },
       );
       assert.equal(out.ok, false);
       if (!out.ok) assert.match(out.error, /correctIndex \(5\)/);
@@ -269,7 +269,7 @@ describe("choiceAnswerHandler", () => {
           correctIndex: 0,
           emojis: ["🎸"],
         },
-        { config: { choices: { min: 2, max: 4 } } },
+        { config: { choices: { min: 2, max: 4 } }, resolvedJudgeLeniency: "strict-with-typos" },
       );
       assert.equal(out.ok, false);
       if (!out.ok) assert.match(out.error, /unique/);
@@ -287,7 +287,7 @@ describe("choiceAnswerHandler", () => {
           correctIndex: 0,
           emojis: ["🎸"],
         },
-        { config: { choices: { min: 2, max: 4 } } },
+        { config: { choices: { min: 2, max: 4 } }, resolvedJudgeLeniency: "strict-with-typos" },
       );
       assert.equal(out.ok, false);
       if (!out.ok) assert.match(out.error, /between 2 and 4/);
@@ -297,16 +297,13 @@ describe("choiceAnswerHandler", () => {
   describe("rollGenerationSuggestions", () => {
     it("returns suggestedChoiceCount and suggestedCorrectIndex within active bounds", () => {
       const out = choiceAnswerHandler.rollGenerationSuggestions({
-        config: { choices: { min: 3, max: 4 } },
-        currentSeason: null,
-        slotIndex: null,
-        game: {
-          name: "main",
-          channel: "C",
-          questionCron: "0 9 * * *",
-          revealCron: "0 17 * * *",
-          timezone: "UTC",
-          enabled: true,
+        cascadeCtx: {
+          seasonSlot: null,
+          gameSlot: null,
+          slotIndex: null,
+          season: null,
+          game: null,
+          config: { choices: { min: 3, max: 4 } },
         },
       });
       const count = out.suggestedChoiceCount;

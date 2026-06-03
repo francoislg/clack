@@ -2,46 +2,37 @@ import type {
   DifficultyBucketWeights,
   DifficultyRanges,
   DifficultyRangesInput,
-  TriviaConfig,
-  TriviaGame,
 } from "../core/configTypes.js";
 import { DEFAULT_DIFFICULTY_RANGES, DEFAULT_DIFFICULTY_RATIO } from "../core/configTypes.js";
-import type { SeasonEntry, TriviaAnswersFormat } from "../core/types.js";
+import type { CascadeAxes, CascadeContext } from "../core/cascadeAxes.js";
+import type { TriviaAnswersFormat } from "../core/types.js";
 
 /**
- * Pure resolver for per-game-type difficulty ranges. Mirrors `resolveAnswersFormat` /
- * `resolveFreeformAnswerShape`, but with per-field merge instead of whole-object replace —
- * each tier can override any subset of `easy` / `medium` / `hard` and the missing fields
- * cascade from the next tier.
+ * The cascade tiers broadest-first (workspace → … → seasonSlot). The per-field merge
+ * applies them in this order so the highest-precedence tier is applied LAST and wins.
+ * First-wins resolution (difficultyRatio) walks the reverse.
+ */
+function tiersBroadestFirst(ctx: CascadeContext): readonly (CascadeAxes | null)[] {
+  return [ctx.config, ctx.game, ctx.gameSlot, ctx.season, ctx.seasonSlot];
+}
+
+/**
+ * Pure resolver for per-game-type difficulty ranges. Per-field merge: each tier can
+ * override any subset of `easy` / `medium` / `hard`; missing fields cascade from the
+ * next-broader tier. Reads the resolved slot objects off `ctx` — never re-derives a
+ * slot from `season.format`.
  *
- * Priority (later tiers override earlier ones):
- *   1. `DEFAULT_DIFFICULTY_RANGES[format]` — built-in baseline (boolean/choice softer
- *      than freeform; freeform is shifted -2 across every bucket).
- *   2. `config.trivia.difficulty[format]` — workspace default.
- *   3. `game.difficulty[format]` — per-game tier between workspace and season.
- *   4. `season.difficulty[format]` — per-season override.
- *   5. `slot.difficulty[format]` — per-slot override.
- *
- * The returned `DifficultyRanges` is FULLY resolved (no sparse fields).
+ * Precedence (highest wins): seasonSlot → season → gameSlot → game → workspace →
+ * `DEFAULT_DIFFICULTY_RANGES[format]`.
  */
 export function resolveDifficultyRanges(
-  currentSeason: SeasonEntry | null,
-  slotIndex: number | null,
-  game: TriviaGame | null,
-  triviaConfig: TriviaConfig | null,
+  ctx: CascadeContext,
   format: TriviaAnswersFormat,
 ): DifficultyRanges {
   const layers: DifficultyRangesInput[] = [];
-  const fromConfig = triviaConfig?.difficulty?.[format];
-  if (fromConfig !== undefined) layers.push(fromConfig);
-  const fromGame = game?.difficulty?.[format];
-  if (fromGame !== undefined) layers.push(fromGame);
-  const fromSeason = currentSeason?.difficulty?.[format];
-  if (fromSeason !== undefined) layers.push(fromSeason);
-  if (currentSeason !== null && slotIndex !== null && currentSeason.format !== undefined) {
-    const slot = currentSeason.format.questions[slotIndex];
-    const fromSlot = slot?.difficulty?.[format];
-    if (fromSlot !== undefined) layers.push(fromSlot);
+  for (const tier of tiersBroadestFirst(ctx)) {
+    const v = tier?.difficulty?.[format];
+    if (v !== undefined) layers.push(v);
   }
   let resolved: DifficultyRanges = DEFAULT_DIFFICULTY_RANGES[format];
   for (const layer of layers) {
@@ -55,44 +46,22 @@ export function resolveDifficultyRanges(
 }
 
 /**
- * Pure resolver for the per-format bucket-roll ratio. Unlike `resolveDifficultyRanges`,
- * this uses **whole-object replace per tier** — the first tier that supplies a complete
- * `{ easy, medium, hard }` weight map for the queried format wins; lower tiers do NOT
- * contribute partial values. Mirrors `resolveQuestionType` / `resolveAnswersFormat`.
+ * Pure resolver for the per-format bucket-roll ratio. Whole-object replace per tier
+ * (first-wins): the highest-precedence tier that supplies a complete `{ easy, medium,
+ * hard }` map for the format wins; lower tiers do not contribute partial values. Reads
+ * the resolved slot objects off `ctx`.
  *
- * Why whole-object replace and not per-field merge: a `difficultyRatio` weight map is
- * a single statement of distribution. `{ easy: 5 }` at the slot tier should NOT mean
- * "set easy to 5, inherit medium/hard from above" — that produces surprising effective
- * distributions that depend on what other tiers happened to set. Atomic replacement
- * keeps the distribution auditable: the admin sees the full triple at the winning tier
- * and knows the full distribution without tracing the cascade. The `difficulty` ranges
- * use per-field merge because each bucket's `[min, max]` is independently meaningful.
- *
- * Priority (later tiers win):
- *   1. `DEFAULT_DIFFICULTY_RATIO[format]` — built-in baseline (boolean/choice 3/6/1
- *      preserves historical 30/60/10; freeform 5/4/1 skews easier).
- *   2. `config.trivia.difficultyRatio[format]` — workspace default.
- *   3. `game.difficultyRatio[format]` — per-game.
- *   4. `season.difficultyRatio[format]` — per-season.
- *   5. `slot.difficultyRatio[format]` — per-slot.
+ * Precedence (highest wins): seasonSlot → season → gameSlot → game → workspace →
+ * `DEFAULT_DIFFICULTY_RATIO[format]`.
  */
 export function resolveDifficultyRatio(
-  currentSeason: SeasonEntry | null,
-  slotIndex: number | null,
-  game: TriviaGame | null,
-  triviaConfig: TriviaConfig | null,
+  ctx: CascadeContext,
   format: TriviaAnswersFormat,
 ): DifficultyBucketWeights {
-  if (currentSeason !== null && slotIndex !== null && currentSeason.format !== undefined) {
-    const slot = currentSeason.format.questions[slotIndex];
-    const fromSlot = slot?.difficultyRatio?.[format];
-    if (fromSlot !== undefined) return fromSlot;
+  const highestFirst = [...tiersBroadestFirst(ctx)].reverse();
+  for (const tier of highestFirst) {
+    const v = tier?.difficultyRatio?.[format];
+    if (v !== undefined) return v;
   }
-  const fromSeason = currentSeason?.difficultyRatio?.[format];
-  if (fromSeason !== undefined) return fromSeason;
-  const fromGame = game?.difficultyRatio?.[format];
-  if (fromGame !== undefined) return fromGame;
-  const fromConfig = triviaConfig?.difficultyRatio?.[format];
-  if (fromConfig !== undefined) return fromConfig;
   return DEFAULT_DIFFICULTY_RATIO[format];
 }

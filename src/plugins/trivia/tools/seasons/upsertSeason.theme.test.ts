@@ -25,6 +25,7 @@ function baseArgs(slug: string, future: number) {
     difficulty: undefined,
     difficultyRatio: undefined,
     format: undefined,
+    slotOverrides: undefined,
     liveAnswersVisible: undefined,
     revealResponses: undefined,
     instructions: undefined,

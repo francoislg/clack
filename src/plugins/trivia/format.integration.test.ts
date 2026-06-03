@@ -97,6 +97,7 @@ describe("Trivia question-format end-to-end flow", () => {
               { label: "History Choice", categories: ["History"] },
             ],
           },
+          slotOverrides: undefined,
           liveAnswersVisible: undefined,
           revealResponses: undefined,
           instructions: undefined,

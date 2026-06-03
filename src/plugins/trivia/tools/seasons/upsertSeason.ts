@@ -19,11 +19,13 @@ import {
   normalizeInstructions,
   normalizeTheme,
   seasonFormatZod,
+  slotOverridesZod,
   triviaAdditionalInstructionsZod,
   triviaCategoriesZod,
   triviaInstructionsZod,
   triviaThemeZod,
   validateFormat,
+  validateSlotOverrides,
 } from "../../core/configParsers/format.js";
 import type { TriviaDataLayer, SeasonsState, SeasonEntry } from "../../core/types.js";
 import {
@@ -43,6 +45,7 @@ import type {
   JudgeLeniency,
   RevealResponsesMode,
   SeasonFormat,
+  SeasonFormatSlot,
   TriviaAnswersFormatWeights,
   TriviaQuestionTypeWeights,
   PromptMediumWeights,
@@ -54,6 +57,9 @@ import type {
 } from "../../core/configTypes.js";
 
 const SLUG_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+
+const SLOT_OVERRIDES_VS_FORMAT_MSG =
+  "A season cannot set both `format` and `slotOverrides`: `format` declares the question count/structure, while `slotOverrides` layers count-decoupled per-slot deltas over the game format. Pick one.";
 
 /**
  * Strip undefined entries from a zod-typed optional-keys map so the underlying
@@ -155,6 +161,12 @@ export function createUpsertSeasonTool(
         .optional()
         .describe(
           "Optional per-season question composition. When set, each question-cron fire posts `format.questions.length` questions in slot order. Each slot may narrow `label` / `categories` / `answersFormat` / `questionType` / `freeformAnswerShape` / `contexts` / `difficulty` / `liveAnswersVisible` / `revealResponses`; missing fields cascade to the season's defaults. On UPDATE: object value replaces the whole format; explicit `null` clears the field; mid-season mutation permitted.",
+        ),
+      slotOverrides: slotOverridesZod
+        .nullable()
+        .optional()
+        .describe(
+          'Optional sparse per-slot overrides keyed by GAME-format slot index (e.g. `{ "2": { promptMedium: { text: 0, image: 1 } } }`). Each value overrides that game slot field-by-field for THIS season only (the `seasonSlot` tier). COUNT-DECOUPLED — it never changes how many questions a fire posts (that stays the game format\'s slot count). Use this for "make question 3 an image question this season" without restating the whole format. MUTUALLY EXCLUSIVE with `format`: set one or the other, never both. On UPDATE: passing `null` clears the field. Mid-season mutation permitted.',
         ),
       liveAnswersVisible: z
         .boolean()
@@ -296,6 +308,16 @@ export function createUpsertSeasonTool(
           format = validated.value;
         }
 
+        let slotOverrides: Record<number, SeasonFormatSlot> | undefined;
+        if (args.slotOverrides !== undefined && args.slotOverrides !== null) {
+          const validated = validateSlotOverrides(args.slotOverrides);
+          if (!validated.ok) return errorResult(validated.error);
+          slotOverrides = validated.value;
+        }
+        if (format !== undefined && slotOverrides !== undefined) {
+          return errorResult(SLOT_OVERRIDES_VS_FORMAT_MSG);
+        }
+
         let theme: string | undefined;
         if (args.theme !== undefined && args.theme !== null) {
           const normalized = normalizeTheme(args.theme);
@@ -356,6 +378,7 @@ export function createUpsertSeasonTool(
           ...(difficulty !== undefined ? { difficulty } : {}),
           ...(difficultyRatio !== undefined ? { difficultyRatio } : {}),
           ...(format !== undefined ? { format } : {}),
+          ...(slotOverrides !== undefined ? { slotOverrides } : {}),
           ...(liveAnswersVisible !== undefined ? { liveAnswersVisible } : {}),
           ...(revealResponses !== undefined ? { revealResponses } : {}),
           ...(instructions !== undefined ? { instructions } : {}),
@@ -392,6 +415,7 @@ export function createUpsertSeasonTool(
           hasDifficultyRatio: entry.difficultyRatio !== undefined,
           hasFormat: entry.format !== undefined,
           slotCount: entry.format?.questions.length ?? 0,
+          hasSlotOverrides: entry.slotOverrides !== undefined,
           hasLiveAnswersVisible: entry.liveAnswersVisible !== undefined,
           hasRevealResponses: entry.revealResponses !== undefined,
           hasInstructions: entry.instructions !== undefined,
@@ -503,6 +527,19 @@ export function createUpsertSeasonTool(
         updatedFormat = validated.value;
       }
 
+      let updatedSlotOverrides: Record<number, SeasonFormatSlot> | undefined =
+        existing.slotOverrides;
+      if (args.slotOverrides === null) {
+        updatedSlotOverrides = undefined;
+      } else if (args.slotOverrides !== undefined) {
+        const validated = validateSlotOverrides(args.slotOverrides);
+        if (!validated.ok) return errorResult(validated.error);
+        updatedSlotOverrides = validated.value;
+      }
+      if (updatedFormat !== undefined && updatedSlotOverrides !== undefined) {
+        return errorResult(SLOT_OVERRIDES_VS_FORMAT_MSG);
+      }
+
       let updatedTheme: string | undefined = existing.theme;
       if (args.theme === null) {
         updatedTheme = undefined;
@@ -583,6 +620,7 @@ export function createUpsertSeasonTool(
           ? { difficultyRatio: updatedDifficultyRatio }
           : {}),
         ...(updatedFormat !== undefined ? { format: updatedFormat } : {}),
+        ...(updatedSlotOverrides !== undefined ? { slotOverrides: updatedSlotOverrides } : {}),
         ...(updatedLiveAnswersVisible !== undefined
           ? { liveAnswersVisible: updatedLiveAnswersVisible }
           : {}),
@@ -632,6 +670,7 @@ export function createUpsertSeasonTool(
         hasDifficultyRatio: updated.difficultyRatio !== undefined,
         hasFormat: updated.format !== undefined,
         slotCount: updated.format?.questions.length ?? 0,
+        hasSlotOverrides: updated.slotOverrides !== undefined,
         hasLiveAnswersVisible: updated.liveAnswersVisible !== undefined,
         hasRevealResponses: updated.revealResponses !== undefined,
         hasInstructions: updated.instructions !== undefined,

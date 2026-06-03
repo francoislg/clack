@@ -1,7 +1,8 @@
 import { z } from "zod";
 import type { ClackSdk } from "../../sdk.js";
 import type { SlackBlocks } from "../../../slack/blocks.js";
-import type { JsonValue, TriviaFreeformAnswerShape } from "../core/configTypes.js";
+import type { JsonValue } from "../core/configTypes.js";
+import { DEFAULT_JUDGE_LENIENCY } from "../core/configTypes.js";
 import type {
   SubmittedAnswer,
   TriviaDataLayer,
@@ -10,7 +11,7 @@ import type {
 } from "../core/types.js";
 import { triviaLogger as logger } from "../core/pluginLogger.js";
 import { t } from "../i18n/t.js";
-import { resolveFreeformAnswerShape } from "../domain/freeformAnswerShape.js";
+import { resolveCascade } from "../domain/resolveCascade.js";
 import { weightedPick } from "../domain/weightedPick.js";
 import { judgeSubmissions, type JudgeSubmission } from "../freeform/judge.js";
 import {
@@ -67,9 +68,6 @@ export const FREEFORM_SAVE_FIELDS = {
 
 /** Truncate freeform answer text for the roster label to keep the footer scannable. */
 const ROSTER_LABEL_MAX_CHARS = 40;
-
-/** Built-in fallback when no freeformAnswerShape weights are configured. */
-const DEFAULT_FREEFORM_PICK: TriviaFreeformAnswerShape = "name";
 
 function truncate(text: string, max: number): string {
   if (text.length <= max) return text;
@@ -232,7 +230,7 @@ export const freeformAnswerHandler: AnswerTypeHandler = {
   getSavedQuestion(
     base: TriviaQuestionBase,
     args: SaveQuestionArgs,
-    _ctx: SaveValidationContext,
+    ctx: SaveValidationContext,
   ): GetSavedQuestionOutcome {
     if (args.expectedAnswer === undefined || args.expectedAnswer.trim().length === 0) {
       return {
@@ -280,6 +278,13 @@ export const freeformAnswerHandler: AnswerTypeHandler = {
           : {}),
         ...(args.gradingNotes !== undefined ? { gradingNotes: args.gradingNotes } : {}),
         freeformAnswerShape: args.freeformAnswerShape,
+        // Stamp the resolved judge-leniency so the reveal judge scores by the policy in
+        // effect when the question was posed. Only non-default is stored (absence reads
+        // as DEFAULT_JUDGE_LENIENCY). Freeform is the only judged format, so the stamp
+        // lives here, not in save_question.
+        ...(ctx.resolvedJudgeLeniency !== DEFAULT_JUDGE_LENIENCY
+          ? { judgeLeniency: ctx.resolvedJudgeLeniency }
+          : {}),
       },
     };
   },
@@ -289,14 +294,11 @@ export const freeformAnswerHandler: AnswerTypeHandler = {
   },
 
   rollGenerationSuggestions(deps: SuggestionRollDeps): Record<string, JsonValue> {
-    const weights = resolveFreeformAnswerShape(
-      deps.currentSeason,
-      deps.slotIndex,
-      deps.game,
-      deps.config,
-    );
-    const picked: TriviaFreeformAnswerShape = weightedPick(weights) ?? DEFAULT_FREEFORM_PICK;
-    return { suggestedFreeformAnswerShape: picked };
+    // `freeformAnswerShape` is freeform-specific, so the freeform handler owns the roll —
+    // but it resolves through the canonical `resolveCascade` (NOT a legacy per-axis
+    // resolver), so the rolled weights match what `explain_cascade` reports.
+    const weights = resolveCascade("freeformAnswerShape", deps.cascadeCtx).value;
+    return { suggestedFreeformAnswerShape: weightedPick(weights) ?? "name" };
   },
 
   buildHistoryResult(

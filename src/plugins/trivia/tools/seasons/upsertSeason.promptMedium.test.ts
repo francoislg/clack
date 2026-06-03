@@ -30,6 +30,7 @@ function makeArgs(overrides: Partial<UpsertArgs>): UpsertArgs {
     difficultyRatio: undefined,
     theme: undefined,
     format: undefined,
+    slotOverrides: undefined,
     liveAnswersVisible: undefined,
     revealResponses: undefined,
     instructions: undefined,
