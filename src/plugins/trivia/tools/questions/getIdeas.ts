@@ -248,16 +248,12 @@ export function createGetIdeasTool(
         ...(hintGuidance !== undefined ? { hintGuidance } : {}),
       };
 
-      // Per-format suggestion rolling lives in the handler. Boolean returns
-      // { suggestedAnswer }; choice returns { suggestedChoiceCount,
-      // suggestedCorrectIndex }; freeform returns { suggestedFreeformAnswerShape }.
+      // Per-format suggestion rolling lives in the handler: boolean returns
+      // { suggestedAnswer }; choice returns { suggestedChoiceCount, suggestedCorrectIndex };
+      // freeform returns { suggestedFreeformAnswerShape } resolved via resolveCascade. The
+      // handler receives the cascade context so it resolves cascade members canonically.
       const handler = getAnswerTypeHandler(pickedAnswersFormat);
-      const perFormat = handler.rollGenerationSuggestions({
-        config,
-        currentSeason: currentSeasonEntry,
-        slotIndex: slotIndexForResolution,
-        game: gameEntry,
-      });
+      const perFormat = handler.rollGenerationSuggestions({ cascadeCtx });
 
       return textResult({ ...base, ...perFormat });
     },

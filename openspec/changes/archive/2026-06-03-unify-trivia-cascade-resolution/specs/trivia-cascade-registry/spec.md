@@ -1,49 +1,4 @@
-# trivia-cascade-registry Specification
-
-## Purpose
-TBD - created by archiving change add-trivia-cascade-registry-and-explain. Update Purpose after archive.
-## Requirements
-### Requirement: Single CascadeAxes definition is the source of truth
-
-The Trivia plugin SHALL define every cascading axis exactly once in a `CascadeAxes` interface (`src/plugins/trivia/core/cascadeAxes.ts`). Every cascade tier type — `TriviaGame`, `SeasonEntry`, `SeasonFormatSlot`, and `TriviaConfig` (the workspace tier) — SHALL extend `CascadeAxes` so that all tiers share the identical axis field set keyed by `keyof CascadeAxes`.
-
-**Membership rule.** A field SHALL be a `CascadeAxes` member if and only if it resolves through the **per-question cascade** — i.e. it participates in the slot/season tiers, not merely game+workspace. The members are: the weighted axes (`answersFormat`, `questionType`, `promptMedium`, `freeformAnswerShape`, `contexts`, `difficulty`, `difficultyRatio`), the flat axes (`hint`, `judgeLeniency`), the string axes (`instructions`, `additionalInstructions`), and the post-time axes (`liveAnswersVisible`, `revealResponses`). Membership is independent of WHEN the axis is consumed: `liveAnswersVisible` and `revealResponses` are resolved at post time (`core/liveAnswersResolver.ts`, `core/revealResponsesResolver.ts`) but are 4-tier first-wins cascades and SHALL be members.
-
-`CascadeAxes` SHALL NOT contain:
-
-- plain identity fields (`name`, `channel`, cron expressions, `timezone`, `enabled`);
-- the **structural-special** cascading fields `format`, `categories`, and `theme`, which keep bespoke cascade semantics (slot composition, category-pool resolution, narrative-label resolution);
-- **`allTimeRow`**, which resolves only `game → workspace → default` and never touches the per-question (slot/season) tiers — by the membership rule it is a per-game setting, not a cascade axis;
-- **`choices`**, a workspace-only bound with no per-game/season/slot tier.
-
-All excluded fields are already audited via `list_games` / `list_seasons`. These exclusions are deliberate and enumerated so the boundary is explicit, not a silent gap. A member may be set at only a subset of the per-question tiers; absent tiers read as `undefined` and the generic walker skips them.
-
-#### Scenario: Every tier exposes the same axis keys
-
-- **WHEN** any cascade tier object is inspected for a cascading axis
-- **THEN** the axis is readable by the same `keyof CascadeAxes` key on every tier (`slot`, `season`, `game`, `workspace`)
-- **AND** a generic reader can obtain `tier[key]` without a per-axis accessor
-
-#### Scenario: Structural-special fields stay off CascadeAxes
-
-- **WHEN** `format`, `categories`, or `theme` is added or changed
-- **THEN** it is declared on the specific tier type, not on `CascadeAxes`, and its cascade audit remains in `list_games` / `list_seasons`
-
-### Requirement: Axis registry is compile-time exhaustive
-
-The plugin SHALL maintain a single `AXIS_REGISTRY` declared with `satisfies Record<keyof CascadeAxes, AxisDef>`. Each registry entry SHALL carry at minimum the axis `kind` (`"first-wins"` or `"custom"`) and its built-in `default` value. Adding a field to `CascadeAxes` without a corresponding `AXIS_REGISTRY` entry SHALL fail TypeScript compilation (`npx tsc`).
-
-#### Scenario: Forgetting a registry entry fails the build
-
-- **WHEN** a new axis field is added to `CascadeAxes` but no entry is added to `AXIS_REGISTRY`
-- **THEN** `npx tsc` reports a type error and the build fails
-- **AND** the failure names the missing axis key
-
-#### Scenario: Registry default preserves legacy behavior
-
-- **WHEN** an axis resolves with no value set at any tier
-- **THEN** the value returned is the registry entry's `default`
-- **AND** that default equals the pre-refactor built-in fallback for that axis
+## MODIFIED Requirements
 
 ### Requirement: Generic cascade resolver reports value and winning tier
 
@@ -135,50 +90,6 @@ The plugin SHALL resolve every cascade axis through `resolveCascade` and SHALL N
 - **WHEN** a new consumer needs a cascade axis value
 - **THEN** the only resolution function available to import is `resolveCascade` (no per-axis resolver exists to call)
 
-### Requirement: explain_cascade audit tool
-
-The plugin SHALL expose an `explain_cascade` MCP tool gated to the `member` role (matching `list_games`) on the always-on default server. It SHALL accept a required `game` argument, an optional `slot` argument (slot index within the effective format), and an optional `answersFormat` argument. For the resolved coordinate it SHALL return, for every axis in `AXIS_REGISTRY`, the final resolved `value`, the winning `tier`, and the per-tier `ladder`. For the `answersFormat`-dependent axes (`difficulty`, `difficultyRatio`), the tool SHALL render their resolution for every `answersFormat` value by default, or for the single supplied `answersFormat` when the argument is given. The tool's descriptions and results SHALL remain English (VIA-CLAUDE path).
-
-#### Scenario: Explain at slot level
-
-- **WHEN** a `member`+ user calls `explain_cascade({ game: "x", slot: 0 })`
-- **THEN** the response includes, for each registry axis, its resolved `value`, winning `tier`, and per-tier `ladder` for slot 0 of game `x`
-
-#### Scenario: Explain at game level with an active format returns every slot
-
-- **WHEN** a `member`+ user calls `explain_cascade({ game: "x" })` (no `slot`) and an effective format is present (from the active season or the game)
-- **THEN** the tool returns one axis-resolution set per slot in the effective format
-
-#### Scenario: Explain at game level with no format
-
-- **WHEN** a `member`+ user calls `explain_cascade({ game: "x" })` (no `slot`) and there is no effective format
-- **THEN** the tool resolves the single-question coordinate (slot index `null`) and returns one axis-resolution set
-
-#### Scenario: Seasons disabled
-
-- **WHEN** `explain_cascade` runs while `trivia.seasons.enabled` is `false`
-- **THEN** the season tier contributes no value (its `ladder` entry is `undefined`) for every axis, and resolution proceeds through the remaining tiers
-
-#### Scenario: Unknown game is rejected
-
-- **WHEN** `explain_cascade` is called with a `game` not present in `config.trivia.games[]`
-- **THEN** the tool returns a structured error naming the unknown game (via the same `requireGame` validation used by other per-game tools)
-
-#### Scenario: Slot out of range is rejected
-
-- **WHEN** `explain_cascade` is called with a `slot` index outside the effective format's range
-- **THEN** the tool returns an error naming the tier that defines the format and its slot count
-
-### Requirement: Parser axis set matches CascadeAxes
-
-The config parser's accepted cascading-axis key set SHALL be tied to `keyof CascadeAxes` via a structural parity test. The plugin parses `CascadeAxes` members through more than one path — the weighted axes flow through `parseTriviaAxisBag`, while the flat axes (`hint`, `judgeLeniency`) and string axes (`instructions`, `additionalInstructions`) are parsed directly in `parseTriviaGames` / season / workspace parsing. The parity test SHALL assert that the **union** of all `CascadeAxes`-member keys the parser accepts (across every parse path) equals `keyof CascadeAxes`, so a member cannot be added to a tier without also being parseable and registry-listed, regardless of which parse path handles it.
-
-#### Scenario: Parser parity is asserted across all parse paths
-
-- **WHEN** the test suite runs
-- **THEN** a structural test asserts the union of parser-accepted axis keys (weighted bag + directly-parsed flat/string axes) equals `keyof CascadeAxes`
-- **AND** the test fails if an axis exists on `CascadeAxes` that no parse path accepts
-
 ### Requirement: Resolution outcomes follow the game-base / season-override model
 
 The cascade SHALL resolve the slot tier as **game-base, season-override**: a game's `format` slot is the authoritative per-question base, and a season layers sparse overrides on top (`seasonSlot` wins over `gameSlot`). A game-format slot's axis overrides SHALL take effect during generation (`get_ideas`) and validation (`save_question`) whether or not a season is active. Characterization tests over a representative matrix (seasons on/off, game format present/absent, season overrides present/absent, overrides at each tier) SHALL assert this model and SHALL include the previously-broken case: a game-format slot with overrides and NO active season resolves to the game slot's values, not the registry defaults.
@@ -206,4 +117,3 @@ The project's `CLAUDE.md` "Trivia cascade registry" section SHALL document the c
 - **WHEN** `CLAUDE.md`'s trivia cascade section is read after this change ships
 - **THEN** it states the 6-tier walk and the game-base/season-override model
 - **AND** it does not describe a single merged `slot` tier sourced from `resolveEffectiveFormat`
-

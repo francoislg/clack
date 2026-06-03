@@ -1,6 +1,7 @@
 import type { KnownBlock } from "@slack/types";
 import type {
   SeasonFormat,
+  SeasonFormatSlot,
   TriviaFreeformAnswerShape,
   JudgeLeniency,
   RevealResponsesMode,
@@ -261,9 +262,19 @@ export interface SeasonEntry extends CascadeAxes {
   categories?: string[];
   /**
    * Optional per-season question composition. Mid-season mutation is permitted —
-   * changes take effect on the next question-cron fire.
+   * changes take effect on the next question-cron fire. Mutually exclusive with
+   * `slotOverrides` (enforced at parse time): a season either declares its own
+   * structure (`format`, which changes the question count) OR layers sparse,
+   * count-decoupled per-slot overrides (`slotOverrides`), not both.
    */
   format?: SeasonFormat;
+  /**
+   * Optional sparse per-slot overrides keyed by game-format slot index. Each value
+   * is a partial bag of cascade axes that overrides `game.format.questions[index]`
+   * field-by-field (the `seasonSlot` tier). Count-decoupled — never changes how many
+   * questions a fire posts. Mutually exclusive with `format`.
+   */
+  slotOverrides?: Record<number, SeasonFormatSlot>;
   // The per-season tier of every cascading axis (answersFormat, questionType,
   // promptMedium, freeformAnswerShape, contexts, difficulty, difficultyRatio,
   // instructions, additionalInstructions, liveAnswersVisible, revealResponses, hint,

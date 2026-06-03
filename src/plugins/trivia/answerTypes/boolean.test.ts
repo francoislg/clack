@@ -250,7 +250,7 @@ describe("booleanAnswerHandler", () => {
           isTrue: true,
           emojis: ["⚡"],
         },
-        { config: null },
+        { config: null, resolvedJudgeLeniency: "strict-with-typos" },
       );
       assert.equal(out.ok, true);
       if (out.ok) {
@@ -270,7 +270,7 @@ describe("booleanAnswerHandler", () => {
           statement: "S",
           emojis: ["⚡"],
         },
-        { config: null },
+        { config: null, resolvedJudgeLeniency: "strict-with-typos" },
       );
       assert.equal(out.ok, false);
       if (!out.ok) assert.match(out.error, /isTrue/);
@@ -284,16 +284,13 @@ describe("booleanAnswerHandler", () => {
   describe("rollGenerationSuggestions", () => {
     it("returns a boolean suggestedAnswer", () => {
       const out = booleanAnswerHandler.rollGenerationSuggestions({
-        config: null,
-        currentSeason: null,
-        slotIndex: null,
-        game: {
-          name: "main",
-          channel: "C",
-          questionCron: "0 9 * * *",
-          revealCron: "0 17 * * *",
-          timezone: "UTC",
-          enabled: true,
+        cascadeCtx: {
+          seasonSlot: null,
+          gameSlot: null,
+          slotIndex: null,
+          season: null,
+          game: null,
+          config: null,
         },
       });
       assert.equal(typeof out.suggestedAnswer, "boolean");

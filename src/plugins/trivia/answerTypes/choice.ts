@@ -223,7 +223,7 @@ export const choiceAnswerHandler: ClickableAnswerHandler = {
   },
 
   rollGenerationSuggestions(deps: SuggestionRollDeps): Record<string, JsonValue> {
-    const bounds = getActiveChoiceBounds(deps.config);
+    const bounds = getActiveChoiceBounds(deps.cascadeCtx.config);
     const suggestedChoiceCount = randomIntInclusive(bounds.min, bounds.max);
     const suggestedCorrectIndex = randomIntInclusive(0, suggestedChoiceCount - 1);
     return { suggestedChoiceCount, suggestedCorrectIndex };

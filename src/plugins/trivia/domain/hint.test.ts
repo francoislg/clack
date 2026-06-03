@@ -1,94 +1,6 @@
 import { describe, it } from "vitest";
 import assert from "node:assert/strict";
-import { difficultyMeetsThreshold, resolveHintConfig } from "./hint.js";
-import type { SeasonEntry } from "../core/types.js";
-import type { TriviaConfig, TriviaGame, TriviaHintConfig } from "../core/configTypes.js";
-
-const baseGame: TriviaGame = {
-  name: "main",
-  channel: "C1",
-  questionCron: "0 9 * * 1-5",
-  revealCron: "0 15 * * 1-5",
-  timezone: "America/Montreal",
-};
-
-const baseSeason: SeasonEntry = {
-  slug: "s1",
-  startedAt: 0,
-  expectedEndAt: 1,
-};
-
-const baseWorkspace: TriviaConfig = {};
-
-const BUTTON: TriviaHintConfig = { mode: "button" };
-const INLINE: TriviaHintConfig = { mode: "inline" };
-const NONE: TriviaHintConfig = { mode: "none" };
-const INLINE_HARD: TriviaHintConfig = { mode: "inline", minDifficulty: "hard" };
-
-describe("resolveHintConfig", () => {
-  it("falls through to { mode: 'none' } when no tier is set", () => {
-    assert.deepEqual(resolveHintConfig(null, null, null, null), NONE);
-    assert.deepEqual(resolveHintConfig(null, baseSeason, baseGame, baseWorkspace), NONE);
-  });
-
-  it("workspace tier wins when game/season unset", () => {
-    assert.deepEqual(
-      resolveHintConfig(null, baseSeason, baseGame, { ...baseWorkspace, hint: BUTTON }),
-      BUTTON,
-    );
-  });
-
-  it("game tier wins over workspace", () => {
-    assert.deepEqual(
-      resolveHintConfig(
-        null,
-        baseSeason,
-        { ...baseGame, hint: INLINE_HARD },
-        { ...baseWorkspace, hint: BUTTON },
-      ),
-      INLINE_HARD,
-    );
-  });
-
-  it("season tier wins over game and workspace", () => {
-    assert.deepEqual(
-      resolveHintConfig(
-        null,
-        { ...baseSeason, hint: INLINE },
-        { ...baseGame, hint: BUTTON },
-        { ...baseWorkspace, hint: BUTTON },
-      ),
-      INLINE,
-    );
-  });
-
-  it("slot tier wins when slotIndex matches a slot with hint", () => {
-    const season: SeasonEntry = {
-      ...baseSeason,
-      hint: BUTTON,
-      format: { questions: [{}, { hint: INLINE_HARD }] },
-    };
-    assert.deepEqual(resolveHintConfig(1, season, baseGame, baseWorkspace), INLINE_HARD);
-  });
-
-  it("falls back to season when slot exists but has no hint", () => {
-    const season: SeasonEntry = {
-      ...baseSeason,
-      hint: BUTTON,
-      format: { questions: [{}] },
-    };
-    assert.deepEqual(resolveHintConfig(0, season, baseGame, baseWorkspace), BUTTON);
-  });
-
-  it("ignores slot tier when slotIndex is null", () => {
-    const season: SeasonEntry = {
-      ...baseSeason,
-      hint: BUTTON,
-      format: { questions: [{ hint: INLINE_HARD }] },
-    };
-    assert.deepEqual(resolveHintConfig(null, season, baseGame, baseWorkspace), BUTTON);
-  });
-});
+import { difficultyMeetsThreshold, effectiveHintMode } from "./hint.js";
 
 describe("difficultyMeetsThreshold", () => {
   it("easy threshold passes for every bucket", () => {
@@ -107,5 +19,29 @@ describe("difficultyMeetsThreshold", () => {
     assert.equal(difficultyMeetsThreshold("easy", "hard"), false);
     assert.equal(difficultyMeetsThreshold("medium", "hard"), false);
     assert.equal(difficultyMeetsThreshold("hard", "hard"), true);
+  });
+});
+
+describe("effectiveHintMode", () => {
+  it("mode none stays none regardless of difficulty", () => {
+    assert.equal(effectiveHintMode({ mode: "none" }, "hard"), "none");
+  });
+
+  it("returns the configured mode when no minDifficulty is set", () => {
+    assert.equal(effectiveHintMode({ mode: "button" }, "easy"), "button");
+    assert.equal(effectiveHintMode({ mode: "inline" }, "hard"), "inline");
+  });
+
+  it("forces none when the rolled difficulty is below minDifficulty", () => {
+    assert.equal(effectiveHintMode({ mode: "button", minDifficulty: "hard" }, "easy"), "none");
+    assert.equal(effectiveHintMode({ mode: "inline", minDifficulty: "medium" }, "easy"), "none");
+  });
+
+  it("keeps the mode when the rolled difficulty meets minDifficulty", () => {
+    assert.equal(
+      effectiveHintMode({ mode: "button", minDifficulty: "medium" }, "medium"),
+      "button",
+    );
+    assert.equal(effectiveHintMode({ mode: "inline", minDifficulty: "easy" }, "hard"), "inline");
   });
 });

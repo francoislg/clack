@@ -69,29 +69,44 @@ export interface CascadeAxes {
  * axes (`difficulty` per-field merge, `additionalInstructions` cumulative concat)
  * when the result spans more than one tier.
  */
-export type CascadeTier = "slot" | "season" | "game" | "workspace" | "default" | "merged";
+export type CascadeTier =
+  | "seasonSlot"
+  | "season"
+  | "gameSlot"
+  | "game"
+  | "workspace"
+  | "default"
+  | "merged";
 
-/** The four concrete tiers a value can be read from, in precedence order. */
-export type ConcreteTier = "slot" | "season" | "game" | "workspace";
+/** The five concrete tiers a value can be read from, in precedence order. */
+export type ConcreteTier = "seasonSlot" | "season" | "gameSlot" | "game" | "workspace";
 export const CASCADE_TIER_ORDER: readonly ConcreteTier[] = [
-  "slot",
+  "seasonSlot",
   "season",
+  "gameSlot",
   "game",
   "workspace",
 ] as const;
 
 /**
- * The resolution context: one object per tier. `slot` is the season-format slot
- * (`currentSeason.format.questions[slotIndex]`) — NOT a game-format slot, matching
- * the legacy resolvers, which only read per-slot overrides from the season's format.
- * Every tier object extends `CascadeAxes`, so the walker reads `ctx.slot?.[key]` etc.
+ * The resolution context: one object per tier, under the GAME-BASE / SEASON-OVERRIDE
+ * model. The slot tier is split into two concrete tiers:
  *
- * `slotIndex` is carried alongside the resolved `slot` so the custom resolvers
- * (`difficulty`, `difficultyRatio`, `additionalInstructions`) can delegate to their
- * existing positional resolvers verbatim — guaranteeing byte-identical values.
+ *   - `gameSlot` — the game format's slot (`game.format.questions[slotIndex]`), the
+ *     authoritative per-question BASE.
+ *   - `seasonSlot` — the season's per-slot OVERRIDE for the same index, which wins over
+ *     the game slot. It is sourced (by `buildCascadeContext`) from `season.slotOverrides`
+ *     or, when the season declares its own structural `format`, from that format's slot.
+ *
+ * Every tier object extends `CascadeAxes`, so the walker reads `ctx.seasonSlot?.[key]`,
+ * `ctx.gameSlot?.[key]`, etc. Neither slot is re-derived from `season.format` inside a
+ * resolver — `buildCascadeContext` is the single place that decides slot sourcing.
+ *
+ * `slotIndex` is carried for the `additionalInstructions` tier labels (`[Slot N]`).
  */
 export interface CascadeContext {
-  slot: SeasonFormatSlot | null;
+  seasonSlot: SeasonFormatSlot | null;
+  gameSlot: SeasonFormatSlot | null;
   slotIndex: number | null;
   season: SeasonEntry | null;
   game: TriviaGame | null;

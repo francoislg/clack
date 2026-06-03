@@ -20,10 +20,10 @@
 
 import type { SlackBlocks } from "../../../slack/blocks.js";
 import type { ClackSdk } from "../../sdk.js";
-import type { JsonValue, TriviaConfig, TriviaGame } from "../core/configTypes.js";
+import type { JsonValue, JudgeLeniency, TriviaConfig } from "../core/configTypes.js";
+import type { CascadeContext } from "../core/cascadeAxes.js";
 import type {
   ScopedTriviaDataLayer,
-  SeasonEntry,
   SubmittedAnswer,
   TriviaDataLayer,
   TriviaQuestion,
@@ -127,18 +127,25 @@ export type TriviaQuestionBase = Omit<
  */
 export interface SaveValidationContext {
   config: TriviaConfig | null;
+  /**
+   * The cascade-resolved `judgeLeniency` for this coordinate. Handlers that judge
+   * answers (freeform) stamp it on the record when it differs from the default; handlers
+   * that don't (boolean/choice) ignore it. Resolved once by `save_question` via
+   * `resolveCascade` and handed down so format-specific stamping stays in the handler.
+   */
+  resolvedJudgeLeniency: JudgeLeniency;
 }
 
 /**
- * Per-format suggestion-roll dependencies. The handler reads what it needs
- * (e.g. freeform reads the active `freeformAnswerShape` weights through the
- * cascade; choice reads the active choice bounds).
+ * Per-format suggestion-roll dependencies: the full cascade context. A handler rolls its
+ * own per-format suggestions — boolean a coin-flip, choice count/index from the
+ * workspace-only choice bounds (`cascadeCtx.config`), freeform the `freeformAnswerShape`.
+ * Cascade-member axes (e.g. `freeformAnswerShape`) MUST be resolved through
+ * `resolveCascade(key, cascadeCtx)`, never a legacy per-axis resolver, so a handler's roll
+ * and `explain_cascade` agree.
  */
 export interface SuggestionRollDeps {
-  config: TriviaConfig | null;
-  currentSeason: SeasonEntry | null;
-  slotIndex: number | null;
-  game: TriviaGame;
+  cascadeCtx: CascadeContext;
 }
 
 /**

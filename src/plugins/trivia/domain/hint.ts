@@ -1,30 +1,4 @@
-import type { SeasonEntry } from "../core/types.js";
-import type { TriviaConfig, TriviaGame, TriviaHintConfig } from "../core/configTypes.js";
-
-/**
- * Pure resolver for the `hint` axis. Cascade:
- *   `season.format.questions[slotIndex].hint → season.hint → game.hint →
- *    workspace.hint → { mode: "none" }`.
- *
- * Whole-object replace per tier (no field-level merging). The first tier that
- * supplies a `hint` value wins. When no tier supplies one, returns the
- * built-in default `{ mode: "none" }`.
- */
-export function resolveHintConfig(
-  slotIndex: number | null,
-  currentSeason: SeasonEntry | null,
-  game: TriviaGame | null,
-  workspace: TriviaConfig | null,
-): TriviaHintConfig {
-  if (slotIndex !== null && currentSeason?.format) {
-    const slot = currentSeason.format.questions[slotIndex];
-    if (slot?.hint !== undefined) return slot.hint;
-  }
-  if (currentSeason?.hint !== undefined) return currentSeason.hint;
-  if (game?.hint !== undefined) return game.hint;
-  if (workspace?.hint !== undefined) return workspace.hint;
-  return { mode: "none" };
-}
+import type { TriviaHintConfig } from "../core/configTypes.js";
 
 const BUCKET_ORDER: Record<"easy" | "medium" | "hard", number> = {
   easy: 0,
