@@ -140,7 +140,7 @@ export interface CronJob {
   attachedTopics?: string[];
   /**
    * Recent execution history (most recent last). Capped by
-   * `config.scheduledMessagesMaxRunHistory` (default 50); older entries are
+   * `config.cron.maxRunHistory` (default 50); older entries are
    * dropped from the front when {@link updateJobRunStatus} records a new run.
    */
   runs?: CronRun[];

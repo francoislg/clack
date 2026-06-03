@@ -38,7 +38,17 @@ import type { ReactionDelivery } from "../../userPreferences.js";
 import { toggleJob, deleteJob, getJob, updateJob } from "../../cronJobs.js";
 import { runJobNow } from "../../cronScheduler.js";
 import { openDmChannel } from "../channelResolver.js";
+import { getUserInfo } from "../userCache.js";
 import { CronExpressionParser } from "cron-parser";
+
+// Some BlockAction variants carry the surrounding view; read its id without unsafe casts.
+function viewIdFromBody(body: object): string | undefined {
+  if (!("view" in body)) return undefined;
+  const view = body.view;
+  if (typeof view !== "object" || view === null || !("id" in view)) return undefined;
+  const id = view.id;
+  return typeof id === "string" ? id : undefined;
+}
 
 // ============================================================================
 // Dependency Injection
@@ -738,7 +748,7 @@ export function registerHomeTabHandler(app: App, deps: HomeTabDeps = defaultHome
       const updated = await deps.toggleRule(ruleId);
       // Refresh the modal to reflect the new state
       if (updated) {
-        const viewId = (body as unknown as { view?: { id: string } }).view?.id;
+        const viewId = viewIdFromBody(body);
         if (viewId) {
           await client.views.update({
             view_id: viewId,
@@ -917,9 +927,10 @@ export function registerHomeTabHandler(app: App, deps: HomeTabDeps = defaultHome
       const jobId = (action as { action_id: string }).action_id.split(":")[1];
       const job = await deps.getJob(jobId);
       if (!job) return;
+      const viewerTz = (await getUserInfo(client, body.user.id))?.tz;
       await client.views.open({
         trigger_id: body.trigger_id,
-        view: deps.buildCronJobModal(job),
+        view: deps.buildCronJobModal(job, viewerTz),
       });
     } catch (error) {
       logger.error("Failed to open edit cron job modal:", error);
@@ -933,11 +944,12 @@ export function registerHomeTabHandler(app: App, deps: HomeTabDeps = defaultHome
       const jobId = (action as { action_id: string }).action_id.split(":")[1];
       const updated = await deps.toggleJob(jobId);
       if (updated) {
-        const viewId = (body as unknown as { view?: { id: string } }).view?.id;
+        const viewId = viewIdFromBody(body);
         if (viewId) {
+          const viewerTz = (await getUserInfo(client, body.user.id))?.tz;
           await client.views.update({
             view_id: viewId,
-            view: deps.buildCronJobModal(updated),
+            view: deps.buildCronJobModal(updated, viewerTz),
           });
         }
       }

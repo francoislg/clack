@@ -106,3 +106,31 @@ describe("humanReadableSchedule", () => {
     assert.equal(result, "invalid");
   });
 });
+
+describe("humanReadableSchedule viewer-relative timezone", () => {
+  it("appends the abbreviation when no viewer timezone is given", () => {
+    const result = humanReadableSchedule("0 9 * * *", "UTC");
+    assert.match(result, /UTC/);
+  });
+
+  it("omits the abbreviation when the job zone matches the viewer zone", () => {
+    const result = humanReadableSchedule("0 9 * * *", "UTC", "UTC");
+    assert.equal(result, "Every day at 9:00 AM");
+  });
+
+  it("shows the abbreviation when the job zone differs from the viewer zone", () => {
+    const result = humanReadableSchedule("0 9 * * *", "UTC", "America/New_York");
+    assert.match(result, /UTC/);
+  });
+
+  it("treats equivalent zones (same abbreviation) as matching", () => {
+    // America/New_York and America/Montreal share an abbreviation at any instant.
+    const result = humanReadableSchedule("0 9 * * *", "America/New_York", "America/Montreal");
+    assert.equal(result, "Every day at 9:00 AM");
+  });
+
+  it("falls back to showing the abbreviation when the viewer zone is invalid", () => {
+    const result = humanReadableSchedule("0 9 * * *", "UTC", "Not/AZone");
+    assert.match(result, /UTC/);
+  });
+});

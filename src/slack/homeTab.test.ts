@@ -55,7 +55,9 @@ const mockGetLoadedClackPlugins = vi.fn<() => ClackPluginSummary[]>();
 const mockGetRules = vi.fn<() => Promise<AutoRespondRule[]>>();
 const mockGetJobs = vi.fn<() => Promise<CronJob[]>>();
 const mockGetJobsByUser = vi.fn<(userId: string) => Promise<CronJob[]>>();
-const mockHumanReadableSchedule = vi.fn<(cronExpression: string, timezone: string) => string>();
+const mockGetUserTimezone = vi.fn<(userId: string) => Promise<string | undefined>>();
+const mockHumanReadableSchedule =
+  vi.fn<(cronExpression: string, timezone: string, viewerTimezone?: string) => string>();
 
 function makeDeps(): HomeTabDeps {
   return {
@@ -80,6 +82,7 @@ function makeDeps(): HomeTabDeps {
     getRules: mockGetRules,
     getJobs: mockGetJobs,
     getJobsByUser: mockGetJobsByUser,
+    getUserTimezone: mockGetUserTimezone,
     humanReadableSchedule: mockHumanReadableSchedule,
     getWorkerPoolSnapshot: () => ({ reusable: false, byRepo: [] }),
   };
@@ -173,6 +176,7 @@ function resetAllMocks() {
   mockGetRules.mockClear();
   mockGetJobs.mockClear();
   mockGetJobsByUser.mockClear();
+  mockGetUserTimezone.mockClear();
   mockHumanReadableSchedule.mockClear();
 }
 
@@ -206,6 +210,7 @@ function setDefaultMocks(role: UserRole = "member") {
   mockGetRules.mockImplementation(async () => []);
   mockGetJobs.mockImplementation(async () => []);
   mockGetJobsByUser.mockImplementation(async () => []);
+  mockGetUserTimezone.mockImplementation(async () => undefined);
   mockHumanReadableSchedule.mockImplementation(() => "Every day at 9:00 AM");
 }
 
@@ -1445,6 +1450,36 @@ describe("buildHomeView — Scheduled Messages skipConditions", () => {
     assert.ok(
       !texts.some((t) => t.includes("Skip conditions:") || t.includes("Skip on weekends")),
       "skipConditions should only be visible inside the edit modal, not as a row label",
+    );
+  });
+
+  it("passes the viewer's timezone to humanReadableSchedule", async () => {
+    setDefaultMocks("member");
+    mockGetJobsByUser.mockImplementation(async () => [baseJob()]);
+    mockGetUserTimezone.mockImplementation(async () => "America/Montreal");
+
+    const deps = makeDeps();
+    await buildHomeView({ userId: "U001" }, deps);
+
+    assert.ok(
+      mockHumanReadableSchedule.mock.calls.some(
+        (call) => call[1] === "UTC" && call[2] === "America/Montreal",
+      ),
+      "humanReadableSchedule should receive the viewer's timezone as the third argument",
+    );
+  });
+
+  it("passes undefined viewer timezone through when the viewer has none", async () => {
+    setDefaultMocks("member");
+    mockGetJobsByUser.mockImplementation(async () => [baseJob()]);
+    mockGetUserTimezone.mockImplementation(async () => undefined);
+
+    const deps = makeDeps();
+    await buildHomeView({ userId: "U001" }, deps);
+
+    assert.ok(
+      mockHumanReadableSchedule.mock.calls.every((call) => call[2] === undefined),
+      "humanReadableSchedule should receive undefined when the viewer has no timezone",
     );
   });
 
