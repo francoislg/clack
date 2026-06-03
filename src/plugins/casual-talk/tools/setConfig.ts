@@ -30,6 +30,7 @@ export function createSetConfigTool(sdk: ClackSdk) {
       expectedRate: z.enum(["hourly", "2-per-day", "daily", "2-per-week", "weekly"]),
       die: z.number().int().optional(),
       smallTalkTopics: z.array(z.string()),
+      useBuiltinFallbackTopics: z.boolean().optional(),
     },
     async (args) => {
       const result = casualTalkConfigSchema.safeParse(args);

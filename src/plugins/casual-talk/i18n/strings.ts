@@ -24,6 +24,10 @@ export const en: Record<string, string> = {
   disabled: "Casual-talk disabled.",
   already_enabled: "Casual-talk is already enabled.",
   already_disabled: "Casual-talk is already disabled.",
+  builtin_fallback_on: "Built-in fallback topics enabled.",
+  builtin_fallback_off: "Built-in fallback topics disabled.",
+  builtin_fallback_already_on: "Built-in fallback topics were already enabled — no change.",
+  builtin_fallback_already_off: "Built-in fallback topics were already disabled — no change.",
 
   // Validation errors
   validation_failed: "Configuration validation failed: {message}",
@@ -48,5 +52,11 @@ export const fr: Record<string, string> = {
   disabled: "Casual-talk désactivé.",
   already_enabled: "Casual-talk est déjà activé.",
   already_disabled: "Casual-talk est déjà désactivé.",
+  builtin_fallback_on: "Sujets de réserve intégrés activés.",
+  builtin_fallback_off: "Sujets de réserve intégrés désactivés.",
+  builtin_fallback_already_on:
+    "Les sujets de réserve intégrés étaient déjà activés — aucun changement.",
+  builtin_fallback_already_off:
+    "Les sujets de réserve intégrés étaient déjà désactivés — aucun changement.",
   validation_failed: "Échec de la validation de la configuration : {message}",
 };

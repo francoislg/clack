@@ -16,7 +16,11 @@ import {
 import { createAddSmallTalkTopicTool, createRemoveSmallTalkTopicTool } from "./topics.js";
 import { createSetExpectedRateTool } from "./rate.js";
 import { createSetWorkHoursTool } from "./workHours.js";
-import { createEnableTool, createDisableTool } from "./toggle.js";
+import {
+  createEnableTool,
+  createDisableTool,
+  createToggleBuiltinFallbackTopicsTool,
+} from "./toggle.js";
 
 async function* emptyClackQuery(): AsyncGenerator<SDKMessage, void, void> {}
 
@@ -113,6 +117,7 @@ describe("casual-talk admin tools", () => {
         expectedRate: "weekly" as const,
         die: undefined,
         smallTalkTopics: ["food"],
+        useBuiltinFallbackTopics: undefined,
       });
 
       assert.equal(parsed.ok, true);
@@ -120,6 +125,42 @@ describe("casual-talk admin tools", () => {
       const persisted = await loadConfig(sdk);
       assert.equal(persisted.expectedRate, "weekly");
       assert.equal(persisted.channels[0], "C123");
+    });
+
+    it("persists useBuiltinFallbackTopics when supplied", async () => {
+      const { sdk } = buildSdk(tempDir);
+      const tool = createSetConfigTool(sdk);
+
+      await invoke(tool, {
+        enabled: true,
+        channels: ["C123"],
+        workHours: { start: 9, end: 16, tz: "UTC", days: [1, 2, 3, 4, 5] },
+        expectedRate: "daily" as const,
+        die: undefined,
+        smallTalkTopics: [],
+        useBuiltinFallbackTopics: false,
+      });
+
+      const persisted = await loadConfig(sdk);
+      assert.equal(persisted.useBuiltinFallbackTopics, false);
+    });
+
+    it("defaults useBuiltinFallbackTopics to true when omitted", async () => {
+      const { sdk } = buildSdk(tempDir);
+      const tool = createSetConfigTool(sdk);
+
+      await invoke(tool, {
+        enabled: true,
+        channels: ["C123"],
+        workHours: { start: 9, end: 16, tz: "UTC", days: [1, 2, 3, 4, 5] },
+        expectedRate: "daily" as const,
+        die: undefined,
+        smallTalkTopics: [],
+        useBuiltinFallbackTopics: undefined,
+      });
+
+      const persisted = await loadConfig(sdk);
+      assert.equal(persisted.useBuiltinFallbackTopics, true);
     });
 
     it("rejects invalid config without triggering soft restart", async () => {
@@ -133,6 +174,7 @@ describe("casual-talk admin tools", () => {
         expectedRate: "daily" as const,
         die: undefined,
         smallTalkTopics: [],
+        useBuiltinFallbackTopics: undefined,
       });
 
       assert.equal(raw.isError, true);
@@ -381,6 +423,34 @@ describe("casual-talk admin tools", () => {
 
       await invoke(tool, {});
       assert.equal(restartCalls.length, 0, "no restart on already-disabled");
+    });
+  });
+
+  describe("toggle_builtin_fallback_topics (idempotent)", () => {
+    it("flips on → off and triggers restart", async () => {
+      const { sdk, restartCalls } = buildSdk(tempDir);
+      await saveConfig(sdk, { ...DEFAULT_CONFIG, useBuiltinFallbackTopics: true });
+      const tool = createToggleBuiltinFallbackTopicsTool(sdk);
+
+      const { parsed } = await invoke(tool, { enabled: false });
+      assert.equal(parsed.ok, true);
+      assert.equal(restartCalls.length, 1);
+
+      const config = await loadConfig(sdk);
+      assert.equal(config.useBuiltinFallbackTopics, false);
+    });
+
+    it("setting on when already on is no-op (no restart)", async () => {
+      const { sdk, restartCalls } = buildSdk(tempDir);
+      await saveConfig(sdk, { ...DEFAULT_CONFIG, useBuiltinFallbackTopics: true });
+      const tool = createToggleBuiltinFallbackTopicsTool(sdk);
+
+      const { parsed } = await invoke(tool, { enabled: true });
+      assert.equal(parsed.ok, true);
+      assert.equal(restartCalls.length, 0, "no restart when already in requested state");
+
+      const config = await loadConfig(sdk);
+      assert.equal(config.useBuiltinFallbackTopics, true);
     });
   });
 });

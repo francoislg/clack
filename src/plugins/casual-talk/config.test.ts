@@ -19,6 +19,18 @@ describe("casual-talk config schema", () => {
     assert.ok(result.success);
   });
 
+  it("defaults useBuiltinFallbackTopics to true when the field is absent", () => {
+    const result = casualTalkConfigSchema.safeParse({
+      enabled: true,
+      channels: ["C123"],
+      workHours: { start: 9, end: 16, tz: "UTC", days: [1, 2, 3, 4, 5] },
+      expectedRate: "daily",
+      smallTalkTopics: [],
+    });
+    assert.ok(result.success);
+    assert.equal(result.data?.useBuiltinFallbackTopics, true);
+  });
+
   it("accepts a channel entry with promptSuggestion", () => {
     const result = casualTalkConfigSchema.safeParse({
       enabled: true,

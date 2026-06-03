@@ -2,6 +2,7 @@ import type { ClackSdk, ClackPlugin, CronJobSpec } from "../sdk.js";
 import { loadConfig } from "./config.js";
 import { buildCronExpression, rateLabel, resolveDie } from "./heuristic.js";
 import { buildPrompt } from "./prompt.js";
+import { resolveFallbackTopics } from "./fallbackTopics.js";
 import { PERSONA_CONTENT } from "./persona.js";
 import { en as casualTalkEn, fr as casualTalkFr } from "./i18n/strings.js";
 import { createSetConfigTool } from "./tools/setConfig.js";
@@ -13,7 +14,11 @@ import {
 import { createAddSmallTalkTopicTool, createRemoveSmallTalkTopicTool } from "./tools/topics.js";
 import { createSetExpectedRateTool } from "./tools/rate.js";
 import { createSetWorkHoursTool } from "./tools/workHours.js";
-import { createEnableTool, createDisableTool } from "./tools/toggle.js";
+import {
+  createEnableTool,
+  createDisableTool,
+  createToggleBuiltinFallbackTopicsTool,
+} from "./tools/toggle.js";
 
 const MANAGEMENT_DESCRIPTION =
   "Manage the casual-talk plugin: candidate channels, small-talk topics, chattiness rate, work hours, and the enabled flag. Tools here mutate `data/plugins/casual-talk/config.json` and trigger a soft restart so changes take effect immediately.";
@@ -68,6 +73,11 @@ export const casualTalkPlugin: ClackPlugin = async (sdk: ClackSdk) => {
   management.registerTool("admin", createSetWorkHoursTool(sdk), "Updating casual-talk work hours");
   management.registerTool("admin", createEnableTool(sdk), "Enabling casual-talk");
   management.registerTool("admin", createDisableTool(sdk), "Disabling casual-talk");
+  management.registerTool(
+    "admin",
+    createToggleBuiltinFallbackTopicsTool(sdk),
+    "Toggling built-in fallback topics — {enabled}",
+  );
 
   // Load config and reconcile the cron spec. If config is invalid, `loadConfig` throws
   // and the harness catches it via the synthesizeErrorResult path — the plugin shows up
@@ -90,7 +100,7 @@ export const casualTalkPlugin: ClackPlugin = async (sdk: ClackSdk) => {
       die,
       rateLabel: rateLabel(config.expectedRate, die),
       channels: config.channels,
-      smallTalkTopics: config.smallTalkTopics,
+      smallTalkTopics: resolveFallbackTopics(config),
     });
     specs.push({
       specKey: "chatter",
