@@ -133,6 +133,9 @@ export function installTellMeMoreHandler(
       channel,
       threadTs: ts,
       userId,
+      // "Tell me more" is an explicit invitation to dig in — follow the thread eagerly so
+      // follow-up questions get answered without a conservative relevance gate.
+      attentionLevel: "high",
       prompt:
         "Tell me more about this trivia question and its answer — share some genuinely interesting details.",
       additionalSystemPrompt: [

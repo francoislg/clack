@@ -2,6 +2,7 @@ import { describe, it, beforeEach, vi } from "vitest";
 import assert from "node:assert/strict";
 import { z } from "zod";
 import type { IntentStore, ResponseCapture, ToolCallRecorder } from "../server.js";
+import type { AttentionLevel } from "../../sessions.js";
 import type { StagedIntent, ResponseSnapshot } from "../types.js";
 import { parseToolResult, toolResultText } from "../testHelpers.js";
 import {
@@ -50,7 +51,7 @@ function makeDeps(
     ) => Promise<void>;
     allowSkip: boolean;
     submitResponseMode: "always" | "optional" | "skipped";
-    allowDisengage: boolean;
+    allowAttentionLevel: boolean;
     allowPostTopLevel: boolean;
     allowMultiMessage: boolean;
     maxAdditionalMessages: number;
@@ -74,10 +75,10 @@ function makeDeps(
     get: vi.fn<() => null>(() => null),
     getRenderedBlocks: vi.fn<() => null>(() => null),
     setSkipped: vi.fn<() => void>(),
-    setDisengaged: vi.fn<() => void>(),
+    setAttentionLevel: vi.fn<(level: AttentionLevel) => void>(),
     setPostedTopLevel: vi.fn<() => void>(),
     isSkipped: vi.fn<() => boolean>(() => false),
-    isDisengaged: vi.fn<() => boolean>(() => false),
+    getAttentionLevel: vi.fn<() => AttentionLevel | null>(() => null),
     isPostedTopLevel: vi.fn<() => boolean>(() => false),
     ...overrides.responseCapture,
   };
@@ -98,7 +99,7 @@ function makeDeps(
     appendStagedIntents: overrides.appendStagedIntents ?? (async () => {}),
     allowSkip: overrides.allowSkip,
     submitResponseMode: overrides.submitResponseMode,
-    allowDisengage: overrides.allowDisengage,
+    allowAttentionLevel: overrides.allowAttentionLevel,
     allowPostTopLevel: overrides.allowPostTopLevel,
     allowMultiMessage: overrides.allowMultiMessage,
     maxAdditionalMessages: overrides.maxAdditionalMessages,
@@ -170,7 +171,7 @@ interface CallToolRawArgs {
   actions?: ToolAction[];
   reactions?: string[];
   skip_response?: boolean;
-  disengage?: boolean;
+  attention_level?: AttentionLevel;
   post_top_level?: boolean;
   suppress_unfurls?: boolean;
   additional_messages?: CallToolFollowerArgs[];
@@ -231,10 +232,10 @@ describe("createSubmitResponseTool", () => {
           get: () => null,
           getRenderedBlocks: () => null,
           setSkipped: () => {},
-          setDisengaged: () => {},
+          setAttentionLevel: () => {},
           setPostedTopLevel: () => {},
           isSkipped: () => false,
-          isDisengaged: () => false,
+          getAttentionLevel: () => null,
           isPostedTopLevel: () => false,
         },
       });
@@ -662,10 +663,10 @@ describe("createSubmitResponseTool", () => {
           get: () => null,
           getRenderedBlocks: () => null,
           setSkipped: () => {},
-          setDisengaged: () => {},
+          setAttentionLevel: () => {},
           setPostedTopLevel: () => {},
           isSkipped: () => false,
-          isDisengaged: () => false,
+          getAttentionLevel: () => null,
           isPostedTopLevel: () => false,
         },
       });
@@ -816,10 +817,10 @@ describe("createSubmitResponseTool", () => {
           get: () => null,
           getRenderedBlocks: () => null,
           setSkipped: () => {},
-          setDisengaged: () => {},
+          setAttentionLevel: () => {},
           setPostedTopLevel: () => {},
           isSkipped: () => false,
-          isDisengaged: () => false,
+          getAttentionLevel: () => null,
           isPostedTopLevel: () => false,
         },
       });
@@ -1047,10 +1048,10 @@ describe("createSubmitResponseTool", () => {
           get: () => null,
           getRenderedBlocks: () => null,
           setSkipped: () => {},
-          setDisengaged: () => {},
+          setAttentionLevel: () => {},
           setPostedTopLevel: () => {},
           isSkipped: () => false,
-          isDisengaged: () => false,
+          getAttentionLevel: () => null,
           isPostedTopLevel: () => false,
         },
       });
@@ -1079,10 +1080,10 @@ describe("createSubmitResponseTool", () => {
           get: () => null,
           getRenderedBlocks: () => null,
           setSkipped: () => {},
-          setDisengaged: () => {},
+          setAttentionLevel: () => {},
           setPostedTopLevel: () => {},
           isSkipped: () => false,
-          isDisengaged: () => false,
+          getAttentionLevel: () => null,
           isPostedTopLevel: () => false,
         },
       });
@@ -1166,11 +1167,11 @@ describe("createSubmitResponseTool", () => {
       assert.equal(deliver.mock.calls.length, 0);
     });
 
-    it("accepts skip with disengage and returns disengaged flag", async () => {
+    it("accepts skip with attention_level: off and returns disengaged flag", async () => {
       const deps = makeDeps({ allowSkip: true });
       const result = await callToolRaw(deps, {
         skip_response: true,
-        disengage: true,
+        attention_level: "off",
         message:
           "I acknowledge that responding to this would serve no purpose, so I am skipping it.",
       });
@@ -1178,20 +1179,21 @@ describe("createSubmitResponseTool", () => {
       const parsed = parseToolResult(result);
       assert.equal(parsed.success, true);
       assert.equal(parsed.skipped, true);
+      assert.equal(parsed.attentionLevel, "off");
       assert.equal(parsed.disengaged, true);
     });
 
-    it("accepts disengage without skip_response (normal response + disengage)", async () => {
-      const setDisengagedFn = vi.fn<() => void>();
+    it("accepts attention_level: off without skip_response (normal response + disengage)", async () => {
+      const setAttentionLevelFn = vi.fn<(level: AttentionLevel) => void>();
       const deps = makeDeps({
         allowSkip: true,
         responseCapture: {
           ...makeDeps().responseCapture,
-          setDisengaged: setDisengagedFn,
+          setAttentionLevel: setAttentionLevelFn,
         },
       });
       const result = await callToolRaw(deps, {
-        disengage: true,
+        attention_level: "off",
         blocks: [
           {
             type: "section",
@@ -1205,40 +1207,65 @@ describe("createSubmitResponseTool", () => {
       const parsed = parseToolResult(result);
       assert.equal(parsed.success, true);
       assert.equal(parsed.disengaged, true);
-      assert.equal(setDisengagedFn.mock.calls.length, 1);
+      assert.equal(setAttentionLevelFn.mock.calls.length, 1);
+      assert.equal(setAttentionLevelFn.mock.calls[0][0], "off");
     });
 
-    it("calls both setSkipped and setDisengaged on skip + disengage", async () => {
+    it("persists a non-off attention_level on a normal response (raise the level)", async () => {
+      const setAttentionLevelFn = vi.fn<(level: AttentionLevel) => void>();
+      const deps = makeDeps({
+        allowSkip: true,
+        responseCapture: {
+          ...makeDeps().responseCapture,
+          setAttentionLevel: setAttentionLevelFn,
+        },
+      });
+      const result = await callToolRaw(deps, {
+        attention_level: "high",
+        blocks: [{ type: "section", text: { type: "mrkdwn", text: "On it." } }],
+        actions: [],
+      });
+
+      assert.notEqual(result.isError, true);
+      const parsed = parseToolResult(result);
+      assert.equal(parsed.success, true);
+      assert.equal(parsed.attentionLevel, "high");
+      assert.equal(parsed.disengaged, undefined);
+      assert.equal(setAttentionLevelFn.mock.calls.length, 1);
+      assert.equal(setAttentionLevelFn.mock.calls[0][0], "high");
+    });
+
+    it("calls both setSkipped and setAttentionLevel on skip + attention_level: off", async () => {
       const setSkippedFn = vi.fn<() => void>();
-      const setDisengagedFn = vi.fn<() => void>();
+      const setAttentionLevelFn = vi.fn<(level: AttentionLevel) => void>();
       const deps = makeDeps({
         allowSkip: true,
         responseCapture: {
           ...makeDeps().responseCapture,
           setSkipped: setSkippedFn,
-          setDisengaged: setDisengagedFn,
+          setAttentionLevel: setAttentionLevelFn,
         },
       });
       await callToolRaw(deps, {
         skip_response: true,
-        disengage: true,
+        attention_level: "off",
         message:
           "I acknowledge that responding to this would serve no purpose, so I am skipping it.",
       });
 
       assert.equal(setSkippedFn.mock.calls.length, 1);
-      assert.equal(setDisengagedFn.mock.calls.length, 1);
+      assert.equal(setAttentionLevelFn.mock.calls.length, 1);
     });
 
-    it("calls only setSkipped on skip without disengage", async () => {
+    it("calls only setSkipped on skip without attention_level", async () => {
       const setSkippedFn = vi.fn<() => void>();
-      const setDisengagedFn = vi.fn<() => void>();
+      const setAttentionLevelFn = vi.fn<(level: AttentionLevel) => void>();
       const deps = makeDeps({
         allowSkip: true,
         responseCapture: {
           ...makeDeps().responseCapture,
           setSkipped: setSkippedFn,
-          setDisengaged: setDisengagedFn,
+          setAttentionLevel: setAttentionLevelFn,
         },
       });
       await callToolRaw(deps, {
@@ -1248,7 +1275,7 @@ describe("createSubmitResponseTool", () => {
       });
 
       assert.equal(setSkippedFn.mock.calls.length, 1);
-      assert.equal(setDisengagedFn.mock.calls.length, 0);
+      assert.equal(setAttentionLevelFn.mock.calls.length, 0);
     });
 
     it("normal flow unchanged when allowSkip is true but skip_response is absent", async () => {
@@ -1264,8 +1291,8 @@ describe("createSubmitResponseTool", () => {
       assert.equal(parsed.blocksCount, 1);
     });
 
-    it("delivery_failed on normal+disengage path does not mark capture as disengaged", async () => {
-      const setDisengagedFn = vi.fn<() => void>();
+    it("delivery_failed on normal+disengage path does not persist the attention level", async () => {
+      const setAttentionLevelFn = vi.fn<(level: AttentionLevel) => void>();
       const failingDeliver = vi.fn(async () => ({
         ok: false as const,
         error: "network down",
@@ -1275,11 +1302,11 @@ describe("createSubmitResponseTool", () => {
         deliver: failingDeliver,
         responseCapture: {
           ...makeDeps().responseCapture,
-          setDisengaged: setDisengagedFn,
+          setAttentionLevel: setAttentionLevelFn,
         },
       });
       const result = await callToolRaw(deps, {
-        disengage: true,
+        attention_level: "off",
         blocks: [
           {
             type: "section",
@@ -1292,21 +1319,21 @@ describe("createSubmitResponseTool", () => {
       assert.equal(result.isError, true);
       const parsed = parseToolResult(result);
       assert.equal(parsed.error, "delivery_failed");
-      assert.equal(setDisengagedFn.mock.calls.length, 0);
+      assert.equal(setAttentionLevelFn.mock.calls.length, 0);
     });
 
-    it("normal+disengage is idempotent when capture is already disengaged", async () => {
-      const setDisengagedFn = vi.fn<() => void>();
+    it("normal+attention_level: off succeeds when capture is already off", async () => {
+      const setAttentionLevelFn = vi.fn<(level: AttentionLevel) => void>();
       const deps = makeDeps({
         allowSkip: true,
         responseCapture: {
           ...makeDeps().responseCapture,
-          setDisengaged: setDisengagedFn,
-          isDisengaged: () => true,
+          setAttentionLevel: setAttentionLevelFn,
+          getAttentionLevel: () => "off",
         },
       });
       const result = await callToolRaw(deps, {
-        disengage: true,
+        attention_level: "off",
         blocks: [{ type: "section", text: { type: "mrkdwn", text: "Got it" } }],
         actions: [],
       });
@@ -1317,17 +1344,17 @@ describe("createSubmitResponseTool", () => {
       assert.equal(parsed.disengaged, true);
     });
 
-    it("allowDisengage without allowSkip exposes disengage on normal response", async () => {
-      const setDisengagedFn = vi.fn<() => void>();
+    it("allowAttentionLevel without allowSkip exposes attention_level on normal response", async () => {
+      const setAttentionLevelFn = vi.fn<(level: AttentionLevel) => void>();
       const deps = makeDeps({
-        allowDisengage: true,
+        allowAttentionLevel: true,
         responseCapture: {
           ...makeDeps().responseCapture,
-          setDisengaged: setDisengagedFn,
+          setAttentionLevel: setAttentionLevelFn,
         },
       });
       const result = await callToolRaw(deps, {
-        disengage: true,
+        attention_level: "off",
         blocks: [
           {
             type: "section",
@@ -1341,33 +1368,33 @@ describe("createSubmitResponseTool", () => {
       const parsed = parseToolResult(result);
       assert.equal(parsed.success, true);
       assert.equal(parsed.disengaged, true);
-      assert.equal(setDisengagedFn.mock.calls.length, 1);
+      assert.equal(setAttentionLevelFn.mock.calls.length, 1);
     });
 
-    it("allowSkip without allowDisengage omits disengage from the schema (scheduled-with-skipConditions case)", () => {
-      const deps = makeDeps({ allowSkip: true, allowDisengage: false });
+    it("allowSkip without allowAttentionLevel omits attention_level from the schema (scheduled-with-skipConditions case)", () => {
+      const deps = makeDeps({ allowSkip: true, allowAttentionLevel: false });
       const toolDef = createSubmitResponseTool(deps);
       const shapeKeys = Object.keys(toolDef.inputSchema);
 
       assert.ok(shapeKeys.includes("skip_response"), "skip_response should be exposed");
       assert.equal(
-        shapeKeys.includes("disengage"),
+        shapeKeys.includes("attention_level"),
         false,
-        "disengage must NOT be exposed when allowDisengage is false",
+        "attention_level must NOT be exposed when allowAttentionLevel is false",
       );
     });
 
-    it("allowSkip with allowDisengage keeps both skip_response and disengage in the schema", () => {
-      const deps = makeDeps({ allowSkip: true, allowDisengage: true });
+    it("allowSkip with allowAttentionLevel keeps both skip_response and attention_level in the schema", () => {
+      const deps = makeDeps({ allowSkip: true, allowAttentionLevel: true });
       const toolDef = createSubmitResponseTool(deps);
       const shapeKeys = Object.keys(toolDef.inputSchema);
 
       assert.ok(shapeKeys.includes("skip_response"));
-      assert.ok(shapeKeys.includes("disengage"));
+      assert.ok(shapeKeys.includes("attention_level"));
     });
 
-    it("skip-only schema accepts a skip response without a disengage field", async () => {
-      const deps = makeDeps({ allowSkip: true, allowDisengage: false });
+    it("skip-only schema accepts a skip response without an attention_level field", async () => {
+      const deps = makeDeps({ allowSkip: true, allowAttentionLevel: false });
       const result = await callToolRaw(deps, {
         skip_response: true,
         message:
@@ -1381,28 +1408,28 @@ describe("createSubmitResponseTool", () => {
       assert.equal(parsed.disengaged, undefined);
     });
 
-    it("allowDisengage without allowSkip still blocks disengage on delivery failure", async () => {
-      const setDisengagedFn = vi.fn<() => void>();
+    it("allowAttentionLevel without allowSkip still blocks disengage on delivery failure", async () => {
+      const setAttentionLevelFn = vi.fn<(level: AttentionLevel) => void>();
       const failingDeliver = vi.fn(async () => ({
         ok: false as const,
         error: "network down",
       }));
       const deps = makeDeps({
-        allowDisengage: true,
+        allowAttentionLevel: true,
         deliver: failingDeliver,
         responseCapture: {
           ...makeDeps().responseCapture,
-          setDisengaged: setDisengagedFn,
+          setAttentionLevel: setAttentionLevelFn,
         },
       });
       const result = await callToolRaw(deps, {
-        disengage: true,
+        attention_level: "off",
         blocks: [{ type: "section", text: { type: "mrkdwn", text: "done" } }],
         actions: [],
       });
 
       assert.equal(result.isError, true);
-      assert.equal(setDisengagedFn.mock.calls.length, 0);
+      assert.equal(setAttentionLevelFn.mock.calls.length, 0);
     });
   });
 

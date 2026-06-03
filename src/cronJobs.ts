@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto";
 import { logger } from "./logger.js";
 import { fileExists } from "./fs.js";
 import { getCronMaxRunHistory } from "./config.js";
+import type { SettableAttentionLevel } from "./sessions.js";
 
 // ============================================================================
 // Types
@@ -138,6 +139,12 @@ export interface CronJob {
    * See the `plugin-topic-instructions` capability.
    */
   attachedTopics?: string[];
+  /**
+   * Attention level seeded onto the session this job's fire creates. Forwarded by the cron
+   * scheduler into `processMessage`. Absent → the session defaults to `"medium"`. Plugins set
+   * it via `CronJobSpec.attentionLevel`.
+   */
+  attentionLevel?: SettableAttentionLevel;
   /**
    * Recent execution history (most recent last). Capped by
    * `config.cron.maxRunHistory` (default 50); older entries are
@@ -287,6 +294,8 @@ export interface CreateCronJobParams {
   specKey?: string;
   /** Topic names to pre-attach when this job fires. See `CronJob.attachedTopics`. */
   attachedTopics?: string[];
+  /** Attention level for the session this job creates. See `CronJob.attentionLevel`. */
+  attentionLevel?: SettableAttentionLevel;
 }
 
 export async function createJob(params: CreateCronJobParams): Promise<CronJob> {
@@ -332,6 +341,7 @@ export async function createJob(params: CreateCronJobParams): Promise<CronJob> {
     ...(params.attachedTopics && params.attachedTopics.length > 0
       ? { attachedTopics: params.attachedTopics }
       : {}),
+    ...(params.attentionLevel ? { attentionLevel: params.attentionLevel } : {}),
   };
   jobs.push(job);
   await saveState({ jobs });
@@ -387,6 +397,8 @@ export interface UpdateCronJobParams {
    * array to overwrite. See `CronJob.attachedTopics`.
    */
   attachedTopics?: string[];
+  /** Pass a level to set; `null` to clear; undefined leaves the field unchanged. */
+  attentionLevel?: SettableAttentionLevel | null;
 }
 
 export async function updateJob(
@@ -426,6 +438,9 @@ export async function updateJob(
   }
   if (params.attachedTopics !== undefined) {
     job.attachedTopics = params.attachedTopics.length > 0 ? params.attachedTopics : undefined;
+  }
+  if (params.attentionLevel !== undefined) {
+    job.attentionLevel = params.attentionLevel === null ? undefined : params.attentionLevel;
   }
 
   await saveState({ jobs });

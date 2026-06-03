@@ -21,7 +21,7 @@ Each value has a precise semantic:
 
 - `"always"`: the run MUST deliver a response via `submit_response`. The `skip_response` parameter is NOT in the schema. Equivalent to today's default for scheduled runs without `skipConditions`.
 - `"optional"`: the run MAY decline delivery via `submit_response({ skip_response: true })`. The `skip_response` parameter IS in the schema, optional. Equivalent to today's behavior for scheduled runs WITH `skipConditions`, but available regardless of whether `skipConditions` is set.
-- `"skipped"`: the run MUST decline delivery. The `submit_response` schema accepts ONLY `{ skip_response: true }` — `blocks`, `actions`, `table`, `reactions`, `message`, `post_top_level`, and `disengage` are all absent from the schema and rejected at the Zod boundary. Use when the run's actual deliverable is produced by another tool and `submit_response` is purely a run terminator.
+- `"skipped"`: the run MUST decline delivery. The `submit_response` schema accepts ONLY `{ skip_response: true }` — `blocks`, `actions`, `table`, `reactions`, `message`, `post_top_level`, and `attention_level` are all absent from the schema and rejected at the Zod boundary. Use when the run's actual deliverable is produced by another tool and `submit_response` is purely a run terminator.
 
 When the field is unset, the existing auto-derivation rules (defined by the `skip-response` capability) apply unchanged.
 
@@ -63,7 +63,7 @@ When the active run's `submitResponseMode === "skipped"`, the `submit_response` 
 }
 ```
 
-The schema SHALL NOT include `blocks`, `actions`, `table`, `reactions`, `message`, `post_top_level`, or `disengage`. Any of those keys in the input SHALL cause Zod to reject the call with an unknown-field error before the handler runs.
+The schema SHALL NOT include `blocks`, `actions`, `table`, `reactions`, `message`, `post_top_level`, or `attention_level`. Any of those keys in the input SHALL cause Zod to reject the call with an unknown-field error before the handler runs.
 
 #### Scenario: Skipped schema accepts the correct shape
 
@@ -80,6 +80,13 @@ The schema SHALL NOT include `blocks`, `actions`, `table`, `reactions`, `message
 - **THEN** Zod rejects the call with an error citing the unknown `blocks` field
 - **AND** the handler is NOT invoked
 - **AND** no message is delivered
+
+#### Scenario: Skipped schema rejects attention_level field
+
+- **GIVEN** an active run with `submitResponseMode === "skipped"`
+- **WHEN** Claude calls `submit_response({ skip_response: true, attention_level: "off" })`
+- **THEN** Zod rejects the call with an error citing the unknown `attention_level` field
+- **AND** the handler is NOT invoked
 
 #### Scenario: Skipped schema rejects skip_response: false
 
@@ -198,7 +205,7 @@ The schema-selection precedence SHALL be:
 - **GIVEN** a dynamic cron job with no `channel` field
 - **WHEN** the job fires and the `submit_response` Zod schema is assembled for the session
 - **THEN** the schema accepts ONLY `{ skip_response: z.literal(true) }`
-- **AND** the schema rejects `text`, `blocks`, `actions`, `table`, `reactions`, `message`, `post_top_level`, `additional_messages`, `thread_replies`, `disengage`
+- **AND** the schema rejects `text`, `blocks`, `actions`, `table`, `reactions`, `message`, `post_top_level`, `additional_messages`, `thread_replies`, `attention_level`
 - **AND** the schema does NOT include any of those keys in its description / parameter list shown to Claude
 
 #### Scenario: Channelless rule overrides persisted submitResponseMode === "always"

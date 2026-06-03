@@ -157,7 +157,7 @@ The system SHALL detect the configured stop emoji (`config.reactions.stop`) appe
 - **THEN** the system does NOT call `processMessage`
 - **AND** does NOT run pre-analysis
 - **AND** does NOT run auto-respond rule matching
-- **AND** dispatches to the same thread-scoped cancel + disengage pipeline used by the stop reaction (abort in-flight query/worker work for the thread, set `autoResponseActive = false`)
+- **AND** dispatches to the same thread-scoped cancel + disengage pipeline used by the stop reaction (abort in-flight query/worker work for the thread, set `attentionLevel = "off"` to disengage)
 - **AND** does NOT post a reply
 
 #### Scenario: Inline stop emoji in a long message is ignored

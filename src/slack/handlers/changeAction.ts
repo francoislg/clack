@@ -5,7 +5,9 @@ import { t } from "../../i18n/t.js";
 import {
   findSessionByThread,
   getStagedIntent,
-  setAutoResponseActive,
+  setAttentionLevel,
+  isEngaged,
+  type AttentionLevel,
   type SessionContext,
 } from "../../sessions.js";
 import type { StagedIntent } from "../../tools/types.js";
@@ -37,7 +39,7 @@ export interface ChangeActionDeps {
     onAck?: (text: string) => Promise<void>,
   ) => Promise<ChangeResult>;
   errorMessage: (err: unknown) => string;
-  setAutoResponseActive: (sessionId: string, active: boolean) => Promise<void>;
+  setAttentionLevel: (sessionId: string, level: AttentionLevel) => Promise<void>;
   createStreamer: (opts: {
     client: App["client"];
     channel: string;
@@ -69,7 +71,7 @@ export const defaultChangeActionDeps: ChangeActionDeps = {
   findSessionByThread,
   startChangeWorkflow,
   errorMessage,
-  setAutoResponseActive,
+  setAttentionLevel,
   createStreamer: (opts) => new SlackStreamer(opts),
   finalizeStreamedWorkflow: finalizeStreamedWorkflow as never,
 };
@@ -109,11 +111,11 @@ export async function triggerChangeWorkflow(
 
   // Re-engage the thread if a stop gesture had silenced it. Clicking Accept/
   // Edit/Reject on a change proposal signals the user is back in the loop.
-  if (session.autoResponseActive === false) {
+  if (!isEngaged(session)) {
     logger.info(
       `Re-engaging session ${session.sessionId} via change-accept button click in ${channelId}`,
     );
-    await deps.setAutoResponseActive(session.sessionId, true);
+    await deps.setAttentionLevel(session.sessionId, "medium");
   }
 
   // Create streamer for live progress (target DM thread if provided)

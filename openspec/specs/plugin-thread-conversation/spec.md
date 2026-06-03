@@ -8,7 +8,7 @@ A plugin-SDK primitive for starting a full Claude Q&A turn in a channel/thread �
 
 ### Requirement: SDK can start a Claude Q&A turn in a thread
 
-The plugin SDK SHALL expose a method, `startThreadConversation`, that lets a plugin programmatically start a full Claude Q&A turn in a given channel and thread — distinct from `askClaude` (which is single-turn, tool-less, posts nothing, and creates no session). The method SHALL route through the bot core's `processMessage` so the started turn runs with the normal query toolset (including `WebSearch` and `submit_response`), creates a real session keyed on `channel:threadTs`, and delivers Claude's answer into the thread. Because a session is created, the thread becomes auto-follow-enabled (`autoResponseActive` true) per the `auto-respond` capability.
+The plugin SDK SHALL expose a method, `startThreadConversation`, that lets a plugin programmatically start a full Claude Q&A turn in a given channel and thread — distinct from `askClaude` (which is single-turn, tool-less, posts nothing, and creates no session). The method SHALL route through the bot core's `processMessage` so the started turn runs with the normal query toolset (including `WebSearch` and `submit_response`), creates a real session keyed on `channel:threadTs`, and delivers Claude's answer into the thread. Because a session is created, the thread becomes auto-follow-enabled (`attentionLevel !== "off"`, defaulting to `"medium"`) per the `auto-respond` capability.
 
 The method SHALL accept at minimum: the target `channel`, the `threadTs` anchoring the conversation, the `prompt` (the user-turn text), and an optional `additionalSystemPrompt` carrying caller-supplied context. It SHALL be wired into the SDK via `ClackSdkDeps` (bound to core's `processMessage` in the app/lifecycle layer, mirroring how `clackQuery` and `getSlackClient` are injected), and the SDK method SHALL supply the live Slack client itself rather than requiring the plugin to pass one.
 
@@ -29,7 +29,7 @@ The method SHALL accept at minimum: the target `channel`, the `threadTs` anchori
 
 - **WHEN** a thread conversation has been started via `startThreadConversation`
 - **AND** a subsequent human reply arrives in that thread
-- **THEN** the existing thread auto-respond path finds the session and evaluates the reply (subject to pre-analysis)
+- **THEN** the existing thread auto-respond path finds the session (the session is engaged / auto-follows via its `attentionLevel !== "off"`) and evaluates the reply (subject to pre-analysis)
 
 #### Scenario: Slack client not connected
 

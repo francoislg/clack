@@ -388,6 +388,7 @@ export async function executeDynamicJob(
     roleOverride: actor.kind === "system" ? "system" : undefined,
     asOf,
     preAttachedTopics: job.attachedTopics,
+    attentionLevel: job.attentionLevel,
   });
 
   if (response.skipped) {

@@ -12,6 +12,7 @@ import type {
 } from "../types.js";
 import { DEFAULT_MAX_ADDITIONAL_MESSAGES } from "../../config.js";
 import { appendStagedIntents as _appendStagedIntents } from "../../sessions.js";
+import type { AttentionLevel } from "../../sessions.js";
 import { readInstructionFile as _readInstructionFile } from "../../configurationFiles.js";
 import { textResult } from "../helpers.js";
 import { t } from "../../i18n/t.js";
@@ -337,7 +338,7 @@ const REF_ACTION_TYPES = new Set([
 
 // Per-message follow-up payload used by `additional_messages` / `thread_replies` at
 // every layer (top-level and inside a post_to). Strict-mode: every primary-only signal
-// — `message`, `post_top_level`, `disengage`, `skip_response`, `suppress_unfurls`, plus
+// — `message`, `post_top_level`, `attention_level`, `skip_response`, `suppress_unfurls`, plus
 // recursive `additional_messages`/`thread_replies` — triggers an "unrecognized key"
 // error at the schema boundary.
 const messagePayloadSchema: z.ZodType<MessagePayload> = z
@@ -423,8 +424,8 @@ export interface SubmitResponseDeps {
    * `submit-response-mode` capability for the full contract.
    */
   submitResponseMode?: "always" | "optional" | "skipped";
-  /** When true, the disengage parameter is available in the schema. */
-  allowDisengage?: boolean;
+  /** When true, the `attention_level` dial (incl. `"off"` to disengage) is available in the schema. */
+  allowAttentionLevel?: boolean;
   /**
    * When true, the `post_top_level` parameter is available in the schema. Claude can set it
    * per-response to route the reply as a top-level channel message instead of a thread reply.
@@ -843,6 +844,9 @@ function recordError(recorder: ToolCallRecorder, args: unknown, errData: Record<
 interface SubmitResponseSuccessResult {
   success: true;
   skipped?: true;
+  /** Echoes back the attention level Claude set this turn, when it set one. */
+  attentionLevel?: AttentionLevel;
+  /** True when `attention_level: "off"` disengaged the thread this turn. */
   disengaged?: true;
   postedTopLevel?: true;
   delivered?: boolean;
@@ -899,21 +903,20 @@ const normalResponseSchema = {
   suppress_unfurls: suppressUnfurlsField,
 };
 
-const disengageField = z
-  .boolean()
+const attentionLevelField = z
+  .enum(["always", "high", "medium", "low", "off"])
   .optional()
   .describe(
-    "Set to true to permanently stop tracking this thread after this turn. " +
-      "Canonical triggers: a conversation-ending acknowledgement or dismissal from the user — " +
-      `short sign-offs (${DISMISSAL_PHRASES_INLINE}) ` +
-      "or cases where the conversation has clearly moved on from the original topic. " +
-      "Err on the side of disengaging: a false positive just costs one @mention to re-engage, " +
-      "while a false negative means the bot keeps auto-replying to a thread where nobody wants it. " +
-      "When setting disengage: true with a normal response, keep the reply short and avoid phrases " +
-      'like "just holler!" or "let me know anytime" — those contradict the disengage signal. ' +
-      "May be combined with a normal response (reply and disengage in the same turn) " +
-      "OR with skip_response: true (decline to answer and disengage). " +
-      "Clack will stop evaluating future messages in this thread until someone @mentions the bot again.",
+    "Adjust how closely Clack follows this thread on future messages. The current level is " +
+      "stated in your delivery context — raise it, lower it, or omit to keep it. " +
+      '"always" = reply to every message (no relevance check); "high" = reply to nearly anything; ' +
+      '"medium" = reply when plausibly relevant; "low" = reply only to direct address or clear ' +
+      'follow-ups; "off" = disengage, permanently stop tracking this thread. ' +
+      `Set "off" on a conversation-ending dismissal (${DISMISSAL_PHRASES_INLINE}) or when the ` +
+      "conversation has clearly moved on — err toward it, since a user can @mention to re-engage. " +
+      'When setting "off" with a normal response, keep the reply short and avoid phrases like ' +
+      '"just holler!" — those contradict the disengage signal. May accompany a normal response ' +
+      "(reply and adjust in the same turn) OR skip_response: true (decline and adjust).",
   );
 
 const postTopLevelField = z
@@ -930,10 +933,10 @@ const postTopLevelField = z
       "that would duplicate the message and will be rejected.",
   );
 
-// Schema with disengage-only support (no skip_response)
-const disengageEnabledResponseSchema = {
+// Schema with attention-level tuning but no skip_response (e.g. mentions)
+const attentionLevelEnabledResponseSchema = {
   ...normalResponseSchema,
-  disengage: disengageField,
+  attention_level: attentionLevelField,
 };
 
 const skipResponseField = z
@@ -960,15 +963,15 @@ const skipOptionalActions = z
 const skipEnabledResponseSchema = {
   ...normalResponseSchema,
   skip_response: skipResponseField,
-  disengage: disengageField,
+  attention_level: attentionLevelField,
   blocks: skipOptionalBlocks,
   actions: skipOptionalActions,
   suppress_unfurls: suppressUnfurlsField,
 };
 
-// Schema with skip_response only (no disengage) — used by scheduled runs that opted in via
-// `skipConditions`. Disengage is meaningless for scheduled triggers because there is no
-// tracked conversation to deactivate.
+// Schema with skip_response only (no attention_level) — used by scheduled runs that opted in
+// via `skipConditions`. Attention tuning is meaningless for scheduled triggers because there
+// is no tracked conversation to adjust.
 const skipOnlyResponseSchema = {
   ...normalResponseSchema,
   skip_response: skipResponseField,
@@ -979,7 +982,7 @@ const skipOnlyResponseSchema = {
 
 // Schema for runs declared `submitResponseMode: "skipped"`. The ONLY accepted field is
 // `skip_response: true` — `blocks`, `actions`, `table`, `reactions`, `message`,
-// `post_top_level`, and `disengage` are all absent. Use when the run's actual deliverable
+// `post_top_level`, and `attention_level` are all absent. Use when the run's actual deliverable
 // is produced by another required tool and `submit_response` is purely a run terminator.
 const skippedOnlyResponseSchema = {
   skip_response: z
@@ -988,7 +991,7 @@ const skippedOnlyResponseSchema = {
       'REQUIRED to be `true`. This run\'s `submitResponseMode` is `"skipped"` — the actual deliverable ' +
         "was produced by another required tool, and `submit_response` is purely the run terminator. " +
         "The schema accepts ONLY `{ skip_response: true }` and nothing else. Do NOT include `blocks`, " +
-        "`actions`, `table`, `reactions`, `message`, `post_top_level`, or `disengage`.",
+        "`actions`, `table`, `reactions`, `message`, `post_top_level`, or `attention_level`.",
     ),
 };
 
@@ -1009,7 +1012,7 @@ interface SubmitResponseArgs {
   actions?: Action[];
   suppress_unfurls?: boolean;
   skip_response?: boolean;
-  disengage?: boolean;
+  attention_level?: AttentionLevel;
   post_top_level?: boolean;
   additional_messages?: MessagePayload[];
   thread_replies?: MessagePayload[];
@@ -1017,7 +1020,7 @@ interface SubmitResponseArgs {
 
 /**
  * Compose the input schema from the orthogonal flags on `deps`:
- *   - allowSkip, allowDisengage, allowPostTopLevel, allowMultiMessage
+ *   - allowSkip, allowAttentionLevel, allowPostTopLevel, allowMultiMessage
  *   - submitResponseMode === "skipped" short-circuits everything else.
  *
  * Top-level `additional_messages` and `thread_replies` are gated on `allowMultiMessage`.
@@ -1032,7 +1035,7 @@ function buildSubmitResponseSchema(
     SubmitResponseDeps,
     | "submitResponseMode"
     | "allowSkip"
-    | "allowDisengage"
+    | "allowAttentionLevel"
     | "allowPostTopLevel"
     | "allowMultiMessage"
     | "maxAdditionalMessages"
@@ -1043,12 +1046,12 @@ function buildSubmitResponseSchema(
   }
 
   let base: Record<string, z.ZodTypeAny>;
-  if (deps.allowSkip && deps.allowDisengage) {
+  if (deps.allowSkip && deps.allowAttentionLevel) {
     base = { ...skipEnabledResponseSchema };
   } else if (deps.allowSkip) {
     base = { ...skipOnlyResponseSchema };
-  } else if (deps.allowDisengage) {
-    base = { ...disengageEnabledResponseSchema };
+  } else if (deps.allowAttentionLevel) {
+    base = { ...attentionLevelEnabledResponseSchema };
   } else {
     base = { ...normalResponseSchema };
   }
@@ -1095,7 +1098,7 @@ export function createSubmitResponseTool(deps: SubmitResponseDeps) {
   const schema = buildSubmitResponseSchema({
     submitResponseMode: deps.submitResponseMode,
     allowSkip: deps.allowSkip,
-    allowDisengage: deps.allowDisengage,
+    allowAttentionLevel: deps.allowAttentionLevel,
     allowPostTopLevel: deps.allowPostTopLevel,
     allowMultiMessage: deps.allowMultiMessage,
     maxAdditionalMessages: deps.maxAdditionalMessages,
@@ -1168,14 +1171,17 @@ export function createSubmitResponseTool(deps: SubmitResponseDeps) {
             });
           }
         }
-        const wantsDisengage = "disengage" in args && args.disengage === true;
+        const newLevel = "attention_level" in args ? args.attention_level : undefined;
         responseCapture.setSkipped();
-        if (wantsDisengage) {
-          responseCapture.setDisengaged();
+        if (newLevel) {
+          responseCapture.setAttentionLevel(newLevel);
         }
-        const result: SubmitResponseSuccessResult = wantsDisengage
-          ? { success: true, skipped: true, disengaged: true }
-          : { success: true, skipped: true };
+        const result: SubmitResponseSuccessResult = {
+          success: true,
+          skipped: true,
+          ...(newLevel && { attentionLevel: newLevel }),
+          ...(newLevel === "off" && { disengaged: true as const }),
+        };
         recordSuccess(recorder, args, result);
         return textResult(result);
       }
@@ -1425,9 +1431,9 @@ export function createSubmitResponseTool(deps: SubmitResponseDeps) {
 
       responseCapture.set(payload, renderedBlocks);
 
-      const wantsDisengage = "disengage" in args && args.disengage === true;
-      if (wantsDisengage) {
-        responseCapture.setDisengaged();
+      const newLevel = "attention_level" in args ? args.attention_level : undefined;
+      if (newLevel) {
+        responseCapture.setAttentionLevel(newLevel);
       }
       if (wantsPostTopLevel) {
         responseCapture.setPostedTopLevel();
@@ -1439,7 +1445,8 @@ export function createSubmitResponseTool(deps: SubmitResponseDeps) {
         blocksCount: blocks.length,
         actionsCount: actions.length,
         ...(messagesDelivered > 0 && { messagesDelivered }),
-        ...(wantsDisengage && { disengaged: true as const }),
+        ...(newLevel && { attentionLevel: newLevel }),
+        ...(newLevel === "off" && { disengaged: true as const }),
         ...(wantsPostTopLevel && { postedTopLevel: true as const }),
       };
       recordSuccess(recorder, args, result);

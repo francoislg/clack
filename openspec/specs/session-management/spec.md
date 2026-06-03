@@ -74,7 +74,7 @@ The system SHALL persist a session's conversation as a structured **`trigger`** 
 
 - **WHEN** a query turn completes via `submit_response` with `skip_response: true`
 - **THEN** a `SessionAssistantMessage` is appended with `skipped: true`, no `payload`, and `toolCalls` populated
-- **AND** if `disengage: true` was also set, `disengaged: true` is included
+- **AND** if `attention_level: "off"` was also set, `disengaged: true` is included
 
 #### Scenario: Top-level post recorded on assistant turn
 

@@ -5,7 +5,7 @@ import { t } from "../../i18n/t.js";
 import { resolveChannelLabel, resolveUserLabel, slackLink } from "../logContext.js";
 import { extractAttachments } from "../fileExtractor.js";
 import { processMessage } from "./core.js";
-import { findSessionByThread, setAutoResponseActive } from "../../sessions.js";
+import { findSessionByThread, setAttentionLevel, isEngaged } from "../../sessions.js";
 import { matchesInlineStopEmoji } from "../stopEmoji.js";
 import { stopThread, type StopResult } from "../stopPipeline.js";
 
@@ -18,7 +18,7 @@ export interface MentionDeps {
   getConfig: () => MentionConfigView;
   processMessage: typeof processMessage;
   findSessionByThread: typeof findSessionByThread;
-  setAutoResponseActive: typeof setAutoResponseActive;
+  setAttentionLevel: typeof setAttentionLevel;
   stopThread: (
     channelId: string,
     threadTs: string,
@@ -31,7 +31,7 @@ export const defaultMentionDeps: MentionDeps = {
   getConfig,
   processMessage,
   findSessionByThread,
-  setAutoResponseActive,
+  setAttentionLevel,
   stopThread,
 };
 
@@ -80,11 +80,11 @@ export function registerMentionHandler(app: App, deps: MentionDeps = defaultMent
     // Re-activate auto-respond tracking if the thread was disengaged
     if (event.thread_ts) {
       const existingSession = await deps.findSessionByThread(event.channel, event.thread_ts);
-      if (existingSession?.autoResponseActive === false) {
+      if (existingSession && !isEngaged(existingSession)) {
         logger.info(
           `Re-activating auto-respond for session ${existingSession.sessionId}${await slackLink(client, event.channel, event.thread_ts)}`,
         );
-        await deps.setAutoResponseActive(existingSession.sessionId, true);
+        await deps.setAttentionLevel(existingSession.sessionId, "medium");
       }
     }
 

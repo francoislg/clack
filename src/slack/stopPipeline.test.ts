@@ -30,7 +30,7 @@ function makeDeps(setup: FakeSetup): StopPipelineDeps {
       if (!setup.activeChange) return undefined;
       return setup.activeChange as ActiveChangeState;
     },
-    setAutoResponseActive: async (sessionId, _active) => {
+    setAttentionLevel: async (sessionId, _level) => {
       setup.disengagedSessionIds.push(sessionId);
     },
     cancelQueuedSession: (sessionId, reason) => {
@@ -74,7 +74,7 @@ describe("stopThread", () => {
     const workerHandle = makeFakeRunHandle();
     const setup: FakeSetup = {
       queryHandle: null,
-      session: { sessionId: "s-1", autoResponseActive: true },
+      session: { sessionId: "s-1", attentionLevel: "medium" },
       activeChange: {
         status: "executing" as ChangeStatus,
         handle: workerHandle,
@@ -101,7 +101,7 @@ describe("stopThread", () => {
       const workerHandle = makeFakeRunHandle();
       const setup: FakeSetup = {
         queryHandle: null,
-        session: { sessionId: "s-1", autoResponseActive: true },
+        session: { sessionId: "s-1", attentionLevel: "medium" },
         activeChange: { status, handle: workerHandle },
         disengagedSessionIds: [],
       };
@@ -115,7 +115,7 @@ describe("stopThread", () => {
     const workerHandle = makeFakeRunHandle();
     const setup: FakeSetup = {
       queryHandle: null,
-      session: { sessionId: "s-1", autoResponseActive: true },
+      session: { sessionId: "s-1", attentionLevel: "medium" },
       activeChange: {
         status: "executing" as ChangeStatus,
         handle: workerHandle,
@@ -130,7 +130,7 @@ describe("stopThread", () => {
   it("disengages an active session", async () => {
     const setup: FakeSetup = {
       queryHandle: null,
-      session: { sessionId: "s-disengage", autoResponseActive: true },
+      session: { sessionId: "s-disengage", attentionLevel: "medium" },
       activeChange: null,
       disengagedSessionIds: [],
     };
@@ -142,7 +142,7 @@ describe("stopThread", () => {
   it("is idempotent on already-disengaged sessions", async () => {
     const setup: FakeSetup = {
       queryHandle: null,
-      session: { sessionId: "s-already", autoResponseActive: false },
+      session: { sessionId: "s-already", attentionLevel: "off" },
       activeChange: null,
       disengagedSessionIds: [],
     };
@@ -172,7 +172,7 @@ describe("stopThread", () => {
     const workerHandle = makeFakeRunHandle();
     const setup: FakeSetup = {
       queryHandle,
-      session: { sessionId: "s-combo", autoResponseActive: true },
+      session: { sessionId: "s-combo", attentionLevel: "medium" },
       activeChange: { status: "executing" as ChangeStatus, handle: workerHandle },
       disengagedSessionIds: [],
     };
@@ -188,7 +188,7 @@ describe("stopThread", () => {
   it("cancels a queued session when the active change has no live handle", async () => {
     const setup: FakeSetup = {
       queryHandle: null,
-      session: { sessionId: "s-queued", autoResponseActive: true },
+      session: { sessionId: "s-queued", attentionLevel: "medium" },
       // activeChange exists in a non-terminal status but has no handle — typical
       // shape for a session waiting on `pool.acquire` to dequeue.
       activeChange: { status: "executing" as ChangeStatus, handle: undefined },
@@ -209,7 +209,7 @@ describe("stopThread", () => {
   it("does not flag queuedCancelled when the queue lookup misses", async () => {
     const setup: FakeSetup = {
       queryHandle: null,
-      session: { sessionId: "s-ghost", autoResponseActive: true },
+      session: { sessionId: "s-ghost", attentionLevel: "medium" },
       activeChange: { status: "executing" as ChangeStatus, handle: undefined },
       disengagedSessionIds: [],
       // queuedSessionId omitted → cancelQueuedSession returns false
@@ -225,7 +225,7 @@ describe("stopThread", () => {
     const workerHandle = makeFakeRunHandle();
     const setup: FakeSetup = {
       queryHandle: null,
-      session: { sessionId: "s-live", autoResponseActive: true },
+      session: { sessionId: "s-live", attentionLevel: "medium" },
       activeChange: { status: "executing" as ChangeStatus, handle: workerHandle },
       disengagedSessionIds: [],
       queuedSessionId: "s-live", // pretend it's queued too (impossible, but tests precedence)

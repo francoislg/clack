@@ -28,13 +28,13 @@ The system SHALL expose five MCP tools for managing auto-respond rules from chat
 
 ### Requirement: List Auto-Respond Rules Tool
 
-The `list_auto_respond_rules` tool SHALL return all auto-respond rules currently stored, including their IDs, channel IDs, optional filters, optional extra context, optional pre-analysis context, and enabled state. It SHALL take no arguments.
+The `list_auto_respond_rules` tool SHALL return all auto-respond rules currently stored, including their IDs, channel IDs, optional filters, optional extra context, optional pre-analysis context, optional attention level, and enabled state. It SHALL take no arguments.
 
 #### Scenario: List returns all rules
 
 - **WHEN** an admin calls `list_auto_respond_rules`
 - **THEN** the tool returns a JSON result containing every rule from `data/state/auto-respond.json`
-- **AND** each rule entry includes `id`, `channels`, `enabled`, and any of `userFilters`, `keywords`, `extraContext`, `preAnalysisContext` that are set
+- **AND** each rule entry includes `id`, `channels`, `enabled`, and any of `userFilters`, `keywords`, `extraContext`, `preAnalysisContext`, `attentionLevel` that are set
 
 #### Scenario: List returns empty array when no rules exist
 
@@ -44,7 +44,7 @@ The `list_auto_respond_rules` tool SHALL return all auto-respond rules currently
 
 ### Requirement: Add Auto-Respond Rule Tool
 
-The `add_auto_respond_rule` tool SHALL create a new rule with `enabled: true` and return the created rule's ID. It SHALL require a `channels` argument (non-empty) and accept optional `userFilters`, `keywords`, `extraContext`, and `preAnalysisContext`. Channel entries SHALL be accepted as channel names (with or without `#`), channel IDs, or DM IDs, and resolved to channel IDs via `resolveChannelId` before persisting.
+The `add_auto_respond_rule` tool SHALL create a new rule with `enabled: true` and return the created rule's ID. It SHALL require a `channels` argument (non-empty) and accept optional `userFilters`, `keywords`, `extraContext`, `preAnalysisContext`, and `attentionLevel`. The `attentionLevel` value SHALL be one of `always | high | medium | low` (the rule MUST NOT seed `"off"`); when omitted, sessions created from the rule default to `"medium"`. Channel entries SHALL be accepted as channel names (with or without `#`), channel IDs, or DM IDs, and resolved to channel IDs via `resolveChannelId` before persisting.
 
 #### Scenario: Create rule with channel name
 
@@ -70,9 +70,15 @@ The `add_auto_respond_rule` tool SHALL create a new rule with `enabled: true` an
 
 #### Scenario: Create rule with all optional filters
 
-- **WHEN** an admin passes `channels`, `userFilters`, `keywords`, `extraContext`, and `preAnalysisContext`
+- **WHEN** an admin passes `channels`, `userFilters`, `keywords`, `extraContext`, `preAnalysisContext`, and `attentionLevel`
 - **THEN** the persisted rule contains all those fields exactly as supplied (trimmed where `addRule` already trims)
 - **AND** `enabled` is `true`
+
+#### Scenario: Attention level rejects off
+
+- **WHEN** an admin passes `attentionLevel: "off"`
+- **THEN** the tool returns an error indicating a rule may only seed `always | high | medium | low`
+- **AND** no rule is persisted
 
 #### Scenario: Rejects empty channels array
 
@@ -82,7 +88,7 @@ The `add_auto_respond_rule` tool SHALL create a new rule with `enabled: true` an
 
 ### Requirement: Update Auto-Respond Rule Tool
 
-The `update_auto_respond_rule` tool SHALL apply a partial patch to an existing rule identified by `id`. Fields not present in the tool arguments SHALL be preserved. Fields present with an empty string or empty array SHALL explicitly clear the corresponding optional field. The tool SHALL require only the `id` argument; all other fields are optional.
+The `update_auto_respond_rule` tool SHALL apply a partial patch to an existing rule identified by `id`. Fields not present in the tool arguments SHALL be preserved. Fields present with an empty string or empty array SHALL explicitly clear the corresponding optional field. The `attentionLevel` field MAY be set to one of `always | high | medium | low`; an empty string SHALL clear it (reverting the rule to the `"medium"` default). The tool SHALL require only the `id` argument; all other fields are optional.
 
 #### Scenario: Partial update preserves omitted fields
 
@@ -90,6 +96,18 @@ The `update_auto_respond_rule` tool SHALL apply a partial patch to an existing r
 - **WHEN** an admin calls `update_auto_respond_rule` with `{ id, extraContext: "new context" }`
 - **THEN** the rule's `extraContext` becomes `"new context"`
 - **AND** `channels`, `keywords`, `preAnalysisContext`, and `enabled` are unchanged
+
+#### Scenario: Set attention level on a rule
+
+- **GIVEN** a rule with no `attentionLevel`
+- **WHEN** an admin calls `update_auto_respond_rule` with `{ id, attentionLevel: "high" }`
+- **THEN** the rule's `attentionLevel` becomes `"high"`
+
+#### Scenario: Clear attention level
+
+- **GIVEN** a rule with `attentionLevel: "high"`
+- **WHEN** an admin calls `update_auto_respond_rule` with `{ id, attentionLevel: "" }`
+- **THEN** the rule's `attentionLevel` field is removed (reverts to the `"medium"` default)
 
 #### Scenario: Empty string clears an optional field
 

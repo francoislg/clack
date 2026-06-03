@@ -1,6 +1,6 @@
 import { logger } from "../logger.js";
 import { getByThread as getActiveRunByThread } from "./activeRuns.js";
-import { findSessionByThread, setAutoResponseActive } from "../sessions.js";
+import { findSessionByThread, setAttentionLevel, isEngaged } from "../sessions.js";
 import { getActiveChange } from "../changes/activeState.js";
 import { cancelQueuedSession } from "../workers/index.js";
 import type { ChangeStatus } from "../changes/types.js";
@@ -23,7 +23,7 @@ export interface StopPipelineDeps {
   getActiveRunByThread: typeof getActiveRunByThread;
   findSessionByThread: typeof findSessionByThread;
   getActiveChange: typeof getActiveChange;
-  setAutoResponseActive: typeof setAutoResponseActive;
+  setAttentionLevel: typeof setAttentionLevel;
   cancelQueuedSession: typeof cancelQueuedSession;
 }
 
@@ -31,7 +31,7 @@ export const defaultStopPipelineDeps: StopPipelineDeps = {
   getActiveRunByThread,
   findSessionByThread,
   getActiveChange,
-  setAutoResponseActive,
+  setAttentionLevel,
   cancelQueuedSession,
 };
 
@@ -45,7 +45,7 @@ export const defaultStopPipelineDeps: StopPipelineDeps = {
  *   1. Stop the active query-side `ClaudeRunHandle` for the thread (if any).
  *   2. Stop the worker-side `ClaudeRunHandle` on `activeChange` (if any), setting
  *      `cancelledBy` so the existing cancellation-display path renders.
- *   3. Disengage the thread's session (`autoResponseActive = false`).
+ *   3. Disengage the thread's session (`attentionLevel = "off"`).
  */
 export async function stopThread(
   channelId: string,
@@ -94,8 +94,8 @@ export async function stopThread(
       }
     }
 
-    if (session.autoResponseActive !== false) {
-      await deps.setAutoResponseActive(session.sessionId, false);
+    if (isEngaged(session)) {
+      await deps.setAttentionLevel(session.sessionId, "off");
       result.sessionDisengaged = true;
     }
   }

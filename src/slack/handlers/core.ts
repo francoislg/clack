@@ -1,5 +1,10 @@
 import type { App } from "@slack/bolt";
-import type { SessionContext, SessionMessage, SessionTrigger } from "../../sessions.js";
+import type {
+  SessionContext,
+  SessionMessage,
+  SessionTrigger,
+  SettableAttentionLevel,
+} from "../../sessions.js";
 import {
   findSessionByThread,
   createSession,
@@ -147,6 +152,9 @@ export interface ProcessMessageParams {
   /** Pre-analysis verdict from the autoRespond gate. Forwarded onto the session trigger at
    *  creation (autoRespond only) AND onto each assistant message appended during this run. */
   preAnalysis?: string;
+  /** Initial attention level seeded onto a NEW session from the trigger source (auto-respond
+   *  rule or cron job). Ignored when reusing an existing thread session. Defaults to `"medium"`. */
+  attentionLevel?: SettableAttentionLevel;
   /** Cron job ID for scheduled triggers — recorded on the session's trigger. */
   jobId?: string;
   /** Emoji name (no colons) for reactions triggers — recorded on the trigger. */
@@ -200,6 +208,8 @@ interface ProcessingContext {
   /** Pre-analysis verdict from the autoRespond gate. Stamped onto the session's trigger
    *  at creation (autoRespond only) AND onto each assistant message appended during this run. */
   readonly preAnalysis?: string;
+  /** Initial attention level seeded onto a NEW session (auto-respond rule / cron). */
+  readonly attentionLevel?: SettableAttentionLevel;
   /** Cron job ID for scheduled triggers — carried onto the trigger for provenance. */
   readonly jobId?: string;
   /** Reactions trigger — the emoji that was reacted with. */
@@ -338,6 +348,7 @@ async function setupSession(ctx: ProcessingContext, deps: CoreDeps): Promise<Ses
       displayName: userInfo?.displayName,
       additionalSystemPrompt: ctx.additionalSystemPrompt,
       channelName: channelInfo?.name,
+      attentionLevel: ctx.attentionLevel,
     });
     logger.debug(`Created session ${session.sessionId}`);
   } else {
@@ -555,6 +566,7 @@ export async function processMessage(
       asOf: params.asOf,
       imageFiles: params.imageFiles,
       preAnalysis: params.preAnalysis,
+      attentionLevel: params.attentionLevel,
       jobId: params.jobId,
       reactionEmoji: params.reactionEmoji,
       autoRespondRuleName: params.autoRespondRuleName,
@@ -649,7 +661,7 @@ export async function processMessage(
 /**
  * Backs `sdk.startThreadConversation`. Starts a streamed, session-creating Claude
  * turn in a thread through the normal `processMessage` pipeline — full query
- * toolset, common chat streamer (no `silentThinking`), and `autoResponseActive`
+ * toolset, common chat streamer (no `silentThinking`), and an engaged `attentionLevel`
  * so the thread auto-follows. `messageTs` is the thread anchor since there is no
  * distinct triggering message. Bound into `ClackSdkDeps.startThreadConversation`
  * at the `loadAndInstallPlugins` call sites.
@@ -661,6 +673,7 @@ export async function startThreadConversation(params: {
   userId: string;
   prompt: string;
   additionalSystemPrompt?: string;
+  attentionLevel?: SettableAttentionLevel;
 }): Promise<void> {
   await processMessage({
     client: params.client,
@@ -673,5 +686,6 @@ export async function startThreadConversation(params: {
     ...(params.additionalSystemPrompt !== undefined
       ? { additionalSystemPrompt: params.additionalSystemPrompt }
       : {}),
+    ...(params.attentionLevel !== undefined ? { attentionLevel: params.attentionLevel } : {}),
   });
 }

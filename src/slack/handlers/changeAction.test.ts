@@ -56,7 +56,7 @@ const mockCreateStreamer = vi.fn(() => ({
 const mockFinalizeStreamedWorkflow = vi.fn<ChangeActionDeps["finalizeStreamedWorkflow"]>(
   async () => {},
 );
-const mockSetAutoResponseActive = vi.fn<ChangeActionDeps["setAutoResponseActive"]>(async () => {});
+const mockSetAttentionLevel = vi.fn<ChangeActionDeps["setAttentionLevel"]>(async () => {});
 const mockPostEphemeralFn = vi.fn<
   (args: { channel: string; user: string; text: string }) => Promise<{ ok: boolean }>
 >(async () => ({ ok: true }));
@@ -76,7 +76,7 @@ function makeDeps(): ChangeActionDeps {
     errorMessage: mockErrorMessage,
     createStreamer: mockCreateStreamer,
     finalizeStreamedWorkflow: mockFinalizeStreamedWorkflow,
-    setAutoResponseActive: mockSetAutoResponseActive,
+    setAttentionLevel: mockSetAttentionLevel,
   };
 }
 

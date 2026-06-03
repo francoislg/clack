@@ -4,19 +4,19 @@ import type { QueryToolContext } from "../types.js";
 import type { SessionContext } from "../../sessions.js";
 import { textResult, errorResult } from "../helpers.js";
 import { parseSlackMessageUrl } from "./fetchSlackMessage.js";
-import { findSessionByThread, setAutoResponseActive } from "../../sessions.js";
+import { findSessionByThread, setAttentionLevel, isEngaged } from "../../sessions.js";
 import { canEditConfig } from "../../permissions.js";
 import type { UserRole } from "../../roles.js";
 
 export interface StopTrackingDeps {
   findSession: (channelId: string, threadTs: string) => Promise<SessionContext | null>;
-  setActive: (sessionId: string, active: boolean) => Promise<void>;
+  setOff: (sessionId: string) => Promise<void>;
   isAdmin: (role: UserRole) => boolean;
 }
 
 const defaultDeps: StopTrackingDeps = {
   findSession: findSessionByThread,
-  setActive: setAutoResponseActive,
+  setOff: (sessionId) => setAttentionLevel(sessionId, "off"),
   isAdmin: canEditConfig,
 };
 
@@ -49,7 +49,7 @@ export function createStopTrackingTool(
       }
 
       // Idempotent: already disengaged is a success
-      if (session.autoResponseActive === false) {
+      if (!isEngaged(session)) {
         return textResult({
           success: true,
           channel: parsed.channelId,
@@ -59,7 +59,7 @@ export function createStopTrackingTool(
         });
       }
 
-      await deps.setActive(session.sessionId, false);
+      await deps.setOff(session.sessionId);
 
       return textResult({
         success: true,

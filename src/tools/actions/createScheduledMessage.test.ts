@@ -82,6 +82,7 @@ function callHandler(tool: CreateTool, args: CallArgs) {
       plugin: undefined,
       skipConditions: undefined,
       submitResponseMode: undefined,
+      attentionLevel: undefined,
       ...args,
     },
     { sessionId: "test" },
@@ -297,6 +298,7 @@ describe("createScheduledMessage tool", () => {
         plugin: undefined,
         skipConditions: undefined,
         submitResponseMode: undefined,
+        attentionLevel: undefined,
       },
       { sessionId: "test" },
     );
@@ -329,6 +331,7 @@ describe("createScheduledMessage tool", () => {
         plugin: undefined,
         skipConditions: undefined,
         submitResponseMode: undefined,
+        attentionLevel: undefined,
       },
       { sessionId: "test" },
     );

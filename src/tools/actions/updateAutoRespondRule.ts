@@ -60,6 +60,13 @@ export function createUpdateAutoRespondRuleTool(
         .string()
         .optional()
         .describe("Replace preAnalysisContext. Pass an empty string to clear. Omit to preserve."),
+      attentionLevel: z
+        .enum(["always", "high", "medium", "low", ""])
+        .optional()
+        .describe(
+          "Set the attention level for sessions this rule creates (always | high | medium | low). " +
+            'Pass an empty string "" to clear it (reverts to the "medium" default). Omit to preserve.',
+        ),
     },
     async (args) => {
       const patch: AutoRespondRulePatch = {};
@@ -86,6 +93,7 @@ export function createUpdateAutoRespondRuleTool(
       if (args.preAnalysisContext !== undefined) {
         patch.preAnalysisContext = args.preAnalysisContext;
       }
+      if (args.attentionLevel !== undefined) patch.attentionLevel = args.attentionLevel;
 
       try {
         const updated = await deps.updateRule(args.id, patch);

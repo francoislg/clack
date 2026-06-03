@@ -1,113 +1,75 @@
 # auto-respond-tracking Specification
 
 ## Purpose
-TBD - created by archiving change auto-respond-tracking. Update Purpose after archive.
+Persisted tracking of thread engagement for auto-respond; coordinated with the attention-level dial that controls classifier policy and disengagement rules.
+
 ## Requirements
+
 ### Requirement: Auto-Respond Tracking State
 
-The system SHALL maintain an explicit `autoResponseActive` boolean on each session to control whether thread messages are evaluated for auto-respond.
+The system SHALL represent thread auto-respond engagement through the per-session `attentionLevel` dial (see the `attention-level` capability), NOT through a separate `autoResponseActive` boolean. A thread is engaged when `attentionLevel !== "off"` and disengaged when `attentionLevel === "off"`.
 
-#### Scenario: Default to active on session creation
+#### Scenario: Default to engaged on session creation
 
 - **WHEN** a new session is created (any trigger type)
-- **THEN** `autoResponseActive` is set to `true`
+- **THEN** its initial `attentionLevel` is resolved per the `attention-level` capability (default `"medium"`, never `"off"`)
 - **AND** the field is persisted in `context.json`
 
-#### Scenario: Existing sessions without field default to active
+#### Scenario: Existing sessions without field default to engaged
 
-- **WHEN** a session is loaded from disk and does not have an `autoResponseActive` field
-- **THEN** the system treats the session as if `autoResponseActive` is `true`
-- **AND** no migration is required
+- **WHEN** a session is loaded from disk and does not have an `attentionLevel` field
+- **THEN** the system applies the read-time migration (`autoResponseActive === false → "off"`, otherwise `→ "medium"`)
+- **AND** no boot migration is required
 
-#### Scenario: Thread auto-respond skips inactive sessions
+#### Scenario: Thread auto-respond skips disengaged sessions
 
 - **WHEN** a thread reply arrives
-- **AND** a session exists for the thread with `autoResponseActive === false`
+- **AND** a session exists for the thread with `attentionLevel === "off"`
 - **THEN** the system does NOT run pre-analysis
 - **AND** does NOT invoke Claude
 - **AND** returns immediately (no cost incurred)
 
 #### Scenario: Tracking state persisted across restarts
 
-- **WHEN** `autoResponseActive` is set to `false`
+- **WHEN** `attentionLevel` is set to `"off"`
 - **AND** the application restarts
-- **THEN** the session loaded from disk retains `autoResponseActive: false`
+- **THEN** the session loaded from disk retains `attentionLevel: "off"`
 - **AND** the thread remains disengaged
 
 #### Scenario: Top-level auto-respond messages unaffected
 
 - **WHEN** a top-level message matches an auto-respond rule
-- **THEN** `autoResponseActive` on any existing session is NOT consulted
-- **AND** a new session is created with `autoResponseActive` defaulting to `true`
+- **THEN** the `attentionLevel` on any existing session is NOT consulted
+- **AND** a new session is created with its initial level resolved from the rule (default `"medium"`)
 
 ### Requirement: Disengagement via Pre-Analysis
 
-The system SHALL support disengagement from a thread when the pre-analysis classifier determines the conversation has moved on.
+The system SHALL support disengagement from a thread when the pre-analysis classifier determines the conversation has moved on, but ONLY when the session's level is `"low"` (see the `attention-level` capability's low-rung auto-disengage rule).
 
-#### Scenario: Pre-analysis returns "stop"
+#### Scenario: Pre-analysis returns "stop" on a low thread
 
-- **WHEN** pre-analysis evaluates a thread message and returns `"stop"`
-- **THEN** the system sets `autoResponseActive = false` on the session
+- **WHEN** pre-analysis evaluates a thread message on a `"low"` session and returns `"stop"`
+- **THEN** the system sets `attentionLevel = "off"` on the session
 - **AND** persists the updated session to disk
 - **AND** does NOT invoke Claude for this message
 - **AND** logs the disengagement at info level
 
-### Requirement: Disengagement via submit_response
+#### Scenario: Higher-rung threads are not disengaged by the classifier
 
-The system SHALL support disengagement from a thread when Claude decides the conversation no longer needs Clack. The `disengage` flag MAY be supplied on either the skip path (declining to answer) or the normal response path (replying and then disengaging in the same turn).
-
-#### Scenario: Claude uses skip_response with disengage
-
-- **WHEN** Claude calls `submit_response` with `skip_response: true` and `disengage: true`
-- **THEN** the skip is processed normally (streamer message deleted, no session persistence of response)
-- **AND** `autoResponseActive` is set to `false` on the session
-- **AND** the updated `autoResponseActive` value is persisted to disk
-
-#### Scenario: Claude uses disengage with a normal response
-
-- **WHEN** Claude calls `submit_response` with `disengage: true` and a normal response (sections and/or actions, no `skip_response`)
-- **THEN** the response is delivered to Slack as usual
-- **AND** `autoResponseActive` is set to `false` on the session after delivery succeeds
-- **AND** the updated `autoResponseActive` value is persisted to disk
-- **AND** the tool's success result includes `disengaged: true`
-
-#### Scenario: Disengage on already-disengaged session is idempotent
-
-- **WHEN** Claude calls `submit_response` with `disengage: true` (with or without `skip_response`)
-- **AND** `autoResponseActive` is already `false` on the session
-- **THEN** the tool succeeds (idempotent)
-- **AND** `autoResponseActive` remains `false`
-
-#### Scenario: Disengage on failed delivery does not persist
-
-- **WHEN** Claude calls `submit_response` with `disengage: true` on the normal path
-- **AND** the deliver callback returns a failure
-- **THEN** the tool returns a `delivery_failed` error
-- **AND** `autoResponseActive` is NOT changed
-- **AND** no disengagement is persisted
-
-#### Scenario: disengage flag only available when tracking is meaningful
-
-- **WHEN** the session's trigger type is one where `autoResponseActive` has runtime effect (`autoRespond`, `threadReply`, or `mentions`)
-- **THEN** the `disengage` parameter is included in the `submit_response` schema
-- **AND** Claude may set it to `true` on either skip or normal response paths
-
-#### Scenario: disengage flag omitted for triggers without tracking semantics
-
-- **WHEN** the session's trigger type is `directMessages`, `reactions`, or `scheduled`
-- **THEN** the `disengage` parameter is NOT included in the `submit_response` schema
-- **AND** disengagement has no meaning for that trigger because auto-respond tracking does not apply
+- **WHEN** a thread reply is evaluated on a `"medium"` or `"high"` session
+- **THEN** the classifier cannot return a disengaging verdict
+- **AND** `attentionLevel` is not changed to `"off"` by pre-analysis
 
 ### Requirement: Disengagement via stop_tracking Tool
 
-The system SHALL provide a `stop_tracking` query tool for cross-thread disengagement.
+The system SHALL provide a `stop_tracking` query tool for cross-thread disengagement, which sets the target session's `attentionLevel` to `"off"`.
 
 #### Scenario: Stop tracking by Slack URL
 
 - **WHEN** Claude calls `stop_tracking` with a valid Slack message URL
 - **THEN** the tool parses the URL to extract channel ID and message timestamp
 - **AND** looks up the session via `findSessionByThread(channelId, threadTs)`
-- **AND** sets `autoResponseActive = false` on the found session
+- **AND** sets `attentionLevel = "off"` on the found session
 - **AND** persists the updated session to disk
 - **AND** returns confirmation with the thread details
 
@@ -125,7 +87,7 @@ The system SHALL provide a `stop_tracking` query tool for cross-thread disengage
 #### Scenario: Admin can stop any thread
 
 - **WHEN** an admin or owner calls `stop_tracking`
-- **THEN** the tool disengages the thread regardless of who created the session
+- **THEN** the tool disengages the thread (sets `attentionLevel = "off"`) regardless of who created the session
 
 #### Scenario: Tool registered when Slack client available
 
@@ -135,13 +97,13 @@ The system SHALL provide a `stop_tracking` query tool for cross-thread disengage
 
 ### Requirement: Re-Activation via @Mention
 
-The system SHALL re-activate auto-respond tracking when Clack is explicitly @mentioned in a disengaged thread.
+The system SHALL re-activate auto-respond tracking when Clack is explicitly @mentioned in a disengaged thread, setting `attentionLevel = "medium"`.
 
 #### Scenario: Mention in disengaged thread re-activates tracking
 
 - **WHEN** a user @mentions Clack in a thread
-- **AND** a session exists for the thread with `autoResponseActive === false`
-- **THEN** the mention handler sets `autoResponseActive = true` on the session
+- **AND** a session exists for the thread with `attentionLevel === "off"`
+- **THEN** the mention handler sets `attentionLevel = "medium"` on the session
 - **AND** persists the updated session to disk
 - **AND** proceeds with normal mention processing
 
@@ -149,40 +111,40 @@ The system SHALL re-activate auto-respond tracking when Clack is explicitly @men
 
 - **WHEN** a user @mentions Clack in a thread with no existing session
 - **THEN** normal mention processing creates a new session
-- **AND** `autoResponseActive` defaults to `true` (standard creation behavior)
+- **AND** `attentionLevel` defaults to `"medium"` (standard creation behavior)
 
-#### Scenario: Mention in already-active thread
+#### Scenario: Mention in already-engaged thread
 
-- **WHEN** a user @mentions Clack in a thread with `autoResponseActive === true`
+- **WHEN** a user @mentions Clack in a thread with `attentionLevel !== "off"`
 - **THEN** the mention handler proceeds normally
-- **AND** `autoResponseActive` remains `true` (no-op)
+- **AND** the existing `attentionLevel` is preserved (no reset)
 
 ### Requirement: Prompt Guidance for Disengagement
 
-The system SHALL include prompt guidance and tool-schema guidance telling Claude when to use the `disengage` flag, including explicit dismissal phrases.
+The system SHALL include prompt guidance and tool-schema guidance telling Claude when to set `attention_level: "off"` to disengage, including explicit dismissal phrases.
 
 #### Scenario: submit_response schema description names dismissal triggers
 
 - **WHEN** the `submit_response` tool schema is constructed for a session that supports tracking
-- **THEN** the `disengage` parameter's description names explicit user dismissals ("thanks Clack", "you're done", "that's all") as canonical triggers
-- **AND** states that `disengage: true` may be combined with a normal response (reply and disengage in the same turn)
-- **AND** states that `disengage: true` may also be combined with `skip_response: true` (decline to answer and disengage)
+- **THEN** the `attention_level` parameter's description names explicit user dismissals ("thanks Clack", "you're done", "that's all") as canonical triggers for `"off"`
+- **AND** states that `attention_level: "off"` may be combined with a normal response (reply and disengage in the same turn)
+- **AND** states that `attention_level: "off"` may also be combined with `skip_response: true` (decline to answer and disengage)
 
-#### Scenario: Delivery-context prompt includes disengage guidance
+#### Scenario: Delivery-context prompt includes attention-level guidance
 
 - **WHEN** the delivery context prompt is built for a session that supports tracking
-- **THEN** the prompt includes guidance that Claude can use `disengage: true` when the thread conversation has clearly moved on or when the user explicitly dismisses Clack
-- **AND** the prompt distinguishes between `skip_response` alone (temporary silence, stay engaged), `skip_response` + `disengage` (decline and permanently disengage), and normal response + `disengage` (reply and permanently disengage)
+- **THEN** the prompt includes guidance that Claude can lower the level (or set `"off"`) as a thread winds down, and raise it when the user is actively engaged
+- **AND** the prompt distinguishes `skip_response` alone (temporary silence, stay engaged) from `attention_level: "off"` (permanent disengage)
 
 ### Requirement: Disengagement via Stop Reaction
 
-The system SHALL support disengagement from a thread when a user adds the configured stop reaction (`config.reactions.stop`) to any message in the thread.
+The system SHALL support disengagement from a thread when a user adds the configured stop reaction (`config.reactions.stop`) to any message in the thread, by setting `attentionLevel = "off"`.
 
-#### Scenario: Stop reaction sets autoResponseActive false
+#### Scenario: Stop reaction sets attentionLevel off
 
 - **WHEN** a user adds the configured stop reaction to any message in a thread
 - **AND** a session exists for the thread
-- **THEN** the system sets `autoResponseActive = false` on that session
+- **THEN** the system sets `attentionLevel = "off"` on that session
 - **AND** persists the updated session to disk
 - **AND** the thread stops being auto-responded to on subsequent replies
 
@@ -195,25 +157,24 @@ The system SHALL support disengagement from a thread when a user adds the config
 
 #### Scenario: Stop reaction is idempotent on disengagement
 
-- **WHEN** a user adds the stop reaction to a thread whose session already has `autoResponseActive === false`
+- **WHEN** a user adds the stop reaction to a thread whose session already has `attentionLevel === "off"`
 - **THEN** the disengagement step is a no-op
-- **AND** no persistence write occurs (optional optimization) OR a redundant persistence is performed without error
 - **AND** the thread remains disengaged
 
 #### Scenario: Stop reaction logs disengagement
 
-- **WHEN** a stop reaction sets `autoResponseActive = false` on a session that was previously active
+- **WHEN** a stop reaction sets `attentionLevel = "off"` on a session that was previously engaged
 - **THEN** the system logs the disengagement at info level, including the session ID and reactor's user label
 
 ### Requirement: Disengagement via Inline Stop Emoji
 
-The system SHALL disengage a thread from auto-respond tracking when a message in the thread matches the inline stop-emoji detection rule (defined in `slack-message-trigger`), with the same effect as the stop reaction.
+The system SHALL disengage a thread from auto-respond tracking when a message in the thread matches the inline stop-emoji detection rule (defined in `slack-message-trigger`), with the same effect as the stop reaction (sets `attentionLevel = "off"`).
 
 #### Scenario: Inline stop emoji in thread reply disengages the session
 
 - **WHEN** a non-bot thread reply arrives in a thread with an existing Clack session
 - **AND** the reply matches the inline stop-emoji detection rule (trimmed text ≤60 chars and contains the configured stop emoji)
-- **THEN** the system sets `autoResponseActive = false` on the session
+- **THEN** the system sets `attentionLevel = "off"` on the session
 - **AND** persists the session to disk
 - **AND** does NOT run pre-analysis
 - **AND** does NOT call `processMessage`
@@ -227,7 +188,7 @@ The system SHALL disengage a thread from auto-respond tracking when a message in
 
 #### Scenario: Inline stop emoji on already-disengaged session is idempotent
 
-- **WHEN** a message matching the inline stop-emoji detection rule arrives in a thread whose session already has `autoResponseActive === false`
+- **WHEN** a message matching the inline stop-emoji detection rule arrives in a thread whose session already has `attentionLevel === "off"`
 - **THEN** the disengagement step is a no-op
 - **AND** the thread remains disengaged
 - **AND** no error is raised
@@ -235,25 +196,25 @@ The system SHALL disengage a thread from auto-respond tracking when a message in
 #### Scenario: Inline stop emoji and stop reaction produce identical disengagement
 
 - **WHEN** either surface (reaction or inline match) fires for the same thread
-- **THEN** `autoResponseActive` is set to `false` via the same internal call path
+- **THEN** `attentionLevel` is set to `"off"` via the same internal call path
 - **AND** both paths log at info level with the sender/reactor's user label and thread link
 
 ### Requirement: Re-Activation via Change-Thread Button Click
 
-The system SHALL re-activate auto-respond tracking when a user clicks any change-thread action button (Merge, Review, Close, Accept, Edit, or other follow-up buttons) on a session with `autoResponseActive === false`. This re-activation is symmetric with the existing `@mention` re-activation.
+The system SHALL re-activate auto-respond tracking when a user clicks any change-thread action button (Merge, Review, Close, Accept, Edit, or other follow-up buttons) on a disengaged session (`attentionLevel === "off"`), setting `attentionLevel = "medium"`. This re-activation is symmetric with the existing `@mention` re-activation.
 
 #### Scenario: Button click in disengaged thread re-activates tracking
 
 - **WHEN** a user clicks a change-thread action button
-- **AND** a session exists for the thread with `autoResponseActive === false`
-- **THEN** the handler sets `autoResponseActive = true` on the session
+- **AND** a session exists for the thread with `attentionLevel === "off"`
+- **THEN** the handler sets `attentionLevel = "medium"` on the session
 - **AND** persists the updated session to disk
 - **AND** proceeds with normal button-action processing
 
-#### Scenario: Button click in active thread unchanged
+#### Scenario: Button click in engaged thread unchanged
 
 - **WHEN** a user clicks a change-thread action button
-- **AND** the session has `autoResponseActive === true`
+- **AND** the session has `attentionLevel !== "off"`
 - **THEN** the handler proceeds normally (no re-activation step, no extra persistence)
 
 #### Scenario: Button click applies to any change-thread action

@@ -53,6 +53,7 @@ export function createGetScheduledMessageTool(ctx: QueryToolContext) {
         skipConditions: job.skipConditions ?? null,
         skipDates: job.skipDates ?? null,
         submitResponseMode: job.submitResponseMode ?? null,
+        attentionLevel: job.attentionLevel ?? null,
         totalRuns: (job.runs ?? []).length,
         recentRuns: await formatRecentRuns(job, ctx),
       });

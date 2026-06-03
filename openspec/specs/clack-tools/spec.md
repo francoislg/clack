@@ -665,7 +665,7 @@ The system SHALL provide a `stop_tracking` query tool that deactivates auto-resp
 - **WHEN** Claude calls `stop_tracking` with a `url` parameter containing a valid Slack message URL
 - **THEN** the tool parses the URL to extract channel ID and thread timestamp
 - **AND** calls `findSessionByThread(channelId, threadTs)` to locate the session
-- **AND** sets `autoResponseActive = false` on the session
+- **AND** sets `attentionLevel = "off"` on the session (disengaging from auto-respond)
 - **AND** persists the updated session to disk
 - **AND** returns `{ success: true, channel: channelId, thread_ts: threadTs, session_id: sessionId }`
 
@@ -688,7 +688,7 @@ The system SHALL provide a `stop_tracking` query tool that deactivates auto-resp
 #### Scenario: Admin can stop any thread
 
 - **WHEN** a user with admin or owner role calls `stop_tracking`
-- **THEN** the tool sets `autoResponseActive = false` regardless of who created the session
+- **THEN** the tool sets `attentionLevel = "off"` regardless of who created the session
 
 #### Scenario: Tool not registered without Slack client
 
@@ -698,7 +698,7 @@ The system SHALL provide a `stop_tracking` query tool that deactivates auto-resp
 
 #### Scenario: Already disengaged thread
 
-- **WHEN** Claude calls `stop_tracking` on a thread where `autoResponseActive` is already `false`
+- **WHEN** Claude calls `stop_tracking` on a thread where `attentionLevel` is already `"off"`
 - **THEN** the tool returns success (idempotent)
 - **AND** does not modify the session
 

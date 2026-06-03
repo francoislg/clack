@@ -54,6 +54,7 @@ function callHandler(
       plugin: undefined,
       skipConditions: args.skipConditions,
       name: args.name,
+      attentionLevel: undefined,
     },
     { sessionId: "test" },
   );

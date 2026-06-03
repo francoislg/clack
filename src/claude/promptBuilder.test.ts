@@ -311,42 +311,49 @@ describe("buildPrompt", () => {
     assert.ok(prompt.includes("Channel mention"));
   });
 
-  // ---- disengage guidance ----
-  it("includes dismissal-phrase disengage guidance for autoRespond", () => {
-    const session = makeSession({ triggerType: "autoRespond" });
+  // ---- attention-level guidance ----
+  it("includes attention-level guidance with the current level for autoRespond", () => {
+    const session = makeSession({ triggerType: "autoRespond", attentionLevel: "high" });
     const prompt = buildPrompt(session);
-    assert.ok(prompt.includes("disengage: true"));
+    assert.ok(prompt.includes("current attention level"));
+    assert.ok(prompt.includes('"high"'));
+    assert.ok(prompt.includes('attention_level: "off"'));
     assert.ok(prompt.includes("thanks Clack"));
-    assert.ok(prompt.includes("reply *and* stop tracking"));
   });
 
-  it("includes dismissal-phrase disengage guidance for threadReply", () => {
+  it("includes attention-level guidance for threadReply", () => {
     const session = makeSession({ triggerType: "threadReply" });
     const prompt = buildPrompt(session);
-    assert.ok(prompt.includes("disengage: true"));
+    assert.ok(prompt.includes("current attention level"));
+    assert.ok(prompt.includes('attention_level: "off"'));
     assert.ok(prompt.includes("thanks Clack"));
-    assert.ok(prompt.includes("reply *and* stop tracking"));
   });
 
-  it("includes mention-specific disengage guidance for mentions", () => {
+  it("includes attention-level guidance for mentions", () => {
     const session = makeSession({ triggerType: "mentions" });
     const prompt = buildPrompt(session);
-    assert.ok(prompt.includes("disengage: true"));
+    assert.ok(prompt.includes("current attention level"));
+    assert.ok(prompt.includes('attention_level: "off"'));
     assert.ok(prompt.includes("thanks Clack"));
-    assert.ok(prompt.includes("natural pattern"));
   });
 
-  it("omits disengage guidance for reactions", () => {
+  it("defaults the surfaced level to medium when unset", () => {
+    const session = makeSession({ triggerType: "mentions" });
+    const prompt = buildPrompt(session);
+    assert.ok(prompt.includes('current attention level is "medium"'));
+  });
+
+  it("omits attention-level guidance for reactions", () => {
     const session = makeSession({ triggerType: "reactions" });
     const prompt = buildPrompt(session);
-    assert.ok(!prompt.includes("disengage: true"));
+    assert.ok(!prompt.includes("current attention level"));
     assert.ok(!prompt.includes("thanks Clack"));
   });
 
-  it("omits disengage guidance for directMessages", () => {
+  it("omits attention-level guidance for directMessages", () => {
     const session = makeSession({ triggerType: "directMessages" });
     const prompt = buildPrompt(session);
-    assert.ok(!prompt.includes("disengage: true"));
+    assert.ok(!prompt.includes("current attention level"));
     assert.ok(!prompt.includes("thanks Clack"));
   });
 

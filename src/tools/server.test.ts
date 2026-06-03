@@ -10,7 +10,7 @@ import {
   createToolCallRecorder,
   wrapToolForRecording,
   shouldAllowSkip,
-  shouldAllowDisengage,
+  shouldAllowAttentionLevel,
   shouldAllowPostTopLevel,
   computeAllowSkip,
 } from "./server.js";
@@ -617,21 +617,21 @@ describe("computeAllowSkip", () => {
   });
 });
 
-describe("shouldAllowDisengage", () => {
+describe("shouldAllowAttentionLevel", () => {
   it("allows disengage for autoRespond, threadReply, and mentions", () => {
-    assert.equal(shouldAllowDisengage("autoRespond"), true);
-    assert.equal(shouldAllowDisengage("threadReply"), true);
-    assert.equal(shouldAllowDisengage("mentions"), true);
+    assert.equal(shouldAllowAttentionLevel("autoRespond"), true);
+    assert.equal(shouldAllowAttentionLevel("threadReply"), true);
+    assert.equal(shouldAllowAttentionLevel("mentions"), true);
   });
 
   it("denies disengage for directMessages, reactions, scheduled", () => {
-    assert.equal(shouldAllowDisengage("directMessages"), false);
-    assert.equal(shouldAllowDisengage("reactions"), false);
-    assert.equal(shouldAllowDisengage("scheduled"), false);
+    assert.equal(shouldAllowAttentionLevel("directMessages"), false);
+    assert.equal(shouldAllowAttentionLevel("reactions"), false);
+    assert.equal(shouldAllowAttentionLevel("scheduled"), false);
   });
 
   it("denies disengage for undefined triggerType", () => {
-    assert.equal(shouldAllowDisengage(undefined), false);
+    assert.equal(shouldAllowAttentionLevel(undefined), false);
   });
 });
 

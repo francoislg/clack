@@ -233,20 +233,20 @@ The system SHALL abort any in-flight worker-mode execution for a thread when a m
 
 ### Requirement: Re-Engagement via Change-Thread Button Click
 
-The system SHALL re-engage a disengaged thread when a user clicks any change-thread action button (Merge, Review, Close, Accept, Edit, or other follow-up buttons) on a change whose thread has `autoResponseActive === false`.
+The system SHALL re-engage a disengaged thread when a user clicks any change-thread action button (Merge, Review, Close, Accept, Edit, or other follow-up buttons) on a change whose thread has `attentionLevel === "off"`.
 
 #### Scenario: Button click on disengaged thread re-engages
 
 - **WHEN** a user clicks any change-thread action button (Merge, Review, Close, Accept, Edit, etc.)
-- **AND** the session for the thread has `autoResponseActive === false`
-- **THEN** the handler sets `autoResponseActive = true` on the session before processing the action
+- **AND** the session for the thread has `attentionLevel === "off"`
+- **THEN** the handler sets `attentionLevel = "medium"` on the session before processing the action
 - **AND** persists the updated session to disk
 - **AND** proceeds to handle the action as normal
 
 #### Scenario: Button click on engaged thread is unchanged
 
 - **WHEN** a user clicks any change-thread action button
-- **AND** the session for the thread has `autoResponseActive === true` or no session exists
+- **AND** the session for the thread has `attentionLevel !== "off"` or no session exists
 - **THEN** the handler proceeds without any re-engagement step
 - **AND** behavior is unchanged from prior (no additional persistence)
 

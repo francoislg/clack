@@ -21,7 +21,7 @@ import type { McpSdkServerConfigWithInstance } from "@anthropic-ai/claude-agent-
 import { asSlackBlocks } from "../slack/blocks.js";
 import type { SlackBlocks } from "../slack/blocks.js";
 import { updateSession, getSession } from "../sessions.js";
-import type { SessionContext } from "../sessions.js";
+import type { SessionContext, AttentionLevel } from "../sessions.js";
 import { canRequestChanges, canEditConfig } from "../permissions.js";
 
 // Query tools
@@ -206,10 +206,11 @@ export interface ResponseCapture {
   get: () => SubmitResponsePayload | null;
   getRenderedBlocks: () => SlackBlocks | null;
   setSkipped: () => void;
-  setDisengaged: () => void;
+  setAttentionLevel: (level: AttentionLevel) => void;
   setPostedTopLevel: () => void;
   isSkipped: () => boolean;
-  isDisengaged: () => boolean;
+  /** The attention level Claude set via `submit_response.attention_level`, or null if unset. */
+  getAttentionLevel: () => AttentionLevel | null;
   isPostedTopLevel: () => boolean;
 }
 
@@ -217,7 +218,7 @@ export function createResponseCapture(): ResponseCapture {
   let result: SubmitResponsePayload | null = null;
   let blocks: SlackBlocks | null = null;
   let skipped = false;
-  let disengaged = false;
+  let attentionLevel: AttentionLevel | null = null;
   let postedTopLevel = false;
 
   return {
@@ -238,8 +239,8 @@ export function createResponseCapture(): ResponseCapture {
       skipped = true;
     },
 
-    setDisengaged(): void {
-      disengaged = true;
+    setAttentionLevel(level: AttentionLevel): void {
+      attentionLevel = level;
     },
 
     setPostedTopLevel(): void {
@@ -250,8 +251,8 @@ export function createResponseCapture(): ResponseCapture {
       return skipped;
     },
 
-    isDisengaged(): boolean {
-      return disengaged;
+    getAttentionLevel(): AttentionLevel | null {
+      return attentionLevel;
     },
 
     isPostedTopLevel(): boolean {
@@ -297,11 +298,11 @@ export function computeAllowSkip(
 }
 
 /**
- * Disengage is meaningful wherever `autoResponseActive` has runtime effect — the skippable
- * triggers plus channel mentions, where a user can dismiss Clack ("thanks, you're done")
- * and expect the thread to stop getting auto-respond replies.
+ * The `attention_level` dial is meaningful wherever thread auto-respond tracking has runtime
+ * effect — the skippable triggers plus channel mentions, where Claude can raise/lower the
+ * thread's eagerness or set `"off"` to disengage ("thanks, you're done").
  */
-export function shouldAllowDisengage(triggerType: TriggerType): boolean {
+export function shouldAllowAttentionLevel(triggerType: TriggerType): boolean {
   return (
     triggerType === "autoRespond" || triggerType === "threadReply" || triggerType === "mentions"
   );
@@ -531,7 +532,7 @@ function buildQueryTools(ctx: QueryToolContext): ClackQueryToolsResult {
       topLevelDeliveryChannel: triggerType === "scheduled" ? ctx.session.channelId : undefined,
       sessionChannelId: ctx.session.channelId,
       allowSkip: computeAllowSkip(triggerType, ctx.skipConditions, ctx.submitResponseMode),
-      allowDisengage: shouldAllowDisengage(triggerType),
+      allowAttentionLevel: shouldAllowAttentionLevel(triggerType),
       allowPostTopLevel: shouldAllowPostTopLevel(triggerType),
       // Top-level multi-message fields gated to scheduled (cron) context only. In DM,
       // @mention, reaction, etc. the trigger channel is the user's space and multi-message
@@ -616,7 +617,7 @@ function buildQueryTools(ctx: QueryToolContext): ClackQueryToolsResult {
     getStagedIntents: () => intentStore.getAll(),
     getToolCallHistory: () => recorder.getHistory(),
     isSkipped: () => responseCapture.isSkipped(),
-    isDisengaged: () => responseCapture.isDisengaged(),
+    getAttentionLevel: () => responseCapture.getAttentionLevel(),
     isPostedTopLevel: () => responseCapture.isPostedTopLevel(),
   };
 }
@@ -651,7 +652,7 @@ function buildWorkerTools(ctx: WorkerToolContext): ClackWorkerToolsResult {
     getStagedIntents: () => new Map(),
     getToolCallHistory: () => [],
     isSkipped: () => false,
-    isDisengaged: () => false,
+    getAttentionLevel: () => null,
     isPostedTopLevel: () => false,
   };
 }

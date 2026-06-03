@@ -82,13 +82,19 @@ The thread anchor SHALL be the question's own message (its `ts`), so the convers
 
 ### Requirement: The "Tell me more" thread auto-follows
 
-The Claude turn started by "Tell me more" SHALL create a session whose thread is auto-follow-enabled (`autoResponseActive` true), so that subsequent human replies in the thread continue the conversation through the standard thread auto-respond path. (Tuning the follow-up gate's leniency is out of scope — a separate feature owns that.)
+The Claude turn started by "Tell me more" SHALL create a session whose thread is auto-follow-enabled, seeded at `attentionLevel: "high"` so Clack eagerly answers subsequent human replies in the thread through the standard thread auto-respond path. "Tell me more" is an explicit invitation to dig in, so the follow-up gate leans strongly toward responding rather than applying the conservative default.
 
 #### Scenario: Follow-up reply continues the conversation
 
 - **GIVEN** a "Tell me more" conversation has been kicked off in a question's thread
 - **WHEN** the clicking user (or another user) posts a genuine follow-up question in that thread
 - **THEN** the standard thread auto-respond path finds the session and Claude responds in the thread
+
+#### Scenario: Thread is seeded at high attention
+
+- **WHEN** the "Tell me more" thread conversation is started via `sdk.startThreadConversation`
+- **THEN** it passes `attentionLevel: "high"`
+- **AND** the created session's `attentionLevel` is `"high"`
 
 ### Requirement: "Tell me more" user-facing strings are localized
 

@@ -98,7 +98,7 @@ The system SHALL support a configurable "stop" reaction emoji (`config.reactions
 - **WHEN** a user adds the configured stop emoji to a message that triggered a Claude query or worker run
 - **THEN** the system resolves the thread the message belongs to
 - **AND** aborts the in-flight request for that thread (see request-cancellation and worker-cancellation specs)
-- **AND** sets the thread's session `autoResponseActive` to `false` (see auto-respond-tracking spec)
+- **AND** sets the thread's session `attentionLevel` to `"off"` (disengaging from auto-respond; see attention-level spec)
 - **AND** takes no destructive action on git, the worktree, or any PR
 
 #### Scenario: Stop reaction added to bot's streamed response
@@ -106,31 +106,31 @@ The system SHALL support a configurable "stop" reaction emoji (`config.reactions
 - **WHEN** a user adds the configured stop emoji to a message posted by the bot in a thread
 - **THEN** the system resolves the thread
 - **AND** aborts any in-flight request associated with that thread
-- **AND** sets the thread's session `autoResponseActive` to `false`
+- **AND** sets the thread's session `attentionLevel` to `"off"`
 
 #### Scenario: Stop reaction added to thread parent
 
 - **WHEN** a user adds the configured stop emoji to the parent message of a thread Clack is active in
 - **THEN** the system resolves the thread (using the message as the thread parent)
 - **AND** aborts any in-flight request associated with that thread
-- **AND** sets the thread's session `autoResponseActive` to `false`
+- **AND** sets the thread's session `attentionLevel` to `"off"`
 
 #### Scenario: Stop reaction added to another user's thread reply
 
 - **WHEN** a user adds the configured stop emoji to any other message in the thread (e.g., a teammate's reply)
 - **THEN** the system resolves the thread from that message's `thread_ts`
 - **AND** aborts any in-flight request associated with that thread
-- **AND** sets the thread's session `autoResponseActive` to `false`
+- **AND** sets the thread's session `attentionLevel` to `"off"`
 
 #### Scenario: Stop reaction on message with no in-flight work
 
 - **WHEN** a user adds the stop emoji to a thread with no in-flight Claude work
-- **THEN** the system still disengages the thread (sets `autoResponseActive = false`)
+- **THEN** the system still disengages the thread (sets `attentionLevel = "off"`)
 - **AND** returns without error (no-op on the abort side)
 
-#### Scenario: Stop reaction on already-stopped thread
+#### Scenario: Stop reaction on already-disengaged thread
 
-- **WHEN** a user adds the stop emoji to a thread whose session already has `autoResponseActive === false` and no in-flight work
+- **WHEN** a user adds the stop emoji to a thread whose session already has `attentionLevel === "off"` and no in-flight work
 - **THEN** the handler is idempotent (no error, no status change, no double-abort)
 
 #### Scenario: Stop reaction when feature is disabled

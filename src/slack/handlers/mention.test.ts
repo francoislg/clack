@@ -14,7 +14,7 @@ function makeDeps(): MentionDeps {
     getConfig: () => ({ mentions: { enabled: true } }) as never,
     processMessage: mockProcessMessage as never,
     findSessionByThread: async () => null,
-    setAutoResponseActive: async () => {},
+    setAttentionLevel: async () => {},
     stopThread: mockStopThread,
   };
 }
@@ -351,7 +351,7 @@ function makeStopDeps(stopEmoji: string | null = "octagonal_sign"): MentionDeps 
     }),
     processMessage: mockInlineProcess,
     findSessionByThread: async () => null,
-    setAutoResponseActive: async () => {},
+    setAttentionLevel: async () => {},
     stopThread: mockStopThread,
   };
 }

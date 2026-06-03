@@ -3,6 +3,7 @@ import { resolve } from "node:path";
 import { randomUUID } from "node:crypto";
 import { logger } from "./logger.js";
 import { fileExists } from "./fs.js";
+import type { SettableAttentionLevel } from "./sessions.js";
 
 // ============================================================================
 // Types
@@ -18,6 +19,8 @@ export interface AutoRespondRule {
   extraContext?: string;
   /** Optional pre-analysis context — when set, a lightweight Claude Haiku call evaluates message relevance before responding */
   preAnalysisContext?: string;
+  /** Optional attention level seeded onto sessions this rule creates. Defaults to `"medium"`. */
+  attentionLevel?: SettableAttentionLevel;
   enabled: boolean;
 }
 
@@ -96,6 +99,7 @@ export async function addRule(
   keywords?: string[],
   extraContext?: string,
   preAnalysisContext?: string,
+  attentionLevel?: SettableAttentionLevel,
 ): Promise<AutoRespondRule> {
   const rules = await loadRules();
   const rule: AutoRespondRule = {
@@ -105,6 +109,7 @@ export async function addRule(
     ...(keywords && keywords.length > 0 && { keywords }),
     ...(extraContext?.trim() && { extraContext: extraContext.trim() }),
     ...(preAnalysisContext?.trim() && { preAnalysisContext: preAnalysisContext.trim() }),
+    ...(attentionLevel && { attentionLevel }),
     enabled: true,
   };
   rules.push(rule);
@@ -119,7 +124,12 @@ export async function addRule(
  * - `extraContext` / `preAnalysisContext` set to an empty string (or whitespace-only) clear the field.
  * - `keywords` / `userFilters` set to an empty array clear the field.
  */
-export type AutoRespondRulePatch = Partial<Omit<AutoRespondRule, "id" | "enabled">>;
+export type AutoRespondRulePatch = Partial<
+  Omit<AutoRespondRule, "id" | "enabled" | "attentionLevel">
+> & {
+  /** A settable level sets it; an empty string clears it (reverting to the `"medium"` default). */
+  attentionLevel?: SettableAttentionLevel | "";
+};
 
 export async function updateRule(
   ruleId: string,
@@ -160,6 +170,13 @@ export async function updateRule(
       rule.preAnalysisContext = trimmed;
     } else {
       delete rule.preAnalysisContext;
+    }
+  }
+  if (patch.attentionLevel !== undefined) {
+    if (patch.attentionLevel) {
+      rule.attentionLevel = patch.attentionLevel;
+    } else {
+      delete rule.attentionLevel;
     }
   }
 
