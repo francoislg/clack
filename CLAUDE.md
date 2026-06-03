@@ -165,7 +165,7 @@ Image sources are **external, independently-installed plugins** (`commons-image-
 - `categories` (`string[]`) — per-game category pool. Cascade: `slot.categories → season.categories → game.categories → categories.json`.
 - `theme` (`string`) — per-game narrative label surfaced in openers/finales. Cascade: `season.theme → game.theme → (no theme)`.
 
-All three are admin-edited in `config.json` (no MCP tool surfaces mutation today); `list_games` surfaces them in its per-entry response when set.
+All three are settable via `upsert_game` (and `format`/`categories` also via `upsert_season` at the season tier) with omit-to-keep / null-to-clear semantics, or admin-edited in `config.json` directly; `list_games` surfaces them in its per-entry response when set.
 
 **Hint axis (optional).** `hint?: { mode: "none" | "button" | "inline"; minDifficulty?: "easy" | "medium" | "hard" }` cascades through `slot → season → game → workspace → { mode: "none" }` with whole-object replace per tier. When effective mode is non-`"none"` (and the rolled difficulty meets `minDifficulty`), `get_ideas` returns `suggestedHintMode`; Claude drafts a ≤140-char hint via the HINT DRAFTING GATE (self-review against bad-vs-good examples) and `save_question` persists it on the record. `"button"` appends a "💡 Get Hint!" button to the answer-button row (clicking posts an ephemeral message in the thread; `clickedBy` tracking is button-mode only and never leaked at reveal). `"inline"` prepends a `💡 _Hint:_ <text>` context block above the answer buttons (visible to everyone). Hints have no scoring impact. Surfaced by `list_games` (per-game + `workspaceDefaults`) when set; admin-edited via `upsert_game` / `upsert_season` / `set_workspace_config`.
 

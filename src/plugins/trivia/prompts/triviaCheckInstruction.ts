@@ -179,11 +179,11 @@ Each season can carry an optional \`format\` field — an ordered list of questi
 
 The resolution cascade for each slot is: \`slot.* ?? season.* ?? game.* ?? config default\`. Empty slot \`{}\` is permitted and means "use season defaults for everything".
 
-A game can ALSO carry its own \`format\` field, which is used as a fallback for question-cron fires when no active season supplies a \`format\`. The format cascade is \`season.format → game.format → (single-question fallback)\` — the season wins when both are set, matching the per-axis cascade ordering. To set a per-game format, edit \`config.trivia.games[<name>].format\` directly in \`config.json\` (no MCP tool surfaces this — the only management tool for per-game state is \`upsert_game\` which does not yet accept \`format\`). Same logic applies to per-game \`categories\` (narrows the channel-default category pool when no season is active) and per-game \`theme\` (used in openers/finales when the active season has no \`theme\`).
+A game can ALSO carry its own \`format\` field, which is used as a fallback for question-cron fires when no active season supplies a \`format\`. The format cascade is \`season.format → game.format → (single-question fallback)\` — the season wins when both are set, matching the per-axis cascade ordering. To set a per-game format, call \`upsert_game(name, { format: { questions: [...] } })\` — \`upsert_game\` accepts \`format\` with the same wholesale-replace / omit-to-keep / null-to-clear semantics as the season \`format\`. Same logic applies to per-game \`categories\` (narrows the channel-default category pool when no season is active) and per-game \`theme\` (used in openers/finales when the active season has no \`theme\`).
 
 When an admin asks to **set up a format** (e.g. "3 general-knowledge true-false followed by 2 historical choice"):
 
-- Call \`upsert_season(slug, { format: { questions: [<one entry per slot>] } })\`. Format is replaced wholesale on each call (no per-slot tools). On UPDATE, omitting \`format\` keeps the existing value; passing \`null\` clears it (back to single-question-per-fire behavior).
+- For a SEASON-level format, call \`upsert_season(slug, { format: { questions: [<one entry per slot>] } })\`. For a GAME-level format (the fallback used when no active season supplies one), call \`upsert_game(name, { format: { questions: [<one entry per slot>] } })\`. Either way, \`format\` is replaced wholesale on each call (no per-slot tools). On UPDATE, omitting \`format\` keeps the existing value; passing \`null\` clears it (back to single-question-per-fire behavior).
 
 Soft guidance: aim for ≤ 10 slots per format. The system has no hard cap, but larger formats stress Claude's per-fire generation budget.
 
