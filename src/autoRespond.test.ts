@@ -72,6 +72,19 @@ describe("autoRespond — updateRule partial patch", () => {
     assert.equal("keywords" in updated, false);
   });
 
+  it("persists attentionLevel from addRule and clears it on empty string", async () => {
+    const rule = await addRule(["C1"], undefined, undefined, undefined, undefined, "high");
+    assert.equal(rule.attentionLevel, "high");
+
+    const set = await updateRule(rule.id, { attentionLevel: "low" });
+    assert.equal(set?.attentionLevel, "low");
+
+    const cleared = await updateRule(rule.id, { attentionLevel: "" });
+    assert.ok(cleared);
+    assert.equal(cleared.attentionLevel, undefined);
+    assert.equal("attentionLevel" in cleared, false);
+  });
+
   it("clears userFilters when passed an empty array", async () => {
     const rule = await addRule(["C1"], ["U1"]);
     const updated = await updateRule(rule.id, { userFilters: [] });

@@ -92,6 +92,14 @@ export function createUpdateScheduledMessageTool(ctx: QueryToolContext) {
             "Tab and in task cards. Omit to leave the existing name unchanged. Pass an empty " +
             "string to clear it. Pass a non-empty string to replace it.",
         ),
+      attentionLevel: z
+        .enum(["always", "high", "medium", "low", ""])
+        .optional()
+        .describe(
+          "How eagerly Clack auto-follows the thread this scheduled message creates when someone " +
+            'replies (always | high | medium | low). Pass an empty string "" to clear it (reverts ' +
+            'to the "medium" default). Omit to leave unchanged.',
+        ),
     },
     async (args) => {
       const job = await getJob(args.id);
@@ -165,6 +173,9 @@ export function createUpdateScheduledMessageTool(ctx: QueryToolContext) {
           ...(args.plugin !== undefined && { plugin: args.plugin }),
           ...(args.skipConditions !== undefined && { skipConditions: args.skipConditions }),
           ...(args.name !== undefined && { name: args.name }),
+          ...(args.attentionLevel !== undefined && {
+            attentionLevel: args.attentionLevel === "" ? null : args.attentionLevel,
+          }),
         });
 
         if (!updated) {

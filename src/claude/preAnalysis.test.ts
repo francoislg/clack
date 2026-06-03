@@ -307,6 +307,86 @@ describe("runPreAnalysis", () => {
     assert.equal(capturedOptions!.maxTurns, 1);
   });
 
+  async function captureSystemPrompt(
+    level: "low" | "medium" | "high" | undefined,
+    result = "respond",
+  ): Promise<string> {
+    let captured: string | undefined;
+    mockQuery.mockImplementation((...args: unknown[]) => {
+      captured = (args[0] as QueryCallArg).options?.systemPrompt;
+      return asyncIterableOf([{ type: "result", subtype: "success", result }]);
+    });
+    await runPreAnalysis(
+      "msg",
+      "Alice",
+      "Clack",
+      "ctx",
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      makeDeps(),
+      level,
+    );
+    return captured!;
+  }
+
+  it("low policy (default) prefers skip and offers the stop verdict", async () => {
+    const prompt = await captureSystemPrompt("low");
+    assert.ok(prompt.includes("prefer skip"));
+    assert.ok(prompt.includes('The single word "skip", "respond", or "stop"'));
+  });
+
+  it("medium policy leans toward respond and omits the stop verdict", async () => {
+    const prompt = await captureSystemPrompt("medium");
+    assert.ok(prompt.includes("MEDIUM attention"));
+    assert.ok(prompt.includes("prefer respond"));
+    assert.ok(prompt.includes('The single word "skip" or "respond"'));
+    assert.ok(!prompt.includes('or "stop"'));
+  });
+
+  it("high policy responds to nearly everything and omits the stop verdict", async () => {
+    const prompt = await captureSystemPrompt("high");
+    assert.ok(prompt.includes("HIGH attention"));
+    assert.ok(prompt.includes('The single word "skip" or "respond"'));
+  });
+
+  it("honors a 'stop' verdict only at the low rung", async () => {
+    mockQuery.mockImplementation(() =>
+      asyncIterableOf([{ type: "result", subtype: "success", result: "stop" }]),
+    );
+    const atLow = await runPreAnalysis(
+      "we're done",
+      "Alice",
+      "Clack",
+      "ctx",
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      makeDeps(),
+      "low",
+    );
+    assert.equal(atLow, "stop");
+
+    const atMedium = await runPreAnalysis(
+      "we're done",
+      "Alice",
+      "Clack",
+      "ctx",
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      makeDeps(),
+      "medium",
+    );
+    assert.equal(atMedium, "skip");
+  });
+
   it("does NOT inject the language directive — pre-analysis is internal reasoning", async () => {
     // The pre-analysis path builds its systemPrompt inline (not through
     // buildSystemPrompt), so the LANGUAGE directive must never appear regardless

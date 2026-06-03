@@ -55,7 +55,7 @@ const mockAppendStagedIntents = vi.fn<HandlerResponseDeps["appendStagedIntents"]
 
 const mockUpdateSession = vi.fn<(...args: never[]) => Promise<void>>(async () => {});
 const mockAddError = vi.fn<(...args: never[]) => Promise<void>>(async () => {});
-const mockSetAutoResponseActive = vi.fn<(...args: never[]) => Promise<void>>(async () => {});
+const mockSetAttentionLevel = vi.fn<HandlerResponseDeps["setAttentionLevel"]>(async () => {});
 
 const mockGetErrorBlocksWithRetry = vi.fn(() => [{ type: "section" }]);
 const mockAsSlackBlocks = vi.fn((blocks: never) => blocks);
@@ -112,7 +112,7 @@ function makeDeps(): HandlerResponseDeps {
     analyzeError: mockAnalyzeError as never,
     updateSession: mockUpdateSession as never,
     addError: mockAddError as never,
-    setAutoResponseActive: mockSetAutoResponseActive as never,
+    setAttentionLevel: mockSetAttentionLevel,
     getErrorBlocksWithRetry: mockGetErrorBlocksWithRetry as never,
     asSlackBlocks: mockAsSlackBlocks as never,
     sendErrorReport: mockSendErrorReport as never,
@@ -1537,12 +1537,12 @@ describe("silentThinking mode", () => {
       assert.equal(mockHandleAutoExecuteActions.mock.calls.length, 0);
     });
 
-    it("persists skipped+disengaged turn and autoResponseActive:false in a single updateSession call", async () => {
+    it("persists skipped+disengaged turn and attentionLevel:off in a single updateSession call", async () => {
       resetStreamerInstance({ messageTs: "1234.5678" });
       mockAskClaude.mockImplementationOnce(async () => ({
         success: true,
         skipped: true,
-        disengaged: true,
+        attentionLevel: "off",
         answer: "",
       }));
       mockUpdateSession.mockClear();
@@ -1557,12 +1557,12 @@ describe("silentThinking mode", () => {
       });
 
       assert.equal(response.skipped, true);
-      assert.equal(response.disengaged, true);
+      assert.equal(response.attentionLevel, "off");
       // unified-conversation-log: both the appended skipped+disengaged message AND
-      // autoResponseActive: false are persisted in the same updateSession call.
+      // attentionLevel: "off" are persisted in the same updateSession call.
       assert.equal(mockUpdateSession.mock.calls.length, 1);
       const updates = mockUpdateSession.mock.calls[0][1] as Partial<SessionContext>;
-      assert.equal(updates.autoResponseActive, false);
+      assert.equal(updates.attentionLevel, "off");
       assert.ok(Array.isArray(updates.messages));
       const last = updates.messages![updates.messages!.length - 1];
       assert.equal(last.role, "assistant");
@@ -1572,14 +1572,14 @@ describe("silentThinking mode", () => {
       assert.equal(lastAssistant.payload, undefined);
     });
 
-    it("skip without disengage: appended message has no disengaged flag and autoResponseActive unchanged", async () => {
+    it("skip without disengage: appended message has no disengaged flag and attentionLevel unchanged", async () => {
       resetStreamerInstance({ messageTs: "1234.5678" });
       mockAskClaude.mockImplementationOnce(async () => ({
         success: true,
         skipped: true,
         answer: "",
       }));
-      mockSetAutoResponseActive.mockClear();
+      mockSetAttentionLevel.mockClear();
       mockUpdateSession.mockClear();
 
       const client = makeClient();
@@ -1591,25 +1591,25 @@ describe("silentThinking mode", () => {
         deps,
       });
 
-      assert.equal(mockSetAutoResponseActive.mock.calls.length, 0);
-      // Single updateSession for the skipped-turn append; autoResponseActive not touched.
+      assert.equal(mockSetAttentionLevel.mock.calls.length, 0);
+      // Single updateSession for the skipped-turn append; attentionLevel not touched.
       assert.equal(mockUpdateSession.mock.calls.length, 1);
       const updates = mockUpdateSession.mock.calls[0][1] as Partial<SessionContext>;
-      assert.equal(updates.autoResponseActive, undefined);
+      assert.equal(updates.attentionLevel, undefined);
       const last = updates.messages![updates.messages!.length - 1];
       const lastAssistant = last as { skipped?: true; disengaged?: true };
       assert.equal(lastAssistant.skipped, true);
       assert.equal(lastAssistant.disengaged, undefined);
     });
 
-    it("calls setAutoResponseActive when normal response has disengaged: true", async () => {
+    it("calls setAttentionLevel when normal response has attention_level: off", async () => {
       resetStreamerInstance({ messageTs: "1234.5678" });
       mockAskClaude.mockImplementationOnce(async () => ({
         success: true,
-        disengaged: true,
+        attentionLevel: "off",
         answer: "You're welcome!",
       }));
-      mockSetAutoResponseActive.mockClear();
+      mockSetAttentionLevel.mockClear();
 
       const client = makeClient();
       const response = await executeAndDeliver({
@@ -1621,19 +1621,19 @@ describe("silentThinking mode", () => {
       });
 
       assert.equal(response.success, true);
-      assert.equal(response.disengaged, true);
-      assert.equal(mockSetAutoResponseActive.mock.calls.length, 1);
-      assert.equal(mockSetAutoResponseActive.mock.calls[0][0], "session-1");
-      assert.equal(mockSetAutoResponseActive.mock.calls[0][1], false);
+      assert.equal(response.attentionLevel, "off");
+      assert.equal(mockSetAttentionLevel.mock.calls.length, 1);
+      assert.equal(mockSetAttentionLevel.mock.calls[0][0], "session-1");
+      assert.equal(mockSetAttentionLevel.mock.calls[0][1], "off");
     });
 
-    it("does NOT call setAutoResponseActive on success without disengaged", async () => {
+    it("does NOT call setAttentionLevel on success without an attention_level", async () => {
       resetStreamerInstance({ messageTs: "1234.5678" });
       mockAskClaude.mockImplementationOnce(async () => ({
         success: true,
         answer: "regular answer",
       }));
-      mockSetAutoResponseActive.mockClear();
+      mockSetAttentionLevel.mockClear();
 
       const client = makeClient();
       await executeAndDeliver({
@@ -1644,7 +1644,7 @@ describe("silentThinking mode", () => {
         deps,
       });
 
-      assert.equal(mockSetAutoResponseActive.mock.calls.length, 0);
+      assert.equal(mockSetAttentionLevel.mock.calls.length, 0);
     });
 
     it("handles skip gracefully when streamer has no messageTs", async () => {

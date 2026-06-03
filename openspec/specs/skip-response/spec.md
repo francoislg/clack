@@ -8,7 +8,7 @@ Allow Claude to gracefully decline responding in auto-respond and thread-reply c
 
 ### Requirement: Skip Response Safeguard Validation
 
-The `submit_response` tool SHALL validate a skip request by requiring an exact acknowledgment message, rejecting with an instructive error if the message doesn't match. When `disengage` is also set, the tool SHALL additionally signal the session to deactivate tracking.
+The `submit_response` tool SHALL validate a skip request by requiring an exact acknowledgment message, rejecting with an instructive error if the message doesn't match. When `attention_level: "off"` is also set, the tool SHALL additionally signal the session to disengage from auto-respond.
 
 #### Scenario: Skip with correct acknowledgment
 
@@ -19,18 +19,18 @@ The `submit_response` tool SHALL validate a skip request by requiring an exact a
 - **AND** sets the skipped flag on ResponseCapture
 - **AND** returns `{ success: true, skipped: true }` to Claude
 
-#### Scenario: Skip with disengage
+#### Scenario: Skip with disengagement
 
-- **WHEN** Claude calls `submit_response` with `skip_response: true`, `disengage: true`, and the correct acknowledgment message
+- **WHEN** Claude calls `submit_response` with `skip_response: true`, `attention_level: "off"`, and the correct acknowledgment message
 - **THEN** the tool accepts the skip
 - **AND** sets the skipped flag on ResponseCapture
 - **AND** sets the disengaged flag on ResponseCapture
 - **AND** returns `{ success: true, skipped: true, disengaged: true }` to Claude
 
-#### Scenario: Disengage without skip is rejected
+#### Scenario: attention_level parameter validation
 
-- **WHEN** Claude calls `submit_response` with `disengage: true` but `skip_response` is not `true`
-- **THEN** the tool rejects with an error: `"disengage requires skip_response: true"`
+- **WHEN** Claude calls `submit_response` with `attention_level` set to a value other than one of `"always" | "high" | "medium" | "low" | "off"`
+- **THEN** the tool rejects with a schema validation error
 
 #### Scenario: Skip with wrong or missing message
 
@@ -94,9 +94,9 @@ The system SHALL record skipped turns as `AssistantMessage` entries in the unifi
 
 #### Scenario: Skipped-and-disengaged turn recorded
 
-- **WHEN** a response is skipped with `disengage: true`
+- **WHEN** a response is skipped with `attention_level: "off"`
 - **THEN** an `AssistantMessage` with `skipped: true` and `disengaged: true` is appended to the session's `messages` array
-- **AND** `autoResponseActive` is set to `false` on the session
+- **AND** `attentionLevel` is set to `"off"` on the session
 - **AND** both updates are persisted in the same `updateSession` call
 
 #### Scenario: No auto-execute on skip
@@ -112,28 +112,28 @@ The system SHALL record skipped turns as `AssistantMessage` entries in the unifi
 
 ### Requirement: Skip Response Trigger Gating
 
-The `skip_response` and `disengage` parameters SHALL only be available in the `submit_response` schema when the session's trigger type allows skipping. The `scheduled` trigger SHALL additionally allow `skip_response` when the underlying cron job defines a non-empty `skipConditions` field.
+The `skip_response` and `attention_level` parameters SHALL only be available in the `submit_response` schema when the session's trigger type allows skipping. The `scheduled` trigger SHALL additionally allow `skip_response` when the underlying cron job defines a non-empty `skipConditions` field.
 
 These auto-derivation rules SHALL apply only when the underlying cron job's `submitResponseMode` field is unset. When `submitResponseMode` is set, it takes precedence:
 
 - `submitResponseMode === "always"` → `skip_response` SHALL NOT be in the schema, regardless of trigger type or `skipConditions`.
 - `submitResponseMode === "optional"` → `skip_response` SHALL be in the schema as an optional boolean, regardless of trigger type or `skipConditions`.
-- `submitResponseMode === "skipped"` → the entire `submit_response` schema is replaced by the skipped-only variant (see the `submit-response-mode` capability). The `disengage` parameter is NOT in the skipped-only schema.
+- `submitResponseMode === "skipped"` → the entire `submit_response` schema is replaced by the skipped-only variant (see the `submit-response-mode` capability). The `attention_level` parameter is NOT in the skipped-only schema.
 
-The `disengage` parameter follows its own trigger-gating rules (`shouldAllowDisengage`) and SHALL NOT appear in the skipped-only schema regardless of trigger type.
+The `attention_level` parameter follows its own trigger-gating rules (`shouldAllowAttentionLevel`) and SHALL NOT appear in the skipped-only schema regardless of trigger type. It is an enum accepting `"always" | "high" | "medium" | "low" | "off"`, where `"off"` disengages the session from auto-respond tracking.
 
-#### Scenario: skip_response and disengage available for autoRespond
+#### Scenario: skip_response and attention_level available for autoRespond
 
 - **WHEN** the session's trigger type is `"autoRespond"`
 - **AND** the underlying cron job has no `submitResponseMode` (autoRespond is not a cron trigger; this scenario applies generally)
 - **THEN** the `submit_response` tool schema includes the `skip_response` boolean parameter
-- **AND** the schema includes the `disengage` boolean parameter
+- **AND** the schema includes the `attention_level` enum parameter
 
-#### Scenario: skip_response and disengage available for threadReply
+#### Scenario: skip_response and attention_level available for threadReply
 
 - **WHEN** the session's trigger type is `"threadReply"`
 - **THEN** the `submit_response` tool schema includes the `skip_response` boolean parameter
-- **AND** the schema includes the `disengage` boolean parameter
+- **AND** the schema includes the `attention_level` enum parameter
 
 #### Scenario: skip_response available for scheduled runs with skipConditions
 
@@ -141,7 +141,7 @@ The `disengage` parameter follows its own trigger-gating rules (`shouldAllowDise
 - **AND** the originating cron job has a non-empty `skipConditions` string
 - **AND** the originating cron job has no `submitResponseMode` set (undefined)
 - **THEN** the `submit_response` tool schema includes the `skip_response` boolean parameter
-- **AND** the schema does NOT include the `disengage` boolean parameter (disengage is only meaningful for tracked-conversation triggers)
+- **AND** the schema does NOT include the `attention_level` parameter (attention_level is only meaningful for tracked-conversation triggers)
 
 #### Scenario: Skip still enforces requiredTools gate
 
@@ -158,13 +158,13 @@ The `disengage` parameter follows its own trigger-gating rules (`shouldAllowDise
 - **AND** the originating cron job has no `skipConditions` (unset or empty string)
 - **AND** the originating cron job has no `submitResponseMode` set (undefined)
 - **THEN** the `submit_response` tool schema does NOT include the `skip_response` parameter
-- **AND** does NOT include the `disengage` parameter
+- **AND** does NOT include the `attention_level` parameter
 
 #### Scenario: skip_response not available for explicit triggers
 
 - **WHEN** the session's trigger type is `"reactions"`, `"directMessages"`, `"mentions"`, or any other explicit trigger
 - **THEN** the `submit_response` tool schema does NOT include the `skip_response` parameter
-- **AND** does NOT include the `disengage` parameter
+- **AND** does NOT include the `attention_level` parameter
 
 #### Scenario: submitResponseMode "always" suppresses skip_response despite skipConditions
 
@@ -186,7 +186,7 @@ The `disengage` parameter follows its own trigger-gating rules (`shouldAllowDise
 - **WHEN** the run fires
 - **THEN** the `submit_response` tool schema is the skipped-only variant (see the `submit-response-mode` capability)
 - **AND** the schema includes ONLY `skip_response: z.literal(true)`
-- **AND** the schema does NOT include `blocks`, `actions`, `table`, `reactions`, `message`, `post_top_level`, or `disengage`
+- **AND** the schema does NOT include `blocks`, `actions`, `table`, `reactions`, `message`, `post_top_level`, or `attention_level`
 
 ### Requirement: Skip Response Prompt Guidance
 

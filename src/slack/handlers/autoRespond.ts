@@ -9,7 +9,13 @@ import {
   type PreAnalysisMessage,
 } from "../../claude/preAnalysis.js";
 import { loadPreAnalysisContext } from "../../configurationFiles.js";
-import { findSessionByThread, setAutoResponseActive } from "../../sessions.js";
+import {
+  findSessionByThread,
+  setAttentionLevel,
+  isEngaged,
+  type SettableAttentionLevel,
+} from "../../sessions.js";
+import type { PreAnalysisLevel } from "../../claude/preAnalysis.js";
 import { resolveUsers } from "../userCache.js";
 import { getChannelInfo } from "../channelCache.js";
 import { resolveChannelLabel, resolveUserLabel, slackLink } from "../logContext.js";
@@ -151,11 +157,13 @@ interface AutoRespondContext {
   preAnalysis?: string;
   /** autoRespond rule that matched (top-level only). Missing on threadReply. */
   ruleName?: string;
+  /** Initial attention level seeded onto the new session from the matched rule (top-level only). */
+  attentionLevel?: SettableAttentionLevel;
 }
 
 export interface AutoRespondDeps {
   findSession: typeof findSessionByThread;
-  setActive: typeof setAutoResponseActive;
+  setAttentionLevel: typeof setAttentionLevel;
   preAnalysis: typeof runPreAnalysis;
   activeRunPreAnalysis: typeof runActiveRunPreAnalysis;
   loadSharedContext: typeof loadPreAnalysisContext;
@@ -164,7 +172,7 @@ export interface AutoRespondDeps {
 
 const defaultAutoRespondDeps: AutoRespondDeps = {
   findSession: findSessionByThread,
-  setActive: setAutoResponseActive,
+  setAttentionLevel,
   preAnalysis: runPreAnalysis,
   activeRunPreAnalysis: runActiveRunPreAnalysis,
   loadSharedContext: loadPreAnalysisContext,
@@ -213,7 +221,7 @@ export async function resolveAutoRespondContext(
       return null;
     }
     // Skip disengaged threads without running pre-analysis
-    if (session.autoResponseActive === false) {
+    if (!isEngaged(session)) {
       logger.debug(
         `Thread auto-respond: disengaged session ${session.sessionId} in ${channelLabel}${threadLink}`,
       );
@@ -227,9 +235,11 @@ export async function resolveAutoRespondContext(
       logger.info(
         `Thread auto-respond: disengaging session ${session.sessionId} — message is ${Math.round(messageAgeMinutes)}m old (max ${maxAgeMinutes}m) in ${channelLabel}${threadLink}`,
       );
-      await deps.setActive(session.sessionId, false);
+      await deps.setAttentionLevel(session.sessionId, "off");
       return null;
     }
+
+    const level = session.attentionLevel ?? "medium";
 
     logger.info(
       `Thread auto-respond: found session ${session.sessionId} for ${userLabel} in ${channelLabel}${threadLink}`,
@@ -264,6 +274,19 @@ export async function resolveAutoRespondContext(
       }
     }
 
+    // "always" attention skips the pre-analysis gate entirely (both the standard and
+    // active-run variants) and responds to every message in the thread.
+    if (level === "always") {
+      logger.info(
+        `Thread auto-respond: always-on session ${session.sessionId} in ${channelLabel}${threadLink}`,
+      );
+      return {
+        triggerType: "threadReply",
+        userId: messageUser ?? "thread-reply",
+        preAnalysis: "always",
+      };
+    }
+
     const botName = config.slackApp?.name ?? "Clack";
     const enrichment = await fetchEnrichedContext(
       client,
@@ -284,6 +307,9 @@ export async function resolveAutoRespondContext(
       botName,
       "Thread pre-analysis: failed to fetch thread context",
     );
+
+    // Past the "always"/disengaged guards, the rung is one of low/medium/high.
+    const gateLevel: PreAnalysisLevel = level === "high" || level === "low" ? level : "medium";
 
     const sharedContext = deps.loadSharedContext();
     const threadPreAnalysisContext = enrichment.historyUnavailable
@@ -337,21 +363,25 @@ export async function resolveAutoRespondContext(
       channelInfo?.name,
       threadLink,
       secondsSinceLastBotMessage,
+      undefined,
+      gateLevel,
     );
-    logger.debug(`Thread pre-analysis: ${channelLabel}, verdict=${verdict}${threadLink}`);
+    logger.debug(
+      `Thread pre-analysis: ${channelLabel}, verdict=${verdict}, level=${gateLevel}${threadLink}`,
+    );
     if (verdict === "stop") {
       logger.info(
         `Thread auto-respond: disengaging session ${session.sessionId} in ${channelLabel}${threadLink}`,
       );
-      await deps.setActive(session.sessionId, false);
+      await deps.setAttentionLevel(session.sessionId, "off");
       return null;
     }
     if (verdict !== "respond") return null;
 
     // A stop reaction can fire during pre-analysis (a multi-second Claude call) and
-    // flip autoResponseActive on disk. Re-read to catch a disengage in that window.
+    // flip the attention level on disk. Re-read to catch a disengage in that window.
     const latest = await deps.findSession(channelId, threadTs);
-    if (latest?.autoResponseActive === false) {
+    if (latest && !isEngaged(latest)) {
       logger.info(
         `Thread auto-respond: session ${latest.sessionId} was disengaged during pre-analysis in ${channelLabel}${threadLink}`,
       );
@@ -373,6 +403,12 @@ export async function resolveAutoRespondContext(
 
   const rule = await findMatchingRule(channelId, messageUser, rawText);
   if (!rule) return null;
+
+  // The rule seeds the new session's level. For the channel-engagement gate itself, cap
+  // "always" to "high" so the classifier still runs — an unfiltered "always" rule must not
+  // firehose the whole channel.
+  const ruleLevel = rule.attentionLevel ?? "medium";
+  const gateLevel: PreAnalysisLevel = ruleLevel === "always" ? "high" : ruleLevel;
 
   let topLevelVerdict: string | undefined;
   if (rule.preAnalysisContext) {
@@ -413,6 +449,9 @@ export async function resolveAutoRespondContext(
       enrichment.history,
       channelInfo?.name,
       messageLink,
+      undefined,
+      undefined,
+      gateLevel,
     );
     logger.debug(
       `Pre-analysis: ${channelLabel}, rule=${rule.id}, verdict=${topLevelVerdict}${messageLink}`,
@@ -427,6 +466,7 @@ export async function resolveAutoRespondContext(
     additionalSystemPrompt: rule.extraContext,
     ...(topLevelVerdict !== undefined ? { preAnalysis: topLevelVerdict } : {}),
     ruleName: rule.id,
+    ...(rule.attentionLevel ? { attentionLevel: rule.attentionLevel } : {}),
   };
 }
 
@@ -537,6 +577,7 @@ async function respond(
       additionalSystemPrompt: context.additionalSystemPrompt,
       preAnalysis: context.preAnalysis,
       autoRespondRuleName: context.ruleName,
+      attentionLevel: context.attentionLevel,
       ...attachments,
     });
   } catch (error) {

@@ -89,6 +89,7 @@ describe("update_auto_respond_rule tool", () => {
       keywords: undefined,
       extraContext: "new ctx",
       preAnalysisContext: undefined,
+      attentionLevel: undefined,
     });
 
     assert.equal(result.isError, undefined);
@@ -114,6 +115,7 @@ describe("update_auto_respond_rule tool", () => {
       keywords: undefined,
       extraContext: "",
       preAnalysisContext: undefined,
+      attentionLevel: undefined,
     });
 
     const stored = await getRule(rule.id);
@@ -134,6 +136,7 @@ describe("update_auto_respond_rule tool", () => {
       keywords: [],
       extraContext: undefined,
       preAnalysisContext: undefined,
+      attentionLevel: undefined,
     });
 
     const stored = await getRule(rule.id);
@@ -154,6 +157,7 @@ describe("update_auto_respond_rule tool", () => {
       keywords: undefined,
       extraContext: undefined,
       preAnalysisContext: undefined,
+      attentionLevel: undefined,
     });
 
     const stored = await getRule(rule.id);
@@ -174,6 +178,7 @@ describe("update_auto_respond_rule tool", () => {
       keywords: undefined,
       extraContext: undefined,
       preAnalysisContext: undefined,
+      attentionLevel: undefined,
     });
 
     assert.equal(result.isError, true);
@@ -196,6 +201,7 @@ describe("update_auto_respond_rule tool", () => {
       keywords: undefined,
       extraContext: undefined,
       preAnalysisContext: undefined,
+      attentionLevel: undefined,
     });
 
     assert.equal(result.isError, true);
@@ -213,6 +219,7 @@ describe("update_auto_respond_rule tool", () => {
       keywords: undefined,
       extraContext: "x",
       preAnalysisContext: undefined,
+      attentionLevel: undefined,
     });
 
     assert.equal(result.isError, true);

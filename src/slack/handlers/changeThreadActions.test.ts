@@ -57,9 +57,7 @@ const mockCreateStreamer = vi.fn(() => ({
 const mockFinalizeStreamedWorkflow = vi.fn<ChangeThreadActionsDeps["finalizeStreamedWorkflow"]>(
   async () => {},
 );
-const mockSetAutoResponseActive = vi.fn<ChangeThreadActionsDeps["setAutoResponseActive"]>(
-  async () => {},
-);
+const mockSetAttentionLevel = vi.fn<ChangeThreadActionsDeps["setAttentionLevel"]>(async () => {});
 
 const mockPostEphemeralFn = vi.fn<
   (args: {
@@ -85,7 +83,7 @@ function makeDeps(): ChangeThreadActionsDeps {
     errorMessage: mockErrorMessage,
     createStreamer: mockCreateStreamer,
     finalizeStreamedWorkflow: mockFinalizeStreamedWorkflow,
-    setAutoResponseActive: mockSetAutoResponseActive,
+    setAttentionLevel: mockSetAttentionLevel,
   };
 }
 
@@ -193,7 +191,7 @@ beforeEach(() => {
   mockFinalizeStreamedWorkflow.mockClear();
   mockPostEphemeralFn.mockClear();
   mockPostMessageFn.mockClear();
-  mockSetAutoResponseActive.mockClear();
+  mockSetAttentionLevel.mockClear();
 
   // Reset to defaults
   mockGetRole.mockImplementation(async () => "dev");
@@ -563,7 +561,7 @@ describe("triggerFollowUp", () => {
   });
 
   it("re-engages a disengaged thread before running the follow-up", async () => {
-    const session = makeSession({ autoResponseActive: false });
+    const session = makeSession({ attentionLevel: "off" });
     const client = makeClient();
 
     await triggerFollowUp(
@@ -579,15 +577,15 @@ describe("triggerFollowUp", () => {
       makeDeps(),
     );
 
-    assert.equal(mockSetAutoResponseActive.mock.calls.length, 1);
-    const args = mockSetAutoResponseActive.mock.calls[0];
+    assert.equal(mockSetAttentionLevel.mock.calls.length, 1);
+    const args = mockSetAttentionLevel.mock.calls[0];
     assert.equal(args[0], "session-1");
-    assert.equal(args[1], true);
+    assert.equal(args[1], "medium");
     assert.equal(mockHandleFollowUp.mock.calls.length, 1);
   });
 
   it("does NOT re-engage a thread that is already active", async () => {
-    const session = makeSession({ autoResponseActive: true });
+    const session = makeSession({ attentionLevel: "medium" });
     const client = makeClient();
 
     await triggerFollowUp(
@@ -603,10 +601,10 @@ describe("triggerFollowUp", () => {
       makeDeps(),
     );
 
-    assert.equal(mockSetAutoResponseActive.mock.calls.length, 0);
+    assert.equal(mockSetAttentionLevel.mock.calls.length, 0);
   });
 
-  it("does NOT re-engage when autoResponseActive is undefined", async () => {
+  it("does NOT re-engage when attentionLevel is undefined", async () => {
     const session = makeSession();
     const client = makeClient();
 
@@ -623,7 +621,7 @@ describe("triggerFollowUp", () => {
       makeDeps(),
     );
 
-    assert.equal(mockSetAutoResponseActive.mock.calls.length, 0);
+    assert.equal(mockSetAttentionLevel.mock.calls.length, 0);
   });
 
   it("passes additional instructions for update command", async () => {

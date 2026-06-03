@@ -157,6 +157,26 @@ export interface SessionAssistantMessage {
 
 export type SessionMessage = SessionUserMessage | SessionAssistantMessage;
 
+/**
+ * Per-conversation attention dial — the single source of truth for thread auto-respond
+ * engagement. A monotonic ladder from most eager to disengaged:
+ *   - `"always"` — respond to every thread reply; pre-analysis is skipped entirely.
+ *   - `"high"`   — respond to nearly everything; skip only unmistakable other-user side-talk.
+ *   - `"medium"` — respond when plausibly relevant; skip clear cross-talk. The default.
+ *   - `"low"`    — respond only to direct address / clear follow-ups; the only rung whose
+ *                  pre-analysis gate may disengage the thread.
+ *   - `"off"`    — disengaged; thread replies are ignored.
+ * A thread is engaged iff its level is not `"off"` (see {@link isEngaged}).
+ */
+export type AttentionLevel = "always" | "high" | "medium" | "low" | "off";
+
+/**
+ * The subset of {@link AttentionLevel} a trigger source (plugin cron, auto-respond rule,
+ * session creation) may seed. `"off"` is excluded: a dead thread is only ever reached by an
+ * explicit disengage action, never born disengaged.
+ */
+export type SettableAttentionLevel = Exclude<AttentionLevel, "off">;
+
 export interface SessionContext {
   sessionId: string;
   channelId: string;
@@ -211,9 +231,9 @@ export interface SessionContext {
   lastSeenThreadTs?: string;
   /** Active change execution state (runtime-only, not persisted) */
   activeChange?: ActiveChangeState;
-  /** Whether this session is actively tracked for auto-respond thread replies.
-   *  Defaults to true. Set to false to disengage from thread tracking. */
-  autoResponseActive?: boolean;
+  /** Per-conversation attention dial governing thread auto-respond engagement and the
+   *  pre-analysis gate's eagerness. Absent reads as `"medium"`. `"off"` is disengaged. */
+  attentionLevel?: AttentionLevel;
   /**
    * Integrations the session has attached via `attach_integration` mid-session.
    * Persisted so resumed turns can re-attach (call `query.setMcpServers`) before
@@ -532,6 +552,8 @@ export interface CreateSessionOptions {
   displayName?: string;
   additionalSystemPrompt?: string;
   channelName?: string;
+  /** Initial attention level seeded by the trigger source (cron/rule). Defaults to `"medium"`. */
+  attentionLevel?: SettableAttentionLevel;
 }
 
 export async function createSession(opts: CreateSessionOptions): Promise<SessionContext> {
@@ -564,7 +586,7 @@ export async function createSession(opts: CreateSessionOptions): Promise<Session
     errors: [],
     lastActivity: now,
     createdAt: now,
-    autoResponseActive: true,
+    attentionLevel: opts.attentionLevel ?? "medium",
   };
 
   // Write to disk (strip runtime fields)
@@ -615,8 +637,13 @@ export async function getSession(sessionId: string): Promise<SessionContext | nu
     // Backward compatibility: ensure arrays exist
     if (!session.errors) session.errors = [];
     if (!session.threadContext) session.threadContext = [];
-    // Default autoResponseActive to true for pre-existing sessions
-    if (session.autoResponseActive === undefined) session.autoResponseActive = true;
+    // Migrate legacy engagement flag onto the attention dial: a disengaged session reads
+    // as "off", everything else as the new "medium" default. The old field is then dropped.
+    if (session.attentionLevel === undefined) {
+      const legacy = (session as { autoResponseActive?: boolean }).autoResponseActive;
+      session.attentionLevel = legacy === false ? "off" : "medium";
+    }
+    delete (session as { autoResponseActive?: boolean }).autoResponseActive;
     // If there's no trigger yet (pre-split shape), synthesize from whichever shape is on disk.
     if (!session.trigger) {
       const synth = synthesizeMessagesFromLegacy(session);
@@ -785,8 +812,14 @@ export function updateSession(
   return withSessionLock(sessionId, () => updateSessionUnlocked(sessionId, updates));
 }
 
-export async function setAutoResponseActive(sessionId: string, active: boolean): Promise<void> {
-  await updateSession(sessionId, { autoResponseActive: active });
+export async function setAttentionLevel(sessionId: string, level: AttentionLevel): Promise<void> {
+  await updateSession(sessionId, { attentionLevel: level });
+}
+
+/** A session is engaged for thread auto-respond unless its attention level is `"off"`.
+ *  Absent level reads as `"medium"`. */
+export function isEngaged(session: Pick<SessionContext, "attentionLevel">): boolean {
+  return (session.attentionLevel ?? "medium") !== "off";
 }
 
 /**

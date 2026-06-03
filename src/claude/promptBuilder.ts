@@ -157,6 +157,18 @@ function formatThreadContext(messages: SessionContext["threadContext"]): string 
     .join("\n\n");
 }
 
+/** Guidance lines for the `submit_response.attention_level` dial: states the thread's current
+ *  level and how to raise, lower, or disengage it. Used by tracking-capable triggers. */
+function attentionLevelGuidance(session: SessionContext): string[] {
+  const current = session.attentionLevel ?? "medium";
+  return [
+    `- This thread's current attention level is "${current}" — how eagerly you auto-respond to its future messages. You can adjust it via \`attention_level\` on submit_response: "always" (reply to everything), "high" (reply to nearly anything), "medium" (reply when plausibly relevant), "low" (reply only to direct address / clear follow-ups), or "off" (disengage — stop tracking entirely). Omit it to keep the level unchanged.`,
+    `- As a thread winds down, lower the level; raise it when the user is in a tight back-and-forth.`,
+    `- If the user's message reads as a conversation-ending dismissal (${DISMISSAL_PHRASES_INLINE}) or the conversation has clearly moved on, set \`attention_level: "off"\` to disengage. Err toward it — the user can @mention you to re-engage, so a false positive is cheap. A normal reply + \`attention_level: "off"\` (reply and disengage in one turn) is the natural pattern; it may also accompany \`skip_response: true\`.`,
+    `- When you disengage, keep the reply short and avoid phrases like "just holler!" or "let me know anytime" — those contradict the disengage signal.`,
+  ];
+}
+
 function buildDeliveryContext(session: SessionContext): string | null {
   if (!session.triggerType) return null;
 
@@ -279,15 +291,7 @@ function buildDeliveryContext(session: SessionContext): string | null {
     lines.push(
       "- If this specific message doesn't need your input but the thread might still be relevant, use `skip_response` to stay silent while remaining engaged (temporary silence, you stay tracked).",
     );
-    lines.push(
-      `- If the user's message reads as a conversation-ending acknowledgement or dismissal, set \`disengage: true\`. This covers short sign-offs (${DISMISSAL_PHRASES_INLINE}) and also cases where the conversation has clearly moved on. Err on the side of disengaging — the user can always @mention you to re-engage, so a false positive costs one @mention, while a false negative means you keep replying to a thread where nobody wants you.`,
-    );
-    lines.push(
-      '- When you do disengage, keep the reply short and don\'t end with phrases like "just holler!" or "let me know anytime" — those contradict the disengage signal and confuse the user.',
-    );
-    lines.push(
-      "- `disengage: true` may accompany either a normal response (reply *and* stop tracking) or `skip_response: true` (decline to answer *and* stop tracking).",
-    );
+    lines.push(...attentionLevelGuidance(session));
   } else {
     // All non-DM-first modes: response is already where the user can see it
     if (session.triggerType === "reactions") {
@@ -311,12 +315,7 @@ function buildDeliveryContext(session: SessionContext): string | null {
       '- If the user asks to post "in the channel", include `post_to` with `auto: true` and no `thread_ts` — this posts the content as a top-level message in the parent channel.',
     );
     if (session.triggerType === "mentions") {
-      lines.push(
-        `- If the user's message reads as a conversation-ending acknowledgement or dismissal, set \`disengage: true\` on your response to permanently stop auto-responding in this thread. This covers short sign-offs (${DISMISSAL_PHRASES_INLINE}). Err on the side of disengaging — the user can @mention you to re-engage, so a false positive is cheap. A normal reply + \`disengage: true\` is the natural pattern (reply and stop tracking in the same turn).`,
-      );
-      lines.push(
-        '- When you do disengage, keep the reply short and don\'t end with phrases like "just holler!" or "let me know anytime" — those contradict the disengage signal and confuse the user.',
-      );
+      lines.push(...attentionLevelGuidance(session));
     }
   }
 

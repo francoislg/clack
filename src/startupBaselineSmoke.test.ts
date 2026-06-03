@@ -57,7 +57,7 @@ const stubBuildClackTools: BaselineSmokeDeps["buildClackTools"] = () => ({
   getStagedIntents: () => new Map(),
   getToolCallHistory: () => [],
   isSkipped: () => false,
-  isDisengaged: () => false,
+  getAttentionLevel: () => null,
   isPostedTopLevel: () => false,
 });
 

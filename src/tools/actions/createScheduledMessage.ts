@@ -150,6 +150,14 @@ export function createCreateScheduledMessageTool(
             "by another required tool (e.g. a plugin's posting tool) and `submit_response` is purely " +
             "a run terminator. Omit to let today's auto-derivation rules apply.",
         ),
+      attentionLevel: z
+        .enum(["always", "high", "medium", "low"])
+        .optional()
+        .describe(
+          "How eagerly Clack auto-follows the thread created when this scheduled message posts " +
+            'and someone replies. "always" replies to every reply (no relevance check), "high"/' +
+            '"medium"/"low" lean progressively less toward replying. Omit for the "medium" default.',
+        ),
     },
     async (args) => {
       if (!ctx.slackClient) {
@@ -201,6 +209,7 @@ export function createCreateScheduledMessageTool(
           plugin: args.plugin,
           skipConditions: args.skipConditions,
           submitResponseMode: args.submitResponseMode,
+          attentionLevel: args.attentionLevel,
         });
 
         const schedule = humanReadableSchedule(cronExpression, args.timezone);

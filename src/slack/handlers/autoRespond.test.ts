@@ -51,7 +51,7 @@ function session(overrides: Partial<SessionContext> = {}): SessionContext {
     errors: [],
     lastActivity: Date.now(),
     createdAt: Date.now(),
-    autoResponseActive: true,
+    attentionLevel: "medium",
     ...overrides,
   };
 }
@@ -59,7 +59,7 @@ function session(overrides: Partial<SessionContext> = {}): SessionContext {
 function makeDeps(overrides: Partial<AutoRespondDeps> = {}): AutoRespondDeps {
   return {
     findSession: async () => null,
-    setActive: vi.fn(async () => {}),
+    setAttentionLevel: vi.fn(async () => {}),
     preAnalysis: vi.fn(async () => "respond" as const),
     activeRunPreAnalysis: vi.fn(async () => "append" as const),
     loadSharedContext: () => "",
@@ -96,10 +96,10 @@ function call(
 // ---------------------------------------------------------------------------
 
 describe("resolveAutoRespondContext — auto-respond tracking", () => {
-  it("evaluates thread reply when session has autoResponseActive=true", async () => {
+  it("evaluates thread reply when session is engaged (attentionLevel medium)", async () => {
     const preAnalysis = vi.fn(async () => "respond" as const);
     const deps = makeDeps({
-      findSession: async () => session({ autoResponseActive: true }),
+      findSession: async () => session({ attentionLevel: "medium" }),
       preAnalysis,
     });
 
@@ -110,10 +110,10 @@ describe("resolveAutoRespondContext — auto-respond tracking", () => {
     assert.equal(preAnalysis.mock.calls.length, 1);
   });
 
-  it("skips thread reply without pre-analysis when autoResponseActive=false", async () => {
+  it("skips thread reply without pre-analysis when disengaged (attentionLevel off)", async () => {
     const preAnalysis = vi.fn(async () => "respond" as const);
     const deps = makeDeps({
-      findSession: async () => session({ autoResponseActive: false }),
+      findSession: async () => session({ attentionLevel: "off" }),
       preAnalysis,
     });
 
@@ -124,53 +124,53 @@ describe("resolveAutoRespondContext — auto-respond tracking", () => {
   });
 
   it("disengages session when pre-analysis returns 'stop'", async () => {
-    const setActive = vi.fn(async (_id: string, _active: boolean) => {});
+    const setAttentionLevel = vi.fn(async (_id: string, _level: string) => {});
     const deps = makeDeps({
-      findSession: async () => session({ autoResponseActive: true }),
+      findSession: async () => session({ attentionLevel: "medium" }),
       preAnalysis: async () => "stop",
-      setActive,
+      setAttentionLevel,
     });
 
     const result = await call(deps, "let's grab lunch");
 
     assert.equal(result, null);
-    assert.equal(setActive.mock.calls.length, 1);
-    assert.equal(setActive.mock.calls[0][0], "sess-1");
-    assert.equal(setActive.mock.calls[0][1], false);
+    assert.equal(setAttentionLevel.mock.calls.length, 1);
+    assert.equal(setAttentionLevel.mock.calls[0][0], "sess-1");
+    assert.equal(setAttentionLevel.mock.calls[0][1], "off");
   });
 
   it("skips message (no disengage) when pre-analysis returns 'skip'", async () => {
-    const setActive = vi.fn(async () => {});
+    const setAttentionLevel = vi.fn(async () => {});
     const deps = makeDeps({
-      findSession: async () => session({ autoResponseActive: true }),
+      findSession: async () => session({ attentionLevel: "medium" }),
       preAnalysis: async () => "skip",
-      setActive,
+      setAttentionLevel,
     });
 
     const result = await call(deps, "thanks!");
 
     assert.equal(result, null);
-    assert.equal(setActive.mock.calls.length, 0);
+    assert.equal(setAttentionLevel.mock.calls.length, 0);
   });
 
   it("does not respond on 'skip' verdict", async () => {
-    const setActive = vi.fn(async () => {});
+    const setAttentionLevel = vi.fn(async () => {});
     const deps = makeDeps({
-      findSession: async () => session({ autoResponseActive: true }),
+      findSession: async () => session({ attentionLevel: "medium" }),
       preAnalysis: async () => "skip",
-      setActive,
+      setAttentionLevel,
     });
 
     const result = await call(deps, "thanks!");
 
     assert.equal(result, null);
-    assert.equal(setActive.mock.calls.length, 0);
+    assert.equal(setAttentionLevel.mock.calls.length, 0);
   });
 
-  it("defaults autoResponseActive to true when field is absent (backward compat)", async () => {
+  it("defaults to engaged (medium) when attentionLevel is absent (backward compat)", async () => {
     const preAnalysis = vi.fn(async () => "respond" as const);
     const deps = makeDeps({
-      findSession: async () => session({ autoResponseActive: undefined }),
+      findSession: async () => session({ attentionLevel: undefined }),
       preAnalysis,
     });
 
@@ -181,10 +181,39 @@ describe("resolveAutoRespondContext — auto-respond tracking", () => {
     assert.equal(preAnalysis.mock.calls.length, 1);
   });
 
+  it("responds without pre-analysis when attentionLevel is 'always'", async () => {
+    const preAnalysis = vi.fn(async () => "skip" as const);
+    const deps = makeDeps({
+      findSession: async () => session({ attentionLevel: "always" }),
+      preAnalysis,
+    });
+
+    const result = await call(deps);
+
+    assert.ok(result !== null);
+    assert.equal(result?.triggerType, "threadReply");
+    assert.equal(result?.preAnalysis, "always");
+    assert.equal(preAnalysis.mock.calls.length, 0);
+  });
+
+  it("forwards the session's attention level to the pre-analysis gate", async () => {
+    const preAnalysis = vi.fn<typeof runPreAnalysis>(async () => "respond" as const);
+    const deps = makeDeps({
+      findSession: async () => session({ attentionLevel: "high" }),
+      preAnalysis,
+    });
+
+    await call(deps);
+
+    assert.equal(preAnalysis.mock.calls.length, 1);
+    // level is the 11th positional arg (index 10) on runPreAnalysis
+    assert.equal(preAnalysis.mock.calls[0][10], "high");
+  });
+
   it("runs pre-analysis for image-only thread reply using synthesized image metadata", async () => {
     const preAnalysis = vi.fn<typeof runPreAnalysis>(async () => "respond" as const);
     const deps = makeDeps({
-      findSession: async () => session({ autoResponseActive: true }),
+      findSession: async () => session({ attentionLevel: "medium" }),
       preAnalysis,
     });
 
@@ -211,11 +240,11 @@ describe("resolveAutoRespondContext — auto-respond tracking", () => {
   });
 
   it("disengages on 'stop' verdict for image-only thread reply", async () => {
-    const setActive = vi.fn(async (_id: string, _active: boolean) => {});
+    const setAttentionLevel = vi.fn(async (_id: string, _level: string) => {});
     const deps = makeDeps({
-      findSession: async () => session({ autoResponseActive: true }),
+      findSession: async () => session({ attentionLevel: "medium" }),
       preAnalysis: async () => "stop",
-      setActive,
+      setAttentionLevel,
     });
 
     const rawFiles = [
@@ -231,14 +260,14 @@ describe("resolveAutoRespondContext — auto-respond tracking", () => {
     const result = await call(deps, "", rawFiles);
 
     assert.equal(result, null);
-    assert.equal(setActive.mock.calls.length, 1);
-    assert.equal(setActive.mock.calls[0][1], false);
+    assert.equal(setAttentionLevel.mock.calls.length, 1);
+    assert.equal(setAttentionLevel.mock.calls[0][1], "off");
   });
 
   it("skips thread reply with no text and no images (no pre-analysis call)", async () => {
     const preAnalysis = vi.fn(async () => "respond" as const);
     const deps = makeDeps({
-      findSession: async () => session({ autoResponseActive: true }),
+      findSession: async () => session({ attentionLevel: "medium" }),
       preAnalysis,
     });
 
@@ -252,7 +281,7 @@ describe("resolveAutoRespondContext — auto-respond tracking", () => {
     let callCount = 0;
     const findSession = vi.fn(async () => {
       callCount += 1;
-      return session({ autoResponseActive: callCount === 1 });
+      return session({ attentionLevel: callCount === 1 ? "medium" : "off" });
     });
     const preAnalysis = vi.fn(async () => "respond" as const);
     const deps = makeDeps({ findSession, preAnalysis });
@@ -292,7 +321,7 @@ describe("resolveAutoRespondContext — elapsed-time signal", () => {
     const nowSec = Date.now() / 1000;
     const preAnalysis = vi.fn<typeof runPreAnalysis>(async () => "respond" as const);
     const deps = makeDeps({
-      findSession: async () => session({ autoResponseActive: true }),
+      findSession: async () => session({ attentionLevel: "medium" }),
       preAnalysis,
     });
 
@@ -322,7 +351,7 @@ describe("resolveAutoRespondContext — elapsed-time signal", () => {
     const nowSec = Date.now() / 1000;
     const preAnalysis = vi.fn<typeof runPreAnalysis>(async () => "respond" as const);
     const deps = makeDeps({
-      findSession: async () => session({ autoResponseActive: true }),
+      findSession: async () => session({ attentionLevel: "medium" }),
       preAnalysis,
     });
 
@@ -349,7 +378,7 @@ describe("resolveAutoRespondContext — elapsed-time signal", () => {
       async () => "append" as const,
     );
     const deps = makeDeps({
-      findSession: async () => session({ autoResponseActive: true }),
+      findSession: async () => session({ attentionLevel: "medium" }),
       activeRunPreAnalysis,
       getActiveRun: () => runningHandle(),
     });

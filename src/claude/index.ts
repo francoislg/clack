@@ -12,7 +12,7 @@ import { detectRuntime } from "./utilities.js";
 import { errorMessage } from "../errors.js";
 import { logger } from "../logger.js";
 import type { UserRole } from "../roles.js";
-import type { SessionContext } from "../sessions.js";
+import type { SessionContext, AttentionLevel } from "../sessions.js";
 import { updateSession } from "../sessions.js";
 import type {
   SubmitResponsePayload,
@@ -55,8 +55,9 @@ export interface ClaudeResponse {
   cancelled?: boolean;
   /** True when Claude chose to skip the response via submit_response skip_response flag */
   skipped?: boolean;
-  /** True when Claude chose to disengage from the thread (skip + stop tracking) */
-  disengaged?: boolean;
+  /** Attention level Claude set via submit_response.attention_level this turn, if any.
+   *  `"off"` means disengage. Absent when Claude left the level unchanged. */
+  attentionLevel?: AttentionLevel;
   /** True when submit_response was invoked with post_top_level: true */
   postedTopLevel?: boolean;
   conversationTrace?: ConversationMessage[];
@@ -340,7 +341,7 @@ function buildSuccessResponse(
     return {
       success: true,
       skipped: true,
-      disengaged: clackTools.isDisengaged() || undefined,
+      attentionLevel: clackTools.getAttentionLevel() ?? undefined,
       answer: "",
       conversationTrace,
       toolCallHistory: optionalHistory(streamToolHistory),
@@ -364,6 +365,7 @@ function buildSuccessResponse(
       stagedIntents: optionalIntents,
       toolCallHistory: optionalToolHistory,
       postedTopLevel: clackTools.isPostedTopLevel() || undefined,
+      attentionLevel: clackTools.getAttentionLevel() ?? undefined,
     };
   }
 

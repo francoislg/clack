@@ -8,7 +8,7 @@ export function createListAutoRespondRulesTool(_ctx: QueryToolContext) {
   return tool(
     "list_auto_respond_rules",
     "List all auto-respond rules (admin-only). Returns each rule's id, channels (as Slack channel IDs), " +
-      "optional userFilters, keywords, extraContext, preAnalysisContext, and enabled state. " +
+      "optional userFilters, keywords, extraContext, preAnalysisContext, attentionLevel, and enabled state. " +
       "Use this to review existing rules before adding or modifying one.",
     {
       _placeholder: z.boolean().optional().describe("Unused parameter (tool takes no input)"),

@@ -68,6 +68,14 @@ export function createAddAutoRespondRuleTool(
         .describe(
           "Optional pre-analysis context. When set, a lightweight Claude Haiku call evaluates message relevance before responding. Leave empty to skip pre-analysis (default).",
         ),
+      attentionLevel: z
+        .enum(["always", "high", "medium", "low"])
+        .optional()
+        .describe(
+          "Optional attention level for sessions this rule creates — how eagerly Clack follows " +
+            'the thread. "always" replies to every message (no relevance check), "high"/"medium"/' +
+            '"low" lean progressively less toward replying. Omit for the "medium" default.',
+        ),
     },
     async (args) => {
       const results = await Promise.all(args.channels.map((entry) => deps.resolveChannel(entry)));
@@ -87,6 +95,7 @@ export function createAddAutoRespondRuleTool(
           args.keywords,
           args.extraContext,
           args.preAnalysisContext,
+          args.attentionLevel,
         );
         return textResult({
           ok: true,

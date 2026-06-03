@@ -22,6 +22,8 @@ import type { PluginActionHandler, PluginViewHandler } from "../slack/pluginActi
 export type { PluginActionHandler, PluginViewHandler };
 import { logger } from "../logger.js";
 import { findByPluginOwner, createJob, updateJob, deleteJob, type SkipDate } from "../cronJobs.js";
+import type { SettableAttentionLevel } from "../sessions.js";
+export type { SettableAttentionLevel };
 import { clackQuery as defaultClackQuery } from "../claude/query.js";
 import { detectRuntime } from "../claude/utilities.js";
 import { getConfig } from "../config.js";
@@ -159,6 +161,11 @@ export interface StartThreadConversationOptions {
   prompt: string;
   /** Extra system-prompt context (e.g. the trivia question + answer). */
   additionalSystemPrompt?: string;
+  /**
+   * Attention level seeded onto the conversation's session — how eagerly Clack auto-follows
+   * subsequent replies. One of `always | high | medium | low`. Omit for the `"medium"` default.
+   */
+  attentionLevel?: SettableAttentionLevel;
 }
 
 /**
@@ -209,6 +216,13 @@ export interface CronJobSpec {
    * See the `plugin-topic-instructions` capability.
    */
   attachedTopics?: string[];
+  /**
+   * Attention level seeded onto the session this job's fire creates — governs how eagerly
+   * Clack follows up on replies in the resulting thread. One of `always | high | medium | low`
+   * (a job cannot seed a disengaged `off` thread). Omit to leave the resulting
+   * `CronJob.attentionLevel` unset (the session defaults to `"medium"`).
+   */
+  attentionLevel?: SettableAttentionLevel;
 }
 
 /**
@@ -557,6 +571,7 @@ export interface ClackSdkDeps {
     userId: string;
     prompt: string;
     additionalSystemPrompt?: string;
+    attentionLevel?: SettableAttentionLevel;
   }) => Promise<void>;
   /**
    * Soft-restart trigger surfaced as `sdk.requestSoftRestart`. Defaults to a
@@ -628,6 +643,12 @@ function validateCronJobSpec(spec: CronJobSpec): string | null {
     if (trimmed.length === 0 || trimmed.length > 80) {
       return `name must be 1-80 characters after trim (got ${trimmed.length})`;
     }
+  }
+  if (
+    spec.attentionLevel !== undefined &&
+    !["always", "high", "medium", "low"].includes(spec.attentionLevel)
+  ) {
+    return `attentionLevel "${spec.attentionLevel}" is invalid (expected always | high | medium | low)`;
   }
   return null;
 }
@@ -890,6 +911,9 @@ export function createClackSdk(
             // plugin-topic-instructions explicitly requires re-reconcile without the field
             // to clear it (declarative ownership), unlike `name` which is preserved on absence.
             attachedTopics: spec.attachedTopics ?? [],
+            // updateJob treats `null` as "clear" — a spec dropping attentionLevel reverts the
+            // job to the default-medium behavior.
+            attentionLevel: spec.attentionLevel ?? null,
             // updateJob: undefined leaves the persisted name untouched, while a non-empty
             // string overwrites it. The spec contract is "spec.name absent → leave alone",
             // so we deliberately omit the field rather than passing "".
@@ -917,6 +941,7 @@ export function createClackSdk(
             ...(spec.attachedTopics && spec.attachedTopics.length > 0
               ? { attachedTopics: spec.attachedTopics }
               : {}),
+            ...(spec.attentionLevel ? { attentionLevel: spec.attentionLevel } : {}),
           });
         }
       }
@@ -1149,6 +1174,7 @@ export function createClackSdk(
         ...(opts.additionalSystemPrompt !== undefined
           ? { additionalSystemPrompt: opts.additionalSystemPrompt }
           : {}),
+        ...(opts.attentionLevel !== undefined ? { attentionLevel: opts.attentionLevel } : {}),
       });
     },
 

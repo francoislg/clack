@@ -153,20 +153,20 @@ The system SHALL support `"autoRespond"` as a trigger type throughout the proces
 
 The system SHALL support automatic responses to thread replies in threads with existing Clack sessions, gated by tracking state and pre-analysis to avoid responding to noise. When a Claude run is already active for the same thread (per the `active-runs-registry` capability), incoming messages SHALL be delivered to that run via `handle.sendUpdate(text)` instead of being dropped or spawned as a parallel run.
 
-#### Scenario: Thread reply in a session thread
+#### Scenario: Thread reply in an engaged session
 
 - **WHEN** a non-bot message arrives in a thread
 - **AND** `threadAutoRespond` is not `false` in config
 - **AND** a Clack session exists for that thread
-- **AND** the session has `autoResponseActive` equal to `true` (or the field is absent, defaulting to `true`)
+- **AND** the session has `attentionLevel !== "off"` (the session is engaged; default `"medium"` for new/legacy sessions)
 - **THEN** the system runs pre-analysis (see auto-respond-pre-analysis spec) to determine whether to respond
 - **AND** if pre-analysis returns `"respond"`, calls `processMessage()` with `triggerType` set to `"threadReply"`
-- **AND** if pre-analysis returns `"stop"`, sets `autoResponseActive = false` on the session and does NOT call `processMessage()`
+- **AND** if pre-analysis returns `"stop"`, sets `attentionLevel = "off"` on the session and does NOT call `processMessage()`
 
 #### Scenario: Thread reply in a disengaged session
 
 - **WHEN** a non-bot message arrives in a thread
-- **AND** a Clack session exists with `autoResponseActive === false`
+- **AND** a Clack session exists with `attentionLevel === "off"`
 - **THEN** the system does NOT run pre-analysis
 - **AND** does NOT trigger a response
 - **AND** logs at debug level that the thread is disengaged
@@ -320,7 +320,7 @@ When an auto-respond rule's `extraContext` (or the channel's implicit convention
 
 ### Requirement: Follow-Up Session for Top-Level Posts
 
-When a response is delivered top-level via `post_top_level: true`, the system SHALL create a new session tied to the posted message's thread so replies route to their own conversational context. The follow-up session inherits "similar context" from the parent session (channel, channelName, `additionalSystemPrompt`, user identity) but has its own independent lifecycle — its own `autoResponseActive` state, its own pre-analysis history, its own disengage decisions.
+When a response is delivered top-level via `post_top_level: true`, the system SHALL create a new session tied to the posted message's thread so replies route to their own conversational context. The follow-up session inherits "similar context" from the parent session (channel, channelName, `additionalSystemPrompt`, user identity) but has its own independent lifecycle — its own `attentionLevel` state, its own pre-analysis history, its own disengage decisions.
 
 #### Scenario: Top-level delivery creates a new session for its own thread
 
@@ -328,7 +328,7 @@ When a response is delivered top-level via `post_top_level: true`, the system SH
 - **WHEN** Claude calls `submit_response` with `post_top_level: true` and the deliver callback posts successfully, returning ts T_new
 - **THEN** a new session is created with `channelId: C001`, `threadTs: T_new`, `messageTs: T_new`, `triggerType: "autoRespond"`
 - **AND** the new session's `additionalSystemPrompt`, `channelName`, `userId`, `username`, `displayName` are copied from the parent session
-- **AND** `autoResponseActive: true` (default for new sessions)
+- **AND** `attentionLevel: "medium"` (default for new sessions)
 
 #### Scenario: Replies to the top-level post route to the follow-up session
 
@@ -339,10 +339,10 @@ When a response is delivered top-level via `post_top_level: true`, the system SH
 
 #### Scenario: Disengaging one session does not affect the other
 
-- **GIVEN** parent session and follow-up session both exist and both have `autoResponseActive: true`
-- **WHEN** Claude disengages the follow-up session (e.g., via `disengage: true` on a reply to the top-level post)
-- **THEN** the follow-up session's `autoResponseActive` becomes false
-- **AND** the parent session's `autoResponseActive` is unchanged — replies in the parent thread still go through auto-respond
+- **GIVEN** parent session and follow-up session both exist and both have `attentionLevel !== "off"`
+- **WHEN** Claude disengages the follow-up session (e.g., via `attention_level: "off"` on a reply to the top-level post)
+- **THEN** the follow-up session's `attentionLevel` becomes `"off"`
+- **AND** the parent session's `attentionLevel` is unchanged — replies in the parent thread still go through auto-respond
 
 #### Scenario: Follow-up session creation failure does not block delivery
 
@@ -351,4 +351,11 @@ When a response is delivered top-level via `post_top_level: true`, the system SH
 - **THEN** it returns `{ ok: true, ts }` — delivery is not failed
 - **AND** the error is logged at warn level
 - **AND** Claude's response is still considered successful — follow-up tracking is best-effort
+
+#### Scenario: Follow-up session defaults to engaged state
+
+- **GIVEN** a follow-up session is created for a top-level post
+- **WHEN** the session is created
+- **THEN** `attentionLevel: "medium"` (the default for new sessions)
+- **AND** replies to the top-level post are auto-followed via the thread-reply auto-respond path
 

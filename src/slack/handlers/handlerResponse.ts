@@ -16,7 +16,7 @@ import { t } from "../../i18n/t.js";
 import {
   updateSession,
   addError,
-  setAutoResponseActive,
+  setAttentionLevel,
   createSession,
   appendAssistantMessage,
   appendStagedIntents,
@@ -47,7 +47,7 @@ export interface HandlerResponseDeps {
   updateSession: typeof updateSession;
   appendStagedIntents: typeof appendStagedIntents;
   addError: typeof addError;
-  setAutoResponseActive: typeof setAutoResponseActive;
+  setAttentionLevel: typeof setAttentionLevel;
   /** Optional: when present, top-level posts create a follow-up session tied to the new thread. */
   createSession?: typeof createSession;
   getErrorBlocksWithRetry: typeof getErrorBlocksWithRetry;
@@ -72,7 +72,7 @@ export const defaultHandlerResponseDeps: HandlerResponseDeps = {
   updateSession,
   appendStagedIntents,
   addError,
-  setAutoResponseActive,
+  setAttentionLevel,
   createSession,
   getErrorBlocksWithRetry,
   asSlackBlocks,
@@ -525,7 +525,7 @@ async function handleSkip(ctx: DeliveryContext, response: ClaudeResponse): Promi
       ts: Date.now(),
       skipped: true,
     };
-    if (response.disengaged) skippedMessage.disengaged = true;
+    if (response.attentionLevel === "off") skippedMessage.disengaged = true;
     if (response.toolCallHistory && response.toolCallHistory.length > 0) {
       skippedMessage.toolCalls = response.toolCallHistory;
     }
@@ -534,7 +534,7 @@ async function handleSkip(ctx: DeliveryContext, response: ClaudeResponse): Promi
     const updates: Partial<SessionContext> = {
       messages: [...existing, skippedMessage],
     };
-    if (response.disengaged) updates.autoResponseActive = false;
+    if (response.attentionLevel) updates.attentionLevel = response.attentionLevel;
     await ctx.deps.updateSession(ctx.session.sessionId, updates);
   } catch (err) {
     logger.error("Failed to persist skipped turn to session:", err);
@@ -560,16 +560,16 @@ async function handleSuccess(ctx: DeliveryContext, response: ClaudeResponse): Pr
     await warnOnOrphanStagedIntents(ctx, response);
   }
 
-  // Disengage: permanently stop tracking this thread for auto-respond.
-  // Only reached after successful delivery (delivery_failed returns before buildSuccessResponse),
-  // so a failed delivery never persists disengagement. Swallow any persistence error
-  // so handleAutoExecuteActions still runs — losing the disengage state is less bad
-  // than dropping the user's staged intents.
-  if (response.disengaged) {
+  // Apply any attention-level adjustment (raise, lower, or `"off"` to disengage) Claude set
+  // this turn. Only reached after successful delivery (delivery_failed returns before
+  // buildSuccessResponse), so a failed delivery never persists a level change. Swallow any
+  // persistence error so handleAutoExecuteActions still runs — losing the level update is
+  // less bad than dropping the user's staged intents.
+  if (response.attentionLevel) {
     try {
-      await ctx.deps.setAutoResponseActive(ctx.session.sessionId, false);
+      await ctx.deps.setAttentionLevel(ctx.session.sessionId, response.attentionLevel);
     } catch (err) {
-      logger.error("Failed to persist disengage state on success:", err);
+      logger.error("Failed to persist attention level on success:", err);
     }
   }
 

@@ -9,7 +9,7 @@ import type {
   McpSetServersResult,
 } from "@anthropic-ai/claude-agent-sdk";
 import type { UserRole } from "../roles.js";
-import type { SessionContext } from "../sessions.js";
+import type { SessionContext, AttentionLevel } from "../sessions.js";
 import type { Config } from "../config.js";
 import type { McpServerManager } from "../claude/mcpServerManager.js";
 import type { SkillsManager } from "../claude/skillsManager.js";
@@ -487,7 +487,7 @@ export type ActionType = Action["type"];
  * Shape of a single follow-up message inside `additional_messages` / `thread_replies`
  * (both at the top level of `submit_response` and inside a `post_to` action). Same
  * surface as the primary message minus the session-level signals (`message`,
- * `post_top_level`, `disengage`, `skip_response`) that only make sense once per call.
+ * `post_top_level`, `attention_level`, `skip_response`) that only make sense once per call.
  */
 export interface MessagePayload {
   blocks: Block[];
@@ -549,7 +549,8 @@ interface ClackToolsResultBase {
   getStagedIntents: () => Map<string, StagedIntent>;
   getToolCallHistory: () => ToolCallRecord[];
   isSkipped: () => boolean;
-  isDisengaged: () => boolean;
+  /** The attention level Claude set via `submit_response.attention_level`, or null if unset. */
+  getAttentionLevel: () => AttentionLevel | null;
   /** True when submit_response was called with `post_top_level: true` and delivery succeeded. */
   isPostedTopLevel: () => boolean;
 }

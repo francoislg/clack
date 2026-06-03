@@ -86,6 +86,7 @@ describe("add_auto_respond_rule tool", () => {
       keywords: undefined,
       extraContext: undefined,
       preAnalysisContext: undefined,
+      attentionLevel: undefined,
     });
 
     const parsed = JSON.parse(textAt(result, 0));
@@ -106,6 +107,7 @@ describe("add_auto_respond_rule tool", () => {
       keywords: undefined,
       extraContext: undefined,
       preAnalysisContext: undefined,
+      attentionLevel: undefined,
     });
 
     const parsed = JSON.parse(textAt(result, 0));
@@ -123,6 +125,7 @@ describe("add_auto_respond_rule tool", () => {
       keywords: undefined,
       extraContext: undefined,
       preAnalysisContext: undefined,
+      attentionLevel: undefined,
     });
 
     assert.equal(result.isError, true);
@@ -141,6 +144,7 @@ describe("add_auto_respond_rule tool", () => {
       keywords: ["error"],
       extraContext: "ctx",
       preAnalysisContext: "pre",
+      attentionLevel: undefined,
     });
 
     assert.equal(result.isError, undefined);
@@ -161,6 +165,7 @@ describe("add_auto_respond_rule tool", () => {
       keywords: undefined,
       extraContext: undefined,
       preAnalysisContext: undefined,
+      attentionLevel: undefined,
     });
     assert.equal(result.isError, true);
     assert.match(textAt(result, 0), /Slack connection/);
