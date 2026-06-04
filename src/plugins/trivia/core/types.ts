@@ -310,12 +310,6 @@ export interface ScopedTriviaDataLayer {
     questionId: string,
     partial: Partial<SubmittedAnswer>,
   ): Promise<void>;
-  /**
-   * Hard-delete every `SubmittedAnswer` for the named questionId. Returns the count removed.
-   * Used by `process_reveal_answers` when reprocessing — the canonical source of truth is the
-   * current Slack reactions, so prior rows are dropped before re-derivation.
-   */
-  deleteAnswersForQuestion(questionId: string): Promise<number>;
   loadCheats(): Promise<CheatReport[]>;
   saveCheat(report: CheatReport): Promise<{ totalAttempts: number }>;
   loadSeasonsState(): Promise<SeasonsState | null>;

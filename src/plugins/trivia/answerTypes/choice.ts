@@ -17,6 +17,7 @@ import type {
   InteractionRegistrationDeps,
   ProcessRevealDeps,
   ProcessRevealOutcome,
+  ProjectRevealDeps,
   ResolvedClick,
   SaveQuestionArgs,
   SaveValidationContext,
@@ -151,27 +152,49 @@ export const choiceAnswerHandler: ClickableAnswerHandler = {
       return { ok: false, error: "choice question is missing correctIndex" };
     }
 
+    if (deps.isReprocessMode) {
+      // Re-derive ONLY the verdict on each RETAINED answer row from the (possibly
+      // corrected) `correctIndex`. The raw button click is the canonical record and
+      // is never deleted — reprocess recomputes `correct`, nothing else.
+      const rows = (await deps.scoped.loadAnswers()).filter((a) => a.questionId === question.id);
+      for (const row of rows) {
+        const correct = row.answerIndex === question.correctIndex;
+        await deps.scoped.updateAnswer(row.userId, question.id, { correct });
+      }
+    }
+    await deps.scoped.updateQuestion(question.id, { processedAt: deps.now });
+    const outcome = await choiceAnswerHandler.projectReveal(question, deps);
+    if (outcome.ok && deps.isReprocessMode) {
+      return { ...outcome, entry: { ...outcome.entry, wasReprocessed: true } };
+    }
+    return outcome;
+  },
+
+  async projectReveal(
+    question: TriviaQuestion,
+    deps: ProjectRevealDeps,
+  ): Promise<ProcessRevealOutcome> {
+    if ((question.correctIndex ?? -1) < 0) {
+      return { ok: false, error: "choice question is missing correctIndex" };
+    }
+
     const coords = parseMessageCoordinates(question);
     if ("error" in coords) return { ok: false, error: coords.error };
 
     const reactions = await fetchQuestionReactions(coords.channel, coords.ts, deps);
     if (!Array.isArray(reactions)) return { ok: false, error: reactions.error };
 
-    if (deps.isReprocessMode) {
-      await deps.scoped.deleteAnswersForQuestion(question.id);
-    }
     const cheaterIds = await loadQuestionCheaterIds(deps.scoped, question.id);
     const allAnswers = await deps.scoped.loadAnswers();
     const questionAnswers = allAnswers.filter((a) => a.questionId === question.id);
 
     const voters = assembleChoiceVoters(question, questionAnswers, reactions, cheaterIds, deps);
 
-    await deps.scoped.updateQuestion(question.id, { processedAt: deps.now });
     return makeRevealOutcome(
       question,
       choiceAnswerHandler.buildRevealAnswer(question),
       voters,
-      deps.isReprocessMode,
+      false,
     );
   },
 
@@ -275,7 +298,7 @@ function assembleChoiceVoters(
   questionAnswers: SubmittedAnswer[],
   rawReactions: Parameters<typeof buildReactorIndex>[0],
   cheaterIds: ReadonlySet<string>,
-  deps: ProcessRevealDeps,
+  deps: ProjectRevealDeps,
 ): VoterBuckets {
   const mode = question.revealResponses ?? "yes";
   const excludeIds = buildExcludeSet(deps.botUserId, cheaterIds);

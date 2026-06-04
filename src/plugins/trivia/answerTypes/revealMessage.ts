@@ -8,7 +8,7 @@
 import type { TriviaQuestion } from "../core/types.js";
 import { parseChannelFromPermalink, parseTsFromPermalink } from "../tools/reveal/slack.js";
 import type { SlackReactionLike } from "../tools/reveal/types.js";
-import type { ProcessRevealDeps } from "./types.js";
+import type { ProjectRevealDeps } from "./types.js";
 
 /**
  * Parse the Slack message coordinates from a question's stored `messageLink`.
@@ -38,7 +38,7 @@ export function parseMessageCoordinates(
 export async function fetchQuestionReactions(
   channel: string,
   ts: string,
-  deps: ProcessRevealDeps,
+  deps: ProjectRevealDeps,
 ): Promise<SlackReactionLike[] | { error: string }> {
   try {
     return await deps.fetchMessageReactions(channel, ts);

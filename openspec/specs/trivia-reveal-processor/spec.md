@@ -2,11 +2,13 @@
 
 ## Purpose
 
-The trivia plugin exposes a `process_reveal_answers` MCP tool that absorbs all deterministic work previously performed by Claude across multiple tool calls (`fetch_channel_messages`, `find_previous_questions`, `get_question_history`, `submit_answers`, `retrieve_scores`, and seasonally `check_season_status` + `upsert_season`). The tool processes pending trivia questions for a game in default mode (oldest unprocessed) or reprocesses specified questions when an admin re-runs an analysis. It excludes the bot, flagged cheaters, and (for choice questions) multi-react voters from every field of its payload. When seasons are enabled, the tool performs rollover inline and reports the outcome via structured metadata.
+The trivia plugin exposes a `compute_answers` MCP tool that computes scored answers and a leaderboard snapshot. The tool processes pending trivia questions for a game in default mode (oldest unprocessed) or reprocesses specified questions when an admin re-runs an analysis. It excludes the bot, flagged cheaters, and (for choice questions) multi-react voters from every field of its payload. When seasons are enabled, the tool reports season status (including whether this is the last fire) so the caller can invoke season rollover separately via `start_new_season`.
 ## Requirements
-### Requirement: `process_reveal_answers` MCP tool
+### Requirement: `compute_answers` MCP tool
 
-The trivia plugin SHALL register an `admin`-tier MCP tool named `process_reveal_answers` that takes `{ game: string, reprocessQuestionIds?: string[] }` and returns a structured `ProcessRevealResult` payload. The tool SHALL absorb the deterministic work previously performed by Claude across `fetch_channel_messages`, `find_previous_questions`, `get_question_history`, `submit_answers` (now removed), `retrieve_scores`, and (when seasons are enabled) `check_season_status` + `upsert_season` for the scheduled reveal flow.
+The trivia plugin SHALL register the reveal-compute tool under the name `compute_answers` (callable as `mcp__trivia__compute_answers`), at the `admin` tier. It SHALL be the renamed successor of `process_reveal_answers`: every retained requirement in this capability — batch selection, reading scored rows from `answers.json`, the discriminated `voters` payload, the freeform per-answer judge, the leaderboard/`roundSummary`/`seasonStatus` payload, `processedAt` stamping, `asOf` handling, reprocess mode, and the idempotency of repeated default-mode calls — SHALL continue to describe `compute_answers` unchanged under the new name.
+
+Two responsibilities that previously lived inside the tool are removed (see the REMOVED requirements below): the tool SHALL NOT edit any Slack message (card edits move to `update_answers_block` in `trivia-card-projection`), and the tool SHALL NOT perform season rollover (rollover moves to `start_new_season`). The tool SHALL still **report** `seasonStatus` (including `isLastFireOfSeason`) so the caller can decide whether to invoke rollover.
 
 For boolean and choice questions, the tool SHALL derive scored answers by **reading `games/<game>/answers.json` directly** (the rows already written by the button-click handlers); the tool SHALL NOT derive scoring from Slack message reactions. For freeform questions, the tool SHALL continue to read `answers.json` and assign verdicts via the per-answer reveal judge (see the "Freeform Reveal Invokes Per-Answer Judge" requirement).
 
@@ -100,17 +102,24 @@ A user who answered correctly AND reacted appears in BOTH `voters.correct` AND `
 
 For freeform questions, the per-answer reveal judge runs and writes verdicts into `answers.json` before the buckets are assembled.
 
-#### Scenario: Tool registers at admin tier
+#### Scenario: Tool is registered as compute_answers
 
 - **WHEN** the trivia plugin loads
-- **THEN** `process_reveal_answers` is registered on the trivia MCP server with `minRole: "admin"`
-- **AND** the tool is callable as `mcp__trivia__process_reveal_answers`
+- **THEN** a tool named `compute_answers` is registered on the trivia MCP server with `minRole: "admin"`, callable as `mcp__trivia__compute_answers`
+- **AND** no tool named `compute_answers` is registered
+
+#### Scenario: Retained scoring behavior is unchanged under the new name
+
+- **GIVEN** a posted boolean question with `isTrue: true` and `answers.json` rows `{ U1: true (correct), U2: false (wrong) }`
+- **WHEN** `compute_answers({ game })` is called
+- **THEN** `reveals[0].voters.correct` contains U1 and `voters.incorrect` contains U2
+- **AND** the returned `leaderboard`, `roundSummary`, and (when seasons enabled) `seasonStatus` are computed exactly as the prior `compute_answers` tool produced them
 
 #### Scenario: Boolean scoring reads from answers.json
 
 - **GIVEN** a posted boolean question with `isTrue: true`
 - **AND** `answers.json` contains `{ userId: "U1", answer: true, correct: true }`, `{ userId: "U2", answer: false, correct: false }`, `{ userId: "U3", answer: true, correct: true }`
-- **WHEN** `process_reveal_answers({ game })` is called
+- **WHEN** `compute_answers({ game })` is called
 - **THEN** `reveals[0].voters.correct` contains U1 and U3 (in some order)
 - **AND** `reveals[0].voters.incorrect` contains U2
 - **AND** no reaction-based scoring is performed
@@ -119,7 +128,7 @@ For freeform questions, the per-answer reveal judge runs and writes verdicts int
 
 - **GIVEN** a posted choice question with `correctIndex: 2`
 - **AND** `answers.json` contains `{ userId: "U1", answerIndex: 2, correct: true }`, `{ userId: "U2", answerIndex: 0, correct: false }`
-- **WHEN** `process_reveal_answers({ game })` is called
+- **WHEN** `compute_answers({ game })` is called
 - **THEN** `voters.correct` contains U1
 - **AND** `voters.incorrect` contains U2
 
@@ -128,7 +137,7 @@ For freeform questions, the per-answer reveal judge runs and writes verdicts int
 - **GIVEN** a boolean question
 - **AND** user U1 clicked the TRUE button AND added a `:fire:` reaction
 - **AND** user U2 added only a `:turtle:` reaction without clicking any button
-- **WHEN** `process_reveal_answers({ game })` is called
+- **WHEN** `compute_answers({ game })` is called
 - **THEN** `voters.correct` contains U1
 - **AND** `voters.noAnswer` contains U2
 - **AND** `voters.reactions` contains `{ userId: "U1", emojis: ["fire"] }` AND `{ userId: "U2", emojis: ["turtle"] }`
@@ -136,20 +145,20 @@ For freeform questions, the per-answer reveal judge runs and writes verdicts int
 #### Scenario: Bot user ID is excluded from every voter list
 
 - **GIVEN** the bot reacted with `:+1:` on a question's message
-- **WHEN** `process_reveal_answers({ game })` is called and returns
+- **WHEN** `compute_answers({ game })` is called and returns
 - **THEN** the bot's user ID does not appear in any `voters.correct`, `voters.incorrect`, `voters.noAnswer`, or `voters.reactions` array
 
 #### Scenario: Cheaters are excluded from every voter list
 
 - **GIVEN** users U1 and U2 are flagged as cheaters for the target questionId via `cheats.json`
 - **AND** U1 clicked TRUE (row in answers.json), U2 reacted with `:-1:` (no row)
-- **WHEN** `process_reveal_answers({ game })` is called
+- **WHEN** `compute_answers({ game })` is called
 - **THEN** neither U1 nor U2 appears in `voters.correct`, `voters.incorrect`, `voters.noAnswer`, or `voters.reactions`
 
 #### Scenario: noAnswer bucket — reacted but never clicked
 
 - **GIVEN** user U1 added `:thinking:` and `:question:` reactions but never clicked a vote button
-- **WHEN** `process_reveal_answers({ game })` is called
+- **WHEN** `compute_answers({ game })` is called
 - **THEN** U1 appears in `voters.noAnswer`
 - **AND** U1 appears in `voters.reactions` with `emojis: ["thinking", "question"]` (or any order)
 - **AND** U1 does NOT appear in `voters.correct` or `voters.incorrect`
@@ -157,7 +166,7 @@ For freeform questions, the per-answer reveal judge runs and writes verdicts int
 #### Scenario: Question stamped revealResponses="yes" emits full named buckets
 
 - **GIVEN** a boolean question `Q1` stamped with `revealResponses: "yes"`, with answers in `answers.json`: `{ U1: true (correct), U2: false (wrong) }`
-- **WHEN** `process_reveal_answers` runs
+- **WHEN** `compute_answers` runs
 - **THEN** `reveals[0].voters.revealResponses === "yes"`
 - **AND** `voters.correct` contains the U1 Voter
 - **AND** `voters.incorrect` contains the U2 Voter
@@ -167,7 +176,7 @@ For freeform questions, the per-answer reveal judge runs and writes verdicts int
 #### Scenario: Question stamped revealResponses="just-correctness" emits named buckets without freeform answerText
 
 - **GIVEN** a freeform question `Q2` stamped `revealResponses: "just-correctness"` with pending rows `{ U1: "Jack Bruce" (judged correct), U2: "Sting" (judged incorrect) }`
-- **WHEN** `process_reveal_answers` runs and the judge flips both rows
+- **WHEN** `compute_answers` runs and the judge flips both rows
 - **THEN** `reveals[0].voters.revealResponses === "just-correctness"`
 - **AND** `voters.correct` contains a Voter `{ userId: "U1", displayName: ... }` with NO `answerText` field
 - **AND** `voters.incorrect` contains a Voter `{ userId: "U2", displayName: ... }` with NO `answerText` field
@@ -175,7 +184,7 @@ For freeform questions, the per-answer reveal judge runs and writes verdicts int
 #### Scenario: Question stamped revealResponses="no" emits only reactions
 
 - **GIVEN** a question `Q3` stamped `revealResponses: "no"` with several answer rows and several reactions on the Slack message
-- **WHEN** `process_reveal_answers` runs
+- **WHEN** `compute_answers` runs
 - **THEN** `reveals[0].voters.revealResponses === "no"`
 - **AND** the `voters` object has NO `correct`, `incorrect`, or `noAnswer` field
 - **AND** `voters.reactions` contains every reactor's emoji set (bot + cheaters excluded)
@@ -183,28 +192,28 @@ For freeform questions, the per-answer reveal judge runs and writes verdicts int
 #### Scenario: Legacy questions without stamped revealResponses default to "yes"
 
 - **GIVEN** a question stamped with `postedAt` but no `revealResponses` field (pre-feature row)
-- **WHEN** `process_reveal_answers` runs
+- **WHEN** `compute_answers` runs
 - **THEN** `voters.revealResponses === "yes"` (the default is applied)
 - **AND** the payload variant carries the full `correct` / `incorrect` / `noAnswer` / `reactions` shape
 
 #### Scenario: roundSummary present and identical across reveal modes
 
 - **GIVEN** a 3-question batch where slot 0 is `revealResponses: "yes"`, slot 1 is `"no"`, slot 2 is `"just-winners"`, and a player U1 has a scored answer on each
-- **WHEN** `process_reveal_answers` runs and selects this batch
+- **WHEN** `compute_answers` runs and selects this batch
 - **THEN** the returned payload HAS a `roundSummary` field with `totalQuestions === 3`
 - **AND** `roundSummary.perPlayer` tallies U1's scored answers across ALL three questions regardless of each question's display mode
 
 #### Scenario: Leaderboard present regardless of revealResponses mode
 
 - **GIVEN** a single-question reveal stamped `revealResponses: "no"`
-- **WHEN** `process_reveal_answers` runs
+- **WHEN** `compute_answers` runs
 - **THEN** the returned payload has a populated `leaderboard` field (aggregate stats are not gated by `revealResponses`)
 
 #### Scenario: Cheaters excluded from all variant shapes
 
 - **GIVEN** a cheater U_cheat is flagged for the question
 - **AND** U_cheat clicked a button AND reacted with `:fire:`
-- **WHEN** `process_reveal_answers` runs for a `revealResponses: "yes"` question
+- **WHEN** `compute_answers` runs for a `revealResponses: "yes"` question
 - **THEN** U_cheat is absent from `voters.correct`, `voters.incorrect`, `voters.noAnswer`, and `voters.reactions`
 - **AND** for a `revealResponses: "no"` question, U_cheat is absent from `voters.reactions`
 
@@ -212,7 +221,7 @@ For freeform questions, the per-answer reveal judge runs and writes verdicts int
 
 - **GIVEN** user U1 clicked TRUE on a boolean question whose `isTrue: true`
 - **AND** U1 also reacted with both `:+1:` and `:-1:` on the message
-- **WHEN** `process_reveal_answers({ game })` is called
+- **WHEN** `compute_answers({ game })` is called
 - **THEN** U1 appears in `voters.correct` (the button click is the source of truth; reactions don't void anything)
 - **AND** U1's `voters.reactions` entry has `emojis: ["+1", "-1"]` (or any order)
 
@@ -238,7 +247,7 @@ The selection algorithm SHALL NOT inspect or filter by `season`. A pending batch
 #### Scenario: One pending batch with three questions is revealed in full
 
 - **GIVEN** three questions `Q1`, `Q2`, `Q3` in `games/main/questions.json` with `postedAt: T1, T2, T3` (where `T1 < T2 < T3`) and a shared `batchId: "batch-A"`, none with `processedAt` set
-- **WHEN** `process_reveal_answers({ game: "main" })` is called
+- **WHEN** `compute_answers({ game: "main" })` is called
 - **THEN** `reveals.length` is `3`
 - **AND** `reveals[0].questionId === "Q1"`, `reveals[1].questionId === "Q2"`, `reveals[2].questionId === "Q3"` (postedAt-ascending order)
 - **AND** each row's `processedAt` is stamped before the call returns
@@ -248,7 +257,7 @@ The selection algorithm SHALL NOT inspect or filter by `season`. A pending batch
 
 - **GIVEN** batch A contains `Q1, Q2` with `min(postedAt) = T1` and pending
 - **AND** batch B contains `Q3, Q4` with `min(postedAt) = T2` (where `T1 < T2`) and pending
-- **WHEN** `process_reveal_answers({ game: "main" })` is called
+- **WHEN** `compute_answers({ game: "main" })` is called
 - **THEN** `reveals.length` is `2`
 - **AND** `reveals` contains `Q1` and `Q2` in postedAt-ascending order
 - **AND** `Q3` and `Q4` remain pending (their `processedAt` is still `undefined`)
@@ -256,7 +265,7 @@ The selection algorithm SHALL NOT inspect or filter by `season`. A pending batch
 #### Scenario: Successive fires drain backlog one batch at a time
 
 - **GIVEN** the prior fire processed batch A and left batch B (older than today's fresh batch C) pending
-- **WHEN** the next `process_reveal_answers` call runs
+- **WHEN** the next `compute_answers` call runs
 - **THEN** batch B is selected (it is the oldest pending batch)
 - **AND** batch C remains pending for the fire after that
 
@@ -264,7 +273,7 @@ The selection algorithm SHALL NOT inspect or filter by `season`. A pending batch
 
 - **GIVEN** `Q_legacy` has `postedAt: T0` and no `batchId` (pre-deploy data) and no `processedAt`
 - **AND** `Q1`, `Q2` are a fresh batch with `batchId: "batch-A"` and `postedAt: T1, T2` (with `T0 < T1`)
-- **WHEN** `process_reveal_answers({ game: "main" })` is called
+- **WHEN** `compute_answers({ game: "main" })` is called
 - **THEN** `reveals.length` is `1`
 - **AND** `reveals[0].questionId === "Q_legacy"`
 - **AND** `Q1` and `Q2` remain pending
@@ -272,7 +281,7 @@ The selection algorithm SHALL NOT inspect or filter by `season`. A pending batch
 #### Scenario: Two legacy rows without batchId do not merge into one group
 
 - **GIVEN** `Q_legacy1` and `Q_legacy2` both lack `batchId` and both are pending with `postedAt: T0, T1` (where `T0 < T1`)
-- **WHEN** `process_reveal_answers({ game: "main" })` is called
+- **WHEN** `compute_answers({ game: "main" })` is called
 - **THEN** `reveals.length` is `1`
 - **AND** `reveals[0].questionId === "Q_legacy1"` (the older one)
 - **AND** `Q_legacy2` remains pending
@@ -281,14 +290,14 @@ The selection algorithm SHALL NOT inspect or filter by `season`. A pending batch
 
 - **GIVEN** batch `"batch-aaaa"` and batch `"batch-bbbb"` both have `min(postedAt) === T1` (identical to the millisecond)
 - **AND** both batches are pending
-- **WHEN** `process_reveal_answers({ game: "main" })` is called
+- **WHEN** `compute_answers({ game: "main" })` is called
 - **THEN** `reveals` contains `"batch-aaaa"`'s questions (the lexicographically-smaller group key wins the tie-break)
 - **AND** `"batch-bbbb"`'s questions remain pending
 
 #### Scenario: No pending questions returns empty reveals
 
 - **GIVEN** every row in `games/main/questions.json` has both `postedAt` and `processedAt` set
-- **WHEN** `process_reveal_answers({ game: "main" })` is called
+- **WHEN** `compute_answers({ game: "main" })` is called
 - **THEN** `reveals` is `[]`
 - **AND** `leaderboard` still reflects the current standings for this game
 - **AND** `roundSummary.totalQuestions` is `0` and `roundSummary.perPlayer` is `[]`
@@ -298,42 +307,43 @@ The selection algorithm SHALL NOT inspect or filter by `season`. A pending batch
 
 - **GIVEN** batch A is the oldest pending batch and its rows carry `season: "season-prev"`
 - **AND** the current season per `findCurrentSeason(state, now)` is `"season-curr"`
-- **WHEN** `process_reveal_answers({ game: "main" })` is called
+- **WHEN** `compute_answers({ game: "main" })` is called
 - **THEN** batch A is processed normally (the selection algorithm ignores `season`)
 - **AND** `reveals` contains batch A's rows
 - **AND** any season-rollover branch fires per its existing logic (`isLastFireOfSeason` derived from the cron schedule, not from the processed batch's season)
 
-### Requirement: Reprocess mode hard-deletes and re-derives the listed questions
+### Requirement: Reprocess mode re-derives verdicts on retained answers (never deletes)
 
 When `reprocessQuestionIds` is a non-empty array, the tool SHALL process EACH listed questionId in that order:
 
-1. Hard-delete every `SubmittedAnswer` row in `games/<game>/answers.json` whose `questionId` matches.
+1. Re-derive the `correct` verdict on EVERY retained `SubmittedAnswer` row in `games/<game>/answers.json` whose `questionId` matches, from the question's CURRENT answer key — boolean: `correct = (row.answer === question.isTrue)`; choice: `correct = (row.answerIndex === question.correctIndex)` — writing each verdict in place via `updateAnswer`.
 2. Stamp `processedAt = Date.now()` on each question (overwriting any prior value).
 3. Include the resulting reveal in the returned `reveals[]` with `wasReprocessed: true`.
 
-Because answers are no longer derivable from Slack reactions, **reprocess mode in this revised flow does NOT re-create scored answer rows**. After hard-delete, the `voters.correct` and `voters.incorrect` buckets for the reprocessed question SHALL be empty. The intent of reprocess mode shifts from "re-score against the current cheater list" to "wipe and re-render an already-revealed question's payload" — used after manual answer-file edits, or to surface freshly-flagged cheaters' removal from the round.
+The raw button-click submission (`answer` / `answerIndex`) is the canonical record and SHALL NOT be deleted or modified by reprocess — only the derived `correct` verdict is recomputed. Re-derivation is a full assignment that flips a verdict in EITHER direction: a stale `correct: true` becomes `false` when the raw answer no longer matches the corrected key, and a stale `correct: false` becomes `true` when it does. EVERY row for the question is re-derived (there is exactly one row per `(user, question)`). The intent of reprocess mode is "re-judge an already-revealed question against the current — possibly corrected — answer key", e.g. after an admin fixes a wrong `isTrue` / `correctIndex`.
 
-Freeform reprocess mode SHALL NOT be supported (no public reaction source to re-derive from), per existing behavior.
+Freeform reprocess mode SHALL NOT be supported: the judged modal submissions are immutable, so there is nothing to safely re-derive.
 
-#### Scenario: Reprocess boolean question wipes its scored rows
+#### Scenario: Reprocess re-derives every row's verdict in both directions
 
-- **GIVEN** boolean question `Q1` with 3 rows in `answers.json`
-- **WHEN** `process_reveal_answers({ game: "main", reprocessQuestionIds: ["Q1"] })` is called
-- **THEN** the 3 rows for `Q1` are deleted
+- **GIVEN** boolean question `Q1` with `isTrue: true` and two retained rows: U1 (`answer: true`, stale `correct: false`) and U2 (`answer: false`, stale `correct: true`)
+- **WHEN** `compute_answers({ game: "main", reprocessQuestionIds: ["Q1"] })` is called
+- **THEN** both rows are retained (none deleted)
+- **AND** U1's verdict is re-derived to `correct: true` (flip up) and U2's to `correct: false` (flip down)
+- **AND** each row's raw `answer` is unchanged
 - **AND** `reveals[0].wasReprocessed === true`
-- **AND** `reveals[0].voters.correct` and `voters.incorrect` are empty arrays
 - **AND** `Q1.processedAt` is overwritten with the current time
 
-#### Scenario: Reprocess re-fetches reactions for the commentary list
+#### Scenario: Reprocess never deletes answer rows
 
-- **GIVEN** boolean question `Q1` with one cheater U_cheat newly flagged after the original reveal
-- **WHEN** `process_reveal_answers({ game, reprocessQuestionIds: ["Q1"] })` is called
-- **THEN** `reveals[0].voters.reactions` excludes U_cheat (cheater filtering applies)
-- **AND** the answers.json wipe is unaffected by the cheater set
+- **GIVEN** boolean question `Q1` with 3 retained rows in `answers.json`
+- **WHEN** `compute_answers({ game: "main", reprocessQuestionIds: ["Q1"] })` is called
+- **THEN** all 3 rows for `Q1` remain in `answers.json` (only their `correct` verdicts are recomputed)
+- **AND** `reveals[0].wasReprocessed === true`
 
 #### Scenario: Reprocess refuses freeform questions
 
-- **WHEN** `process_reveal_answers({ game, reprocessQuestionIds: ["Q_freeform"] })` is called
+- **WHEN** `compute_answers({ game, reprocessQuestionIds: ["Q_freeform"] })` is called
 - **THEN** the call returns a per-id error for `Q_freeform` stating reprocess mode is not supported for freeform questions
 - **AND** no rows are deleted
 
@@ -348,101 +358,25 @@ The tool SHALL internally invoke shared helpers — equivalent to the implementa
 #### Scenario: Leaderboard matches retrieve_scores for the same game
 
 - **GIVEN** seasons disabled and `games/main/answers.json` contains a fixed set of answer rows
-- **WHEN** `process_reveal_answers({ game: "main" })` and `retrieve_scores({ game: "main", sortBy: "totalCorrect" })` are both invoked
+- **WHEN** `compute_answers({ game: "main" })` and `retrieve_scores({ game: "main", sortBy: "totalCorrect" })` are both invoked
 - **THEN** the `leaderboard` field of the first call's return matches the `leaderboard` array returned by the second call, entry-for-entry (same ordering, same per-user totals)
 
 #### Scenario: seasonStatus omitted when seasons disabled
 
 - **GIVEN** `config.trivia.seasons.enabled` is `false` (or absent)
-- **WHEN** `process_reveal_answers({ game: "main" })` is called
+- **WHEN** `compute_answers({ game: "main" })` is called
 - **THEN** the return value has no `seasonStatus` field
 
 #### Scenario: seasonStatus populated when seasons enabled
 
 - **GIVEN** `config.trivia.seasons.enabled` is `true` and a current season exists for the game
-- **WHEN** `process_reveal_answers({ game: "main" })` is called
+- **WHEN** `compute_answers({ game: "main" })` is called
 - **THEN** `seasonStatus.currentSlug` matches the current season's slug
 - **AND** `seasonStatus.isLastFireOfSeason` reflects whether today is the season's last scheduled reveal date
 
-### Requirement: Season rollover happens inside the tool
-
-When `seasons.enabled === true` AND the tool's internal `check_season_status` computation reports `isLastFireOfSeason: true`, the tool SHALL perform the season-end rollover inline, before returning. Rollover consists of:
-
-1. Stamping `endedAt = Date.now()` on the closing season entry (idempotent — no-op if `endedAt` is already set).
-2. If no future season entry exists in this game's `seasons.json` with `startedAt > now`, creating a continuation season entry. The continuation season SHALL inherit `answersFormat`, `questionType`, `contexts`, and `format` from the closing season (deep copies of each field; absent fields stay absent). The continuation SHALL NOT inherit the closing season's **season-level** `categories`: the continuation entry SHALL omit the `categories` field entirely, so its category pool resolves via the cascade (`game.categories → global categories.json`). Slot-level `format.questions[i].categories` IS preserved as part of the deep-copied `format` (it is structural slot composition, not the season's theme). The continuation's `slug` SHALL be deterministically derived (e.g. `season-YYYY-MM` for the next month). The continuation's `startedAt` SHALL be `Date.now()` and `expectedEndAt` SHALL be end-of-current-UTC-month.
-
-The continuation's reset of season-level `categories` to cascade-inheritance encodes the principle that machine-generated config inherits while human-authored config is explicit: a themed season is a temporary, one-month deviation, so absent an explicitly staged future season, the continuation reverts to the game/global baseline rather than silently re-baking the theme forward. The structural fields (`answersFormat`, `questionType`, `contexts`, `format`) still carry forward because they define how the game runs, not what it is themed about. Dropping `categories` can never produce an empty pool — the cascade terminates at the always-present global `categories.json`. Staged future seasons (entries with `startedAt > now` already on the timeline at the moment of rollover) SHALL NOT be replaced or augmented — admin intent overrides inheritance.
-
-The tool SHALL report the outcome via `seasonStatus.seasonClosed` (true iff this run stamped `endedAt`) and, when a continuation was created, `seasonStatus.newSeasonStarted: { slug, expectedEndAt }`. The tool SHALL identify the season MVP (player at index 0 of the current-season-ordered leaderboard) and include them in `seasonStatus.mvp` for the renderer.
-
-When `isLastFireOfSeason` is `false`, the tool SHALL NOT perform any rollover, SHALL NOT mutate any season entry, and SHALL set `seasonStatus.seasonClosed: false` with no `newSeasonStarted` field.
-
-#### Scenario: Last-fire reveal closes the season inline
-
-- **GIVEN** `seasons.enabled` is `true`, the current season's `expectedEndAt` makes today its last fire, and no future season is queued
-- **WHEN** `process_reveal_answers({ game: "main" })` is called
-- **THEN** before the call returns, the closing season's entry in `games/main/seasons.json` has `endedAt` stamped to a value close to `Date.now()`
-- **AND** a new season entry is appended with a fresh slug, `startedAt` close to `Date.now()`, and `expectedEndAt` set to end-of-current-UTC-month
-- **AND** the returned `seasonStatus.seasonClosed` is `true`
-- **AND** `seasonStatus.newSeasonStarted` references the new entry's slug and expectedEndAt
-
-#### Scenario: Auto-continuation resets season-level categories to cascade
-
-- **GIVEN** the closing season's `categories` is `["Marine Biology", "Cephalopods", "Tides"]` (a themed pool that differs from the global baseline)
-- **AND** the game's stored config has `categories: ["History", "Geography"]`
-- **WHEN** `process_reveal_answers` performs auto-continuation
-- **THEN** the new continuation entry has NO `categories` field
-- **AND** the next question-cron fire for this game draws its category pool from the cascade — the game's `["History", "Geography"]` (or, if the game has none, the global `categories.json`), NOT the closing season's themed list
-
-#### Scenario: Auto-continuation inherits questionType from the closing season
-
-- **GIVEN** the closing season's `questionType` is `{ choice: 1 }`
-- **WHEN** `process_reveal_answers` performs auto-continuation
-- **THEN** the new continuation entry's `questionType` is a deep copy of `{ choice: 1 }`
-
-#### Scenario: Auto-continuation inherits format and preserves slot-level categories
-
-- **GIVEN** the closing season has `format: { questions: [{ label: "GK 1" }, { label: "Science Choice", answersFormat: { choice: 1 }, categories: ["Science"] }] }`
-- **WHEN** `process_reveal_answers` performs auto-continuation
-- **THEN** the new continuation entry's `format` is a deep copy of the closing season's `format`
-- **AND** the continuation's `format.questions[1].categories` is still `["Science"]` (slot-level categories survive even though season-level categories were dropped)
-- **AND** the next question-cron fire for this game posts 2 questions matching the inherited slot structure
-
-#### Scenario: Auto-continuation absent fields stay absent
-
-- **GIVEN** the closing season has no `questionType` field and no `format` field
-- **WHEN** `process_reveal_answers` performs auto-continuation
-- **THEN** the new continuation entry has no `questionType` field and no `format` field
-- **AND** the new entry has no `categories` field (resolving via the cascade)
-
-#### Scenario: Mid-season reveal does not roll over
-
-- **GIVEN** `seasons.enabled` is `true` and today is NOT the last fire of the current season
-- **WHEN** `process_reveal_answers({ game: "main" })` is called
-- **THEN** `games/main/seasons.json` is unchanged after the call
-- **AND** `seasonStatus.seasonClosed` is `false`
-- **AND** `seasonStatus.newSeasonStarted` is absent
-
-#### Scenario: Last-fire reveal with continuation already queued does not create another
-
-- **GIVEN** `seasons.enabled` is `true`, today is the last fire of the current season, AND a future season already exists with `startedAt > now`
-- **WHEN** `process_reveal_answers({ game: "main" })` is called
-- **THEN** the closing season is stamped with `endedAt`
-- **AND** NO additional season entry is appended (the existing future entry is honored as the continuation)
-- **AND** the existing future entry is NOT modified — its `categories`, `questionTypes`, and `format` retain whatever values the admin set
-- **AND** `seasonStatus.seasonClosed` is `true`
-- **AND** `seasonStatus.newSeasonStarted` is absent (no new entry was created by this run)
-
-#### Scenario: Season MVP is identified
-
-- **GIVEN** `seasons.enabled` is `true`, today is the last fire, and Alice leads the current-season leaderboard with the highest `currentSeasonCorrect`
-- **WHEN** `process_reveal_answers({ game: "main" })` is called
-- **THEN** `seasonStatus.mvp.userId` equals Alice's user ID
-- **AND** `seasonStatus.mvp.currentSeasonCorrect` equals her current-season correct count
-
 ### Requirement: Per-fire round summary in payload
 
-The `ProcessRevealResult` payload returned by `process_reveal_answers` SHALL ALWAYS include a `roundSummary` field describing each player's correctness across this fire's revealed questions. It is a per-player AGGREGATE — never individual per-question responses — and is derived from the SCORED ANSWERS (the same `answers.json` source as `leaderboard`), so it is INDEPENDENT of every entry's `revealResponses` (which governs only per-question display):
+The `ProcessRevealResult` payload returned by `compute_answers` SHALL ALWAYS include a `roundSummary` field describing each player's correctness across this fire's revealed questions. It is a per-player AGGREGATE — never individual per-question responses — and is derived from the SCORED ANSWERS (the same `answers.json` source as `leaderboard`), so it is INDEPENDENT of every entry's `revealResponses` (which governs only per-question display):
 
 ```ts
 roundSummary: {
@@ -471,14 +405,14 @@ The scoring filter SHALL be identical to the leaderboard's: cheaters (per the qu
 
 - **GIVEN** a 3-question batch with modes `"yes"`, `"no"`, `"just-winners"`
 - **AND** alice has a scored-correct answer on the `"yes"` and `"no"` questions, a scored-wrong answer on the `"just-winners"` question
-- **WHEN** `process_reveal_answers` returns
+- **WHEN** `compute_answers` returns
 - **THEN** `roundSummary.totalQuestions` equals `3`
 - **AND** alice has `correct: 2, answered: 3` — her `"just-winners"` and `"no"` answers count identically to a `"yes"` answer
 
 #### Scenario: roundSummary present with empty perPlayer when nobody answered
 
 - **GIVEN** a single revealed question that no one submitted a scored answer to
-- **WHEN** `process_reveal_answers` returns
+- **WHEN** `compute_answers` returns
 - **THEN** the payload HAS a `roundSummary` field
 - **AND** `roundSummary.totalQuestions` equals `1`
 - **AND** `roundSummary.perPlayer` is `[]`
@@ -486,7 +420,7 @@ The scoring filter SHALL be identical to the leaderboard's: cheaters (per the qu
 #### Scenario: Empty reveal still carries a roundSummary
 
 - **GIVEN** no pending questions for the game
-- **WHEN** `process_reveal_answers` returns
+- **WHEN** `compute_answers` returns
 - **THEN** `reveals` is `[]`
 - **AND** `roundSummary.totalQuestions` is `0`
 - **AND** `roundSummary.perPlayer` is `[]`
@@ -497,7 +431,7 @@ The scoring filter SHALL be identical to the leaderboard's: cheaters (per the qu
 - **AND** alice answered correctly on Q1 and Q2, incorrectly on Q3
 - **AND** bob answered correctly on Q1, did not answer Q2, answered correctly on Q3
 - **AND** carol answered correctly on all three
-- **WHEN** `process_reveal_answers` returns
+- **WHEN** `compute_answers` returns
 - **THEN** `roundSummary.totalQuestions` equals `3`
 - **AND** alice has `correct: 2, answered: 3`
 - **AND** bob has `correct: 2, answered: 2`
@@ -508,31 +442,31 @@ The scoring filter SHALL be identical to the leaderboard's: cheaters (per the qu
 
 - **GIVEN** two revealed questions
 - **AND** dave answered neither
-- **WHEN** `process_reveal_answers` returns
+- **WHEN** `compute_answers` returns
 - **THEN** dave does NOT appear in `roundSummary.perPlayer`
 
 #### Scenario: Round MVPs share the title on a tie
 
 - **GIVEN** four players all scoring 2/3 correct on a 3-question fire
-- **WHEN** `process_reveal_answers` returns
+- **WHEN** `compute_answers` returns
 - **THEN** all four entries in `roundSummary.perPlayer` carry `roundMvp: true`
 
 #### Scenario: No correct answers → no MVPs
 
 - **GIVEN** a fire where every player answered incorrectly on every question
-- **WHEN** `process_reveal_answers` returns
+- **WHEN** `compute_answers` returns
 - **THEN** every entry in `roundSummary.perPlayer` has `correct: 0`
 - **AND** no entry carries `roundMvp`
 
 #### Scenario: Cheaters do not appear in roundSummary
 
 - **GIVEN** a revealed question where bob answered correctly but is a flagged cheater for it
-- **WHEN** `process_reveal_answers` returns
+- **WHEN** `compute_answers` returns
 - **THEN** bob does NOT appear in `roundSummary.perPlayer` (excluded by the same scoring filter as the leaderboard)
 
 ### Requirement: `processedAt` field on TriviaQuestion
 
-The `TriviaQuestion` type SHALL gain an optional `processedAt?: number` field (epoch milliseconds). The field SHALL be stamped by `process_reveal_answers` when (a) processing the oldest pending question in default mode, or (b) reprocessing a question via `reprocessQuestionIds`. Legacy rows lacking the field SHALL NOT be retroactively populated by reads — they remain `undefined` until explicitly set by a write or by a one-shot back-fill at deploy time (see migration plan in the change's design document).
+The `TriviaQuestion` type SHALL gain an optional `processedAt?: number` field (epoch milliseconds). The field SHALL be stamped by `compute_answers` when (a) processing the oldest pending question in default mode, or (b) reprocessing a question via `reprocessQuestionIds`. Legacy rows lacking the field SHALL NOT be retroactively populated by reads — they remain `undefined` until explicitly set by a write or by a one-shot back-fill at deploy time (see migration plan in the change's design document).
 
 The default-mode question selection filter SHALL be `(question.postedAt !== undefined) AND (question.processedAt === undefined)`.
 
@@ -556,7 +490,7 @@ The default-mode question selection filter SHALL be `(question.postedAt !== unde
 
 ### Requirement: `asOf` flows from tool context, not tool arguments
 
-The shared `QueryToolContext` type SHALL gain an optional `asOf?: Date` field. The cron scheduler (in `executeJob` / `executeDynamicJob`) SHALL populate it when the job is being replayed with an explicit `asOf` parameter. The `process_reveal_answers` tool SHALL read this context value to define its effective "now" for `processedAt`-stamping and for the season-status computation. The tool's Zod argument schema SHALL NOT include an `asOf` parameter — the value is always sourced from context.
+The shared `QueryToolContext` type SHALL gain an optional `asOf?: Date` field. The cron scheduler (in `executeJob` / `executeDynamicJob`) SHALL populate it when the job is being replayed with an explicit `asOf` parameter. The `compute_answers` tool SHALL read this context value to define its effective "now" for `processedAt`-stamping and for the season-status computation. The tool's Zod argument schema SHALL NOT include an `asOf` parameter — the value is always sourced from context.
 
 When `ctx.asOf` is absent, the tool SHALL use real wall-clock `Date.now()`.
 
@@ -587,11 +521,11 @@ A repeated call MAY still observe other side-effecting changes if new state has 
 
 ### Requirement: Tool registration retains existing hot-path tools for ad-hoc use
 
-The introduction of `process_reveal_answers` SHALL NOT remove the registration of any existing trivia or clack tool. `submit_answers`, `get_question_history`, `find_previous_questions`, `retrieve_scores`, and `check_season_status` SHALL remain registered with their current behavior and role tiers, available for ad-hoc admin queries. They simply leave the cron-driven reveal hot path. `fetch_channel_messages` (on the clack core MCP server) is similarly unaffected.
+The introduction of `compute_answers` SHALL NOT remove the registration of any existing trivia or clack tool. `submit_answers`, `get_question_history`, `find_previous_questions`, `retrieve_scores`, and `check_season_status` SHALL remain registered with their current behavior and role tiers, available for ad-hoc admin queries. They simply leave the cron-driven reveal hot path. `fetch_channel_messages` (on the clack core MCP server) is similarly unaffected.
 
 #### Scenario: Existing tools remain callable
 
-- **GIVEN** the trivia plugin loaded with the new `process_reveal_answers` tool registered
+- **GIVEN** the trivia plugin loaded with the new `compute_answers` tool registered
 - **WHEN** Claude (in any session with sufficient role) attempts to call `submit_answers`, `get_question_history`, `find_previous_questions`, `retrieve_scores`, or `check_season_status`
 - **THEN** the call resolves to the existing tool implementation with unchanged behavior
 
@@ -612,7 +546,7 @@ The reveal-time judge prompt SHALL instruct the model to mark as `correct: false
 
 ### Requirement: Freeform Reveal Payload Carries answerText
 
-For freeform reveal entries in the payload produced by `process_reveal_answers`, every entry in `voters.correct[]` and `voters.incorrect[]` SHALL carry an `answerText: string` field with the user's submitted text. `voters.fenceSitters[]` SHALL be `[]` and `voters.wildcards[]` SHALL be `[]` for freeform reveal entries (free-form has no fence-sitting or wildcard reactions by construction). Boolean and choice reveal entries' voter lists SHALL NOT gain an `answerText` field.
+For freeform reveal entries in the payload produced by `compute_answers`, every entry in `voters.correct[]` and `voters.incorrect[]` SHALL carry an `answerText: string` field with the user's submitted text. `voters.fenceSitters[]` SHALL be `[]` and `voters.wildcards[]` SHALL be `[]` for freeform reveal entries (free-form has no fence-sitting or wildcard reactions by construction). Boolean and choice reveal entries' voter lists SHALL NOT gain an `answerText` field.
 
 #### Scenario: Freeform voter entries carry answerText
 
@@ -627,9 +561,53 @@ For freeform reveal entries in the payload produced by `process_reveal_answers`,
 - **THEN** voter entries do NOT carry `answerText`
 - **AND** the payload shape is identical to today
 
+### Requirement: `compute_answers` performs no Slack write
+
+`compute_answers` SHALL NOT call any Slack write API (`chat.update`, `chat.postMessage`, `files.uploadV2`, etc.). It SHALL only read Slack message reactions as commentary signal (as today). All editing of already-posted question cards SHALL be performed by `update_answers_block` (`trivia-card-projection`). A failure to reach Slack for the reaction read SHALL degrade gracefully (empty reactions) and SHALL NOT block the scored payload.
+
+#### Scenario: No card edit occurs during compute
+
+- **WHEN** `compute_answers({ game })` processes a batch
+- **THEN** no question's Slack message is edited by this tool
+- **AND** the question cards retain their pre-reveal (interactive) state until `update_answers_block` runs
+
+#### Scenario: Reaction-read failure does not block the payload
+
+- **WHEN** `compute_answers` cannot fetch a message's reactions
+- **THEN** the payload still returns with scored `voters` buckets and an empty `reactions` list for that entry
+
+### Requirement: Reveal steps are atomic and independently replayable
+
+The reveal SHALL be decomposable into steps that each do one thing and are individually safe to retry, so that an admin can re-run any single step without corrupting state. The following invariants SHALL hold:
+
+1. **Raw inputs are never overwritten or deleted — only read.** The raw submission data in `answers.json` (button choice / chosen index / typed freeform `answerText`) is the immutable source of truth. The reveal flow derives the `correct` verdict FROM it and SHALL NOT overwrite the raw submission with the verdict, and SHALL NOT delete answer rows under ANY circumstance — the trivia data layer exposes NO answer-deletion API. Re-judging is possible only because the raw submission is retained: for freeform from the retained `answerText`, and for boolean/choice by re-deriving `correct` from the retained `answer` / `answerIndex` against the question's current key (see "Reprocess mode re-derives verdicts on retained answers").
+2. **Every reveal-tool write overwrites or re-derives, never appends.** Re-running `compute_answers` on the same batch re-derives the verdict and replaces it in place; it SHALL NOT accumulate duplicate rows or double-count.
+3. **`processedAt` is informational and SHALL NOT gate a reprocess.** Reprocess mode (`reprocessQuestionIds`) SHALL operate regardless of whether `processedAt` is already set.
+4. **Re-judging touches only pending rows.** `compute_answers` SHALL judge a freeform submission only when its `correct` is `undefined`; rows already carrying a verdict SHALL be reused, so re-running `compute_answers` after a disclosure-mode re-stamp makes no new judge call.
+
+#### Scenario: Re-running compute after a judge fix re-derives from retained raw text
+
+- **GIVEN** a freeform question whose rows were scored, and the judge logic is then corrected
+- **WHEN** an admin clears the affected rows' verdicts and re-runs `compute_answers` (or reprocesses the question)
+- **THEN** the verdicts are re-derived from the retained `answerText` using the corrected judge
+- **AND** the raw `answerText` of each row is unchanged
+
+#### Scenario: Re-disclosure makes no new judge call
+
+- **GIVEN** a freeform question whose rows are all already judged, re-stamped from `revealResponses: "just-correctness"` to `"yes"`
+- **WHEN** `compute_answers` is re-run for that batch
+- **THEN** zero `sdk.askClaude` judge calls are made (existing verdicts are reused)
+- **AND** the `voters` payload now carries the `"yes"`-shaped buckets
+
+#### Scenario: Repeated compute does not double-count
+
+- **GIVEN** a batch already processed once by `compute_answers`
+- **WHEN** the same batch is reprocessed
+- **THEN** `answers.json` contains no duplicated rows for those questions and the leaderboard totals are unchanged
+
 ### Requirement: `"just-winners"` reveal-disclosure variant
 
-The `process_reveal_answers` payload's `voters` discriminated union SHALL support a fourth variant for questions stamped `revealResponses: "just-winners"`. This variant names the correct voters only and reduces the incorrect and no-answer voters to anonymous counts, while preserving the reactions commentary:
+The `compute_answers` payload's `voters` discriminated union SHALL support a fourth variant for questions stamped `revealResponses: "just-winners"`. This variant names the correct voters only and reduces the incorrect and no-answer voters to anonymous counts, while preserving the reactions commentary:
 
 ```ts
 | { revealResponses: "just-winners";
@@ -648,7 +626,7 @@ The `"just-winners"` mode governs ONLY this per-question `voters` DISPLAY shape.
 #### Scenario: Boolean question stamped just-winners names winners and counts missers
 
 - **GIVEN** a boolean question `Q1` stamped `revealResponses: "just-winners"` with answers `{ U1: correct, U2: wrong, U3: wrong }` and U4 reacted without answering
-- **WHEN** `process_reveal_answers` processes `Q1`
+- **WHEN** `compute_answers` processes `Q1`
 - **THEN** `reveals[0].voters.revealResponses === "just-winners"`
 - **AND** `voters.correct` contains the U1 Voter
 - **AND** `voters.incorrectCount === 2`
@@ -658,7 +636,7 @@ The `"just-winners"` mode governs ONLY this per-question `voters` DISPLAY shape.
 #### Scenario: Freeform just-winners keeps winner answerText, never misser text
 
 - **GIVEN** a freeform question `Q2` stamped `revealResponses: "just-winners"` with rows `{ U1: "Paris" (correct), U2: "London" (wrong) }`
-- **WHEN** `process_reveal_answers` processes `Q2`
+- **WHEN** `compute_answers` processes `Q2`
 - **THEN** `voters.correct` contains a Voter for U1 carrying `answerText: "Paris"`
 - **AND** `voters.incorrectCount === 1`
 - **AND** no field of the payload contains the string `"London"`
@@ -666,58 +644,33 @@ The `"just-winners"` mode governs ONLY this per-question `voters` DISPLAY shape.
 #### Scenario: Everyone missed — winners bucket empty, miss count positive
 
 - **GIVEN** a question stamped `revealResponses: "just-winners"` where every scored voter answered wrong
-- **WHEN** `process_reveal_answers` processes it
+- **WHEN** `compute_answers` processes it
 - **THEN** `voters.correct` is an empty array
 - **AND** `voters.incorrectCount` equals the number of wrong voters and is greater than 0
 
 #### Scenario: just-winners entry still contributes to roundSummary
 
 - **GIVEN** a batch of two reveal entries, one stamped `revealResponses: "just-winners"`, where U1 answered both (correct on the just-winners one)
-- **WHEN** `process_reveal_answers` returns the payload
+- **WHEN** `compute_answers` returns the payload
 - **THEN** the top-level `roundSummary` field is present
 - **AND** U1's `roundSummary.perPlayer` entry counts the `"just-winners"` question in both `answered` and `correct`
 
-### Requirement: Reveal flow edits each processed question's original message
-
-After `process_reveal_answers` successfully processes a question (`processedAt` stamped, voter buckets built), the reveal flow SHALL invoke the static reveal-card edit for that question, passing the question record and the built reveal entry. The edit SHALL run once per successfully-processed question, including in reprocess mode. A failed or skipped edit SHALL NOT affect the tool's returned payload, leaderboard, or season status.
-
-#### Scenario: Each revealed question triggers a card edit
-
-- **WHEN** a batch of questions is processed at reveal
-- **THEN** the reveal-card edit is invoked once for each question whose processing succeeded
-
-#### Scenario: A question whose processing errored is not edited
-
-- **WHEN** processing a question returns an error outcome
-- **THEN** no reveal-card edit is invoked for that question
-- **AND** the error is still accumulated into the tool's per-id errors list
-
-#### Scenario: Reprocess repaints the card
-
-- **WHEN** a boolean or choice question is reprocessed
-- **THEN** the reveal-card edit is invoked again with the re-derived voter buckets
-
-#### Scenario: Card edit failure does not break the payload
-
-- **WHEN** the reveal-card edit for a question fails
-- **THEN** the tool still returns its reveals, leaderboard, and (when enabled) season status
-
 ### Requirement: Freeform Reveal Invokes Per-Answer Judge
 
-`process_reveal_answers` SHALL detect any freeform questions in the batch it is about to process. For each freeform question with at least one pending `SubmittedAnswer` row (`correct === undefined`), the tool SHALL judge EACH pending submission with its OWN `sdk.askClaude` call to a small/fast Claude model (Haiku-class, default `"claude-haiku-4-5-20251001"`) — there is no single batched prompt and no echoed per-row key. Each call's prompt SHALL include the question's `statement`, `expectedAnswer`, `acceptableAnswers[]` (if any), `gradingNotes` (if any), and the single `answerText` under judgment. The tool SHALL parse a single verdict `{ correct: boolean, reason?: string }` per call and SHALL call `updateAnswer(rowKey, { correct: <verdict> })` to flip `correct` from undefined to the judged value. Per-answer calls MAY run with bounded concurrency.
+`compute_answers` SHALL detect any freeform questions in the batch it is about to process. For each freeform question with at least one pending `SubmittedAnswer` row (`correct === undefined`), the tool SHALL judge EACH pending submission with its OWN `sdk.askClaude` call to a small/fast Claude model (Haiku-class, default `"claude-haiku-4-5-20251001"`) — there is no single batched prompt and no echoed per-row key. Each call's prompt SHALL include the question's `statement`, `expectedAnswer`, `acceptableAnswers[]` (if any), `gradingNotes` (if any), and the single `answerText` under judgment. The tool SHALL parse a single verdict `{ correct: boolean, reason?: string }` per call and SHALL call `updateAnswer(rowKey, { correct: <verdict> })` to flip `correct` from undefined to the judged value. Per-answer calls MAY run with bounded concurrency.
 
 When the batch contains no freeform questions, OR when every freeform question in the batch has zero pending rows, NO `sdk.askClaude` call SHALL be made.
 
 #### Scenario: One judge call per pending submission
 
-- **WHEN** `process_reveal_answers` is processing a batch with two freeform questions, each with three pending answers
+- **WHEN** `compute_answers` is processing a batch with two freeform questions, each with three pending answers
 - **THEN** six `sdk.askClaude` calls are made, one per submission
 - **AND** each call's prompt contains exactly that submission's `answerText`
 - **AND** exactly six `updateAnswer` calls flip each row's `correct` from undefined to the judged value
 
 #### Scenario: No freeform in batch — no judge call
 
-- **WHEN** `process_reveal_answers` is processing a batch containing only boolean and choice questions
+- **WHEN** `compute_answers` is processing a batch containing only boolean and choice questions
 - **THEN** zero `sdk.askClaude` calls are made
 - **AND** the existing reveal flow (reaction fetch → categorize → write `SubmittedAnswer`) runs unchanged
 

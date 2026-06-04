@@ -321,9 +321,45 @@ describe("PROCESS_REVEAL_INSTRUCTIONS — renderer brief", () => {
     assert.ok(PROCESS_REVEAL_INSTRUCTIONS.length > 100);
   });
 
-  it("references process_reveal_answers as the single hot-path tool", () => {
-    assert.match(PROCESS_REVEAL_INSTRUCTIONS, /process_reveal_answers/);
+  it("sequences compute_answers → update_answers_block → submit_response", () => {
+    assert.match(PROCESS_REVEAL_INSTRUCTIONS, /compute_answers/);
+    assert.match(PROCESS_REVEAL_INSTRUCTIONS, /update_answers_block/);
+    assert.match(PROCESS_REVEAL_INSTRUCTIONS, /start_new_season/);
     assert.match(PROCESS_REVEAL_INSTRUCTIONS, /submit_response/);
+    assert.doesNotMatch(PROCESS_REVEAL_INSTRUCTIONS, /process_reveal_answers/);
+  });
+
+  it("orders the tool chain compute_answers → update_answers_block → start_new_season", () => {
+    // The orchestration moved into this prompt — its ORDER is the runtime contract.
+    // `sequences …` above only checks each name exists; this pins the actual sequence.
+    const iCompute = PROCESS_REVEAL_INSTRUCTIONS.indexOf("compute_answers");
+    const iUpdate = PROCESS_REVEAL_INSTRUCTIONS.indexOf("update_answers_block");
+    const iSeason = PROCESS_REVEAL_INSTRUCTIONS.indexOf("start_new_season");
+    assert.ok(iCompute >= 0 && iUpdate >= 0 && iSeason >= 0);
+    assert.ok(iCompute < iUpdate, "compute_answers must come before update_answers_block");
+    assert.ok(iUpdate < iSeason, "update_answers_block must come before start_new_season");
+  });
+
+  it("threads the batchId returned by compute_answers into update_answers_block", () => {
+    // update_answers_block REQUIRES the batchId; if the prompt stops telling Claude to
+    // pass the step-1 batchId, the projector errors with "No questions found" at runtime.
+    assert.match(PROCESS_REVEAL_INSTRUCTIONS, /Note the `batchId` field/);
+    assert.match(
+      PROCESS_REVEAL_INSTRUCTIONS,
+      /update_answers_block\(\{ game: "\{game\}", batchId: <the batchId from step 1> \}\)/,
+    );
+  });
+
+  it("gates start_new_season to the season's last fire only (never unconditional)", () => {
+    // The season close has NO structural guard — this conditional in the prompt is the
+    // ONLY thing preventing a mid-season fire from rolling the season over every day.
+    assert.match(PROCESS_REVEAL_INSTRUCTIONS, /IF AND ONLY IF[^\n]*isLastFireOfSeason === true/);
+    assert.match(PROCESS_REVEAL_INSTRUCTIONS, /isLastFireOfSeason` is false, SKIP this call/);
+    // And it must be REQUIRED (not optional) when the last fire IS reached.
+    assert.match(
+      PROCESS_REVEAL_INSTRUCTIONS,
+      /When `isLastFireOfSeason` is true you MUST call `start_new_season/,
+    );
   });
 
   it("does NOT enumerate the absorbed deterministic-step tools as required steps", () => {
@@ -517,10 +553,7 @@ describe("PROCESS_REVEAL_INSTRUCTIONS — renderer brief", () => {
   });
 
   it("handles the empty-reveals case by posting nothing (skip_response, no leaderboard)", () => {
-    assert.match(
-      PROCESS_REVEAL_INSTRUCTIONS,
-      /POST NOTHING\. Do NOT render an acknowledgement, and do NOT render the leaderboard/,
-    );
+    assert.match(PROCESS_REVEAL_INSTRUCTIONS, /POST NOTHING and SKIP steps 2–4/);
     assert.match(
       PROCESS_REVEAL_INSTRUCTIONS,
       /reveals\.length === 0[\s\S]*?POST NOTHING\. Call `submit_response\(\{ skip_response: true \}\)/,

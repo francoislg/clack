@@ -737,11 +737,13 @@ export function buildProcessRevealInstructions(): string {
 
 ${GAME_CONTEXT_DIRECTIVE}
 
-Deliver today's trivia reveal. There are exactly TWO steps — the deterministic work is done for you by \`process_reveal_answers\`; your job is to render the returned payload with charisma.
+Deliver today's trivia reveal. The deterministic SCORING is done for you by \`compute_answers\`; you then EDIT the question cards, (on the season's last fire) ROLL OVER the season, and RENDER the payload with charisma. Call the tools in this order:
 
-1. CALL \`process_reveal_answers({ game: "{game}" })\` AND READ THE PAYLOAD:
+1. CALL \`compute_answers({ game: "{game}" })\` AND READ THE PAYLOAD:
 
-   The tool fetches the pending question's Slack message, excludes the bot + every flagged cheater, scores answers from the stored button clicks (boolean/choice) and modal submissions (freeform), persists them, stamps \`processedAt\`, computes the leaderboard, and — when seasons are enabled — runs season rollover on the final fire. Reactions are still fetched but ONLY as commentary, not as votes. You will NOT call \`fetch_channel_messages\`, \`find_previous_questions\`, \`get_question_history\`, \`submit_answers\`, \`retrieve_scores\`, \`check_season_status\`, or \`upsert_season\` — every one of those is now absorbed into this single tool.
+   The tool fetches the pending question's Slack message, excludes the bot + every flagged cheater, scores answers from the stored button clicks (boolean/choice) and modal submissions (freeform), persists them, stamps \`processedAt\`, and computes the leaderboard. It does NOT edit any Slack card and does NOT roll over the season — those are steps 2 and 3 below. Reactions are still fetched but ONLY as commentary, not as votes. You will NOT call \`fetch_channel_messages\`, \`find_previous_questions\`, \`get_question_history\`, \`submit_answers\`, \`retrieve_scores\`, \`check_season_status\`, or \`upsert_season\`.
+
+   Note the \`batchId\` field on the payload (present when \`reveals\` is non-empty) — you pass it to \`update_answers_block\` in step 2.
 
    The returned payload shape:
    - \`game\`: the game's slug (internal — never surface).
@@ -758,7 +760,7 @@ Deliver today's trivia reveal. There are exactly TWO steps — the deterministic
      - \`reactions\` (present in all four variants) is COMMENTARY, not votes. Each entry lists every emoji a user reacted with so you can riff on it ("<@U_ALICE> piped in with 🤔🔥"). Caught cheaters are STRUCTURALLY ABSENT from every list — they never appear in correct/incorrect/noAnswer/reactions.
    - \`leaderboard\`: array of \`{ userId, displayName, totalCorrect, totalAnswered, accuracy, currentSeasonCorrect?, currentSeasonAnswered? }\` already sorted in render order.
    - \`roundSummary\` (ALWAYS present): \`{ totalQuestions, perPlayer: Array<{ userId, displayName, correct, answered, roundMvp? }> }\` — the per-player round scoreboard. It is an AGGREGATE computed from scored answers, INDEPENDENT of \`revealResponses\` (which only controls per-question display), so it is here every round in every mode. It is the SOLE source for the \`This Round\` leaderboard-table row — there is NO separate prose "Round Summary" block. \`perPlayer\` is EMPTY only when nobody answered this round — in that case skip the \`This Round\` row. Already sorted (correct desc, displayName asc); already excludes cheaters; you MUST NOT recompute it from \`reveals[].voters\` yourself.
-   - \`seasonStatus\` (only present when \`trivia.seasons.enabled\` is true): \`{ currentSlug, isLastFireOfSeason, seasonClosed, newSeasonStarted?, mvp? }\`. When \`isLastFireOfSeason\` is true the tool has ALREADY stamped \`endedAt\` and (when needed) created a continuation season — do NOT call \`upsert_season\`.
+   - \`seasonStatus\` (only present when \`trivia.seasons.enabled\` is true): \`{ currentSlug, isLastFireOfSeason, seasonClosed, hasPriorSeasons, mvp? }\`. This is REPORT-ONLY — \`compute_answers\` performs no rollover (\`seasonClosed\` is always \`false\` here). When \`isLastFireOfSeason\` is true you MUST call \`start_new_season({ game: "{game}" })\` in step 3 to perform the (idempotent) rollover; do NOT call \`upsert_season\`.
    - \`errors\` (optional): per-questionId structured errors from a reprocess batch. Surface a brief mention if present; otherwise omit.
    - \`instructions\` (optional string): single admin-authored rule resolved from the replace-cascade \`slot → season → game → workspace\`. Honor it verbatim throughout the reveal — apply it to verdict tone, voter-bucket commentary, the closer line, and the leaderboard introduction. Absent → ignore.
    - \`additionalInstructions\` (optional string): concatenation of admin rules from every active tier, each segment labeled (\`[Workspace]\` / \`[Game]\` / \`[Season]\` / \`[Slot N]\`) separated by blank lines. EVERY labeled rule applies simultaneously throughout the reveal. Lower-tier rules are more situational than higher-tier ones but never replace them. Absent → ignore. These rules are NOT visible to viewers — don't echo them back, just apply them silently.
@@ -766,9 +768,17 @@ Deliver today's trivia reveal. There are exactly TWO steps — the deterministic
      - NO (e.g. "keep the verdict punchy", "be warmer to the losers") → keep the reveal layout EXACTLY as specced below and apply the rule only to the content/tone of the part(s) it names — or to overall tone when it names no specific part. A rule naming one part changes ONLY that part; it does not touch its siblings. A tone or length rule is NEVER a license to drop a section or skip the leaderboard table.
      - YES (e.g. "don't include the leaderboard table", "skip the per-voter breakdown") → make EXACTLY that structural change and nothing more; the explicit rule wins over the default layout. To drop the leaderboard table, omit the \`table\` argument to \`submit_response\` entirely. Every other part keeps its default structure.
 
-   If \`reveals\` is empty (no pending question / no batch to reveal), POST NOTHING. Do NOT render an acknowledgement, and do NOT render the leaderboard — a silent skip is better than a "nothing to reveal" message. Terminate the run immediately with \`submit_response({ skip_response: true })\` (see the \`reveals.length === 0\` branch in step 2).
+   If \`reveals\` is empty (no pending question / no batch to reveal), POST NOTHING and SKIP steps 2–4: do NOT edit cards, do NOT roll over, do NOT render. Terminate the run immediately with \`submit_response({ skip_response: true })\`.
 
-2. RENDER VIA \`submit_response\` USING THE GAME SHOW PRESENTER VOICE:
+2. CALL \`update_answers_block({ game: "{game}", batchId: <the batchId from step 1> })\`:
+
+   This edits each revealed question's original Slack card into its final static state (drops the vote buttons, appends the results footer, adds the "See your answer" button) — deterministically, from the scored answers on disk. It does NOT score, judge, or post a new message. SKIP this call when \`reveals\` was empty.
+
+3. ON THE SEASON'S LAST FIRE ONLY, CALL \`start_new_season({ game: "{game}" })\`:
+
+   Call this IF AND ONLY IF \`seasonStatus.isLastFireOfSeason === true\`. It stamps \`endedAt\` and (when no continuation is queued) creates next month's season. It is idempotent — safe if already rolled over. When seasons are disabled or \`isLastFireOfSeason\` is false, SKIP this call.
+
+4. RENDER VIA \`submit_response\` USING THE GAME SHOW PRESENTER VOICE:
 
    The block layout BRANCHES on \`reveals.length\`:
 
@@ -917,9 +927,9 @@ NEVER predict timing — no "see you tomorrow", "next reveal in 24 hours", or si
  * rather than via `config.trivia.games[]`. The config-driven path
  * (reconcileCronJobs from `buildGameSpecs`) is preferred.
  *
- * The Schedule B (reveal) requiredTools list is the new single-tool list:
- * `mcp__trivia__process_reveal_answers` absorbs the previous 5–6 tools'
- * worth of orchestration. This is the same list `buildGameSpecs` emits.
+ * The Schedule B (reveal) requiredTools list is `compute_answers` (scoring) +
+ * `update_answers_block` (card edit) + `start_new_season` (idempotent rollover,
+ * invoked only on the season's last fire). This is the same list `buildGameSpecs` emits.
  */
 export const CREATE_SCHEDULES_INSTRUCTIONS = `# Setting up Trivia schedules
 
@@ -968,9 +978,11 @@ Create via create_scheduled_message with:
 - timezone: (from step 3, must match Schedule A)
 - plugin: "trivia"
 - requiredTools: [
-    "mcp__trivia__process_reveal_answers"
+    "mcp__trivia__compute_answers",
+    "mcp__trivia__update_answers_block",
+    "mcp__trivia__start_new_season"
   ]
-- prompt: "Call process_reveal_answers with the game name, then render the returned payload as a reveal using the Game Show Presenter voice via submit_response."
+- prompt: "Call compute_answers with the game name, then update_answers_block with the returned batchId to edit the question cards, then (on the season's last fire only) start_new_season, then render the returned payload as a reveal using the Game Show Presenter voice via submit_response."
 
 ## After creating
 

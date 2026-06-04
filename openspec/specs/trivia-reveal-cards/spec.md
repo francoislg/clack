@@ -8,7 +8,7 @@ When trivia questions are revealed, the plugin SHALL statically edit each questi
 
 ### Requirement: Static reveal edit of the original question message
 
-At reveal, after a question is successfully processed, the trivia plugin SHALL edit that question's original Slack message exactly once (`chat.update`) into a final, static state. The edit SHALL be rebuilt deterministically from the question's stored `postedBlocks` (never from the message's current Slack state) so that repeated edits cannot accumulate stale blocks. The edit is a one-time snapshot and SHALL NOT update again as further interactions occur.
+The static reveal edit of a question's original Slack message SHALL be performed by the `update_answers_block` tool (`trivia-card-projection`), not by the answer-compute tool. When `update_answers_block` projects a question, it SHALL edit that question's original Slack message exactly once (`chat.update`) into a final, static state. The edit SHALL be rebuilt deterministically from the question's stored `postedBlocks` (never from the message's current Slack state) so that repeated edits cannot accumulate stale blocks. The edit is a snapshot of current file state and SHALL be re-runnable: re-projecting after `answers.json` changes reconciles the card to the new state.
 
 The rebuilt message SHALL preserve the original card body, SHALL remove the answer-actions block, SHALL append a static results footer, and SHALL append a single "See your answer" button.
 

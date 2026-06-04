@@ -5,7 +5,6 @@ import { createUpsertSeasonTool } from "./upsertSeason.js";
 import { createDeleteSeasonTool } from "./deleteSeason.js";
 import { createListSeasonsTool } from "./listSeasons.js";
 import { createCheckSeasonStatusTool } from "./checkSeasonStatus.js";
-import type { CronJob } from "../../../../cronJobs.js";
 import { createRetrieveScoresTool } from "../answers/retrieveScores.js";
 import { createFindPreviousQuestionsTool } from "../questions/findPreviousQuestions.js";
 import { createSaveQuestionTool } from "../questions/saveQuestion.js";
@@ -1325,20 +1324,6 @@ describe("list_seasons — axis-config surfacing", () => {
 // check_season_status tool
 // =============================================================================
 
-function revealJob(cron: string, timezone = "UTC"): CronJob {
-  return {
-    id: "reveal",
-    cronExpression: cron,
-    channel: "C123",
-    prompt: "Call process_responses_instructions and follow the returned instructions exactly.",
-    createdBy: "U0",
-    createdAt: new Date().toISOString(),
-    enabled: true,
-    timezone,
-    plugin: "trivia",
-  };
-}
-
 describe("check_season_status tool", () => {
   let data: TriviaDataLayer;
 
@@ -1348,7 +1333,7 @@ describe("check_season_status tool", () => {
   });
 
   it("missing seasons.json returns a structured error", async () => {
-    const tool = createCheckSeasonStatusTool(data, async () => [], fixtureGetGames);
+    const tool = createCheckSeasonStatusTool(data, fixtureGetGames);
     const result = await tool.handler({ game: FIXTURE_GAME_NAME }, SESSION);
     const parsed = parseToolResult(result);
     assert.ok(parsed.error || parsed.isError);
@@ -1364,7 +1349,7 @@ describe("check_season_status tool", () => {
         categories: ["X"],
       },
     ]);
-    const tool = createCheckSeasonStatusTool(data, async () => [], fixtureGetGames);
+    const tool = createCheckSeasonStatusTool(data, fixtureGetGames);
     const result = await tool.handler({ game: FIXTURE_GAME_NAME }, SESSION);
     const parsed = parseToolResult(result);
     assert.equal(parsed.currentSlug, null);
@@ -1388,11 +1373,7 @@ describe("check_season_status tool", () => {
         categories: ["Y"],
       },
     ]);
-    const tool = createCheckSeasonStatusTool(
-      data,
-      async () => [revealJob("0 18 * * *")],
-      fixtureGetGames,
-    );
+    const tool = createCheckSeasonStatusTool(data, fixtureGetGames);
     const result = await tool.handler({ game: FIXTURE_GAME_NAME }, SESSION);
     const parsed = parseToolResult(result);
     assert.equal(parsed.currentSlug, "active");
@@ -1402,24 +1383,37 @@ describe("check_season_status tool", () => {
 
   it("returns nulls for next when no future season is queued", async () => {
     await seedSingleActive(data);
-    const tool = createCheckSeasonStatusTool(
-      data,
-      async () => [revealJob("0 18 * * *")],
-      fixtureGetGames,
-    );
+    const tool = createCheckSeasonStatusTool(data, fixtureGetGames);
     const result = await tool.handler({ game: FIXTURE_GAME_NAME }, SESSION);
     const parsed = parseToolResult(result);
     assert.equal(parsed.nextSeasonSlug, null);
     assert.equal(parsed.nextSeasonStartsAt, null);
   });
 
-  it("no trivia reveal cron warns and defaults isLastFireOfSeason to false", async () => {
+  it("game without a revealCron warns and defaults isLastFireOfSeason to false", async () => {
     await seedSingleActive(data);
-    const tool = createCheckSeasonStatusTool(data, async () => [], fixtureGetGames);
+    const noCronGames = () => fixtureGetGames().map((g) => ({ ...g, revealCron: "" }));
+    const tool = createCheckSeasonStatusTool(data, noCronGames);
     const result = await tool.handler({ game: FIXTURE_GAME_NAME }, SESSION);
     const parsed = parseToolResult(result);
     assert.equal(parsed.isLastFireOfSeason, false);
     assert.ok(parsed.warning);
+  });
+
+  it("reports isLastFireOfSeason true when the next revealCron fire is after the season end", async () => {
+    const now = Date.now();
+    await seedTimeline(data, [
+      { slug: "active", startedAt: now - 5 * DAY, expectedEndAt: now + 60_000, categories: ["X"] },
+    ]);
+    // Yearly cron → the next fire is months away, well past the ~60s-out season end.
+    const yearlyGames = () =>
+      fixtureGetGames().map((g) => ({ ...g, revealCron: "0 0 1 1 *", timezone: "UTC" }));
+    const tool = createCheckSeasonStatusTool(data, yearlyGames);
+    const result = await tool.handler({ game: FIXTURE_GAME_NAME }, SESSION);
+    const parsed = parseToolResult(result);
+    assert.equal(parsed.currentSlug, "active");
+    assert.equal(parsed.isLastFireOfSeason, true);
+    assert.ok(typeof parsed.nextFireAt === "number");
   });
 
   it("season already expired: no next fire before expectedEnd → last fire", async () => {
@@ -1433,11 +1427,7 @@ describe("check_season_status tool", () => {
       },
     ]);
     // Note: this season is expired so findCurrentSeason returns null → isInGap path.
-    const tool = createCheckSeasonStatusTool(
-      data,
-      async () => [revealJob("0 18 * * 1-5")],
-      fixtureGetGames,
-    );
+    const tool = createCheckSeasonStatusTool(data, fixtureGetGames);
     const result = await tool.handler({ game: FIXTURE_GAME_NAME }, SESSION);
     const parsed = parseToolResult(result);
     // Gap is hit because the only season's window is in the past.
@@ -2026,19 +2016,20 @@ describe("save_question validates against active pool", () => {
 // =============================================================================
 
 describe("scheduled prompt variants", () => {
-  // Under the new design the reveal prompt is a thin renderer brief; seasons logic
-  // lives inside `process_reveal_answers` rather than in the prompt. The prompt's
-  // content is identical regardless of `trivia.seasons.enabled`.
-  it("PROCESS_REVEAL references process_reveal_answers, not the absorbed tools", () => {
-    assert.ok(PROCESS_REVEAL_INSTRUCTIONS.includes("process_reveal_answers"));
-    // The absorbed tools may be MENTIONED (in a "you will NOT call these" caveat) but
-    // they must not appear as required-step verbs.
+  // The reveal prompt is a thin renderer brief: compute_answers scores, update_answers_block
+  // edits the cards, start_new_season rolls over on the last fire. The prompt's content is
+  // identical regardless of `trivia.seasons.enabled`.
+  it("PROCESS_REVEAL sequences compute_answers / update_answers_block / start_new_season", () => {
+    assert.ok(PROCESS_REVEAL_INSTRUCTIONS.includes("compute_answers"));
+    assert.ok(PROCESS_REVEAL_INSTRUCTIONS.includes("update_answers_block"));
+    assert.ok(PROCESS_REVEAL_INSTRUCTIONS.includes("start_new_season"));
+    assert.ok(!PROCESS_REVEAL_INSTRUCTIONS.includes("process_reveal_answers"));
+    // The absorbed read tools must not appear as required-step verbs.
     assert.ok(!PROCESS_REVEAL_INSTRUCTIONS.includes("Call fetch_channel_messages"));
     assert.ok(!PROCESS_REVEAL_INSTRUCTIONS.includes("Call submit_answers"));
     assert.ok(!PROCESS_REVEAL_INSTRUCTIONS.includes("Call retrieve_scores"));
     assert.ok(!PROCESS_REVEAL_INSTRUCTIONS.includes("Call check_season_status"));
     assert.ok(!PROCESS_REVEAL_INSTRUCTIONS.includes("Call upsert_season"));
-    assert.ok(!PROCESS_REVEAL_INSTRUCTIONS.includes("start_new_season"));
   });
 
   it("PROCESS_REVEAL describes the seasonStatus payload shape", () => {
@@ -2046,13 +2037,15 @@ describe("scheduled prompt variants", () => {
     assert.ok(PROCESS_REVEAL_INSTRUCTIONS.includes("isLastFireOfSeason"));
   });
 
-  it("CREATE_SCHEDULES references the single-tool reveal requiredTools list", () => {
-    assert.ok(CREATE_SCHEDULES_INSTRUCTIONS.includes("mcp__trivia__process_reveal_answers"));
-    // The conditionally-called timeline tools must NOT appear in any requiredTools list.
+  it("CREATE_SCHEDULES references the compute + project + rollover reveal requiredTools list", () => {
+    assert.ok(CREATE_SCHEDULES_INSTRUCTIONS.includes("mcp__trivia__compute_answers"));
+    assert.ok(CREATE_SCHEDULES_INSTRUCTIONS.includes("mcp__trivia__update_answers_block"));
+    // start_new_season is a required reveal tool (the prompt calls it on the season's last fire).
+    assert.ok(CREATE_SCHEDULES_INSTRUCTIONS.includes("mcp__trivia__start_new_season"));
+    // The query-only timeline tools must NOT appear in any requiredTools list.
     assert.ok(!CREATE_SCHEDULES_INSTRUCTIONS.includes("mcp__trivia__check_season_status"));
     assert.ok(!CREATE_SCHEDULES_INSTRUCTIONS.includes("mcp__trivia__upsert_season"));
     assert.ok(!CREATE_SCHEDULES_INSTRUCTIONS.includes("mcp__trivia__delete_season"));
-    assert.ok(!CREATE_SCHEDULES_INSTRUCTIONS.includes("mcp__trivia__start_new_season"));
   });
 });
 

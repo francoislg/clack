@@ -1,11 +1,10 @@
 import { describe, it } from "vitest";
 import assert from "node:assert/strict";
-import { createProcessRevealAnswersTool, type RevealSlackDeps } from "./processRevealAnswers.js";
+import { createComputeAnswersTool, type RevealSlackDeps } from "./computeAnswers.js";
 import { createInMemoryDataLayer, FIXTURE_GAME_NAME, fixtureGetGames } from "../../testHelpers.js";
 import { parseToolResult } from "../../../../tools/testHelpers.js";
 import type { ClackSdk } from "../../../sdk.js";
 import type { TriviaQuestion } from "../../core/types.js";
-import type { TriviaCronJobView } from "../../domain/seasonStatus.js";
 
 /**
  * Orchestrator-level tests for `process_reveal_answers`. Per-handler reveal behavior
@@ -67,23 +66,26 @@ async function seedCurrentSeason(
   });
 }
 
-describe("process_reveal_answers — showAllTimeRow", () => {
+describe("compute_answers —showAllTimeRow", () => {
+  // `revealCron` drives isLastFireOfSeason: "* * * * *" (every minute) → next fire
+  // is ~now, before a future expectedEndAt → NOT the last fire; a yearly cron →
+  // next fire lands far after expectedEndAt → IS the last fire. Sourced from the
+  // game's own config, never from the bot-core cron-job registry.
   function toolWith(
     data: ReturnType<typeof createInMemoryDataLayer>,
     allTimeRow: "always" | "never" | "end-of-season-only",
-    jobs: TriviaCronJobView[] = [],
+    revealCron = "* * * * *",
   ) {
-    return createProcessRevealAnswersTool(
-      data,
-      fakeSdk(),
-      fixtureGetGames,
-      async () => jobs,
-      fakeSlackDeps(),
-      () => ({ allTimeRow }),
-    );
+    const getGames = () =>
+      fixtureGetGames().map((g) =>
+        g.name === FIXTURE_GAME_NAME ? { ...g, revealCron, timezone: "UTC" } : g,
+      );
+    return createComputeAnswersTool(data, fakeSdk(), getGames, fakeSlackDeps(), () => ({
+      allTimeRow,
+    }));
   }
 
-  async function run(tool: ReturnType<typeof createProcessRevealAnswersTool>) {
+  async function run(tool: ReturnType<typeof createComputeAnswersTool>) {
     return parseToolResult(
       await tool.handler({ game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined }, SESSION),
     );
@@ -119,33 +121,19 @@ describe("process_reveal_answers — showAllTimeRow", () => {
 
   it("end-of-season-only → true on the season's last fire", async () => {
     const data = createInMemoryDataLayer();
-    // Season ends shortly; the reveal cron next fires far in the future (yearly),
-    // so its next fire lands AFTER expectedEndAt → this is the last fire.
+    // Season ends shortly; the game's revealCron next fires far in the future
+    // (yearly), so its next fire lands AFTER expectedEndAt → this is the last fire.
     await seedCurrentSeason(data, Date.now() + 60_000);
-    const lastFireJob = {
-      plugin: "trivia",
-      enabled: true,
-      specKey: `${FIXTURE_GAME_NAME}:reveal`,
-      prompt: "Call process_responses_instructions and follow them.",
-      cronExpression: "0 0 1 1 *",
-      timezone: "UTC",
-    };
-    const res = await run(toolWith(data, "end-of-season-only", [lastFireJob]));
+    const res = await run(toolWith(data, "end-of-season-only", "0 0 1 1 *"));
     assert.equal(res.seasonStatus.isLastFireOfSeason, true);
     assert.equal(res.showAllTimeRow, true);
   });
 });
 
-describe("process_reveal_answers — orchestrator", () => {
+describe("compute_answers —orchestrator", () => {
   it("returns reveals: [] when no question is pending", async () => {
     const data = createInMemoryDataLayer();
-    const tool = createProcessRevealAnswersTool(
-      data,
-      fakeSdk(),
-      fixtureGetGames,
-      async () => [],
-      fakeSlackDeps(),
-    );
+    const tool = createComputeAnswersTool(data, fakeSdk(), fixtureGetGames, fakeSlackDeps());
 
     const res = parseToolResult(
       await tool.handler({ game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined }, SESSION),
@@ -168,13 +156,7 @@ describe("process_reveal_answers — orchestrator", () => {
       makeQuestion({ id: "b1", postedAt: 3_000, batchId: "batch-B", statement: "B1" }),
     );
 
-    const tool = createProcessRevealAnswersTool(
-      data,
-      fakeSdk(),
-      fixtureGetGames,
-      async () => [],
-      fakeSlackDeps(),
-    );
+    const tool = createComputeAnswersTool(data, fakeSdk(), fixtureGetGames, fakeSlackDeps());
 
     const res = parseToolResult(
       await tool.handler({ game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined }, SESSION),
@@ -215,13 +197,7 @@ describe("process_reveal_answers — orchestrator", () => {
       timestamp: 600,
     });
 
-    const tool = createProcessRevealAnswersTool(
-      data,
-      fakeSdk(),
-      fixtureGetGames,
-      async () => [],
-      fakeSlackDeps(),
-    );
+    const tool = createComputeAnswersTool(data, fakeSdk(), fixtureGetGames, fakeSlackDeps());
 
     const res = parseToolResult(
       await tool.handler({ game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined }, SESSION),
@@ -258,13 +234,7 @@ describe("process_reveal_answers — orchestrator", () => {
       await scoped.saveAnswer({ userId: "U1", questionId, answer: true, correct, timestamp: 500 });
     }
 
-    const tool = createProcessRevealAnswersTool(
-      data,
-      fakeSdk(),
-      fixtureGetGames,
-      async () => [],
-      fakeSlackDeps(),
-    );
+    const tool = createComputeAnswersTool(data, fakeSdk(), fixtureGetGames, fakeSlackDeps());
 
     const res = parseToolResult(
       await tool.handler({ game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined }, SESSION),
@@ -289,13 +259,7 @@ describe("process_reveal_answers — orchestrator", () => {
       makeQuestion({ id: "q1", batchId: "B", postedAt: 1_000, revealResponses: "yes" }),
     );
 
-    const tool = createProcessRevealAnswersTool(
-      data,
-      fakeSdk(),
-      fixtureGetGames,
-      async () => [],
-      fakeSlackDeps(),
-    );
+    const tool = createComputeAnswersTool(data, fakeSdk(), fixtureGetGames, fakeSlackDeps());
 
     const res = parseToolResult(
       await tool.handler({ game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined }, SESSION),
@@ -335,13 +299,7 @@ describe("process_reveal_answers — orchestrator", () => {
       detectedAt: new Date(700).toISOString(),
     });
 
-    const tool = createProcessRevealAnswersTool(
-      data,
-      fakeSdk(),
-      fixtureGetGames,
-      async () => [],
-      fakeSlackDeps(),
-    );
+    const tool = createComputeAnswersTool(data, fakeSdk(), fixtureGetGames, fakeSlackDeps());
 
     const res = parseToolResult(
       await tool.handler({ game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined }, SESSION),
@@ -366,13 +324,7 @@ describe("process_reveal_answers — orchestrator", () => {
       timestamp: 500,
     });
 
-    const tool = createProcessRevealAnswersTool(
-      data,
-      fakeSdk(),
-      fixtureGetGames,
-      async () => [],
-      fakeSlackDeps(),
-    );
+    const tool = createComputeAnswersTool(data, fakeSdk(), fixtureGetGames, fakeSlackDeps());
 
     const res = parseToolResult(
       await tool.handler({ game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined }, SESSION),
@@ -418,13 +370,7 @@ describe("process_reveal_answers — orchestrator", () => {
       timestamp: 700,
     });
 
-    const tool = createProcessRevealAnswersTool(
-      data,
-      fakeSdk(),
-      fixtureGetGames,
-      async () => [],
-      fakeSlackDeps(),
-    );
+    const tool = createComputeAnswersTool(data, fakeSdk(), fixtureGetGames, fakeSlackDeps());
 
     const res = parseToolResult(
       await tool.handler({ game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined }, SESSION),
@@ -466,13 +412,7 @@ describe("process_reveal_answers — orchestrator", () => {
       timestamp: 600,
     });
 
-    const tool = createProcessRevealAnswersTool(
-      data,
-      fakeSdk(),
-      fixtureGetGames,
-      async () => [],
-      fakeSlackDeps(),
-    );
+    const tool = createComputeAnswersTool(data, fakeSdk(), fixtureGetGames, fakeSlackDeps());
 
     const res = parseToolResult(
       await tool.handler({ game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined }, SESSION),
@@ -515,13 +455,7 @@ describe("process_reveal_answers — orchestrator", () => {
       detectedAt: new Date(700).toISOString(),
     });
 
-    const tool = createProcessRevealAnswersTool(
-      data,
-      fakeSdk(),
-      fixtureGetGames,
-      async () => [],
-      fakeSlackDeps(),
-    );
+    const tool = createComputeAnswersTool(data, fakeSdk(), fixtureGetGames, fakeSlackDeps());
 
     const res = parseToolResult(
       await tool.handler({ game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined }, SESSION),
@@ -534,33 +468,38 @@ describe("process_reveal_answers — orchestrator", () => {
     }
   });
 
-  it("reprocess mode hard-deletes prior boolean/choice answers before re-scoring", async () => {
+  it("reprocess re-derives EVERY answer's verdict in BOTH directions (never deletes rows)", async () => {
     const data = createInMemoryDataLayer();
     const scoped = data.forGame(FIXTURE_GAME_NAME);
+    // isTrue: true is the corrected key; both stored rows carry STALE verdicts scored
+    // against a previously-wrong key. Reprocess must recompute each one independently.
     const question = makeQuestion({
       id: "q1",
       batchId: "B",
       postedAt: 1_000,
       processedAt: 9_000, // already revealed
+      isTrue: true,
       revealResponses: "yes",
     });
     await scoped.saveQuestion(question);
-    // Pre-existing scored answer that should be wiped by reprocess.
+    // U1 answered TRUE (matches the corrected key) but is stored false → must flip UP.
     await scoped.saveAnswer({
       userId: "U1",
       questionId: "q1",
       answer: true,
-      correct: true,
+      correct: false,
       timestamp: 500,
     });
+    // U2 answered FALSE (no longer matches) but is stored true → must flip DOWN.
+    await scoped.saveAnswer({
+      userId: "U2",
+      questionId: "q1",
+      answer: false,
+      correct: true,
+      timestamp: 600,
+    });
 
-    const tool = createProcessRevealAnswersTool(
-      data,
-      fakeSdk(),
-      fixtureGetGames,
-      async () => [],
-      fakeSlackDeps(),
-    );
+    const tool = createComputeAnswersTool(data, fakeSdk(), fixtureGetGames, fakeSlackDeps());
 
     const res = parseToolResult(
       await tool.handler({ game: FIXTURE_GAME_NAME, reprocessQuestionIds: ["q1"] }, SESSION),
@@ -568,10 +507,15 @@ describe("process_reveal_answers — orchestrator", () => {
     assert.equal(res.reveals.length, 1);
     assert.equal(res.reveals[0].wasReprocessed, true);
 
-    // The prior answer was deleted (then nothing re-derived since there are no current stored
-    // clicks in this in-memory scenario beyond the deleted one). Verifies the destructive wipe.
-    const remaining = (await scoped.loadAnswers()).filter((a) => a.questionId === "q1");
-    assert.equal(remaining.length, 0);
+    // BOTH raw rows are RETAINED; every verdict is re-derived from the corrected key.
+    const rows = (await scoped.loadAnswers()).filter((a) => a.questionId === "q1");
+    assert.equal(rows.length, 2, "no row deleted");
+    const u1 = rows.find((r) => r.userId === "U1");
+    const u2 = rows.find((r) => r.userId === "U2");
+    assert.equal(u1?.answer, true, "U1 raw click preserved");
+    assert.equal(u1?.correct, true, "U1 verdict flipped UP (false → true)");
+    assert.equal(u2?.answer, false, "U2 raw click preserved");
+    assert.equal(u2?.correct, false, "U2 verdict flipped DOWN (true → false)");
   });
 
   it("treats undefined-batchId questions as singleton batches", async () => {
@@ -581,13 +525,7 @@ describe("process_reveal_answers — orchestrator", () => {
     await scoped.saveQuestion(makeQuestion({ id: "legacy1", postedAt: 1_000, statement: "L1" }));
     await scoped.saveQuestion(makeQuestion({ id: "legacy2", postedAt: 2_000, statement: "L2" }));
 
-    const tool = createProcessRevealAnswersTool(
-      data,
-      fakeSdk(),
-      fixtureGetGames,
-      async () => [],
-      fakeSlackDeps(),
-    );
+    const tool = createComputeAnswersTool(data, fakeSdk(), fixtureGetGames, fakeSlackDeps());
 
     const res = parseToolResult(
       await tool.handler({ game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined }, SESSION),
@@ -615,13 +553,7 @@ describe("process_reveal_answers — orchestrator", () => {
       timestamp: 150,
     });
 
-    const tool = createProcessRevealAnswersTool(
-      data,
-      fakeSdk(),
-      fixtureGetGames,
-      async () => [],
-      fakeSlackDeps(),
-    );
+    const tool = createComputeAnswersTool(data, fakeSdk(), fixtureGetGames, fakeSlackDeps());
 
     const res = parseToolResult(
       await tool.handler({ game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined }, SESSION),
@@ -635,11 +567,10 @@ describe("process_reveal_answers — orchestrator", () => {
   describe("instructions and additionalInstructions on the result", () => {
     it("omits both when no tier sets them", async () => {
       const data = createInMemoryDataLayer();
-      const tool = createProcessRevealAnswersTool(
+      const tool = createComputeAnswersTool(
         data,
         fakeSdk(),
         fixtureGetGames,
-        async () => [],
         fakeSlackDeps(),
         () => ({}),
       );
@@ -652,11 +583,10 @@ describe("process_reveal_answers — orchestrator", () => {
 
     it("surfaces workspace-tier instructions when set", async () => {
       const data = createInMemoryDataLayer();
-      const tool = createProcessRevealAnswersTool(
+      const tool = createComputeAnswersTool(
         data,
         fakeSdk(),
         fixtureGetGames,
-        async () => [],
         fakeSlackDeps(),
         () => ({ instructions: "Be funny." }),
       );
@@ -668,7 +598,7 @@ describe("process_reveal_answers — orchestrator", () => {
 
     it("concatenates additionalInstructions across workspace + game (game has it)", async () => {
       const data = createInMemoryDataLayer();
-      const tool = createProcessRevealAnswersTool(
+      const tool = createComputeAnswersTool(
         data,
         fakeSdk(),
         () => [
@@ -681,7 +611,6 @@ describe("process_reveal_answers — orchestrator", () => {
             additionalInstructions: "Be concise.",
           },
         ],
-        async () => [],
         fakeSlackDeps(),
         () => ({ additionalInstructions: "Avoid politics." }),
       );
@@ -708,19 +637,13 @@ describe("process_reveal_answers — orchestrator", () => {
         timestamp: 500,
       });
 
-      const tool = createProcessRevealAnswersTool(
-        data,
-        fakeSdk(),
-        fixtureGetGames,
-        async () => [],
-        {
-          isAvailable: () => null,
-          fetchBotUserId: async () => "UBOT",
-          fetchMessageReactions: async () => [],
-          fetchUserDisplayName: async (userId) => (userId === "U1" ? "NewName" : null),
-          updateMessage: async () => {},
-        },
-      );
+      const tool = createComputeAnswersTool(data, fakeSdk(), fixtureGetGames, {
+        isAvailable: () => null,
+        fetchBotUserId: async () => "UBOT",
+        fetchMessageReactions: async () => [],
+        fetchUserDisplayName: async (userId) => (userId === "U1" ? "NewName" : null),
+        updateMessage: async () => {},
+      });
 
       const res = parseToolResult(
         await tool.handler({ game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined }, SESSION),
@@ -734,7 +657,7 @@ describe("process_reveal_answers — orchestrator", () => {
   });
 });
 
-describe("process_reveal_answers — hint non-leak regression", () => {
+describe("compute_answers —hint non-leak regression", () => {
   it("does NOT surface hint.text, hint.mode, or hint.clickedBy in the reveal payload", async () => {
     const data = createInMemoryDataLayer();
     await data.saveCategories(["Science"]);
@@ -752,13 +675,7 @@ describe("process_reveal_answers — hint non-leak regression", () => {
       }),
     );
 
-    const tool = createProcessRevealAnswersTool(
-      data,
-      fakeSdk(),
-      fixtureGetGames,
-      async () => [],
-      fakeSlackDeps(),
-    );
+    const tool = createComputeAnswersTool(data, fakeSdk(), fixtureGetGames, fakeSlackDeps());
     const res = parseToolResult(
       await tool.handler({ game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined }, SESSION),
     );
@@ -793,13 +710,7 @@ describe("process_reveal_answers — hint non-leak regression", () => {
       }),
     );
 
-    const tool = createProcessRevealAnswersTool(
-      data,
-      fakeSdk(),
-      fixtureGetGames,
-      async () => [],
-      fakeSlackDeps(),
-    );
+    const tool = createComputeAnswersTool(data, fakeSdk(), fixtureGetGames, fakeSlackDeps());
     await tool.handler({ game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined }, SESSION);
 
     const post = (await scoped.loadQuestions()).find((q) => q.id === "q-with-hint");
@@ -853,8 +764,8 @@ function postedBooleanBlocks(questionId: string) {
   ];
 }
 
-describe("process_reveal_answers — static reveal card edit", () => {
-  it("edits each revealed question's card once", async () => {
+describe("compute_answers — does not edit cards (projection moved to update_answers_block)", () => {
+  it("never calls updateMessage during a successful reveal", async () => {
     const data = createInMemoryDataLayer();
     const scoped = data.forGame(FIXTURE_GAME_NAME);
     await scoped.saveQuestion(
@@ -869,119 +780,18 @@ describe("process_reveal_answers — static reveal card edit", () => {
     });
 
     const { deps, updates } = capturingSlackDeps();
-    const tool = createProcessRevealAnswersTool(
-      data,
-      fakeSdk(),
-      fixtureGetGames,
-      async () => [],
-      deps,
-    );
-    await tool.handler({ game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined }, SESSION);
-
-    assert.equal(updates.length, 1);
-    assert.equal(updates[0].channel, "C100000000");
-    assert.ok(!updates[0].blockIds.includes("vote-actions:q1"));
-    assert.ok(updates[0].blockIds.includes("reveal-results:q1"));
-    assert.ok(updates[0].blockIds.includes("reveal-see-answer-actions:q1"));
-  });
-
-  it("does not edit a question whose processing errored", async () => {
-    const data = createInMemoryDataLayer();
-    const scoped = data.forGame(FIXTURE_GAME_NAME);
-    // Choice question with an invalid correctIndex → processReveal returns an error.
-    await scoped.saveQuestion(
-      makeQuestion({
-        id: "q1",
-        answersFormat: "choice",
-        isTrue: undefined,
-        choices: ["A", "B"],
-        correctIndex: -1,
-        postedBlocks: postedBooleanBlocks("q1"),
-      }),
-    );
-
-    const { deps, updates } = capturingSlackDeps();
-    const tool = createProcessRevealAnswersTool(
-      data,
-      fakeSdk(),
-      fixtureGetGames,
-      async () => [],
-      deps,
-    );
+    const tool = createComputeAnswersTool(data, fakeSdk(), fixtureGetGames, deps);
     const res = parseToolResult(
       await tool.handler({ game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined }, SESSION),
     );
 
     assert.equal(updates.length, 0);
-    assert.ok(res.errors?.some((e: { questionId: string }) => e.questionId === "q1"));
-  });
-
-  it("returns the payload even when the card edit fails", async () => {
-    const data = createInMemoryDataLayer();
-    const scoped = data.forGame(FIXTURE_GAME_NAME);
-    await scoped.saveQuestion(
-      makeQuestion({ id: "q1", batchId: "B", postedBlocks: postedBooleanBlocks("q1") }),
-    );
-    await scoped.saveAnswer({
-      userId: "U1",
-      questionId: "q1",
-      answer: true,
-      correct: true,
-      timestamp: 1,
-    });
-
-    const { deps } = capturingSlackDeps({ throwOnUpdate: true });
-    const tool = createProcessRevealAnswersTool(
-      data,
-      fakeSdk(),
-      fixtureGetGames,
-      async () => [],
-      deps,
-    );
-    const res = parseToolResult(
-      await tool.handler({ game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined }, SESSION),
-    );
-
     assert.equal(res.reveals.length, 1);
-    assert.ok(Array.isArray(res.leaderboard));
-  });
-
-  it("repaints the card on reprocess", async () => {
-    const data = createInMemoryDataLayer();
-    const scoped = data.forGame(FIXTURE_GAME_NAME);
-    await scoped.saveQuestion(
-      makeQuestion({
-        id: "q1",
-        batchId: "B",
-        postedAt: 1000,
-        processedAt: 5000,
-        postedBlocks: postedBooleanBlocks("q1"),
-      }),
-    );
-    await scoped.saveAnswer({
-      userId: "U1",
-      questionId: "q1",
-      answer: true,
-      correct: true,
-      timestamp: 1,
-    });
-
-    const { deps, updates } = capturingSlackDeps();
-    const tool = createProcessRevealAnswersTool(
-      data,
-      fakeSdk(),
-      fixtureGetGames,
-      async () => [],
-      deps,
-    );
-    await tool.handler({ game: FIXTURE_GAME_NAME, reprocessQuestionIds: ["q1"] }, SESSION);
-
-    assert.equal(updates.length, 1);
-    assert.ok(updates[0].blockIds.includes("reveal-results:q1"));
+    assert.equal(res.batchId, "B");
   });
 });
 
-describe("process_reveal_answers — image-medium attribution", () => {
+describe("compute_answers —image-medium attribution", () => {
   const MEDIA = {
     kind: "image" as const,
     url: "https://upload.wikimedia.org/secret-path/thumb.jpg",
@@ -1004,13 +814,7 @@ describe("process_reveal_answers — image-medium attribution", () => {
         media: MEDIA,
       }),
     );
-    const tool = createProcessRevealAnswersTool(
-      data,
-      fakeSdk(),
-      fixtureGetGames,
-      async () => [],
-      fakeSlackDeps(),
-    );
+    const tool = createComputeAnswersTool(data, fakeSdk(), fixtureGetGames, fakeSlackDeps());
     const res = parseToolResult(
       await tool.handler({ game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined }, SESSION),
     );
@@ -1025,13 +829,7 @@ describe("process_reveal_answers — image-medium attribution", () => {
     const data = createInMemoryDataLayer();
     const scoped = data.forGame(FIXTURE_GAME_NAME);
     await scoped.saveQuestion(makeQuestion({ id: "txt", batchId: "B", postedAt: 1_000 }));
-    const tool = createProcessRevealAnswersTool(
-      data,
-      fakeSdk(),
-      fixtureGetGames,
-      async () => [],
-      fakeSlackDeps(),
-    );
+    const tool = createComputeAnswersTool(data, fakeSdk(), fixtureGetGames, fakeSlackDeps());
     const res = parseToolResult(
       await tool.handler({ game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined }, SESSION),
     );
@@ -1050,13 +848,7 @@ describe("process_reveal_answers — image-medium attribution", () => {
         media: MEDIA,
       }),
     );
-    const tool = createProcessRevealAnswersTool(
-      data,
-      fakeSdk(),
-      fixtureGetGames,
-      async () => [],
-      fakeSlackDeps(),
-    );
+    const tool = createComputeAnswersTool(data, fakeSdk(), fixtureGetGames, fakeSlackDeps());
     const raw = JSON.stringify(
       parseToolResult(
         await tool.handler({ game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined }, SESSION),

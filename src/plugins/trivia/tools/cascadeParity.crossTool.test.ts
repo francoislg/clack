@@ -4,10 +4,7 @@ import { createInMemoryDataLayer } from "../testHelpers.js";
 import { createGetIdeasTool } from "./questions/getIdeas.js";
 import { createSaveQuestionTool } from "./questions/saveQuestion.js";
 import { createExplainCascadeTool } from "./games/explainCascade.js";
-import {
-  createProcessRevealAnswersTool,
-  type RevealSlackDeps,
-} from "./reveal/processRevealAnswers.js";
+import { createComputeAnswersTool, type RevealSlackDeps } from "./reveal/computeAnswers.js";
 import { parseToolResult } from "../../../tools/testHelpers.js";
 import type { ClackSdk } from "../../sdk.js";
 import type { TriviaConfig, TriviaGame } from "../core/configTypes.js";
@@ -198,14 +195,7 @@ describe("cascade parity — explain_cascade ≡ get_ideas ≡ save_question (ga
       timestamp: 500,
     });
 
-    const reveal = createProcessRevealAnswersTool(
-      data,
-      fakeSdk(),
-      getGames,
-      async () => [],
-      fakeSlackDeps(),
-      getConfig,
-    );
+    const reveal = createComputeAnswersTool(data, fakeSdk(), getGames, fakeSlackDeps(), getConfig);
     const res = parseToolResult(
       await reveal.handler({ game: "parity", reprocessQuestionIds: undefined }, SESSION),
     );
