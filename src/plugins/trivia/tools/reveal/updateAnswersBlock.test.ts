@@ -1,5 +1,6 @@
 import { describe, it } from "vitest";
 import assert from "node:assert/strict";
+import type { KnownBlock } from "@slack/types";
 import { createUpdateAnswersBlockTool } from "./updateAnswersBlock.js";
 import type { RevealSlackDeps } from "./computeAnswers.js";
 import { createInMemoryDataLayer, FIXTURE_GAME_NAME, fixtureGetGames } from "../../testHelpers.js";
@@ -43,6 +44,7 @@ interface UpdateCall {
   channel: string;
   ts: string;
   blockIds: string[];
+  blocks: KnownBlock[];
 }
 
 function capturingSlackDeps(opts: { throwOnUpdate?: boolean } = {}): {
@@ -57,7 +59,7 @@ function capturingSlackDeps(opts: { throwOnUpdate?: boolean } = {}): {
     fetchUserDisplayName: async () => null,
     updateMessage: async (channel, ts, blocks) => {
       if (opts.throwOnUpdate) throw new Error("rate limited");
-      updates.push({ channel, ts, blockIds: blocks.map((b) => b.block_id ?? "") });
+      updates.push({ channel, ts, blockIds: blocks.map((b) => b.block_id ?? ""), blocks });
     },
   };
   return { deps, updates };
@@ -112,7 +114,7 @@ describe("update_answers_block — deterministic card projection", () => {
     assert.equal(updates[0].channel, "C100000000");
     assert.ok(!updates[0].blockIds.includes("vote-actions:q1"));
     assert.ok(updates[0].blockIds.includes("reveal-results:q1"));
-    assert.ok(updates[0].blockIds.includes("reveal-see-answer-actions:q1"));
+    assert.ok(updates[0].blockIds.includes("reveal-post-game-actions:q1"));
     assert.deepEqual(res.edited, ["q1"]);
   });
 
@@ -285,10 +287,10 @@ describe("update_answers_block — deterministic card projection", () => {
     const ids = updates[0].blockIds;
     const footer = ids.indexOf("reveal-results:q1");
     const narrative = ids.indexOf("narrative:q1");
-    const seeAnswer = ids.indexOf("reveal-see-answer-actions:q1");
-    assert.ok(footer >= 0 && narrative >= 0 && seeAnswer >= 0);
+    const postGame = ids.indexOf("reveal-post-game-actions:q1");
+    assert.ok(footer >= 0 && narrative >= 0 && postGame >= 0);
     assert.ok(footer < narrative, "footer before narrative");
-    assert.ok(narrative < seeAnswer, "narrative before See-your-answer");
+    assert.ok(narrative < postGame, "narrative before post-game buttons");
   });
 
   it("is facts-only when the record has no revealBlocks", async () => {
@@ -359,14 +361,20 @@ describe("update_answers_block — deterministic card projection", () => {
     const ids = updates[0].blockIds;
     const footer = ids.indexOf("reveal-results:q1");
     const narrative = ids.indexOf("narrative:q1");
-    const seeAnswer = ids.indexOf("reveal-see-answer-actions:q1");
-    const tellMore = ids.indexOf("reveal-tell-me-more-actions:q1");
+    const postGame = ids.indexOf("reveal-post-game-actions:q1");
     assert.ok(
-      [footer, narrative, seeAnswer, tellMore].every((i) => i >= 0),
+      [footer, narrative, postGame].every((i) => i >= 0),
       "all blocks present",
     );
     assert.ok(footer < narrative, "footer before narrative");
-    assert.ok(narrative < seeAnswer, "narrative before see-answer");
-    assert.ok(seeAnswer < tellMore, "see-answer before tell-me-more");
+    assert.ok(narrative < postGame, "narrative before post-game buttons");
+
+    // see-answer and tell-me-more share the post-game row; order is element order.
+    const group = updates[0].blocks.find((b) => b.block_id === "reveal-post-game-actions:q1");
+    assert.ok(group?.type === "actions");
+    assert.deepEqual(
+      group.elements.map((el) => (el.type === "button" ? el.action_id : null)),
+      ["plugin:trivia:reveal-see-answer:q1", "plugin:trivia:tell-me-more:q1"],
+    );
   });
 });

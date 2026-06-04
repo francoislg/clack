@@ -96,12 +96,12 @@ describe("editRevealIntoCard", () => {
     assert.ok(ids.includes("card:Q1"));
     // Vote buttons removed.
     assert.ok(!ids.includes("vote-actions:Q1"));
-    // Results footer + see-answer button appended.
+    // Results footer + post-game button row appended.
     assert.ok(ids.includes("reveal-results-divider:Q1"));
     assert.ok(ids.includes("reveal-results:Q1"));
-    assert.ok(ids.includes("reveal-see-answer-actions:Q1"));
+    assert.ok(ids.includes("reveal-post-game-actions:Q1"));
 
-    const button = captured.blocks.find((b) => b.block_id === "reveal-see-answer-actions:Q1");
+    const button = captured.blocks.find((b) => b.block_id === "reveal-post-game-actions:Q1");
     assert.ok(button !== undefined && button.type === "actions");
     assert.equal(button.elements.length, 1);
     const el = button.elements[0];
@@ -187,15 +187,12 @@ describe("editRevealIntoCard", () => {
     });
 
     assert.ok(captured !== undefined);
-    const ids = blockIds(captured.blocks);
-    assert.ok(ids.includes("reveal-see-answer-actions:Q1"));
-    assert.ok(ids.includes("reveal-tell-me-more-actions:Q1"));
-
-    const block = captured.blocks.find((b) => b.block_id === "reveal-tell-me-more-actions:Q1");
+    const block = captured.blocks.find((b) => b.block_id === "reveal-post-game-actions:Q1");
     assert.ok(block !== undefined && block.type === "actions");
-    const el = block.elements[0];
-    assert.ok(el.type === "button");
-    assert.equal(el.action_id, "plugin:trivia:tell-me-more:Q1");
+    assert.deepEqual(
+      block.elements.map((el) => (el.type === "button" ? el.action_id : null)),
+      ["plugin:trivia:reveal-see-answer:Q1", "plugin:trivia:tell-me-more:Q1"],
+    );
   });
 
   it("omits the Tell me more button when tellMeMore is disabled", async () => {
@@ -212,7 +209,12 @@ describe("editRevealIntoCard", () => {
     });
 
     assert.ok(captured !== undefined);
-    assert.ok(!blockIds(captured.blocks).includes("reveal-tell-me-more-actions:Q1"));
+    const block = captured.blocks.find((b) => b.block_id === "reveal-post-game-actions:Q1");
+    assert.ok(block !== undefined && block.type === "actions");
+    assert.deepEqual(
+      block.elements.map((el) => (el.type === "button" ? el.action_id : null)),
+      ["plugin:trivia:reveal-see-answer:Q1"],
+    );
   });
 
   it("swallows an updateMessage failure (non-fatal)", async () => {
