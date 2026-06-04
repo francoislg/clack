@@ -18,6 +18,7 @@ interface MockMessage {
   user?: string;
   bot_id?: string;
   reply_count?: number;
+  latest_reply?: string;
   blocks?: object[];
   attachments?: object[];
   files?: object[];
@@ -74,6 +75,8 @@ function makeDeps(overrides: Partial<FetchChannelMessagesDeps> = {}): FetchChann
       id: "C123",
       name: "general",
     })) as FetchChannelMessagesDeps["getChannelInfo"],
+    slackLink: async (_client, channelId, ts) =>
+      ` https://test.slack.com/archives/${channelId}/p${(ts ?? "").replace(".", "")}`,
     ...overrides,
   };
 }
@@ -242,6 +245,35 @@ describe("fetchChannelMessages tool", () => {
     assert.equal(parsed.messages[0].text, "First message");
     assert.equal(parsed.messages[1].user, "Bob");
     assert.equal(parsed.messages[1].text, "Second message");
+    // Each message carries a human-readable UTC form of its ts.
+    assert.equal(parsed.messages[0].at_iso, new Date(1234567890.000001 * 1000).toISOString());
+  });
+
+  it("includes a fetched_at reference clock with epoch and ISO forms", async () => {
+    const messages: MockMessage[] = [{ ts: "1.0", text: "hi", user: "U1" }];
+    const client = makeSlackClient({ messages, has_more: false });
+    const ctx = makeCtx({ slackClient: client });
+    const toolDef = createFetchChannelMessagesTool(ctx, makeDeps());
+
+    const result = await toolDef.handler(
+      {
+        channel_id: "C123",
+        limit: undefined,
+        oldest: undefined,
+        latest: undefined,
+        include_threads: undefined,
+      },
+      { sessionId: "test" },
+    );
+
+    const parsed = parseToolResult(result);
+    assert.ok(/^\d+\.\d{6}$/.test(parsed.fetched_at.epoch));
+    assert.ok(/^\d{4}-\d{2}-\d{2}T.*Z$/.test(parsed.fetched_at.iso));
+    // epoch and iso describe the same instant.
+    assert.equal(
+      new Date(parseFloat(parsed.fetched_at.epoch) * 1000).toISOString(),
+      parsed.fetched_at.iso,
+    );
   });
 
   it("caps limit at 100", async () => {
@@ -660,25 +692,17 @@ describe("fetchChannelMessages tool", () => {
     assert.equal(parsed.messages[0].reply_count, 3);
   });
 
-  it("fetches thread replies when include_threads is true", async () => {
-    const userInfoMap = new Map([
-      ["U1", { userId: "U1", displayName: "Alice" }],
-      ["U2", { userId: "U2", displayName: "Bob" }],
-    ]);
-    const deps = makeDeps({
-      resolveUsers: vi.fn(async () => userInfoMap) as FetchChannelMessagesDeps["resolveUsers"],
-    });
-
-    const messages: MockMessage[] = [{ ts: "1.0", text: "parent msg", user: "U1", reply_count: 1 }];
+  it("returns only the single newest reply as last_reply when include_threads is true", async () => {
+    const messages: MockMessage[] = [
+      { ts: "1.0", text: "parent msg", user: "U1", reply_count: 4, latest_reply: "1.4" },
+    ];
+    // The tool pins latest=latest_reply and limit=1, so the mock returns just the newest reply.
     const threadReplies: MockRepliesResult = {
-      messages: [
-        { ts: "1.0", text: "parent msg", user: "U1" },
-        { ts: "1.1", text: "reply text", user: "U2" },
-      ],
+      messages: [{ ts: "1.4", text: "newest reply", user: "U2" }],
     };
     const client = makeSlackClient({ messages, has_more: false }, threadReplies);
     const ctx = makeCtx({ slackClient: client });
-    const toolDef = createFetchChannelMessagesTool(ctx, deps);
+    const toolDef = createFetchChannelMessagesTool(ctx, makeDeps());
 
     const result = await toolDef.handler(
       {
@@ -692,23 +716,22 @@ describe("fetchChannelMessages tool", () => {
     );
 
     const parsed = parseToolResult(result);
-    assert.equal(parsed.messages[0].reply_count, 1);
-    assert.ok(parsed.messages[0].thread_replies);
-    assert.equal(parsed.messages[0].thread_replies.length, 1);
-    assert.equal(parsed.messages[0].thread_replies[0].text, "reply text");
+    assert.equal(parsed.messages[0].reply_count, 4);
+    assert.equal(parsed.messages[0].last_reply.text, "newest reply");
+    assert.equal(parsed.messages[0].last_reply.ts, "1.4");
+    assert.equal(parsed.messages[0].last_reply.at_iso, new Date(1.4 * 1000).toISOString());
+    assert.equal(parsed.messages[0].last_reply.is_bot, false);
+    // url is the dig handle for reading the full thread.
+    assert.equal(parsed.messages[0].url, "https://test.slack.com/archives/C123/p10");
   });
 
-  it("does not fetch thread replies when include_threads is false", async () => {
-    const deps = makeDeps({
-      resolveUsers: vi.fn(
-        async () => new Map([["U1", { userId: "U1", displayName: "Alice" }]]),
-      ) as FetchChannelMessagesDeps["resolveUsers"],
-    });
-
-    const messages: MockMessage[] = [{ ts: "1.0", text: "parent msg", user: "U1", reply_count: 5 }];
+  it("does not include last_reply when include_threads is false, but keeps reply_count and url", async () => {
+    const messages: MockMessage[] = [
+      { ts: "1.0", text: "parent msg", user: "U1", reply_count: 5, latest_reply: "1.5" },
+    ];
     const client = makeSlackClient({ messages, has_more: false });
     const ctx = makeCtx({ slackClient: client });
-    const toolDef = createFetchChannelMessagesTool(ctx, deps);
+    const toolDef = createFetchChannelMessagesTool(ctx, makeDeps());
 
     const result = await toolDef.handler(
       {
@@ -723,17 +746,14 @@ describe("fetchChannelMessages tool", () => {
 
     const parsed = parseToolResult(result);
     assert.equal(parsed.messages[0].reply_count, 5);
-    assert.equal(parsed.messages[0].thread_replies, undefined);
+    assert.equal("last_reply" in parsed.messages[0], false);
+    assert.equal(parsed.messages[0].url, "https://test.slack.com/archives/C123/p10");
   });
 
-  it("handles thread fetch error gracefully", async () => {
-    const deps = makeDeps({
-      resolveUsers: vi.fn(
-        async () => new Map([["U1", { userId: "U1", displayName: "Alice" }]]),
-      ) as FetchChannelMessagesDeps["resolveUsers"],
-    });
-
-    const messages: MockMessage[] = [{ ts: "1.0", text: "parent msg", user: "U1", reply_count: 2 }];
+  it("reports thread_error when the latest-reply fetch fails", async () => {
+    const messages: MockMessage[] = [
+      { ts: "1.0", text: "parent msg", user: "U1", reply_count: 2, latest_reply: "1.2" },
+    ];
     const client: MockSlackClient = {
       conversations: {
         history: vi.fn(async () => ({ messages, has_more: false })),
@@ -743,7 +763,7 @@ describe("fetchChannelMessages tool", () => {
       },
     };
     const ctx = makeCtx({ slackClient: client });
-    const toolDef = createFetchChannelMessagesTool(ctx, deps);
+    const toolDef = createFetchChannelMessagesTool(ctx, makeDeps());
 
     const result = await toolDef.handler(
       {
@@ -757,7 +777,7 @@ describe("fetchChannelMessages tool", () => {
     );
 
     const parsed = parseToolResult(result);
-    assert.equal(parsed.messages[0].thread_error, "Failed to fetch thread replies");
+    assert.equal(parsed.messages[0].thread_error, "Failed to fetch latest reply");
   });
 
   it("falls back to [attachment] when message has no text", async () => {
@@ -897,6 +917,67 @@ describe("fetchChannelMessages tool", () => {
     assert.equal(parsed.messages[0].reactions.length, 1);
     assert.equal(parsed.messages[0].reactions[0].emoji, "thumbsup");
     assert.deepEqual(parsed.messages[0].reactions[0].users, ["Bob (U2)", "Charlie (U3)"]);
+  });
+
+  it("truncates long message text", async () => {
+    const longText = "x".repeat(700);
+    const messages: MockMessage[] = [{ ts: "1.0", text: longText, user: "U1" }];
+    const client = makeSlackClient({ messages, has_more: false });
+    const ctx = makeCtx({ slackClient: client });
+    const toolDef = createFetchChannelMessagesTool(ctx, makeDeps());
+
+    const result = await toolDef.handler(
+      {
+        channel_id: "C123",
+        limit: undefined,
+        oldest: undefined,
+        latest: undefined,
+        include_threads: undefined,
+      },
+      { sessionId: "test" },
+    );
+
+    const parsed = parseToolResult(result);
+    assert.ok(parsed.messages[0].text.startsWith("x".repeat(600)));
+    // Body was cut to 600 chars (no 601-run survives) and points the model at the dig tool.
+    assert.ok(!parsed.messages[0].text.includes("x".repeat(601)));
+    assert.ok(parsed.messages[0].text.includes("fetch_slack_message"));
+  });
+
+  it("omits raw blocks and attachments from output", async () => {
+    const buildWithBlocks: FetchChannelMessagesDeps["buildThreadMessage"] = (msg) => {
+      if (!msg.ts) return null;
+      return {
+        text: msg.text ?? "",
+        userId: msg.user ?? "",
+        isBot: false,
+        ts: msg.ts,
+        blocks: [{ type: "section" }],
+        attachments: [{ text: "legacy" }],
+      };
+    };
+    const deps = makeDeps({ buildThreadMessage: buildWithBlocks });
+
+    const messages: MockMessage[] = [{ ts: "1.0", text: "hi", user: "U1" }];
+    const client = makeSlackClient({ messages, has_more: false });
+    const ctx = makeCtx({ slackClient: client });
+    const toolDef = createFetchChannelMessagesTool(ctx, deps);
+
+    const result = await toolDef.handler(
+      {
+        channel_id: "C123",
+        limit: undefined,
+        oldest: undefined,
+        latest: undefined,
+        include_threads: undefined,
+      },
+      { sessionId: "test" },
+    );
+
+    const parsed = parseToolResult(result);
+    assert.equal("blocks" in parsed.messages[0], false);
+    assert.equal("attachments" in parsed.messages[0], false);
+    assert.equal(parsed.messages[0].text, "hi");
   });
 
   it("omits reactions key when message has no reactions", async () => {

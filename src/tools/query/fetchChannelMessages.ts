@@ -13,22 +13,47 @@ import {
 import type { SlackFile } from "../../slack/slackFileBase.js";
 import { resolveUsers, transformUserMentions } from "../../slack/userCache.js";
 import { getChannelInfo } from "../../slack/channelCache.js";
+import { slackLink } from "../../slack/logContext.js";
 import { errorMessage } from "../../errors.js";
 
 type SlackClient = NonNullable<QueryToolContext["slackClient"]>;
 type UserInfoMap = Awaited<ReturnType<typeof resolveUsers>>;
 
-interface ReplyEntry {
+interface LastReply {
   user: string;
   text: string;
   ts: string | undefined;
+  at_iso?: string; // human-readable form of `ts` (UTC), so the model can reason about time
   is_bot: boolean;
 }
 
 interface MessageEntry extends ToolMessageEntry {
-  reply_count?: number;
-  thread_replies?: ReplyEntry[];
+  at_iso?: string; // human-readable form of `ts` (UTC)
+  reply_count?: number; // total replies in the thread
+  last_reply?: LastReply; // only the single most-recent reply (read the full thread via fetch_slack_message)
+  url?: string; // permalink to pass to fetch_slack_message to read the whole thread
   thread_error?: string;
+}
+
+// A full fetch of a busy channel (Block Kit JSON per message × every thread reply in full)
+// can balloon past the model's tool-result limit, after which the SDK spills it to a file
+// the model also can't read — so the caller effectively sees nothing. We keep the result
+// small: raw blocks are dropped, long text is truncated, and threads are summarized to their
+// reply count + single newest reply. To read a whole thread, the model uses `fetch_slack_message`.
+const MAX_TEXT_CHARS = 600;
+
+function truncateText(text: string): string {
+  if (text.length <= MAX_TEXT_CHARS) return text;
+  return `${text.slice(0, MAX_TEXT_CHARS)}… [truncated from ${text.length} chars — read the full message via fetch_slack_message using this message's url]`;
+}
+
+// Slack `ts` values are epoch "seconds.micros" strings; surface a human-readable UTC form
+// alongside so the model can compare against `fetched_at` for recency without guessing "now".
+function epochToIso(ts: string | undefined): string | undefined {
+  if (!ts) return undefined;
+  const seconds = parseFloat(ts);
+  if (Number.isNaN(seconds)) return undefined;
+  return new Date(seconds * 1000).toISOString();
 }
 
 export interface FetchChannelMessagesDeps {
@@ -36,6 +61,7 @@ export interface FetchChannelMessagesDeps {
   resolveUsers: typeof resolveUsers;
   transformUserMentions: typeof transformUserMentions;
   getChannelInfo: typeof getChannelInfo;
+  slackLink: typeof slackLink;
 }
 
 function normalizeSlackTimestamp(input: string): string | { error: string } {
@@ -56,6 +82,7 @@ export const defaultFetchChannelMessagesDeps: FetchChannelMessagesDeps = {
   resolveUsers,
   transformUserMentions,
   getChannelInfo,
+  slackLink,
 };
 
 async function resolveReplyUserName(
@@ -72,37 +99,45 @@ async function resolveReplyUserName(
   return extra?.displayName ?? extra?.username ?? replyUserId;
 }
 
-async function fetchThreadReplies(
+async function fetchLastReply(
   deps: FetchChannelMessagesDeps,
   client: SlackClient,
   channelId: string,
   parentTs: string,
+  latestReplyTs: string,
   userInfoMap: UserInfoMap,
-): Promise<{ replies: ReplyEntry[] } | { error: string }> {
+): Promise<{ last: LastReply } | { error: string }> {
   try {
+    // Pin to the newest reply's ts (from the history payload) and ask for just that one
+    // message — one tiny call, no full-thread download. The full thread is read on demand
+    // by the caller via fetch_slack_message.
     const threadResult = await client.conversations.replies({
       channel: channelId,
       ts: parentTs,
-      limit: 50,
+      latest: latestReplyTs,
+      inclusive: true,
+      limit: 1,
     });
 
-    if (!threadResult.messages || threadResult.messages.length <= 1) {
-      return { replies: [] };
+    const reply = threadResult.messages?.find((m) => m.ts !== parentTs);
+    if (!reply) {
+      return { error: "Failed to fetch latest reply" };
     }
 
-    const replies: ReplyEntry[] = [];
-    for (const reply of threadResult.messages.slice(1)) {
-      const replyUserId = reply.user || reply.bot_id;
-      replies.push({
+    const replyUserId = reply.user || reply.bot_id;
+    return {
+      last: {
         user: await resolveReplyUserName(deps, client, replyUserId, userInfoMap),
-        text: await deps.transformUserMentions(client, extractMessageText(reply) || "[attachment]"),
+        text: truncateText(
+          await deps.transformUserMentions(client, extractMessageText(reply) || "[attachment]"),
+        ),
         ts: reply.ts,
+        at_iso: epochToIso(reply.ts),
         is_bot: reply.bot_id !== undefined,
-      });
-    }
-    return { replies };
+      },
+    };
   } catch {
-    return { error: "Failed to fetch thread replies" };
+    return { error: "Failed to fetch latest reply" };
   }
 }
 
@@ -132,7 +167,7 @@ async function formatMessage(
   }
 
   // Transform <@USERID> mentions in message text
-  threadMsg.text = await deps.transformUserMentions(client, threadMsg.text);
+  threadMsg.text = truncateText(await deps.transformUserMentions(client, threadMsg.text));
 
   // Register images and files in context maps
   if (threadMsg.imageFiles) {
@@ -142,17 +177,39 @@ async function formatMessage(
     for (const f of threadMsg.files) availableFiles?.set(f.id, f);
   }
 
-  const entry: MessageEntry = { ...threadMessageToToolOutput(threadMsg) };
+  // Raw Block Kit / attachment JSON is the single biggest contributor to output bloat
+  // (a trivia post alone can be many KB) and is redundant with `text` for reading a channel.
+  // Clear them at the source so the tool output never carries them.
+  threadMsg.blocks = undefined;
+  threadMsg.attachments = undefined;
 
-  if (msg.reply_count && msg.reply_count > 0) {
+  const entry: MessageEntry = { ...threadMessageToToolOutput(threadMsg) };
+  entry.at_iso = epochToIso(entry.ts);
+
+  // Permalink on every message: the dig handle for fetch_slack_message, whether the model
+  // wants a full thread or the full text of a message whose `text` was truncated above.
+  if (msg.ts) {
+    entry.url = (await deps.slackLink(client, channelId, msg.ts)).trim();
+  }
+
+  if (msg.reply_count && msg.reply_count > 0 && msg.ts) {
     entry.reply_count = msg.reply_count;
 
-    if (includeThreads && msg.ts) {
-      const result = await fetchThreadReplies(deps, client, channelId, msg.ts, userInfoMap);
+    // Surface only the single newest reply (the freshness/human-leaf signal). The full
+    // thread is read on demand, not dumped here.
+    if (includeThreads && msg.latest_reply) {
+      const result = await fetchLastReply(
+        deps,
+        client,
+        channelId,
+        msg.ts,
+        msg.latest_reply,
+        userInfoMap,
+      );
       if ("error" in result) {
         entry.thread_error = result.error;
-      } else if (result.replies.length > 0) {
-        entry.thread_replies = result.replies;
+      } else {
+        entry.last_reply = result.last;
       }
     }
   }
@@ -166,7 +223,7 @@ export function createFetchChannelMessagesTool(
 ) {
   return tool(
     "fetch_channel_messages",
-    "Fetch recent messages from a Slack channel. Use this when you need to read what's being discussed in a channel — for example, when a user in an assistant thread asks about messages in the channel they're viewing.",
+    "Fetch recent top-level messages from a Slack channel. Use this to read what's being discussed — e.g. when a user in an assistant thread asks about the channel they're viewing. This returns an OVERVIEW, not full content: every message carries a `url` (permalink) plus `ts` (Slack epoch) and `at_iso` (human-readable UTC time); threaded messages also carry `reply_count` (total replies) and `last_reply` (only the single newest reply — itself with `ts`/`at_iso`/`is_bot` — the freshness signal); long message text is truncated. The top-level `fetched_at` gives the current time so you can judge recency. To read a full thread OR the full text of a truncated message, pass that message's `url` to `fetch_slack_message`.",
     {
       channel_id: z.string().describe("Slack channel ID (e.g. C0123456789)"),
       limit: z.number().optional().describe("Number of messages to fetch (default: 20, max: 100)"),
@@ -186,7 +243,7 @@ export function createFetchChannelMessagesTool(
         .boolean()
         .optional()
         .describe(
-          "Whether to fetch thread replies for each message (default: false). Slower but gives full context.",
+          "Whether to include each thread's single newest reply as `last_reply` (default: false). `reply_count` and `url` are always present on threaded messages regardless; read a full thread with fetch_slack_message.",
         ),
     },
     async (args) => {
@@ -273,9 +330,13 @@ export function createFetchChannelMessagesTool(
           if (entry) messages.push(entry);
         }
 
+        // Reference clock so the model can judge recency ("within the last 2 hours")
+        // against an explicit now rather than guessing from the freshest message.
+        const now = new Date();
         return textResult({
           channel: args.channel_id,
           ...(channelInfo && { channel_name: channelInfo.name }),
+          fetched_at: { epoch: (now.getTime() / 1000).toFixed(6), iso: now.toISOString() },
           message_count: messages.length,
           has_more: result.has_more ?? false,
           ...windowEcho,
