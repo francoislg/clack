@@ -9,7 +9,6 @@ import {
   type GetTriviaConfigFn,
 } from "../../core/configBridge.js";
 import { requireWritableGame } from "../../core/gamesRegistry.js";
-import { resolveTellMeMore } from "../../domain/tellMeMore.js";
 import { getAnswerTypeHandler } from "../../answerTypes/registry.js";
 import { editRevealIntoCard } from "../../revealCards/editCard.js";
 import type { ClackSdk } from "../../../sdk.js";
@@ -69,10 +68,8 @@ export function createUpdateAnswersBlockTool(
       const botUserId = await resolveBotUserId(slackDeps, "update_answers_block");
 
       const users = await data.loadUsers();
-      const tellMeMore = resolveTellMeMore(
-        getGamesFn().find((g) => g.name === args.game) ?? null,
-        getTriviaConfigFn(),
-      ).enabled;
+      const game = getGamesFn().find((g) => g.name === args.game) ?? null;
+      const config = getTriviaConfigFn();
 
       const projectDeps = {
         scoped,
@@ -99,7 +96,8 @@ export function createUpdateAnswersBlockTool(
             question,
             entry: outcome.entry,
             actionId: sdk.actionId,
-            tellMeMore,
+            game,
+            config,
           });
           edited.push(question.id);
         } catch (err) {

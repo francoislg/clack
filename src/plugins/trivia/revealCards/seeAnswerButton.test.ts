@@ -1,47 +1,62 @@
 import { describe, it } from "vitest";
 import assert from "node:assert/strict";
 import type { ModalView, ViewsOpenResponse } from "@slack/web-api";
-import { extractQuestionIdFromActionId, installSeeAnswerHandler } from "./seeAnswerHandler.js";
+import { installPostGameButtons } from "./postGameButtons.js";
+import { seeAnswerButton } from "./seeAnswerButton.js";
 import { createInMemoryDataLayer, FIXTURE_GAME_NAME } from "../testHelpers.js";
 import type { PluginActionHandler } from "../../sdk.js";
 import type { TriviaQuestion } from "../core/types.js";
-
-interface CapturedRegistration {
-  pattern: string | RegExp;
-  handler: PluginActionHandler;
-}
 
 interface OpenCall {
   trigger_id: string;
   view: ModalView;
 }
 
-function fakeSdk(opens: OpenCall[]) {
-  const registrations: CapturedRegistration[] = [];
+interface FakeSdk {
+  registrations: Array<{ pattern: string | RegExp; handler: PluginActionHandler }>;
+  opens: OpenCall[];
+  registerAction: (p: string | RegExp, h: PluginActionHandler) => void;
+  getSlackClient: () => {
+    views: { open: (a: OpenCall) => Promise<ViewsOpenResponse> };
+    chat: { update: () => Promise<{ ok?: boolean }> };
+  };
+  sendMessage: () => Promise<{ ok: true; ts: string; channel: string }>;
+  startThreadConversation: () => Promise<void>;
+}
+
+function fakeSdk(): FakeSdk {
+  const registrations: FakeSdk["registrations"] = [];
+  const opens: OpenCall[] = [];
   return {
     registrations,
-    registerAction(pattern: string | RegExp, handler: PluginActionHandler) {
+    opens,
+    registerAction(pattern, handler) {
       registrations.push({ pattern, handler });
     },
     getSlackClient() {
       return {
         views: {
-          open: async (args: OpenCall): Promise<ViewsOpenResponse> => {
-            opens.push(args);
+          open: async (a: OpenCall) => {
+            opens.push(a);
             return { ok: true };
           },
         },
+        chat: { update: async () => ({ ok: true }) },
       };
     },
+    async sendMessage() {
+      return { ok: true as const, ts: "9.9", channel: "C1" };
+    },
+    async startThreadConversation() {},
   };
 }
 
-interface MinimalActionArgs {
+interface ActionArgs {
   ack: () => Promise<void>;
   body: { user: { id: string }; trigger_id: string };
   action: { action_id: string };
 }
-type MinimalActionHandler = (args: MinimalActionArgs) => Promise<void> | void;
+type Handler = (args: ActionArgs) => Promise<void> | void;
 
 function makeQuestion(overrides: Partial<TriviaQuestion> = {}): TriviaQuestion {
   return {
@@ -61,32 +76,24 @@ function makeQuestion(overrides: Partial<TriviaQuestion> = {}): TriviaQuestion {
   };
 }
 
-describe("extractQuestionIdFromActionId", () => {
-  it("parses the questionId from a scoped see-answer action_id", () => {
-    assert.equal(extractQuestionIdFromActionId("plugin:trivia:reveal-see-answer:Q1"), "Q1");
+function install(sdk: FakeSdk, data: ReturnType<typeof createInMemoryDataLayer>): Handler {
+  installPostGameButtons(sdk, [seeAnswerButton], {
+    data,
+    getGameNames: () => [FIXTURE_GAME_NAME],
   });
-  it("rejects foreign or malformed action_ids", () => {
-    assert.equal(extractQuestionIdFromActionId("plugin:trivia:vote:Q1:true"), null);
-    assert.equal(extractQuestionIdFromActionId("plugin:trivia:reveal-see-answer:"), null);
-    assert.equal(extractQuestionIdFromActionId("plugin:trivia:reveal-see-answer:Q1:x"), null);
-  });
-});
+  return sdk.registrations[0].handler as Handler;
+}
 
-describe("installSeeAnswerHandler", () => {
+describe("seeAnswerButton", () => {
   it("registers exactly one regex action handler", () => {
-    const opens: OpenCall[] = [];
-    const sdk = fakeSdk(opens);
-    installSeeAnswerHandler(sdk, {
-      data: createInMemoryDataLayer(),
-      getGameNames: () => [FIXTURE_GAME_NAME],
-    });
+    const sdk = fakeSdk();
+    install(sdk, createInMemoryDataLayer());
     assert.equal(sdk.registrations.length, 1);
     assert.ok(sdk.registrations[0].pattern instanceof RegExp);
   });
 
   it("opens a modal with the clicking user's answer and writes nothing", async () => {
-    const opens: OpenCall[] = [];
-    const sdk = fakeSdk(opens);
+    const sdk = fakeSdk();
     const data = createInMemoryDataLayer();
     const scoped = data.forGame(FIXTURE_GAME_NAME);
     await scoped.saveQuestion(makeQuestion());
@@ -97,9 +104,7 @@ describe("installSeeAnswerHandler", () => {
       correct: false,
       timestamp: 1,
     });
-
-    installSeeAnswerHandler(sdk, { data, getGameNames: () => [FIXTURE_GAME_NAME] });
-    const handler = sdk.registrations[0].handler as MinimalActionHandler;
+    const handler = install(sdk, data);
 
     const answersBefore = await scoped.loadAnswers();
     await handler({
@@ -108,25 +113,21 @@ describe("installSeeAnswerHandler", () => {
       action: { action_id: "plugin:trivia:reveal-see-answer:Q1" },
     });
 
-    assert.equal(opens.length, 1);
-    assert.equal(opens[0].trigger_id, "T1");
-    const block = opens[0].view.blocks[opens[0].view.blocks.length - 1];
+    assert.equal(sdk.opens.length, 1);
+    assert.equal(sdk.opens[0].trigger_id, "T1");
+    const block = sdk.opens[0].view.blocks[sdk.opens[0].view.blocks.length - 1];
     assert.ok("text" in block && typeof block.text === "object" && block.text !== null);
     assert.match((block.text as { text: string }).text, /👎 FALSE/);
 
-    // Read-only: no answer rows added or changed.
     const answersAfter = await scoped.loadAnswers();
     assert.deepEqual(answersAfter, answersBefore);
   });
 
   it('shows "did not answer" for a user with no row', async () => {
-    const opens: OpenCall[] = [];
-    const sdk = fakeSdk(opens);
+    const sdk = fakeSdk();
     const data = createInMemoryDataLayer();
     await data.forGame(FIXTURE_GAME_NAME).saveQuestion(makeQuestion());
-
-    installSeeAnswerHandler(sdk, { data, getGameNames: () => [FIXTURE_GAME_NAME] });
-    const handler = sdk.registrations[0].handler as MinimalActionHandler;
+    const handler = install(sdk, data);
 
     await handler({
       ack: async () => {},
@@ -134,8 +135,8 @@ describe("installSeeAnswerHandler", () => {
       action: { action_id: "plugin:trivia:reveal-see-answer:Q1" },
     });
 
-    assert.equal(opens.length, 1);
-    const block = opens[0].view.blocks[opens[0].view.blocks.length - 1];
+    assert.equal(sdk.opens.length, 1);
+    const block = sdk.opens[0].view.blocks[sdk.opens[0].view.blocks.length - 1];
     assert.ok("text" in block && typeof block.text === "object" && block.text !== null);
     assert.match((block.text as { text: string }).text, /did not submit an answer/);
   });

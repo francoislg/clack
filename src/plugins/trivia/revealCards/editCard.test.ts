@@ -82,7 +82,8 @@ describe("editRevealIntoCard", () => {
       question: makeQuestion(),
       entry: makeEntry(),
       actionId,
-      tellMeMore: false,
+      game: null,
+      config: null,
     });
 
     assert.ok(captured !== undefined);
@@ -135,7 +136,8 @@ describe("editRevealIntoCard", () => {
       }),
       entry: makeEntry(),
       actionId,
-      tellMeMore: false,
+      game: null,
+      config: null,
     });
     assert.ok(captured !== undefined);
     assert.ok(!blockIds(captured.blocks).includes("freeform-answer-actions:Q1"));
@@ -150,7 +152,8 @@ describe("editRevealIntoCard", () => {
       question: makeQuestion({ postedBlocks: undefined }),
       entry: makeEntry(),
       actionId,
-      tellMeMore: false,
+      game: null,
+      config: null,
     });
     assert.equal(called, false);
   });
@@ -164,7 +167,8 @@ describe("editRevealIntoCard", () => {
       question: makeQuestion({ messageLink: "not-a-permalink" }),
       entry: makeEntry(),
       actionId,
-      tellMeMore: false,
+      game: null,
+      config: null,
     });
     assert.equal(called, false);
   });
@@ -178,7 +182,8 @@ describe("editRevealIntoCard", () => {
       question: makeQuestion(),
       entry: makeEntry(),
       actionId,
-      tellMeMore: true,
+      game: null,
+      config: { tellMeMore: { enabled: true } },
     });
 
     assert.ok(captured !== undefined);
@@ -202,7 +207,8 @@ describe("editRevealIntoCard", () => {
       question: makeQuestion(),
       entry: makeEntry(),
       actionId,
-      tellMeMore: false,
+      game: null,
+      config: null,
     });
 
     assert.ok(captured !== undefined);
@@ -218,7 +224,8 @@ describe("editRevealIntoCard", () => {
         question: makeQuestion(),
         entry: makeEntry(),
         actionId,
-        tellMeMore: false,
+        game: null,
+        config: null,
       }),
     );
   });

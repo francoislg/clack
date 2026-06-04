@@ -1,7 +1,8 @@
 import { describe, it } from "vitest";
 import assert from "node:assert/strict";
 import type { KnownBlock } from "@slack/types";
-import { extractQuestionIdFromActionId, installTellMeMoreHandler } from "./tellMeMoreHandler.js";
+import { installPostGameButtons } from "./postGameButtons.js";
+import { tellMeMoreButton } from "./tellMeMoreButton.js";
 import { createInMemoryDataLayer, FIXTURE_GAME_NAME } from "../testHelpers.js";
 import type { PluginActionHandler, SettableAttentionLevel } from "../../sdk.js";
 import type { TriviaQuestion } from "../core/types.js";
@@ -30,37 +31,46 @@ interface FakeSdk {
   updates: UpdateCall[];
   sends: SendCall[];
   starts: StartCall[];
-}
-
-function fakeSdk(opts: { client?: boolean } = {}): FakeSdk & {
   registerAction: (p: string | RegExp, h: PluginActionHandler) => void;
-  getSlackClient: () => { chat: { update: (a: UpdateCall) => Promise<{ ok?: boolean }> } } | null;
+  getSlackClient: () => {
+    views: { open: () => Promise<{ ok: boolean }> };
+    chat: { update: (a: UpdateCall) => Promise<{ ok?: boolean }> };
+  } | null;
   sendMessage: (a: SendCall) => Promise<{ ok: true; ts: string; channel: string }>;
   startThreadConversation: (a: StartCall) => Promise<void>;
-} {
-  const state: FakeSdk = { registrations: [], updates: [], sends: [], starts: [] };
+}
+
+function fakeSdk(opts: { client?: boolean } = {}): FakeSdk {
+  const registrations: FakeSdk["registrations"] = [];
+  const updates: UpdateCall[] = [];
+  const sends: SendCall[] = [];
+  const starts: StartCall[] = [];
   return {
-    ...state,
-    registerAction(pattern: string | RegExp, handler: PluginActionHandler) {
-      state.registrations.push({ pattern, handler });
+    registrations,
+    updates,
+    sends,
+    starts,
+    registerAction(pattern, handler) {
+      registrations.push({ pattern, handler });
     },
     getSlackClient() {
       if (opts.client === false) return null;
       return {
+        views: { open: async () => ({ ok: true }) },
         chat: {
           update: async (a: UpdateCall) => {
-            state.updates.push(a);
+            updates.push(a);
             return { ok: true };
           },
         },
       };
     },
     async sendMessage(a: SendCall) {
-      state.sends.push(a);
+      sends.push(a);
       return { ok: true as const, ts: "9.9", channel: a.channel };
     },
     async startThreadConversation(a: StartCall) {
-      state.starts.push(a);
+      starts.push(a);
     },
   };
 }
@@ -97,30 +107,10 @@ function makeQuestion(overrides: Partial<TriviaQuestion> = {}): TriviaQuestion {
 function cardBlocks(withTellMeMore: boolean): KnownBlock[] {
   const blocks: KnownBlock[] = [
     { type: "section", block_id: "card:Q1", text: { type: "mrkdwn", text: "S" } },
-    {
-      type: "actions",
-      block_id: "reveal-see-answer-actions:Q1",
-      elements: [
-        {
-          type: "button",
-          action_id: "plugin:trivia:reveal-see-answer:Q1",
-          text: { type: "plain_text", text: "See" },
-        },
-      ],
-    },
+    { type: "actions", block_id: "reveal-see-answer-actions:Q1", elements: [] },
   ];
   if (withTellMeMore) {
-    blocks.push({
-      type: "actions",
-      block_id: "reveal-tell-me-more-actions:Q1",
-      elements: [
-        {
-          type: "button",
-          action_id: "plugin:trivia:tell-me-more:Q1",
-          text: { type: "plain_text", text: "More" },
-        },
-      ],
-    });
+    blocks.push({ type: "actions", block_id: "reveal-tell-me-more-actions:Q1", elements: [] });
   }
   return blocks;
 }
@@ -133,24 +123,18 @@ function clickBody(blocks: KnownBlock[], userId = "U1"): ActionArgs["body"] {
   };
 }
 
-describe("extractQuestionIdFromActionId", () => {
-  it("parses the questionId from a scoped tell-me-more action_id", () => {
-    assert.equal(extractQuestionIdFromActionId("plugin:trivia:tell-me-more:Q1"), "Q1");
+function install(sdk: FakeSdk, data: ReturnType<typeof createInMemoryDataLayer>): Handler {
+  installPostGameButtons(sdk, [tellMeMoreButton], {
+    data,
+    getGameNames: () => [FIXTURE_GAME_NAME],
   });
-  it("rejects foreign or malformed action_ids", () => {
-    assert.equal(extractQuestionIdFromActionId("plugin:trivia:reveal-see-answer:Q1"), null);
-    assert.equal(extractQuestionIdFromActionId("plugin:trivia:tell-me-more:"), null);
-    assert.equal(extractQuestionIdFromActionId("plugin:trivia:tell-me-more:Q1:x"), null);
-  });
-});
+  return sdk.registrations[0].handler as Handler;
+}
 
-describe("installTellMeMoreHandler", () => {
+describe("tellMeMoreButton", () => {
   it("registers exactly one regex action handler", () => {
     const sdk = fakeSdk();
-    installTellMeMoreHandler(sdk, {
-      data: createInMemoryDataLayer(),
-      getGameNames: () => [FIXTURE_GAME_NAME],
-    });
+    install(sdk, createInMemoryDataLayer());
     assert.equal(sdk.registrations.length, 1);
     assert.ok(sdk.registrations[0].pattern instanceof RegExp);
   });
@@ -159,8 +143,7 @@ describe("installTellMeMoreHandler", () => {
     const sdk = fakeSdk();
     const data = createInMemoryDataLayer();
     await data.forGame(FIXTURE_GAME_NAME).saveQuestion(makeQuestion());
-    installTellMeMoreHandler(sdk, { data, getGameNames: () => [FIXTURE_GAME_NAME] });
-    const handler = sdk.registrations[0].handler as Handler;
+    const handler = install(sdk, data);
 
     await handler({
       ack: async () => {},
@@ -168,18 +151,15 @@ describe("installTellMeMoreHandler", () => {
       action: { action_id: "plugin:trivia:tell-me-more:Q1" },
     });
 
-    // Button removed via chat.update (tell-me-more block gone, see-answer kept).
     assert.equal(sdk.updates.length, 1);
     const ids = sdk.updates[0].blocks.map((b) => b.block_id);
     assert.ok(!ids.includes("reveal-tell-me-more-actions:Q1"));
     assert.ok(ids.includes("reveal-see-answer-actions:Q1"));
 
-    // Intro posted into the thread, tagging the clicker.
     assert.equal(sdk.sends.length, 1);
     assert.equal(sdk.sends[0].threadTs, "1700000000.000000");
     assert.match(sdk.sends[0].text ?? "", /<@U1>/);
 
-    // Streamed kickoff with the question + answer in the system prompt.
     assert.equal(sdk.starts.length, 1);
     const start = sdk.starts[0];
     assert.equal(start.channel, "C1");
@@ -187,7 +167,6 @@ describe("installTellMeMoreHandler", () => {
     assert.equal(start.userId, "U1");
     assert.equal(start.attentionLevel, "high");
     assert.match(start.additionalSystemPrompt ?? "", /Nile is the longest river/);
-    // The seeded "high" must survive the first turn — instruct Claude not to lower it.
     assert.match(start.additionalSystemPrompt ?? "", /Do NOT lower `attention_level`/);
   });
 
@@ -195,8 +174,7 @@ describe("installTellMeMoreHandler", () => {
     const sdk = fakeSdk();
     const data = createInMemoryDataLayer();
     await data.forGame(FIXTURE_GAME_NAME).saveQuestion(makeQuestion());
-    installTellMeMoreHandler(sdk, { data, getGameNames: () => [FIXTURE_GAME_NAME] });
-    const handler = sdk.registrations[0].handler as Handler;
+    const handler = install(sdk, data);
 
     await handler({
       ack: async () => {},
@@ -213,8 +191,7 @@ describe("installTellMeMoreHandler", () => {
     const sdk = fakeSdk({ client: false });
     const data = createInMemoryDataLayer();
     await data.forGame(FIXTURE_GAME_NAME).saveQuestion(makeQuestion());
-    installTellMeMoreHandler(sdk, { data, getGameNames: () => [FIXTURE_GAME_NAME] });
-    const handler = sdk.registrations[0].handler as Handler;
+    const handler = install(sdk, data);
 
     await handler({
       ack: async () => {},
@@ -230,8 +207,7 @@ describe("installTellMeMoreHandler", () => {
     const sdk = fakeSdk();
     const data = createInMemoryDataLayer();
     await data.forGame(FIXTURE_GAME_NAME).saveQuestion(makeQuestion());
-    installTellMeMoreHandler(sdk, { data, getGameNames: () => [FIXTURE_GAME_NAME] });
-    const handler = sdk.registrations[0].handler as Handler;
+    const handler = install(sdk, data);
 
     await handler({
       ack: async () => {},
