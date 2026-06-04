@@ -574,6 +574,52 @@ describe("PROCESS_REVEAL_INSTRUCTIONS — renderer brief", () => {
   });
 });
 
+describe("PROCESS_REVEAL_INSTRUCTIONS — finalRevealSummary placement branch", () => {
+  it("documents finalRevealSummary in the payload and a SUMMARY PLACEMENT branch", () => {
+    assert.match(PROCESS_REVEAL_INSTRUCTIONS, /finalRevealSummary/);
+    assert.match(PROCESS_REVEAL_INSTRUCTIONS, /SUMMARY PLACEMENT — BRANCH ON `finalRevealSummary`/);
+  });
+
+  it("branches the narrative on all three modes (yes top-level, no omitted, in-thread threaded)", () => {
+    const placement = PROCESS_REVEAL_INSTRUCTIONS.slice(
+      PROCESS_REVEAL_INSTRUCTIONS.indexOf("SUMMARY PLACEMENT"),
+    );
+    assert.match(placement, /`"yes"`[^\n]*today's behavior/);
+    assert.match(placement, /`"no"`: OMIT the NARRATIVE entirely/);
+    assert.match(placement, /`"in-thread"`: post the LEADERBOARD SURFACE TOP-LEVEL/);
+  });
+
+  it("keeps the leaderboard ALWAYS top-level in every mode", () => {
+    assert.match(
+      PROCESS_REVEAL_INSTRUCTIONS,
+      /ALWAYS posts TOP-LEVEL in EVERY mode — the standings are never hidden, never moved to a thread/,
+    );
+  });
+
+  it("keeps the season finale top-level in every mode (in-thread: day's verdicts to thread)", () => {
+    assert.match(
+      PROCESS_REVEAL_INSTRUCTIONS,
+      /ON THE LAST FIRE \(finale\) in `"in-thread"`: the SEASON FINALE LAYOUT stays TOP-LEVEL/,
+    );
+    assert.match(
+      PROCESS_REVEAL_INSTRUCTIONS,
+      /per-question NARRATIVE[^\n]*STILL moves to `thread_replies`/,
+    );
+  });
+
+  it("in-thread mode requires BOTH the localized pointer AND a thread_replies payload", () => {
+    assert.match(PROCESS_REVEAL_INSTRUCTIONS, /💬 Full reveal in the thread 👇/);
+    assert.match(
+      PROCESS_REVEAL_INSTRUCTIONS,
+      /thread_replies: \[\{ blocks: \[ \.\.\.NARRATIVE \] \}\]/,
+    );
+    assert.match(
+      PROCESS_REVEAL_INSTRUCTIONS,
+      /MUST include BOTH the top-level pointer AND the `thread_replies` payload/,
+    );
+  });
+});
+
 describe("buildProcessRevealInstructions — leaderboard label localization", () => {
   // Always restore the EN-fallback resolver so the module-level const (and other suites)
   // are unaffected by the French resolver these tests install.

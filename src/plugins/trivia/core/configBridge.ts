@@ -16,6 +16,8 @@ import {
   parseTriviaAxisBag,
   validateAllTimeRowMode,
   validateHintConfig,
+  validateFinalRevealSummary,
+  validateIncludeRevealInQuestions,
   validateJudgeLeniency,
   validateTellMeMore,
   validateTriviaChoicesConfig,
@@ -165,6 +167,21 @@ function parseTriviaConfigObject(raw: JsonObject, logger: PluginLogger): TriviaC
     const r = validateAllTimeRowMode(raw.allTimeRow, "trivia.allTimeRow");
     if (r.ok) out.allTimeRow = r.value;
     else allIssues.push({ field: "trivia.allTimeRow", error: r.error });
+  }
+
+  if (raw.includeRevealInQuestions !== undefined && raw.includeRevealInQuestions !== null) {
+    const r = validateIncludeRevealInQuestions(
+      raw.includeRevealInQuestions,
+      "trivia.includeRevealInQuestions",
+    );
+    if (r.ok) out.includeRevealInQuestions = r.value;
+    else allIssues.push({ field: "trivia.includeRevealInQuestions", error: r.error });
+  }
+
+  if (raw.finalRevealSummary !== undefined && raw.finalRevealSummary !== null) {
+    const r = validateFinalRevealSummary(raw.finalRevealSummary, "trivia.finalRevealSummary");
+    if (r.ok) out.finalRevealSummary = r.value;
+    else allIssues.push({ field: "trivia.finalRevealSummary", error: r.error });
   }
 
   if (raw.tellMeMore !== undefined && raw.tellMeMore !== null) {

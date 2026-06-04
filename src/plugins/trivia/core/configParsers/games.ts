@@ -13,15 +13,19 @@ import type {
   RevealResponsesMode,
   JudgeLeniency,
   TriviaAllTimeRowMode,
+  TriviaFinalRevealSummary,
   TriviaGame,
   TriviaHintConfig,
+  TriviaIncludeRevealInQuestions,
   TriviaTellMeMoreConfig,
 } from "../configTypes.js";
 import {
   isRevealResponsesMode,
   parseTriviaAxisBag,
   validateAllTimeRowMode,
+  validateFinalRevealSummary,
   validateHintConfig,
+  validateIncludeRevealInQuestions,
   validateJudgeLeniency,
   validateTellMeMore,
   type ParseIssue,
@@ -279,6 +283,23 @@ export function parseTriviaGame(
     else issues.push({ field: `${fieldPrefix}.allTimeRow`, error: r.error });
   }
 
+  let includeRevealInQuestions: TriviaIncludeRevealInQuestions | undefined;
+  if (e.includeRevealInQuestions !== undefined && e.includeRevealInQuestions !== null) {
+    const r = validateIncludeRevealInQuestions(
+      e.includeRevealInQuestions,
+      `${fieldPrefix}.includeRevealInQuestions`,
+    );
+    if (r.ok) includeRevealInQuestions = r.value;
+    else issues.push({ field: `${fieldPrefix}.includeRevealInQuestions`, error: r.error });
+  }
+
+  let finalRevealSummary: TriviaFinalRevealSummary | undefined;
+  if (e.finalRevealSummary !== undefined && e.finalRevealSummary !== null) {
+    const r = validateFinalRevealSummary(e.finalRevealSummary, `${fieldPrefix}.finalRevealSummary`);
+    if (r.ok) finalRevealSummary = r.value;
+    else issues.push({ field: `${fieldPrefix}.finalRevealSummary`, error: r.error });
+  }
+
   let tellMeMore: TriviaTellMeMoreConfig | undefined;
   if (e.tellMeMore !== undefined && e.tellMeMore !== null) {
     const r = validateTellMeMore(e.tellMeMore, `${fieldPrefix}.tellMeMore`);
@@ -314,6 +335,8 @@ export function parseTriviaGame(
       ...(hint !== undefined ? { hint } : {}),
       ...(judgeLeniency !== undefined ? { judgeLeniency } : {}),
       ...(allTimeRow !== undefined ? { allTimeRow } : {}),
+      ...(includeRevealInQuestions !== undefined ? { includeRevealInQuestions } : {}),
+      ...(finalRevealSummary !== undefined ? { finalRevealSummary } : {}),
       ...(tellMeMore !== undefined ? { tellMeMore } : {}),
     },
     issues,

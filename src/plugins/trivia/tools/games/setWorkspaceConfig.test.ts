@@ -75,6 +75,8 @@ const emptyArgs = {
   additionalInstructions: undefined,
   hint: undefined,
   allTimeRow: undefined,
+  includeRevealInQuestions: undefined,
+  finalRevealSummary: undefined,
   judgeLeniency: undefined,
   tellMeMore: undefined,
 };
@@ -113,6 +115,32 @@ describe("set_workspace_config", () => {
 
     await tool.handler({ ...emptyArgs, tellMeMore: null }, SESSION);
     assert.equal(loadTriviaConfig()?.tellMeMore, undefined);
+  });
+
+  it("sets and clears workspace includeRevealInQuestions", async () => {
+    primeBridge({});
+    const tool = createSetWorkspaceConfigTool();
+    const set = parseToolResult(
+      await tool.handler({ ...emptyArgs, includeRevealInQuestions: "yes" }, SESSION),
+    );
+    assert.ok(set.updatedFields.includes("includeRevealInQuestions"));
+    assert.equal(loadTriviaConfig()?.includeRevealInQuestions, "yes");
+
+    await tool.handler({ ...emptyArgs, includeRevealInQuestions: null }, SESSION);
+    assert.equal(loadTriviaConfig()?.includeRevealInQuestions, undefined);
+  });
+
+  it("sets and clears workspace finalRevealSummary", async () => {
+    primeBridge({});
+    const tool = createSetWorkspaceConfigTool();
+    const set = parseToolResult(
+      await tool.handler({ ...emptyArgs, finalRevealSummary: "in-thread" }, SESSION),
+    );
+    assert.ok(set.updatedFields.includes("finalRevealSummary"));
+    assert.equal(loadTriviaConfig()?.finalRevealSummary, "in-thread");
+
+    await tool.handler({ ...emptyArgs, finalRevealSummary: null }, SESSION);
+    assert.equal(loadTriviaConfig()?.finalRevealSummary, undefined);
   });
 
   it("sets and clears workspace judgeLeniency", async () => {

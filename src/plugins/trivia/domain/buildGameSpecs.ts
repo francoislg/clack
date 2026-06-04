@@ -48,6 +48,7 @@ const REVEAL_REQUIRED_TOOLS = [
   "mcp__trivia__compute_answers",
   "mcp__trivia__update_answers_block",
   "mcp__trivia__start_new_season",
+  "mcp__trivia__update_question",
 ];
 
 /**

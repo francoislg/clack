@@ -12,6 +12,8 @@ import type {
   SeasonFormat,
   TriviaChoicesConfig,
   TriviaAllTimeRowMode,
+  TriviaFinalRevealSummary,
+  TriviaIncludeRevealInQuestions,
   TriviaSeasonsConfig,
   TriviaHintConfig,
   TriviaTellMeMoreConfig,
@@ -54,6 +56,8 @@ interface ListGamesEntry {
   hint?: TriviaHintConfig;
   judgeLeniency?: JudgeLeniency;
   allTimeRow?: TriviaAllTimeRowMode;
+  includeRevealInQuestions?: TriviaIncludeRevealInQuestions;
+  finalRevealSummary?: TriviaFinalRevealSummary;
   tellMeMore?: TriviaTellMeMoreConfig;
 }
 
@@ -66,6 +70,8 @@ type WorkspaceDefaults = Partial<CascadeAxes> & {
   seasons?: TriviaSeasonsConfig;
   offDays?: OffDay[];
   allTimeRow?: TriviaAllTimeRowMode;
+  includeRevealInQuestions?: TriviaIncludeRevealInQuestions;
+  finalRevealSummary?: TriviaFinalRevealSummary;
   tellMeMore?: TriviaTellMeMoreConfig;
 };
 
@@ -158,6 +164,12 @@ export function createListGamesTool(
           ...(g.revealResponses !== undefined ? { revealResponses: g.revealResponses } : {}),
           ...(g.hint !== undefined ? { hint: g.hint } : {}),
           ...(g.allTimeRow !== undefined ? { allTimeRow: g.allTimeRow } : {}),
+          ...(g.includeRevealInQuestions !== undefined
+            ? { includeRevealInQuestions: g.includeRevealInQuestions }
+            : {}),
+          ...(g.finalRevealSummary !== undefined
+            ? { finalRevealSummary: g.finalRevealSummary }
+            : {}),
           ...(g.tellMeMore !== undefined ? { tellMeMore: g.tellMeMore } : {}),
           ...(g.judgeLeniency !== undefined ? { judgeLeniency: g.judgeLeniency } : {}),
         };
@@ -172,6 +184,10 @@ export function createListGamesTool(
         if (triviaCfg.seasons !== undefined) workspaceDefaults.seasons = triviaCfg.seasons;
         if (triviaCfg.offDays !== undefined) workspaceDefaults.offDays = triviaCfg.offDays;
         if (triviaCfg.allTimeRow !== undefined) workspaceDefaults.allTimeRow = triviaCfg.allTimeRow;
+        if (triviaCfg.includeRevealInQuestions !== undefined)
+          workspaceDefaults.includeRevealInQuestions = triviaCfg.includeRevealInQuestions;
+        if (triviaCfg.finalRevealSummary !== undefined)
+          workspaceDefaults.finalRevealSummary = triviaCfg.finalRevealSummary;
         if (triviaCfg.tellMeMore !== undefined) workspaceDefaults.tellMeMore = triviaCfg.tellMeMore;
       }
 

@@ -28,6 +28,8 @@ import {
   parseTriviaAxisBag,
   questionTypeZod,
   triviaAllTimeRowZod,
+  triviaFinalRevealSummaryZod,
+  triviaIncludeRevealInQuestionsZod,
   triviaDifficultyRatioZod,
   triviaHintZod,
   triviaJudgeLeniencyZod,
@@ -137,6 +139,18 @@ const structuralFieldsSchema = {
     .optional()
     .describe(
       'Per-game tier of the "All Time" leaderboard-row visibility axis. One of `"always"` | `"never"` | `"end-of-season-only"`. Controls the All-Time surface at reveal time — the normal-reveal `All Time` row AND the season-finale All-Time table (also requires prior seasons to exist). `"end-of-season-only"` (the workspace default) shows All Time only on the season\'s last fire. Cascade: `game → workspace → "end-of-season-only"`. On UPDATE: explicit null clears the field.',
+    ),
+  includeRevealInQuestions: triviaIncludeRevealInQuestionsZod
+    .nullable()
+    .optional()
+    .describe(
+      'Per-game tier of the "narrative in cards" axis. One of `"yes"` | `"no"`. `"yes"` makes each revealed question\'s card carry the authored reveal narrative (WHY / fun-fact / "nobody cracked it"), appended beneath the deterministic facts footer; `"no"` (the default) keeps cards facts-only with the narrative in the summary. Cascade: `game → workspace → "no"`. On UPDATE: explicit null clears the field.',
+    ),
+  finalRevealSummary: triviaFinalRevealSummaryZod
+    .nullable()
+    .optional()
+    .describe(
+      'Per-game tier of the reveal-summary narrative placement axis. One of `"yes"` | `"no"` | `"in-thread"`. Governs ONLY the verdict/WHY/voter-breakdown narrative — the leaderboard always posts top-level. `"yes"` (the default) posts the narrative top-level alongside the leaderboard; `"no"` omits the narrative entirely (leaderboard-only top-level); `"in-thread"` posts the leaderboard + a "see in thread" pointer top-level and moves the narrative to a threaded reply. Cascade: `game → workspace → "yes"`. On UPDATE: explicit null clears the field.',
     ),
   judgeLeniency: triviaJudgeLeniencyZod
     .nullable()
@@ -386,6 +400,12 @@ export function createUpsertGameTool(
         ...(existing?.hint !== undefined ? { hint: existing.hint } : {}),
         ...(existing?.judgeLeniency !== undefined ? { judgeLeniency: existing.judgeLeniency } : {}),
         ...(existing?.allTimeRow !== undefined ? { allTimeRow: existing.allTimeRow } : {}),
+        ...(existing?.includeRevealInQuestions !== undefined
+          ? { includeRevealInQuestions: existing.includeRevealInQuestions }
+          : {}),
+        ...(existing?.finalRevealSummary !== undefined
+          ? { finalRevealSummary: existing.finalRevealSummary }
+          : {}),
         ...(existing?.tellMeMore !== undefined ? { tellMeMore: existing.tellMeMore } : {}),
       };
       if (args.format === null) delete mergedStructural.format;
@@ -409,6 +429,12 @@ export function createUpsertGameTool(
       else if (parsedHint !== undefined) mergedStructural.hint = parsedHint;
       if (args.allTimeRow === null) delete mergedStructural.allTimeRow;
       else if (args.allTimeRow !== undefined) mergedStructural.allTimeRow = args.allTimeRow;
+      if (args.includeRevealInQuestions === null) delete mergedStructural.includeRevealInQuestions;
+      else if (args.includeRevealInQuestions !== undefined)
+        mergedStructural.includeRevealInQuestions = args.includeRevealInQuestions;
+      if (args.finalRevealSummary === null) delete mergedStructural.finalRevealSummary;
+      else if (args.finalRevealSummary !== undefined)
+        mergedStructural.finalRevealSummary = args.finalRevealSummary;
       if (args.tellMeMore === null) delete mergedStructural.tellMeMore;
       else if (args.tellMeMore !== undefined) mergedStructural.tellMeMore = args.tellMeMore;
       if (args.judgeLeniency === null) delete mergedStructural.judgeLeniency;
@@ -482,6 +508,8 @@ export function createUpsertGameTool(
         hasHint: mergedStructural.hint !== undefined,
         hasJudgeLeniency: mergedStructural.judgeLeniency !== undefined,
         hasAllTimeRow: mergedStructural.allTimeRow !== undefined,
+        hasIncludeRevealInQuestions: mergedStructural.includeRevealInQuestions !== undefined,
+        hasFinalRevealSummary: mergedStructural.finalRevealSummary !== undefined,
         hasTellMeMore: mergedStructural.tellMeMore !== undefined,
         slotCount: mergedStructural.format?.questions.length ?? 0,
       });

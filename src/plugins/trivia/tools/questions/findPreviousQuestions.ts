@@ -8,6 +8,7 @@ import { defaultGetGames, type GetGamesFn } from "../../core/configBridge.js";
 import { UnknownGameError } from "../../core/gamesRegistry.js";
 import type { TriviaDataLayer, TriviaQuestion } from "../../core/types.js";
 import { mediaToJson } from "../../domain/mediaJson.js";
+import { blocksToJson } from "../../domain/blocksToJson.js";
 
 const CURRENT_SEASON_TOKEN = "current";
 
@@ -16,6 +17,7 @@ type QuestionWithGame = TriviaQuestion & { __game: string };
 function toSearchResult(
   q: QuestionWithGame,
   matchedKeywords: string[] | null,
+  includeRevealBlocks: boolean,
 ): Record<string, JsonValue> {
   const result: Record<string, JsonValue> = {
     id: q.id,
@@ -41,6 +43,11 @@ function toSearchResult(
   if (q.sourceUrl !== undefined) result.sourceUrl = q.sourceUrl;
   if (q.eventDate !== undefined) result.eventDate = q.eventDate;
   if (matchedKeywords !== null) result.matchedKeywords = matchedKeywords;
+  // `revealBlocks` reveals the answer, so it surfaces only on opt-in AND only for
+  // already-revealed questions (`processedAt` set) — never for live ones.
+  if (includeRevealBlocks && q.processedAt !== undefined && q.revealBlocks !== undefined) {
+    result.revealBlocks = blocksToJson(q.revealBlocks);
+  }
   const handler = getAnswerTypeHandler(q.answersFormat);
   return { ...result, ...handler.buildSearchResult(q) };
 }
@@ -114,11 +121,18 @@ export function createFindPreviousQuestionsTool(
         .positive()
         .optional()
         .describe("Maximum number of questions to return (default 20, most recent first)."),
+      includeRevealBlocks: z
+        .boolean()
+        .optional()
+        .describe(
+          "Opt-in: when true, each ALREADY-REVEALED row (processedAt set) that has stored authored `revealBlocks` includes them in its response — for re-emitting a deleted card's narrative without regenerating it. Live (not-yet-revealed) rows NEVER carry `revealBlocks` even with this flag, to preserve the no-answer-leak guarantee. Default false: no row carries `revealBlocks`.",
+        ),
     },
     async (args) => {
       const games = getGamesFn();
       const limit = args.limit ?? 20;
       const match = args.match ?? "all";
+      const includeRevealBlocks = args.includeRevealBlocks ?? false;
 
       const requestedGames = args.games ?? [];
       const gamesProvided = requestedGames.length > 0;
@@ -264,7 +278,7 @@ export function createFindPreviousQuestionsTool(
         const batchQuestions = [...selected.items]
           .sort((a, b) => (a.postedAt as number) - (b.postedAt as number))
           .slice(0, limit)
-          .map((q) => toSearchResult(q, computeMatchedKeywords(q)));
+          .map((q) => toSearchResult(q, computeMatchedKeywords(q), includeRevealBlocks));
 
         return textResult({
           questions: batchQuestions,
@@ -276,7 +290,7 @@ export function createFindPreviousQuestionsTool(
       const sorted = filtered
         .sort((a, b) => b.createdAt - a.createdAt)
         .slice(0, limit)
-        .map((q) => toSearchResult(q, computeMatchedKeywords(q)));
+        .map((q) => toSearchResult(q, computeMatchedKeywords(q), includeRevealBlocks));
 
       return textResult({ questions: sorted, count: sorted.length, total: filtered.length });
     },

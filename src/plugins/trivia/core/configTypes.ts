@@ -192,6 +192,41 @@ export const ALL_TIME_ROW_KEYS = ["always", "never", "end-of-season-only"] as co
 export const DEFAULT_ALL_TIME_ROW: TriviaAllTimeRowMode = "end-of-season-only";
 
 /**
+ * Whether each revealed question's card carries the authored reveal narrative
+ * (`"yes"`) or only the deterministic facts footer (`"no"`). Game+workspace
+ * tiers only (cascade `game → workspace → "no"`); NOT a CascadeAxes member.
+ * See `resolveIncludeRevealInQuestions`.
+ */
+export type TriviaIncludeRevealInQuestions = "yes" | "no";
+
+/** The two accepted `includeRevealInQuestions` values, for zod/validator reuse. */
+export const INCLUDE_REVEAL_IN_QUESTIONS_KEYS = ["yes", "no"] as const;
+
+/** Built-in fallback when no `includeRevealInQuestions` is set at any cascade tier. */
+export const DEFAULT_INCLUDE_REVEAL_IN_QUESTIONS: TriviaIncludeRevealInQuestions = "no";
+
+/**
+ * Reveal-summary narrative placement axis. Governs ONLY the verdict / WHY /
+ * voter-breakdown narrative at reveal time — the leaderboard `table` ALWAYS
+ * posts top-level, in every mode. Game+workspace tiers only (cascade
+ * `game → workspace → "yes"`); NOT a CascadeAxes member. See
+ * `resolveFinalRevealSummary`.
+ *
+ * - `"yes"` — narrative AND leaderboard posted top-level (today's behavior).
+ * - `"no"` — leaderboard posted top-level; the narrative is omitted entirely.
+ * - `"in-thread"` — leaderboard + a localized "see in thread" pointer posted
+ *   top-level; the full narrative is posted as a threaded reply via
+ *   `submit_response`'s `thread_replies`.
+ */
+export type TriviaFinalRevealSummary = "yes" | "no" | "in-thread";
+
+/** The three accepted `finalRevealSummary` values, for zod/validator reuse. */
+export const FINAL_REVEAL_SUMMARY_KEYS = ["yes", "no", "in-thread"] as const;
+
+/** Built-in fallback when no `finalRevealSummary` is set at any cascade tier. */
+export const DEFAULT_FINAL_REVEAL_SUMMARY: TriviaFinalRevealSummary = "yes";
+
+/**
  * "Tell me more" reveal-card affordance. When enabled, the revealed question card
  * grows a button that, on click, kicks off a thread conversation asking Clack for
  * deeper detail about the question/answer. Game+workspace tiers only (cascade
@@ -290,6 +325,18 @@ export interface TriviaGame extends CascadeAxes {
    */
   allTimeRow?: TriviaAllTimeRowMode;
   /**
+   * Per-game tier of the "narrative in cards" axis. Cascade:
+   *   `game → workspace → "no"`. NOT a CascadeAxes member.
+   *   See `TriviaIncludeRevealInQuestions` and `resolveIncludeRevealInQuestions`.
+   */
+  includeRevealInQuestions?: TriviaIncludeRevealInQuestions;
+  /**
+   * Per-game tier of the reveal-summary narrative placement axis. Cascade:
+   *   `game → workspace → "yes"`. NOT a CascadeAxes member.
+   *   See `TriviaFinalRevealSummary` and `resolveFinalRevealSummary`.
+   */
+  finalRevealSummary?: TriviaFinalRevealSummary;
+  /**
    * Per-game tier of the "Tell me more" reveal affordance. Cascade:
    *   `game → workspace → { enabled: false }`. NOT a CascadeAxes member.
    *   See `TriviaTellMeMoreConfig` and `resolveTellMeMore`.
@@ -350,6 +397,18 @@ export interface TriviaConfig extends CascadeAxes {
    *   See `TriviaAllTimeRowMode`.
    */
   allTimeRow?: TriviaAllTimeRowMode;
+  /**
+   * Workspace tier of the "narrative in cards" axis. Cascade:
+   *   `game → workspace → "no"`. NOT a CascadeAxes member.
+   *   See `TriviaIncludeRevealInQuestions`.
+   */
+  includeRevealInQuestions?: TriviaIncludeRevealInQuestions;
+  /**
+   * Workspace tier of the reveal-summary narrative placement axis. Cascade:
+   *   `game → workspace → "yes"`. NOT a CascadeAxes member.
+   *   See `TriviaFinalRevealSummary`.
+   */
+  finalRevealSummary?: TriviaFinalRevealSummary;
   /**
    * Workspace tier of the "Tell me more" reveal affordance. Cascade:
    *   `game → workspace → { enabled: false }`. NOT a CascadeAxes member.

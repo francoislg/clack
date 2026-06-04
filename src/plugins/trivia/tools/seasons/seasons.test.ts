@@ -1577,6 +1577,7 @@ describe("find_previous_questions with timeline-based current", () => {
         posted: undefined,
         recentBatchFromNow: undefined,
         limit: undefined,
+        includeRevealBlocks: undefined,
       },
       SESSION,
     );
@@ -1598,6 +1599,7 @@ describe("find_previous_questions with timeline-based current", () => {
         posted: undefined,
         recentBatchFromNow: undefined,
         limit: undefined,
+        includeRevealBlocks: undefined,
       },
       SESSION,
     );
@@ -1636,6 +1638,7 @@ describe("find_previous_questions with timeline-based current", () => {
         posted: undefined,
         recentBatchFromNow: undefined,
         limit: undefined,
+        includeRevealBlocks: undefined,
       },
       SESSION,
     );

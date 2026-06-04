@@ -692,3 +692,50 @@ The user-visible reason text SHALL name the config key (`config.cron.enabled`) s
 - **WHEN** an admin opens the Home Tab
 - **THEN** the `Status > Plugins` section shows the trivia row with an error banner containing the documented reason text
 
+### Requirement: Reveal prompt authors per-card narrative when `includeRevealInQuestions` is yes
+
+`PROCESS_REVEAL_INSTRUCTIONS` SHALL branch on the payload's `includeRevealInQuestions`. When `"yes"`, for EACH revealed question the prompt SHALL instruct Claude to call `update_question({ game, questionId, revealBlocks })` with that question's narrative (verdict, WHY, the fun-fact comment, and — when nobody got it — the expanded "nobody cracked it" teaching) BEFORE `update_answers_block` projects the cards, so each card shows facts + that narrative. When `"no"`, the prompt SHALL NOT author card narrative (today's flow). The `revealBlocks` SHALL contain only narrative, never the deterministic facts (which `update_answers_block` renders from `answers.json`).
+
+#### Scenario: Prompt describes the yes branch
+
+- **WHEN** `PROCESS_REVEAL_INSTRUCTIONS` is inspected
+- **THEN** the `"yes"` branch instructs a per-question `update_question` call carrying the narrative, before `update_answers_block`
+- **AND** the `"no"` branch does not author card narrative
+
+### Requirement: Reveal `requiredTools` includes `update_question`
+
+`buildGameSpecs` SHALL include `"mcp__trivia__update_question"` in the reveal job's `requiredTools` so the `"yes"` branch can author per-card narrative. Its presence is harmless in `"no"` mode (the prompt does not call it).
+
+#### Scenario: Reveal spec lists update_question
+
+- **WHEN** `buildGameSpecs` produces the reveal spec
+- **THEN** `requiredTools` includes `"mcp__trivia__update_question"`
+
+### Requirement: Reveal prompt branches the summary on `finalRevealSummary`
+
+`PROCESS_REVEAL_INSTRUCTIONS` SHALL branch the closing-summary rendering on the payload's `finalRevealSummary`, with type-gated instructions so each branch is a single linear path. The leaderboard `table` SHALL be posted top-level in every branch; only the verdict/WHY/voter narrative varies:
+
+- **`"yes"`** → today's flow: narrative blocks + leaderboard `table` in one top-level `submit_response`.
+- **`"no"`** → a top-level `submit_response` carrying the leaderboard `table` and a brief closer only; NO verdict/WHY/voter narrative blocks.
+- **`"in-thread"`** → a top-level `submit_response` whose blocks carry the leaderboard `table` and a localized "see the responses in thread!" pointer (`sdk.t()`), with the full verdict/WHY/voter narrative supplied as `thread_replies` (posted as a threaded reply under the primary).
+
+On the season's last fire the finale (podium + gated all-time table) SHALL be rendered top-level in every branch (per `trivia-final-reveal-summary`); in `"in-thread"` the day's per-question verdicts still go to `thread_replies` while the finale stays top-level.
+
+#### Scenario: Prompt describes all three summary branches
+
+- **WHEN** `PROCESS_REVEAL_INSTRUCTIONS` is inspected
+- **THEN** it branches on `finalRevealSummary`
+- **AND** the `"yes"` branch posts narrative + leaderboard top-level
+- **AND** the `"no"` branch posts the leaderboard top-level with no narrative
+- **AND** the `"in-thread"` branch posts the leaderboard + localized pointer top-level and the narrative via `thread_replies`
+
+#### Scenario: Leaderboard is top-level in every branch
+
+- **WHEN** any of the three branch instructions is inspected
+- **THEN** the leaderboard `table` is posted on the top-level (primary) `submit_response`, never only in the thread
+
+#### Scenario: in-thread instructs both the pointer and the thread reply
+
+- **WHEN** the `"in-thread"` branch is inspected
+- **THEN** it instructs Claude to include the localized pointer in the top-level blocks
+- **AND** to supply the narrative as `thread_replies`

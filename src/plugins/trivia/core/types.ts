@@ -118,6 +118,15 @@ export interface TriviaQuestion {
    */
   postedBlocks?: KnownBlock[];
   /**
+   * Claude-authored reveal NARRATIVE blocks (the WHY / fun-fact / "nobody
+   * cracked it" teaching) for this question's card. Persisted by `update_question`
+   * and appended below the deterministic results footer by `update_answers_block`
+   * when `includeRevealInQuestions` resolves to `"yes"`. NEVER the deterministic
+   * Answer/Correct/Incorrect facts (those always render from `answers.json`).
+   * Absent in `"no"` mode and on all legacy rows.
+   */
+  revealBlocks?: KnownBlock[];
+  /**
    * Lens name that was used when generating this question. Recorded from
    * `contextPriority[i]` (the entry Claude actually used). Empty / no-lens
    * outcomes are stored as absence. Only meaningful when `trivia.contexts`

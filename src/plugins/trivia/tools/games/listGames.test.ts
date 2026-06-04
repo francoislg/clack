@@ -85,6 +85,64 @@ describe("list_games — per-game entries", () => {
     assert.equal("allTimeRow" in without.games[0], false);
   });
 
+  it("surfaces per-game includeRevealInQuestions when set, omits it when absent", async () => {
+    const games: readonly TriviaGame[] = [
+      {
+        name: "narrated",
+        channel: "C300000000",
+        questionCron: "0 9 * * 1-5",
+        revealCron: "0 17 * * 1-5",
+        timezone: "UTC",
+        enabled: true,
+        includeRevealInQuestions: "yes",
+      },
+    ];
+    const withValue = parseToolResult(
+      await createListGamesTool(() => games, emptyTriviaConfig).handler(
+        { includeDisabled: undefined },
+        SESSION,
+      ),
+    );
+    assert.equal(withValue.games[0].includeRevealInQuestions, "yes");
+
+    const without = parseToolResult(
+      await createListGamesTool(fixtureGetGames, emptyTriviaConfig).handler(
+        { includeDisabled: undefined },
+        SESSION,
+      ),
+    );
+    assert.equal("includeRevealInQuestions" in without.games[0], false);
+  });
+
+  it("surfaces per-game finalRevealSummary when set, omits it when absent", async () => {
+    const games: readonly TriviaGame[] = [
+      {
+        name: "threaded",
+        channel: "C300000000",
+        questionCron: "0 9 * * 1-5",
+        revealCron: "0 17 * * 1-5",
+        timezone: "UTC",
+        enabled: true,
+        finalRevealSummary: "in-thread",
+      },
+    ];
+    const withValue = parseToolResult(
+      await createListGamesTool(() => games, emptyTriviaConfig).handler(
+        { includeDisabled: undefined },
+        SESSION,
+      ),
+    );
+    assert.equal(withValue.games[0].finalRevealSummary, "in-thread");
+
+    const without = parseToolResult(
+      await createListGamesTool(fixtureGetGames, emptyTriviaConfig).handler(
+        { includeDisabled: undefined },
+        SESSION,
+      ),
+    );
+    assert.equal("finalRevealSummary" in without.games[0], false);
+  });
+
   it("surfaces per-game tellMeMore when set, omits it when absent", async () => {
     const games: readonly TriviaGame[] = [
       {
@@ -282,6 +340,40 @@ describe("list_games — workspaceDefaults block", () => {
       ),
     );
     assert.equal("allTimeRow" in without.workspaceDefaults, false);
+  });
+
+  it("surfaces workspaceDefaults.includeRevealInQuestions only when set", async () => {
+    const withValue = parseToolResult(
+      await createListGamesTool(fixtureGetGames, () => ({
+        includeRevealInQuestions: "yes",
+      })).handler({ includeDisabled: undefined }, SESSION),
+    );
+    assert.equal(withValue.workspaceDefaults.includeRevealInQuestions, "yes");
+
+    const without = parseToolResult(
+      await createListGamesTool(fixtureGetGames, emptyTriviaConfig).handler(
+        { includeDisabled: undefined },
+        SESSION,
+      ),
+    );
+    assert.equal("includeRevealInQuestions" in without.workspaceDefaults, false);
+  });
+
+  it("surfaces workspaceDefaults.finalRevealSummary only when set", async () => {
+    const withValue = parseToolResult(
+      await createListGamesTool(fixtureGetGames, () => ({
+        finalRevealSummary: "in-thread",
+      })).handler({ includeDisabled: undefined }, SESSION),
+    );
+    assert.equal(withValue.workspaceDefaults.finalRevealSummary, "in-thread");
+
+    const without = parseToolResult(
+      await createListGamesTool(fixtureGetGames, emptyTriviaConfig).handler(
+        { includeDisabled: undefined },
+        SESSION,
+      ),
+    );
+    assert.equal("finalRevealSummary" in without.workspaceDefaults, false);
   });
 
   it("workspaceDefaults is always present even on an empty games list", async () => {

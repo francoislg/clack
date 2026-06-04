@@ -70,6 +70,7 @@ describe("find_previous_questions cross-game and array semantics", () => {
         posted: undefined,
         recentBatchFromNow: undefined,
         limit: undefined,
+        includeRevealBlocks: undefined,
       },
       SESSION,
     );
@@ -97,6 +98,7 @@ describe("find_previous_questions cross-game and array semantics", () => {
         posted: undefined,
         recentBatchFromNow: undefined,
         limit: undefined,
+        includeRevealBlocks: undefined,
       },
       SESSION,
     );
@@ -118,6 +120,7 @@ describe("find_previous_questions cross-game and array semantics", () => {
         posted: undefined,
         recentBatchFromNow: undefined,
         limit: undefined,
+        includeRevealBlocks: undefined,
       },
       SESSION,
     );
@@ -141,6 +144,7 @@ describe("find_previous_questions cross-game and array semantics", () => {
         posted: undefined,
         recentBatchFromNow: undefined,
         limit: undefined,
+        includeRevealBlocks: undefined,
       },
       SESSION,
     );
@@ -162,6 +166,7 @@ describe("find_previous_questions cross-game and array semantics", () => {
         posted: undefined,
         recentBatchFromNow: undefined,
         limit: undefined,
+        includeRevealBlocks: undefined,
       },
       SESSION,
     );
@@ -182,6 +187,7 @@ describe("find_previous_questions cross-game and array semantics", () => {
         posted: undefined,
         recentBatchFromNow: undefined,
         limit: undefined,
+        includeRevealBlocks: undefined,
       },
       SESSION,
     );
@@ -202,6 +208,7 @@ describe("find_previous_questions cross-game and array semantics", () => {
         posted: undefined,
         recentBatchFromNow: undefined,
         limit: undefined,
+        includeRevealBlocks: undefined,
       },
       SESSION,
     );
@@ -222,6 +229,7 @@ describe("find_previous_questions cross-game and array semantics", () => {
         posted: undefined,
         recentBatchFromNow: undefined,
         limit: undefined,
+        includeRevealBlocks: undefined,
       },
       SESSION,
     );
@@ -235,6 +243,7 @@ describe("find_previous_questions cross-game and array semantics", () => {
         posted: undefined,
         recentBatchFromNow: undefined,
         limit: undefined,
+        includeRevealBlocks: undefined,
       },
       SESSION,
     );
@@ -259,6 +268,7 @@ describe("find_previous_questions cross-game and array semantics", () => {
         posted: undefined,
         recentBatchFromNow: undefined,
         limit: undefined,
+        includeRevealBlocks: undefined,
       },
       SESSION,
     );
@@ -278,6 +288,7 @@ describe("find_previous_questions cross-game and array semantics", () => {
         posted: undefined,
         recentBatchFromNow: undefined,
         limit: undefined,
+        includeRevealBlocks: undefined,
       },
       SESSION,
     );

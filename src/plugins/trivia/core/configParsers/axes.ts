@@ -26,13 +26,21 @@ import type {
   TriviaContextEntry,
   TriviaDifficultyConfig,
   TriviaDifficultyRatioConfig,
+  TriviaFinalRevealSummary,
   TriviaFreeformAnswerShapeWeights,
   TriviaHintConfig,
+  TriviaIncludeRevealInQuestions,
   TriviaQuestionTypeWeights,
   TriviaTellMeMoreConfig,
   PromptMediumWeights,
 } from "../configTypes.js";
-import { ALL_TIME_ROW_KEYS, DEFAULT_TRIVIA_CHOICES, JUDGE_LENIENCY_KEYS } from "../configTypes.js";
+import {
+  ALL_TIME_ROW_KEYS,
+  DEFAULT_TRIVIA_CHOICES,
+  FINAL_REVEAL_SUMMARY_KEYS,
+  INCLUDE_REVEAL_IN_QUESTIONS_KEYS,
+  JUDGE_LENIENCY_KEYS,
+} from "../configTypes.js";
 import { type Result } from "../../../zodResult.js";
 import {
   choicesCheck,
@@ -259,6 +267,30 @@ export function validateAllTimeRowMode(
   return safeParseToResult(allTimeRowSchema, raw, fieldLabel);
 }
 
+const includeRevealInQuestionsSchema: z.ZodType<TriviaIncludeRevealInQuestions> = schemaFromChecker(
+  (raw) => enumCheck(raw, INCLUDE_REVEAL_IN_QUESTIONS_KEYS),
+  (raw) => raw as TriviaIncludeRevealInQuestions,
+);
+
+export function validateIncludeRevealInQuestions(
+  raw: unknown,
+  fieldLabel: string,
+): Result<TriviaIncludeRevealInQuestions> {
+  return safeParseToResult(includeRevealInQuestionsSchema, raw, fieldLabel);
+}
+
+const finalRevealSummarySchema: z.ZodType<TriviaFinalRevealSummary> = schemaFromChecker(
+  (raw) => enumCheck(raw, FINAL_REVEAL_SUMMARY_KEYS),
+  (raw) => raw as TriviaFinalRevealSummary,
+);
+
+export function validateFinalRevealSummary(
+  raw: unknown,
+  fieldLabel: string,
+): Result<TriviaFinalRevealSummary> {
+  return safeParseToResult(finalRevealSummarySchema, raw, fieldLabel);
+}
+
 const tellMeMoreSchema: z.ZodType<TriviaTellMeMoreConfig> = z
   .object({ enabled: z.boolean() })
   .strict();
@@ -463,6 +495,19 @@ export const triviaHintZod = z.object({
 /** Shared zod schema for the `allTimeRow` axis (structural; semantics in `validateAllTimeRowMode`). */
 export const triviaAllTimeRowZod = z.enum(
   ALL_TIME_ROW_KEYS as readonly [TriviaAllTimeRowMode, ...TriviaAllTimeRowMode[]],
+);
+
+/** Shared zod schema for the `includeRevealInQuestions` axis. */
+export const triviaIncludeRevealInQuestionsZod = z.enum(
+  INCLUDE_REVEAL_IN_QUESTIONS_KEYS as readonly [
+    TriviaIncludeRevealInQuestions,
+    ...TriviaIncludeRevealInQuestions[],
+  ],
+);
+
+/** Shared zod schema for the `finalRevealSummary` axis. */
+export const triviaFinalRevealSummaryZod = z.enum(
+  FINAL_REVEAL_SUMMARY_KEYS as readonly [TriviaFinalRevealSummary, ...TriviaFinalRevealSummary[]],
 );
 
 /** Shared zod schema for the `tellMeMore` field (game+workspace; not a cascade axis). */

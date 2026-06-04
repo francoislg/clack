@@ -53,6 +53,7 @@ describe("find_previous_questions response shape (single game)", () => {
         posted: undefined,
         recentBatchFromNow: undefined,
         limit: undefined,
+        includeRevealBlocks: undefined,
       },
       SESSION,
     );
@@ -81,6 +82,7 @@ describe("find_previous_questions response shape (single game)", () => {
         posted: undefined,
         recentBatchFromNow: undefined,
         limit: undefined,
+        includeRevealBlocks: undefined,
       },
       SESSION,
     );
@@ -104,6 +106,7 @@ describe("find_previous_questions response shape (single game)", () => {
         posted: undefined,
         recentBatchFromNow: undefined,
         limit: undefined,
+        includeRevealBlocks: undefined,
       },
       SESSION,
     );
@@ -126,6 +129,7 @@ describe("find_previous_questions response shape (single game)", () => {
         posted: undefined,
         recentBatchFromNow: undefined,
         limit: undefined,
+        includeRevealBlocks: undefined,
       },
       SESSION,
     );
@@ -177,6 +181,7 @@ describe("find_previous_questions response shape (single game)", () => {
         posted: undefined,
         recentBatchFromNow: undefined,
         limit: undefined,
+        includeRevealBlocks: undefined,
       },
       SESSION,
     );
@@ -205,6 +210,7 @@ describe("find_previous_questions response shape (single game)", () => {
         posted: undefined,
         recentBatchFromNow: undefined,
         limit: undefined,
+        includeRevealBlocks: undefined,
       },
       SESSION,
     );
@@ -225,6 +231,7 @@ describe("find_previous_questions response shape (single game)", () => {
         posted: undefined,
         recentBatchFromNow: undefined,
         limit: undefined,
+        includeRevealBlocks: undefined,
       },
       SESSION,
     );
@@ -248,6 +255,7 @@ describe("find_previous_questions response shape (single game)", () => {
         posted: undefined,
         recentBatchFromNow: undefined,
         limit: undefined,
+        includeRevealBlocks: undefined,
       },
       SESSION,
     );
@@ -296,6 +304,7 @@ describe("find_previous_questions per-format response shape", () => {
         posted: undefined,
         recentBatchFromNow: undefined,
         limit: undefined,
+        includeRevealBlocks: undefined,
       },
       SESSION,
     );
@@ -320,6 +329,7 @@ describe("find_previous_questions per-format response shape", () => {
         posted: undefined,
         recentBatchFromNow: undefined,
         limit: undefined,
+        includeRevealBlocks: undefined,
       },
       SESSION,
     );
@@ -356,6 +366,7 @@ describe("find_previous_questions per-format response shape", () => {
         posted: undefined,
         recentBatchFromNow: undefined,
         limit: undefined,
+        includeRevealBlocks: undefined,
       },
       SESSION,
     );
@@ -399,6 +410,7 @@ describe("find_previous_questions per-format response shape", () => {
         posted: undefined,
         recentBatchFromNow: undefined,
         limit: undefined,
+        includeRevealBlocks: undefined,
       },
       SESSION,
     );
@@ -410,5 +422,105 @@ describe("find_previous_questions per-format response shape", () => {
     assert.equal(q.suggestedDifficulty, "Medium");
     assert.equal(q.difficulty, 5);
     assert.equal(Object.prototype.hasOwnProperty.call(q, "isTrue"), false);
+  });
+});
+
+describe("find_previous_questions — revealBlocks opt-in exposure", () => {
+  const narrative = [
+    {
+      type: "section" as const,
+      block_id: "narrative:q1",
+      text: { type: "mrkdwn" as const, text: "the why" },
+    },
+  ];
+
+  function args(overrides: { includeRevealBlocks?: boolean }) {
+    return {
+      games: [FIXTURE_GAME_NAME],
+      categories: undefined,
+      seasons: undefined,
+      keywords: undefined,
+      match: undefined,
+      posted: undefined,
+      recentBatchFromNow: undefined,
+      limit: undefined,
+      includeRevealBlocks: overrides.includeRevealBlocks,
+    };
+  }
+
+  async function seedRevealed(data: TriviaDataLayer) {
+    await data.forGame(FIXTURE_GAME_NAME).saveQuestion({
+      id: "q1",
+      category: "Science",
+      statement: "Water boils at 100C",
+      isTrue: true,
+      emojis: ["🔬"],
+      createdAt: 1,
+      postedAt: 1500,
+      processedAt: 2000,
+      messageLink: "https://slack.com/archives/C/p1",
+      revealBlocks: narrative,
+    });
+  }
+
+  it("default (no opt-in) omits revealBlocks even for a revealed question", async () => {
+    const data = createInMemoryDataLayer();
+    await seedRevealed(data);
+    const tool = createFindPreviousQuestionsTool(data, fixtureGetGames);
+    const parsed = parseToolResult(await tool.handler(args({}), SESSION));
+    assert.equal(Object.prototype.hasOwnProperty.call(parsed.questions[0], "revealBlocks"), false);
+  });
+
+  it("opt-in returns revealBlocks for a revealed question", async () => {
+    const data = createInMemoryDataLayer();
+    await seedRevealed(data);
+    const tool = createFindPreviousQuestionsTool(data, fixtureGetGames);
+    const parsed = parseToolResult(
+      await tool.handler(args({ includeRevealBlocks: true }), SESSION),
+    );
+    assert.equal(parsed.questions[0].revealBlocks.length, 1);
+    assert.equal(parsed.questions[0].revealBlocks[0].block_id, "narrative:q1");
+  });
+
+  it("opt-in still withholds revealBlocks for a live (unrevealed) question", async () => {
+    const data = createInMemoryDataLayer();
+    // Posted but NOT revealed (processedAt absent) — carries revealBlocks but must stay hidden.
+    await data.forGame(FIXTURE_GAME_NAME).saveQuestion({
+      id: "q2",
+      category: "Science",
+      statement: "Live one",
+      isTrue: true,
+      emojis: ["🔬"],
+      createdAt: 2,
+      postedAt: 1500,
+      messageLink: "https://slack.com/archives/C/p2",
+      revealBlocks: narrative,
+    });
+    const tool = createFindPreviousQuestionsTool(data, fixtureGetGames);
+    const parsed = parseToolResult(
+      await tool.handler(args({ includeRevealBlocks: true }), SESSION),
+    );
+    assert.equal(Object.prototype.hasOwnProperty.call(parsed.questions[0], "revealBlocks"), false);
+  });
+
+  it("opt-in omits revealBlocks for a revealed question that has none stored", async () => {
+    const data = createInMemoryDataLayer();
+    // Revealed (processedAt set) but authored under "no" mode → no revealBlocks. Must omit, not error.
+    await data.forGame(FIXTURE_GAME_NAME).saveQuestion({
+      id: "q1",
+      category: "Science",
+      statement: "Facts-only reveal",
+      isTrue: true,
+      emojis: ["🔬"],
+      createdAt: 1,
+      postedAt: 1500,
+      processedAt: 2000,
+      messageLink: "https://slack.com/archives/C/p1",
+    });
+    const tool = createFindPreviousQuestionsTool(data, fixtureGetGames);
+    const parsed = parseToolResult(
+      await tool.handler(args({ includeRevealBlocks: true }), SESSION),
+    );
+    assert.equal(Object.prototype.hasOwnProperty.call(parsed.questions[0], "revealBlocks"), false);
   });
 });
