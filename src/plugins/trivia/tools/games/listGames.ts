@@ -56,6 +56,7 @@ interface ListGamesEntry {
   hint?: TriviaHintConfig;
   judgeLeniency?: JudgeLeniency;
   allTimeRow?: TriviaAllTimeRowMode;
+  tagPlayers?: boolean;
   includeRevealInQuestions?: TriviaIncludeRevealInQuestions;
   finalRevealSummary?: TriviaFinalRevealSummary;
   tellMeMore?: TriviaTellMeMoreConfig;
@@ -70,6 +71,7 @@ type WorkspaceDefaults = Partial<CascadeAxes> & {
   seasons?: TriviaSeasonsConfig;
   offDays?: OffDay[];
   allTimeRow?: TriviaAllTimeRowMode;
+  tagPlayers?: boolean;
   includeRevealInQuestions?: TriviaIncludeRevealInQuestions;
   finalRevealSummary?: TriviaFinalRevealSummary;
   tellMeMore?: TriviaTellMeMoreConfig;
@@ -164,6 +166,7 @@ export function createListGamesTool(
           ...(g.revealResponses !== undefined ? { revealResponses: g.revealResponses } : {}),
           ...(g.hint !== undefined ? { hint: g.hint } : {}),
           ...(g.allTimeRow !== undefined ? { allTimeRow: g.allTimeRow } : {}),
+          ...(g.tagPlayers !== undefined ? { tagPlayers: g.tagPlayers } : {}),
           ...(g.includeRevealInQuestions !== undefined
             ? { includeRevealInQuestions: g.includeRevealInQuestions }
             : {}),
@@ -184,6 +187,7 @@ export function createListGamesTool(
         if (triviaCfg.seasons !== undefined) workspaceDefaults.seasons = triviaCfg.seasons;
         if (triviaCfg.offDays !== undefined) workspaceDefaults.offDays = triviaCfg.offDays;
         if (triviaCfg.allTimeRow !== undefined) workspaceDefaults.allTimeRow = triviaCfg.allTimeRow;
+        if (triviaCfg.tagPlayers !== undefined) workspaceDefaults.tagPlayers = triviaCfg.tagPlayers;
         if (triviaCfg.includeRevealInQuestions !== undefined)
           workspaceDefaults.includeRevealInQuestions = triviaCfg.includeRevealInQuestions;
         if (triviaCfg.finalRevealSummary !== undefined)

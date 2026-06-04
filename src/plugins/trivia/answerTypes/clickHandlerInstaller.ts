@@ -183,7 +183,7 @@ export function installClickableVoteHandler(
     }
 
     if (client !== null) {
-      await editRosterIntoCard({ client, scoped, question, handler });
+      await editRosterIntoCard({ client, scoped, data, question, handler });
     }
   });
 }

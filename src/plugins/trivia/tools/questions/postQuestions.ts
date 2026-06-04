@@ -17,6 +17,7 @@ import {
 import { requireWritableGame } from "../../core/gamesRegistry.js";
 import { resolveCascade } from "../../domain/resolveCascade.js";
 import { buildCascadeContext } from "../../domain/cascadeContext.js";
+import { resolveTagPlayers } from "../../domain/tagPlayers.js";
 import { findSeasonBySlug } from "../../core/seasonTimeline.js";
 import { getAllAnswerTypeHandlers, getAnswerTypeHandler } from "../../answerTypes/registry.js";
 import type { TriviaDataLayer, TriviaQuestion } from "../../core/types.js";
@@ -324,6 +325,7 @@ export function createPostQuestionsTool(
           );
           const liveAnswersVisible = resolveCascade("liveAnswersVisible", cascadeCtx).value;
           const revealResponses = resolveCascade("revealResponses", cascadeCtx).value;
+          const tagPlayers = resolveTagPlayers(game, triviaConfig ?? null);
 
           await scoped.updateQuestion(item.questionId, {
             postedAt: tsToPostedAt(ts),
@@ -332,6 +334,7 @@ export function createPostQuestionsTool(
             postedBlocks: blocksToPost as KnownBlock[],
             liveAnswersVisible,
             revealResponses,
+            tagPlayers,
           });
 
           results.push({

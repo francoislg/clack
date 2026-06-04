@@ -121,6 +121,13 @@ export function createSetWorkspaceConfigTool() {
         .describe(
           'Workspace tier of the "All Time" leaderboard-row visibility axis. One of `"always"` | `"never"` | `"end-of-season-only"`. Controls the All-Time surface at reveal time — the normal-reveal `All Time` row AND the season-finale All-Time table (also requires prior seasons to exist). `"end-of-season-only"` (the built-in default) shows All Time only on the season\'s last fire; `"always"` shows it on every reveal; `"never"` hides it everywhere. Cascade: `game → workspace → "end-of-season-only"`. null clears.',
         ),
+      tagPlayers: z
+        .boolean()
+        .nullable()
+        .optional()
+        .describe(
+          "Workspace tier of the `tagPlayers` knob. `true` (the built-in default) names players with real `<@USERID>` Slack mentions everywhere — reveal post, in-thread narrative, finale podium, live answer roster, and reveal footer — which pings them. `false` renders every player as plain-text `@displayName` instead, so no trivia surface pings the room. Cascade: `game → workspace → true`. null clears.",
+        ),
       includeRevealInQuestions: triviaIncludeRevealInQuestionsZod
         .nullable()
         .optional()
@@ -301,6 +308,15 @@ export function createSetWorkspaceConfigTool() {
       } else if (args.allTimeRow !== undefined) {
         next.allTimeRow = args.allTimeRow;
         updatedFields.push("allTimeRow");
+      }
+
+      // tagPlayers: apply or clear (clear via `= undefined`; the key drops on JSON save).
+      if (args.tagPlayers === null) {
+        next.tagPlayers = undefined;
+        updatedFields.push("tagPlayers (cleared)");
+      } else if (args.tagPlayers !== undefined) {
+        next.tagPlayers = args.tagPlayers;
+        updatedFields.push("tagPlayers");
       }
 
       // includeRevealInQuestions: apply or clear.

@@ -3,8 +3,8 @@ import assert from "node:assert/strict";
 import { buildRevealFooterBlocks } from "./footer.js";
 import type { VoterBuckets } from "../tools/reveal/types.js";
 
-function sectionText(voters: VoterBuckets, answerLine = "👍 TRUE"): string {
-  const [divider, section] = buildRevealFooterBlocks(voters, answerLine, "Q1");
+function sectionText(voters: VoterBuckets, answerLine = "👍 TRUE", tagPlayers = true): string {
+  const [divider, section] = buildRevealFooterBlocks(voters, answerLine, "Q1", tagPlayers);
   assert.equal(divider.type, "divider");
   assert.equal(divider.block_id, "reveal-results-divider:Q1");
   assert.equal(section.type, "section");
@@ -78,6 +78,24 @@ describe("buildRevealFooterBlocks", () => {
     assert.match(text, /Correct:.*<@U_ALICE>/);
     assert.doesNotMatch(text, /Incorrect/);
     assert.doesNotMatch(text, /Didn't answer/);
+  });
+
+  it("tagPlayers=false renders plain @displayName instead of pinging mentions", () => {
+    const text = sectionText(
+      {
+        revealResponses: "yes",
+        correct: [ALICE],
+        incorrect: [BOB],
+        noAnswer: [CY],
+        reactions: [],
+      },
+      "👍 TRUE",
+      false,
+    );
+    assert.match(text, /Correct:.*@Alice/);
+    assert.match(text, /Incorrect:.*@Bob/);
+    assert.match(text, /Didn't answer:.*@Cy/);
+    assert.doesNotMatch(text, /<@U_/);
   });
 
   it("omits just-winners count lines when the counts are zero", () => {

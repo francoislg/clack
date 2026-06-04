@@ -75,6 +75,7 @@ const emptyArgs = {
   additionalInstructions: undefined,
   hint: undefined,
   allTimeRow: undefined,
+  tagPlayers: undefined,
   includeRevealInQuestions: undefined,
   finalRevealSummary: undefined,
   judgeLeniency: undefined,
@@ -128,6 +129,17 @@ describe("set_workspace_config", () => {
 
     await tool.handler({ ...emptyArgs, includeRevealInQuestions: null }, SESSION);
     assert.equal(loadTriviaConfig()?.includeRevealInQuestions, undefined);
+  });
+
+  it("sets and clears workspace tagPlayers", async () => {
+    primeBridge({});
+    const tool = createSetWorkspaceConfigTool();
+    const set = parseToolResult(await tool.handler({ ...emptyArgs, tagPlayers: false }, SESSION));
+    assert.ok(set.updatedFields.includes("tagPlayers"));
+    assert.equal(loadTriviaConfig()?.tagPlayers, false);
+
+    await tool.handler({ ...emptyArgs, tagPlayers: null }, SESSION);
+    assert.equal(loadTriviaConfig()?.tagPlayers, undefined);
   });
 
   it("sets and clears workspace finalRevealSummary", async () => {

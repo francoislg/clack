@@ -85,6 +85,35 @@ describe("list_games — per-game entries", () => {
     assert.equal("allTimeRow" in without.games[0], false);
   });
 
+  it("surfaces per-game tagPlayers when set, omits it when absent", async () => {
+    const games: readonly TriviaGame[] = [
+      {
+        name: "no-ping",
+        channel: "C300000000",
+        questionCron: "0 9 * * 1-5",
+        revealCron: "0 17 * * 1-5",
+        timezone: "UTC",
+        enabled: true,
+        tagPlayers: false,
+      },
+    ];
+    const withValue = parseToolResult(
+      await createListGamesTool(() => games, emptyTriviaConfig).handler(
+        { includeDisabled: undefined },
+        SESSION,
+      ),
+    );
+    assert.equal(withValue.games[0].tagPlayers, false);
+
+    const without = parseToolResult(
+      await createListGamesTool(fixtureGetGames, emptyTriviaConfig).handler(
+        { includeDisabled: undefined },
+        SESSION,
+      ),
+    );
+    assert.equal("tagPlayers" in without.games[0], false);
+  });
+
   it("surfaces per-game includeRevealInQuestions when set, omits it when absent", async () => {
     const games: readonly TriviaGame[] = [
       {
@@ -340,6 +369,24 @@ describe("list_games — workspaceDefaults block", () => {
       ),
     );
     assert.equal("allTimeRow" in without.workspaceDefaults, false);
+  });
+
+  it("surfaces workspaceDefaults.tagPlayers only when set", async () => {
+    const withValue = parseToolResult(
+      await createListGamesTool(fixtureGetGames, () => ({ tagPlayers: false })).handler(
+        { includeDisabled: undefined },
+        SESSION,
+      ),
+    );
+    assert.equal(withValue.workspaceDefaults.tagPlayers, false);
+
+    const without = parseToolResult(
+      await createListGamesTool(fixtureGetGames, emptyTriviaConfig).handler(
+        { includeDisabled: undefined },
+        SESSION,
+      ),
+    );
+    assert.equal("tagPlayers" in without.workspaceDefaults, false);
   });
 
   it("surfaces workspaceDefaults.includeRevealInQuestions only when set", async () => {

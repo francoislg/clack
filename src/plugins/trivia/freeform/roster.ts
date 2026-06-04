@@ -2,8 +2,14 @@ import type { App } from "@slack/bolt";
 import type { ContextBlock, DividerBlock, KnownBlock } from "@slack/types";
 import { triviaLogger as logger } from "../core/pluginLogger.js";
 import { t } from "../i18n/t.js";
+import { renderPlayerRef } from "../domain/tagPlayers.js";
 import type { AnswerTypeHandler } from "../answerTypes/types.js";
-import type { ScopedTriviaDataLayer, SubmittedAnswer, TriviaQuestion } from "../core/types.js";
+import type {
+  ScopedTriviaDataLayer,
+  SubmittedAnswer,
+  TriviaDataLayer,
+  TriviaQuestion,
+} from "../core/types.js";
 import { parseChannelFromPermalink, parseTsFromPermalink } from "../tools/reveal/slack.js";
 
 /** Per-group cap on visible names before the "+N" overflow takes over. */
@@ -69,13 +75,17 @@ export function groupRosterAnswers(
   });
 }
 
+/** Render one user reference for the roster — mention or plain `@displayName`. */
+type NameOf = (userId: string) => string;
+
 function renderGroupCompact(
   group: RosterGroup,
   question: TriviaQuestion,
   handler: AnswerTypeHandler,
+  nameOf: NameOf,
 ): string {
   const label = handler.rosterGroupLabel(group, question);
-  const names = group.recentUserIds.map((id) => `<@${id}>`).join(", ");
+  const names = group.recentUserIds.map((id) => nameOf(id)).join(", ");
   const overflow = group.overflowCount > 0 ? ` +${group.overflowCount}` : "";
   return `${label} (${group.rows.length}) ${names}${overflow}`;
 }
@@ -84,14 +94,15 @@ function renderGroupMultiline(
   group: RosterGroup,
   question: TriviaQuestion,
   handler: AnswerTypeHandler,
+  nameOf: NameOf,
 ): string {
   const label = handler.rosterGroupLabel(group, question);
-  const names = group.recentUserIds.map((id) => `<@${id}>`).join(", ");
+  const names = group.recentUserIds.map((id) => nameOf(id)).join(", ");
   const overflow = group.overflowCount > 0 ? ` +${group.overflowCount}` : "";
   return `  ${label} (${group.rows.length}): ${names}${overflow}`;
 }
 
-function renderHidden(answers: SubmittedAnswer[]): string {
+function renderHidden(answers: SubmittedAnswer[], nameOf: NameOf): string {
   // Dedupe by userId (newest wins), sort newest-first, cap at ROSTER_GROUP_CAP.
   const maxByUser = new Map<string, number>();
   for (const a of answers) {
@@ -104,7 +115,7 @@ function renderHidden(answers: SubmittedAnswer[]): string {
   const visible = ordered.slice(0, ROSTER_GROUP_CAP);
   const overflow =
     ordered.length > ROSTER_GROUP_CAP ? ` +${ordered.length - ROSTER_GROUP_CAP}` : "";
-  return `${label} ${visible.map((id) => `<@${id}>`).join(", ")}${overflow}`;
+  return `${label} ${visible.map((id) => nameOf(id)).join(", ")}${overflow}`;
 }
 
 /**
@@ -121,23 +132,26 @@ export function buildRosterBlock(
   answers: SubmittedAnswer[],
   question: TriviaQuestion,
   handler: AnswerTypeHandler,
+  nameOf: NameOf,
 ): ContextBlock {
   const liveAnswersVisible = question.liveAnswersVisible ?? true;
   let text: string;
 
   if (!liveAnswersVisible) {
-    text = renderHidden(answers);
+    text = renderHidden(answers, nameOf);
   } else {
     const label = t("roster.answered_label");
     const groups = groupRosterAnswers(answers, handler);
     if (groups.length === 0) {
       text = `${label} ${t("roster.no_answers_yet")}`;
     } else {
-      const compact = `${label} ${groups.map((g) => renderGroupCompact(g, question, handler)).join(" · ")}`;
+      const compact = `${label} ${groups.map((g) => renderGroupCompact(g, question, handler, nameOf)).join(" · ")}`;
       if (compact.length <= ROSTER_COMPACT_CHAR_LIMIT) {
         text = compact;
       } else {
-        const lines = groups.map((g) => renderGroupMultiline(g, question, handler)).join("\n");
+        const lines = groups
+          .map((g) => renderGroupMultiline(g, question, handler, nameOf))
+          .join("\n");
         text = `${label}\n${lines}`;
       }
     }
@@ -170,6 +184,8 @@ export type RosterEditClient = {
 export interface EditRosterParams {
   client: RosterEditClient;
   scoped: ScopedTriviaDataLayer;
+  /** Unscoped layer — used only to read the global users store for display names. */
+  data: Pick<TriviaDataLayer, "loadUsers">;
   question: TriviaQuestion;
   handler: AnswerTypeHandler;
 }
@@ -183,7 +199,7 @@ export interface EditRosterParams {
  * answer list before grouping so they don't surface in the public footer.
  */
 export async function editRosterIntoCard(params: EditRosterParams): Promise<void> {
-  const { client, scoped, question, handler } = params;
+  const { client, scoped, data, question, handler } = params;
 
   if (question.postedBlocks === undefined) {
     logger.warn(
@@ -214,12 +230,17 @@ export async function editRosterIntoCard(params: EditRosterParams): Promise<void
   );
   const filtered = forThisQuestion.filter((a) => !cheaterIds.has(a.userId));
 
+  const tagPlayers = question.tagPlayers ?? true;
+  const users = await data.loadUsers();
+  const nameOf = (userId: string): string =>
+    renderPlayerRef(userId, users.get(userId)?.displayName ?? userId, tagPlayers);
+
   // Always rebuild from postedBlocks — never from the current Slack state — so
   // edits can't accumulate stale roster blocks.
   const updatedBlocks: KnownBlock[] = [
     ...question.postedBlocks,
     buildRosterDivider(question.id),
-    buildRosterBlock(filtered, question, handler),
+    buildRosterBlock(filtered, question, handler, nameOf),
   ];
 
   try {

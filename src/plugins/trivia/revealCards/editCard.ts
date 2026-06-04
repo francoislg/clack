@@ -77,7 +77,12 @@ export async function editRevealIntoCard(params: EditRevealParams): Promise<void
 
   const handler = getAnswerTypeHandler(question.answersFormat);
   const answerLine = handler.formatCorrectAnswer(question);
-  const footer = buildRevealFooterBlocks(entry.voters, answerLine, question.id);
+  const footer = buildRevealFooterBlocks(
+    entry.voters,
+    answerLine,
+    question.id,
+    question.tagPlayers ?? true,
+  );
 
   // When `includeRevealInQuestions: "yes"`, `update_question` has stored authored
   // narrative on the record; append it BELOW the deterministic facts footer (and

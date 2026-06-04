@@ -14,6 +14,9 @@ import type { KnownBlock } from "@slack/types";
 import type { ChatUpdateResponse } from "@slack/web-api";
 import type { SubmittedAnswer, TriviaQuestion } from "../core/types.js";
 
+/** Default roster name renderer mirroring tagPlayers=true (pinging mention). */
+const tagRef = (id: string): string => `<@${id}>`;
+
 function freeformRow(userId: string, timestamp: number, text: string): SubmittedAnswer {
   return {
     userId,
@@ -145,7 +148,7 @@ describe("groupRosterAnswers", () => {
 describe("buildRosterBlock", () => {
   it("renders the empty-state sentinel for no answers", () => {
     const q = booleanQuestion();
-    const block = buildRosterBlock([], q, getAnswerTypeHandler(q.answersFormat));
+    const block = buildRosterBlock([], q, getAnswerTypeHandler(q.answersFormat), tagRef);
     const el = block.elements[0];
     if (el.type === "mrkdwn") {
       assert.match(el.text, /no answers yet/i);
@@ -155,7 +158,7 @@ describe("buildRosterBlock", () => {
   it("renders compact single-line layout under the char limit", () => {
     const rows = [booleanRow("U_A", 100, true), booleanRow("U_B", 200, false)];
     const q = booleanQuestion();
-    const block = buildRosterBlock(rows, q, getAnswerTypeHandler(q.answersFormat));
+    const block = buildRosterBlock(rows, q, getAnswerTypeHandler(q.answersFormat), tagRef);
     const el = block.elements[0];
     if (el.type === "mrkdwn") {
       assert.match(el.text, /^📝 \*Answered:\*/);
@@ -174,7 +177,7 @@ describe("buildRosterBlock", () => {
       }
     }
     const q = choiceQuestion();
-    const block = buildRosterBlock(rows, q, getAnswerTypeHandler(q.answersFormat));
+    const block = buildRosterBlock(rows, q, getAnswerTypeHandler(q.answersFormat), tagRef);
     const el = block.elements[0];
     if (el.type === "mrkdwn") {
       assert.match(el.text, /^📝 \*Answered:\*\n/);
@@ -184,7 +187,7 @@ describe("buildRosterBlock", () => {
   it("hides per-pick info when liveAnswersVisible is false", () => {
     const rows = [booleanRow("U_A", 100, true), booleanRow("U_B", 200, false)];
     const q = booleanQuestion({ liveAnswersVisible: false });
-    const block = buildRosterBlock(rows, q, getAnswerTypeHandler(q.answersFormat));
+    const block = buildRosterBlock(rows, q, getAnswerTypeHandler(q.answersFormat), tagRef);
     const el = block.elements[0];
     if (el.type === "mrkdwn") {
       assert.match(el.text, /^📝 \*Answered:\* <@/);
@@ -196,7 +199,7 @@ describe("buildRosterBlock", () => {
   it("respects the 5-cap in hidden mode with overflow", () => {
     const rows = Array.from({ length: 8 }, (_, i) => booleanRow(`U${i}`, i * 100, true));
     const q = booleanQuestion({ liveAnswersVisible: false });
-    const block = buildRosterBlock(rows, q, getAnswerTypeHandler(q.answersFormat));
+    const block = buildRosterBlock(rows, q, getAnswerTypeHandler(q.answersFormat), tagRef);
     const el = block.elements[0];
     if (el.type === "mrkdwn") {
       assert.match(el.text, /\+3$/);
@@ -206,7 +209,7 @@ describe("buildRosterBlock", () => {
   it("renders freeform answer text (truncated) as the group label", () => {
     const rows = [freeformRow("U_A", 100, "Paris")];
     const q = freeformQuestion();
-    const block = buildRosterBlock(rows, q, getAnswerTypeHandler(q.answersFormat));
+    const block = buildRosterBlock(rows, q, getAnswerTypeHandler(q.answersFormat), tagRef);
     const el = block.elements[0];
     if (el.type === "mrkdwn") {
       assert.match(el.text, /"Paris"/);
@@ -225,7 +228,7 @@ describe("buildRosterBlock", () => {
         throw new Error(`unexpected key ${key}`);
       });
       const q = booleanQuestion();
-      const block = buildRosterBlock([], q, getAnswerTypeHandler(q.answersFormat));
+      const block = buildRosterBlock([], q, getAnswerTypeHandler(q.answersFormat), tagRef);
       const el = block.elements[0];
       if (el.type === "mrkdwn") {
         assert.ok(
@@ -328,7 +331,7 @@ describe("editRosterIntoCard", () => {
     await data.saveUser({ userId: "U_ALICE", displayName: "Alice", joinedAt: 1000 });
 
     const client = fakeClient();
-    await editRosterIntoCard({ client, scoped, question, handler });
+    await editRosterIntoCard({ client, scoped, data, question, handler });
     assert.equal(client.calls.length, 1, "first edit triggers one chat.update");
     const firstRoster = rosterText(client.calls[0]);
     // Slack roster uses `<@USERID>` mentions, not display names — assert on userId.
@@ -345,7 +348,7 @@ describe("editRosterIntoCard", () => {
       correct: false,
       timestamp: 2000,
     });
-    await editRosterIntoCard({ client, scoped, question, handler });
+    await editRosterIntoCard({ client, scoped, data, question, handler });
     assert.equal(client.calls.length, 2, "re-click edit triggers a second chat.update");
 
     // The rebuilt footer is sourced from current answers — Alice's row is still ONE row (not
@@ -386,6 +389,7 @@ describe("editRosterIntoCard", () => {
     await editRosterIntoCard({
       client,
       scoped,
+      data,
       question,
       handler: getAnswerTypeHandler(question.answersFormat),
     });
@@ -393,5 +397,27 @@ describe("editRosterIntoCard", () => {
     const text = rosterText(client.calls[0]);
     assert.match(text, /<@U_ALICE>/);
     assert.doesNotMatch(text, /<@U_CHEAT>/, "cheater must not surface in the footer");
+  });
+
+  it("renders plain @displayName (no ping) when the question stamped tagPlayers=false", async () => {
+    const data = createInMemoryDataLayer();
+    const scoped = data.forGame(FIXTURE_GAME_NAME);
+    const question = { ...postedQuestion(), tagPlayers: false };
+    await scoped.saveQuestion(question);
+    await scoped.saveAnswer(booleanRow("U_ALICE", 1000, true));
+    await data.saveUser({ userId: "U_ALICE", displayName: "Alice", joinedAt: 0 });
+
+    const client = fakeClient();
+    await editRosterIntoCard({
+      client,
+      scoped,
+      data,
+      question,
+      handler: getAnswerTypeHandler(question.answersFormat),
+    });
+
+    const text = rosterText(client.calls[0]);
+    assert.match(text, /@Alice/, "uses the display name");
+    assert.doesNotMatch(text, /<@U_ALICE>/, "no pinging mention when tagPlayers=false");
   });
 });

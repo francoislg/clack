@@ -140,6 +140,13 @@ const structuralFieldsSchema = {
     .describe(
       'Per-game tier of the "All Time" leaderboard-row visibility axis. One of `"always"` | `"never"` | `"end-of-season-only"`. Controls the All-Time surface at reveal time — the normal-reveal `All Time` row AND the season-finale All-Time table (also requires prior seasons to exist). `"end-of-season-only"` (the workspace default) shows All Time only on the season\'s last fire. Cascade: `game → workspace → "end-of-season-only"`. On UPDATE: explicit null clears the field.',
     ),
+  tagPlayers: z
+    .boolean()
+    .nullable()
+    .optional()
+    .describe(
+      "Per-game tier of the `tagPlayers` knob. `true` (the default) names players with real `<@USERID>` Slack mentions everywhere — reveal post, in-thread narrative, finale podium, live answer roster, and reveal footer — which pings them. `false` renders every player as plain-text `@displayName` instead, so no trivia surface pings the room. Cascade: `game → workspace → true`. On UPDATE: explicit null clears the field.",
+    ),
   includeRevealInQuestions: triviaIncludeRevealInQuestionsZod
     .nullable()
     .optional()
@@ -383,6 +390,15 @@ export function createUpsertGameTool(
 
       // Merge structural fields with the same null-clear / value-replace /
       // omit-to-keep semantics.
+      // tagPlayers clear (null) → omit the key; set → take the arg; else keep existing.
+      // Computed here (not spread-then-`delete`d) so a cleared field leaves no key behind.
+      const nextTagPlayers: boolean | undefined =
+        args.tagPlayers === null
+          ? undefined
+          : args.tagPlayers !== undefined
+            ? args.tagPlayers
+            : existing?.tagPlayers;
+
       const mergedStructural: Partial<TriviaGame> = {
         ...(existing?.format !== undefined ? { format: existing.format } : {}),
         ...(existing?.categories !== undefined ? { categories: existing.categories } : {}),
@@ -400,6 +416,7 @@ export function createUpsertGameTool(
         ...(existing?.hint !== undefined ? { hint: existing.hint } : {}),
         ...(existing?.judgeLeniency !== undefined ? { judgeLeniency: existing.judgeLeniency } : {}),
         ...(existing?.allTimeRow !== undefined ? { allTimeRow: existing.allTimeRow } : {}),
+        ...(nextTagPlayers !== undefined ? { tagPlayers: nextTagPlayers } : {}),
         ...(existing?.includeRevealInQuestions !== undefined
           ? { includeRevealInQuestions: existing.includeRevealInQuestions }
           : {}),
@@ -508,6 +525,7 @@ export function createUpsertGameTool(
         hasHint: mergedStructural.hint !== undefined,
         hasJudgeLeniency: mergedStructural.judgeLeniency !== undefined,
         hasAllTimeRow: mergedStructural.allTimeRow !== undefined,
+        hasTagPlayers: mergedStructural.tagPlayers !== undefined,
         hasIncludeRevealInQuestions: mergedStructural.includeRevealInQuestions !== undefined,
         hasFinalRevealSummary: mergedStructural.finalRevealSummary !== undefined,
         hasTellMeMore: mergedStructural.tellMeMore !== undefined,

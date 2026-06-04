@@ -1230,3 +1230,32 @@ describe("compute_answers — finalRevealSummary axis", () => {
     assert.equal(res.finalRevealSummary, "no");
   });
 });
+
+describe("compute_answers — tagPlayers axis", () => {
+  function toolWith(data: ReturnType<typeof createInMemoryDataLayer>, tagPlayers?: boolean) {
+    const getGames = () =>
+      fixtureGetGames().map((g) =>
+        g.name === FIXTURE_GAME_NAME && tagPlayers !== undefined ? { ...g, tagPlayers } : g,
+      );
+    return createComputeAnswersTool(data, fakeSdk(), getGames, fakeSlackDeps(), () => ({}));
+  }
+
+  async function run(tool: ReturnType<typeof createComputeAnswersTool>) {
+    return parseToolResult(
+      await tool.handler(
+        { game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined, reprocessBatchId: undefined },
+        SESSION,
+      ),
+    );
+  }
+
+  it("defaults to true when unset at every tier", async () => {
+    const res = await run(toolWith(createInMemoryDataLayer(), undefined));
+    assert.equal(res.tagPlayers, true);
+  });
+
+  it("payload carries the resolved game-tier value", async () => {
+    const res = await run(toolWith(createInMemoryDataLayer(), false));
+    assert.equal(res.tagPlayers, false);
+  });
+});
