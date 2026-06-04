@@ -367,10 +367,9 @@ export async function executeDynamicJob(
   const effectiveUserId = actor.kind === "user" ? actor.userId : actor.source;
 
   // Channelless cron jobs (no `job.channel`) synthesize a `channelless:<jobId>` sentinel
-  // for the dispatch boundary. The session stores the sentinel, the delivery-context
-  // builder detects it and emits the "post_to only" mode, and the submit_response
-  // schema selector forces the "skipped" shape. Slack API call sites guard against
-  // the sentinel via `isChannellessChannelId`.
+  // for the dispatch boundary. The session stores the sentinel, and the submit_response
+  // schema selector forces the "optional-post-to" shape (skip OR post_to, no primary).
+  // Slack API call sites guard against the sentinel via `isChannellessChannelId`.
   const dispatchChannelId = job.channel ?? makeChannellessChannelId(job.id);
   const response = await deps.processMessage({
     client,

@@ -24,7 +24,7 @@ export interface BuildQueryContextParams {
    * Declarative override of `submit_response` schema/gating behavior. Propagated to the tool
    * server when building `submit_response`. See `CronJob.submitResponseMode` for the contract.
    */
-  submitResponseMode?: "always" | "optional" | "skipped";
+  submitResponseMode?: "always" | "optional" | "optional-post-to" | "skipped";
   /**
    * When true, `submit_response` exposes top-level `additional_messages` and `thread_replies`.
    * Only the scheduled (cron) trigger sets this; everywhere else the fields are hidden.

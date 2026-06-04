@@ -219,7 +219,7 @@ describe("casual-talk plugin load", () => {
     assert.equal(created.specKey, "chatter");
     assert.equal(created.plugin, "casual-talk");
     assert.equal(created.pluginManaged, true);
-    assert.equal(created.submitResponseMode, "skipped");
+    assert.equal(created.submitResponseMode, "optional-post-to");
     assert.deepEqual(created.requiredTools, ["mcp__clack__random_roll"]);
     assert.deepEqual(created.attachedTopics, ["casual-talk"]);
     assert.equal(created.name, "Casual chatter");

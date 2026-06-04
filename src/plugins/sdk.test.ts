@@ -609,7 +609,7 @@ describe("ClackSdk", () => {
       enabled: boolean;
       requiredTools?: string[];
       skipConditions?: string;
-      submitResponseMode?: "always" | "optional" | "skipped";
+      submitResponseMode?: "always" | "optional" | "optional-post-to" | "skipped";
       skipDates?: Array<{ date: string; label: string }>;
       attachedTopics?: string[];
       runs?: Array<{ executedAt: string; status: "success" | "error" | "skipped" }>;

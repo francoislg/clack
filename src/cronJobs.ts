@@ -46,9 +46,9 @@ export interface CronJob {
    * its delivery destination at fire time by calling `post_to` from within the Claude
    * session — used by plugin-managed jobs that evaluate multiple candidate channels
    * per fire. When absent, the `submit_response` schema is forced into the
-   * `"skipped"` shape regardless of the persisted `submitResponseMode` (see the
-   * `submit-response-mode` capability), and the only legitimate delivery path is a
-   * `post_to` action call from Claude.
+   * `"optional-post-to"` shape regardless of the persisted `submitResponseMode` (see the
+   * `submit-response-mode` capability): there is no bound channel for a primary response,
+   * so the only delivery path is a `post_to` action call from Claude (or a bare skip).
    */
   channel?: string;
   /** What Claude does each tick */
@@ -102,6 +102,9 @@ export interface CronJob {
    * precedence over the auto-derivation from `triggerType` + `skipConditions`:
    * - `"always"` — `skip_response` is NOT in the schema; the run MUST deliver.
    * - `"optional"` — `skip_response` IS in the schema as an optional boolean.
+   * - `"optional-post-to"` — the schema exposes `actions` (so `post_to` works) + an optional
+   *   `skip_response`, but no primary delivery fields. The run delivers via `post_to` (which
+   *   carries its own channel) OR skips. Used for channelless runs with no bound channel.
    * - `"skipped"` — the entire schema is replaced by `{ skip_response: z.literal(true) }`; the
    *   run MUST decline delivery. Use when the run's actual deliverable is produced by another
    *   required tool (e.g. trivia's `post_questions`) and `submit_response` is purely a
@@ -110,7 +113,7 @@ export interface CronJob {
    * When unset, today's auto-derivation rules apply unchanged. See the `submit-response-mode`
    * capability for the full resolution table.
    */
-  submitResponseMode?: "always" | "optional" | "skipped";
+  submitResponseMode?: "always" | "optional" | "optional-post-to" | "skipped";
   /**
    * Structured date-based skip list. Evaluated by the scheduler before opening a Claude session
    * (and before {@link skipConditions}). When today (in {@link timezone}) matches any entry, the
@@ -165,7 +168,7 @@ const DEFAULT_STATE: CronJobState = { jobs: [] };
 
 let cached: CronJobState | null = null;
 
-const VALID_SUBMIT_RESPONSE_MODES = new Set(["always", "optional", "skipped"]);
+const VALID_SUBMIT_RESPONSE_MODES = new Set(["always", "optional", "optional-post-to", "skipped"]);
 
 /**
  * Drop `submitResponseMode` from jobs whose persisted value isn't one of the three valid
@@ -178,7 +181,7 @@ function sanitizeLoadedJobs(jobs: CronJob[]): CronJob[] {
       !VALID_SUBMIT_RESPONSE_MODES.has(job.submitResponseMode)
     ) {
       logger.warn(
-        `Cron job ${job.id}: ignoring invalid submitResponseMode "${job.submitResponseMode}" (expected one of: always, optional, skipped). Falling back to auto-derivation.`,
+        `Cron job ${job.id}: ignoring invalid submitResponseMode "${job.submitResponseMode}" (expected one of: always, optional, optional-post-to, skipped). Falling back to auto-derivation.`,
       );
       job.submitResponseMode = undefined;
     }
@@ -288,7 +291,7 @@ export interface CreateCronJobParams {
   requiredTools?: string[];
   plugin?: string;
   skipConditions?: string;
-  submitResponseMode?: "always" | "optional" | "skipped";
+  submitResponseMode?: "always" | "optional" | "optional-post-to" | "skipped";
   skipDates?: SkipDate[];
   pluginManaged?: boolean;
   specKey?: string;
@@ -389,7 +392,7 @@ export interface UpdateCronJobParams {
    * Pass one of the three values to set; pass `null` (or omit explicitly via `submitResponseMode: null`)
    * to clear; leaving undefined keeps the existing value.
    */
-  submitResponseMode?: "always" | "optional" | "skipped" | null;
+  submitResponseMode?: "always" | "optional" | "optional-post-to" | "skipped" | null;
   /** Pass an empty array to clear; undefined leaves the field unchanged. */
   skipDates?: SkipDate[];
   /**

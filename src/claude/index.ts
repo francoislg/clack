@@ -107,7 +107,7 @@ export interface AskClaudeOptions {
    * Declarative override of `submit_response` schema/gating behavior. Threaded from the cron
    * job through `processMessage` to the tool-server build context. See `CronJob.submitResponseMode`.
    */
-  submitResponseMode?: "always" | "optional" | "skipped";
+  submitResponseMode?: "always" | "optional" | "optional-post-to" | "skipped";
   /**
    * Effective "now" for time-sensitive tools. Threaded from the cron scheduler when a job is
    * replayed with an explicit `asOf` parameter; absent for normal scheduler-tick fires.

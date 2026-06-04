@@ -53,7 +53,7 @@ export interface PromptOptions {
    * accepts nothing else). Other values render no extra guidance — the schema differences
    * are surfaced through the tool listing.
    */
-  submitResponseMode?: "always" | "optional" | "skipped";
+  submitResponseMode?: "always" | "optional" | "optional-post-to" | "skipped";
   /**
    * Effective MCP registry for the current session, used to render the "available
    * integrations" catalog block. Omit when attach_integration isn't available (worker

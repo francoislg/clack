@@ -110,7 +110,7 @@ export const casualTalkPlugin: ClackPlugin = async (sdk: ClackSdk) => {
         timezone: config.workHours.tz,
         prompt,
         name: "Casual chatter",
-        submitResponseMode: "skipped",
+        submitResponseMode: "optional-post-to",
         requiredTools: ["mcp__clack__random_roll"],
         attachedTopics: ["casual-talk"],
       });
