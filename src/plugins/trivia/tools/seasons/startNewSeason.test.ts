@@ -1,4 +1,4 @@
-import { describe, it } from "vitest";
+import { describe, it, beforeEach, afterEach, vi } from "vitest";
 import assert from "node:assert/strict";
 import { createStartNewSeasonTool } from "./startNewSeason.js";
 import { createInMemoryDataLayer, FIXTURE_GAME_NAME, fixtureGetGames } from "../../testHelpers.js";
@@ -8,12 +8,29 @@ import { parseToolResult } from "../../../../tools/testHelpers.js";
  * Tool-level tests for `start_new_season`. The rollover MECHANICS (continuation
  * inheritance, categories reset, endedAt re-stamp no-op) are covered at the
  * helper level in `../reveal/rollover.test.ts`; this file covers the tool's
- * own behavior: it closes the current season, honors a queued continuation, and
- * degrades cleanly when there is no current season or seasons aren't initialized.
+ * own behavior: the last-fire confirmation guard, force override, closing the
+ * current season, honoring a queued continuation, and degrading cleanly when
+ * there is no current season or seasons aren't initialized.
+ *
+ * The clock is pinned to a weekday noon UTC so the fixture game's
+ * revealCron ("0 17 * * 1-5", UTC) resolves to a deterministic next fire at
+ * 17:00 the same day — letting each test choose `expectedEndAt` before or after
+ * it to land on either side of the guard.
  */
 
 const SESSION = { sessionId: "test" };
 const DAY = 86_400_000;
+// 2026-06-03 is a Wednesday; next reveal fire is 2026-06-03T17:00:00Z.
+const PINNED_NOW = new Date("2026-06-03T12:00:00Z");
+
+beforeEach(() => {
+  vi.useFakeTimers();
+  vi.setSystemTime(PINNED_NOW);
+});
+
+afterEach(() => {
+  vi.useRealTimers();
+});
 
 function makeTool(data: ReturnType<typeof createInMemoryDataLayer>) {
   return createStartNewSeasonTool(data, fixtureGetGames);
@@ -28,7 +45,9 @@ describe("start_new_season", () => {
       seasons: [{ slug: "s1", startedAt: now - DAY, expectedEndAt: now + 60_000 }],
     });
 
-    const res = parseToolResult(await makeTool(data).handler({ game: FIXTURE_GAME_NAME }, SESSION));
+    const res = parseToolResult(
+      await makeTool(data).handler({ game: FIXTURE_GAME_NAME, force: undefined }, SESSION),
+    );
 
     assert.equal(res.seasonClosed, true);
     assert.equal(res.closedSlug, "s1");
@@ -51,7 +70,9 @@ describe("start_new_season", () => {
       ],
     });
 
-    const res = parseToolResult(await makeTool(data).handler({ game: FIXTURE_GAME_NAME }, SESSION));
+    const res = parseToolResult(
+      await makeTool(data).handler({ game: FIXTURE_GAME_NAME, force: undefined }, SESSION),
+    );
 
     assert.equal(res.seasonClosed, true);
     assert.equal(
@@ -75,7 +96,9 @@ describe("start_new_season", () => {
       ],
     });
 
-    const res = parseToolResult(await makeTool(data).handler({ game: FIXTURE_GAME_NAME }, SESSION));
+    const res = parseToolResult(
+      await makeTool(data).handler({ game: FIXTURE_GAME_NAME, force: undefined }, SESSION),
+    );
 
     assert.equal(res.seasonClosed, false);
     const state = await scoped.loadSeasonsState();
@@ -84,7 +107,51 @@ describe("start_new_season", () => {
 
   it("errors when seasons are not initialized", async () => {
     const data = createInMemoryDataLayer();
-    const out = await makeTool(data).handler({ game: FIXTURE_GAME_NAME }, SESSION);
+    const out = await makeTool(data).handler(
+      { game: FIXTURE_GAME_NAME, force: undefined },
+      SESSION,
+    );
     assert.ok(out.isError);
+  });
+
+  it("confirmation guard: does NOT roll over when it is not the season's last fire", async () => {
+    const data = createInMemoryDataLayer();
+    const scoped = data.forGame(FIXTURE_GAME_NAME);
+    const now = Date.now();
+    // expectedEndAt is weeks past the next reveal fire → NOT the last fire.
+    await scoped.saveSeasonsState({
+      seasons: [{ slug: "s1", startedAt: now - DAY, expectedEndAt: now + 30 * DAY }],
+    });
+
+    const res = parseToolResult(
+      await makeTool(data).handler({ game: FIXTURE_GAME_NAME, force: undefined }, SESSION),
+    );
+
+    assert.equal(res.seasonClosed, false);
+    assert.equal(res.requiresConfirmation, true);
+    assert.match(res.warning, /CANNOT be undone/);
+    assert.match(res.warning, /force: true/);
+
+    const state = await scoped.loadSeasonsState();
+    assert.equal(state?.seasons.length, 1, "state must be untouched");
+    assert.equal(state?.seasons[0]?.endedAt, undefined, "season must not be stamped endedAt");
+  });
+
+  it("force: true overrides the guard for a deliberate mid-season rollover", async () => {
+    const data = createInMemoryDataLayer();
+    const scoped = data.forGame(FIXTURE_GAME_NAME);
+    const now = Date.now();
+    await scoped.saveSeasonsState({
+      seasons: [{ slug: "s1", startedAt: now - DAY, expectedEndAt: now + 30 * DAY }],
+    });
+
+    const res = parseToolResult(
+      await makeTool(data).handler({ game: FIXTURE_GAME_NAME, force: true }, SESSION),
+    );
+
+    assert.equal(res.seasonClosed, true);
+    assert.equal(res.closedSlug, "s1");
+    const state = await scoped.loadSeasonsState();
+    assert.ok(state?.seasons.find((s) => s.slug === "s1")?.endedAt !== undefined);
   });
 });
