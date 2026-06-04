@@ -9,20 +9,21 @@
  * The rebuild:
  *   1. drops the answer-actions block (vote / freeform-answer buttons, plus any
  *      hint button sharing that block) by its `block_id` prefix,
- *   2. appends the static results footer (who got it right, per mode),
- *   3. appends a "See your answer" button, and
- *   4. when `tellMeMore` is enabled, appends a "Tell me more" button in its own
- *      actions block (so the click handler can drop just that block).
+ *   2. appends the static results footer (who got it right, per mode), and
+ *   3. appends the post-game buttons section (`renderPostGameButtons`) — every
+ *      enabled registry entry, each in its own actions block.
  */
 
 import type { KnownBlock } from "@slack/types";
 import { triviaLogger as logger } from "../core/pluginLogger.js";
-import { t } from "../i18n/t.js";
 import { getAnswerTypeHandler } from "../answerTypes/registry.js";
+import type { TriviaConfig, TriviaGame } from "../core/configTypes.js";
 import type { TriviaQuestion } from "../core/types.js";
 import type { ProcessRevealEntry } from "../tools/reveal/types.js";
 import { parseChannelFromPermalink, parseTsFromPermalink } from "../tools/reveal/slack.js";
 import { buildRevealFooterBlocks } from "./footer.js";
+import { renderPostGameButtons } from "./postGameButtons.js";
+import { POST_GAME_BUTTONS } from "./postGameRegistry.js";
 
 /** `block_id` prefixes of the answer-affordance block appended by `post_questions`. */
 const ANSWER_ACTIONS_BLOCK_PREFIXES = ["vote-actions:", "freeform-answer-actions:"] as const;
@@ -37,8 +38,9 @@ export interface EditRevealParams {
   entry: ProcessRevealEntry;
   /** Plugin SDK action-id namespacer, e.g. `(key) => \`plugin:trivia:\${key}\``. */
   actionId: (key: string) => string;
-  /** When true, append a "Tell me more" button alongside "See your answer". */
-  tellMeMore: boolean;
+  /** Owning game + workspace config, used to resolve per-button enablement (e.g. `tellMeMore`). */
+  game: TriviaGame | null;
+  config: TriviaConfig | null;
 }
 
 /**
@@ -47,7 +49,7 @@ export interface EditRevealParams {
  * `messageLink`; swallows `chat.update` failures.
  */
 export async function editRevealIntoCard(params: EditRevealParams): Promise<void> {
-  const { updateMessage, question, entry, actionId, tellMeMore } = params;
+  const { updateMessage, question, entry, actionId, game, config } = params;
 
   if (question.postedBlocks === undefined) {
     logger.warn(
@@ -77,43 +79,23 @@ export async function editRevealIntoCard(params: EditRevealParams): Promise<void
   const answerLine = handler.formatCorrectAnswer(question);
   const footer = buildRevealFooterBlocks(entry.voters, answerLine, question.id);
 
-  const seeAnswerButton: KnownBlock = {
-    type: "actions",
-    block_id: `reveal-see-answer-actions:${question.id}`,
-    elements: [
-      {
-        type: "button",
-        action_id: actionId(`reveal-see-answer:${question.id}`),
-        text: { type: "plain_text", text: t("button.see_your_answer"), emoji: true },
-      },
-    ],
-  };
-
   // When `includeRevealInQuestions: "yes"`, `update_question` has stored authored
   // narrative on the record; append it BELOW the deterministic facts footer (and
-  // above the "See your answer" button). Absent → facts-only, today's behavior.
+  // above the post-game buttons). Absent → facts-only, today's behavior.
   const narrativeBlocks = question.revealBlocks ?? [];
+
+  const postGameButtons = renderPostGameButtons(
+    POST_GAME_BUTTONS,
+    { question, game, config },
+    actionId,
+  );
 
   const updatedBlocks: KnownBlock[] = [
     ...bodyBlocks,
     ...footer,
     ...narrativeBlocks,
-    seeAnswerButton,
+    ...postGameButtons,
   ];
-
-  if (tellMeMore) {
-    updatedBlocks.push({
-      type: "actions",
-      block_id: `reveal-tell-me-more-actions:${question.id}`,
-      elements: [
-        {
-          type: "button",
-          action_id: actionId(`tell-me-more:${question.id}`),
-          text: { type: "plain_text", text: t("button.tell_me_more"), emoji: true },
-        },
-      ],
-    });
-  }
 
   try {
     await updateMessage(channel, ts, updatedBlocks);
