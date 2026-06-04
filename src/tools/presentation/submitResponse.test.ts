@@ -50,7 +50,7 @@ function makeDeps(
       intents: Record<string, StagedIntent>,
     ) => Promise<void>;
     allowSkip: boolean;
-    submitResponseMode: "always" | "optional" | "skipped";
+    submitResponseMode: "always" | "optional" | "optional-post-to" | "skipped";
     allowAttentionLevel: boolean;
     allowPostTopLevel: boolean;
     allowMultiMessage: boolean;
@@ -302,6 +302,86 @@ describe("createSubmitResponseTool", () => {
 
       const parsed = parseToolResult(result);
       assert.equal(parsed.success, true);
+    });
+  });
+
+  describe("optional-post-to mode (channelless delivery)", () => {
+    const postToAction = {
+      type: "post_to",
+      channel: "C1",
+      auto: true,
+      blocks: [{ type: "section", text: { type: "mrkdwn", text: "hi" } }],
+    };
+
+    function trackingCapture(): {
+      capture: ResponseCapture;
+      readonly setCalls: number;
+      readonly skipCalls: number;
+    } {
+      const state = { setCalls: 0, skipCalls: 0 };
+      const capture: ResponseCapture = {
+        set: () => {
+          state.setCalls++;
+        },
+        get: () => null,
+        getRenderedBlocks: () => null,
+        setSkipped: () => {
+          state.skipCalls++;
+        },
+        setAttentionLevel: () => {},
+        setPostedTopLevel: () => {},
+        isSkipped: () => false,
+        getAttentionLevel: () => null,
+        isPostedTopLevel: () => false,
+      };
+      return {
+        capture,
+        get setCalls() {
+          return state.setCalls;
+        },
+        get skipCalls() {
+          return state.skipCalls;
+        },
+      };
+    }
+
+    it("delivers via a post_to action and records success without a primary", async () => {
+      const snapshots: string[] = [];
+      const tracker = trackingCapture();
+      const deps = makeDeps({
+        submitResponseMode: "optional-post-to",
+        persistSnapshot: async (id) => {
+          snapshots.push(id);
+        },
+        responseCapture: tracker.capture,
+      });
+
+      const parsed = parseToolResult(await callToolRawTopLevel(deps, { actions: [postToAction] }));
+      assert.equal(parsed.success, true);
+      assert.equal(parsed.skipped, undefined);
+      assert.equal(parsed.delivered, false);
+      assert.equal(parsed.actionsCount, 1);
+      assert.equal(snapshots.length, 1, "a post_to snapshot is persisted");
+      assert.equal(tracker.setCalls, 1, "the post_to payload is captured for autoExecute");
+    });
+
+    it("records a skip when neither post_to nor skip_response is provided", async () => {
+      const tracker = trackingCapture();
+      const deps = makeDeps({
+        submitResponseMode: "optional-post-to",
+        responseCapture: tracker.capture,
+      });
+
+      const parsed = parseToolResult(await callToolRawTopLevel(deps, {}));
+      assert.equal(parsed.success, true);
+      assert.equal(parsed.skipped, true);
+      assert.equal(tracker.skipCalls, 1);
+    });
+
+    it("records a skip on bare skip_response: true", async () => {
+      const deps = makeDeps({ submitResponseMode: "optional-post-to" });
+      const parsed = parseToolResult(await callToolRawTopLevel(deps, { skip_response: true }));
+      assert.equal(parsed.skipped, true);
     });
   });
 

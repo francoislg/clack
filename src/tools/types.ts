@@ -114,7 +114,7 @@ export interface QueryToolContext {
    * rules apply (allowSkip derived from triggerType + skipConditions). Propagated from the
    * cron job through the scheduler → handler → tool-server build context chain.
    */
-  submitResponseMode?: "always" | "optional" | "skipped";
+  submitResponseMode?: "always" | "optional" | "optional-post-to" | "skipped";
   /**
    * When true, `submit_response` exposes the top-level `additional_messages` and
    * `thread_replies` fields. Only the scheduled (cron) trigger flips this on; other

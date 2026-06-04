@@ -340,7 +340,7 @@ describe("buildClackTools — query mode", () => {
       };
     }
 
-    it("forces submit_response to the 'skipped' shape for channelless sessions even when persisted mode is 'optional'", () => {
+    it("forces submit_response to the 'optional-post-to' shape for channelless sessions even when persisted mode is 'optional'", () => {
       const result = buildClackTools(
         makeQueryCtx({
           session: buildChannellessSession(),
@@ -353,11 +353,13 @@ describe("buildClackTools — query mode", () => {
       const submitResponse = registered["submit_response"];
       assert.ok(submitResponse, "submit_response must be registered");
 
-      const keys = Object.keys(submitResponse.inputSchema.shape ?? {});
+      // Channelless has no bound primary channel: the schema exposes skip_response + actions
+      // (so post_to can deliver), but NONE of the primary delivery fields.
+      const keys = Object.keys(submitResponse.inputSchema.shape ?? {}).sort();
       assert.deepEqual(
         keys,
-        ["skip_response"],
-        `channelless schema must accept ONLY skip_response — got [${keys.join(", ")}]`,
+        ["actions", "skip_response"],
+        `channelless schema must accept skip_response + actions only — got [${keys.join(", ")}]`,
       );
     });
 

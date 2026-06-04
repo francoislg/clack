@@ -201,7 +201,7 @@ export interface CronJobSpec {
    * `CronJob.submitResponseMode` for the full contract. Omit to leave the resulting
    * `CronJob.submitResponseMode` unset (today's auto-derivation rules apply).
    */
-  submitResponseMode?: "always" | "optional" | "skipped";
+  submitResponseMode?: "always" | "optional" | "optional-post-to" | "skipped";
   /**
    * Structured calendar-date skip list. Propagated as-is into the resulting `CronJob.skipDates`.
    * Omit (or pass an empty array) to leave the job's `skipDates` unset.

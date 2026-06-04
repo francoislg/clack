@@ -148,7 +148,7 @@ export interface ProcessMessageParams {
    * scheduler when the originating job declares a mode. See `CronJob.submitResponseMode` for
    * the contract. Only meaningful for `triggerType: "scheduled"`.
    */
-  submitResponseMode?: "always" | "optional" | "skipped";
+  submitResponseMode?: "always" | "optional" | "optional-post-to" | "skipped";
   /** Pre-analysis verdict from the autoRespond gate. Forwarded onto the session trigger at
    *  creation (autoRespond only) AND onto each assistant message appended during this run. */
   preAnalysis?: string;
@@ -200,7 +200,7 @@ interface ProcessingContext {
   readonly requiredTools?: string[];
   readonly skipConditions?: string;
   /** Declarative submit_response mode override from the originating cron job. */
-  readonly submitResponseMode?: "always" | "optional" | "skipped";
+  readonly submitResponseMode?: "always" | "optional" | "optional-post-to" | "skipped";
   /** Effective "now" for time-sensitive tools (replay support). Threaded into Claude options. */
   readonly asOf?: Date;
   /** Image files from the triggering Slack message (stored on the trigger). */

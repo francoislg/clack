@@ -289,10 +289,16 @@ export function shouldAllowSkip(triggerType: TriggerType): boolean {
 export function computeAllowSkip(
   triggerType: TriggerType,
   skipConditions?: string,
-  submitResponseMode?: "always" | "optional" | "skipped",
+  submitResponseMode?: "always" | "optional" | "optional-post-to" | "skipped",
 ): boolean {
   if (submitResponseMode === "always") return false;
-  if (submitResponseMode === "optional" || submitResponseMode === "skipped") return true;
+  if (
+    submitResponseMode === "optional" ||
+    submitResponseMode === "optional-post-to" ||
+    submitResponseMode === "skipped"
+  ) {
+    return true;
+  }
   if (shouldAllowSkip(triggerType)) return true;
   return triggerType === "scheduled" && !!skipConditions && skipConditions.length > 0;
 }
@@ -549,12 +555,13 @@ function buildQueryTools(ctx: QueryToolContext): ClackQueryToolsResult {
       // (replies go in the existing thread). Not used by additional_messages, which are
       // always top-level channel posts.
       ...(ctx.session.threadTs && { sessionThreadTs: ctx.session.threadTs }),
-      // Channelless dispatch (synthetic `channelless:<jobId>` channel id) MUST select the
-      // "skipped"-shape submit_response schema regardless of the persisted submitResponseMode
-      // — there's no destination for text delivery; only `post_to` can deliver. This is the
-      // mechanism backing the `submit-response-mode` capability's channelless rule.
+      // Channelless dispatch (synthetic `channelless:<jobId>` channel id) selects the
+      // "optional-post-to"-shape submit_response schema regardless of the persisted
+      // submitResponseMode — there's no bound channel for a primary response, but `post_to`
+      // (which carries its own explicit channel) is the legitimate delivery path. Backs the
+      // `submit-response-mode` capability's channelless rule.
       submitResponseMode: isChannellessChannelId(ctx.session.channelId)
-        ? "skipped"
+        ? "optional-post-to"
         : ctx.submitResponseMode,
       requiredTools: ctx.requiredTools,
       ...(ctx.hasPendingInput && { hasPendingInput: ctx.hasPendingInput }),

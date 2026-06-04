@@ -1,4 +1,3 @@
-import { randomBytes } from "node:crypto";
 import { z } from "zod";
 import { tool } from "@anthropic-ai/claude-agent-sdk";
 import type { IntentStore, ResponseCapture, ToolCallRecorder } from "../server.js";
@@ -15,7 +14,6 @@ import { appendStagedIntents as _appendStagedIntents } from "../../sessions.js";
 import type { AttentionLevel } from "../../sessions.js";
 import { readInstructionFile as _readInstructionFile } from "../../configurationFiles.js";
 import { textResult } from "../helpers.js";
-import { t } from "../../i18n/t.js";
 import { DISMISSAL_PHRASES_INLINE } from "../../claude/dismissalPhrases.js";
 import {
   getStructuredResponseBlocks as _getStructuredResponseBlocks,
@@ -34,6 +32,13 @@ import {
   validateTable as _validateTable,
 } from "../../slack/blockValidate.js";
 import { extractDisplayText } from "../../slack/blockText.js";
+import {
+  collectActionErrors,
+  persistPostToSnapshots,
+  persistReferencedIntents,
+  stampConfigUpdateLabels,
+  validateNestedPostToButtonLabels,
+} from "./submitResponse/actions.js";
 
 // Caps for multi-message batches — declared at module top because they're referenced by
 // `postToActionSchema` (immediate `.max(...)` calls evaluated at module load).
@@ -176,93 +181,79 @@ const postToActionSchema = z.object({
     ),
 });
 
-const changeActionSchema = z.object({
-  type: z.literal("change"),
-  ref: z.string().describe("Ref ID from propose_change"),
-  label: buttonLabelSchema
-    .optional()
-    .describe(
-      `Custom button label (default: 'Start Change'). MAX ${SLACK_BUTTON_LABEL_MAX} characters.`,
-    ),
-  auto: z
-    .boolean()
-    .optional()
-    .describe("If true, execute immediately without waiting for button click"),
+/**
+ * Factory for the ref-backed action schemas. Every one is `{ type, ref, label?, auto? }` —
+ * a button that resolves a previously-staged intent by ref. They differ only in the type
+ * literal, the ref/auto wording, and the default button label.
+ */
+function refActionSchema<T extends string>(opts: {
+  type: T;
+  refDescription: string;
+  defaultLabel: string;
+  autoDescription: string;
+}) {
+  return z.object({
+    type: z.literal(opts.type),
+    ref: z.string().describe(opts.refDescription),
+    label: buttonLabelSchema
+      .optional()
+      .describe(
+        `Custom button label (default: '${opts.defaultLabel}'). MAX ${SLACK_BUTTON_LABEL_MAX} characters.`,
+      ),
+    auto: z.boolean().optional().describe(opts.autoDescription),
+  });
+}
+
+const EXECUTE_ON_CLICK = "If true, execute immediately without waiting for button click";
+
+const changeActionSchema = refActionSchema({
+  type: "change",
+  refDescription: "Ref ID from propose_change",
+  defaultLabel: "Start Change",
+  autoDescription: EXECUTE_ON_CLICK,
 });
 
-const configUpdateActionSchema = z.object({
-  type: z.literal("config_update"),
-  ref: z.string().describe("Ref ID from propose_config_update"),
-  label: buttonLabelSchema
-    .optional()
-    .describe(
-      `Custom button label (default: 'Apply Update'). MAX ${SLACK_BUTTON_LABEL_MAX} characters.`,
-    ),
-  auto: z
-    .boolean()
-    .optional()
-    .describe("If true, execute immediately without waiting for button click"),
+const configUpdateActionSchema = refActionSchema({
+  type: "config_update",
+  refDescription: "Ref ID from propose_config_update",
+  defaultLabel: "Apply Update",
+  autoDescription: EXECUTE_ON_CLICK,
 });
 
-const updateActionSchema = z.object({
-  type: z.literal("update"),
-  ref: z.string().describe("Ref ID from request_update"),
-  label: buttonLabelSchema
-    .optional()
-    .describe(`Custom button label (default: 'Update'). MAX ${SLACK_BUTTON_LABEL_MAX} characters.`),
-  auto: z
-    .boolean()
-    .optional()
-    .describe("If true, execute immediately without waiting for button click"),
+const updateActionSchema = refActionSchema({
+  type: "update",
+  refDescription: "Ref ID from request_update",
+  defaultLabel: "Update",
+  autoDescription: EXECUTE_ON_CLICK,
 });
 
-const skillCreateActionSchema = z.object({
-  type: z.literal("skill_create"),
-  ref: z.string().describe("Ref ID from propose_skill_create"),
-  label: buttonLabelSchema
-    .optional()
-    .describe(
-      `Custom button label (default: 'Create skill'). MAX ${SLACK_BUTTON_LABEL_MAX} characters.`,
-    ),
-  auto: z
-    .boolean()
-    .optional()
-    .describe(
-      "If true, create the skill immediately without waiting for a confirm click. Recommended for 'create a skill that...' requests where the user clearly asked.",
-    ),
+const skillCreateActionSchema = refActionSchema({
+  type: "skill_create",
+  refDescription: "Ref ID from propose_skill_create",
+  defaultLabel: "Create skill",
+  autoDescription:
+    "If true, create the skill immediately without waiting for a confirm click. Recommended for 'create a skill that...' requests where the user clearly asked.",
 });
 
-const skillUpdateActionSchema = z.object({
-  type: z.literal("skill_update"),
-  ref: z.string().describe("Ref ID from propose_skill_update"),
-  label: buttonLabelSchema
-    .optional()
-    .describe(
-      `Custom button label (default: 'Edit skill'). MAX ${SLACK_BUTTON_LABEL_MAX} characters.`,
-    ),
-  auto: z.boolean().optional().describe("If true, apply the update immediately."),
+const skillUpdateActionSchema = refActionSchema({
+  type: "skill_update",
+  refDescription: "Ref ID from propose_skill_update",
+  defaultLabel: "Edit skill",
+  autoDescription: "If true, apply the update immediately.",
 });
 
-const skillDisableActionSchema = z.object({
-  type: z.literal("skill_disable"),
-  ref: z.string().describe("Ref ID from propose_skill_disable"),
-  label: buttonLabelSchema
-    .optional()
-    .describe(
-      `Custom button label (default: 'Disable'). MAX ${SLACK_BUTTON_LABEL_MAX} characters.`,
-    ),
-  auto: z.boolean().optional().describe("If true, disable immediately."),
+const skillDisableActionSchema = refActionSchema({
+  type: "skill_disable",
+  refDescription: "Ref ID from propose_skill_disable",
+  defaultLabel: "Disable",
+  autoDescription: "If true, disable immediately.",
 });
 
-const skillRestoreActionSchema = z.object({
-  type: z.literal("skill_restore"),
-  ref: z.string().describe("Ref ID from propose_skill_restore"),
-  label: buttonLabelSchema
-    .optional()
-    .describe(
-      `Custom button label (default: 'Restore'). MAX ${SLACK_BUTTON_LABEL_MAX} characters.`,
-    ),
-  auto: z.boolean().optional().describe("If true, restore immediately."),
+const skillRestoreActionSchema = refActionSchema({
+  type: "skill_restore",
+  refDescription: "Ref ID from propose_skill_restore",
+  defaultLabel: "Restore",
+  autoDescription: "If true, restore immediately.",
 });
 
 const ALLOWED_ACTION_TYPES = [
@@ -324,17 +315,6 @@ export const actionSchema = z.discriminatedUnion(
     },
   },
 );
-
-// Ref-based action types that need validation
-const REF_ACTION_TYPES = new Set([
-  "change",
-  "config_update",
-  "update",
-  "skill_create",
-  "skill_update",
-  "skill_disable",
-  "skill_restore",
-]);
 
 // Per-message follow-up payload used by `additional_messages` / `thread_replies` at
 // every layer (top-level and inside a post_to). Strict-mode: every primary-only signal
@@ -423,7 +403,7 @@ export interface SubmitResponseDeps {
    * `computeAllowSkip` (which has already run by the time this is passed). See the
    * `submit-response-mode` capability for the full contract.
    */
-  submitResponseMode?: "always" | "optional" | "skipped";
+  submitResponseMode?: "always" | "optional" | "optional-post-to" | "skipped";
   /** When true, the `attention_level` dial (incl. `"off"` to disengage) is available in the schema. */
   allowAttentionLevel?: boolean;
   /**
@@ -492,227 +472,6 @@ export interface SubmitResponseDeps {
    * (revert-to-default if a shipped default exists, otherwise delete-file).
    */
   readInstructionFile?: typeof _readInstructionFile;
-}
-
-/**
- * Walks every action in the response, including those reachable through `post_to`
- * subtrees AND multi-message followers (additional_messages / thread_replies, both
- * at the top level and inside a `post_to`). Yields each with a path label like
- * `"actions[0]"`, `"actions[0].actions[1]"`, or
- * `"additional_messages[2].actions[0].thread_replies[1].actions[0]"`.
- *
- * The `parentIsPostTo` flag is STICKY — once any ancestor in the walk is a `post_to`,
- * all descendants carry `parentIsPostTo: true`. That makes the "nested post_to" check
- * trivial (any flat action with parentIsPostTo === true that is itself a post_to is
- * rejected) regardless of how deep through follower-message subtrees the nesting goes.
- */
-interface FlatAction {
-  action: Action;
-  path: string;
-  parentIsPostTo: boolean;
-}
-
-/**
- * Internal recursive walker. Descends into:
- *  - the action's own nested `actions` (if it's a `post_to`)
- *  - the action's `additional_messages[*].actions` (if it's a `post_to`)
- *  - the action's `thread_replies[*].actions` (if it's a `post_to`)
- *
- * Each descent flips `parentIsPostTo` to true (sticky), so the nested-post_to check
- * catches everything underneath, including post_to-inside-post_to-follower.
- */
-function flattenActionsRecursive(
-  actions: Action[],
-  pathPrefix: string,
-  parentIsPostTo: boolean,
-  out: FlatAction[],
-): void {
-  actions.forEach((action, i) => {
-    const path = `${pathPrefix}[${i}]`;
-    out.push({ action, path, parentIsPostTo });
-    if (action.type !== "post_to") return;
-    // Inside a post_to subtree, every descendant has parentIsPostTo=true (sticky).
-    if (action.actions && action.actions.length > 0) {
-      flattenActionsRecursive(action.actions, `${path}.actions`, true, out);
-    }
-    if (action.additional_messages) {
-      action.additional_messages.forEach((msg, mi) => {
-        if (msg.actions && msg.actions.length > 0) {
-          flattenActionsRecursive(
-            msg.actions,
-            `${path}.additional_messages[${mi}].actions`,
-            true,
-            out,
-          );
-        }
-      });
-    }
-    if (action.thread_replies) {
-      action.thread_replies.forEach((msg, mi) => {
-        if (msg.actions && msg.actions.length > 0) {
-          flattenActionsRecursive(msg.actions, `${path}.thread_replies[${mi}].actions`, true, out);
-        }
-      });
-    }
-  });
-}
-
-function flattenActions(actions: Action[]): FlatAction[] {
-  const flat: FlatAction[] = [];
-  flattenActionsRecursive(actions, "actions", false, flat);
-  return flat;
-}
-
-/**
- * Batch-aware walker: yields actions from the top-level primary plus every
- * `additional_messages[*].actions` and `thread_replies[*].actions` at the top level,
- * each routed through `flattenActions` so post_to subtrees are descended too.
- *
- * Used by every validator that needs to see ALL ref-actions / post_to actions / button
- * labels in the batch (ref coverage, intent coverage, duplicate-channel guard, etc.).
- */
-function walkBatchActions(args: {
-  actions?: Action[];
-  additional_messages?: MessagePayload[];
-  thread_replies?: MessagePayload[];
-}): FlatAction[] {
-  const flat: FlatAction[] = [];
-  if (args.actions && args.actions.length > 0) {
-    flattenActionsRecursive(args.actions, "actions", false, flat);
-  }
-  if (args.additional_messages) {
-    args.additional_messages.forEach((msg, mi) => {
-      if (msg.actions && msg.actions.length > 0) {
-        flattenActionsRecursive(msg.actions, `additional_messages[${mi}].actions`, false, flat);
-      }
-    });
-  }
-  if (args.thread_replies) {
-    args.thread_replies.forEach((msg, mi) => {
-      if (msg.actions && msg.actions.length > 0) {
-        flattenActionsRecursive(msg.actions, `thread_replies[${mi}].actions`, false, flat);
-      }
-    });
-  }
-  return flat;
-}
-
-/**
- * Walks a pre-flattened action list and collects every ref-action whose `ref` is unknown
- * (or whose stored intent type disagrees with the action type). Returns all errors so
- * the §7 aggregator can surface a complete picture in one round-trip.
- */
-function validateRefActions(flat: FlatAction[], intentStore: IntentStore): string[] {
-  const errors: string[] = [];
-  for (const { action, path } of flat) {
-    if (!REF_ACTION_TYPES.has(action.type) || !("ref" in action)) continue;
-    const intent = intentStore.resolve(action.ref);
-    if (!intent) {
-      errors.push(
-        `${path}: Action type "${action.type}" references unknown ref "${action.ref}". Call the corresponding action tool first (e.g., propose_change, request_merge).`,
-      );
-      continue;
-    }
-    if (intent.type !== action.type) {
-      errors.push(
-        `${path}: Ref "${action.ref}" is a "${intent.type}" intent but action type is "${action.type}".`,
-      );
-    }
-  }
-  return errors;
-}
-
-/**
- * For each `config_update` action that has no explicit label, set the label based
- * on the staged intent's operation:
- *  - operation: "write" — leave label unset (blocks.ts defaults to "Apply Update")
- *  - operation: "delete" — read the file's default; if a shipped default exists,
- *    set label to "Remove Override"; otherwise set it to "Delete File".
- *
- * Mutates `action.label` in place. Runs after validation so we know every ref resolves.
- */
-function stampConfigUpdateLabels(
-  flat: FlatAction[],
-  intentStore: IntentStore,
-  readInstructionFile: typeof _readInstructionFile,
-): void {
-  for (const { action } of flat) {
-    if (action.type !== "config_update") continue;
-    if (action.label) continue;
-    const intent = intentStore.resolve(action.ref);
-    if (!intent || intent.type !== "config_update") continue;
-    if (intent.operation !== "delete") continue;
-    const { default_content } = readInstructionFile(intent.file);
-    action.label =
-      default_content !== null
-        ? t("blocks.action_label_config_revert")
-        : t("blocks.action_label_config_delete");
-  }
-}
-
-function validatePostToActions(flat: FlatAction[], topLevelDeliveryChannel?: string): string[] {
-  const errors: string[] = [];
-  for (const { action, path, parentIsPostTo } of flat) {
-    if (action.type !== "post_to") continue;
-    // Nested post_to is rejected — the recursion has no useful semantics
-    // (cross-posted message that itself triggers another cross-post) and would
-    // complicate auto-delivery and snapshot persistence. The sticky
-    // `parentIsPostTo` flag means this catches post_to nested through follower
-    // subtrees too (e.g., `actions[0].additional_messages[1].actions[0]` of type post_to).
-    if (parentIsPostTo) {
-      errors.push(
-        `${path}: Nested post_to is not supported. Use a separate top-level post_to action instead.`,
-      );
-      continue;
-    }
-    if (action.auto && !action.channel) {
-      errors.push(
-        `${path}: post_to with auto: true requires an explicit channel ID. Provide the target channel (e.g., "C0APQ9JU865"). Use list_repositories or check the conversation context for channel IDs.`,
-      );
-    }
-    if (action.blocks.length === 0) {
-      errors.push(`${path}: post_to action has empty blocks. Provide at least one block to post.`);
-    }
-    // In scheduled mode, submit_response already delivers top-level to the target channel.
-    // A post_to targeting the same channel without a thread would duplicate the message.
-    if (
-      topLevelDeliveryChannel &&
-      action.channel === topLevelDeliveryChannel &&
-      !action.thread_ts
-    ) {
-      errors.push(
-        `${path}: submit_response already posts top-level to channel ${topLevelDeliveryChannel}. Remove this post_to action — it would duplicate the message. Use post_to only for a DIFFERENT channel or a specific thread.`,
-      );
-    }
-  }
-  return errors;
-}
-
-function validateStagedIntentsCoverage(
-  flat: FlatAction[],
-  intentStore: IntentStore,
-): string | null {
-  const allIntents = intentStore.getAll();
-  if (allIntents.size === 0) return null;
-
-  const actionRefs = new Set<string>();
-  for (const { action } of flat) {
-    if ("ref" in action && action.ref) {
-      actionRefs.add(action.ref);
-    }
-  }
-
-  for (const [ref, intent] of allIntents) {
-    // Only check intent types that must appear as response actions
-    if (!REF_ACTION_TYPES.has(intent.type)) continue;
-    if (!actionRefs.has(ref)) {
-      return (
-        `You staged a "${intent.type}" intent (ref: ${ref}) but didn't include it in the response actions. ` +
-        `Either add it as an action button or, if you changed your mind, explain why in your response instead.`
-      );
-    }
-  }
-  return null;
 }
 
 function buildTexts(blocks: readonly Block[], message?: string) {
@@ -995,6 +754,25 @@ const skippedOnlyResponseSchema = {
     ),
 };
 
+// Schema for runs declared `submitResponseMode: "optional-post-to"` (and every channelless
+// run). There is no bound primary channel, so the primary delivery fields are absent — but
+// `actions` (and therefore the `post_to` action, which carries its own explicit `channel`)
+// IS available. The run delivers via one or more `post_to` actions OR terminates with
+// `skip_response: true`. The middleground between `"optional"` (full primary schema, may
+// skip) and `"skipped"` (terminator only).
+const optionalPostToResponseSchema = {
+  skip_response: z
+    .literal(true)
+    .optional()
+    .describe(
+      "Set to `true` to decline posting this run (no `post_to`). This run has no bound primary " +
+        "channel: deliver by emitting one or more `post_to` actions (each with an explicit `channel`), " +
+        "OR call `submit_response({ skip_response: true })` to decline. Do NOT include `blocks`, " +
+        "`message`, `table`, `reactions`, `post_top_level`, or `attention_level` — they are rejected.",
+    ),
+  actions: skipOptionalActions,
+};
+
 /**
  * Permissive union over every possible field the dynamically-composed `submit_response`
  * schema can carry. The handler runtime-narrows via `"x" in args` everywhere, so the
@@ -1045,6 +823,10 @@ function buildSubmitResponseSchema(
     return skippedOnlyResponseSchema;
   }
 
+  if (deps.submitResponseMode === "optional-post-to") {
+    return optionalPostToResponseSchema;
+  }
+
   let base: Record<string, z.ZodTypeAny>;
   if (deps.allowSkip && deps.allowAttentionLevel) {
     base = { ...skipEnabledResponseSchema };
@@ -1093,7 +875,10 @@ export function createSubmitResponseTool(deps: SubmitResponseDeps) {
     readInstructionFile = _readInstructionFile,
   } = deps;
 
-  const isSkippedMode = submitResponseMode === "skipped";
+  // Both "skipped" and "optional-post-to" omit the `message` field from the schema, so a bare
+  // `skip_response: true` must bypass the SKIP_ACKNOWLEDGMENT check (there's no message to set).
+  const skipBypassesAck =
+    submitResponseMode === "skipped" || submitResponseMode === "optional-post-to";
 
   const schema = buildSubmitResponseSchema({
     submitResponseMode: deps.submitResponseMode,
@@ -1163,7 +948,7 @@ export function createSubmitResponseTool(deps: SubmitResponseDeps) {
         // In "skipped" mode the schema accepts only `{ skip_response: true }` — there's no
         // `message` field for Claude to mismatch on, and the safeguard is moot because the
         // mode itself forces skipping. Skip the acknowledgment check entirely in that mode.
-        if (!isSkippedMode) {
+        if (!skipBypassesAck) {
           const message = "message" in args ? args.message : undefined;
           if (message !== SKIP_ACKNOWLEDGMENT) {
             return recordError(recorder, args, {
@@ -1184,6 +969,61 @@ export function createSubmitResponseTool(deps: SubmitResponseDeps) {
         };
         recordSuccess(recorder, args, result);
         return textResult(result);
+      }
+
+      // --- Post-to-only delivery path (optional-post-to / channelless) ---
+      // No bound primary channel: the deliverable is post_to action(s), auto-executed after
+      // the run. No primary `deliver` happens here; we validate + snapshot the actions and
+      // capture them so autoExecute can replay them.
+      if (submitResponseMode === "optional-post-to") {
+        const postToActions =
+          "actions" in args && Array.isArray(args.actions) ? args.actions : undefined;
+        if (!postToActions || postToActions.length === 0) {
+          // Neither post_to nor skip — nothing to deliver. Record as a skip, not an error.
+          responseCapture.setSkipped();
+          const skipResult: SubmitResponseSuccessResult = { success: true, skipped: true };
+          recordSuccess(recorder, args, skipResult);
+          return textResult(skipResult);
+        }
+
+        const { errors: ptErrors, flat: ptFlat } = collectActionErrors(
+          args,
+          intentStore,
+          topLevelDeliveryChannel,
+        );
+        if (ptErrors.length > 0) {
+          return recordError(
+            recorder,
+            args,
+            ptErrors.length === 1
+              ? { error: ptErrors[0] }
+              : { error: "invalid_batch", details: ptErrors },
+          );
+        }
+        stampConfigUpdateLabels(ptFlat, intentStore, readInstructionFile);
+
+        if (persistSnapshot) await persistPostToSnapshots(postToActions, persistSnapshot);
+
+        const ptLabelErrors = validateNestedPostToButtonLabels(
+          postToActions,
+          sessionId,
+          getResponseActionBlocks,
+          validateActionButtonLabels,
+        );
+        if (ptLabelErrors.length > 0) {
+          return recordError(recorder, args, { error: "invalid_blocks", details: ptLabelErrors });
+        }
+
+        await persistReferencedIntents(postToActions, intentStore, sessionId, appendStagedIntents);
+
+        responseCapture.set({ blocks: [], actions: postToActions }, []);
+        const ptResult: SubmitResponseSuccessResult = {
+          success: true,
+          delivered: false,
+          actionsCount: postToActions.length,
+        };
+        recordSuccess(recorder, args, ptResult);
+        return textResult(ptResult);
       }
 
       // --- Normal response path ---
@@ -1235,11 +1075,12 @@ export function createSubmitResponseTool(deps: SubmitResponseDeps) {
 
       // Walk the full batch once — primary actions plus every follower's actions, descending
       // into post_to subtrees. The same FlatAction[] feeds every batch-wide validator.
-      const flatActions = walkBatchActions(args);
-      errors.push(...validateRefActions(flatActions, intentStore));
-      errors.push(...validatePostToActions(flatActions, effectiveTopLevelChannel));
-      const intentCoverageError = validateStagedIntentsCoverage(flatActions, intentStore);
-      if (intentCoverageError) errors.push(intentCoverageError);
+      const { errors: actionErrors, flat: flatActions } = collectActionErrors(
+        args,
+        intentStore,
+        effectiveTopLevelChannel,
+      );
+      errors.push(...actionErrors);
 
       if (errors.length > 0) {
         // Preserve backward-compatible error shape when there's a single error: surface it
@@ -1268,34 +1109,8 @@ export function createSubmitResponseTool(deps: SubmitResponseDeps) {
         ...(args.thread_replies && { threadReplies: args.thread_replies }),
       };
 
-      // Persist per-button blocks (and any table/actions/reactions) for each post_to action
-      // so the deferred button-click delivery can replay them after an arbitrary delay.
-      if (persistSnapshot) {
-        for (const action of payload.actions) {
-          if (action.type === "post_to") {
-            const snapshotId = randomBytes(6).toString("hex");
-            const snapshotText = extractDisplayText(action.blocks);
-            await persistSnapshot(snapshotId, {
-              text: snapshotText,
-              blocks: action.blocks,
-              ...(action.table && { table: action.table }),
-              ...(action.actions && action.actions.length > 0 && { actions: action.actions }),
-              ...(action.reactions &&
-                action.reactions.length > 0 && { reactions: action.reactions }),
-              ...(action.suppress_unfurls === true && { suppressUnfurls: true }),
-              ...(action.additional_messages &&
-                action.additional_messages.length > 0 && {
-                  additional_messages: action.additional_messages,
-                }),
-              ...(action.thread_replies &&
-                action.thread_replies.length > 0 && {
-                  thread_replies: action.thread_replies,
-                }),
-            });
-            action._snapshotId = snapshotId;
-          }
-        }
-      }
+      // Persist a replayable snapshot for each post_to action (deferred button-click delivery).
+      if (persistSnapshot) await persistPostToSnapshots(payload.actions, persistSnapshot);
 
       const renderedBlocks = getStructuredResponseBlocks(payload, sessionId);
 
@@ -1310,36 +1125,22 @@ export function createSubmitResponseTool(deps: SubmitResponseDeps) {
       }
 
       // Same validation for buttons rendered on cross-posted (post_to) messages.
-      for (let i = 0; i < payload.actions.length; i++) {
-        const action = payload.actions[i];
-        if (action.type !== "post_to" || !action.actions || action.actions.length === 0) continue;
-        const nestedBlocks = getResponseActionBlocks(action.actions, sessionId);
-        const nestedErrors = validateActionButtonLabels(nestedBlocks);
-        if (nestedErrors.length > 0) {
-          return recordError(recorder, args, {
-            error: "invalid_blocks",
-            details: nestedErrors.map((e) => `actions[${i}].${e.field}: ${e.message}`),
-          });
-        }
+      const nestedLabelErrors = validateNestedPostToButtonLabels(
+        payload.actions,
+        sessionId,
+        getResponseActionBlocks,
+        validateActionButtonLabels,
+      );
+      if (nestedLabelErrors.length > 0) {
+        return recordError(recorder, args, { error: "invalid_blocks", details: nestedLabelErrors });
       }
 
       const reactions =
         "reactions" in args && Array.isArray(args.reactions) ? args.reactions : undefined;
 
-      // Persist every staged intent referenced by an action (top-level or nested
-      // inside post_to) BEFORE delivery. Otherwise a fast button click can land
-      // before persistResponseState runs at turn end, and the click handler — which
-      // reads from session.stagedIntents on disk — sees no intent for the ref and
-      // returns the misleading "expired" error.
-      const referencedIntents: Record<string, StagedIntent> = {};
-      for (const { action } of flattenActions(actions)) {
-        if (!("ref" in action) || !action.ref) continue;
-        const intent = intentStore.resolve(action.ref);
-        if (intent) referencedIntents[action.ref] = intent;
-      }
-      if (Object.keys(referencedIntents).length > 0) {
-        await appendStagedIntents(sessionId, referencedIntents);
-      }
+      // Persist every referenced staged intent BEFORE delivery, so a fast button click can't
+      // outrun the writeback and hit the misleading "expired" error.
+      await persistReferencedIntents(actions, intentStore, sessionId, appendStagedIntents);
 
       const wantsSuppressUnfurls = "suppress_unfurls" in args && args.suppress_unfurls === true;
 
