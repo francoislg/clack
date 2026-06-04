@@ -187,6 +187,8 @@ describe("installTellMeMoreHandler", () => {
     assert.equal(start.userId, "U1");
     assert.equal(start.attentionLevel, "high");
     assert.match(start.additionalSystemPrompt ?? "", /Nile is the longest river/);
+    // The seeded "high" must survive the first turn — instruct Claude not to lower it.
+    assert.match(start.additionalSystemPrompt ?? "", /Do NOT lower `attention_level`/);
   });
 
   it("is a no-op when the button is already gone (race / double-click)", async () => {

@@ -163,7 +163,7 @@ function attentionLevelGuidance(session: SessionContext): string[] {
   const current = session.attentionLevel ?? "medium";
   return [
     `- This thread's current attention level is "${current}" — how eagerly you auto-respond to its future messages. You can adjust it via \`attention_level\` on submit_response: "always" (reply to everything), "high" (reply to nearly anything), "medium" (reply when plausibly relevant), "low" (reply only to direct address / clear follow-ups), or "off" (disengage — stop tracking entirely). Omit it to keep the level unchanged.`,
-    `- As a thread winds down, lower the level; raise it when the user is in a tight back-and-forth.`,
+    `- Prefer to STAY: leave the level unchanged (omit \`attention_level\`) unless the conversation gives you a clear, concrete reason to move it. Raise it when the user is in a tight back-and-forth; lower it only when the thread is genuinely trailing off (slowing cadence, topic drift, replies no longer aimed at you). A single brief or one-shot reply is NOT a reason to lower — when in doubt, stay put.`,
     `- If the user's message reads as a conversation-ending dismissal (${DISMISSAL_PHRASES_INLINE}) or the conversation has clearly moved on, set \`attention_level: "off"\` to disengage. Err toward it — the user can @mention you to re-engage, so a false positive is cheap. A normal reply + \`attention_level: "off"\` (reply and disengage in one turn) is the natural pattern; it may also accompany \`skip_response: true\`.`,
     `- When you disengage, keep the reply short and avoid phrases like "just holler!" or "let me know anytime" — those contradict the disengage signal.`,
   ];
