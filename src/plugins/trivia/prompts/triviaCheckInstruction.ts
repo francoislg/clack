@@ -267,7 +267,10 @@ When the admin DOES explicitly ask to update an already-posted batch:
 
 1. Make the config edit at the right tier first (usually \`upsert_game\`), if it isn't already set.
 2. Call \`compute_answers({ game, reprocessBatchId: "<the batch handle>" })\` (or \`reprocessQuestionIds: [...]\` for specific questions). Reprocess re-resolves the current \`revealResponses\` / \`judgeLeniency\` from the cascade, re-stamps them on the batch, re-derives boolean/choice verdicts from the current key, and RE-JUDGES freeform answers under the new leniency. Find the batch handle via \`get_question_history\` if you don't already have it.
-3. Call \`update_answers_block({ game, batchId })\` with the returned \`batchId\` to re-render the cards.
+3. RE-AUTHOR THE PER-CARD NARRATIVE — branch on the payload's \`includeRevealInQuestions\` (do this AFTER step 2, BEFORE step 4), exactly as the reveal flow does:
+   - \`"yes"\`: for EACH reprocessed question in \`reveals\`, call \`update_question({ game, questionId, revealBlocks: [...] })\` with freshly authored narrative. You MUST re-author rather than leave the old blocks: reprocess can have changed what the card shows — a new \`revealResponses\` mode may now hide a typed answer the old narrative quoted, and a re-judge may have flipped a verdict the old narrative asserted. Conform the new narrative to that question's CURRENT \`voters.revealResponses\` (never quote a typed answer a non-\`"yes"\` mode hides) and to the re-derived verdicts. Author every reprocessed card's narrative BEFORE step 4.
+   - \`"no"\`: do NOT call \`update_question\` — cards stay facts-only.
+4. Call \`update_answers_block({ game, batchId })\` with the returned \`batchId\` to re-render the cards.
 
 NEVER use \`run_scheduled_message_now\` on the reveal job to apply a config change to a posted batch — that re-fires the whole reveal cron and is not the right tool. And never tell the admin a posted batch changed unless you actually reprocessed it: editing the config alone leaves the existing cards exactly as they were.
 
