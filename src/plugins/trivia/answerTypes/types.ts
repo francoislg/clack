@@ -50,6 +50,14 @@ export type RevealAnswerDescriptor =
     };
 
 /**
+ * Cascade axes whose stamped value `compute_answers` re-resolves and re-stamps
+ * on the question record when it is reprocessed. `revealResponses` applies to
+ * every format; `judgeLeniency` is freeform-only — each handler declares its own
+ * set so the tool re-stamps without branching on `answersFormat`.
+ */
+export type ReStampAxis = "revealResponses" | "judgeLeniency";
+
+/**
  * Read-only dependencies for `projectReveal` — assembling a question's voter
  * buckets from its ALREADY-SCORED answers, with NO writes (no judging, no
  * `processedAt` stamp, no row deletion). Boolean/choice use `fetchMessageReactions`
@@ -197,6 +205,13 @@ export interface AnswerTypeHandler {
   readonly revealAnswerShapeDescription: string;
 
   /**
+   * Cascade axes this format re-stamps from the live cascade when a question is
+   * reprocessed (see {@link ReStampAxis}). `compute_answers` iterates these to
+   * bring an already-posted question in line with current config.
+   */
+  readonly reprocessReStampAxes: readonly ReStampAxis[];
+
+  /**
    * Short prose describing the per-format return shape of `get_question_history`
    * for this format. Composed into the tool description at boot — keeps it in
    * sync with `buildHistoryResult`.
@@ -278,9 +293,9 @@ export interface AnswerTypeHandler {
    * iterates targets and accumulates the returned entries.
    *
    * Reprocess mode is the handler's choice: boolean/choice re-derive the verdict
-   * (`correct`) on each retained answer row from the current question key (raw
-   * answers are never deleted); freeform rejects (the judged modal submissions are
-   * immutable, so there is nothing to safely re-derive).
+   * (`correct`) on each retained answer row from the current question key; freeform
+   * re-judges every retained `answerText` row under the re-stamped `judgeLeniency`,
+   * overwriting prior verdicts in place. Raw answers are never deleted.
    *
    * Errors return as `{ ok: false, error }` rather than throwing — the
    * reveal flow accumulates them into its per-id `errors` list.

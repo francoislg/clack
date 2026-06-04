@@ -4,7 +4,7 @@ import { createComputeAnswersTool, type RevealSlackDeps } from "./computeAnswers
 import { createInMemoryDataLayer, FIXTURE_GAME_NAME, fixtureGetGames } from "../../testHelpers.js";
 import { parseToolResult } from "../../../../tools/testHelpers.js";
 import type { ClackSdk } from "../../../sdk.js";
-import type { TriviaQuestion } from "../../core/types.js";
+import type { TriviaDataLayer, TriviaQuestion } from "../../core/types.js";
 
 /**
  * Orchestrator-level tests for `process_reveal_answers`. Per-handler reveal behavior
@@ -87,7 +87,10 @@ describe("compute_answers —showAllTimeRow", () => {
 
   async function run(tool: ReturnType<typeof createComputeAnswersTool>) {
     return parseToolResult(
-      await tool.handler({ game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined }, SESSION),
+      await tool.handler(
+        { game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined, reprocessBatchId: undefined },
+        SESSION,
+      ),
     );
   }
 
@@ -136,7 +139,10 @@ describe("compute_answers —orchestrator", () => {
     const tool = createComputeAnswersTool(data, fakeSdk(), fixtureGetGames, fakeSlackDeps());
 
     const res = parseToolResult(
-      await tool.handler({ game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined }, SESSION),
+      await tool.handler(
+        { game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined, reprocessBatchId: undefined },
+        SESSION,
+      ),
     );
     assert.deepEqual(res.reveals, []);
     assert.ok("leaderboard" in res);
@@ -159,7 +165,10 @@ describe("compute_answers —orchestrator", () => {
     const tool = createComputeAnswersTool(data, fakeSdk(), fixtureGetGames, fakeSlackDeps());
 
     const res = parseToolResult(
-      await tool.handler({ game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined }, SESSION),
+      await tool.handler(
+        { game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined, reprocessBatchId: undefined },
+        SESSION,
+      ),
     );
     const revealedIds = res.reveals.map((r: { questionId: string }) => r.questionId).sort();
     assert.deepEqual(revealedIds, ["a1", "a2"], "only batch A should reveal");
@@ -200,7 +209,10 @@ describe("compute_answers —orchestrator", () => {
     const tool = createComputeAnswersTool(data, fakeSdk(), fixtureGetGames, fakeSlackDeps());
 
     const res = parseToolResult(
-      await tool.handler({ game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined }, SESSION),
+      await tool.handler(
+        { game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined, reprocessBatchId: undefined },
+        SESSION,
+      ),
     );
     assert.equal(res.reveals.length, 2);
     assert.ok(res.roundSummary !== undefined, "roundSummary should be present for all-yes batch");
@@ -237,7 +249,10 @@ describe("compute_answers —orchestrator", () => {
     const tool = createComputeAnswersTool(data, fakeSdk(), fixtureGetGames, fakeSlackDeps());
 
     const res = parseToolResult(
-      await tool.handler({ game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined }, SESSION),
+      await tool.handler(
+        { game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined, reprocessBatchId: undefined },
+        SESSION,
+      ),
     );
     assert.equal(res.reveals.length, 3);
     assert.ok(res.roundSummary !== undefined, "roundSummary is present in every mode");
@@ -262,7 +277,10 @@ describe("compute_answers —orchestrator", () => {
     const tool = createComputeAnswersTool(data, fakeSdk(), fixtureGetGames, fakeSlackDeps());
 
     const res = parseToolResult(
-      await tool.handler({ game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined }, SESSION),
+      await tool.handler(
+        { game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined, reprocessBatchId: undefined },
+        SESSION,
+      ),
     );
     assert.equal(res.reveals.length, 1);
     assert.ok(res.roundSummary !== undefined, "roundSummary is always present");
@@ -302,7 +320,10 @@ describe("compute_answers —orchestrator", () => {
     const tool = createComputeAnswersTool(data, fakeSdk(), fixtureGetGames, fakeSlackDeps());
 
     const res = parseToolResult(
-      await tool.handler({ game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined }, SESSION),
+      await tool.handler(
+        { game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined, reprocessBatchId: undefined },
+        SESSION,
+      ),
     );
     assert.ok(res.roundSummary !== undefined);
     const ids = res.roundSummary.perPlayer.map((p: { userId: string }) => p.userId);
@@ -327,7 +348,10 @@ describe("compute_answers —orchestrator", () => {
     const tool = createComputeAnswersTool(data, fakeSdk(), fixtureGetGames, fakeSlackDeps());
 
     const res = parseToolResult(
-      await tool.handler({ game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined }, SESSION),
+      await tool.handler(
+        { game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined, reprocessBatchId: undefined },
+        SESSION,
+      ),
     );
     assert.equal(res.reveals.length, 1);
     const voters = res.reveals[0].voters;
@@ -373,7 +397,10 @@ describe("compute_answers —orchestrator", () => {
     const tool = createComputeAnswersTool(data, fakeSdk(), fixtureGetGames, fakeSlackDeps());
 
     const res = parseToolResult(
-      await tool.handler({ game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined }, SESSION),
+      await tool.handler(
+        { game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined, reprocessBatchId: undefined },
+        SESSION,
+      ),
     );
     const voters = res.reveals[0].voters;
     assert.equal(voters.revealResponses, "just-winners");
@@ -415,7 +442,10 @@ describe("compute_answers —orchestrator", () => {
     const tool = createComputeAnswersTool(data, fakeSdk(), fixtureGetGames, fakeSlackDeps());
 
     const res = parseToolResult(
-      await tool.handler({ game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined }, SESSION),
+      await tool.handler(
+        { game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined, reprocessBatchId: undefined },
+        SESSION,
+      ),
     );
     const voters = res.reveals[0].voters;
     assert.equal(voters.revealResponses, "just-winners");
@@ -458,7 +488,10 @@ describe("compute_answers —orchestrator", () => {
     const tool = createComputeAnswersTool(data, fakeSdk(), fixtureGetGames, fakeSlackDeps());
 
     const res = parseToolResult(
-      await tool.handler({ game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined }, SESSION),
+      await tool.handler(
+        { game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined, reprocessBatchId: undefined },
+        SESSION,
+      ),
     );
     const voters = res.reveals[0].voters;
     assert.equal(voters.revealResponses, "yes");
@@ -502,7 +535,10 @@ describe("compute_answers —orchestrator", () => {
     const tool = createComputeAnswersTool(data, fakeSdk(), fixtureGetGames, fakeSlackDeps());
 
     const res = parseToolResult(
-      await tool.handler({ game: FIXTURE_GAME_NAME, reprocessQuestionIds: ["q1"] }, SESSION),
+      await tool.handler(
+        { game: FIXTURE_GAME_NAME, reprocessQuestionIds: ["q1"], reprocessBatchId: undefined },
+        SESSION,
+      ),
     );
     assert.equal(res.reveals.length, 1);
     assert.equal(res.reveals[0].wasReprocessed, true);
@@ -528,7 +564,10 @@ describe("compute_answers —orchestrator", () => {
     const tool = createComputeAnswersTool(data, fakeSdk(), fixtureGetGames, fakeSlackDeps());
 
     const res = parseToolResult(
-      await tool.handler({ game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined }, SESSION),
+      await tool.handler(
+        { game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined, reprocessBatchId: undefined },
+        SESSION,
+      ),
     );
     assert.equal(res.reveals.length, 1, "only the oldest singleton legacy question reveals");
     assert.equal(res.reveals[0].questionId, "legacy1");
@@ -556,7 +595,10 @@ describe("compute_answers —orchestrator", () => {
     const tool = createComputeAnswersTool(data, fakeSdk(), fixtureGetGames, fakeSlackDeps());
 
     const res = parseToolResult(
-      await tool.handler({ game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined }, SESSION),
+      await tool.handler(
+        { game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined, reprocessBatchId: undefined },
+        SESSION,
+      ),
     );
     assert.deepEqual(res.reveals, []);
     assert.equal(res.leaderboard.length, 1);
@@ -575,7 +617,10 @@ describe("compute_answers —orchestrator", () => {
         () => ({}),
       );
       const res = parseToolResult(
-        await tool.handler({ game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined }, SESSION),
+        await tool.handler(
+          { game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined, reprocessBatchId: undefined },
+          SESSION,
+        ),
       );
       assert.equal(res.instructions, undefined);
       assert.equal(res.additionalInstructions, undefined);
@@ -591,7 +636,10 @@ describe("compute_answers —orchestrator", () => {
         () => ({ instructions: "Be funny." }),
       );
       const res = parseToolResult(
-        await tool.handler({ game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined }, SESSION),
+        await tool.handler(
+          { game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined, reprocessBatchId: undefined },
+          SESSION,
+        ),
       );
       assert.equal(res.instructions, "Be funny.");
     });
@@ -615,7 +663,10 @@ describe("compute_answers —orchestrator", () => {
         () => ({ additionalInstructions: "Avoid politics." }),
       );
       const res = parseToolResult(
-        await tool.handler({ game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined }, SESSION),
+        await tool.handler(
+          { game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined, reprocessBatchId: undefined },
+          SESSION,
+        ),
       );
       assert.equal(res.additionalInstructions, "[Workspace] Avoid politics.\n\n[Game] Be concise.");
     });
@@ -646,7 +697,10 @@ describe("compute_answers —orchestrator", () => {
       });
 
       const res = parseToolResult(
-        await tool.handler({ game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined }, SESSION),
+        await tool.handler(
+          { game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined, reprocessBatchId: undefined },
+          SESSION,
+        ),
       );
       const entry = res.leaderboard.find((e: { userId: string }) => e.userId === "U1");
       assert.ok(entry !== undefined, "U1 should appear on the leaderboard");
@@ -654,6 +708,217 @@ describe("compute_answers —orchestrator", () => {
       const stored = (await data.loadUsers()).get("U1");
       assert.equal(stored?.displayName, "NewName", "users.json is updated with the new name");
     });
+  });
+});
+
+describe("compute_answers — reprocess re-applies current config", () => {
+  const gamesWithRevealResponses = (mode: "yes" | "just-correctness") => () =>
+    fixtureGetGames().map((g) =>
+      g.name === FIXTURE_GAME_NAME ? { ...g, revealResponses: mode } : g,
+    );
+
+  it("re-stamps revealResponses from the current cascade", async () => {
+    const data = createInMemoryDataLayer();
+    const scoped = data.forGame(FIXTURE_GAME_NAME);
+    await scoped.saveQuestion(
+      makeQuestion({ id: "q1", batchId: "B", processedAt: 9_000, revealResponses: "yes" }),
+    );
+    const tool = createComputeAnswersTool(
+      data,
+      fakeSdk(),
+      gamesWithRevealResponses("just-correctness"),
+      fakeSlackDeps(),
+    );
+
+    const res = parseToolResult(
+      await tool.handler(
+        { game: FIXTURE_GAME_NAME, reprocessQuestionIds: ["q1"], reprocessBatchId: undefined },
+        SESSION,
+      ),
+    );
+    assert.equal(res.reveals[0].voters.revealResponses, "just-correctness");
+    const stored = (await scoped.loadQuestions()).find((q) => q.id === "q1");
+    assert.equal(stored?.revealResponses, "just-correctness", "record re-stamped");
+  });
+
+  it("is a harmless no-op when the resolved value already matches the stamp", async () => {
+    const data = createInMemoryDataLayer();
+    const scoped = data.forGame(FIXTURE_GAME_NAME);
+    await scoped.saveQuestion(
+      makeQuestion({ id: "q1", processedAt: 9_000, revealResponses: "yes" }),
+    );
+    const tool = createComputeAnswersTool(
+      data,
+      fakeSdk(),
+      gamesWithRevealResponses("yes"),
+      fakeSlackDeps(),
+    );
+    await tool.handler(
+      { game: FIXTURE_GAME_NAME, reprocessQuestionIds: ["q1"], reprocessBatchId: undefined },
+      SESSION,
+    );
+    const stored = (await scoped.loadQuestions()).find((q) => q.id === "q1");
+    assert.equal(stored?.revealResponses, "yes");
+  });
+
+  it("reprocessBatchId targets the whole batch in postedAt order", async () => {
+    const data = createInMemoryDataLayer();
+    const scoped = data.forGame(FIXTURE_GAME_NAME);
+    await scoped.saveQuestion(
+      makeQuestion({ id: "q2", batchId: "B", postedAt: 2_000, processedAt: 9_000 }),
+    );
+    await scoped.saveQuestion(
+      makeQuestion({ id: "q1", batchId: "B", postedAt: 1_000, processedAt: 9_000 }),
+    );
+    const tool = createComputeAnswersTool(data, fakeSdk(), fixtureGetGames, fakeSlackDeps());
+
+    const res = parseToolResult(
+      await tool.handler(
+        { game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined, reprocessBatchId: "B" },
+        SESSION,
+      ),
+    );
+    assert.equal(res.reveals.length, 2);
+    assert.deepEqual(
+      res.reveals.map((r: { questionId: string }) => r.questionId),
+      ["q1", "q2"],
+    );
+    assert.ok(res.reveals.every((r: { wasReprocessed: boolean }) => r.wasReprocessed));
+  });
+
+  it("reveals nothing when reprocessBatchId matches no batch or id", async () => {
+    const data = createInMemoryDataLayer();
+    const scoped = data.forGame(FIXTURE_GAME_NAME);
+    await scoped.saveQuestion(makeQuestion({ id: "q1", batchId: "B", processedAt: 9_000 }));
+    const tool = createComputeAnswersTool(data, fakeSdk(), fixtureGetGames, fakeSlackDeps());
+    const res = parseToolResult(
+      await tool.handler(
+        { game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined, reprocessBatchId: "missing" },
+        SESSION,
+      ),
+    );
+    assert.deepEqual(res.reveals, []);
+  });
+
+  it("unions reprocessQuestionIds and reprocessBatchId", async () => {
+    const data = createInMemoryDataLayer();
+    const scoped = data.forGame(FIXTURE_GAME_NAME);
+    await scoped.saveQuestion(makeQuestion({ id: "solo", postedAt: 500, processedAt: 9_000 }));
+    await scoped.saveQuestion(
+      makeQuestion({ id: "q2", batchId: "B", postedAt: 2_000, processedAt: 9_000 }),
+    );
+    await scoped.saveQuestion(
+      makeQuestion({ id: "q3", batchId: "B", postedAt: 3_000, processedAt: 9_000 }),
+    );
+    const tool = createComputeAnswersTool(data, fakeSdk(), fixtureGetGames, fakeSlackDeps());
+    const res = parseToolResult(
+      await tool.handler(
+        { game: FIXTURE_GAME_NAME, reprocessQuestionIds: ["solo"], reprocessBatchId: "B" },
+        SESSION,
+      ),
+    );
+    assert.deepEqual(
+      res.reveals.map((r: { questionId: string }) => r.questionId),
+      ["solo", "q2", "q3"],
+    );
+  });
+
+  it("re-stamps judgeLeniency on a freeform question from the current cascade", async () => {
+    const data = createInMemoryDataLayer();
+    const scoped = data.forGame(FIXTURE_GAME_NAME);
+    const freeform: TriviaQuestion = {
+      id: "f1",
+      category: "C",
+      statement: "Capital of France?",
+      answersFormat: "freeform",
+      questionType: "fact",
+      expectedAnswer: "Paris",
+      emojis: ["🎯"],
+      createdAt: 0,
+      postedAt: 1_000,
+      messageLink: "https://x.slack.com/archives/C100000000/p1700000000000000",
+      revealResponses: "yes",
+      judgeLeniency: "strict",
+      batchId: "B",
+      processedAt: 9_000,
+    };
+    await scoped.saveQuestion(freeform);
+    const getGames = () =>
+      fixtureGetGames().map((g) =>
+        g.name === FIXTURE_GAME_NAME ? { ...g, judgeLeniency: "lenient" as const } : g,
+      );
+    const tool = createComputeAnswersTool(data, fakeSdk(), getGames, fakeSlackDeps());
+
+    await tool.handler(
+      { game: FIXTURE_GAME_NAME, reprocessQuestionIds: ["f1"], reprocessBatchId: undefined },
+      SESSION,
+    );
+    const stored = (await scoped.loadQuestions()).find((q) => q.id === "f1");
+    assert.equal(stored?.judgeLeniency, "lenient", "judgeLeniency re-stamped from the game tier");
+  });
+
+  it("falls back to a legacy question's id when reprocessBatchId matches no batchId", async () => {
+    const data = createInMemoryDataLayer();
+    const scoped = data.forGame(FIXTURE_GAME_NAME);
+    await scoped.saveQuestion(makeQuestion({ id: "legacy", postedAt: 1_000, processedAt: 9_000 }));
+    await scoped.saveQuestion(
+      makeQuestion({ id: "other", batchId: "B", postedAt: 2_000, processedAt: 9_000 }),
+    );
+    const tool = createComputeAnswersTool(data, fakeSdk(), fixtureGetGames, fakeSlackDeps());
+    const res = parseToolResult(
+      await tool.handler(
+        { game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined, reprocessBatchId: "legacy" },
+        SESSION,
+      ),
+    );
+    assert.deepEqual(
+      res.reveals.map((r: { questionId: string }) => r.questionId),
+      ["legacy"],
+    );
+  });
+
+  it("isolates a re-stamp failure: records a per-id error, skips it, processes the rest", async () => {
+    const base = createInMemoryDataLayer();
+    const scoped = base.forGame(FIXTURE_GAME_NAME);
+    await scoped.saveQuestion(
+      makeQuestion({ id: "boom", batchId: "B", postedAt: 1_000, processedAt: 9_000 }),
+    );
+    await scoped.saveQuestion(
+      makeQuestion({ id: "ok", batchId: "B", postedAt: 2_000, processedAt: 9_000 }),
+    );
+
+    // Inject a data layer whose updateQuestion throws for one question id — the
+    // re-stamp persist failure should isolate to that question.
+    const data: TriviaDataLayer = {
+      ...base,
+      forGame(name: string) {
+        const inner = base.forGame(name);
+        return {
+          ...inner,
+          updateQuestion: async (id: string, updates: Partial<TriviaQuestion>) => {
+            if (id === "boom") throw new Error("disk fail");
+            return inner.updateQuestion(id, updates);
+          },
+        };
+      },
+    };
+
+    const tool = createComputeAnswersTool(data, fakeSdk(), fixtureGetGames, fakeSlackDeps());
+    const res = parseToolResult(
+      await tool.handler(
+        { game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined, reprocessBatchId: "B" },
+        SESSION,
+      ),
+    );
+    assert.deepEqual(
+      res.reveals.map((r: { questionId: string }) => r.questionId),
+      ["ok"],
+      "only the healthy question reveals",
+    );
+    assert.ok(
+      res.errors?.some((e: { questionId: string }) => e.questionId === "boom"),
+      "failed question surfaced in errors",
+    );
   });
 });
 
@@ -677,7 +942,10 @@ describe("compute_answers —hint non-leak regression", () => {
 
     const tool = createComputeAnswersTool(data, fakeSdk(), fixtureGetGames, fakeSlackDeps());
     const res = parseToolResult(
-      await tool.handler({ game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined }, SESSION),
+      await tool.handler(
+        { game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined, reprocessBatchId: undefined },
+        SESSION,
+      ),
     );
 
     const serialized = JSON.stringify(res);
@@ -711,7 +979,10 @@ describe("compute_answers —hint non-leak regression", () => {
     );
 
     const tool = createComputeAnswersTool(data, fakeSdk(), fixtureGetGames, fakeSlackDeps());
-    await tool.handler({ game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined }, SESSION);
+    await tool.handler(
+      { game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined, reprocessBatchId: undefined },
+      SESSION,
+    );
 
     const post = (await scoped.loadQuestions()).find((q) => q.id === "q-with-hint");
     assert.deepEqual(post?.hint?.clickedBy, originalClickedBy);
@@ -782,7 +1053,10 @@ describe("compute_answers — does not edit cards (projection moved to update_an
     const { deps, updates } = capturingSlackDeps();
     const tool = createComputeAnswersTool(data, fakeSdk(), fixtureGetGames, deps);
     const res = parseToolResult(
-      await tool.handler({ game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined }, SESSION),
+      await tool.handler(
+        { game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined, reprocessBatchId: undefined },
+        SESSION,
+      ),
     );
 
     assert.equal(updates.length, 0);
@@ -816,7 +1090,10 @@ describe("compute_answers —image-medium attribution", () => {
     );
     const tool = createComputeAnswersTool(data, fakeSdk(), fixtureGetGames, fakeSlackDeps());
     const res = parseToolResult(
-      await tool.handler({ game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined }, SESSION),
+      await tool.handler(
+        { game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined, reprocessBatchId: undefined },
+        SESSION,
+      ),
     );
     assert.deepEqual(res.reveals[0].media, {
       title: "Eiffel Tower",
@@ -831,7 +1108,10 @@ describe("compute_answers —image-medium attribution", () => {
     await scoped.saveQuestion(makeQuestion({ id: "txt", batchId: "B", postedAt: 1_000 }));
     const tool = createComputeAnswersTool(data, fakeSdk(), fixtureGetGames, fakeSlackDeps());
     const res = parseToolResult(
-      await tool.handler({ game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined }, SESSION),
+      await tool.handler(
+        { game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined, reprocessBatchId: undefined },
+        SESSION,
+      ),
     );
     assert.equal(res.reveals[0].media, undefined);
   });
@@ -851,7 +1131,10 @@ describe("compute_answers —image-medium attribution", () => {
     const tool = createComputeAnswersTool(data, fakeSdk(), fixtureGetGames, fakeSlackDeps());
     const raw = JSON.stringify(
       parseToolResult(
-        await tool.handler({ game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined }, SESSION),
+        await tool.handler(
+          { game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined, reprocessBatchId: undefined },
+          SESSION,
+        ),
       ),
     );
     assert.ok(!raw.includes("upload.wikimedia.org"), "upstream url must not appear");
@@ -872,7 +1155,10 @@ describe("compute_answers — includeRevealInQuestions axis", () => {
 
   async function run(tool: ReturnType<typeof createComputeAnswersTool>) {
     return parseToolResult(
-      await tool.handler({ game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined }, SESSION),
+      await tool.handler(
+        { game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined, reprocessBatchId: undefined },
+        SESSION,
+      ),
     );
   }
 
@@ -915,7 +1201,10 @@ describe("compute_answers — finalRevealSummary axis", () => {
 
   async function run(tool: ReturnType<typeof createComputeAnswersTool>) {
     return parseToolResult(
-      await tool.handler({ game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined }, SESSION),
+      await tool.handler(
+        { game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined, reprocessBatchId: undefined },
+        SESSION,
+      ),
     );
   }
 

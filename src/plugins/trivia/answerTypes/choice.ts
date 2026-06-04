@@ -64,6 +64,7 @@ export const choiceAnswerHandler: ClickableAnswerHandler = {
   actionAffordanceDescription:
     'answersFormat "choice" → one vote button per choice option (1️⃣ 2️⃣ 3️⃣ 4️⃣ prefixes) appended below the question card.',
   revealAnswerShapeDescription: '`{ type: "choice", choices, correctIndex }` for choice questions.',
+  reprocessReStampAxes: ["revealResponses"],
   historyResultShapeDescription:
     'Choice: `{ answersFormat: "choice", questionType, choices, correctIndex, cheaterUserIds, responses: Array<{ userId, displayName, answerIndex, correct? }> }`',
 

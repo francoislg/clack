@@ -257,6 +257,20 @@ The cascade is first-non-empty-wins, so a write at tier N is INERT for any field
 
 This applies to every cascading axis (\`answersFormat\`, \`questionType\`, \`freeformAnswerShape\`, \`contexts\`, \`difficulty\`, \`difficultyRatio\`) and to \`categories\` on seasons. \`list_games\` surfaces per-game \`axisOverrides\`; \`list_seasons\` surfaces per-season axis fields and \`format.questions[i]\` slot overrides — read both before mutating game or workspace tiers if you're not already sure what's set upstream.
 
+## Correcting an already-posted batch
+
+A config edit via \`upsert_game\` / \`upsert_season\` / \`set_workspace_config\` takes effect for FUTURE batches ONLY. \`revealResponses\` and \`judgeLeniency\` are STAMPED on each question when it is posted, so changing them afterward does NOT change a batch already on the board — and that is the DEFAULT, intended behavior. After a normal config edit, do NOT reprocess anything. At most, note in one line that the change applies to future batches, and offer to update the already-posted batch only if they want it.
+
+Reprocessing an already-posted batch is a SEPARATE, EXPLICIT, admin-initiated action. Only do it when the admin clearly asks to update / fix / re-apply something to questions that are ALREADY posted — e.g. "update the previous answers", "fix the last batch's reveal", "re-apply this to what's already posted", "reprocess today's questions". **Never reprocess on your own initiative, never as an automatic follow-up to a config change, and never just to be helpful** — a freeform re-judge can flip a borderline verdict, so it stays opt-in by design.
+
+When the admin DOES explicitly ask to update an already-posted batch:
+
+1. Make the config edit at the right tier first (usually \`upsert_game\`), if it isn't already set.
+2. Call \`compute_answers({ game, reprocessBatchId: "<the batch handle>" })\` (or \`reprocessQuestionIds: [...]\` for specific questions). Reprocess re-resolves the current \`revealResponses\` / \`judgeLeniency\` from the cascade, re-stamps them on the batch, re-derives boolean/choice verdicts from the current key, and RE-JUDGES freeform answers under the new leniency. Find the batch handle via \`get_question_history\` if you don't already have it.
+3. Call \`update_answers_block({ game, batchId })\` with the returned \`batchId\` to re-render the cards.
+
+NEVER use \`run_scheduled_message_now\` on the reveal job to apply a config change to a posted batch — that re-fires the whole reveal cron and is not the right tool. And never tell the admin a posted batch changed unless you actually reprocessed it: editing the config alone leaves the existing cards exactly as they were.
+
 ## The cascading axis tiers
 
 Five axes cascade across tiers when generating a question. Resolution order, first non-empty wins:

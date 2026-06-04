@@ -102,6 +102,7 @@ export const freeformAnswerHandler: AnswerTypeHandler = {
     'answersFormat "freeform" → a primary "Answer" button that opens a Slack modal for the user to type their answer.',
   revealAnswerShapeDescription:
     '`{ type: "freeform", expectedAnswer, acceptableAnswers?, gradingNotes? }` for freeform questions.',
+  reprocessReStampAxes: ["revealResponses", "judgeLeniency"],
   historyResultShapeDescription:
     'Freeform: `{ answersFormat: "freeform", questionType, expectedAnswer, acceptableAnswers?, gradingNotes?, cheaterUserIds, responses: Array<{ userId, displayName, answerText, correct?, judgeReason? }> }`',
 
@@ -160,22 +161,20 @@ export const freeformAnswerHandler: AnswerTypeHandler = {
     question: TriviaQuestion,
     deps: ProcessRevealDeps,
   ): Promise<ProcessRevealOutcome> {
-    if (deps.isReprocessMode) {
-      return {
-        ok: false,
-        error:
-          "reprocess mode is not supported for freeform questions (no upstream click stream to re-derive from)",
-      };
-    }
     if (!question.messageLink) {
       return { ok: false, error: "freeform question is missing messageLink" };
     }
 
     const allAnswers = await deps.scoped.loadAnswers();
-    const pendingRows = allAnswers.filter(
-      (a) => a.questionId === question.id && a.correct === undefined,
-    );
-    const submissions: JudgeSubmission[] = pendingRows.map((row) => ({
+    const ownRows = allAnswers.filter((a) => a.questionId === question.id);
+
+    // Reprocess re-judges EVERY retained answer under the (re-stamped) judgeLeniency,
+    // overwriting each verdict in place; default reveal judges only the never-judged
+    // rows. The typed `answerText` is the canonical record and is never touched.
+    const rowsToJudge = deps.isReprocessMode
+      ? ownRows
+      : ownRows.filter((a) => a.correct === undefined);
+    const submissions: JudgeSubmission[] = rowsToJudge.map((row) => ({
       userId: row.userId,
       answerText: row.answerText ?? "",
     }));
@@ -193,13 +192,17 @@ export const freeformAnswerHandler: AnswerTypeHandler = {
 
     for (const { submission, verdict } of judged) {
       if (verdict === null) {
-        // Leave the row pending — a re-reveal re-picks it (correct === undefined).
+        // No verdict after retries: leave the row's existing value untouched and
+        // report it — a re-reveal re-picks it (default by correct === undefined,
+        // reprocess by re-judging every row).
         unjudgedCount++;
         continue;
       }
+      // Always write judgeReason so a re-judge overwrites any stale prior reason
+      // (undefined clears it); on a fresh judge with no reason this is a no-op.
       await deps.scoped.updateAnswer(submission.userId, question.id, {
         correct: verdict.correct,
-        ...(verdict.reason !== undefined ? { judgeReason: verdict.reason } : {}),
+        judgeReason: verdict.reason,
       });
     }
 

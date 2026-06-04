@@ -197,7 +197,10 @@ describe("cascade parity — explain_cascade ≡ get_ideas ≡ save_question (ga
 
     const reveal = createComputeAnswersTool(data, fakeSdk(), getGames, fakeSlackDeps(), getConfig);
     const res = parseToolResult(
-      await reveal.handler({ game: "parity", reprocessQuestionIds: undefined }, SESSION),
+      await reveal.handler(
+        { game: "parity", reprocessQuestionIds: undefined, reprocessBatchId: undefined },
+        SESSION,
+      ),
     );
     assert.equal(res.instructions, "slot-0 instructions");
     assert.equal(res.additionalInstructions, "[Game Slot 0] slot-0 add");
