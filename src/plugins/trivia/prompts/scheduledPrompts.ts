@@ -786,6 +786,13 @@ Deliver today's trivia reveal. The deterministic SCORING is done for you by \`co
 
 4. RENDER VIA \`submit_response\` USING THE GAME SHOW PRESENTER VOICE:
 
+   === MENTION POLICY — BRANCH ON \`tagPlayers\` (applies to EVERY block, top-level AND thread) ===
+
+   The payload's \`tagPlayers\` boolean governs how you name players EVERYWHERE in this reveal — verdict voter shout-outs, the season-finale podium + participation tail, every per-question teaser, and any thread reply.
+   - \`tagPlayers: true\` (default): name players with real \`<@USERID>\` Slack mentions, exactly as the layouts below instruct.
+   - \`tagPlayers: false\`: NEVER emit \`<@USERID>\`. Render every player as plain-text \`@displayName\` (take the \`displayName\` from the same payload object you'd have taken the \`userId\` from — \`voters.*\`, \`roundSummary.perPlayer\`, \`leaderboard\`). This is a hard no-ping mode: a single \`<@…>\` anywhere in the output is a bug. The leaderboard \`table\` already uses bare \`displayName\` cells, so it is unaffected either way.
+   Wherever an example or instruction below writes \`<@U_ALICE>\`, treat it as "\`<@USERID>\` when \`tagPlayers\`, else \`@displayName\`".
+
    The block layout BRANCHES on \`reveals.length\`:
 
    - \`reveals.length === 0\`: POST NOTHING. Call \`submit_response({ skip_response: true })\` to terminate the run cleanly — no acknowledgement, no leaderboard, no blocks. There was no batch to reveal, and a silent skip is the desired outcome.
@@ -800,8 +807,8 @@ Deliver today's trivia reveal. The deterministic SCORING is done for you by \`co
 
    - \`"yes"\` (default — today's behavior): ONE \`submit_response\` with \`blocks: [ ...NARRATIVE, ...LEADERBOARD-SURFACE blocks ]\` plus the \`table\` parameter. No \`thread_replies\`.
    - \`"no"\`: OMIT the NARRATIVE entirely. Post \`blocks: [ ...LEADERBOARD-SURFACE blocks ]\` plus the \`table\` parameter — closer + leaderboard (or the full finale) ONLY. No verdict, no WHY, no voter breakdown. No \`thread_replies\`.
-   - \`"in-thread"\`: post the LEADERBOARD SURFACE TOP-LEVEL (the \`table\` parameter, and on a normal reveal a top-level \`context\` pointer block with text EXACTLY \`"${t("reveal.see_in_thread")}"\` IN PLACE OF the normal closer), AND pass the NARRATIVE as \`thread_replies: [{ blocks: [ ...NARRATIVE ] }]\` so the full verdict/WHY/voter detail lands as a threaded reply UNDER the top-level standings. You MUST include BOTH the top-level pointer AND the \`thread_replies\` payload — a pointer with no thread reply is a bug.
-     - ON THE LAST FIRE (finale) in \`"in-thread"\`: the SEASON FINALE LAYOUT stays TOP-LEVEL (podium + standings are the headline); the day's per-question NARRATIVE (verdict header, WHY, per-bucket / per-question verdicts) STILL moves to \`thread_replies\`. Add the top-level pointer \`context\` just before the finale transition.
+   - \`"in-thread"\`: keep the HEADLINE top-level and move the detail to a thread. TOP-LEVEL, in this order: (1) the verdict \`header\` — HOIST it out of the NARRATIVE so it leads the top message in BOTH the single- and multi-question layouts; (2) a \`context\` pointer block with text EXACTLY \`"${t("reveal.see_in_thread")}"\`; (3) the LEADERBOARD SURFACE — the normal closer \`context\` + the \`table\` parameter on a normal reveal. Then pass the REMAINING NARRATIVE (everything EXCEPT the hoisted header — the WHY \`section\`, the \`divider\`, the per-bucket voter sections, and in the multi-question layout the per-question verdict \`section\`s) as \`thread_replies: [{ blocks: [ ...remaining NARRATIVE ] }]\`, so the full WHY/voter detail lands as a threaded reply UNDER the top-level headline + standings. You MUST include BOTH the top-level header+pointer AND the \`thread_replies\` payload — a pointer with no thread reply is a bug.
+     - ON THE LAST FIRE (finale) in \`"in-thread"\`: the SEASON FINALE LAYOUT stays TOP-LEVEL (podium + standings are the headline); hoist the verdict \`header\` above the pointer as usual, place the pointer \`context\` just before the finale transition, and the day's REMAINING NARRATIVE (WHY, per-bucket / per-question verdicts) STILL moves to \`thread_replies\`.
 
    === SINGLE-QUESTION LAYOUT (when reveals.length === 1) ===
 

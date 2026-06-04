@@ -109,6 +109,7 @@ function args(overrides: Partial<UpsertGameArgs> & Pick<UpsertGameArgs, "name">)
     additionalInstructions: undefined,
     hint: undefined,
     allTimeRow: undefined,
+    tagPlayers: undefined,
     includeRevealInQuestions: undefined,
     finalRevealSummary: undefined,
     judgeLeniency: undefined,
@@ -217,6 +218,30 @@ describe("upsert_game — create branch", () => {
 
     await tool.handler(args({ name: "engineering", includeRevealInQuestions: null }), SESSION);
     assert.equal(loadTriviaConfig()?.games?.[0]?.includeRevealInQuestions, undefined);
+  });
+
+  it("persists tagPlayers and clears it on null", async () => {
+    primeBridge({ games: [] });
+    const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
+    const result = parseToolResult(
+      await tool.handler(
+        args({
+          name: "engineering",
+          channel: "C1",
+          questionCron: "0 9 * * *",
+          revealCron: "0 17 * * *",
+          timezone: "UTC",
+          tagPlayers: false,
+        }),
+        SESSION,
+      ),
+    );
+    assert.equal(result.hasTagPlayers, true);
+    assert.equal(loadTriviaConfig()?.games?.[0]?.tagPlayers, false);
+
+    await tool.handler(args({ name: "engineering", tagPlayers: null }), SESSION);
+    assert.equal(loadTriviaConfig()?.games?.[0]?.tagPlayers, undefined);
+    assert.equal("tagPlayers" in (loadTriviaConfig()?.games?.[0] ?? {}), false);
   });
 
   it("persists finalRevealSummary and clears it on null", async () => {

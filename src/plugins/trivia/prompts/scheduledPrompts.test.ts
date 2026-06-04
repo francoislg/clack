@@ -586,7 +586,27 @@ describe("PROCESS_REVEAL_INSTRUCTIONS — finalRevealSummary placement branch", 
     );
     assert.match(placement, /`"yes"`[^\n]*today's behavior/);
     assert.match(placement, /`"no"`: OMIT the NARRATIVE entirely/);
-    assert.match(placement, /`"in-thread"`: post the LEADERBOARD SURFACE TOP-LEVEL/);
+    assert.match(placement, /`"in-thread"`: keep the HEADLINE top-level/);
+  });
+
+  it("in-thread hoists the verdict header top-level for single AND multi layouts", () => {
+    const placement = PROCESS_REVEAL_INSTRUCTIONS.slice(
+      PROCESS_REVEAL_INSTRUCTIONS.indexOf("SUMMARY PLACEMENT"),
+    );
+    assert.match(
+      placement,
+      /HOIST it out of the NARRATIVE so it leads the top message in BOTH the single- and multi-question layouts/,
+    );
+  });
+
+  it("MENTION POLICY branches every block on tagPlayers (no-ping = @displayName)", () => {
+    const policy = PROCESS_REVEAL_INSTRUCTIONS.slice(
+      PROCESS_REVEAL_INSTRUCTIONS.indexOf("MENTION POLICY"),
+    );
+    assert.match(policy, /MENTION POLICY — BRANCH ON `tagPlayers`/);
+    assert.match(policy, /`tagPlayers: true` \(default\): name players with real `<@USERID>`/);
+    assert.match(policy, /`tagPlayers: false`: NEVER emit `<@USERID>`/);
+    assert.match(policy, /plain-text `@displayName`/);
   });
 
   it("keeps the leaderboard ALWAYS top-level in every mode", () => {
@@ -603,7 +623,7 @@ describe("PROCESS_REVEAL_INSTRUCTIONS — finalRevealSummary placement branch", 
     );
     assert.match(
       PROCESS_REVEAL_INSTRUCTIONS,
-      /per-question NARRATIVE[^\n]*STILL moves to `thread_replies`/,
+      /REMAINING NARRATIVE[^\n]*STILL moves to `thread_replies`/,
     );
   });
 
@@ -611,11 +631,11 @@ describe("PROCESS_REVEAL_INSTRUCTIONS — finalRevealSummary placement branch", 
     assert.match(PROCESS_REVEAL_INSTRUCTIONS, /💬 Full reveal in the thread 👇/);
     assert.match(
       PROCESS_REVEAL_INSTRUCTIONS,
-      /thread_replies: \[\{ blocks: \[ \.\.\.NARRATIVE \] \}\]/,
+      /thread_replies: \[\{ blocks: \[ \.\.\.remaining NARRATIVE \] \}\]/,
     );
     assert.match(
       PROCESS_REVEAL_INSTRUCTIONS,
-      /MUST include BOTH the top-level pointer AND the `thread_replies` payload/,
+      /MUST include BOTH the top-level header\+pointer AND the `thread_replies` payload/,
     );
   });
 });

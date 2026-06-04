@@ -172,6 +172,14 @@ export interface TriviaQuestion {
    */
   revealResponses?: RevealResponsesMode;
   /**
+   * Resolved at `post_questions` time from the cascade `game → workspace → true`.
+   * Read by the live roster rebuild (`editRosterIntoCard`) and the reveal-time
+   * card footer (`editRevealIntoCard`) to decide whether to name answerers with
+   * pinging `<@USERID>` mentions (`true`) or plain `@displayName` (`false`).
+   * Absent on legacy / pre-feature rows; absence SHALL be read as `true`.
+   */
+  tagPlayers?: boolean;
+  /**
    * Optional hint attached to the question. Written by `save_question` when
    * Claude generates one (driven by `get_ideas` payload's `suggestedHintMode`),
    * read by `post_questions` to render the hint button / inline block. `mode`

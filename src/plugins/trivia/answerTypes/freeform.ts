@@ -511,6 +511,7 @@ export const freeformAnswerHandler: AnswerTypeHandler = {
         await editRosterIntoCard({
           client,
           scoped,
+          data,
           question,
           handler: freeformAnswerHandler,
         });

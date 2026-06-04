@@ -240,6 +240,29 @@ describe("post_questions tool", () => {
     const stored = (await data.forGame(FIXTURE_GAME_NAME).loadQuestions())[0];
     assert.equal(stored.liveAnswersVisible, true);
     assert.equal(stored.revealResponses, "yes");
+    assert.equal(stored.tagPlayers, true);
+  });
+
+  it("stamps tagPlayers=false from the game tier", async () => {
+    const data = createInMemoryDataLayer();
+    await seedQuestion(data, { id: "Q1" });
+
+    const { deps } = fakeSlackDeps();
+    const getGames = () => fixtureGetGames().map((g) => ({ ...g, tagPlayers: false }));
+    const tool = createPostQuestionsTool(data, fakeSdk(), getGames, deps);
+
+    await tool.handler(
+      {
+        game: FIXTURE_GAME_NAME,
+        items: [{ questionId: "Q1", blocks: SAMPLE_BLOCKS }],
+        appendToPreviousBatch: undefined,
+        suppress_unfurls: undefined,
+      },
+      SESSION,
+    );
+
+    const stored = (await data.forGame(FIXTURE_GAME_NAME).loadQuestions())[0];
+    assert.equal(stored.tagPlayers, false);
   });
 
   it("multi-item batch posts each question independently", async () => {

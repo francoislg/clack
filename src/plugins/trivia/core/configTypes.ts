@@ -192,6 +192,15 @@ export const ALL_TIME_ROW_KEYS = ["always", "never", "end-of-season-only"] as co
 export const DEFAULT_ALL_TIME_ROW: TriviaAllTimeRowMode = "end-of-season-only";
 
 /**
+ * Built-in fallback for the `tagPlayers` knob. `true` preserves the legacy
+ * behavior: players are named with real `<@USERID>` Slack mentions everywhere
+ * (reveal post, in-thread narrative, finale podium, live roster, reveal
+ * footer). `false` renders every player as plain-text `@displayName`, so no
+ * trivia surface ever pings the room.
+ */
+export const DEFAULT_TAG_PLAYERS = true;
+
+/**
  * Whether each revealed question's card carries the authored reveal narrative
  * (`"yes"`) or only the deterministic facts footer (`"no"`). Game+workspace
  * tiers only (cascade `game → workspace → "no"`); NOT a CascadeAxes member.
@@ -325,6 +334,13 @@ export interface TriviaGame extends CascadeAxes {
    */
   allTimeRow?: TriviaAllTimeRowMode;
   /**
+   * Per-game tier of the `tagPlayers` knob. Cascade:
+   *   `game → workspace → true`. NOT a CascadeAxes member — game+workspace only.
+   *   `false` makes every trivia surface name players as plain-text
+   *   `@displayName` instead of pinging `<@USERID>`. See `resolveTagPlayers`.
+   */
+  tagPlayers?: boolean;
+  /**
    * Per-game tier of the "narrative in cards" axis. Cascade:
    *   `game → workspace → "no"`. NOT a CascadeAxes member.
    *   See `TriviaIncludeRevealInQuestions` and `resolveIncludeRevealInQuestions`.
@@ -397,6 +413,13 @@ export interface TriviaConfig extends CascadeAxes {
    *   See `TriviaAllTimeRowMode`.
    */
   allTimeRow?: TriviaAllTimeRowMode;
+  /**
+   * Workspace tier of the `tagPlayers` knob. Cascade:
+   *   `game → workspace → true`. NOT a CascadeAxes member.
+   *   `false` suppresses all `<@USERID>` pings in favor of `@displayName`.
+   *   See `resolveTagPlayers`.
+   */
+  tagPlayers?: boolean;
   /**
    * Workspace tier of the "narrative in cards" axis. Cascade:
    *   `game → workspace → "no"`. NOT a CascadeAxes member.

@@ -12,6 +12,7 @@ import {
 import { requireWritableGame } from "../../core/gamesRegistry.js";
 import { computeLeaderboard } from "../../domain/computeLeaderboard.js";
 import { resolveAllTimeRow, shouldShowAllTimeRow } from "../../domain/allTimeRow.js";
+import { resolveTagPlayers } from "../../domain/tagPlayers.js";
 import { resolveIncludeRevealInQuestions } from "../../domain/includeRevealInQuestions.js";
 import { resolveFinalRevealSummary } from "../../domain/finalRevealSummary.js";
 import { findCurrentSeason } from "../../core/seasonTimeline.js";
@@ -385,6 +386,7 @@ export function createComputeAnswersTool(
         roundSummary,
         includeRevealInQuestions: resolveIncludeRevealInQuestions(gameEntry, triviaConfig),
         finalRevealSummary: resolveFinalRevealSummary(gameEntry, triviaConfig),
+        tagPlayers: resolveTagPlayers(gameEntry, triviaConfig),
         ...(seasonStatus ? { seasonStatus } : {}),
         ...(seasonStatus
           ? {

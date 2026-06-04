@@ -149,6 +149,13 @@ export interface ProcessRevealResult {
    * via `submit_response`'s `thread_replies` with a top-level pointer.
    */
   finalRevealSummary: TriviaFinalRevealSummary;
+  /**
+   * Resolved `tagPlayers` knob (cascade `game → workspace → true`). When `true`
+   * (default) the reveal post names players with pinging `<@USERID>` mentions;
+   * when `false` it MUST name them as plain-text `@displayName` so the post
+   * pings no one. Always present. See `resolveTagPlayers`.
+   */
+  tagPlayers: boolean;
   seasonStatus?: SeasonStatusOut;
   /**
    * Resolved decision for the All-Time leaderboard surface: the normal-reveal

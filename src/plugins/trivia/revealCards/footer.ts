@@ -20,10 +20,11 @@
 
 import type { DividerBlock, SectionBlock } from "@slack/types";
 import { t } from "../i18n/t.js";
+import { renderPlayerRef } from "../domain/tagPlayers.js";
 import type { Voter, VoterBuckets } from "../tools/reveal/types.js";
 
-function renderNames(voters: readonly Voter[]): string {
-  return voters.map((v) => `<@${v.userId}>`).join(", ");
+function renderNames(voters: readonly Voter[], tagPlayers: boolean): string {
+  return voters.map((v) => renderPlayerRef(v.userId, v.displayName, tagPlayers)).join(", ");
 }
 
 /**
@@ -35,6 +36,7 @@ export function buildRevealFooterBlocks(
   voters: VoterBuckets,
   answerLine: string,
   questionId: string,
+  tagPlayers: boolean,
 ): [DividerBlock, SectionBlock] {
   const lines: string[] = [t("reveal.answer_was", { answer: answerLine })];
 
@@ -42,19 +44,23 @@ export function buildRevealFooterBlocks(
     case "yes":
     case "just-correctness": {
       if (voters.correct.length > 0) {
-        lines.push(t("reveal.correct_label", { names: renderNames(voters.correct) }));
+        lines.push(t("reveal.correct_label", { names: renderNames(voters.correct, tagPlayers) }));
       }
       if (voters.incorrect.length > 0) {
-        lines.push(t("reveal.incorrect_label", { names: renderNames(voters.incorrect) }));
+        lines.push(
+          t("reveal.incorrect_label", { names: renderNames(voters.incorrect, tagPlayers) }),
+        );
       }
       if (voters.noAnswer.length > 0) {
-        lines.push(t("reveal.no_answer_label", { names: renderNames(voters.noAnswer) }));
+        lines.push(
+          t("reveal.no_answer_label", { names: renderNames(voters.noAnswer, tagPlayers) }),
+        );
       }
       break;
     }
     case "just-winners": {
       if (voters.correct.length > 0) {
-        lines.push(t("reveal.correct_label", { names: renderNames(voters.correct) }));
+        lines.push(t("reveal.correct_label", { names: renderNames(voters.correct, tagPlayers) }));
       }
       if (voters.incorrectCount > 0) {
         lines.push(t("reveal.n_incorrect", { count: voters.incorrectCount }));

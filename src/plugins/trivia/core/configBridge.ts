@@ -169,6 +169,17 @@ function parseTriviaConfigObject(raw: JsonObject, logger: PluginLogger): TriviaC
     else allIssues.push({ field: "trivia.allTimeRow", error: r.error });
   }
 
+  if (raw.tagPlayers !== undefined && raw.tagPlayers !== null) {
+    if (typeof raw.tagPlayers !== "boolean") {
+      allIssues.push({
+        field: "trivia.tagPlayers",
+        error: `must be a boolean (got ${typeof raw.tagPlayers})`,
+      });
+    } else {
+      out.tagPlayers = raw.tagPlayers;
+    }
+  }
+
   if (raw.includeRevealInQuestions !== undefined && raw.includeRevealInQuestions !== null) {
     const r = validateIncludeRevealInQuestions(
       raw.includeRevealInQuestions,
