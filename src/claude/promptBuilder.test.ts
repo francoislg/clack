@@ -321,6 +321,15 @@ describe("buildPrompt", () => {
     assert.ok(prompt.includes("thanks Clack"));
   });
 
+  it("biases the attention-level guidance toward staying put", () => {
+    const session = makeSession({ triggerType: "autoRespond", attentionLevel: "high" });
+    const prompt = buildPrompt(session);
+    assert.ok(prompt.includes("Prefer to STAY"));
+    assert.ok(prompt.includes("when in doubt, stay put"));
+    // A one-shot reply must not be framed as a reason to lower the level.
+    assert.ok(!prompt.includes("As a thread winds down, lower the level"));
+  });
+
   it("includes attention-level guidance for threadReply", () => {
     const session = makeSession({ triggerType: "threadReply" });
     const prompt = buildPrompt(session);

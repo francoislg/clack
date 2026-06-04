@@ -149,6 +149,10 @@ export function installTellMeMoreHandler(
         "Share genuinely interesting, accurate background — the story behind the answer,",
         "surprising facts, useful context. Keep it lively and reasonably concise. Do not",
         "just restate the question. If the topic is recent or you are unsure, use web search.",
+        "",
+        "This thread was intentionally opened for follow-up questions — players are expected",
+        "to keep asking. Do NOT lower `attention_level` on this turn; leave it untouched so",
+        "follow-ups get answered. Only disengage if the player clearly signals they're done.",
       ].join("\n"),
     });
   });
