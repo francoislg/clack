@@ -13,12 +13,13 @@ import { resolveTellMeMore } from "../../domain/tellMeMore.js";
 import { getAnswerTypeHandler } from "../../answerTypes/registry.js";
 import { editRevealIntoCard } from "../../revealCards/editCard.js";
 import type { ClackSdk } from "../../../sdk.js";
-import type { TriviaDataLayer, TriviaQuestion } from "../../core/types.js";
+import type { TriviaDataLayer } from "../../core/types.js";
 import {
   defaultRevealSlackDeps,
   resolveBotUserId,
   type RevealSlackDeps,
 } from "./computeAnswers.js";
+import { selectBatch } from "./batchSelection.js";
 
 const DESCRIPTION = `Deterministically edit the already-posted trivia question card(s) for a batch into their revealed state. Reads the CURRENT \`questions.json\` + \`answers.json\` and rebuilds each card from its stored \`postedBlocks\` (drop the vote buttons, append the results footer, append the "See your answer" button). This is the SOLE editor of posted question cards.
 
@@ -118,16 +119,4 @@ export function createUpdateAnswersBlockTool(
       });
     },
   );
-}
-
-/**
- * Select the questions belonging to a batch handle: rows whose `batchId` equals
- * the handle, plus (for legacy/undefined-batchId rows) the single row whose `id`
- * equals the handle. Sorted by `postedAt` ascending to mirror reveal order.
- */
-function selectBatch(questions: TriviaQuestion[], handle: string): TriviaQuestion[] {
-  const matches = questions.filter(
-    (q) => q.batchId === handle || (q.batchId === undefined && q.id === handle),
-  );
-  return matches.sort((a, b) => (a.postedAt ?? 0) - (b.postedAt ?? 0));
 }

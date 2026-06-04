@@ -49,6 +49,7 @@ export const booleanAnswerHandler: ClickableAnswerHandler = {
   actionAffordanceDescription:
     'answersFormat "boolean" → two vote buttons (👍 TRUE / 👎 FALSE) appended below the question card.',
   revealAnswerShapeDescription: '`{ type: "boolean", isTrue }` for boolean questions.',
+  reprocessReStampAxes: ["revealResponses"],
   historyResultShapeDescription:
     'Boolean: `{ answersFormat: "boolean", questionType, isTrue, cheaterUserIds, responses: Array<{ userId, displayName, answer, correct? }> }`',
 

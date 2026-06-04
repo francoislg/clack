@@ -30,6 +30,9 @@ import { isScoredAnswer } from "../../answerTypes/cheaterFilter.js";
 import type { ClackSdk } from "../../../sdk.js";
 import type { TriviaDataLayer, TriviaQuestion, SubmittedAnswer } from "../../core/types.js";
 import { getAllAnswerTypeHandlers, getAnswerTypeHandler } from "../../answerTypes/registry.js";
+import type { ReStampAxis } from "../../answerTypes/types.js";
+import type { CascadeContext } from "../../core/cascadeAxes.js";
+import { selectBatch } from "./batchSelection.js";
 import type {
   ProcessRevealEntry,
   ProcessRevealResult,
@@ -47,9 +50,9 @@ const DESCRIPTION = `Score the trivia reveal for a game in one call and return t
 
 This tool does NOT edit any Slack card and does NOT mutate season state. After calling it, the renderer SHALL: (a) call \`update_answers_block({ game, batchId })\` with the returned \`batchId\` to edit each revealed question's card into its final state; (b) on the season's last fire (\`seasonStatus.isLastFireOfSeason === true\`), call \`start_new_season({ game })\` to perform the (idempotent) rollover; (c) render the payload via \`submit_response\`.
 
-DEFAULT BEHAVIOR (\`reprocessQuestionIds\` absent or empty): processes EVERY question in the OLDEST pending BATCH, where batches are groups of questions sharing the same \`batchId\` (stamped by \`post_questions\` per call; one cron-fire batch = one shared id). Questions with an undefined \`batchId\` (legacy rows) are each treated as their own singleton batch. The oldest batch is the one whose smallest \`postedAt\` is earliest; ties broken by lexicographic comparison of the group key. Stamps \`processedAt\` on each processed question before returning. Other pending batches stay pending — they drain one batch per fire on subsequent reveal runs. If no question is pending, returns \`reveals: []\` and a current leaderboard.
+DEFAULT BEHAVIOR (\`reprocessQuestionIds\` absent/empty AND \`reprocessBatchId\` absent): processes EVERY question in the OLDEST pending BATCH, where batches are groups of questions sharing the same \`batchId\` (stamped by \`post_questions\` per call; one cron-fire batch = one shared id). Questions with an undefined \`batchId\` (legacy rows) are each treated as their own singleton batch. The oldest batch is the one whose smallest \`postedAt\` is earliest; ties broken by lexicographic comparison of the group key. Stamps \`processedAt\` on each processed question before returning. Other pending batches stay pending — they drain one batch per fire on subsequent reveal runs. If no question is pending, returns \`reveals: []\` and a current leaderboard.
 
-REPROCESS MODE (\`reprocessQuestionIds\` non-empty — NON-DESTRUCTIVE; rejected for freeform): for boolean/choice questions, re-derives the verdict (\`correct\`) on each RETAINED \`SubmittedAnswer\` row from the question's CURRENT answer key (\`isTrue\` / \`correctIndex\`) + cheats list — the raw button clicks are the canonical record and are NEVER deleted. Use this after correcting a question's key. For freeform questions the judged modal submissions are immutable, so the per-handler reveal pipeline rejects reprocess. Stamps \`processedAt\` (overwriting prior values). Does NOT pick up unrelated pending questions in this mode.
+REPROCESS MODE (entered when \`reprocessQuestionIds\` is non-empty OR \`reprocessBatchId\` is set; the targeted set is their UNION; targets sorted \`postedAt\`-ascending — NON-DESTRUCTIVE). Reprocess brings each targeted question fully in line with the CURRENT key AND CURRENT config: (1) re-resolves the question's frozen config axes from the live cascade (rebuilt from the question's own stamped slot/season) and re-stamps them — \`revealResponses\` for every format, \`judgeLeniency\` for freeform; (2) re-derives verdicts on RETAINED rows — boolean/choice from the current \`isTrue\`/\`correctIndex\` + cheats, freeform by re-judging every retained \`answerText\` row under the re-stamped \`judgeLeniency\` (overwriting prior verdicts in place). Raw submissions (clicks / \`answerText\`) are the canonical record and are NEVER deleted. Use after correcting a key OR after a \`revealResponses\`/\`judgeLeniency\` config change to apply it to an already-posted batch (then call \`update_answers_block\` to re-render). Stamps \`processedAt\` (overwriting prior values). Does NOT pick up unrelated pending questions.
 
 PAYLOAD SHAPE (renderer contract):
 - \`batchId\` (string, present when \`reveals\` is non-empty): the handle for the processed batch — pass it verbatim to \`update_answers_block\`. Equals the shared \`batchId\` of the processed questions, or the single question's id for legacy/undefined-batchId rows.
@@ -164,7 +167,13 @@ export function createComputeAnswersTool(
         .array(z.string())
         .optional()
         .describe(
-          "Optional list of questionIds to forcibly reprocess. NON-DESTRUCTIVE: the verdict (`correct`) is re-derived on each RETAINED answer row from the question's current key + cheater list; raw answer rows are never deleted. Only these IDs are processed in this mode. Leave empty/absent for the default mode (process the oldest unprocessed batch).",
+          "Optional list of questionIds to forcibly reprocess. NON-DESTRUCTIVE: the verdict (`correct`) is re-derived on each RETAINED answer row from the question's current key + cheater list; raw answer rows are never deleted. Leave empty/absent (and omit reprocessBatchId) for the default mode (process the oldest unprocessed batch).",
+        ),
+      reprocessBatchId: z
+        .string()
+        .optional()
+        .describe(
+          "Optional batch handle to reprocess as a unit — every question sharing this batchId (or the single legacy row whose id equals it). Reprocess mode is entered when reprocessQuestionIds is non-empty OR this is set; when both are given the targeted set is their union. Use to apply a revealResponses/judgeLeniency config change to an already-posted batch.",
         ),
     },
     async (args) => {
@@ -181,7 +190,11 @@ export function createComputeAnswersTool(
 
       const scoped = data.forGame(args.game);
       const reprocessIds = args.reprocessQuestionIds ?? [];
-      const isReprocessMode = reprocessIds.length > 0;
+      const reprocessBatchId =
+        args.reprocessBatchId !== undefined && args.reprocessBatchId.length > 0
+          ? args.reprocessBatchId
+          : undefined;
+      const isReprocessMode = reprocessIds.length > 0 || reprocessBatchId !== undefined;
       const now = Date.now();
 
       const allQuestions = await scoped.loadQuestions();
@@ -189,7 +202,7 @@ export function createComputeAnswersTool(
 
       // ── Question selection ──────────────────────────────────────────────
       const targets: TriviaQuestion[] = isReprocessMode
-        ? selectReprocessTargets(allQuestions, reprocessIds, perIdErrors)
+        ? selectReprocessTargets(allQuestions, reprocessIds, reprocessBatchId, perIdErrors)
         : selectOldestPendingBatch(allQuestions);
 
       // ── Bot user ID (singleton per session, fetch once) ─────────────────
@@ -210,6 +223,10 @@ export function createComputeAnswersTool(
         logger,
       });
 
+      const gameEntry = getGamesFn().find((g) => g.name === args.game) ?? null;
+      const triviaConfig = getTriviaConfigFn();
+      const currentSeasonForResolution = findCurrentSeason(await scoped.loadSeasonsState(), now);
+
       // Each target's reveal scoring is owned by its answer-type handler — the
       // flow just iterates, calls `handler.processReveal`, and accumulates
       // outcomes. No card editing happens here (that is `update_answers_block`).
@@ -227,6 +244,32 @@ export function createComputeAnswersTool(
       };
       for (const question of targets) {
         const handler = getAnswerTypeHandler(question.answersFormat);
+        // Reprocess re-applies CURRENT config: re-resolve each format's frozen
+        // axes from the live cascade (rebuilt from this question's own stamped
+        // slot/season) and re-stamp them before scoring. Isolated per question —
+        // a resolution failure records a per-id error and skips it, never a
+        // silent clobber of the stamped value.
+        if (isReprocessMode) {
+          try {
+            await reStampReprocessedConfig(
+              scoped,
+              question,
+              handler.reprocessReStampAxes,
+              buildCascadeContext(
+                currentSeasonForResolution,
+                gameEntry,
+                question.slot?.index ?? null,
+                triviaConfig,
+              ),
+            );
+          } catch (err) {
+            perIdErrors.push({
+              questionId: question.id,
+              error: err instanceof Error ? err.message : String(err),
+            });
+            continue;
+          }
+        }
         const outcome = await handler.processReveal(question, revealDeps);
         if (outcome.ok) {
           // Image-medium questions carry attribution for the reveal's "📷 Image: …"
@@ -275,8 +318,6 @@ export function createComputeAnswersTool(
         currentSeasonSlug: currentSlugForBoard,
       });
 
-      const gameEntry = getGamesFn().find((g) => g.name === args.game) ?? null;
-
       // ── Season status (REPORT ONLY — rollover lives in start_new_season) ─
       // `isLastFireOfSeason` is derived from the game's OWN `revealCron` (plugin
       // config), never from the bot-core cron-job registry.
@@ -322,8 +363,6 @@ export function createComputeAnswersTool(
       );
 
       // Resolve the two free-form guidance axes for this reveal.
-      const triviaConfig = getTriviaConfigFn();
-      const currentSeasonForResolution = findCurrentSeason(await scoped.loadSeasonsState(), now);
       const firstSlotIndex =
         targets.length > 0 && targets[0].slot !== undefined ? targets[0].slot.index : null;
       const revealCascadeCtx = buildCascadeContext(
@@ -401,9 +440,10 @@ function selectOldestPendingBatch(questions: TriviaQuestion[]): TriviaQuestion[]
 function selectReprocessTargets(
   questions: TriviaQuestion[],
   reprocessIds: string[],
+  reprocessBatchId: string | undefined,
   perIdErrors: Array<{ questionId: string; error: string }>,
 ): TriviaQuestion[] {
-  const targets: TriviaQuestion[] = [];
+  const byId = new Map<string, TriviaQuestion>();
   for (const id of reprocessIds) {
     const q = questions.find((r) => r.id === id);
     if (q === undefined) {
@@ -417,9 +457,42 @@ function selectReprocessTargets(
       });
       continue;
     }
-    targets.push(q);
+    byId.set(q.id, q);
   }
-  return targets;
+  if (reprocessBatchId !== undefined) {
+    for (const q of selectBatch(questions, reprocessBatchId)) byId.set(q.id, q);
+  }
+  return [...byId.values()].sort((a, b) => (a.postedAt ?? 0) - (b.postedAt ?? 0));
+}
+
+/**
+ * Re-resolve a reprocessed question's frozen config axes from the live cascade
+ * and re-stamp them on the record (and the in-memory object, so the scorer/judge
+ * read the new value). Which axes apply is the handler's call; the assignment is
+ * keyed per axis so each lands on its correctly-typed field.
+ */
+async function reStampReprocessedConfig(
+  scoped: ReturnType<TriviaDataLayer["forGame"]>,
+  question: TriviaQuestion,
+  axes: readonly ReStampAxis[],
+  ctx: CascadeContext,
+): Promise<void> {
+  const updates: Partial<TriviaQuestion> = {};
+  for (const axis of axes) {
+    if (axis === "revealResponses") {
+      updates.revealResponses = resolveCascade("revealResponses", ctx).value;
+    } else if (axis === "judgeLeniency") {
+      updates.judgeLeniency = resolveCascade("judgeLeniency", ctx).value;
+    } else {
+      // Compile error if a ReStampAxis member gains no branch here — keeps the
+      // axis set and the re-stamp logic from silently drifting apart.
+      throw new Error(`unhandled ReStampAxis: ${String(axis satisfies never)}`);
+    }
+  }
+  // Persist first; mirror onto the in-memory object only once the write lands, so
+  // a failed write leaves memory and disk consistent (the caller skips the question).
+  await scoped.updateQuestion(question.id, updates);
+  Object.assign(question, updates);
 }
 
 interface SeasonStatusParams {

@@ -192,13 +192,95 @@ describe("freeformAnswerHandler", () => {
       };
     }
 
-    it("rejects in reprocess mode", async () => {
-      const result = await freeformAnswerHandler.processReveal(
-        makeQuestion(),
-        makeDeps("", { isReprocessMode: true }),
-      );
+    it("reprocess re-judges an already-judged answer, overwriting its verdict in place", async () => {
+      const deps = makeDeps('{"correct":true}', { isReprocessMode: true });
+      const question = makeQuestion();
+      await deps.scoped.saveQuestion(question);
+      // A prior reveal already scored U1 incorrect; reprocess must re-judge it.
+      // Use a non-exact-match answer so the model judge (not the pre-check) decides.
+      await deps.scoped.saveAnswer({
+        userId: "U1",
+        questionId: question.id,
+        answerText: "Lyon",
+        correct: false,
+        judgeReason: "stale verdict",
+        timestamp: 100,
+      });
+
+      const result = await freeformAnswerHandler.processReveal(question, deps);
+      assert.equal(result.ok, true);
+
+      const rows = (await deps.scoped.loadAnswers()).filter((a) => a.questionId === question.id);
+      assert.equal(rows.length, 1, "answer row retained");
+      assert.equal(rows[0].answerText, "Lyon", "typed answer never modified");
+      assert.equal(rows[0].correct, true, "verdict re-judged under current leniency");
+      assert.equal(rows[0].judgeReason, undefined, "stale judgeReason overwritten by the re-judge");
+    });
+
+    it("reprocess keeps the prior verdict (no processedAt) when the re-judge exhausts retries", async () => {
+      // Unparseable judge text → no verdict after retries. Non-exact-match
+      // answer so the pre-check doesn't short-circuit to a verdict.
+      const deps = makeDeps("", { isReprocessMode: true });
+      const question = makeQuestion();
+      await deps.scoped.saveQuestion(question);
+      await deps.scoped.saveAnswer({
+        userId: "U1",
+        questionId: question.id,
+        answerText: "Lyon",
+        correct: true,
+        timestamp: 100,
+      });
+
+      const result = await freeformAnswerHandler.processReveal(question, deps);
       assert.equal(result.ok, false);
-      if (!result.ok) assert.match(result.error, /reprocess mode is not supported/);
+
+      const stored = (await deps.scoped.loadQuestions()).find((q) => q.id === question.id);
+      assert.equal(
+        stored?.processedAt,
+        undefined,
+        "processedAt not stamped when a row could not be re-judged",
+      );
+      const row = (await deps.scoped.loadAnswers()).find((a) => a.questionId === question.id);
+      assert.equal(
+        row?.correct,
+        true,
+        "prior verdict left intact when the re-judge fails (not blanked)",
+      );
+    });
+
+    it("default mode judges only pending rows in a mixed batch, leaving judged verdicts intact", async () => {
+      const deps = makeDeps('{"correct":true}'); // isReprocessMode: false
+      const question = makeQuestion();
+      await deps.scoped.saveQuestion(question);
+      await deps.scoped.saveAnswer({
+        userId: "U1",
+        questionId: question.id,
+        answerText: "London",
+        correct: false,
+        timestamp: 1,
+      });
+      await deps.scoped.saveAnswer({
+        userId: "U2",
+        questionId: question.id,
+        answerText: "Rome",
+        correct: true,
+        timestamp: 2,
+      });
+      await deps.scoped.saveAnswer({
+        userId: "U3",
+        questionId: question.id,
+        answerText: "Paris",
+        timestamp: 3,
+      });
+
+      await freeformAnswerHandler.processReveal(question, deps);
+
+      const rows = await deps.scoped.loadAnswers();
+      const verdict = (userId: string) =>
+        rows.find((r) => r.userId === userId && r.questionId === question.id)?.correct;
+      assert.equal(verdict("U1"), false, "already-judged incorrect row untouched");
+      assert.equal(verdict("U2"), true, "already-judged correct row untouched");
+      assert.equal(verdict("U3"), true, "pending row judged");
     });
 
     it("emits an empty 'yes' bucket when no pending submissions exist", async () => {

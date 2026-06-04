@@ -156,7 +156,10 @@ describe("reveal flow integration — compute → update → start_new_season", 
 
     // ── Step 1: compute_answers (the scorer) ──────────────────────────────
     const computed = parseToolResult(
-      await compute.handler({ game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined }, SESSION),
+      await compute.handler(
+        { game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined, reprocessBatchId: undefined },
+        SESSION,
+      ),
     );
     assert.equal(computed.batchId, "B");
     assert.equal(computed.reveals.length, 1);
@@ -205,7 +208,10 @@ describe("reveal flow integration — compute → update → start_new_season", 
     const { compute, update, startNewSeason } = tools(data, deps, "0 0 1 1 *");
 
     const computed = parseToolResult(
-      await compute.handler({ game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined }, SESSION),
+      await compute.handler(
+        { game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined, reprocessBatchId: undefined },
+        SESSION,
+      ),
     );
     assert.equal(computed.seasonStatus.isLastFireOfSeason, true);
     // compute REPORTS the last fire but performs NO rollover itself.
@@ -253,7 +259,10 @@ describe("reveal flow integration — compute → update → start_new_season", 
     const { compute, update, startNewSeason } = tools(data, deps, "0 0 1 1 *");
 
     const computed = parseToolResult(
-      await compute.handler({ game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined }, SESSION),
+      await compute.handler(
+        { game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined, reprocessBatchId: undefined },
+        SESSION,
+      ),
     );
     await update.handler({ game: FIXTURE_GAME_NAME, batchId: computed.batchId }, SESSION);
     await startNewSeason.handler({ game: FIXTURE_GAME_NAME, force: undefined }, SESSION);
@@ -301,7 +310,10 @@ describe("reveal flow integration — compute → update → start_new_season", 
 
     // Fire 1 drains the oldest batch (B1) only.
     const first = parseToolResult(
-      await compute.handler({ game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined }, SESSION),
+      await compute.handler(
+        { game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined, reprocessBatchId: undefined },
+        SESSION,
+      ),
     );
     assert.equal(first.batchId, "B1");
     assert.deepEqual(
@@ -312,7 +324,10 @@ describe("reveal flow integration — compute → update → start_new_season", 
 
     // Fire 2 drains the next batch (B2), leaving the already-revealed B1 alone.
     const second = parseToolResult(
-      await compute.handler({ game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined }, SESSION),
+      await compute.handler(
+        { game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined, reprocessBatchId: undefined },
+        SESSION,
+      ),
     );
     assert.equal(second.batchId, "B2");
     assert.deepEqual(
@@ -328,7 +343,10 @@ describe("reveal flow integration — compute → update → start_new_season", 
 
     // Fire 3 has nothing left to drain.
     const third = parseToolResult(
-      await compute.handler({ game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined }, SESSION),
+      await compute.handler(
+        { game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined, reprocessBatchId: undefined },
+        SESSION,
+      ),
     );
     assert.deepEqual(third.reveals, []);
   });
