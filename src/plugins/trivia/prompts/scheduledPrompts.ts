@@ -760,6 +760,7 @@ Deliver today's trivia reveal. The deterministic SCORING is done for you by \`co
      - \`reactions\` (present in all four variants) is COMMENTARY, not votes. Each entry lists every emoji a user reacted with so you can riff on it ("<@U_ALICE> piped in with 🤔🔥"). Caught cheaters are STRUCTURALLY ABSENT from every list — they never appear in correct/incorrect/noAnswer/reactions.
    - \`leaderboard\`: array of \`{ userId, displayName, totalCorrect, totalAnswered, accuracy, currentSeasonCorrect?, currentSeasonAnswered? }\` already sorted in render order.
    - \`roundSummary\` (ALWAYS present): \`{ totalQuestions, perPlayer: Array<{ userId, displayName, correct, answered, roundMvp? }> }\` — the per-player round scoreboard. It is an AGGREGATE computed from scored answers, INDEPENDENT of \`revealResponses\` (which only controls per-question display), so it is here every round in every mode. It is the SOLE source for the \`This Round\` leaderboard-table row — there is NO separate prose "Round Summary" block. \`perPlayer\` is EMPTY only when nobody answered this round — in that case skip the \`This Round\` row. Already sorted (correct desc, displayName asc); already excludes cheaters; you MUST NOT recompute it from \`reveals[].voters\` yourself.
+   - \`includeRevealInQuestions\` (\`"yes" | "no"\`, ALWAYS present): the game's resolved card-narrative mode. \`"yes"\` → author per-card narrative via \`update_question\` BEFORE step 2 (see "AUTHOR PER-CARD NARRATIVE" below); \`"no"\` (today's default) → cards stay facts-only and the narrative lives in the step-4 summary.
    - \`seasonStatus\` (only present when \`trivia.seasons.enabled\` is true): \`{ currentSlug, isLastFireOfSeason, seasonClosed, hasPriorSeasons, mvp? }\`. This is REPORT-ONLY — \`compute_answers\` performs no rollover (\`seasonClosed\` is always \`false\` here). When \`isLastFireOfSeason\` is true you MUST call \`start_new_season({ game: "{game}" })\` in step 3 to perform the (idempotent) rollover; do NOT call \`upsert_season\`.
    - \`errors\` (optional): per-questionId structured errors from a reprocess batch. Surface a brief mention if present; otherwise omit.
    - \`instructions\` (optional string): single admin-authored rule resolved from the replace-cascade \`slot → season → game → workspace\`. Honor it verbatim throughout the reveal — apply it to verdict tone, voter-bucket commentary, the closer line, and the leaderboard introduction. Absent → ignore.
@@ -770,13 +771,17 @@ Deliver today's trivia reveal. The deterministic SCORING is done for you by \`co
 
    If \`reveals\` is empty (no pending question / no batch to reveal), POST NOTHING and SKIP steps 2–4: do NOT edit cards, do NOT roll over, do NOT render. Terminate the run immediately with \`submit_response({ skip_response: true })\`.
 
+   AUTHOR PER-CARD NARRATIVE — branch on the payload's \`includeRevealInQuestions\` (do this AFTER step 1, BEFORE step 2):
+   - \`"yes"\`: for EACH question in \`reveals\`, call \`update_question({ game: "{game}", questionId: <reveals[i].questionId>, revealBlocks: [...] })\` carrying THAT question's narrative as Block Kit — the verdict prose, the WHY explanation, the fun-fact comment, and (when its \`correct\` bucket is empty) the expanded "nobody cracked it" teaching. Put ONLY narrative in \`revealBlocks\`; NEVER the Answer/Correct/Incorrect facts (\`update_answers_block\` renders those deterministically from disk and appends your narrative beneath them). Author every revealed question's narrative BEFORE you call \`update_answers_block\` in step 2, so each card shows facts + that narrative.
+   - \`"no"\`: do NOT call \`update_question\` at all — cards stay facts-only (today's flow) and the per-question narrative lives in the step-4 summary instead.
+
 2. CALL \`update_answers_block({ game: "{game}", batchId: <the batchId from step 1> })\`:
 
    This edits each revealed question's original Slack card into its final static state (drops the vote buttons, appends the results footer, adds the "See your answer" button) — deterministically, from the scored answers on disk. It does NOT score, judge, or post a new message. SKIP this call when \`reveals\` was empty.
 
 3. ON THE SEASON'S LAST FIRE ONLY, CALL \`start_new_season({ game: "{game}" })\`:
 
-   Call this IF AND ONLY IF \`seasonStatus.isLastFireOfSeason === true\`. It stamps \`endedAt\` and (when no continuation is queued) creates next month's season. It is idempotent — safe if already rolled over. When seasons are disabled or \`isLastFireOfSeason\` is false, SKIP this call.
+   Call this IF AND ONLY IF \`seasonStatus.isLastFireOfSeason === true\`. It stamps \`endedAt\` and (when no continuation is queued) creates next month's season. It is idempotent — safe if already rolled over. When seasons are disabled or \`isLastFireOfSeason\` is false, SKIP this call. NEVER pass \`force\` from the reveal flow — the tool self-verifies the last fire and on a genuine last fire closes without it; if it returns \`requiresConfirmation: true\`, that means this is NOT the last fire, so do NOT retry, just SKIP.
 
 4. RENDER VIA \`submit_response\` USING THE GAME SHOW PRESENTER VOICE:
 

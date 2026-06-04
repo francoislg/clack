@@ -351,8 +351,9 @@ describe("PROCESS_REVEAL_INSTRUCTIONS — renderer brief", () => {
   });
 
   it("gates start_new_season to the season's last fire only (never unconditional)", () => {
-    // The season close has NO structural guard — this conditional in the prompt is the
-    // ONLY thing preventing a mid-season fire from rolling the season over every day.
+    // The tool itself now re-verifies the last fire (see startNewSeason.ts confirmation
+    // guard), but this prompt conditional is still the first line of defense keeping a
+    // mid-season fire from even attempting the rollover.
     assert.match(PROCESS_REVEAL_INSTRUCTIONS, /IF AND ONLY IF[^\n]*isLastFireOfSeason === true/);
     assert.match(PROCESS_REVEAL_INSTRUCTIONS, /isLastFireOfSeason` is false, SKIP this call/);
     // And it must be REQUIRED (not optional) when the last fire IS reached.
@@ -360,6 +361,18 @@ describe("PROCESS_REVEAL_INSTRUCTIONS — renderer brief", () => {
       PROCESS_REVEAL_INSTRUCTIONS,
       /When `isLastFireOfSeason` is true you MUST call `start_new_season/,
     );
+  });
+
+  it("branches on includeRevealInQuestions: yes authors per-card narrative, no does not", () => {
+    assert.match(PROCESS_REVEAL_INSTRUCTIONS, /includeRevealInQuestions/);
+    // The "yes" branch instructs a per-question update_question call carrying revealBlocks,
+    // explicitly before update_answers_block (step 2).
+    assert.match(PROCESS_REVEAL_INSTRUCTIONS, /AUTHOR PER-CARD NARRATIVE/);
+    assert.match(PROCESS_REVEAL_INSTRUCTIONS, /update_question\(/);
+    assert.match(PROCESS_REVEAL_INSTRUCTIONS, /revealBlocks/);
+    assert.match(PROCESS_REVEAL_INSTRUCTIONS, /BEFORE you call `update_answers_block` in step 2/);
+    // The "no" branch authors nothing.
+    assert.match(PROCESS_REVEAL_INSTRUCTIONS, /`"no"`: do NOT call `update_question`/);
   });
 
   it("does NOT enumerate the absorbed deterministic-step tools as required steps", () => {

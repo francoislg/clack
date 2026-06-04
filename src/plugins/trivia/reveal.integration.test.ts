@@ -220,7 +220,7 @@ describe("reveal flow integration — compute → update → start_new_season", 
 
     // ── Step 3: start_new_season (the only step that mutates season state) ─
     const rolled = parseToolResult(
-      await startNewSeason.handler({ game: FIXTURE_GAME_NAME }, SESSION),
+      await startNewSeason.handler({ game: FIXTURE_GAME_NAME, force: undefined }, SESSION),
     );
     assert.equal(rolled.seasonClosed, true);
     assert.equal(rolled.closedSlug, "s1");
@@ -256,7 +256,7 @@ describe("reveal flow integration — compute → update → start_new_season", 
       await compute.handler({ game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined }, SESSION),
     );
     await update.handler({ game: FIXTURE_GAME_NAME, batchId: computed.batchId }, SESSION);
-    await startNewSeason.handler({ game: FIXTURE_GAME_NAME }, SESSION);
+    await startNewSeason.handler({ game: FIXTURE_GAME_NAME, force: undefined }, SESSION);
 
     const closedAt = (await scoped.loadSeasonsState())?.seasons.find(
       (s) => s.slug === "s1",
@@ -269,7 +269,7 @@ describe("reveal flow integration — compute → update → start_new_season", 
     assert.deepEqual(updates[0].blockIds, updates[1].blockIds);
 
     // Re-run rollover: s1's close stamp is irreversible-once — never re-applied.
-    await startNewSeason.handler({ game: FIXTURE_GAME_NAME }, SESSION);
+    await startNewSeason.handler({ game: FIXTURE_GAME_NAME, force: undefined }, SESSION);
     const reclosedAt = (await scoped.loadSeasonsState())?.seasons.find(
       (s) => s.slug === "s1",
     )?.endedAt;
