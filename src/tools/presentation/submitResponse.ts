@@ -937,49 +937,15 @@ export function createSubmitResponseTool(deps: SubmitResponseDeps) {
         }
       }
 
-      // --- Skip path ---
-      if ("skip_response" in args && args.skip_response) {
-        // Cannot skip after a response was already delivered
-        if (responseCapture.get()) {
-          return recordError(recorder, args, {
-            error: "Response already delivered — cannot skip after delivery.",
-          });
-        }
-        // In "skipped" mode the schema accepts only `{ skip_response: true }` — there's no
-        // `message` field for Claude to mismatch on, and the safeguard is moot because the
-        // mode itself forces skipping. Skip the acknowledgment check entirely in that mode.
-        if (!skipBypassesAck) {
-          const message = "message" in args ? args.message : undefined;
-          if (message !== SKIP_ACKNOWLEDGMENT) {
-            return recordError(recorder, args, {
-              error: `To skip a response, the message field must be exactly: "${SKIP_ACKNOWLEDGMENT}"`,
-            });
-          }
-        }
-        const newLevel = "attention_level" in args ? args.attention_level : undefined;
-        responseCapture.setSkipped();
-        if (newLevel) {
-          responseCapture.setAttentionLevel(newLevel);
-        }
-        const result: SubmitResponseSuccessResult = {
-          success: true,
-          skipped: true,
-          ...(newLevel && { attentionLevel: newLevel }),
-          ...(newLevel === "off" && { disengaged: true as const }),
-        };
-        recordSuccess(recorder, args, result);
-        return textResult(result);
-      }
-
-      // --- Post-to-only delivery path (optional-post-to / channelless) ---
-      // No bound primary channel: the deliverable is post_to action(s), auto-executed after
-      // the run. No primary `deliver` happens here; we validate + snapshot the actions and
-      // capture them so autoExecute can replay them.
+      // --- Post-to-only path (optional-post-to / channelless) ---
+      // This mode has no bound primary channel: a post_to action IS the response (auto-executed
+      // after the run), and the absence of one is the skip. The whole mode is handled here —
+      // BEFORE the generic skip path — so a `post_to` always delivers even if Claude also set
+      // `skip_response` in the same call. No deliverable (empty / bare skip_response) → skip.
       if (submitResponseMode === "optional-post-to") {
         const postToActions =
           "actions" in args && Array.isArray(args.actions) ? args.actions : undefined;
         if (!postToActions || postToActions.length === 0) {
-          // Neither post_to nor skip — nothing to deliver. Record as a skip, not an error.
           responseCapture.setSkipped();
           const skipResult: SubmitResponseSuccessResult = { success: true, skipped: true };
           recordSuccess(recorder, args, skipResult);
@@ -1024,6 +990,40 @@ export function createSubmitResponseTool(deps: SubmitResponseDeps) {
         };
         recordSuccess(recorder, args, ptResult);
         return textResult(ptResult);
+      }
+
+      // --- Skip path ---
+      if ("skip_response" in args && args.skip_response) {
+        // Cannot skip after a response was already delivered
+        if (responseCapture.get()) {
+          return recordError(recorder, args, {
+            error: "Response already delivered — cannot skip after delivery.",
+          });
+        }
+        // In "skipped" mode the schema accepts only `{ skip_response: true }` — there's no
+        // `message` field for Claude to mismatch on, and the safeguard is moot because the
+        // mode itself forces skipping. Skip the acknowledgment check entirely in that mode.
+        if (!skipBypassesAck) {
+          const message = "message" in args ? args.message : undefined;
+          if (message !== SKIP_ACKNOWLEDGMENT) {
+            return recordError(recorder, args, {
+              error: `To skip a response, the message field must be exactly: "${SKIP_ACKNOWLEDGMENT}"`,
+            });
+          }
+        }
+        const newLevel = "attention_level" in args ? args.attention_level : undefined;
+        responseCapture.setSkipped();
+        if (newLevel) {
+          responseCapture.setAttentionLevel(newLevel);
+        }
+        const result: SubmitResponseSuccessResult = {
+          success: true,
+          skipped: true,
+          ...(newLevel && { attentionLevel: newLevel }),
+          ...(newLevel === "off" && { disengaged: true as const }),
+        };
+        recordSuccess(recorder, args, result);
+        return textResult(result);
       }
 
       // --- Normal response path ---
