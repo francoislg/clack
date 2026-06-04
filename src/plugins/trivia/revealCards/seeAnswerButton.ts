@@ -16,7 +16,6 @@ export const seeAnswerButton: PersistentPostGameButton = {
   actionRe: /^reveal-see-answer:[^:]+$/,
   actionPrefix: "plugin:trivia:reveal-see-answer:",
   actionIdSuffix: (questionId) => `reveal-see-answer:${questionId}`,
-  blockId: (questionId) => `reveal-see-answer-actions:${questionId}`,
   label: () => t("button.see_your_answer"),
   lifecycle: "persistent",
   enabled: () => true,

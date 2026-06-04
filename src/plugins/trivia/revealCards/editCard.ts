@@ -10,8 +10,8 @@
  *   1. drops the answer-actions block (vote / freeform-answer buttons, plus any
  *      hint button sharing that block) by its `block_id` prefix,
  *   2. appends the static results footer (who got it right, per mode), and
- *   3. appends the post-game buttons section (`renderPostGameButtons`) — every
- *      enabled registry entry, each in its own actions block.
+ *   3. appends the post-game buttons (`renderPostGameButtons`) — every enabled
+ *      registry entry as an element of one shared actions block (single row).
  */
 
 import type { KnownBlock } from "@slack/types";

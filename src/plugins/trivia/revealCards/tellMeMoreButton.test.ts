@@ -105,14 +105,24 @@ function makeQuestion(overrides: Partial<TriviaQuestion> = {}): TriviaQuestion {
 }
 
 function cardBlocks(withTellMeMore: boolean): KnownBlock[] {
-  const blocks: KnownBlock[] = [
-    { type: "section", block_id: "card:Q1", text: { type: "mrkdwn", text: "S" } },
-    { type: "actions", block_id: "reveal-see-answer-actions:Q1", elements: [] },
+  const elements: NonNullable<(KnownBlock & { type: "actions" })["elements"]> = [
+    {
+      type: "button",
+      action_id: "plugin:trivia:reveal-see-answer:Q1",
+      text: { type: "plain_text", text: "See" },
+    },
   ];
   if (withTellMeMore) {
-    blocks.push({ type: "actions", block_id: "reveal-tell-me-more-actions:Q1", elements: [] });
+    elements.push({
+      type: "button",
+      action_id: "plugin:trivia:tell-me-more:Q1",
+      text: { type: "plain_text", text: "More" },
+    });
   }
-  return blocks;
+  return [
+    { type: "section", block_id: "card:Q1", text: { type: "mrkdwn", text: "S" } },
+    { type: "actions", block_id: "reveal-post-game-actions:Q1", elements },
+  ];
 }
 
 function clickBody(blocks: KnownBlock[], userId = "U1"): ActionArgs["body"] {
@@ -152,9 +162,12 @@ describe("tellMeMoreButton", () => {
     });
 
     assert.equal(sdk.updates.length, 1);
-    const ids = sdk.updates[0].blocks.map((b) => b.block_id);
-    assert.ok(!ids.includes("reveal-tell-me-more-actions:Q1"));
-    assert.ok(ids.includes("reveal-see-answer-actions:Q1"));
+    const group = sdk.updates[0].blocks.find((b) => b.block_id === "reveal-post-game-actions:Q1");
+    assert.ok(group?.type === "actions");
+    assert.deepEqual(
+      group.elements.map((el) => (el.type === "button" ? el.action_id : null)),
+      ["plugin:trivia:reveal-see-answer:Q1"],
+    );
 
     assert.equal(sdk.sends.length, 1);
     assert.equal(sdk.sends[0].threadTs, "1700000000.000000");

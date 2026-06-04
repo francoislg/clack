@@ -17,7 +17,6 @@ export const tellMeMoreButton: OneShotPostGameButton = {
   actionRe: /^tell-me-more:[^:]+$/,
   actionPrefix: "plugin:trivia:tell-me-more:",
   actionIdSuffix: (questionId) => `tell-me-more:${questionId}`,
-  blockId: (questionId) => `reveal-tell-me-more-actions:${questionId}`,
   label: () => t("button.tell_me_more"),
   lifecycle: "one-shot",
   enabled: (ctx) => resolveTellMeMore(ctx.game, ctx.config).enabled,

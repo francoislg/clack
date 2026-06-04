@@ -3,12 +3,12 @@
  * question's card (the "post-game buttons"). One declarative entry per button
  * (`see-answer`, `tell-me-more`, …) drives three write-once helpers:
  *
- *   - `renderPostGameButtons` — append every enabled entry as a contiguous
- *     section of one-button `actions` blocks (used by `editCard.ts`),
+ *   - `renderPostGameButtons` — render every enabled entry as elements of ONE
+ *     shared `actions` block, so they sit on a single row (used by `editCard.ts`),
  *   - `installPostGameButtons` — register one Slack action handler per entry at
- *     boot; `one-shot` entries get the static block-drop applied uniformly,
- *   - `removePostGameButton` — drop a single button's block by `block_id`,
- *     preserving every sibling button and the reveal footer.
+ *     boot; `one-shot` entries get the static element-drop applied uniformly,
+ *   - `removePostGameButton` — drop a single button's element by its `action_id`,
+ *     preserving every sibling button (and dropping the block once it empties).
  *
  * Adding a post-game button is one registry entry (+ its `onClick`) — the
  * renderer, installer, and remover never change. The two pre-reveal live-card
@@ -88,8 +88,6 @@ interface PostGameButtonShared {
   actionPrefix: string;
   /** Suffix handed to `sdk.actionId(...)` when rendering the button. */
   actionIdSuffix: (questionId: string) => string;
-  /** `block_id` of this button's dedicated actions block. */
-  blockId: (questionId: string) => string;
   /** Localized button label (resolved through the plugin `t()`). */
   label: () => string;
   /** Whether this button is rendered for the given question/game/config. */
@@ -108,46 +106,60 @@ export interface OneShotPostGameButton extends PostGameButtonShared {
 
 export type PostGameButton = PersistentPostGameButton | OneShotPostGameButton;
 
+/** `block_id` of the shared actions block that hosts every post-game button. */
+export const postGameActionsBlockId = (questionId: string): string =>
+  `reveal-post-game-actions:${questionId}`;
+
 /**
- * Render the enabled post-game buttons as a contiguous section — one `actions`
- * block per entry, in registry order. Disabled entries are omitted.
+ * Render the enabled post-game buttons as elements of ONE shared `actions`
+ * block, in registry order, so Slack lays them out on a single row. Disabled
+ * entries are omitted; an all-disabled registry yields no block at all.
  */
 export function renderPostGameButtons(
   registry: readonly PostGameButton[],
   ctx: PostGameButtonContext,
   actionId: (key: string) => string,
 ): KnownBlock[] {
-  const blocks: KnownBlock[] = [];
-  for (const button of registry) {
-    if (!button.enabled(ctx)) continue;
-    blocks.push({
-      type: "actions",
-      block_id: button.blockId(ctx.question.id),
-      elements: [
-        {
-          type: "button",
-          action_id: actionId(button.actionIdSuffix(ctx.question.id)),
-          text: { type: "plain_text", text: button.label(), emoji: true },
-        },
-      ],
-    });
-  }
-  return blocks;
+  const elements = registry
+    .filter((button) => button.enabled(ctx))
+    .map((button) => ({
+      type: "button" as const,
+      action_id: actionId(button.actionIdSuffix(ctx.question.id)),
+      text: { type: "plain_text" as const, text: button.label(), emoji: true },
+    }));
+  if (elements.length === 0) return [];
+  return [{ type: "actions", block_id: postGameActionsBlockId(ctx.question.id), elements }];
 }
 
 /**
- * Statically drop a button's block by `block_id`, leaving every other block
- * (sibling buttons, footer, body) intact. `removed: false` means the block was
- * already absent — the caller should treat the click as a no-op.
+ * Statically drop a button's element by its `action_id`, leaving sibling
+ * buttons in place; the host `actions` block is dropped only once it empties.
+ * `removed: false` means the element was already absent — the caller should
+ * treat the click as a no-op. Scans every `actions` block, so it tolerates both
+ * the shared-row layout and any legacy one-block-per-button card still in flight.
  */
 export function removePostGameButton(
   currentBlocks: KnownBlock[],
   button: PostGameButton,
   questionId: string,
 ): { blocks: KnownBlock[]; removed: boolean } {
-  const target = button.blockId(questionId);
-  const blocks = currentBlocks.filter((b) => b.block_id !== target);
-  return { blocks, removed: blocks.length !== currentBlocks.length };
+  const targetActionId = `${button.actionPrefix}${questionId}`;
+  let removed = false;
+  const blocks: KnownBlock[] = [];
+  for (const block of currentBlocks) {
+    if (block.type === "actions") {
+      const kept = block.elements.filter(
+        (el) => !("action_id" in el && el.action_id === targetActionId),
+      );
+      if (kept.length !== block.elements.length) {
+        removed = true;
+        if (kept.length > 0) blocks.push({ ...block, elements: kept });
+        continue;
+      }
+    }
+    blocks.push(block);
+  }
+  return { blocks, removed };
 }
 
 export interface PostGameInstallDeps {

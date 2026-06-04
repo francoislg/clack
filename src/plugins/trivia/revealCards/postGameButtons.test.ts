@@ -43,33 +43,33 @@ describe("renderPostGameButtons", () => {
   it("renders only the always-on see-answer button when tell-me-more is disabled", () => {
     const blocks = renderPostGameButtons(POST_GAME_BUTTONS, ctx(), actionId);
     assert.equal(blocks.length, 1);
-    assert.equal(blocks[0].block_id, "reveal-see-answer-actions:Q1");
+    assert.equal(blocks[0].block_id, "reveal-post-game-actions:Q1");
+    assert.ok(blocks[0].type === "actions");
+    assert.equal(blocks[0].elements.length, 1);
   });
 
-  it("renders both buttons, in registry order, when tell-me-more is enabled", () => {
+  it("groups both buttons, in registry order, into one actions block", () => {
     const blocks = renderPostGameButtons(
       POST_GAME_BUTTONS,
       ctx({ config: { tellMeMore: { enabled: true } } }),
       actionId,
     );
+    assert.equal(blocks.length, 1);
+    assert.equal(blocks[0].block_id, "reveal-post-game-actions:Q1");
+    assert.ok(blocks[0].type === "actions");
     assert.deepEqual(
-      blocks.map((b) => b.block_id),
-      ["reveal-see-answer-actions:Q1", "reveal-tell-me-more-actions:Q1"],
+      blocks[0].elements.map((el) => (el.type === "button" ? el.action_id : null)),
+      ["plugin:trivia:reveal-see-answer:Q1", "plugin:trivia:tell-me-more:Q1"],
     );
   });
 
-  it("preserves each entry's verbatim block_id and action_id", () => {
+  it("renders no block when every entry is disabled", () => {
     const blocks = renderPostGameButtons(
-      POST_GAME_BUTTONS,
-      ctx({ config: { tellMeMore: { enabled: true } } }),
+      [tellMeMoreButton],
+      ctx(), // tellMeMore disabled (no config)
       actionId,
     );
-    const see = blocks.find((b) => b.block_id === "reveal-see-answer-actions:Q1");
-    const more = blocks.find((b) => b.block_id === "reveal-tell-me-more-actions:Q1");
-    assert.ok(see?.type === "actions" && see.elements[0].type === "button");
-    assert.equal(see.elements[0].action_id, "plugin:trivia:reveal-see-answer:Q1");
-    assert.ok(more?.type === "actions" && more.elements[0].type === "button");
-    assert.equal(more.elements[0].action_id, "plugin:trivia:tell-me-more:Q1");
+    assert.equal(blocks.length, 0);
   });
 });
 
@@ -77,22 +77,72 @@ describe("removePostGameButton", () => {
   function cardWithBoth(): KnownBlock[] {
     return [
       { type: "section", block_id: "card:Q1", text: { type: "mrkdwn", text: "S" } },
-      { type: "actions", block_id: "reveal-see-answer-actions:Q1", elements: [] },
-      { type: "actions", block_id: "reveal-tell-me-more-actions:Q1", elements: [] },
+      {
+        type: "actions",
+        block_id: "reveal-post-game-actions:Q1",
+        elements: [
+          {
+            type: "button",
+            action_id: "plugin:trivia:reveal-see-answer:Q1",
+            text: { type: "plain_text", text: "See" },
+          },
+          {
+            type: "button",
+            action_id: "plugin:trivia:tell-me-more:Q1",
+            text: { type: "plain_text", text: "More" },
+          },
+        ],
+      },
     ];
   }
 
-  it("drops only the target block and keeps siblings", () => {
+  it("drops only the target element and keeps siblings in the shared block", () => {
     const { blocks, removed } = removePostGameButton(cardWithBoth(), tellMeMoreButton, "Q1");
     assert.equal(removed, true);
-    const ids = blocks.map((b) => b.block_id);
-    assert.ok(!ids.includes("reveal-tell-me-more-actions:Q1"));
-    assert.ok(ids.includes("reveal-see-answer-actions:Q1"));
-    assert.ok(ids.includes("card:Q1"));
+    const group = blocks.find((b) => b.block_id === "reveal-post-game-actions:Q1");
+    assert.ok(group?.type === "actions");
+    assert.deepEqual(
+      group.elements.map((el) => (el.type === "button" ? el.action_id : null)),
+      ["plugin:trivia:reveal-see-answer:Q1"],
+    );
+    assert.ok(blocks.some((b) => b.block_id === "card:Q1"));
   });
 
-  it("reports removed:false when the target block is already absent", () => {
-    const without = cardWithBoth().filter((b) => b.block_id !== "reveal-tell-me-more-actions:Q1");
+  it("drops the host block once its last element is removed", () => {
+    const onlyMore: KnownBlock[] = [
+      { type: "section", block_id: "card:Q1", text: { type: "mrkdwn", text: "S" } },
+      {
+        type: "actions",
+        block_id: "reveal-post-game-actions:Q1",
+        elements: [
+          {
+            type: "button",
+            action_id: "plugin:trivia:tell-me-more:Q1",
+            text: { type: "plain_text", text: "More" },
+          },
+        ],
+      },
+    ];
+    const { blocks, removed } = removePostGameButton(onlyMore, tellMeMoreButton, "Q1");
+    assert.equal(removed, true);
+    assert.ok(!blocks.some((b) => b.block_id === "reveal-post-game-actions:Q1"));
+  });
+
+  it("reports removed:false when the target element is already absent", () => {
+    const without: KnownBlock[] = [
+      { type: "section", block_id: "card:Q1", text: { type: "mrkdwn", text: "S" } },
+      {
+        type: "actions",
+        block_id: "reveal-post-game-actions:Q1",
+        elements: [
+          {
+            type: "button",
+            action_id: "plugin:trivia:reveal-see-answer:Q1",
+            text: { type: "plain_text", text: "See" },
+          },
+        ],
+      },
+    ];
     const { blocks, removed } = removePostGameButton(without, tellMeMoreButton, "Q1");
     assert.equal(removed, false);
     assert.equal(blocks.length, without.length);
@@ -165,7 +215,6 @@ function syntheticOneShot(order: string[]): OneShotPostGameButton & { clicks: nu
     actionRe: /^x-test:[^:]+$/,
     actionPrefix: "plugin:trivia:x-test:",
     actionIdSuffix: (q) => `x-test:${q}`,
-    blockId: (q) => `x-test-actions:${q}`,
     label: () => "X",
     lifecycle: "one-shot",
     enabled: () => true,
@@ -197,7 +246,17 @@ describe("installPostGameButtons (one-shot wrapper)", () => {
 
     const blocks: KnownBlock[] = [
       { type: "section", block_id: "keep:Q1", text: { type: "mrkdwn", text: "S" } },
-      { type: "actions", block_id: "x-test-actions:Q1", elements: [] },
+      {
+        type: "actions",
+        block_id: "reveal-post-game-actions:Q1",
+        elements: [
+          {
+            type: "button",
+            action_id: "plugin:trivia:x-test:Q1",
+            text: { type: "plain_text", text: "X" },
+          },
+        ],
+      },
     ];
     await handler({
       ack: async () => {},
@@ -207,7 +266,7 @@ describe("installPostGameButtons (one-shot wrapper)", () => {
 
     assert.equal(sdk.updates.length, 1);
     const ids = sdk.updates[0].blocks.map((b) => b.block_id);
-    assert.ok(!ids.includes("x-test-actions:Q1"));
+    assert.ok(!ids.includes("reveal-post-game-actions:Q1"));
     assert.ok(ids.includes("keep:Q1"));
     assert.equal(button.clicks, 1);
     assert.deepEqual(sdk.order, ["update", "click"]);
