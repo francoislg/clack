@@ -127,11 +127,6 @@ export function createInMemoryDataLayer(): TriviaDataLayer {
         if (idx === -1) return;
         cell.answers[idx] = { ...cell.answers[idx], ...partial };
       },
-      async deleteAnswersForQuestion(questionId) {
-        const before = cell.answers.length;
-        cell.answers = cell.answers.filter((a) => a.questionId !== questionId);
-        return before - cell.answers.length;
-      },
       async loadCheats() {
         return [...cell.cheats];
       },

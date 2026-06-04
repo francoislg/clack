@@ -2,58 +2,36 @@ import { CronExpressionParser } from "cron-parser";
 import { triviaLogger as logger } from "../core/pluginLogger.js";
 
 /**
- * Plugin-local minimal shape of a persisted cron job. We deliberately do NOT
- * import the bot-core CronJob type — per the plugin hard rules, plugins must
- * not reach into bot internals. This structural type captures only the fields
- * this module touches.
- */
-export interface TriviaCronJobView {
-  plugin?: string;
-  enabled?: boolean;
-  specKey?: string;
-  prompt: string;
-  requiredTools?: string[];
-  cronExpression: string;
-  timezone: string;
-}
-
-/**
- * Locate the trivia reveal cron job for a given game.
- *
- * Plugin-managed reveal specs carry `specKey: "<name>:reveal"` — that's the canonical
- * match. Legacy detection (jobs predating `buildGameSpecs`) falls back to inspecting
- * the prompt / requiredTools for the legacy reveal instruction name.
- */
-export function findTriviaRevealJob(
-  jobs: TriviaCronJobView[],
-  gameName: string,
-  legacyMarker: string,
-): TriviaCronJobView | null {
-  const triviaJobs = jobs.filter((j) => j.plugin === "trivia" && j.enabled !== false);
-  const direct = triviaJobs.find((j) => j.specKey === `${gameName}:reveal`);
-  if (direct) return direct;
-  const legacy = triviaJobs.find(
-    (j) =>
-      j.prompt.includes(legacyMarker) || j.requiredTools?.some((t) => t.includes(legacyMarker)),
-  );
-  return legacy ?? null;
-}
-
-/**
- * Compute the next-fire instant of `job`'s cron expression strictly after `after`.
+ * Compute the next-fire instant of a cron expression strictly after `after`.
  * Returns null when the expression is invalid (a warning is logged with the cron text).
+ * Plugin-local — derives timing from a cron string the plugin owns (e.g. a game's
+ * `revealCron`); it does NOT consult the bot-core cron-job registry.
  */
-export function nextFireAfter(job: TriviaCronJobView, after: Date): Date | null {
+export function nextCronFireAfter(
+  cronExpression: string,
+  timezone: string | undefined,
+  after: Date,
+): Date | null {
   try {
-    const interval = CronExpressionParser.parse(job.cronExpression, {
+    const interval = CronExpressionParser.parse(cronExpression, {
       currentDate: after,
-      tz: job.timezone,
+      tz: timezone,
     });
     return interval.next().toDate();
   } catch (error) {
     logger.error(
-      `nextFireAfter: invalid cron "${job.cronExpression}" tz="${job.timezone}": ${error instanceof Error ? error.message : String(error)}`,
+      `nextCronFireAfter: invalid cron "${cronExpression}" tz="${timezone}": ${error instanceof Error ? error.message : String(error)}`,
     );
     return null;
   }
+}
+
+/**
+ * Whether `nextFire` is the season's last reveal before it ends — true when the
+ * next reveal fire lands after the season's `expectedEndAt`. A `null` `nextFire`
+ * (an unparseable cron — a misconfiguration) is treated as the last fire, so a
+ * broken schedule still lets the season close rather than running forever.
+ */
+export function isLastFireBeforeSeasonEnd(nextFire: Date | null, expectedEndAt: number): boolean {
+  return nextFire === null || nextFire.getTime() > expectedEndAt;
 }

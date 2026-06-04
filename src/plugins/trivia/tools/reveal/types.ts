@@ -117,6 +117,12 @@ export interface RoundSummary {
 export interface ProcessRevealResult {
   game: string;
   reveals: ProcessRevealEntry[];
+  /**
+   * Handle for `update_answers_block`: the shared `batchId` of the processed
+   * questions, or the single question's id for legacy/undefined-batchId rows.
+   * Present only when `reveals` is non-empty.
+   */
+  batchId?: string;
   leaderboard: LeaderboardEntry[];
   /**
    * Always present — the per-player round scoreboard, derived from the scored

@@ -1,32 +1,20 @@
 import { z } from "zod";
 import { tool } from "@anthropic-ai/claude-agent-sdk";
 import { textResult, errorResult } from "../../../../tools/helpers.js";
-// TODO(plugin-isolation): loadJobs reaches into bot-core cron-job state.
-// Move to an SDK accessor (e.g. sdk.listOwnerCronJobs) in a follow-up.
-import { loadJobs } from "../../../../cronJobs.js";
 import { triviaLogger as logger } from "../../core/pluginLogger.js";
 import { findCurrentSeason, findNextSeason } from "../../core/seasonTimeline.js";
 import { defaultGetGames, type GetGamesFn } from "../../core/configBridge.js";
 import { requireGame } from "../../core/gamesRegistry.js";
-import {
-  findTriviaRevealJob,
-  nextFireAfter,
-  type TriviaCronJobView,
-} from "../../domain/seasonStatus.js";
+import { nextCronFireAfter, isLastFireBeforeSeasonEnd } from "../../domain/seasonStatus.js";
 import type { TriviaDataLayer } from "../../core/types.js";
-
-const REVEAL_INSTRUCTION_NAME = "process_responses_instructions";
-
-type JobsLoader = () => Promise<TriviaCronJobView[]>;
 
 export function createCheckSeasonStatusTool(
   data: TriviaDataLayer,
-  jobsLoader: JobsLoader = loadJobs,
   getGamesFn: GetGamesFn = defaultGetGames,
 ) {
   return tool(
     "check_season_status",
-    "Inspect the current trivia season and the next-queued season on the named game's timeline. Returns currentSlug, currentExpectedEndAt, isLastFireOfSeason, nextSeasonSlug, nextSeasonStartsAt, and isInGap. Call this near the top of the answer-reveal flow when seasons are enabled.",
+    "Inspect the current trivia season and the next-queued season on the named game's timeline. Returns currentSlug, currentExpectedEndAt, isLastFireOfSeason, nextSeasonSlug, nextSeasonStartsAt, and isInGap. `isLastFireOfSeason` is derived from the game's own `revealCron` config — it does NOT read the bot-core cron-job registry. Call this near the top of the answer-reveal flow when seasons are enabled.",
     {
       game: z
         .string()
@@ -66,12 +54,12 @@ export function createCheckSeasonStatusTool(
         });
       }
 
-      const jobs = await jobsLoader();
-      const reveal = findTriviaRevealJob(jobs, args.game, REVEAL_INSTRUCTION_NAME);
+      const game = getGamesFn().find((g) => g.name === args.game);
+      const revealCron = game?.revealCron;
 
-      if (reveal === null) {
+      if (!revealCron) {
         logger.warn(
-          `check_season_status: no trivia reveal cron found for game "${args.game}" — defaulting isLastFireOfSeason to false`,
+          `check_season_status: game "${args.game}" has no revealCron — defaulting isLastFireOfSeason to false`,
         );
         return textResult({
           currentSlug: current.slug,
@@ -80,12 +68,12 @@ export function createCheckSeasonStatusTool(
           nextSeasonSlug: next?.slug ?? null,
           nextSeasonStartsAt: next?.startedAt ?? null,
           isInGap: false,
-          warning: "No trivia reveal schedule found; defaulting to mid-season behavior.",
+          warning: "No trivia reveal schedule configured; defaulting to mid-season behavior.",
         });
       }
 
-      const nextFire = nextFireAfter(reveal, now);
-      const isLastFireOfSeason = nextFire === null || nextFire.getTime() > current.expectedEndAt;
+      const nextFire = nextCronFireAfter(revealCron, game?.timezone, now);
+      const isLastFireOfSeason = isLastFireBeforeSeasonEnd(nextFire, current.expectedEndAt);
 
       return textResult({
         currentSlug: current.slug,

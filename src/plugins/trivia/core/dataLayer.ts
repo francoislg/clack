@@ -114,15 +114,6 @@ export function createSdkDataLayer(sdk: ClackSdk): TriviaDataLayer {
       await sdk.writeFile(aPath, JSON.stringify(answers, null, 2));
     }
 
-    async function deleteAnswersForQuestion(questionId: string): Promise<number> {
-      const answers = await loadAnswers();
-      const before = answers.length;
-      const kept = answers.filter((a) => a.questionId !== questionId);
-      if (kept.length === before) return 0;
-      await sdk.writeFile(aPath, JSON.stringify(kept, null, 2));
-      return before - kept.length;
-    }
-
     async function loadCheats(): Promise<CheatReport[]> {
       return readSdkJson<CheatReport[]>(sdk, cPath, []);
     }
@@ -194,7 +185,6 @@ export function createSdkDataLayer(sdk: ClackSdk): TriviaDataLayer {
       loadAnswers,
       saveAnswer,
       updateAnswer,
-      deleteAnswersForQuestion,
       loadCheats,
       saveCheat,
       loadSeasonsState,

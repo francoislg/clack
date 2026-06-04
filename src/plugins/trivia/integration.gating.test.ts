@@ -46,7 +46,9 @@ const RUNTIME_TOOLS = [
   "mcp__trivia__save_question",
   "mcp__trivia__post_questions",
   "mcp__trivia__get_question_history",
-  "mcp__trivia__process_reveal_answers",
+  "mcp__trivia__compute_answers",
+  "mcp__trivia__update_answers_block",
+  "mcp__trivia__start_new_season",
   "mcp__trivia__check_season_status",
   "mcp__trivia__save_cheating",
 ] as const;

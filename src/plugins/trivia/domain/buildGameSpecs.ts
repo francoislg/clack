@@ -39,11 +39,16 @@ const PREP_REQUIRED_TOOLS = [
 ];
 
 /**
- * Single-tool reveal required-tools list. `process_reveal_answers` absorbs every deterministic
- * step the previous orchestration enumerated; seasons-specific behavior is driven by the
- * payload's `seasonStatus` field, not by adding more required tools.
+ * Reveal required-tools list. `compute_answers` scores and returns the payload (+ `batchId`);
+ * `update_answers_block` edits the question cards; `start_new_season` performs the idempotent
+ * season rollover the prompt invokes only on the season's last fire (harmless when seasons are
+ * off — the prompt simply never calls it).
  */
-const REVEAL_REQUIRED_TOOLS = ["mcp__trivia__process_reveal_answers"];
+const REVEAL_REQUIRED_TOOLS = [
+  "mcp__trivia__compute_answers",
+  "mcp__trivia__update_answers_block",
+  "mcp__trivia__start_new_season",
+];
 
 /**
  * Build the cron-job specs for a list of trivia games. Each game produces two or three specs:

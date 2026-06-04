@@ -2,11 +2,7 @@ import { z } from "zod";
 import { tool } from "@anthropic-ai/claude-agent-sdk";
 import type { KnownBlock } from "@slack/types";
 import { textResult, errorResult } from "../../../../tools/helpers.js";
-// TODO(plugin-isolation): loadJobs reaches into bot-core cron-job state.
-// Move to an SDK accessor (e.g. sdk.listOwnerCronJobs) in a follow-up.
-import { loadJobs } from "../../../../cronJobs.js";
 import { triviaLogger as logger } from "../../core/pluginLogger.js";
-import type { TriviaCronJobView } from "../../domain/seasonStatus.js";
 import {
   defaultGetGames,
   defaultGetTriviaConfig,
@@ -16,24 +12,22 @@ import {
 import { requireWritableGame } from "../../core/gamesRegistry.js";
 import { computeLeaderboard } from "../../domain/computeLeaderboard.js";
 import { resolveAllTimeRow, shouldShowAllTimeRow } from "../../domain/allTimeRow.js";
-import { resolveTellMeMore } from "../../domain/tellMeMore.js";
 import { findCurrentSeason } from "../../core/seasonTimeline.js";
 import { resolveCascade } from "../../domain/resolveCascade.js";
 import { buildCascadeContext } from "../../domain/cascadeContext.js";
-import { findTriviaRevealJob, nextFireAfter } from "../../domain/seasonStatus.js";
+import { nextCronFireAfter, isLastFireBeforeSeasonEnd } from "../../domain/seasonStatus.js";
 import {
   fetchMessageReactions as fetchReactionsViaSlackClient,
   fetchBotUserId as fetchBotUserIdViaSlackClient,
   fetchUserDisplayName as fetchUserDisplayNameViaSlackClient,
 } from "./slack.js";
-import { pickSeasonMvp, applySeasonRollover } from "./rollover.js";
+import { pickSeasonMvp } from "./rollover.js";
 import { refreshUserDisplayNames } from "./refreshDisplayNames.js";
 import { computeRoundSummary, type RoundAnswer } from "./roundSummary.js";
 import { isScoredAnswer } from "../../answerTypes/cheaterFilter.js";
 import type { ClackSdk } from "../../../sdk.js";
 import type { TriviaDataLayer, TriviaQuestion, SubmittedAnswer } from "../../core/types.js";
 import { getAllAnswerTypeHandlers, getAnswerTypeHandler } from "../../answerTypes/registry.js";
-import { editRevealIntoCard } from "../../revealCards/editCard.js";
 import type {
   ProcessRevealEntry,
   ProcessRevealResult,
@@ -41,46 +35,44 @@ import type {
   SlackReactionLike,
 } from "./types.js";
 
-const REVEAL_INSTRUCTION_NAME = "process_responses_instructions";
-
 const EMPTY_CHEATER_SET: ReadonlySet<string> = new Set<string>();
 
 const PER_FORMAT_ANSWER_SHAPES = getAllAnswerTypeHandlers()
   .map((h) => `    - ${h.revealAnswerShapeDescription}`)
   .join("\n");
 
-const DESCRIPTION = `Process the trivia reveal for a game in one call: fetch the question's Slack message, exclude the bot + flagged cheaters, score the stored button clicks (boolean/choice) and modal submissions (freeform), gather the message reactions as commentary (NOT votes), persist scored answers, return the leaderboard, and (when seasons are enabled) the season status. Replaces the previous orchestration that called fetch_channel_messages, find_previous_questions, get_question_history, submit_answers, retrieve_scores, and (with seasons) check_season_status as separate steps.
+const DESCRIPTION = `Score the trivia reveal for a game in one call and return the render payload — WITHOUT touching Slack and WITHOUT rolling over the season. Fetches the question's Slack message reactions (commentary only), excludes the bot + flagged cheaters, scores the stored button clicks (boolean/choice) and modal submissions (freeform, via the per-answer judge), persists scored answers, stamps \`processedAt\`, and returns the leaderboard, round summary, and (when seasons are enabled) the season status.
+
+This tool does NOT edit any Slack card and does NOT mutate season state. After calling it, the renderer SHALL: (a) call \`update_answers_block({ game, batchId })\` with the returned \`batchId\` to edit each revealed question's card into its final state; (b) on the season's last fire (\`seasonStatus.isLastFireOfSeason === true\`), call \`start_new_season({ game })\` to perform the (idempotent) rollover; (c) render the payload via \`submit_response\`.
 
 DEFAULT BEHAVIOR (\`reprocessQuestionIds\` absent or empty): processes EVERY question in the OLDEST pending BATCH, where batches are groups of questions sharing the same \`batchId\` (stamped by \`post_questions\` per call; one cron-fire batch = one shared id). Questions with an undefined \`batchId\` (legacy rows) are each treated as their own singleton batch. The oldest batch is the one whose smallest \`postedAt\` is earliest; ties broken by lexicographic comparison of the group key. Stamps \`processedAt\` on each processed question before returning. Other pending batches stay pending — they drain one batch per fire on subsequent reveal runs. If no question is pending, returns \`reveals: []\` and a current leaderboard.
 
-REPROCESS MODE (\`reprocessQuestionIds\` non-empty — DESTRUCTIVE for boolean/choice; rejected for freeform): for boolean/choice questions, hard-deletes the prior \`SubmittedAnswer\` rows for that question, then re-derives scoring from the CURRENT stored button-click answers + cheats list (which may now include cheaters flagged after the original reveal). For freeform questions the modal submissions are immutable, so the per-handler reveal pipeline rejects reprocess. Stamps \`processedAt\` (overwriting prior values). Does NOT pick up unrelated pending questions in this mode.
+REPROCESS MODE (\`reprocessQuestionIds\` non-empty — NON-DESTRUCTIVE; rejected for freeform): for boolean/choice questions, re-derives the verdict (\`correct\`) on each RETAINED \`SubmittedAnswer\` row from the question's CURRENT answer key (\`isTrue\` / \`correctIndex\`) + cheats list — the raw button clicks are the canonical record and are NEVER deleted. Use this after correcting a question's key. For freeform questions the judged modal submissions are immutable, so the per-handler reveal pipeline rejects reprocess. Stamps \`processedAt\` (overwriting prior values). Does NOT pick up unrelated pending questions in this mode.
 
 PAYLOAD SHAPE (renderer contract):
+- \`batchId\` (string, present when \`reveals\` is non-empty): the handle for the processed batch — pass it verbatim to \`update_answers_block\`. Equals the shared \`batchId\` of the processed questions, or the single question's id for legacy/undefined-batchId rows.
 - \`reveals: Array<{ questionId, statement, category, emojis, messageLink, wasReprocessed, answer, voters, media? }>\` — \`media\` is present ONLY on image-medium questions and carries \`{ title, attribution?, license? }\` for the reveal attribution line (no url/subjectId).
   - \`answer\` (dispatched on \`type\`):
 ${PER_FORMAT_ANSWER_SHAPES}
   - \`voters\` is a DISCRIMINATED UNION keyed on the question's stamped \`revealResponses\` mode (one of four variants):
     - \`{ revealResponses: "yes", correct: Voter[], incorrect: Voter[], noAnswer: Voter[], reactions: ReactionVoter[] }\` — full per-bucket detail. Freeform \`Voter\`s in correct/incorrect carry an additional \`answerText\` field with the user's typed answer.
     - \`{ revealResponses: "just-correctness", correct, incorrect, noAnswer, reactions }\` — same bucket structure but freeform \`Voter\`s have NO \`answerText\` (admin chose to hide typed strings).
-    - \`{ revealResponses: "just-winners", correct: Voter[], incorrectCount: number, noAnswerCount: number, reactions }\` — names the \`correct\` voters ONLY (freeform winners keep \`answerText\`); the missers are reduced to anonymous counts. There are NO \`incorrect\`/\`noAnswer\` named arrays. Use the counts for "N missed" / "everyone got fooled" flair without naming anyone.
+    - \`{ revealResponses: "just-winners", correct: Voter[], incorrectCount: number, noAnswerCount: number, reactions }\` — names the \`correct\` voters ONLY (freeform winners keep \`answerText\`); the missers are reduced to anonymous counts. There are NO \`incorrect\`/\`noAnswer\` named arrays.
     - \`{ revealResponses: "no", reactions }\` — reactions list only; no per-user vote info at all.
-  - \`reactions\` (present in every variant) is the message's emoji reactions as COMMENTARY, not votes. Each \`ReactionVoter\` is \`{ userId, displayName, emojis: string[] }\` carrying every emoji that user reacted with so the renderer can riff on it. The bot and cheaters are stripped from every list.
+  - \`reactions\` (present in every variant) is the message's emoji reactions as COMMENTARY, not votes. Each \`ReactionVoter\` is \`{ userId, displayName, emojis: string[] }\`. The bot and cheaters are stripped from every list.
 - \`leaderboard\`: same shape as retrieve_scores' return.
-- \`roundSummary\` (ALWAYS present): \`{ totalQuestions, perPlayer: Array<{ userId, displayName, correct, answered, roundMvp? }> }\` — the per-player round scoreboard. It is an AGGREGATE derived from the scored answers (same source as \`leaderboard\`), so it is INDEPENDENT of every entry's \`revealResponses\` (which strictly governs per-question display verbosity) and is produced every round in every mode. \`perPlayer\` is empty only when nobody answered this round. Cheaters/bot are excluded (same scoring filter as the leaderboard). \`correct\` = revealed questions answered correctly; \`answered\` = revealed questions the player submitted a scored answer to.
-- \`seasonStatus\` (only when seasons enabled): \`{ currentSlug, isLastFireOfSeason, seasonClosed, newSeasonStarted?, mvp? }\`. When \`isLastFireOfSeason\` is true, the tool ALREADY stamped \`endedAt\` on the closing season and (when no continuation was queued) created a new starter season before returning — the renderer SHALL NOT call \`upsert_season\`.
-- \`instructions\` (optional string): resolved value of the REPLACE cascade \`slot → season → game → workspace\` of the free-form \`instructions\` axis. Present iff some tier sets a non-empty value. Honor verbatim as guidance during reveal rendering (verdict tone, voter-bucket commentary, closer line, leaderboard intro). Absent → ignore.
-- \`additionalInstructions\` (optional string): resolved value of the CUMULATIVE \`additionalInstructions\` axis — every non-empty tier concatenated in \`workspace → game → season → slot\` order, each segment tier-labeled (\`[Workspace]\` / \`[Game]\` / \`[Season]\` / \`[Slot N]\`). Honor every labeled rule verbatim. Absent → ignore.
-
-The renderer's job is two-step: (a) call this tool, (b) render the returned payload using submit_response with the Game Show Presenter voice — branching the per-question bucket sections on \`voters.revealResponses\`.`;
+- \`roundSummary\` (ALWAYS present): \`{ totalQuestions, perPlayer: Array<{ userId, displayName, correct, answered, roundMvp? }> }\` — the per-player round scoreboard, an AGGREGATE derived from the scored answers (same source as \`leaderboard\`), INDEPENDENT of every entry's \`revealResponses\`. \`perPlayer\` is empty only when nobody answered this round. Cheaters/bot are excluded.
+- \`seasonStatus\` (only when seasons enabled): \`{ currentSlug, isLastFireOfSeason, seasonClosed, hasPriorSeasons, mvp? }\`. This tool REPORTS the status but performs NO rollover — \`seasonClosed\` is always \`false\` here and no continuation season is created. When \`isLastFireOfSeason\` is true, the renderer SHALL call \`start_new_season({ game })\` to perform the rollover.
+- \`instructions\` / \`additionalInstructions\` (optional): resolved guidance axes; honor verbatim. Absent → ignore.`;
 
 /**
  * Slack-touching seam. Production wraps the real Slack WebClient via the plugin SDK;
  * tests pass a fake (no need to construct a full `App["client"]`).
  *
- * `isAvailable()` returns null on success or a user-facing error message when Slack is
- * disconnected — used by the tool to short-circuit before processing.
- * `fetchBotUserId()` returns `""` when unknown (tool falls back to no bot exclusion).
- * `fetchMessageReactions(channel, ts)` returns normalized reactions for the named message.
+ * `compute_answers` uses `isAvailable()` + `fetchBotUserId()` + `fetchMessageReactions()` +
+ * `fetchUserDisplayName()`; it does NOT call `updateMessage` (card edits live in
+ * `update_answers_block`). `updateMessage` stays on the shared interface because
+ * `update_answers_block` reuses the same dependency shape.
  */
 export interface RevealSlackDeps {
   isAvailable(): string | null;
@@ -89,20 +81,37 @@ export interface RevealSlackDeps {
   /**
    * Resolve a user's current Slack display name. Returns `null` for unresolvable
    * IDs (deactivated, deleted, external) so the caller leaves the stored value
-   * untouched. Used to refresh `users.json` entries at reveal time so leaderboard
-   * labels track Slack display-name edits.
+   * untouched.
    */
   fetchUserDisplayName(userId: string): Promise<string | null>;
   /**
-   * Replace a posted message's blocks (`chat.update`). Used to repaint each
-   * revealed question's original card into its final static state. Throws are
-   * caught by `editRevealIntoCard` and treated as non-fatal.
+   * Replace a posted message's blocks (`chat.update`). Used by `update_answers_block`
+   * to repaint each revealed question's card. Throws are caught by `editRevealIntoCard`
+   * and treated as non-fatal.
    */
   updateMessage(channel: string, ts: string, blocks: KnownBlock[]): Promise<void>;
 }
 
 const SLACK_UNAVAILABLE_ERROR =
-  "Slack client is not available. The bot's Socket Mode session must be connected for process_reveal_answers to fetch message reactions.";
+  "Slack client is not available. The bot's Socket Mode session must be connected for compute_answers to fetch message reactions.";
+
+/**
+ * Resolve the bot's user ID, falling back to `""` (no bot exclusion) on failure.
+ * Shared by `compute_answers` and `update_answers_block` so both degrade identically.
+ */
+export async function resolveBotUserId(
+  slackDeps: Pick<RevealSlackDeps, "fetchBotUserId">,
+  toolName: string,
+): Promise<string> {
+  try {
+    return await slackDeps.fetchBotUserId();
+  } catch (err) {
+    logger.warn(
+      `${toolName}: failed to resolve bot user ID, proceeding without bot exclusion: ${err instanceof Error ? err.message : String(err)}`,
+    );
+    return "";
+  }
+}
 
 /** Build the production `RevealSlackDeps` by lazily resolving the Slack client from the SDK. */
 export function defaultRevealSlackDeps(sdk: Pick<ClackSdk, "getSlackClient">): RevealSlackDeps {
@@ -133,16 +142,15 @@ export function defaultRevealSlackDeps(sdk: Pick<ClackSdk, "getSlackClient">): R
   };
 }
 
-export function createProcessRevealAnswersTool(
+export function createComputeAnswersTool(
   data: TriviaDataLayer,
   sdk: Pick<ClackSdk, "getSlackClient" | "askClaude" | "actionId">,
   getGamesFn: GetGamesFn = defaultGetGames,
-  jobsLoader: () => Promise<TriviaCronJobView[]> = loadJobs,
   slackDeps: RevealSlackDeps = defaultRevealSlackDeps(sdk),
   getTriviaConfigFn: GetTriviaConfigFn = defaultGetTriviaConfig,
 ) {
   return tool(
-    "process_reveal_answers",
+    "compute_answers",
     DESCRIPTION,
     {
       game: z
@@ -154,7 +162,7 @@ export function createProcessRevealAnswersTool(
         .array(z.string())
         .optional()
         .describe(
-          "Optional list of questionIds to forcibly reprocess. DESTRUCTIVE: existing SubmittedAnswer rows for each ID are hard-deleted before re-derivation from the current Slack reactions and cheater list. Only these IDs are processed in this mode (does NOT also pick up other pending questions). Leave empty/absent for the default mode (process the oldest unprocessed question).",
+          "Optional list of questionIds to forcibly reprocess. NON-DESTRUCTIVE: the verdict (`correct`) is re-derived on each RETAINED answer row from the question's current key + cheater list; raw answer rows are never deleted. Only these IDs are processed in this mode. Leave empty/absent for the default mode (process the oldest unprocessed batch).",
         ),
     },
     async (args) => {
@@ -183,25 +191,14 @@ export function createProcessRevealAnswersTool(
         : selectOldestPendingBatch(allQuestions);
 
       // ── Bot user ID (singleton per session, fetch once) ─────────────────
-      let botUserId = "";
-      try {
-        botUserId = await slackDeps.fetchBotUserId();
-      } catch (err) {
-        logger.warn(
-          `process_reveal_answers: failed to resolve bot user ID, proceeding without bot exclusion: ${err instanceof Error ? err.message : String(err)}`,
-        );
-      }
+      const botUserId = await resolveBotUserId(slackDeps, "compute_answers");
 
       // ── Process each target ─────────────────────────────────────────────
       const users = await data.loadUsers();
 
       // Refresh display names against live Slack profiles BEFORE the per-handler
       // loop so both the voter lists rendered inside `processReveal` and the
-      // leaderboard built below see the same fresh labels. `users.json` is
-      // global and only ever written on first click — Slack profile edits would
-      // otherwise never propagate. Scope the refresh to users who have at least
-      // one answer in this game (i.e. anyone who could appear on this game's
-      // leaderboard or voter lists). Errors are swallowed per-user.
+      // leaderboard built below see the same fresh labels.
       const answersForRefresh = await scoped.loadAnswers();
       await refreshUserDisplayNames({
         userIds: new Set(answersForRefresh.map((a) => a.userId)),
@@ -211,17 +208,9 @@ export function createProcessRevealAnswersTool(
         logger,
       });
 
-      // Split freeform targets out: they go through the inline Haiku judge
-      // (no Slack reactions to read). Boolean/choice questions stay on the
-      // Each target's full reveal processing is owned by its answer-type
-      // handler — the reveal flow just iterates, calls `handler.processReveal`,
-      // and accumulates outcomes. No format-string branching lives here.
-      // Whether revealed cards get the "Tell me more" button (game → workspace → off).
-      const tellMeMoreEnabled = resolveTellMeMore(
-        getGamesFn().find((g) => g.name === args.game) ?? null,
-        getTriviaConfigFn(),
-      ).enabled;
-
+      // Each target's reveal scoring is owned by its answer-type handler — the
+      // flow just iterates, calls `handler.processReveal`, and accumulates
+      // outcomes. No card editing happens here (that is `update_answers_block`).
       const entriesById = new Map<string, ProcessRevealEntry>();
       const revealDeps = {
         scoped,
@@ -239,8 +228,7 @@ export function createProcessRevealAnswersTool(
         const outcome = await handler.processReveal(question, revealDeps);
         if (outcome.ok) {
           // Image-medium questions carry attribution for the reveal's "📷 Image: …"
-          // line. Stamp it centrally (DRY across answer-type handlers); expose only
-          // title/attribution/license — never url/subjectId (not needed; leak surface).
+          // line. Stamp it centrally; expose only title/attribution/license.
           const entry: ProcessRevealEntry =
             question.media !== undefined
               ? {
@@ -257,16 +245,6 @@ export function createProcessRevealAnswersTool(
                 }
               : outcome.entry;
           entriesById.set(question.id, entry);
-          // Repaint the original question card into its final static state. This
-          // is a non-fatal side effect: editRevealIntoCard swallows its own
-          // failures, so a failed edit never affects the payload below.
-          await editRevealIntoCard({
-            updateMessage: (channel, ts, blocks) => slackDeps.updateMessage(channel, ts, blocks),
-            question,
-            entry,
-            actionId: sdk.actionId,
-            tellMeMore: tellMeMoreEnabled,
-          });
         } else {
           perIdErrors.push({ questionId: question.id, error: outcome.error });
         }
@@ -277,6 +255,11 @@ export function createProcessRevealAnswersTool(
         const entry = entriesById.get(target.id);
         if (entry !== undefined) reveals.push(entry);
       }
+
+      // The batch handle for `update_answers_block`: the shared batchId of the
+      // processed questions, or the first question's id for legacy/singleton rows.
+      const processedBatchId =
+        targets.length > 0 ? (targets[0].batchId ?? targets[0].id) : undefined;
 
       // ── Leaderboard ─────────────────────────────────────────────────────
       const refreshedAnswers = await scoped.loadAnswers();
@@ -290,25 +273,26 @@ export function createProcessRevealAnswersTool(
         currentSeasonSlug: currentSlugForBoard,
       });
 
-      // ── Season status + rollover ────────────────────────────────────────
+      const gameEntry = getGamesFn().find((g) => g.name === args.game) ?? null;
+
+      // ── Season status (REPORT ONLY — rollover lives in start_new_season) ─
+      // `isLastFireOfSeason` is derived from the game's OWN `revealCron` (plugin
+      // config), never from the bot-core cron-job registry.
       let seasonStatus: SeasonStatusOut | undefined;
       if (seasonsEnabled && currentSlugForBoard !== null) {
-        seasonStatus = await computeSeasonStatusAndRollover({
-          game: args.game,
+        seasonStatus = await computeSeasonStatus({
           now,
           scoped,
           leaderboard,
           allAnswers: refreshedAnswers,
-          jobsLoader,
+          revealCron: gameEntry?.revealCron,
+          timezone: gameEntry?.timezone,
         });
       }
 
-      // The per-player round scoreboard is an AGGREGATE derived from the scored
-      // answers — the same source of truth as the leaderboard above — NOT from
-      // the reveal payload's `voters`. So it is independent of `revealResponses`
-      // (which strictly governs per-question display verbosity) and is produced
-      // every round in every mode. Cheaters/bot/pending rows are filtered with
-      // the standard `isScoredAnswer`, exactly as the leaderboard does.
+      // Per-player round scoreboard — AGGREGATE from scored answers (same source
+      // as the leaderboard), independent of `revealResponses`. Cheaters/bot/
+      // pending rows filtered with the standard `isScoredAnswer`.
       const revealedQuestionIds = reveals.map((r) => r.questionId);
       const cheats = await scoped.loadCheats();
       const cheaterIdsByQuestion = new Map<string, Set<string>>();
@@ -335,12 +319,8 @@ export function createProcessRevealAnswersTool(
         (userId) => refreshedUsers.get(userId)?.displayName ?? userId,
       );
 
-      // Resolve the two free-form guidance axes for this reveal. Strategy for
-      // multi-question batches: use the first target's slot index (when set).
-      // Resolving per-question would multiply payload size for a feature whose
-      // value at reveal time is whole-batch tone guidance, not per-slot tuning.
+      // Resolve the two free-form guidance axes for this reveal.
       const triviaConfig = getTriviaConfigFn();
-      const gameEntry = getGamesFn().find((g) => g.name === args.game) ?? null;
       const currentSeasonForResolution = findCurrentSeason(await scoped.loadSeasonsState(), now);
       const firstSlotIndex =
         targets.length > 0 && targets[0].slot !== undefined ? targets[0].slot.index : null;
@@ -359,6 +339,7 @@ export function createProcessRevealAnswersTool(
       const result: ProcessRevealResult = {
         game: args.game,
         reveals,
+        ...(processedBatchId !== undefined ? { batchId: processedBatchId } : {}),
         leaderboard,
         roundSummary,
         ...(seasonStatus ? { seasonStatus } : {}),
@@ -438,48 +419,46 @@ function selectReprocessTargets(
 }
 
 interface SeasonStatusParams {
-  game: string;
   now: number;
   scoped: ReturnType<TriviaDataLayer["forGame"]>;
   leaderboard: ReturnType<typeof computeLeaderboard>["leaderboard"];
   allAnswers: SubmittedAnswer[];
-  jobsLoader: () => Promise<TriviaCronJobView[]>;
+  /** The game's own reveal cron (plugin config), used to find the next fire. */
+  revealCron: string | undefined;
+  timezone: string | undefined;
 }
 
-async function computeSeasonStatusAndRollover(
+/**
+ * Compute the season status for the reveal payload — REPORT ONLY. Performs NO
+ * rollover and mutates NO state: `seasonClosed` is always `false` and no
+ * continuation season is created. The rollover (stamp `endedAt`, create the
+ * continuation) is owned by `start_new_season`, which the reveal prompt calls on
+ * the last fire. Keeping the irreversible mutation off the compute step is what
+ * lets compute be re-run safely.
+ *
+ * `isLastFireOfSeason` = "the next reveal fire lands after the season's
+ * `expectedEndAt`". The next-fire instant is derived from the game's own
+ * `revealCron` (plugin config) — the bot-core cron-job registry is NOT consulted.
+ */
+async function computeSeasonStatus(
   params: SeasonStatusParams,
 ): Promise<SeasonStatusOut | undefined> {
-  const { game, now, scoped, leaderboard, allAnswers, jobsLoader } = params;
+  const { now, scoped, leaderboard, allAnswers, revealCron, timezone } = params;
   const state = await scoped.loadSeasonsState();
   const current = state ? findCurrentSeason(state, now) : null;
   if (current === null || state === null) return undefined;
 
-  const jobs = await jobsLoader();
-  const revealJob = findTriviaRevealJob(jobs, game, REVEAL_INSTRUCTION_NAME);
-  const nextFire = revealJob ? nextFireAfter(revealJob, new Date(now)) : null;
+  const nextFire = revealCron ? nextCronFireAfter(revealCron, timezone, new Date(now)) : null;
   const isLastFireOfSeason =
-    revealJob !== null && (nextFire === null || nextFire.getTime() > current.expectedEndAt);
-
-  let seasonClosed = false;
-  let newSeasonStarted: SeasonStatusOut["newSeasonStarted"];
-
-  if (isLastFireOfSeason) {
-    const outcome = applySeasonRollover(state, current.slug, now);
-    seasonClosed = outcome.seasonClosed;
-    newSeasonStarted = outcome.newSeasonStarted;
-    if (seasonClosed || newSeasonStarted !== undefined) {
-      await scoped.saveSeasonsState(state);
-    }
-  }
+    revealCron !== undefined && isLastFireBeforeSeasonEnd(nextFire, current.expectedEndAt);
 
   const hasPriorSeasons = allAnswers.some((a) => a.season !== current.slug);
   const mvp = pickSeasonMvp(leaderboard);
   return {
     currentSlug: current.slug,
     isLastFireOfSeason,
-    seasonClosed,
+    seasonClosed: false,
     hasPriorSeasons,
-    ...(newSeasonStarted ? { newSeasonStarted } : {}),
     ...(mvp ? { mvp } : {}),
   };
 }

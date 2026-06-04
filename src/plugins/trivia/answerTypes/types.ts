@@ -50,18 +50,29 @@ export type RevealAnswerDescriptor =
     };
 
 /**
- * Per-call dependencies the reveal flow injects when it asks a handler to
- * process one question. Handlers use only the fields they need (freeform
- * uses `askClaude` for the judge; boolean/choice use `fetchMessageReactions`
- * for the commentary list).
+ * Read-only dependencies for `projectReveal` — assembling a question's voter
+ * buckets from its ALREADY-SCORED answers, with NO writes (no judging, no
+ * `processedAt` stamp, no row deletion). Boolean/choice use `fetchMessageReactions`
+ * + `botUserId` for the commentary list and cheater exclusion; freeform uses only
+ * `scoped` + `users`. The absence of `askClaude`/`now`/`isReprocessMode` makes the
+ * no-write guarantee type-enforced.
  */
-export interface ProcessRevealDeps {
+export interface ProjectRevealDeps {
   scoped: ScopedTriviaDataLayer;
-  data: TriviaDataLayer;
   users: Map<string, TriviaUser>;
   botUserId: string;
   /** Slack message reactions fetcher; takes (channel, ts), returns normalized reactions. */
   fetchMessageReactions: (channel: string, ts: string) => Promise<SlackReactionLike[]>;
+}
+
+/**
+ * Per-call dependencies the reveal flow injects when it asks a handler to
+ * SCORE one question. Extends the read-only `ProjectRevealDeps` with the
+ * write-side seams (freeform uses `askClaude` for the judge; all formats stamp
+ * `processedAt` from `now`; `isReprocessMode` drives the verdict re-derivation branch).
+ */
+export interface ProcessRevealDeps extends ProjectRevealDeps {
+  data: TriviaDataLayer;
   askClaude: ClackSdk["askClaude"];
   now: number;
   isReprocessMode: boolean;
@@ -266,14 +277,26 @@ export interface AnswerTypeHandler {
    * stamping `processedAt`), and voter-bucket assembly. The reveal flow just
    * iterates targets and accumulates the returned entries.
    *
-   * Reprocess mode is the handler's choice: boolean/choice hard-delete then
-   * re-build empty buckets; freeform rejects (no upstream click stream to
-   * re-derive from).
+   * Reprocess mode is the handler's choice: boolean/choice re-derive the verdict
+   * (`correct`) on each retained answer row from the current question key (raw
+   * answers are never deleted); freeform rejects (the judged modal submissions are
+   * immutable, so there is nothing to safely re-derive).
    *
    * Errors return as `{ ok: false, error }` rather than throwing — the
    * reveal flow accumulates them into its per-id `errors` list.
    */
   processReveal(question: TriviaQuestion, deps: ProcessRevealDeps): Promise<ProcessRevealOutcome>;
+
+  /**
+   * Assemble the reveal entry (answer descriptor + voter buckets) for one
+   * question from its ALREADY-SCORED answers, performing NO writes — no
+   * judging, no `processedAt` stamp, no row deletion. Used by
+   * `update_answers_block` to re-project a card deterministically from file
+   * state. `processReveal` delegates here after it finishes its writes, so the
+   * two share one bucket-assembly path. Returns the same `ProcessRevealOutcome`
+   * shape; `wasReprocessed` is `false` (projection is not a reprocess).
+   */
+  projectReveal(question: TriviaQuestion, deps: ProjectRevealDeps): Promise<ProcessRevealOutcome>;
 
   /**
    * Validate the per-format save args AND compose the persistable

@@ -55,9 +55,13 @@ describe("buildGameSpecs", () => {
     assert.deepEqual(question.requiredTools, expected);
   });
 
-  it("reveal spec requiredTools is the single-tool list", () => {
+  it("reveal spec requiredTools is the compute + project + rollover list", () => {
     const [, reveal] = buildGameSpecs([baseGame]);
-    assert.deepEqual(reveal.requiredTools, ["mcp__trivia__process_reveal_answers"]);
+    assert.deepEqual(reveal.requiredTools, [
+      "mcp__trivia__compute_answers",
+      "mcp__trivia__update_answers_block",
+      "mcp__trivia__start_new_season",
+    ]);
   });
 
   it("question spec sets submitResponseMode to 'skipped'", () => {
@@ -97,10 +101,10 @@ describe("buildGameSpecs", () => {
     assert.match(question.prompt, /CHOICE PATH/);
   });
 
-  it("reveal prompt is a renderer brief referencing process_reveal_answers", () => {
+  it("reveal prompt is a renderer brief sequencing compute → project → render", () => {
     const [, reveal] = buildGameSpecs([baseGame]);
-    assert.match(reveal.prompt, /process_reveal_answers/);
-    // Does NOT enumerate categorization/cheater steps — those moved into the tool.
+    assert.match(reveal.prompt, /compute_answers/);
+    assert.match(reveal.prompt, /update_answers_block/);
     assert.doesNotMatch(reveal.prompt, /Call submit_answers/);
     assert.doesNotMatch(reveal.prompt, /Call retrieve_scores/);
   });

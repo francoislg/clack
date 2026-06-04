@@ -27,6 +27,7 @@ import type {
   InteractionRegistrationDeps,
   ProcessRevealDeps,
   ProcessRevealOutcome,
+  ProjectRevealDeps,
   RevealAnswerDescriptor,
   SaveQuestionArgs,
   SaveValidationContext,
@@ -188,8 +189,6 @@ export const freeformAnswerHandler: AnswerTypeHandler = {
         ? await judgeSubmissions(deps.askClaude, question, submissions, { logger })
         : [];
 
-    const correctVoters: Array<{ userId: string; displayName: string; answerText: string }> = [];
-    const incorrectVoters: Array<{ userId: string; displayName: string; answerText: string }> = [];
     let unjudgedCount = 0;
 
     for (const { submission, verdict } of judged) {
@@ -202,9 +201,6 @@ export const freeformAnswerHandler: AnswerTypeHandler = {
         correct: verdict.correct,
         ...(verdict.reason !== undefined ? { judgeReason: verdict.reason } : {}),
       });
-      const displayName = deps.users.get(submission.userId)?.displayName ?? submission.userId;
-      const target = verdict.correct ? correctVoters : incorrectVoters;
-      target.push({ userId: submission.userId, displayName, answerText: submission.answerText });
     }
 
     if (unjudgedCount > 0) {
@@ -217,6 +213,34 @@ export const freeformAnswerHandler: AnswerTypeHandler = {
     }
 
     await deps.scoped.updateQuestion(question.id, { processedAt: deps.now });
+
+    return freeformAnswerHandler.projectReveal(question, deps);
+  },
+
+  async projectReveal(
+    question: TriviaQuestion,
+    deps: ProjectRevealDeps,
+  ): Promise<ProcessRevealOutcome> {
+    if (!question.messageLink) {
+      return { ok: false, error: "freeform question is missing messageLink" };
+    }
+
+    // Build voter buckets from ALL already-scored rows (correct !== undefined),
+    // not just rows judged in a single pass — so re-projection after a partial
+    // judge run still shows every scored submission. Freeform carries no Slack
+    // reactions and no no-answer bucket (modal-only), matching buildFreeformVoters.
+    const allAnswers = await deps.scoped.loadAnswers();
+    const correctVoters: Array<{ userId: string; displayName: string; answerText: string }> = [];
+    const incorrectVoters: Array<{ userId: string; displayName: string; answerText: string }> = [];
+    for (const row of allAnswers) {
+      if (row.questionId !== question.id || row.correct === undefined) continue;
+      const voter = {
+        userId: row.userId,
+        displayName: deps.users.get(row.userId)?.displayName ?? row.userId,
+        answerText: row.answerText ?? "",
+      };
+      (row.correct ? correctVoters : incorrectVoters).push(voter);
+    }
 
     const voters = buildFreeformVoters(question, correctVoters, incorrectVoters);
     return makeRevealOutcome(

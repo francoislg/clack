@@ -25,7 +25,9 @@ import { createCheckSeasonStatusTool } from "./tools/seasons/checkSeasonStatus.j
 import { createUpsertSeasonTool } from "./tools/seasons/upsertSeason.js";
 import { createDeleteSeasonTool } from "./tools/seasons/deleteSeason.js";
 import { createListSeasonsTool } from "./tools/seasons/listSeasons.js";
-import { createProcessRevealAnswersTool } from "./tools/reveal/processRevealAnswers.js";
+import { createStartNewSeasonTool } from "./tools/seasons/startNewSeason.js";
+import { createComputeAnswersTool } from "./tools/reveal/computeAnswers.js";
+import { createUpdateAnswersBlockTool } from "./tools/reveal/updateAnswersBlock.js";
 import {
   getTriviaCheckInstruction,
   TRIVIA_GAMES_ADMIN_INSTRUCTION,
@@ -117,11 +119,13 @@ export const triviaPlugin: ClackPlugin = async (sdk: ClackSdk) => {
     sdk.t("label.find_previous_subjects"),
   );
   sdk.registerTool("admin", createGetQuestionHistoryTool(data), sdk.t("label.question_history"));
+  sdk.registerTool("admin", createComputeAnswersTool(data, sdk), sdk.t("label.compute_answers"));
   sdk.registerTool(
     "admin",
-    createProcessRevealAnswersTool(data, sdk),
-    sdk.t("label.process_reveal"),
+    createUpdateAnswersBlockTool(data, sdk),
+    sdk.t("label.update_answers_block"),
   );
+  sdk.registerTool("admin", createStartNewSeasonTool(data), sdk.t("label.start_new_season"));
   sdk.registerTool("member", createRetrieveScoresTool(data), sdk.t("label.retrieve_scores"));
   sdk.registerTool(
     "member",
