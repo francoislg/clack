@@ -148,6 +148,30 @@ describe("casual-talk prompt", () => {
     assert.ok(!prompt.includes("decided not to post"));
   });
 
+  it("judges thread freshness by the last reply, not the parent, and ranks by last activity", () => {
+    const prompt = buildPrompt({
+      die: 28,
+      rateLabel: "daily (1/28)",
+      channels: ["C111"],
+      smallTalkTopics: ["food"],
+    });
+    assert.ok(prompt.includes("Judge freshness by the LAST message, not the parent"));
+    // Explains Slack's no-bump-on-reply behavior so old parents aren't dismissed
+    assert.ok(prompt.includes("does NOT bump a thread when a new reply lands"));
+    assert.ok(prompt.includes("Rank candidate threads by this last-activity timestamp"));
+  });
+
+  it("tells Claude not to pile onto a bot's last message (anti-spam)", () => {
+    const prompt = buildPrompt({
+      die: 28,
+      rateLabel: "daily (1/28)",
+      channels: ["C111"],
+      smallTalkTopics: ["food"],
+    });
+    assert.ok(prompt.includes("Never talk to yourself or pile onto a bot"));
+    assert.ok(prompt.includes("Wait until a human has replied after that bot message"));
+  });
+
   it("without topics, the run is chip-in-only and a quiet day legitimately skips", () => {
     const prompt = buildPrompt({
       die: 28,
