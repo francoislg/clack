@@ -1184,9 +1184,11 @@ export function createSubmitResponseTool(deps: SubmitResponseDeps) {
           });
         }
         if (args.thread_replies) {
-          // Thread context: primary's ts when posted top-level; otherwise the session's
-          // existing thread. If neither, fall back to primaryTs (still puts them in a thread).
-          const replyThreadTs = wantsPostTopLevel ? primaryTs : (sessionThreadTs ?? primaryTs);
+          // Anchor replies under the primary we just posted. thread_replies is exposed only in
+          // the scheduled (cron) trigger, where sessionThreadTs is a synthetic Date.now() sentinel
+          // (not a real Slack message) — routing to it makes Slack post replies top-level instead
+          // of threading them. sessionThreadTs is a fallback only if the primary returned no ts.
+          const replyThreadTs = primaryTs ?? sessionThreadTs;
           if (replyThreadTs) {
             args.thread_replies.forEach((msg, i) => {
               followers.push({

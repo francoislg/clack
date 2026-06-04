@@ -2600,6 +2600,43 @@ describe("createSubmitResponseTool", () => {
       assert.equal(deliveries[2].threadTs, "5555.2222");
     });
 
+    it("threads thread_replies under primary.ts even without post_top_level (scheduled reveal)", async () => {
+      // Regression: in a scheduled cron the session's threadTs is a synthetic Date.now()
+      // sentinel. Replies must anchor under the just-posted primary, not that fake ts —
+      // otherwise Slack posts them as standalone top-level messages.
+      const deliveries: Array<{ threadTs?: string; postTopLevel?: boolean }> = [];
+      const deps = makeDeps({
+        allowMultiMessage: true,
+        sessionThreadTs: "9999.1111", // synthetic cron sentinel — must NOT be used as thread_ts
+        deliver: async ({
+          threadTs,
+          postTopLevel,
+        }: {
+          threadTs?: string;
+          postTopLevel?: boolean;
+        }) => {
+          deliveries.push({
+            ...(threadTs && { threadTs }),
+            ...(postTopLevel && { postTopLevel: true }),
+          });
+          if (deliveries.length === 1) return { ok: true as const, ts: "5555.2222" };
+          return { ok: true as const };
+        },
+      });
+      const result = await callToolRawTopLevel(deps, {
+        blocks: [{ type: "section", text: { type: "mrkdwn", text: "primary" } }],
+        actions: [],
+        thread_replies: [
+          { blocks: [{ type: "section", text: { type: "mrkdwn", text: "narrative" } }] },
+        ],
+      });
+      const parsed = parseToolResult(result);
+      assert.equal(parsed.success, true);
+      assert.equal(parsed.messagesDelivered, 2);
+      assert.equal(deliveries[1].threadTs, "5555.2222");
+      assert.notEqual(deliveries[1].threadTs, "9999.1111");
+    });
+
     it("mid-batch delivery failure stops and reports the failing index", async () => {
       let callCount = 0;
       const deps = makeDeps({
