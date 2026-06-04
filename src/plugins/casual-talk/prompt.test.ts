@@ -161,15 +161,37 @@ describe("casual-talk prompt", () => {
     assert.ok(prompt.includes("Rank candidate threads by this last-activity timestamp"));
   });
 
-  it("tells Claude not to pile onto a bot's last message (anti-spam)", () => {
+  it("gates joining per-thread by the leaf author, scoped so fresh openers are never blocked", () => {
     const prompt = buildPrompt({
       die: 28,
       rateLabel: "daily (1/28)",
       channels: ["C111"],
       smallTalkTopics: ["food"],
     });
-    assert.ok(prompt.includes("Never talk to yourself or pile onto a bot"));
-    assert.ok(prompt.includes("Wait until a human has replied after that bot message"));
+    // Joinability is decided per-thread by the leaf (last reply, or the message itself)
+    assert.ok(prompt.includes("A thread is joinable only if its LATEST message is from a human"));
+    assert.ok(prompt.includes("look at the LAST reply"));
+    assert.ok(prompt.includes("If a top-level message has NO replies"));
+    // ...but a fresh opener must NOT be blocked by other bots' posts
+    assert.ok(
+      prompt.includes(
+        "Other bots' recent posts (trivia, digests, notices) do NOT block a fresh opener",
+      ),
+    );
+    // A bot-dominated channel is not "impossible" — still post
+    assert.ok(prompt.includes("is NOT impossibility"));
+  });
+
+  it("allows replying to a fresh human message with no replies (don't require 3 replies)", () => {
+    const prompt = buildPrompt({
+      die: 28,
+      rateLabel: "daily (1/28)",
+      channels: ["C111"],
+      smallTalkTopics: ["food"],
+    });
+    assert.ok(prompt.includes("A recent human top-level message with few or NO replies"));
+    assert.ok(prompt.includes("Don't require 3 replies before answering a fresh human message"));
+    assert.ok(prompt.includes("Reply to a fresh human message"));
   });
 
   it("without topics, the run is chip-in-only and a quiet day legitimately skips", () => {
