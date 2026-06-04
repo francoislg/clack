@@ -158,7 +158,7 @@ describe("casual-talk prompt", () => {
     assert.ok(prompt.includes("Judge freshness by the LAST message, not the parent"));
     // Explains Slack's no-bump-on-reply behavior so old parents aren't dismissed
     assert.ok(prompt.includes("does NOT bump a thread when a new reply lands"));
-    assert.ok(prompt.includes("Rank candidate threads by this last-activity timestamp"));
+    assert.ok(prompt.includes("rank candidate threads by `last_reply.ts`"));
   });
 
   it("gates joining per-thread by the leaf author, scoped so fresh openers are never blocked", () => {
@@ -170,8 +170,8 @@ describe("casual-talk prompt", () => {
     });
     // Joinability is decided per-thread by the leaf (last reply, or the message itself)
     assert.ok(prompt.includes("A thread is joinable only if its LATEST message is from a human"));
-    assert.ok(prompt.includes("look at the LAST reply"));
-    assert.ok(prompt.includes("If a top-level message has NO replies"));
+    assert.ok(prompt.includes("check `last_reply.is_bot`"));
+    assert.ok(prompt.includes("If it has NO replies"));
     // ...but a fresh opener must NOT be blocked by other bots' posts
     assert.ok(
       prompt.includes(
