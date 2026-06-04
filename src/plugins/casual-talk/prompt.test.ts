@@ -50,21 +50,19 @@ describe("casual-talk prompt", () => {
     assert.ok(prompt.includes("pop culture"));
   });
 
-  it("explicitly tells Claude delivery is via post_to and submit_response is terminator-only", () => {
+  it("tells Claude to deliver via a post_to action and NOT to also set skip_response", () => {
     const prompt = buildPrompt({
       die: 28,
       rateLabel: "daily (1/28)",
       channels: ["C111"],
       smallTalkTopics: [],
     });
-    // Must mention post_to as the delivery path
+    // Delivery is a submit_response call carrying a single post_to action.
     assert.ok(prompt.includes("post_to"));
-    // Must explicitly state submit_response cannot deliver text
-    assert.ok(
-      prompt.includes("CANNOT deliver text via `submit_response`") ||
-        prompt.includes("CANNOT deliver text via submit_response"),
-    );
-    // Must mention the skipped-shape rule
+    assert.ok(prompt.includes("actions` array holding exactly ONE `post_to` action"));
+    // Must warn against combining skip_response with the delivering post_to (the dropped-post bug).
+    assert.ok(prompt.includes("Do NOT also set `skip_response` when you are delivering"));
+    // Skip shape still documented for the no-post cases.
     assert.ok(prompt.includes("{ skip_response: true }"));
   });
 

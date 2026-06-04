@@ -383,6 +383,31 @@ describe("createSubmitResponseTool", () => {
       const parsed = parseToolResult(await callToolRawTopLevel(deps, { skip_response: true }));
       assert.equal(parsed.skipped, true);
     });
+
+    it("delivers when skip_response AND post_to actions are both present (actions win)", async () => {
+      // Claude commonly sends both in one call (the prompt told it to end with a skip).
+      // Actions must take precedence — otherwise the post is silently dropped.
+      const snapshots: string[] = [];
+      const tracker = trackingCapture();
+      const deps = makeDeps({
+        submitResponseMode: "optional-post-to",
+        persistSnapshot: async (id) => {
+          snapshots.push(id);
+        },
+        responseCapture: tracker.capture,
+      });
+
+      const parsed = parseToolResult(
+        await callToolRawTopLevel(deps, { skip_response: true, actions: [postToAction] }),
+      );
+      assert.equal(parsed.success, true);
+      assert.equal(parsed.skipped, undefined, "must NOT be treated as a skip");
+      assert.equal(parsed.delivered, false);
+      assert.equal(parsed.actionsCount, 1);
+      assert.equal(snapshots.length, 1, "the post_to snapshot is persisted for delivery");
+      assert.equal(tracker.setCalls, 1, "the post_to payload is captured");
+      assert.equal(tracker.skipCalls, 0, "setSkipped must not be called");
+    });
   });
 
   describe("ref validation errors", () => {

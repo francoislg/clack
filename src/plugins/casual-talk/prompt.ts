@@ -14,10 +14,11 @@ interface BuildPromptArgs {
  * (built at reconcile time); only the die-roll outcome and live channel state vary.
  *
  * The prompt structure is contractual: Claude must roll first, only proceed on a hit,
- * fetch channel context, decide a destination, deliver via `post_to`, then end with
- * `submit_response({ skip_response: true })`. The "skipped" submit_response schema is
- * mechanically enforced (see channelless-cron-jobs); the prompt restates the contract
- * so Claude understands the dance.
+ * fetch channel context, decide a destination, then deliver in a SINGLE `submit_response`
+ * call carrying one `post_to` action (no `skip_response`). On a miss (or genuine
+ * impossibility) it calls `submit_response({ skip_response: true })` with no actions. The
+ * channelless cron uses the `optional-post-to` submit_response schema (skip OR post_to);
+ * the prompt restates the contract so Claude understands the dance.
  */
 export function buildPrompt(args: BuildPromptArgs): string {
   const { die, rateLabel, channels, smallTalkTopics } = args;
@@ -92,7 +93,7 @@ export function buildPrompt(args: BuildPromptArgs): string {
     ``,
     `## Step 3 — Deliver`,
     ``,
-    `Delivery is EXCLUSIVELY via \`post_to\` with an explicit \`channel\` argument. \`submit_response\` is a run terminator only — its schema for this run is \`{ skip_response: true }\` and rejects everything else. You CANNOT deliver text via \`submit_response\`.`,
+    `Deliver by calling \`submit_response\` with an \`actions\` array holding exactly ONE \`post_to\` action — \`{ type: "post_to", channel, blocks, [thread_ts] }\` — where \`channel\` is the explicit destination. That single call both delivers and terminates the run. Do NOT also set \`skip_response\` when you are delivering: \`skip_response: true\` is ONLY for the no-post cases (a roll that wasn't 1, or the genuine-impossibility skip below). Setting both at once drops your post.`,
     ``,
     `Pick the most natural destination:`,
     `- **Reply in an active thread** — if a candidate channel has a thread that matches the "worth joining" signals above, set \`post_to.thread_ts\` to that thread's parent message \`ts\` and drop a short follow-up that fits the conversation. This is the preferred mode when there's a real thread happening.`,
@@ -102,7 +103,7 @@ export function buildPrompt(args: BuildPromptArgs): string {
     ``,
     `If a channel entry has a \`hint:\` annotation above, tailor the post to that hint (e.g. memes-only channels get a meme-tier one-liner).`,
     ``,
-    `After \`post_to\`, end with \`submit_response({ skip_response: true })\` to terminate the run.`,
+    `The single \`submit_response\` call carrying the \`post_to\` action terminates the run — nothing else is needed, and you must NOT add \`skip_response\` to it.`,
     ``,
     ...step4,
     ``,
