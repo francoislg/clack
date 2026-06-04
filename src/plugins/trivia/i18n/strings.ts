@@ -37,6 +37,11 @@ export const en = {
   "reveal.n_incorrect": "❌ {count} got it wrong",
   "reveal.n_no_answer": "🤷 {count} didn't answer",
 
+  // Top-level pointer rendered in the `in-thread` finalRevealSummary mode, telling
+  // readers the full verdict/WHY/voter breakdown is in the thread. Travels the
+  // via-Claude path: the reveal prompt dictates it verbatim into a `context` block.
+  "reveal.see_in_thread": "💬 Full reveal in the thread 👇",
+
   // Reveal leaderboard table row labels + season-finale podium labels. These travel the
   // via-Claude path (Claude authors the `table`/podium via `submit_response`), but the prompt
   // dictates them verbatim into cells/lines, so Claude copies the token without translating.
@@ -91,6 +96,7 @@ export const en = {
   "label.remove_categories": "Removing trivia categories — {game}",
   "label.get_ideas": "Getting trivia category ideas — {game}",
   "label.save_question": "Saving trivia question — {game}/{category}",
+  "label.update_question": "Authoring trivia card narrative — {game}",
   "label.post_questions": "Posting trivia question — {game}",
   "label.find_previous": "Searching past trivia questions — {game}",
   "label.find_previous_subjects": "Checking for repeat image subjects — {subjectId}",
@@ -130,6 +136,8 @@ export const fr: Partial<Record<keyof typeof en, string>> = {
   "reveal.no_answer_label": "🤷 *Sans réponse :* {names}",
   "reveal.n_incorrect": "❌ {count} se sont trompés",
   "reveal.n_no_answer": "🤷 {count} n'ont pas répondu",
+
+  "reveal.see_in_thread": "💬 La révélation complète dans le fil 👇",
 
   "leaderboard.this_round": "Ce tour",
   "leaderboard.current_season": "Saison en cours",
@@ -176,6 +184,7 @@ export const fr: Partial<Record<keyof typeof en, string>> = {
   "label.remove_categories": "Suppression de catégories trivia — {game}",
   "label.get_ideas": "Recherche d'idées de catégories trivia — {game}",
   "label.save_question": "Enregistrement de la question trivia — {game}/{category}",
+  "label.update_question": "Rédaction du récit de la carte trivia — {game}",
   "label.post_questions": "Publication de la question trivia — {game}",
   "label.find_previous": "Recherche de questions trivia passées — {game}",
   "label.find_previous_subjects": "Vérification des sujets d'image déjà utilisés — {subjectId}",

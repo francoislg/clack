@@ -112,6 +112,7 @@ describe("find_previous_questions recentBatchFromNow", () => {
         posted: undefined,
         recentBatchFromNow: 1,
         limit: undefined,
+        includeRevealBlocks: undefined,
       },
       SESSION,
     );
@@ -138,6 +139,7 @@ describe("find_previous_questions recentBatchFromNow", () => {
         posted: undefined,
         recentBatchFromNow: 2,
         limit: undefined,
+        includeRevealBlocks: undefined,
       },
       SESSION,
     );
@@ -163,6 +165,7 @@ describe("find_previous_questions recentBatchFromNow", () => {
         posted: undefined,
         recentBatchFromNow: 1,
         limit: undefined,
+        includeRevealBlocks: undefined,
       },
       SESSION,
     );
@@ -184,6 +187,7 @@ describe("find_previous_questions recentBatchFromNow", () => {
         posted: undefined,
         recentBatchFromNow: 1,
         limit: undefined,
+        includeRevealBlocks: undefined,
       },
       SESSION,
     );
@@ -204,6 +208,7 @@ describe("find_previous_questions recentBatchFromNow", () => {
         posted: undefined,
         recentBatchFromNow: 99,
         limit: undefined,
+        includeRevealBlocks: undefined,
       },
       SESSION,
     );
@@ -245,6 +250,7 @@ describe("find_previous_questions recentBatchFromNow", () => {
         posted: undefined,
         recentBatchFromNow: 1,
         limit: undefined,
+        includeRevealBlocks: undefined,
       },
       SESSION,
     );
@@ -268,6 +274,7 @@ describe("find_previous_questions recentBatchFromNow", () => {
         posted: undefined,
         recentBatchFromNow: 1,
         limit: undefined,
+        includeRevealBlocks: undefined,
       },
       SESSION,
     );
@@ -324,6 +331,7 @@ describe("find_previous_questions recentBatchFromNow", () => {
         posted: undefined,
         recentBatchFromNow: 1,
         limit: undefined,
+        includeRevealBlocks: undefined,
       },
       SESSION,
     );
@@ -379,6 +387,7 @@ describe("find_previous_questions recentBatchFromNow", () => {
         posted: undefined,
         recentBatchFromNow: 1,
         limit: 2,
+        includeRevealBlocks: undefined,
       },
       SESSION,
     );

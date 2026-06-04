@@ -182,6 +182,7 @@ describe("choice-questions end-to-end flow", () => {
           posted: undefined,
           recentBatchFromNow: undefined,
           limit: undefined,
+          includeRevealBlocks: undefined,
         },
         SESSION,
       ),

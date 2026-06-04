@@ -264,4 +264,109 @@ describe("update_answers_block — deterministic card projection", () => {
     );
     assert.ok(out.isError);
   });
+
+  it("appends stored revealBlocks between the footer and the See-your-answer button", async () => {
+    const data = createInMemoryDataLayer();
+    const scoped = data.forGame(FIXTURE_GAME_NAME);
+    await scoped.saveQuestion(
+      makeQuestion({
+        id: "q1",
+        batchId: "B",
+        postedBlocks: postedBooleanBlocks("q1"),
+        revealBlocks: [
+          { type: "section", block_id: "narrative:q1", text: { type: "mrkdwn", text: "the why" } },
+        ],
+      }),
+    );
+
+    const { deps, updates } = capturingSlackDeps();
+    await makeTool(data, deps).handler({ game: FIXTURE_GAME_NAME, batchId: "B" }, SESSION);
+
+    const ids = updates[0].blockIds;
+    const footer = ids.indexOf("reveal-results:q1");
+    const narrative = ids.indexOf("narrative:q1");
+    const seeAnswer = ids.indexOf("reveal-see-answer-actions:q1");
+    assert.ok(footer >= 0 && narrative >= 0 && seeAnswer >= 0);
+    assert.ok(footer < narrative, "footer before narrative");
+    assert.ok(narrative < seeAnswer, "narrative before See-your-answer");
+  });
+
+  it("is facts-only when the record has no revealBlocks", async () => {
+    const data = createInMemoryDataLayer();
+    const scoped = data.forGame(FIXTURE_GAME_NAME);
+    await scoped.saveQuestion(
+      makeQuestion({ id: "q1", batchId: "B", postedBlocks: postedBooleanBlocks("q1") }),
+    );
+
+    const { deps, updates } = capturingSlackDeps();
+    await makeTool(data, deps).handler({ game: FIXTURE_GAME_NAME, batchId: "B" }, SESSION);
+
+    const ids = updates[0].blockIds;
+    assert.ok(ids.includes("reveal-results:q1"));
+    assert.ok(!ids.some((id) => id.startsWith("narrative:")));
+  });
+
+  it("re-projection after re-authoring reconciles to the new narrative", async () => {
+    const data = createInMemoryDataLayer();
+    const scoped = data.forGame(FIXTURE_GAME_NAME);
+    await scoped.saveQuestion(
+      makeQuestion({
+        id: "q1",
+        batchId: "B",
+        postedBlocks: postedBooleanBlocks("q1"),
+        revealBlocks: [
+          { type: "section", block_id: "narrative-v1:q1", text: { type: "mrkdwn", text: "v1" } },
+        ],
+      }),
+    );
+    const { deps, updates } = capturingSlackDeps();
+    const tool = makeTool(data, deps);
+    await tool.handler({ game: FIXTURE_GAME_NAME, batchId: "B" }, SESSION);
+
+    // Re-author the narrative (as update_question would), then re-project.
+    await scoped.updateQuestion("q1", {
+      revealBlocks: [
+        { type: "section", block_id: "narrative-v2:q1", text: { type: "mrkdwn", text: "v2" } },
+      ],
+    });
+    await tool.handler({ game: FIXTURE_GAME_NAME, batchId: "B" }, SESSION);
+
+    const second = updates[1].blockIds;
+    assert.ok(second.includes("narrative-v2:q1"), "shows v2 after re-authoring");
+    assert.ok(!second.includes("narrative-v1:q1"), "v1 is gone (rebuilt, not accumulated)");
+  });
+
+  it("orders footer → narrative → see-answer → tell-me-more when tellMeMore is also enabled", async () => {
+    const data = createInMemoryDataLayer();
+    const scoped = data.forGame(FIXTURE_GAME_NAME);
+    await scoped.saveQuestion(
+      makeQuestion({
+        id: "q1",
+        batchId: "B",
+        postedBlocks: postedBooleanBlocks("q1"),
+        revealBlocks: [
+          { type: "section", block_id: "narrative:q1", text: { type: "mrkdwn", text: "the why" } },
+        ],
+      }),
+    );
+
+    const { deps, updates } = capturingSlackDeps();
+    const tool = createUpdateAnswersBlockTool(data, fakeSdk(), fixtureGetGames, deps, () => ({
+      tellMeMore: { enabled: true },
+    }));
+    await tool.handler({ game: FIXTURE_GAME_NAME, batchId: "B" }, SESSION);
+
+    const ids = updates[0].blockIds;
+    const footer = ids.indexOf("reveal-results:q1");
+    const narrative = ids.indexOf("narrative:q1");
+    const seeAnswer = ids.indexOf("reveal-see-answer-actions:q1");
+    const tellMore = ids.indexOf("reveal-tell-me-more-actions:q1");
+    assert.ok(
+      [footer, narrative, seeAnswer, tellMore].every((i) => i >= 0),
+      "all blocks present",
+    );
+    assert.ok(footer < narrative, "footer before narrative");
+    assert.ok(narrative < seeAnswer, "narrative before see-answer");
+    assert.ok(seeAnswer < tellMore, "see-answer before tell-me-more");
+  });
 });

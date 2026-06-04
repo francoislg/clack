@@ -24,6 +24,7 @@ import {
   validateTriviaChoicesConfig,
   validateHintConfig,
   validateAllTimeRowMode,
+  validateFinalRevealSummary,
   validateJudgeLeniency,
 } from "./axes.js";
 import { type Result } from "../../../zodResult.js";
@@ -369,6 +370,20 @@ runValidator(
       name: "bad value",
       input: "sometimes",
       error: "'allTimeRow' must be one of always, never, end-of-season-only (got \"sometimes\")",
+    },
+  ],
+);
+
+runValidator(
+  "validateFinalRevealSummary",
+  validateFinalRevealSummary,
+  "finalRevealSummary",
+  [{ name: "valid", input: "in-thread", value: "in-thread" }],
+  [
+    {
+      name: "bad value",
+      input: "maybe",
+      error: "'finalRevealSummary' must be one of yes, no, in-thread (got \"maybe\")",
     },
   ],
 );

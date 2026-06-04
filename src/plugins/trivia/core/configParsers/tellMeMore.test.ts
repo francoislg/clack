@@ -43,9 +43,7 @@ describe("validateTellMeMore", () => {
 
 describe("parseTriviaGames — per-game tellMeMore", () => {
   it("accepts a valid value and stores it on the game", () => {
-    const { games, issues } = parseTriviaGames([
-      { ...validBase, tellMeMore: { enabled: true } },
-    ]);
+    const { games, issues } = parseTriviaGames([{ ...validBase, tellMeMore: { enabled: true } }]);
     assert.equal(issues.length, 0);
     assert.deepEqual(games?.[0].tellMeMore, { enabled: true });
   });

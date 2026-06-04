@@ -1,6 +1,10 @@
 import type { RevealAnswerDescriptor } from "../../answerTypes/types.js";
 import type { LeaderboardEntry } from "../../domain/computeLeaderboard.js";
-import type { RevealResponsesMode } from "../../core/configTypes.js";
+import type {
+  RevealResponsesMode,
+  TriviaFinalRevealSummary,
+  TriviaIncludeRevealInQuestions,
+} from "../../core/configTypes.js";
 
 export interface Voter {
   userId: string;
@@ -130,6 +134,21 @@ export interface ProcessRevealResult {
    * per-question display). `perPlayer` is empty when nobody answered this round.
    */
   roundSummary: RoundSummary;
+  /**
+   * Resolved `includeRevealInQuestions` axis (cascade `game → workspace → "no"`)
+   * at reveal time. Always present. `"yes"` tells the reveal prompt to author
+   * per-card narrative via `update_question` before `update_answers_block`
+   * projects the cards; `"no"` keeps cards facts-only (narrative in the summary).
+   */
+  includeRevealInQuestions: TriviaIncludeRevealInQuestions;
+  /**
+   * Resolved `finalRevealSummary` axis (cascade `game → workspace → "yes"`) at
+   * reveal time. Always present. Governs ONLY the verdict/WHY/voter narrative's
+   * placement — the leaderboard `table` always posts top-level. `"yes"` →
+   * narrative top-level; `"no"` → narrative omitted; `"in-thread"` → narrative
+   * via `submit_response`'s `thread_replies` with a top-level pointer.
+   */
+  finalRevealSummary: TriviaFinalRevealSummary;
   seasonStatus?: SeasonStatusOut;
   /**
    * Resolved decision for the All-Time leaderboard surface: the normal-reveal

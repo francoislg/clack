@@ -76,6 +76,7 @@ describe("find_previous_questions seasons array semantics", () => {
         posted: undefined,
         recentBatchFromNow: undefined,
         limit: undefined,
+        includeRevealBlocks: undefined,
       },
       SESSION,
     );
@@ -120,6 +121,7 @@ describe("find_previous_questions seasons array semantics", () => {
         posted: undefined,
         recentBatchFromNow: undefined,
         limit: undefined,
+        includeRevealBlocks: undefined,
       },
       SESSION,
     );
@@ -186,6 +188,7 @@ describe("find_previous_questions seasons array semantics", () => {
         posted: undefined,
         recentBatchFromNow: undefined,
         limit: undefined,
+        includeRevealBlocks: undefined,
       },
       SESSION,
     );
@@ -220,6 +223,7 @@ describe("find_previous_questions seasons array semantics", () => {
         posted: undefined,
         recentBatchFromNow: undefined,
         limit: undefined,
+        includeRevealBlocks: undefined,
       },
       SESSION,
     );

@@ -72,6 +72,7 @@ describe("find_previous_questions — posted filter", () => {
         posted: true,
         recentBatchFromNow: undefined,
         limit: undefined,
+        includeRevealBlocks: undefined,
       },
       SESSION,
     );
@@ -92,6 +93,7 @@ describe("find_previous_questions — posted filter", () => {
         posted: false,
         recentBatchFromNow: undefined,
         limit: undefined,
+        includeRevealBlocks: undefined,
       },
       SESSION,
     );
@@ -112,6 +114,7 @@ describe("find_previous_questions — posted filter", () => {
         posted: undefined,
         recentBatchFromNow: undefined,
         limit: undefined,
+        includeRevealBlocks: undefined,
       },
       SESSION,
     );
@@ -131,6 +134,7 @@ describe("find_previous_questions — posted filter", () => {
         posted: false,
         recentBatchFromNow: undefined,
         limit: undefined,
+        includeRevealBlocks: undefined,
       },
       SESSION,
     );
@@ -155,6 +159,7 @@ describe("find_previous_questions — posted filter", () => {
         posted: true,
         recentBatchFromNow: undefined,
         limit: undefined,
+        includeRevealBlocks: undefined,
       },
       SESSION,
     );
@@ -176,6 +181,7 @@ describe("find_previous_questions — posted filter", () => {
         posted: false,
         recentBatchFromNow: 1,
         limit: undefined,
+        includeRevealBlocks: undefined,
       },
       SESSION,
     );
@@ -199,6 +205,7 @@ describe("find_previous_questions — posted filter", () => {
         posted: true,
         recentBatchFromNow: 1,
         limit: undefined,
+        includeRevealBlocks: undefined,
       },
       SESSION,
     );

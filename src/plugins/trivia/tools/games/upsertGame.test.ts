@@ -109,6 +109,8 @@ function args(overrides: Partial<UpsertGameArgs> & Pick<UpsertGameArgs, "name">)
     additionalInstructions: undefined,
     hint: undefined,
     allTimeRow: undefined,
+    includeRevealInQuestions: undefined,
+    finalRevealSummary: undefined,
     judgeLeniency: undefined,
     tellMeMore: undefined,
     ...overrides,
@@ -192,6 +194,52 @@ describe("upsert_game — create branch", () => {
     const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
     await tool.handler(args({ name: "main", tellMeMore: null }), SESSION);
     assert.equal(loadTriviaConfig()?.games?.[0]?.tellMeMore, undefined);
+  });
+
+  it("persists includeRevealInQuestions and clears it on null", async () => {
+    primeBridge({ games: [] });
+    const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
+    const result = parseToolResult(
+      await tool.handler(
+        args({
+          name: "engineering",
+          channel: "C1",
+          questionCron: "0 9 * * *",
+          revealCron: "0 17 * * *",
+          timezone: "UTC",
+          includeRevealInQuestions: "yes",
+        }),
+        SESSION,
+      ),
+    );
+    assert.equal(result.hasIncludeRevealInQuestions, true);
+    assert.equal(loadTriviaConfig()?.games?.[0]?.includeRevealInQuestions, "yes");
+
+    await tool.handler(args({ name: "engineering", includeRevealInQuestions: null }), SESSION);
+    assert.equal(loadTriviaConfig()?.games?.[0]?.includeRevealInQuestions, undefined);
+  });
+
+  it("persists finalRevealSummary and clears it on null", async () => {
+    primeBridge({ games: [] });
+    const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
+    const result = parseToolResult(
+      await tool.handler(
+        args({
+          name: "engineering",
+          channel: "C1",
+          questionCron: "0 9 * * *",
+          revealCron: "0 17 * * *",
+          timezone: "UTC",
+          finalRevealSummary: "in-thread",
+        }),
+        SESSION,
+      ),
+    );
+    assert.equal(result.hasFinalRevealSummary, true);
+    assert.equal(loadTriviaConfig()?.games?.[0]?.finalRevealSummary, "in-thread");
+
+    await tool.handler(args({ name: "engineering", finalRevealSummary: null }), SESSION);
+    assert.equal(loadTriviaConfig()?.games?.[0]?.finalRevealSummary, undefined);
   });
 
   it("rejects create when scheduling fields are missing", async () => {

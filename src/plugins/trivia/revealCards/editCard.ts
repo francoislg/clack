@@ -89,7 +89,17 @@ export async function editRevealIntoCard(params: EditRevealParams): Promise<void
     ],
   };
 
-  const updatedBlocks: KnownBlock[] = [...bodyBlocks, ...footer, seeAnswerButton];
+  // When `includeRevealInQuestions: "yes"`, `update_question` has stored authored
+  // narrative on the record; append it BELOW the deterministic facts footer (and
+  // above the "See your answer" button). Absent → facts-only, today's behavior.
+  const narrativeBlocks = question.revealBlocks ?? [];
+
+  const updatedBlocks: KnownBlock[] = [
+    ...bodyBlocks,
+    ...footer,
+    ...narrativeBlocks,
+    seeAnswerButton,
+  ];
 
   if (tellMeMore) {
     updatedBlocks.push({

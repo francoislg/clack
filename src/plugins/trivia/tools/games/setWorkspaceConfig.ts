@@ -18,6 +18,8 @@ import {
   parseTriviaAxisBag,
   questionTypeZod,
   triviaAllTimeRowZod,
+  triviaFinalRevealSummaryZod,
+  triviaIncludeRevealInQuestionsZod,
   triviaDifficultyRatioZod,
   triviaHintZod,
   triviaJudgeLeniencyZod,
@@ -118,6 +120,18 @@ export function createSetWorkspaceConfigTool() {
         .optional()
         .describe(
           'Workspace tier of the "All Time" leaderboard-row visibility axis. One of `"always"` | `"never"` | `"end-of-season-only"`. Controls the All-Time surface at reveal time — the normal-reveal `All Time` row AND the season-finale All-Time table (also requires prior seasons to exist). `"end-of-season-only"` (the built-in default) shows All Time only on the season\'s last fire; `"always"` shows it on every reveal; `"never"` hides it everywhere. Cascade: `game → workspace → "end-of-season-only"`. null clears.',
+        ),
+      includeRevealInQuestions: triviaIncludeRevealInQuestionsZod
+        .nullable()
+        .optional()
+        .describe(
+          'Workspace tier of the "narrative in cards" axis. One of `"yes"` | `"no"`. `"yes"` makes each revealed question\'s card carry the authored reveal narrative beneath the deterministic facts footer; `"no"` (the built-in default) keeps cards facts-only with the narrative in the summary. Cascade: `game → workspace → "no"`. null clears.',
+        ),
+      finalRevealSummary: triviaFinalRevealSummaryZod
+        .nullable()
+        .optional()
+        .describe(
+          'Workspace tier of the reveal-summary narrative placement axis. One of `"yes"` | `"no"` | `"in-thread"`. Governs ONLY the verdict/WHY/voter-breakdown narrative — the leaderboard always posts top-level. `"yes"` (the built-in default) posts the narrative top-level alongside the leaderboard; `"no"` omits the narrative entirely; `"in-thread"` posts the leaderboard + a "see in thread" pointer top-level and moves the narrative to a threaded reply. Cascade: `game → workspace → "yes"`. null clears.',
         ),
       judgeLeniency: triviaJudgeLeniencyZod
         .nullable()
@@ -287,6 +301,24 @@ export function createSetWorkspaceConfigTool() {
       } else if (args.allTimeRow !== undefined) {
         next.allTimeRow = args.allTimeRow;
         updatedFields.push("allTimeRow");
+      }
+
+      // includeRevealInQuestions: apply or clear.
+      if (args.includeRevealInQuestions === null) {
+        delete next.includeRevealInQuestions;
+        updatedFields.push("includeRevealInQuestions (cleared)");
+      } else if (args.includeRevealInQuestions !== undefined) {
+        next.includeRevealInQuestions = args.includeRevealInQuestions;
+        updatedFields.push("includeRevealInQuestions");
+      }
+
+      // finalRevealSummary: apply or clear.
+      if (args.finalRevealSummary === null) {
+        delete next.finalRevealSummary;
+        updatedFields.push("finalRevealSummary (cleared)");
+      } else if (args.finalRevealSummary !== undefined) {
+        next.finalRevealSummary = args.finalRevealSummary;
+        updatedFields.push("finalRevealSummary");
       }
 
       // tellMeMore: apply or clear.

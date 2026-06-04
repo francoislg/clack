@@ -858,3 +858,86 @@ describe("compute_answers —image-medium attribution", () => {
     assert.ok(!raw.includes("wikidata:Q243"), "subjectId must not appear");
   });
 });
+
+describe("compute_answers — includeRevealInQuestions axis", () => {
+  function toolWith(data: ReturnType<typeof createInMemoryDataLayer>, mode?: "yes" | "no") {
+    const getGames = () =>
+      fixtureGetGames().map((g) =>
+        g.name === FIXTURE_GAME_NAME && mode !== undefined
+          ? { ...g, includeRevealInQuestions: mode }
+          : g,
+      );
+    return createComputeAnswersTool(data, fakeSdk(), getGames, fakeSlackDeps(), () => ({}));
+  }
+
+  async function run(tool: ReturnType<typeof createComputeAnswersTool>) {
+    return parseToolResult(
+      await tool.handler({ game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined }, SESSION),
+    );
+  }
+
+  it("payload carries the resolved value (present even on empty reveals)", async () => {
+    const data = createInMemoryDataLayer();
+    const res = await run(toolWith(data, "yes"));
+    assert.equal(res.reveals.length, 0);
+    assert.equal(res.includeRevealInQuestions, "yes");
+  });
+
+  it("defaults to no when unset at every tier", async () => {
+    const data = createInMemoryDataLayer();
+    const res = await run(toolWith(data, undefined));
+    assert.equal(res.includeRevealInQuestions, "no");
+  });
+
+  it("resolves fresh from current config, not from the question record", async () => {
+    const data = createInMemoryDataLayer();
+    // A question posted while the game resolved "no" (its record carries no axis)…
+    await data
+      .forGame(FIXTURE_GAME_NAME)
+      .saveQuestion(makeQuestion({ id: "q1", batchId: "B", postedAt: 1_000 }));
+    // …but the game is now "yes" → compute returns the CURRENT resolution.
+    const res = await run(toolWith(data, "yes"));
+    assert.equal(res.includeRevealInQuestions, "yes");
+  });
+});
+
+describe("compute_answers — finalRevealSummary axis", () => {
+  function toolWith(
+    data: ReturnType<typeof createInMemoryDataLayer>,
+    mode?: "yes" | "no" | "in-thread",
+  ) {
+    const getGames = () =>
+      fixtureGetGames().map((g) =>
+        g.name === FIXTURE_GAME_NAME && mode !== undefined ? { ...g, finalRevealSummary: mode } : g,
+      );
+    return createComputeAnswersTool(data, fakeSdk(), getGames, fakeSlackDeps(), () => ({}));
+  }
+
+  async function run(tool: ReturnType<typeof createComputeAnswersTool>) {
+    return parseToolResult(
+      await tool.handler({ game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined }, SESSION),
+    );
+  }
+
+  it("payload carries the resolved value (present even on empty reveals)", async () => {
+    const data = createInMemoryDataLayer();
+    const res = await run(toolWith(data, "in-thread"));
+    assert.equal(res.reveals.length, 0);
+    assert.equal(res.finalRevealSummary, "in-thread");
+  });
+
+  it("defaults to yes when unset at every tier", async () => {
+    const data = createInMemoryDataLayer();
+    const res = await run(toolWith(data, undefined));
+    assert.equal(res.finalRevealSummary, "yes");
+  });
+
+  it("resolves fresh from current config, not from the question record", async () => {
+    const data = createInMemoryDataLayer();
+    await data
+      .forGame(FIXTURE_GAME_NAME)
+      .saveQuestion(makeQuestion({ id: "q1", batchId: "B", postedAt: 1_000 }));
+    const res = await run(toolWith(data, "no"));
+    assert.equal(res.finalRevealSummary, "no");
+  });
+});
