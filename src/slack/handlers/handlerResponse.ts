@@ -32,6 +32,7 @@ import { addDeliveryReactions } from "../messageReactions.js";
 import { notificationText } from "../messagePoster.js";
 import { unfurlOptions } from "../unfurlOptions.js";
 import { SlackStreamer } from "../../streaming/slackStreamer.js";
+import { isChannellessChannelId } from "../../channelless.js";
 import { getUserInfo } from "../userCache.js";
 import { getUserPreference } from "../../userPreferences.js";
 import { logger } from "../../logger.js";
@@ -547,7 +548,12 @@ async function handleSkip(ctx: DeliveryContext, response: ClaudeResponse): Promi
 async function handleSuccess(ctx: DeliveryContext, response: ClaudeResponse): Promise<void> {
   await persistResponseState(ctx, ctx.session, response);
 
-  if (!ctx.alreadyDelivered) {
+  // Channelless runs (e.g. plugin crons) have NO primary destination — the synthetic
+  // `channelless:<jobId>` target isn't a real channel. All delivery is via `post_to`
+  // auto-execute below. A post-to-only success leaves `alreadyDelivered` false (no primary
+  // deliver call), so without this guard we'd try to post the raw answer to the sentinel
+  // channel and crash the whole job with channel_not_found.
+  if (!ctx.alreadyDelivered && !isChannellessChannelId(ctx.targetChannel)) {
     // submit_response was NOT called — deliver raw text via stream
     await deliverViaStreamerOrFallback(ctx, response.answer);
     if (ctx.streamer && !ctx.streamer.hasFailed) {
