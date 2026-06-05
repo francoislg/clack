@@ -1467,6 +1467,28 @@ describe("silentThinking mode", () => {
     assert.equal(mockStreamerStart.mock.calls.length, 0);
   });
 
+  it("does not post a primary to the channelless sentinel on a post-to-only success", async () => {
+    // Regression: a channelless cron (e.g. casual-talk) delivers via post_to auto-execute,
+    // so `alreadyDelivered` is false on success. Without the channelless guard, handleSuccess
+    // would post the raw answer to the synthetic `channelless:<id>` channel and crash the job
+    // with channel_not_found.
+    const client = makeClient();
+
+    await executeAndDeliver({
+      client,
+      session: makeSession({ channelId: "channelless:job-1" }),
+      sessionInfo: makeSessionInfo({ channelId: "channelless:job-1" }),
+      claudeOptions: { role: "system" as const, changesWorkflowEnabled: false },
+      silentThinking: true,
+      deps,
+    });
+
+    const postedToSentinel = mockPostMessage.mock.calls.some(
+      (c) => (c[0] as { channel?: string }).channel === "channelless:job-1",
+    );
+    assert.equal(postedToSentinel, false);
+  });
+
   it("passes no-op onEvent when silentThinking", async () => {
     const client = makeClient();
 
