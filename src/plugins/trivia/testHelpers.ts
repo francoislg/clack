@@ -144,6 +144,22 @@ export function createInMemoryDataLayer(): TriviaDataLayer {
         users.set(report.cheaterUserId, next);
         return { totalAttempts: next.cheatAttempts ?? 1 };
       },
+      async removeCheat(cheaterUserId, questionId) {
+        const before = cell.cheats.length;
+        cell.cheats = cell.cheats.filter(
+          (c) => !(c.cheaterUserId === cheaterUserId && c.questionId === questionId),
+        );
+        const removedCount = before - cell.cheats.length;
+        const existing = users.get(cheaterUserId);
+        if (removedCount === 0) {
+          return { removedCount: 0, totalAttempts: existing?.cheatAttempts ?? 0 };
+        }
+        const nextCount = Math.max(0, (existing?.cheatAttempts ?? 0) - removedCount);
+        if (existing) {
+          users.set(cheaterUserId, { ...existing, cheatAttempts: nextCount });
+        }
+        return { removedCount, totalAttempts: nextCount };
+      },
       async loadSeasonsState() {
         return cell.seasonsState === null ? null : structuredClone(cell.seasonsState);
       },

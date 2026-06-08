@@ -554,6 +554,45 @@ describe("compute_answers —orchestrator", () => {
     assert.equal(u2?.correct, false, "U2 verdict flipped DOWN (true → false)");
   });
 
+  it("reprocess skips re-derivation for hand-overridden rows but still re-derives the rest", async () => {
+    const data = createInMemoryDataLayer();
+    const scoped = data.forGame(FIXTURE_GAME_NAME);
+    await scoped.saveQuestion(
+      makeQuestion({ id: "q1", batchId: "B", postedAt: 1_000, processedAt: 9_000, isTrue: true }),
+    );
+    // U1 was hand-overridden to correct: true; their raw click (false) does NOT match the
+    // key, so a naive re-derive would flip it to false. originalVerdict must shield it.
+    await scoped.saveAnswer({
+      userId: "U1",
+      questionId: "q1",
+      answer: false,
+      correct: true,
+      originalVerdict: { correct: false },
+      timestamp: 500,
+    });
+    // U2 carries a stale verdict and no override → reprocess re-derives it.
+    await scoped.saveAnswer({
+      userId: "U2",
+      questionId: "q1",
+      answer: true,
+      correct: false,
+      timestamp: 600,
+    });
+
+    const tool = createComputeAnswersTool(data, fakeSdk(), fixtureGetGames, fakeSlackDeps());
+    await tool.handler(
+      { game: FIXTURE_GAME_NAME, reprocessQuestionIds: ["q1"], reprocessBatchId: undefined },
+      SESSION,
+    );
+
+    const rows = (await scoped.loadAnswers()).filter((a) => a.questionId === "q1");
+    const u1 = rows.find((r) => r.userId === "U1");
+    const u2 = rows.find((r) => r.userId === "U2");
+    assert.equal(u1?.correct, true, "overridden row preserved (not recomputed against the key)");
+    assert.deepEqual(u1?.originalVerdict, { correct: false }, "lock retained");
+    assert.equal(u2?.correct, true, "non-overridden row re-derived from the key");
+  });
+
   it("treats undefined-batchId questions as singleton batches", async () => {
     const data = createInMemoryDataLayer();
     const scoped = data.forGame(FIXTURE_GAME_NAME);

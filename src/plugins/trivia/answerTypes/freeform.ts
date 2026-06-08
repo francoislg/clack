@@ -171,8 +171,9 @@ export const freeformAnswerHandler: AnswerTypeHandler = {
     // Reprocess re-judges EVERY retained answer under the (re-stamped) judgeLeniency,
     // overwriting each verdict in place; default reveal judges only the never-judged
     // rows. The typed `answerText` is the canonical record and is never touched.
+    // A hand-overridden row (originalVerdict set) is admin-authoritative — never re-judged.
     const rowsToJudge = deps.isReprocessMode
-      ? ownRows
+      ? ownRows.filter((a) => a.originalVerdict === undefined)
       : ownRows.filter((a) => a.correct === undefined);
     const submissions: JudgeSubmission[] = rowsToJudge.map((row) => ({
       userId: row.userId,

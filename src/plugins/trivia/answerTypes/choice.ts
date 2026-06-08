@@ -159,6 +159,9 @@ export const choiceAnswerHandler: ClickableAnswerHandler = {
       // is never deleted — reprocess recomputes `correct`, nothing else.
       const rows = (await deps.scoped.loadAnswers()).filter((a) => a.questionId === question.id);
       for (const row of rows) {
+        // A hand-overridden row (originalVerdict set) is admin-authoritative: keep
+        // its stored verdict, don't recompute it from the key.
+        if (row.originalVerdict !== undefined) continue;
         const correct = row.answerIndex === question.correctIndex;
         await deps.scoped.updateAnswer(row.userId, question.id, { correct });
       }
