@@ -178,6 +178,33 @@ export function createSdkDataLayer(sdk: ClackSdk): TriviaDataLayer {
       return { totalAttempts: next.cheatAttempts ?? 1 };
     }
 
+    async function removeCheat(
+      cheaterUserId: string,
+      questionId: string,
+    ): Promise<{ removedCount: number; totalAttempts: number }> {
+      const cheats = await loadCheats();
+      const remaining = cheats.filter(
+        (c) => !(c.cheaterUserId === cheaterUserId && c.questionId === questionId),
+      );
+      const removedCount = cheats.length - remaining.length;
+
+      const users = await loadUsers();
+      const existing = users.get(cheaterUserId);
+      if (removedCount === 0) {
+        return { removedCount: 0, totalAttempts: existing?.cheatAttempts ?? 0 };
+      }
+
+      await sdk.writeFile(cPath, JSON.stringify(remaining, null, 2));
+
+      const nextCount = Math.max(0, (existing?.cheatAttempts ?? 0) - removedCount);
+      if (existing) {
+        users.set(cheaterUserId, { ...existing, cheatAttempts: nextCount });
+        const record = Object.fromEntries(users);
+        await sdk.writeFile("users.json", JSON.stringify(record, null, 2));
+      }
+      return { removedCount, totalAttempts: nextCount };
+    }
+
     return {
       loadQuestions,
       saveQuestion,
@@ -187,6 +214,7 @@ export function createSdkDataLayer(sdk: ClackSdk): TriviaDataLayer {
       updateAnswer,
       loadCheats,
       saveCheat,
+      removeCheat,
       loadSeasonsState,
       saveSeasonsState,
       getCurrentSeasonSlug,

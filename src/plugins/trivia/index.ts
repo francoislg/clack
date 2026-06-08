@@ -29,6 +29,8 @@ import { createListSeasonsTool } from "./tools/seasons/listSeasons.js";
 import { createStartNewSeasonTool } from "./tools/seasons/startNewSeason.js";
 import { createComputeAnswersTool } from "./tools/reveal/computeAnswers.js";
 import { createUpdateAnswersBlockTool } from "./tools/reveal/updateAnswersBlock.js";
+import { createOverrideAnswerTool } from "./tools/reveal/overrideAnswer.js";
+import { createRemoveCheatTool } from "./tools/answers/removeCheat.js";
 import {
   getTriviaCheckInstruction,
   TRIVIA_GAMES_ADMIN_INSTRUCTION,
@@ -127,6 +129,8 @@ export const triviaPlugin: ClackPlugin = async (sdk: ClackSdk) => {
     createUpdateAnswersBlockTool(data, sdk),
     sdk.t("label.update_answers_block"),
   );
+  sdk.registerTool("admin", createOverrideAnswerTool(data), sdk.t("label.override_answer"));
+  sdk.registerTool("admin", createRemoveCheatTool(data), sdk.t("label.remove_cheat"));
   sdk.registerTool("admin", createStartNewSeasonTool(data), sdk.t("label.start_new_season"));
   sdk.registerTool("member", createRetrieveScoresTool(data), sdk.t("label.retrieve_scores"));
   sdk.registerTool(

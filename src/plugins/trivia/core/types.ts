@@ -240,6 +240,14 @@ export interface SubmittedAnswer {
    * boolean/choice rows and on freeform rows where the judge returned no reason.
    */
   judgeReason?: string;
+  /**
+   * The machine verdict captured the first time an admin overrode this row via
+   * `override_answer` — captured once so subsequent overrides never lose the
+   * original (enables `restore`). Its PRESENCE is the reprocess lock: a row with
+   * `originalVerdict` set is skipped by reveal re-derivation but still projected
+   * with its stored verdict. Absent = machine-judged.
+   */
+  originalVerdict?: { correct: boolean; judgeReason?: string };
   timestamp: number;
   season?: string;
 }
@@ -329,6 +337,15 @@ export interface ScopedTriviaDataLayer {
   ): Promise<void>;
   loadCheats(): Promise<CheatReport[]>;
   saveCheat(report: CheatReport): Promise<{ totalAttempts: number }>;
+  /**
+   * Inverse of `saveCheat`: drop every cheat report matching `(cheaterUserId,
+   * questionId)` and decrement the global `cheatAttempts` counter by the number
+   * removed (floored at 0). A no-match call writes nothing.
+   */
+  removeCheat(
+    cheaterUserId: string,
+    questionId: string,
+  ): Promise<{ removedCount: number; totalAttempts: number }>;
   loadSeasonsState(): Promise<SeasonsState | null>;
   saveSeasonsState(state: SeasonsState): Promise<void>;
   getCurrentSeasonSlug(): Promise<string | null>;

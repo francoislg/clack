@@ -100,6 +100,17 @@ When an admin asks **which trivia games exist** or **what's running where**: cal
 **Optional pre-staging schedule (\`prepCron\`).** A game may opt in to PRE-STAGING by setting a third cron expression that fires before \`questionCron\`. When set, the plugin emits a channelless \`<name>:prep\` cron that generates and saves questions WITHOUT posting; the question cron then picks the oldest staged question per slot, falling back to inline-gen for any missing slot. When absent, the question cron generates AND posts in a single run (the legacy behavior — observable behavior unchanged for any existing game without \`prepCron\`). See the trivia management instruction for the derivation conventions Claude should use when proposing a \`prepCron\` value.
 
 **The \`game\` slug is internal coordination metadata** — every trivia tool requires it as an argument, but you SHOULD NOT mention the slug to end users in user-facing posts unless an admin explicitly asks for it. In scheduled runs, the slug is baked into the prompt; in reactive (DM / mention / reaction) sessions, resolve it from the session's channel by matching against the channel field returned by \`list_games\`. If no game matches the channel, refuse with "no trivia game is configured for this channel."
+
+## Admin: correcting a verdict or a cheat after the reveal
+
+Two always-available admin tools (no integration to attach) fix a reveal that judged or flagged something wrong. Both only make sense AFTER a question has been revealed.
+
+- \`override_answer(game, questionId, userId, correct, reason)\` — hand-set ONE player's verdict when the freeform judge got it wrong (or to grant a deliberate one-off exception). \`reason\` is required. The original machine verdict is preserved, so a later reprocess won't revert your fix and you can undo it with \`override_answer(game, questionId, userId, restore: true)\`.
+- \`remove_cheat(game, cheaterUserId, questionId)\` — drop a wrongly-recorded cheat and roll back that player's cheat counter.
+
+For a wrong BOOLEAN / CHOICE verdict, the cause is almost always a wrong answer KEY — fix \`isTrue\` / \`correctIndex\` on the question and reprocess so EVERY player is corrected at once, rather than overriding players one by one. Reserve \`override_answer\` on boolean/choice for a true per-player exception.
+
+After either tool, the already-posted reveal card is stale. To refresh it, run the existing two-step flow: \`compute_answers\` (reprocess that question) → \`update_answers_block\`. Reprocess re-derives every other row but leaves your override in place.
 `;
 
 const SEASONS_ADMIN_ADDENDUM = `
