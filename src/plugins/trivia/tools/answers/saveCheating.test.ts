@@ -43,6 +43,7 @@ function makeFakeSdk(opts: FakeSdkOptions = {}): {
     },
     getSlackClient: () => null,
     sendMessage: async () => ({ ok: true as const, ts: "1", channel: "C" }),
+    engageThread: async () => {},
     startThreadConversation: async () => {},
     registerAction: () => {},
     registerView: () => {},

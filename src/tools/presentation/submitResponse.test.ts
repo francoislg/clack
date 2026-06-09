@@ -49,6 +49,8 @@ function makeDeps(
       channel: string;
       threadTs?: string;
       payload: unknown;
+      attentionLevel?: AttentionLevel;
+      followUpContext?: string;
     }) => Promise<{ ok: true; ts?: string } | { ok: false; error: string }>;
     recordResponseTs: (ts: string) => Promise<void>;
     persistSnapshot: (id: string, snapshot: ResponseSnapshot) => Promise<void>;
@@ -188,6 +190,8 @@ interface CallToolRawArgs {
   deliver_to?: {
     channel?: string;
     thread_ts?: string;
+    attention_level?: AttentionLevel;
+    follow_up_context?: string;
     response: {
       blocks?: unknown[];
       table?: unknown;
@@ -406,6 +410,76 @@ describe("createSubmitResponseTool", () => {
       assert.deepEqual(recorded, ["ts-1"], "responseTs is the first entry's ts");
       assert.equal(tracker.setCalls, 1);
       assert.equal(tracker.skipCalls, 0);
+    });
+
+    it("forwards attention_level and follow_up_context to the delivery adapter", async () => {
+      const seen: {
+        attentionLevel?: AttentionLevel;
+        followUpContext?: string;
+        threadTs?: string;
+      }[] = [];
+      const deliverToChannel = async (args: {
+        channel: string;
+        threadTs?: string;
+        payload: unknown;
+        attentionLevel?: AttentionLevel;
+        followUpContext?: string;
+      }) => {
+        seen.push({
+          attentionLevel: args.attentionLevel,
+          followUpContext: args.followUpContext,
+          threadTs: args.threadTs,
+        });
+        return { ok: true as const, ts: `ts-${seen.length}` };
+      };
+      const deps = makeDeps({
+        submitResponseMode: "optional-post-to",
+        deliverToChannel,
+        recordResponseTs: async () => {},
+      });
+
+      const parsed = parseToolResult(
+        await callToolRawTopLevel(deps, {
+          deliver_to: [
+            {
+              channel: "C1",
+              thread_ts: "1700000000.000100",
+              attention_level: "high",
+              follow_up_context: "ctx",
+              response: { blocks: [block] },
+            },
+          ],
+        }),
+      );
+      assert.equal(parsed.delivered, true);
+      assert.equal(seen.length, 1);
+      assert.equal(seen[0].attentionLevel, "high");
+      assert.equal(seen[0].followUpContext, "ctx");
+      assert.equal(seen[0].threadTs, "1700000000.000100");
+    });
+
+    it("omits engagement fields when the entry has no attention_level", async () => {
+      const seen: { attentionLevel?: AttentionLevel; followUpContext?: string }[] = [];
+      const deliverToChannel = async (args: {
+        channel: string;
+        threadTs?: string;
+        payload: unknown;
+        attentionLevel?: AttentionLevel;
+        followUpContext?: string;
+      }) => {
+        seen.push({ attentionLevel: args.attentionLevel, followUpContext: args.followUpContext });
+        return { ok: true as const, ts: `ts-${seen.length}` };
+      };
+      const deps = makeDeps({
+        submitResponseMode: "optional-post-to",
+        deliverToChannel,
+        recordResponseTs: async () => {},
+      });
+
+      parseToolResult(await callToolRawTopLevel(deps, { deliver_to: [entry("C1")] }));
+      assert.equal(seen.length, 1);
+      assert.equal(seen[0].attentionLevel, undefined);
+      assert.equal(seen[0].followUpContext, undefined);
     });
 
     it("delivers multiple entries (different and same channels) in order", async () => {

@@ -600,6 +600,51 @@ export async function createSession(opts: CreateSessionOptions): Promise<Session
   return context;
 }
 
+/** Synthetic author for plugin-seeded thread-engagement sessions (no human author yet). */
+const THREAD_ENGAGEMENT_USER_ID = "thread-engagement";
+
+export interface EngageThreadOptions {
+  /** Attention level to seed onto the destination thread. `"off"` makes the call a no-op. */
+  attentionLevel: AttentionLevel;
+  /** Guidance injected into the answer turn (stored as the session's `additionalSystemPrompt`). */
+  followUpContext?: string;
+}
+
+/**
+ * Seed a discoverable, engaged session for a destination `(channel, threadRoot)` so that human
+ * replies in that thread are picked up by the existing thread auto-respond path. The seeded
+ * session carries no messages — it exists only so `findSessionByThread` resolves it and
+ * `isEngaged` passes; `followUpContext` rides along as `additionalSystemPrompt` and is injected
+ * into the reply turn's prompt the same way an auto-respond rule's `extraContext` is.
+ *
+ * `attentionLevel: "off"` is a no-op (today's fire-and-forget behavior). When a session already
+ * exists for the thread it is left untouched — a real conversation already owns it.
+ */
+export async function registerThreadSession(
+  channel: string,
+  threadRoot: string,
+  opts: EngageThreadOptions,
+): Promise<SessionContext | null> {
+  if (opts.attentionLevel === "off") {
+    return null;
+  }
+
+  const existing = await findSessionByThread(channel, threadRoot);
+  if (existing) {
+    return existing;
+  }
+
+  return createSession({
+    channelId: channel,
+    messageTs: threadRoot,
+    threadTs: threadRoot,
+    userId: THREAD_ENGAGEMENT_USER_ID,
+    trigger: { type: "scheduled", prompt: "Seeded thread engagement (awaiting human reply)." },
+    attentionLevel: opts.attentionLevel,
+    additionalSystemPrompt: opts.followUpContext,
+  });
+}
+
 export async function getSession(sessionId: string): Promise<SessionContext | null> {
   // Check cache first
   const cached = sessionCache.get(sessionId);

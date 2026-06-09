@@ -76,6 +76,7 @@ function makeSdkOverRealDir(pluginDataDir: string): ClackSdk {
     dmOwner: async () => ({ ok: true as const }),
     getSlackClient: () => null,
     sendMessage: async () => ({ ok: true as const, ts: "1", channel: "C" }),
+    engageThread: async () => {},
     startThreadConversation: async () => {},
     registerAction: () => {},
     registerView: () => {},

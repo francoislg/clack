@@ -34,7 +34,9 @@ import {
   findSessionByThread,
   getSession,
   updateSession,
+  registerThreadSession,
   type SessionContext,
+  type EngageThreadOptions,
 } from "../../sessions.js";
 import { activeSessions, type SessionInfo } from "../activeSessions.js";
 import { logger } from "../../logger.js";
@@ -83,6 +85,11 @@ export interface AutoExecuteDeps {
     sessionId: string,
     updates: { responseTs: string },
   ) => Promise<SessionContext | null>;
+  registerThreadSession: (
+    channel: string,
+    threadRoot: string,
+    opts: EngageThreadOptions,
+  ) => Promise<SessionContext | null>;
   restoreSession: (sessionId: string) => Promise<SessionInfo | null>;
 }
 
@@ -105,6 +112,7 @@ export const defaultAutoExecuteDeps: AutoExecuteDeps = {
   readInstructionFile,
   findSessionByThread,
   getSession,
+  registerThreadSession,
   updateSession: updateSession as never,
   restoreSession: (sessionId: string) =>
     activeSessions.restore(sessionId) as Promise<SessionInfo | null>,
@@ -561,6 +569,21 @@ async function handlePostToAutoExecute(
       // Track top-level posts so thread replies can find this session
       if (!targetThreadTs && postResult.ts) {
         await deps.updateSession(sessionId, { responseTs: postResult.ts });
+      }
+      // Best-effort, non-fatal: seed an engaged session on the cross-posted thread when the
+      // action opted in. Root is the action's thread_ts, else the posted ts.
+      if (action.attention_level && action.attention_level !== "off") {
+        const root = targetThreadTs ?? postResult.ts;
+        if (root) {
+          try {
+            await deps.registerThreadSession(targetChannel, root, {
+              attentionLevel: action.attention_level,
+              ...(action.follow_up_context && { followUpContext: action.follow_up_context }),
+            });
+          } catch (err) {
+            logger.warn(`post_to: failed to seed engaged thread (cross-post succeeded): ${err}`);
+          }
+        }
       }
     } catch (error) {
       logger.error("post_to auto-execute failed:", error);

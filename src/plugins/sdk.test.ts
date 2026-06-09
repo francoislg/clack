@@ -6,7 +6,7 @@ import { mkdtempSync } from "node:fs";
 import { z } from "zod";
 import { tool, type SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import { WebClient } from "@slack/web-api";
-import { createClackSdk, type ClackSdkDeps } from "./sdk.js";
+import { createClackSdk, type ClackSdkDeps, type AttentionLevel } from "./sdk.js";
 import type { RolesConfig } from "../roles.js";
 
 const EMPTY_ROLES: RolesConfig = { owner: null, admins: [], devs: [] };
@@ -57,6 +57,7 @@ describe("ClackSdk", () => {
       deleteJob: deps?.deleteJob,
       clackQuery: deps?.clackQuery ?? (() => emptyClackQuery()),
       startThreadConversation: deps?.startThreadConversation,
+      registerThreadSession: deps?.registerThreadSession,
       capabilities: deps?.capabilities,
     };
     return createClackSdk(pluginName, dataDir, fullDeps);
@@ -471,6 +472,54 @@ describe("ClackSdk", () => {
       assert.equal(args.unfurl_links, false);
       assert.ok(args && "unfurl_media" in args);
       assert.equal(args.unfurl_media, false);
+    });
+  });
+
+  describe("engageThread", () => {
+    it("forwards a non-off level + followUpContext to the core helper", async () => {
+      const calls: {
+        channel: string;
+        threadRoot: string;
+        attentionLevel: AttentionLevel;
+        followUpContext?: string;
+      }[] = [];
+      const { sdk } = makeSdk("trivia", {
+        registerThreadSession: async (channel, threadRoot, opts) => {
+          calls.push({
+            channel,
+            threadRoot,
+            attentionLevel: opts.attentionLevel,
+            followUpContext: opts.followUpContext,
+          });
+          return null;
+        },
+      });
+
+      await sdk.engageThread("C1", "1700000000.000100", {
+        attentionLevel: "high",
+        followUpContext: "ctx",
+      });
+
+      assert.equal(calls.length, 1);
+      assert.equal(calls[0].channel, "C1");
+      assert.equal(calls[0].threadRoot, "1700000000.000100");
+      assert.equal(calls[0].attentionLevel, "high");
+      assert.equal(calls[0].followUpContext, "ctx");
+    });
+
+    it("is a no-op for an omitted or off attention level", async () => {
+      let called = 0;
+      const { sdk } = makeSdk("trivia", {
+        registerThreadSession: async () => {
+          called++;
+          return null;
+        },
+      });
+
+      await sdk.engageThread("C1", "T", {});
+      await sdk.engageThread("C1", "T", { attentionLevel: "off" });
+
+      assert.equal(called, 0);
     });
   });
 
