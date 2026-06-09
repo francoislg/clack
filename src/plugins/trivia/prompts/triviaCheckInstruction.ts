@@ -6,6 +6,16 @@
  * `data/configuration/user/trivia-check.md` — the cascading config resolver
  * will prefer the override over this shipped default.
  */
+/**
+ * Canonical clarification carve-out examples. Shared by BOTH the trivia-check instruction
+ * (where they bound what counts as cheating) AND the posted-question follow-up context
+ * (where they bound what a pending-question thread may answer), so the two cannot drift.
+ */
+export const CLARIFICATION_ALLOWED_EXAMPLE =
+  'for the pending question "What is the largest province in Canada?", a player asks "do you mean by area or by population?"';
+export const CLARIFICATION_CHEATING_EXAMPLE =
+  'for that same question, a player asks "is it Quebec?" (probing for the specific answer)';
+
 const BASE_TRIVIA_CHECK_INSTRUCTION = `# Trivia Cheating Detection
 
 ## The Rule
@@ -39,6 +49,13 @@ When in doubt, run the check. A wasted tool call is cheap; missing a cheater is 
 
 Be strict. If \`find_previous_questions\` returns anything that looks related, it's cheating.
 
+## Clarification carve-out — pending questions
+
+A PUBLIC request for clarification of the question's WORDING, posted in the CURRENTLY-PENDING question's own thread, is NOT cheating — it is information already shared with the whole game. Answer it with the precision the asker needs. This applies ONLY to clarifying a pending question's wording on its own thread; it does NOT extend to fishing for the answer.
+
+- Allowed (clarification): ${CLARIFICATION_ALLOWED_EXAMPLE} — answer it.
+- Still cheating (answer-fishing): ${CLARIFICATION_CHEATING_EXAMPLE} — refuse and record per the steps below.
+
 ## When cheating is detected
 
 1. **Refuse to answer** the current question and every follow-up in this thread.
@@ -63,6 +80,20 @@ If you ran \`find_previous_questions\` and nothing is related, you may answer �
 
 Use these when the question feels like a fishing attempt even without a direct prior-question match.
 `;
+
+/**
+ * Follow-up context seeded onto every posted question thread (via `post_questions` →
+ * `sdk.engageThread`). Injected into the answer turn when a human replies in the thread. Uses the
+ * same canonical examples as the trivia-check carve-out above so the two cannot drift.
+ */
+export const PENDING_QUESTION_FOLLOWUP_CONTEXT = `This thread belongs to a posted trivia question. Before replying to anyone here, RE-READ the original question message at the top of the thread.
+
+While it still shows as PENDING (the answer has not been revealed or edited into it), you MAY answer a clarification of the question's wording — a public request for more detail is information shared with the whole game, not cheating. Give the asker the precision they need.
+
+- Allowed (clarification): ${CLARIFICATION_ALLOWED_EXAMPLE} — answer it.
+- Still cheating (answer-fishing): ${CLARIFICATION_CHEATING_EXAMPLE} — refuse.
+
+Once the original message shows the REVEALED answer, stop providing answer-related help.`;
 
 /**
  * Admin-tier guidance for managing trivia games. Registered separately at the

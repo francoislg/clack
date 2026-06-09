@@ -116,6 +116,26 @@ const messageContentFields = {
     ),
 };
 
+// Per-destination thread-engagement fields, shared by `post_to` and each `deliver_to` entry.
+// Defined here (above `postToActionSchema`) so both schemas can reference them at module load.
+const threadEngagementAttentionField = z
+  .enum(["always", "high", "medium", "low", "off"])
+  .optional()
+  .describe(
+    "Optional. Seed an attention level on the DESTINATION thread so human replies there engage " +
+      'Clack (it follows up). Omit or "off" = fire-and-forget (no engagement seeded). "high"/"always" ' +
+      'keep the thread responsive; "medium"/"low" are more selective. Distinct from the top-level ' +
+      "`attention_level`, which governs the current session rather than this destination.",
+  );
+
+const followUpContextField = z
+  .string()
+  .optional()
+  .describe(
+    "Optional guidance injected into the answer turn when a human replies in the destination thread " +
+      "(e.g. how to handle clarification requests). Only meaningful alongside a non-`off` `attention_level`.",
+  );
+
 const postToActionSchema = z.object({
   type: z.literal("post_to"),
   label: buttonLabelSchema
@@ -141,6 +161,8 @@ const postToActionSchema = z.object({
     .describe(
       "Explicit target thread timestamp. Omit for a top-level channel post (e.g., 'in the channel').",
     ),
+  attention_level: threadEngagementAttentionField,
+  follow_up_context: followUpContextField,
   suppress_unfurls: z
     .boolean()
     .optional()
@@ -749,6 +771,8 @@ const deliverToEntrySchema = z
         "Optional target thread timestamp. Set it to reply into an existing thread; omit to post " +
           "as a top-level message in `channel`.",
       ),
+    attention_level: threadEngagementAttentionField,
+    follow_up_context: followUpContextField,
     response: deliverToResponseSchema,
   })
   .strict();
@@ -1008,6 +1032,8 @@ export function createSubmitResponseTool(deps: SubmitResponseDeps) {
               channel: entry.channel,
               ...(entry.thread_ts && { threadTs: entry.thread_ts }),
               payload: entry.response,
+              ...(entry.attention_level && { attentionLevel: entry.attention_level }),
+              ...(entry.follow_up_context && { followUpContext: entry.follow_up_context }),
             });
             if (!res.ok) {
               const prior =

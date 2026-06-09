@@ -92,6 +92,14 @@ export interface DeliverToEntry {
   /** When set, the message replies into this thread; when absent, it posts top-level in `channel`. */
   thread_ts?: string;
   response: DeliverToPayload;
+  /**
+   * Optional attention level seeded onto the destination thread so human replies there engage
+   * the thread auto-respond path. Absent / `"off"` ⇒ fire-and-forget (no session seeded). Distinct
+   * from the top-level `submit_response.attention_level` (which governs the current session).
+   */
+  attention_level?: AttentionLevel;
+  /** Optional guidance injected into the answer turn when a human replies in the destination thread. */
+  follow_up_context?: string;
 }
 
 /**
@@ -104,6 +112,10 @@ export type DeliverToChannelFn = (args: {
   channel: string;
   threadTs?: string;
   payload: DeliverToPayload;
+  /** When set and non-`"off"`, seed an engaged session on the destination thread after delivery. */
+  attentionLevel?: AttentionLevel;
+  /** Follow-up guidance stored on the seeded session (only meaningful with a non-`"off"` level). */
+  followUpContext?: string;
 }) => Promise<{ ok: true; ts?: string } | { ok: false; error: string }>;
 
 // ============================================================================
@@ -452,6 +464,13 @@ export interface PostToAction {
    * top-level so replies can thread under it). Capped at 20.
    */
   thread_replies?: MessagePayload[];
+  /**
+   * Optional attention level seeded onto the cross-posted thread so human replies engage the
+   * thread auto-respond path. Absent / `"off"` ⇒ fire-and-forget. Mirrors the `deliver_to` entry field.
+   */
+  attention_level?: AttentionLevel;
+  /** Optional guidance injected into the answer turn when a human replies in the cross-posted thread. */
+  follow_up_context?: string;
   /** Internal: resolved content entry ID set by submit_response before delivery (not from Claude) */
   _snapshotId?: string;
 }

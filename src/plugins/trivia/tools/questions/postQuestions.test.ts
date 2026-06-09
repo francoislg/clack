@@ -6,7 +6,8 @@ import { getAnswerTypeHandler } from "../../answerTypes/registry.js";
 const actionIdFn = (k: string): string => `plugin:trivia:${k}`;
 import { createInMemoryDataLayer, FIXTURE_GAME_NAME, fixtureGetGames } from "../../testHelpers.js";
 import { parseToolResult } from "../../../../tools/testHelpers.js";
-import type { ClackSdk } from "../../../sdk.js";
+import type { ClackSdk, AttentionLevel } from "../../../sdk.js";
+import { PENDING_QUESTION_FOLLOWUP_CONTEXT } from "../../prompts/triviaCheckInstruction.js";
 import type { TriviaDataLayer, TriviaQuestion } from "../../core/types.js";
 import type { z } from "zod";
 import { BlockSchema } from "../../../../slack/blockSchema.js";
@@ -17,11 +18,12 @@ type ZodBlock = z.infer<typeof BlockSchema>;
 const SESSION = { sessionId: "test" };
 const FIXTURE_CHANNEL = "C100000000";
 
-function fakeSdk(): Pick<ClackSdk, "getSlackClient" | "actionId" | "t"> {
+function fakeSdk(): Pick<ClackSdk, "getSlackClient" | "actionId" | "t" | "engageThread"> {
   return {
     getSlackClient: () => null,
     actionId: (key: string) => `plugin:trivia:${key}`,
     t: (key: string) => key,
+    engageThread: async () => {},
   };
 }
 
@@ -218,6 +220,51 @@ describe("post_questions tool", () => {
     assert.ok(stored.postedBlocks !== undefined);
     const last = stored.postedBlocks?.[stored.postedBlocks.length - 1];
     assert.equal(last?.type, "actions");
+  });
+
+  it("engages the posted question thread with high attention + the clarification context", async () => {
+    const data = createInMemoryDataLayer();
+    await seedQuestion(data, { id: "Q1" });
+
+    const { deps } = fakeSlackDeps({
+      postResults: [{ ts: "1700000000.123456", permalink: "https://x.slack.com/p1" }],
+    });
+    const engageCalls: {
+      channel: string;
+      threadTs: string;
+      attentionLevel?: AttentionLevel;
+      followUpContext?: string;
+    }[] = [];
+    const sdk: Pick<ClackSdk, "getSlackClient" | "actionId" | "t" | "engageThread"> = {
+      getSlackClient: () => null,
+      actionId: (key: string) => `plugin:trivia:${key}`,
+      t: (key: string) => key,
+      engageThread: async (channel, threadTs, opts) => {
+        engageCalls.push({
+          channel,
+          threadTs,
+          attentionLevel: opts.attentionLevel,
+          followUpContext: opts.followUpContext,
+        });
+      },
+    };
+    const tool = createPostQuestionsTool(data, sdk, fixtureGetGames, deps);
+
+    await tool.handler(
+      {
+        game: FIXTURE_GAME_NAME,
+        items: [{ questionId: "Q1", blocks: SAMPLE_BLOCKS }],
+        appendToPreviousBatch: undefined,
+        suppress_unfurls: undefined,
+      },
+      SESSION,
+    );
+
+    assert.equal(engageCalls.length, 1);
+    assert.equal(engageCalls[0].channel, FIXTURE_CHANNEL);
+    assert.equal(engageCalls[0].threadTs, "1700000000.123456");
+    assert.notEqual(engageCalls[0].attentionLevel, "off");
+    assert.equal(engageCalls[0].followUpContext, PENDING_QUESTION_FOLLOWUP_CONTEXT);
   });
 
   it("stamps liveAnswersVisible and revealResponses from the cascade default", async () => {

@@ -68,6 +68,19 @@ describe("casual-talk prompt", () => {
     assert.ok(prompt.includes("{ skip_response: true }"));
   });
 
+  it("instructs Claude to set attention_level: high so casual threads stay conversational", () => {
+    const prompt = buildPrompt({
+      die: 28,
+      rateLabel: "daily (1/28)",
+      channels: ["C111"],
+      smallTalkTopics: [],
+    });
+    assert.ok(prompt.includes('attention_level: "high"'));
+    assert.match(prompt, /`attention_level: "high"` is MANDATORY/);
+    // The rationale must cite the invisible-schedule constraint (no second chance to engage).
+    assert.match(prompt, /INVISIBLE scheduled tick/);
+  });
+
   it("instructs Claude to never reveal the trigger mechanism", () => {
     const prompt = buildPrompt({
       die: 28,

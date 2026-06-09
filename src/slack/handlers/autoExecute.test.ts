@@ -8,9 +8,11 @@ import type {
   StagedConfigUpdateIntent,
   StagedUpdateIntent,
   ResponseSnapshot,
+  PostToAction,
+  Action,
 } from "../../tools/types.js";
 import type { UserRole } from "../../roles.js";
-import type { SessionContext } from "../../sessions.js";
+import type { SessionContext, AttentionLevel } from "../../sessions.js";
 import type { SessionInfo } from "../activeSessions.js";
 import type { SlackDeliveryContext } from "./changeAction.js";
 import { handleAutoExecuteActions, type AutoExecuteDeps } from "./autoExecute.js";
@@ -59,6 +61,13 @@ const mockGetSession = vi.fn<(sessionId: string) => Promise<SessionContext | nul
 );
 const mockUpdateSession = vi.fn<
   (sessionId: string, updates: { responseTs: string }) => Promise<SessionContext | null>
+>(async () => null);
+const mockRegisterThreadSession = vi.fn<
+  (
+    channel: string,
+    threadRoot: string,
+    opts: { attentionLevel: AttentionLevel; followUpContext?: string },
+  ) => Promise<SessionContext | null>
 >(async () => null);
 const mockPostAnswerToChannel = vi.fn<
   (
@@ -132,6 +141,7 @@ function makeDeps(): AutoExecuteDeps {
     findSessionByThread: mockFindSessionByThread,
     getSession: mockGetSession,
     updateSession: mockUpdateSession,
+    registerThreadSession: mockRegisterThreadSession,
     restoreSession: mockActiveSessions.restore,
   };
 }
@@ -173,6 +183,7 @@ beforeEach(() => {
   mockTriggerFollowUp.mockClear();
   mockFindSessionByThread.mockClear();
   mockGetSession.mockClear();
+  mockRegisterThreadSession.mockClear();
   mockPostAnswerToChannel.mockClear();
   mockResolveOrigin.mockClear();
   mockActiveSessions.restore.mockClear();
@@ -272,6 +283,113 @@ describe("handleAutoExecuteActions — early returns", () => {
     // post_to is handled separately, should not trigger change/config workflows
     assert.equal(mockTriggerChangeWorkflow.mock.calls.length, 0);
     assert.equal(mockWriteInstructionFile.mock.calls.length, 0);
+  });
+});
+
+// ============================================================================
+// post_to thread engagement (attention_level / follow_up_context)
+// ============================================================================
+
+describe("handleAutoExecuteActions — post_to thread engagement", () => {
+  const SNAP_ID = "snap1";
+
+  function sessionWithSnapshot(): SessionContext {
+    return {
+      sessionId: "session-1",
+      channelId: "C001",
+      messageTs: "1700000000.000001",
+      threadTs: "1700000000.000001",
+      userId: "U001",
+      trigger: {
+        type: "mentions",
+        userId: "U001",
+        messageTs: "1700000000.000001",
+        messageText: "hi",
+      },
+      messages: [],
+      threadContext: [],
+      errors: [],
+      lastActivity: 0,
+      createdAt: 0,
+      snapshots: { [SNAP_ID]: { text: "x", blocks: [] } },
+    };
+  }
+
+  function postTo(extra: Partial<PostToAction>): Action {
+    return {
+      type: "post_to",
+      auto: true,
+      _snapshotId: SNAP_ID,
+      channel: "C200",
+      blocks: [{ type: "section", text: { type: "mrkdwn", text: "auto" } }],
+      ...extra,
+    };
+  }
+
+  it("seeds the posted ts as root for a top-level cross-post with attention_level", async () => {
+    mockGetSession.mockResolvedValue(sessionWithSnapshot());
+    mockPostAnswerToChannel.mockResolvedValue({ ok: true, ts: "1700000000.999999" });
+    const params = makeBaseParams({
+      response: makeResponseWithActions(
+        { blocks: [], actions: [postTo({ attention_level: "high", follow_up_context: "ctx" })] },
+        {},
+      ),
+    });
+
+    await handleAutoExecuteActions(params, makeDeps());
+
+    assert.equal(mockRegisterThreadSession.mock.calls.length, 1);
+    assert.deepEqual(mockRegisterThreadSession.mock.calls[0], [
+      "C200",
+      "1700000000.999999",
+      { attentionLevel: "high", followUpContext: "ctx" },
+    ]);
+  });
+
+  it("seeds the action's thread_ts as root for a threaded cross-post", async () => {
+    mockGetSession.mockResolvedValue(sessionWithSnapshot());
+    mockPostAnswerToChannel.mockResolvedValue({ ok: true, ts: "1700000000.999999" });
+    const params = makeBaseParams({
+      response: makeResponseWithActions(
+        {
+          blocks: [],
+          actions: [postTo({ thread_ts: "1700000000.111111", attention_level: "always" })],
+        },
+        {},
+      ),
+    });
+
+    await handleAutoExecuteActions(params, makeDeps());
+
+    assert.equal(mockRegisterThreadSession.mock.calls.length, 1);
+    assert.equal(mockRegisterThreadSession.mock.calls[0][1], "1700000000.111111");
+  });
+
+  it("does not seed when attention_level is omitted", async () => {
+    mockGetSession.mockResolvedValue(sessionWithSnapshot());
+    mockPostAnswerToChannel.mockResolvedValue({ ok: true, ts: "1700000000.999999" });
+    const params = makeBaseParams({
+      response: makeResponseWithActions({ blocks: [], actions: [postTo({})] }, {}),
+    });
+
+    await handleAutoExecuteActions(params, makeDeps());
+
+    assert.equal(mockRegisterThreadSession.mock.calls.length, 0);
+  });
+
+  it("does not seed when the cross-post throws", async () => {
+    mockGetSession.mockResolvedValue(sessionWithSnapshot());
+    mockPostAnswerToChannel.mockRejectedValue(new Error("slack down"));
+    const params = makeBaseParams({
+      response: makeResponseWithActions(
+        { blocks: [], actions: [postTo({ attention_level: "high" })] },
+        {},
+      ),
+    });
+
+    await handleAutoExecuteActions(params, makeDeps());
+
+    assert.equal(mockRegisterThreadSession.mock.calls.length, 0);
   });
 });
 

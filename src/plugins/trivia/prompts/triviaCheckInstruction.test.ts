@@ -3,7 +3,29 @@ import assert from "node:assert/strict";
 import {
   TRIVIA_MANAGEMENT_DESCRIPTION,
   TRIVIA_MANAGEMENT_INSTRUCTION,
+  TRIVIA_CHECK_INSTRUCTION,
+  PENDING_QUESTION_FOLLOWUP_CONTEXT,
+  CLARIFICATION_ALLOWED_EXAMPLE,
+  CLARIFICATION_CHEATING_EXAMPLE,
 } from "./triviaCheckInstruction.js";
+
+describe("clarification carve-out (anti-cheat ⇄ follow-up context consistency)", () => {
+  it("the trivia-check instruction carves out pending-question clarifications", () => {
+    assert.match(TRIVIA_CHECK_INSTRUCTION, /Clarification carve-out/i);
+    assert.ok(TRIVIA_CHECK_INSTRUCTION.includes(CLARIFICATION_ALLOWED_EXAMPLE));
+    assert.ok(TRIVIA_CHECK_INSTRUCTION.includes(CLARIFICATION_CHEATING_EXAMPLE));
+  });
+
+  it("the posted-question follow-up context uses the SAME canonical examples (cannot drift)", () => {
+    assert.ok(PENDING_QUESTION_FOLLOWUP_CONTEXT.includes(CLARIFICATION_ALLOWED_EXAMPLE));
+    assert.ok(PENDING_QUESTION_FOLLOWUP_CONTEXT.includes(CLARIFICATION_CHEATING_EXAMPLE));
+  });
+
+  it("the follow-up context directs re-reading the original message and stopping after reveal", () => {
+    assert.match(PENDING_QUESTION_FOLLOWUP_CONTEXT, /RE-READ the original question message/);
+    assert.match(PENDING_QUESTION_FOLLOWUP_CONTEXT, /REVEALED answer/);
+  });
+});
 
 describe("TRIVIA_MANAGEMENT_DESCRIPTION", () => {
   const REQUIRED_TOOLS = [

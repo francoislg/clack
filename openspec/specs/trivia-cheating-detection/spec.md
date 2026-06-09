@@ -167,6 +167,12 @@ The instruction content SHALL direct Claude to:
 3. After calling `save_cheating`, DM the configured owner a formatted cheat-alert via `submit_response` with a `post_to` action (`channel: <owner-user-id>`, `auto: true`).
 4. Call the user out with a playful refusal message.
 
+The instruction SHALL include a **clarification carve-out**: a PUBLIC request for more detail about the CURRENTLY-PENDING question, posted in that question's OWN thread, is legitimate and SHALL be answered — such a request is public information already shared with the whole game, not an attempt to extract a hidden answer. The carve-out SHALL be scoped to the pending question's own thread only, and SHALL NOT extend to fishing for the answer itself. The instruction SHALL include one allowed example and one still-cheating example:
+- Allowed (clarification): for the pending question "What is the largest province in Canada?", a player asks "do you mean by area or by population?" — answer it.
+- Still cheating (answer-fishing): for that same pending question, a player asks "is it Quebec?" (or otherwise probes for the specific answer) — refuse and record per the steps above.
+
+These examples SHALL match the clarification follow-up context that `trivia-question-posting` attaches to a posted question thread, so the two cannot drift.
+
 The instruction SHALL reference the existing `data/configuration/user/trivia-check.md` override pattern so admins may customize the wording or the owner ID per deployment via the cascading config resolver; the plugin's shipped content serves only as the default layer.
 
 #### Scenario: Plugin registers trivia-check as a user-tier instruction
@@ -186,6 +192,19 @@ The instruction SHALL reference the existing `data/configuration/user/trivia-che
 - **WHEN** Claude, following trivia-check guidance, determines a user is cheating
 - **THEN** it calls `save_cheating` with the required arguments before issuing any user-facing refusal
 - **AND** subsequently DMs the configured owner via `submit_response` + `post_to`
+
+#### Scenario: Clarification on a pending question is answered, not flagged
+
+- **GIVEN** a pending trivia question's own thread
+- **WHEN** a player publicly asks for clarification of the question's wording (e.g. "do you mean by area or by population?")
+- **THEN** Clack answers the clarification
+- **AND** does not call `save_cheating` for that message
+
+#### Scenario: Answer-fishing in the same thread is still cheating
+
+- **GIVEN** the same pending question thread
+- **WHEN** a player probes for the specific answer (e.g. "is it Quebec?")
+- **THEN** Clack refuses and records the cheat per the detection steps
 
 ### Requirement: `remove_cheat` admin tool removes a report and decrements the counter
 

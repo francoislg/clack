@@ -14,11 +14,12 @@ import type { TriviaDataLayer } from "./core/types.js";
 import type { ClackSdk } from "../sdk.js";
 import { applySeasonRollover } from "./tools/reveal/rollover.js";
 
-function fakeSdk(): Pick<ClackSdk, "getSlackClient" | "actionId" | "t"> {
+function fakeSdk(): Pick<ClackSdk, "getSlackClient" | "actionId" | "t" | "engageThread"> {
   return {
     getSlackClient: () => null,
     actionId: (key: string) => `plugin:trivia:${key}`,
     t: (key: string) => key,
+    engageThread: async () => {},
   };
 }
 

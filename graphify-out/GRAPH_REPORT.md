@@ -1,11 +1,11 @@
 # Graph Report - claude-slack-bot  (2026-06-09)
 
 ## Corpus Check
-- 750 files · ~1,928,480 words
+- 752 files · ~1,941,614 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 3536 nodes · 7533 edges · 163 communities detected
+- 3542 nodes · 7544 edges · 163 communities detected
 - Extraction: 82% EXTRACTED · 16% INFERRED · 0% AMBIGUOUS · INFERRED: 1196 edges (avg confidence: 0.8)
 - Token cost: 0 input · 0 output
 
@@ -191,12 +191,12 @@
   README.md → openspec/changes/add-worker-verification-gate/proposal.md
 - `Two-Tier Instruction System` --semantically_similar_to--> `In-Process MCP Tool Server`  [INFERRED] [semantically similar]
   README.md → openspec/changes/archive/2026-02-17-clack-mcp-tools/specs/clack-tools/spec.md
-- `main()` --calls--> `loadConfig()`  [INFERRED]
-  scripts/askClaudeWorktree.ts → src/plugins/casual-talk/config.ts
-- `main()` --calls--> `loadConfig()`  [INFERRED]
-  scripts/askClaudeWorktree.ts → src/config.ts
-- `loadConfigForManifest()` --calls--> `resolve()`  [INFERRED]
-  scripts/generate-manifest.ts → src/streaming/toolLabels.ts
+- `main()` --calls--> `truncate()`  [INFERRED]
+  scripts/askClaudeWorktree.ts → src/plugins/trivia/answerTypes/freeform.ts
+- `main()` --calls--> `runClaude()`  [INFERRED]
+  scripts/askClaudeWorktree.ts → src/changes/execution.ts
+- `main()` --calls--> `truncate()`  [INFERRED]
+  scripts/askClaudeWorktree.ts → src/text.ts
 
 ## Hyperedges (group relationships)
 - **Three Trigger Modes Pattern** — reaction_trigger_mode, direct_message_mode, slack_integration [EXTRACTED 1.00]
@@ -219,155 +219,155 @@
 
 ### Community 0 - "Community 0"
 Cohesion: 0.01
-Nodes (145): assembleBooleanVoters(), makeDeps(), buildExcludeSet(), isScoredAnswer(), assembleChoiceVoters(), makeDeps(), installClickableVoteHandler(), fakeSdk() (+137 more)
+Nodes (143): assembleBooleanVoters(), makeDeps(), buildExcludeSet(), isScoredAnswer(), assembleChoiceVoters(), makeDeps(), installClickableVoteHandler(), fakeSdk() (+135 more)
 
 ### Community 1 - "Community 1"
 Cohesion: 0.01
-Nodes (137): createAddAutoRespondRuleTool(), createCancelReminderTool(), createCancelScheduledMessageTool(), createCancelWorkerRunTool(), createCreateScheduledMessageTool(), createDeleteAutoRespondRuleTool(), createProposeChangeTool(), makeCtx() (+129 more)
+Nodes (149): createAddAutoRespondRuleTool(), createCancelReminderTool(), createCancelScheduledMessageTool(), createCancelWorkerRunTool(), createCreateScheduledMessageTool(), createDeleteAutoRespondRuleTool(), createProposeChangeTool(), makeCtx() (+141 more)
 
 ### Community 2 - "Community 2"
-Cohesion: 0.02
-Nodes (146): executeChange(), readBranchHead(), resolveChangesInstructions(), runClaudeInWorktree(), runWorktreeInstall(), runWorktreeSetup(), checkSessionCompletion(), cleanupSession() (+138 more)
+Cohesion: 0.01
+Nodes (188): readDataFile(), resolveDataPath(), validateConfigJson(), validateContent(), validateJson(), validateMcpJson(), writeDataFile(), checkSessionCompletion() (+180 more)
 
 ### Community 3 - "Community 3"
 Cohesion: 0.02
-Nodes (145): formatOwnerNotification(), truncate(), buildHintModal(), runClaude(), buildCancelledResult(), handleFollowUp(), startChangeWorkflow(), buildMockPool() (+137 more)
+Nodes (110): seedJob(), isChangesEnabledForTrigger(), fetchAssistantContext(), resolveContextChannelId(), enrichForPreAnalysis(), fetchEnrichedContext(), resolveAutoRespondContext(), respond() (+102 more)
 
 ### Community 4 - "Community 4"
 Cohesion: 0.02
-Nodes (75): prepareMcpSession(), loadKey(), parseFrontmatter(), prepareSkillsSession(), SkillsManager, fetchAssistantContext(), resolveContextChannelId(), handleMessageChanged() (+67 more)
+Nodes (113): formatOwnerNotification(), truncate(), buildHintModal(), extractToolErrorMessage(), buildAnswerBlocks(), confirmInDm(), deliverFollower(), handleAcceptSynthesis() (+105 more)
 
 ### Community 5 - "Community 5"
-Cohesion: 0.02
-Nodes (75): convertMarkdownToSlack(), splitForSlack(), deliverFollower(), postAnswerToChannel(), buildDeliverFn(), buildDirectDeliverFn(), deliverViaStreamerOrFallback(), executeAndDeliver() (+67 more)
+Cohesion: 0.01
+Nodes (81): detectFollowUpCommand(), findChangeEnabledRepo(), getChangeEnabledRepos(), executeChange(), readBranchHead(), resolveChangesInstructions(), runClaude(), runClaudeInWorktree() (+73 more)
 
 ### Community 6 - "Community 6"
 Cohesion: 0.02
-Nodes (74): readDataFile(), resolveDataPath(), validateConfigJson(), validateContent(), validateJson(), validateMcpJson(), writeDataFile(), detectFollowUpCommand() (+66 more)
+Nodes (98): loadConfig(), completeSessionStart(), McpServerManager, prepareMcpSession(), clackQuery(), runBlockingMigrations(), runEnhancementMigrations(), applyStaticResults() (+90 more)
 
 ### Community 7 - "Community 7"
-Cohesion: 0.02
-Nodes (59): enrichForPreAnalysis(), fetchEnrichedContext(), resolveAutoRespondContext(), respond(), call(), clientWithReplies(), makeClient(), makeConfig() (+51 more)
+Cohesion: 0.03
+Nodes (71): handleAutoExecuteActions(), handlePostToAutoExecute(), makeBaseParams(), makeClient(), registerChangeActionHandler(), makeApp(), makeClient(), makeHandlerArgs() (+63 more)
 
 ### Community 8 - "Community 8"
-Cohesion: 0.02
-Nodes (46): makeHangingRun(), askClaude(), buildSuccessResponse(), buildToolResults(), handleQueryError(), hasProperty(), optionalHistory(), recordTraceEntry() (+38 more)
+Cohesion: 0.03
+Nodes (82): appendAttachHistory(), makeCtx(), makeManager(), makeRegistry(), makeSession(), createFindRecentInteractionsTool(), isKnownPublic(), isVisible() (+74 more)
 
 ### Community 9 - "Community 9"
 Cohesion: 0.03
-Nodes (45): loadConfig(), clackQuery(), buildTestTasks(), cleanup(), main(), parallel(), readTestConfig(), runFullPathTest() (+37 more)
+Nodes (57): textResult(), convertMarkdownToSlack(), splitForSlack(), registerResendHandler(), makeApp(), buildAdditionalMessagesField(), buildSubmitResponseSchema(), buildThreadRepliesField() (+49 more)
 
 ### Community 10 - "Community 10"
-Cohesion: 0.04
-Nodes (74): appendAttachHistory(), createFindRecentInteractionsTool(), isKnownPublic(), isVisible(), loadSession(), matchesKeywords(), matchesType(), searchRecentInteractions() (+66 more)
+Cohesion: 0.03
+Nodes (37): buildChangeSessionForPersistence(), clearActiveChange(), getActiveChange(), setActiveChange(), updateActiveChangePrUrl(), updateActiveChangeStatus(), makeDeps(), makeMockPool() (+29 more)
 
 ### Community 11 - "Community 11"
-Cohesion: 0.03
-Nodes (34): buildChangeSessionForPersistence(), clearActiveChange(), getActiveChange(), setActiveChange(), updateActiveChangePrUrl(), updateActiveChangeStatus(), makeDeps(), makeMockPool() (+26 more)
-
-### Community 12 - "Community 12"
 Cohesion: 0.05
 Nodes (61): isRevealResponsesMode(), normalizeChoices(), normalizeDifficultyPerFormat(), normalizeHint(), normalizeRangesMap(), normalizeRatioPerFormat(), parseTriviaAxisBag(), validateAllTimeRowMode() (+53 more)
 
-### Community 13 - "Community 13"
+### Community 12 - "Community 12"
 Cohesion: 0.03
 Nodes (89): Accept Image Only Messages Change, Add Error Reporting with Conversation Trace, Add Message Mode Proposal, Add Semantic Config Tools Change, Add Stop Reaction Change, Add Slack User Context Proposal, Add User Roles with Home Tab Management, Admin Config Tools Specification (+81 more)
 
-### Community 14 - "Community 14"
-Cohesion: 0.04
-Nodes (53): seedJob(), actorDisplay(), actorDmTarget(), resolveJobActor(), getCronMaxRunHistory(), formatDayOfWeekSuffix(), formatHour(), formatSubDaily() (+45 more)
+### Community 13 - "Community 13"
+Cohesion: 0.05
+Nodes (19): cloneValidRegistry(), isJsonObject(), parseMcpServerNames(), registriesEqual(), registryToJson(), safeJsonParse(), seedRegistry(), buildFiles() (+11 more)
 
-### Community 15 - "Community 15"
+### Community 14 - "Community 14"
 Cohesion: 0.06
 Nodes (68): role-based access control, add_reaction tool, Slack message URL parser, adminDeleteMessage tool, message deletion validator, adminListEnv tool, adminReadFile tool, adminSetEnv tool (+60 more)
 
-### Community 16 - "Community 16"
-Cohesion: 0.04
-Nodes (25): completeSessionStart(), McpServerManager, makeCtx(), makeManager(), makeRegistry(), makeSession(), getTaskCardMaxDetails(), makeClient() (+17 more)
-
-### Community 17 - "Community 17"
-Cohesion: 0.05
-Nodes (28): getConfiguredMcpServerNames(), getMcpConfigPath(), getPinnedEntries(), isRemoteEntry(), loadAlwaysOnMcpServers(), loadMcpServer(), loadMcpServers(), loadStaticMcpConfig() (+20 more)
-
-### Community 18 - "Community 18"
+### Community 15 - "Community 15"
 Cohesion: 0.07
-Nodes (26): resolveFallbackTopics(), textResult(), buildCronExpression(), computeTicks(), rateLabel(), rateToDieFromTicks(), resolveDie(), casualTalkPlugin() (+18 more)
+Nodes (23): resolveFallbackTopics(), buildCronExpression(), computeTicks(), rateLabel(), rateToDieFromTicks(), resolveDie(), casualTalkPlugin(), buildSdk() (+15 more)
 
-### Community 19 - "Community 19"
+### Community 16 - "Community 16"
 Cohesion: 0.08
 Nodes (35): makeConfig(), makeCtx(), makeManager(), makePack(), makeSession(), setupUserSkillsTmp(), teardownUserSkillsTmp(), disableUserSkill() (+27 more)
 
-### Community 20 - "Community 20"
+### Community 17 - "Community 17"
 Cohesion: 0.06
 Nodes (37): Asana Integration, Asana Personal Access Token, Changes Workflow, Clack - Slack Bot, submit_response MCP Tool, In-Process MCP Tool Server, Claude Code Integration - Query Execution, Claude Code Integration Capability (+29 more)
 
-### Community 21 - "Community 21"
+### Community 18 - "Community 18"
 Cohesion: 0.1
 Nodes (12): createFindSubjectTool(), run(), commonsImageSearchPlugin(), extractExtMetadata(), fetchImageBytes(), fetchImageInfo(), fetchPageSummary(), fetchWithTimeout() (+4 more)
 
-### Community 22 - "Community 22"
+### Community 19 - "Community 19"
 Cohesion: 0.1
 Nodes (15): publishHomeView(), registerAddRoleHandlers(), registerHomeTabHandler(), registerRemoveRoleHandlers(), makeApp(), closeModalIfOpen(), extractViewId(), refreshHomeView() (+7 more)
 
-### Community 23 - "Community 23"
+### Community 20 - "Community 20"
 Cohesion: 0.09
 Nodes (9): createFindGifTool(), searchGiphy(), factory(), giphyPlugin(), createFindGifTool(), tenorGifPlugin(), searchTenor(), TenorError (+1 more)
 
-### Community 24 - "Community 24"
+### Community 21 - "Community 21"
 Cohesion: 0.09
 Nodes (7): fetchImageBytes(), fetchWithTimeout(), mimeFromUrl(), searchImages(), createFindImageTool(), run(), braveImageSearchPlugin()
 
-### Community 25 - "Community 25"
+### Community 22 - "Community 22"
+Cohesion: 0.16
+Nodes (9): buildTestTasks(), cleanup(), main(), parallel(), readTestConfig(), runFullPathTest(), setup(), validateFinalState() (+1 more)
+
+### Community 23 - "Community 23"
 Cohesion: 0.1
 Nodes (23): interface, interface, interface, function, function, function, function, function (+15 more)
 
-### Community 26 - "Community 26"
+### Community 24 - "Community 24"
 Cohesion: 0.1
 Nodes (21): Clack MCP Tools Infrastructure, Config Update via Chat, GitHub App Authentication, GitHub MCP Auto-Configuration, Instruction System, Instruction Variables Registry, Repository Instruction Files, Role-Based Instructions (+13 more)
 
-### Community 27 - "Community 27"
+### Community 25 - "Community 25"
 Cohesion: 0.17
 Nodes (3): makeDeps(), makeStopDeps(), MockAssistant
 
-### Community 28 - "Community 28"
+### Community 26 - "Community 26"
 Cohesion: 0.19
 Nodes (13): Cascading Configuration Resolver, ClackSdk Interface, Cron Job with requiredTools, Enforce Required Tools Feature, find_previous_questions Search Tool, Plugin Architecture Feature, Clack Plugin Contract, Per-Plugin MCP Server Namespace (+5 more)
 
-### Community 29 - "Community 29"
+### Community 27 - "Community 27"
 Cohesion: 0.31
 Nodes (7): buildEvents(), buildScopes(), generateManifest(), getEnabledFeatures(), loadConfigForManifest(), main(), validateSlackAppConfig()
 
-### Community 30 - "Community 30"
+### Community 28 - "Community 28"
 Cohesion: 0.25
 Nodes (6): loadLines(), setEnv(), writeLines(), loadEnvLines(), setEnvVar(), writeEnvLines()
 
-### Community 31 - "Community 31"
+### Community 29 - "Community 29"
 Cohesion: 0.29
 Nodes (7): extractThreadInfo(), keyFor(), PerThreadContextStore, messageArgs(), messagePayload(), threadArgs(), threadChangedPayload()
 
-### Community 32 - "Community 32"
+### Community 30 - "Community 30"
 Cohesion: 0.22
 Nodes (9): Changes Workflow capability, Home Tab configuration simplification, Home Tab UI component, Worker session restoration on startup, close_pr tool, ensure_pr tool, git_push tool, merge_pr tool (+1 more)
 
-### Community 33 - "Community 33"
+### Community 31 - "Community 31"
 Cohesion: 0.33
 Nodes (2): buildConfigPath(), buildInstructionPath()
 
-### Community 34 - "Community 34"
+### Community 32 - "Community 32"
+Cohesion: 0.47
+Nodes (4): makeCtx(), makeDeps(), makeRepo(), makeSimpleGit()
+
+### Community 33 - "Community 33"
 Cohesion: 0.33
 Nodes (6): Claude Agent SDK, Claude Code Integration Specification, Docker Deployment Specification, Add Docker Setup Script and Dockerfile, Use Claude Agent SDK Design, Use Claude Agent SDK Proposal
 
-### Community 35 - "Community 35"
+### Community 34 - "Community 34"
 Cohesion: 0.33
 Nodes (6): Changes Workflow Delta Specification (cancellation), Cancel Worker Run Design Document, Worker Cancellation Specification, Stream Keepalive Design Document, Stream Keepalive Proposal, Streaming Responses with Keepalive Specification
 
-### Community 36 - "Community 36"
+### Community 35 - "Community 35"
 Cohesion: 0.33
 Nodes (6): Scheduled Skip Conditions Proposal, Scheduled Messages Feature, Clack Tools Spec (Skip Conditions), Cron Messages Spec, Home Tab Spec (Skip Conditions), Skip Response Spec
 
-### Community 37 - "Community 37"
+### Community 36 - "Community 36"
 Cohesion: 0.33
 Nodes (6): Add Block Kit Markdown and Table Change, Add Card and Carousel Blocks Change, Add Post to Message Parity Change, Clack Tool Response Specification (Markdown & Table), Clack Tool Response Specification (Card & Carousel), Clack Tool Response Specification (Post to Message Parity)
+
+### Community 37 - "Community 37"
+Cohesion: 0.6
+Nodes (4): makeCtx(), makeDeps(), makeRepo(), makeSimpleGit()
 
 ### Community 38 - "Community 38"
 Cohesion: 0.5
@@ -403,11 +403,11 @@ Nodes (4): Exclude Cheaters from Reveal Change, Trivia Cheating Detection Specif
 
 ### Community 46 - "Community 46"
 Cohesion: 0.67
-Nodes (4): Cascading Config Resolver Spec, Claude Code Integration Spec, Lazy MCP Loading Spec, Lazy MCP Loading Tasks
+Nodes (4): GIF Plugin Design, GIF Plugin Proposal, GIF Plugin Spec, Tenor API Service
 
 ### Community 47 - "Community 47"
 Cohesion: 0.67
-Nodes (4): GIF Plugin Design, GIF Plugin Proposal, GIF Plugin Spec, Tenor API Service
+Nodes (4): Cascading Config Resolver Spec, Claude Code Integration Spec, Lazy MCP Loading Spec, Lazy MCP Loading Tasks
 
 ### Community 48 - "Community 48"
 Cohesion: 0.5
@@ -872,7 +872,7 @@ Nodes (1): WorkerToolContext type
 ## Knowledge Gaps
 - **213 isolated node(s):** `Project Context - Clack Bot`, `Reaction Trigger Mode`, `Direct Message & Mention Modes`, `Owner Role`, `Admin Role` (+208 more)
   These have ≤1 connection - possible missing edges or undocumented components.
-- **Thin community `Community 33`** (7 nodes): `buildConfigPath()`, `buildInstructionPath()`, `refineConfigTarget()`, `validateConfigTarget()`, `repoInstructionFiles.ts`, `configFieldSchemas.test.ts`, `configFieldSchemas.ts`
+- **Thin community `Community 31`** (7 nodes): `buildConfigPath()`, `buildInstructionPath()`, `refineConfigTarget()`, `validateConfigTarget()`, `repoInstructionFiles.ts`, `configFieldSchemas.test.ts`, `configFieldSchemas.ts`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
 - **Thin community `Community 61`** (2 nodes): `Lazy Skill Loading Feature`, `OpenSpec: Add Lazy Skill Loading`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
@@ -1088,10 +1088,10 @@ Nodes (1): WorkerToolContext type
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `t()` connect `Community 3` to `Community 0`, `Community 2`, `Community 5`, `Community 7`, `Community 9`, `Community 16`, `Community 22`?**
-  _High betweenness centrality (0.021) - this node is a cross-community bridge._
-- **Why does `tool()` connect `Community 1` to `Community 0`, `Community 5`, `Community 7`, `Community 10`, `Community 11`, `Community 18`, `Community 21`, `Community 23`, `Community 24`?**
-  _High betweenness centrality (0.015) - this node is a cross-community bridge._
+- **Why does `resolve()` connect `Community 2` to `Community 3`, `Community 4`, `Community 5`, `Community 6`, `Community 7`, `Community 8`, `Community 11`, `Community 16`, `Community 27`?**
+  _High betweenness centrality (0.018) - this node is a cross-community bridge._
+- **Why does `tool()` connect `Community 1` to `Community 0`, `Community 3`, `Community 8`, `Community 9`, `Community 10`, `Community 15`, `Community 18`, `Community 20`, `Community 21`?**
+  _High betweenness centrality (0.011) - this node is a cross-community bridge._
 - **Are the 108 inferred relationships involving `tool()` (e.g. with `pluginWithMixedTopics()` and `createAdminSetRoleTool()`) actually correct?**
   _`tool()` has 108 INFERRED edges - model-reasoned connections that need verification._
 - **Are the 82 inferred relationships involving `resolve()` (e.g. with `loadConfigForManifest()` and `main()`) actually correct?**

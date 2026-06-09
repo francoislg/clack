@@ -24,7 +24,7 @@ import { logger } from "../logger.js";
 import type { McpSdkServerConfigWithInstance } from "@anthropic-ai/claude-agent-sdk";
 import { asSlackBlocks } from "../slack/blocks.js";
 import type { SlackBlocks } from "../slack/blocks.js";
-import { updateSession, getSession } from "../sessions.js";
+import { updateSession, getSession, registerThreadSession } from "../sessions.js";
 import type { SessionContext, AttentionLevel } from "../sessions.js";
 import { canRequestChanges, canEditConfig } from "../permissions.js";
 
@@ -534,7 +534,7 @@ function buildQueryTools(ctx: QueryToolContext): ClackQueryToolsResult {
   // one. Only wired when a Slack client is present (absent in test/verify contexts).
   const slackClient = ctx.slackClient;
   const deliverToChannel: DeliverToChannelFn | undefined = slackClient
-    ? async ({ channel, threadTs, payload }) => {
+    ? async ({ channel, threadTs, payload, attentionLevel, followUpContext }) => {
         try {
           const snapshot: ResponseSnapshot = {
             text: extractDisplayText(payload.blocks),
@@ -557,6 +557,25 @@ function buildQueryTools(ctx: QueryToolContext): ClackQueryToolsResult {
               sessionId: ctx.session.sessionId,
             },
           );
+          // Best-effort, non-fatal: seed an engaged session on the destination thread so human
+          // replies there are picked up. Root is the entry's thread_ts, else the posted ts. A
+          // seeding failure (or missing root ts) is logged, never surfaced as a delivery error.
+          if (attentionLevel && attentionLevel !== "off") {
+            const root = threadTs ?? res.ts;
+            if (root) {
+              try {
+                await registerThreadSession(channel, root, { attentionLevel, followUpContext });
+              } catch (err) {
+                logger.warn(
+                  `deliver_to: failed to seed engaged thread (delivery succeeded): ${err}`,
+                );
+              }
+            } else {
+              logger.warn(
+                `deliver_to: no root ts to seed engagement on (post succeeded with no ts and no thread_ts) in ${channel}`,
+              );
+            }
+          }
           return { ok: true as const, ts: res.ts };
         } catch (error) {
           return { ok: false as const, error: errorMessage(error) };

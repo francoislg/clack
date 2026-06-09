@@ -22,8 +22,9 @@ import type { PluginActionHandler, PluginViewHandler } from "../slack/pluginActi
 export type { PluginActionHandler, PluginViewHandler };
 import { logger } from "../logger.js";
 import { findByPluginOwner, createJob, updateJob, deleteJob, type SkipDate } from "../cronJobs.js";
-import type { SettableAttentionLevel } from "../sessions.js";
-export type { SettableAttentionLevel };
+import { registerThreadSession } from "../sessions.js";
+import type { SettableAttentionLevel, AttentionLevel } from "../sessions.js";
+export type { SettableAttentionLevel, AttentionLevel };
 import { clackQuery as defaultClackQuery } from "../claude/query.js";
 import { detectRuntime } from "../claude/utilities.js";
 import { getConfig } from "../config.js";
@@ -365,6 +366,17 @@ export interface ClackSdk {
    */
   sendMessage(opts: SendMessageOptions): Promise<SendMessageResult>;
   /**
+   * Make the thread a message was posted into "engaged": seed a discoverable session for
+   * `(channel, threadTs)` so human replies there are picked up by the thread auto-respond path,
+   * with `followUpContext` injected into the reply turn. `attentionLevel: "off"` (or omitted) is a
+   * no-op. This is the ONLY engagement path for plugins — never import core session modules.
+   */
+  engageThread(
+    channel: string,
+    threadTs: string,
+    opts: { attentionLevel?: AttentionLevel; followUpContext?: string },
+  ): Promise<void>;
+  /**
    * Lazily resolves the Slack WebClient at call time. Returns `null` when Slack
    * hasn't connected yet (e.g. plugin tools created at plugin-load time, before
    * the bot's socket session is up). Plugin authors needing direct Slack API access
@@ -552,6 +564,8 @@ export interface ClackSdkDeps {
   getSlackClient: () => App["client"] | null;
   loadRoles: typeof loadRoles;
   openDmChannel: typeof openDmChannel;
+  /** Backs `sdk.engageThread`. Optional so tests that don't exercise engagement can omit it. */
+  registerThreadSession?: typeof registerThreadSession;
   /** Cron job persistence — optional in tests that don't exercise reconcile. */
   findByPluginOwner?: typeof findByPluginOwner;
   createJob?: typeof createJob;
@@ -592,6 +606,7 @@ export const defaultClackSdkDeps: ClackSdkDeps = {
   getSlackClient: defaultGetSlackClient,
   loadRoles,
   openDmChannel,
+  registerThreadSession,
   findByPluginOwner,
   createJob,
   updateJob,
@@ -1104,6 +1119,20 @@ export function createClackSdk(
         logger.error(`[plugin:${pluginName}] dmOwner postMessage failed: ${error}`);
         return { ok: false, error };
       }
+    },
+
+    async engageThread(
+      channel: string,
+      threadTs: string,
+      opts: { attentionLevel?: AttentionLevel; followUpContext?: string },
+    ): Promise<void> {
+      if (!opts.attentionLevel || opts.attentionLevel === "off" || !deps.registerThreadSession) {
+        return;
+      }
+      await deps.registerThreadSession(channel, threadTs, {
+        attentionLevel: opts.attentionLevel,
+        ...(opts.followUpContext !== undefined && { followUpContext: opts.followUpContext }),
+      });
     },
 
     async sendMessage(opts: SendMessageOptions): Promise<SendMessageResult> {

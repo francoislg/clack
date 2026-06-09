@@ -8,6 +8,7 @@ import { postStructuredMessage } from "../../../../slack/messagePoster.js";
 import type { SlackBlocks } from "../../../../slack/blocks.js";
 import { logger } from "../../../../logger.js";
 import type { ClackSdk } from "../../../sdk.js";
+import { PENDING_QUESTION_FOLLOWUP_CONTEXT } from "../../prompts/triviaCheckInstruction.js";
 import {
   defaultGetGames,
   defaultGetTriviaConfig,
@@ -162,7 +163,7 @@ export function defaultPostQuestionsSlackDeps(
 
 export function createPostQuestionsTool(
   data: TriviaDataLayer,
-  sdk: Pick<ClackSdk, "getSlackClient" | "actionId" | "t">,
+  sdk: Pick<ClackSdk, "getSlackClient" | "actionId" | "t" | "engageThread">,
   getGamesFn: GetGamesFn = defaultGetGames,
   slackDeps: PostQuestionsSlackDeps = defaultPostQuestionsSlackDeps(sdk),
   getTriviaConfigFn: GetTriviaConfigFn = defaultGetTriviaConfig,
@@ -336,6 +337,19 @@ export function createPostQuestionsTool(
             revealResponses,
             tagPlayers,
           });
+
+          // Engage the question thread so a player's public clarification reply is answered
+          // while the question is pending. Best-effort: a seeding failure never fails the post.
+          try {
+            await sdk.engageThread(game.channel, ts, {
+              attentionLevel: "high",
+              followUpContext: PENDING_QUESTION_FOLLOWUP_CONTEXT,
+            });
+          } catch (err) {
+            logger.warn(
+              `[post_questions] failed to engage thread for ${item.questionId}: ${err instanceof Error ? err.message : String(err)}`,
+            );
+          }
 
           results.push({
             questionId: item.questionId,
