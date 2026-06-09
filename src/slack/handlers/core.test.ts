@@ -267,6 +267,42 @@ describe("processMessage — executeAndDeliver delegation", () => {
 
     assert.equal(mockExecuteAndDeliver.mock.calls.length, 1);
   });
+
+  it("runs silentThinking when the resolved session is deliveryMode 'invisible'", async () => {
+    const invisible = makeSession({ sessionId: "inv-1", deliveryMode: "invisible" });
+    mockFindSessionByThread.mockImplementation(async () => invisible);
+    mockGetSession.mockImplementation(async () => invisible);
+
+    const deps = makeDeps();
+    await processMessage(makeParams({ triggerType: "directMessages", threadTs: "1700.001" }), deps);
+
+    assert.equal(mockExecuteAndDeliver.mock.calls[0]![0].silentThinking, true);
+  });
+
+  it("does NOT run silentThinking when the resolved session is deliveryMode 'streamer'", async () => {
+    const visible = makeSession({ sessionId: "vis-1", deliveryMode: "streamer" });
+    mockFindSessionByThread.mockImplementation(async () => visible);
+    mockGetSession.mockImplementation(async () => visible);
+
+    const deps = makeDeps();
+    await processMessage(makeParams({ triggerType: "directMessages", threadTs: "1700.002" }), deps);
+
+    assert.equal(mockExecuteAndDeliver.mock.calls[0]![0].silentThinking, false);
+  });
+
+  it("keeps an explicit silentThinking (cron) true even when the session mode is 'streamer'", async () => {
+    const visible = makeSession({ sessionId: "vis-2", deliveryMode: "streamer" });
+    mockFindSessionByThread.mockImplementation(async () => visible);
+    mockGetSession.mockImplementation(async () => visible);
+
+    const deps = makeDeps();
+    await processMessage(
+      makeParams({ triggerType: "directMessages", threadTs: "1700.003", silentThinking: true }),
+      deps,
+    );
+
+    assert.equal(mockExecuteAndDeliver.mock.calls[0]![0].silentThinking, true);
+  });
 });
 
 // In-flight tracking moved out of `processMessage`: `askClaude` self-registers via

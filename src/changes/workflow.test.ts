@@ -323,6 +323,7 @@ function resetMocks(): void {
     getToolCallHistory: () => [],
     isSkipped: () => false,
     getAttentionLevel: () => null,
+    getDeliveryMode: () => null,
     isPostedTopLevel: () => false,
   }));
 }

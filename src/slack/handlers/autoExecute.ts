@@ -579,6 +579,9 @@ async function handlePostToAutoExecute(
             await deps.registerThreadSession(targetChannel, root, {
               attentionLevel: action.attention_level,
               ...(action.follow_up_context && { followUpContext: action.follow_up_context }),
+              ...(action.default_delivery_mode && {
+                deliveryMode: action.default_delivery_mode,
+              }),
             });
           } catch (err) {
             logger.warn(`post_to: failed to seed engaged thread (cross-post succeeded): ${err}`);

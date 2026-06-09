@@ -58,6 +58,7 @@ const stubBuildClackTools: BaselineSmokeDeps["buildClackTools"] = () => ({
   getToolCallHistory: () => [],
   isSkipped: () => false,
   getAttentionLevel: () => null,
+  getDeliveryMode: () => null,
   isPostedTopLevel: () => false,
 });
 

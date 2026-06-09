@@ -12,7 +12,7 @@ import { detectRuntime } from "./utilities.js";
 import { errorMessage } from "../errors.js";
 import { logger } from "../logger.js";
 import type { UserRole } from "../roles.js";
-import type { SessionContext, AttentionLevel } from "../sessions.js";
+import type { SessionContext, AttentionLevel, DeliveryMode } from "../sessions.js";
 import { updateSession } from "../sessions.js";
 import type {
   SubmitResponsePayload,
@@ -58,6 +58,9 @@ export interface ClaudeResponse {
   /** Attention level Claude set via submit_response.attention_level this turn, if any.
    *  `"off"` means disengage. Absent when Claude left the level unchanged. */
   attentionLevel?: AttentionLevel;
+  /** Delivery mode Claude set via submit_response.default_delivery_mode this turn, if any.
+   *  Absent when Claude left the mode unchanged. Takes effect on the thread's next turn. */
+  deliveryMode?: DeliveryMode;
   /** True when submit_response was invoked with post_top_level: true */
   postedTopLevel?: boolean;
   conversationTrace?: ConversationMessage[];
@@ -342,6 +345,7 @@ function buildSuccessResponse(
       success: true,
       skipped: true,
       attentionLevel: clackTools.getAttentionLevel() ?? undefined,
+      deliveryMode: clackTools.getDeliveryMode() ?? undefined,
       answer: "",
       conversationTrace,
       toolCallHistory: optionalHistory(streamToolHistory),
@@ -366,6 +370,7 @@ function buildSuccessResponse(
       toolCallHistory: optionalToolHistory,
       postedTopLevel: clackTools.isPostedTopLevel() || undefined,
       attentionLevel: clackTools.getAttentionLevel() ?? undefined,
+      deliveryMode: clackTools.getDeliveryMode() ?? undefined,
     };
   }
 

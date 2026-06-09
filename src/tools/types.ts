@@ -9,7 +9,7 @@ import type {
   McpSetServersResult,
 } from "@anthropic-ai/claude-agent-sdk";
 import type { UserRole } from "../roles.js";
-import type { SessionContext, AttentionLevel } from "../sessions.js";
+import type { SessionContext, AttentionLevel, DeliveryMode } from "../sessions.js";
 import type { Config } from "../config.js";
 import type { McpServerManager } from "../claude/mcpServerManager.js";
 import type { SkillsManager } from "../claude/skillsManager.js";
@@ -100,6 +100,8 @@ export interface DeliverToEntry {
   attention_level?: AttentionLevel;
   /** Optional guidance injected into the answer turn when a human replies in the destination thread. */
   follow_up_context?: string;
+  /** Optional delivery mode seeded onto the destination thread (only meaningful with a non-`"off"` level). */
+  default_delivery_mode?: DeliveryMode;
 }
 
 /**
@@ -116,6 +118,8 @@ export type DeliverToChannelFn = (args: {
   attentionLevel?: AttentionLevel;
   /** Follow-up guidance stored on the seeded session (only meaningful with a non-`"off"` level). */
   followUpContext?: string;
+  /** Delivery mode seeded onto the engaged session (only meaningful with a non-`"off"` level). */
+  deliveryMode?: DeliveryMode;
 }) => Promise<{ ok: true; ts?: string } | { ok: false; error: string }>;
 
 // ============================================================================
@@ -471,6 +475,8 @@ export interface PostToAction {
   attention_level?: AttentionLevel;
   /** Optional guidance injected into the answer turn when a human replies in the cross-posted thread. */
   follow_up_context?: string;
+  /** Optional delivery mode seeded onto the cross-posted thread (only meaningful with a non-`"off"` level). */
+  default_delivery_mode?: DeliveryMode;
   /** Internal: resolved content entry ID set by submit_response before delivery (not from Claude) */
   _snapshotId?: string;
 }
@@ -607,6 +613,8 @@ interface ClackToolsResultBase {
   isSkipped: () => boolean;
   /** The attention level Claude set via `submit_response.attention_level`, or null if unset. */
   getAttentionLevel: () => AttentionLevel | null;
+  /** The delivery mode Claude set via `submit_response.default_delivery_mode`, or null if unset. */
+  getDeliveryMode: () => DeliveryMode | null;
   /** True when submit_response was called with `post_top_level: true` and delivery succeeded. */
   isPostedTopLevel: () => boolean;
 }
