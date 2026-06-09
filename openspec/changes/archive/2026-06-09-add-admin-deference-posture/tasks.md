@@ -19,9 +19,18 @@
 - [x] 3.4 `buildPrompt` integration: admin+keyword → deference; admin no-keyword → nothing (not always-on); member/dev+keyword → rebuttal, no deference; role omitted+keyword → nothing
 - [x] 3.5 `buildPrompt` latest-message scope: keyword only in original trigger + later non-keyword continuation → no deference; keyword only in latest continuation → deference
 
-## 4. Verification
+## 4. Configurable additional keywords
 
-- [x] 4.1 `npx tsc` clean
-- [x] 4.2 `npx oxlint` + `npx oxfmt --check` clean on touched files
-- [x] 4.3 `npm test` green
-- [ ] 4.4 `openspec validate add-admin-deference-posture --strict` passes
+- [x] 4.1 `src/config.ts`: add `AdminConfig { additionalWords: string[] }`, `admin?` on `Config`, and `parseAdminConfig` (trim, lowercase, normalize apostrophe, dedupe, reject entries < 3 chars / empty, treat empty list as absent); wire into the config assembly
+- [x] 4.2 `src/config.ts`: add null-safe `getAdditionalAdminWords()` accessor (returns `[]` when unloaded/absent)
+- [x] 4.3 `messageClaimsAdmin(text, extraWords)` + `renderAdminClaimContext(role, text, extraWords)` merge configured words (dropping empties); `buildPrompt` passes `getAdditionalAdminWords()`
+- [x] 4.4 `src/tools/admin/configSchema.ts`: document the `admin.additionalWords` field
+- [x] 4.5 `src/config.test.ts`: parse/normalize/dedupe, reject short/empty/non-string/non-array, absent → accessor `[]`
+- [x] 4.6 `src/claude/promptBuilder.test.ts`: extra words match for both branches; empty extra word ignored
+
+## 5. Verification
+
+- [x] 5.1 `npx tsc` clean
+- [x] 5.2 `npx oxlint` + `npx oxfmt --check` clean on touched files
+- [x] 5.3 `npm test` green
+- [x] 5.4 `openspec validate add-admin-deference-posture --strict` passes
