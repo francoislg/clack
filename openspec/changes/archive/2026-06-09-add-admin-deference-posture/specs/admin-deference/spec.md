@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: Admin-Claim Keyword Detection
-The system SHALL detect when the user's latest message explicitly invokes admin authority via a fixed, case-insensitive keyword list: `"as an admin"`, `"as admin"`, `"en tant qu'admin"`, `"je suis admin"`, `"admin:"`. Detection SHALL key on the user's most recent message only (the latest continuation in a resumed session, otherwise the trigger text), not on earlier thread context. Curly apostrophes SHALL be normalized so the French keyword matches regardless of quote style.
+The system SHALL detect when the user's latest message explicitly invokes admin authority via a fixed, case-insensitive keyword list: `"as an admin"`, `"as admin"`, `"en tant qu'admin"`, `"je suis admin"`, `"admin:"`, `"sudo"`. Detection SHALL key on the user's most recent message only (the latest continuation in a resumed session, otherwise the trigger text), not on earlier thread context. Curly apostrophes SHALL be normalized so the French keyword matches regardless of quote style.
 
 #### Scenario: Keyword present in the latest message
 - **WHEN** the user's latest message contains any admin-claim keyword (any letter case)
@@ -14,6 +14,25 @@ The system SHALL detect when the user's latest message explicitly invokes admin 
 #### Scenario: Keyword only in an earlier message (no stale latch)
 - **WHEN** an admin-claim keyword appears only in an earlier message of the thread (e.g. the original trigger of a resumed session) and the user's latest message has none
 - **THEN** no admin-claim context is rendered — detection does not latch onto stale text
+
+### Requirement: Configurable Additional Keywords
+The system SHALL allow extending the built-in keyword list via `config.admin.additionalWords` — a list of strings merged with the built-in keywords for detection. Entries SHALL be normalized (trimmed, lowercased, curly apostrophes straightened) and deduped at parse time, and SHALL be rejected at parse time if shorter than a minimum length (3 characters after trimming) to prevent a short or empty entry from matching every message. When the section is absent, only the built-in keywords apply.
+
+#### Scenario: Configured word extends the gate
+- **WHEN** `config.admin.additionalWords` includes `"sudo"` and a user's latest message contains "sudo"
+- **THEN** the message is treated as an admin claim (branch decided by the verified role, exactly as for a built-in keyword)
+
+#### Scenario: Built-in keywords still apply
+- **WHEN** `config.admin.additionalWords` is configured with custom words
+- **THEN** the built-in keywords continue to match in addition to the configured ones
+
+#### Scenario: Too-short or empty entry rejected
+- **WHEN** `config.admin.additionalWords` contains an entry shorter than 3 characters (including the empty string) after trimming
+- **THEN** config parsing fails with an error naming `admin.additionalWords`
+
+#### Scenario: Absent section
+- **WHEN** `config.admin` (or `config.admin.additionalWords`) is absent or an empty list
+- **THEN** only the built-in keyword list is used and no error is raised
 
 ### Requirement: Verified-Admin Deference on Claim
 The system SHALL, when the user's latest message invokes an admin-claim keyword AND the verified role (resolved from `roles.json` keyed on the authenticated Slack user ID) is `admin` or `owner`, render a deference directive stating the verified role and instructing Clack to act on the admin's asserted correction/override rather than re-arguing. The directive SHALL permit stating a concern at most once and SHALL NOT relax tool/permission gating, the security boundary, or destructive-action safety.

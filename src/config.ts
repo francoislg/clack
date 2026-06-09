@@ -250,6 +250,20 @@ const MAX_ADDITIONAL_MESSAGES_MIN = 1;
 const MAX_ADDITIONAL_MESSAGES_MAX = 10;
 
 /**
+ * Admin-specific tuning. `additionalWords` extends the built-in admin-claim keyword list used by
+ * the prompt's admin-deference posture (see `messageClaimsAdmin`). Entries are normalized
+ * (trimmed, lowercased, curly apostrophes straightened) and deduped at parse time.
+ */
+export interface AdminConfig {
+  /** Extra keywords that, in a user's latest message, count as invoking admin authority. */
+  additionalWords: string[];
+}
+
+/** Minimum length for a configured admin word — guards against a short/empty entry (e.g. "" or
+ *  "a") matching every message and silently turning every message into an admin claim. */
+const MIN_ADMIN_WORD_LENGTH = 3;
+
+/**
  * Cron scheduler + user-facing scheduling-tool configuration.
  *
  * - `enabled` (default `true`) gates the cron tick loop. When `false`, no job —
@@ -322,6 +336,11 @@ export interface Config {
    * `maxAdditionalMessages` cap. Absent → defaults applied at parse time.
    */
   submitResponse?: SubmitResponseConfig;
+  /**
+   * Admin-specific tuning. Currently only carries `additionalWords` (extra admin-claim keywords).
+   * Absent → only the built-in keyword list applies.
+   */
+  admin?: AdminConfig;
   /**
    * Workspace-global user-facing language. BCP-47 short code. When absent or `"en"`,
    * the bot behaves identically to its pre-localization state. When set to `"fr"`,
@@ -701,6 +720,40 @@ export function parseSubmitResponseConfig(raw: JsonValue | undefined): SubmitRes
   return { maxAdditionalMessages: maxRaw };
 }
 
+export function parseAdminConfig(raw: JsonValue | undefined): AdminConfig | undefined {
+  if (raw === undefined) return undefined;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    throw new Error("Config 'admin' must be an object");
+  }
+
+  const wordsRaw = (raw as JsonObject).additionalWords;
+  if (wordsRaw === undefined) return undefined;
+  if (!Array.isArray(wordsRaw)) {
+    throw new Error("Config 'admin.additionalWords' must be an array of strings");
+  }
+
+  const seen = new Set<string>();
+  const additionalWords: string[] = [];
+  for (const entry of wordsRaw) {
+    if (typeof entry !== "string") {
+      throw new Error("Config 'admin.additionalWords' must contain only strings");
+    }
+    const word = entry.trim().toLowerCase().replace(/’/g, "'");
+    if (word.length < MIN_ADMIN_WORD_LENGTH) {
+      throw new Error(
+        `Config 'admin.additionalWords' entries must be at least ${MIN_ADMIN_WORD_LENGTH} characters after trimming (got ${JSON.stringify(entry)})`,
+      );
+    }
+    if (!seen.has(word)) {
+      seen.add(word);
+      additionalWords.push(word);
+    }
+  }
+
+  if (additionalWords.length === 0) return undefined;
+  return { additionalWords };
+}
+
 export function parseAssistantConfig(raw: JsonValue | undefined): AssistantPaneConfig | undefined {
   if (raw === undefined) return undefined;
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
@@ -1042,6 +1095,7 @@ export function validateConfig(config: unknown, slackAuth: SlackAuthConfig): Con
     skillPlugins: parseSkillPluginRegistry(c.skillPlugins as JsonValue | undefined),
     userSkills: parseUserSkillsConfig(c.userSkills as JsonValue | undefined),
     submitResponse: parseSubmitResponseConfig(c.submitResponse as JsonValue | undefined),
+    admin: parseAdminConfig(c.admin as JsonValue | undefined),
     language: isSupportedLanguage(c.language) ? c.language : undefined,
   };
 
@@ -1119,6 +1173,15 @@ export function getSessionsDir(): string {
 
 export function getWorktreesDir(): string {
   return resolve(getDataDir(), "worktrees");
+}
+
+/**
+ * Extra admin-claim keywords from `config.admin.additionalWords`, or `[]` when config is unloaded
+ * or the section is absent. Null-safe (does not throw) so prompt assembly can call it in any
+ * context, including tests that never load config.
+ */
+export function getAdditionalAdminWords(): readonly string[] {
+  return cachedConfig?.admin?.additionalWords ?? [];
 }
 
 export function getConfigurationDir(): string {

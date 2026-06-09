@@ -467,6 +467,19 @@ export const CONFIG_SCHEMA: SchemaFor<Config> = {
         },
       },
     },
+    admin: {
+      type: "object",
+      description: "Admin-specific tuning.",
+      required: false,
+      fields: {
+        additionalWords: {
+          type: "array",
+          description:
+            "Extra keywords that, in a user's latest message, invoke admin authority (added to the built-in list). Each entry must be at least 3 characters.",
+          items: { type: "string", description: "An admin-claim keyword (e.g. 'sudo')." },
+        },
+      },
+    },
     language: {
       type: "enum",
       description: "Workspace-global user-facing language (BCP-47 short code).",

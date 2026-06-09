@@ -16,6 +16,7 @@ import {
   getConfig,
   getTaskCardMaxDetails,
   getCronMaxRunHistory,
+  getAdditionalAdminWords,
   DEFAULT_TASK_CARD_MAX_DETAILS,
   DEFAULT_SCHEDULED_MESSAGES_MAX_RUN_HISTORY,
   DEFAULT_MAX_ADDITIONAL_MESSAGES,
@@ -1292,6 +1293,86 @@ describe("submitResponse config", () => {
     assert.throws(
       () => loadConfig(configPath, true),
       (err: unknown) => err instanceof Error && err.message.includes("submitResponse"),
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// admin config
+// ---------------------------------------------------------------------------
+
+describe("admin.additionalWords config", () => {
+  beforeEach(() => {
+    if (existsSync(tmpBase)) rmSync(tmpBase, { recursive: true });
+    mkdirSync(tmpBase, { recursive: true });
+    process.chdir(tmpBase);
+    writeSlackAuth();
+  });
+
+  afterEach(() => {
+    process.chdir(resolve(tmpBase, ".."));
+    if (existsSync(tmpBase)) rmSync(tmpBase, { recursive: true });
+  });
+
+  it("is undefined (and accessor returns []) when the section is absent", () => {
+    writeConfig(minimalConfig());
+    const cfg = loadConfig(configPath, true);
+    assert.equal(cfg.admin, undefined);
+    assert.deepEqual(getAdditionalAdminWords(), []);
+  });
+
+  it("normalizes (trim, lowercase, curly apostrophe) and dedupes entries", () => {
+    writeConfig(
+      minimalConfig({ admin: { additionalWords: ["  SUDO ", "sudo", "en tant qu’admin"] } }),
+    );
+    const cfg = loadConfig(configPath, true);
+    assert.deepEqual(cfg.admin?.additionalWords, ["sudo", "en tant qu'admin"]);
+    assert.deepEqual(getAdditionalAdminWords(), ["sudo", "en tant qu'admin"]);
+  });
+
+  it("treats an empty additionalWords array as absent (undefined)", () => {
+    writeConfig(minimalConfig({ admin: { additionalWords: [] } }));
+    const cfg = loadConfig(configPath, true);
+    assert.equal(cfg.admin, undefined);
+  });
+
+  it("rejects an entry shorter than the minimum length", () => {
+    writeConfig(minimalConfig({ admin: { additionalWords: ["ok", "a"] } }));
+    assert.throws(
+      () => loadConfig(configPath, true),
+      (err: unknown) => err instanceof Error && err.message.includes("admin.additionalWords"),
+    );
+  });
+
+  it("rejects an empty-string entry", () => {
+    writeConfig(minimalConfig({ admin: { additionalWords: [""] } }));
+    assert.throws(
+      () => loadConfig(configPath, true),
+      (err: unknown) => err instanceof Error && err.message.includes("admin.additionalWords"),
+    );
+  });
+
+  it("rejects a non-string entry", () => {
+    writeConfig(minimalConfig({ admin: { additionalWords: [123] } }));
+    assert.throws(
+      () => loadConfig(configPath, true),
+      (err: unknown) => err instanceof Error && err.message.includes("admin.additionalWords"),
+    );
+  });
+
+  it("rejects a non-array additionalWords", () => {
+    writeConfig(minimalConfig({ admin: { additionalWords: "sudo" } }));
+    assert.throws(
+      () => loadConfig(configPath, true),
+      (err: unknown) => err instanceof Error && err.message.includes("admin.additionalWords"),
+    );
+  });
+
+  it("rejects a non-object admin section", () => {
+    writeConfig(minimalConfig({ admin: "nope" }));
+    assert.throws(
+      () => loadConfig(configPath, true),
+      (err: unknown) => err instanceof Error && err.message.includes("admin"),
     );
   });
 });

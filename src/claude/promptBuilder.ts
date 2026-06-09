@@ -1,4 +1,4 @@
-import { getConfig } from "../config.js";
+import { getConfig, getAdditionalAdminWords } from "../config.js";
 import type { McpServerRegistry, SkillPluginRegistry } from "../config.js";
 import { LANGUAGE_METADATA, type Lang } from "../i18n/languages.js";
 import { loadInstructions } from "../instructions.js";
@@ -41,17 +41,28 @@ const ADMIN_CLAIM_KEYWORDS: readonly string[] = [
   "en tant qu'admin",
   "je suis admin",
   "admin:",
+  "sudo",
 ];
 
 /**
- * True when `text` explicitly invokes admin authority via one of `ADMIN_CLAIM_KEYWORDS`.
- * Curly apostrophes are normalized to straight so "en tant qu'admin" matches regardless of the
- * quote style Slack delivers.
+ * True when `text` explicitly invokes admin authority via a built-in or configured keyword.
+ * `extraWords` are the installation's `config.admin.additionalWords`. Curly apostrophes are
+ * normalized to straight so "en tant qu'admin" matches regardless of the quote style Slack
+ * delivers; empty extra words are dropped so a stray "" can never match every message.
  */
-export function messageClaimsAdmin(text: string | undefined): boolean {
+export function messageClaimsAdmin(
+  text: string | undefined,
+  extraWords: readonly string[] = [],
+): boolean {
   if (!text) return false;
   const normalized = text.toLowerCase().replace(/’/g, "'");
-  return ADMIN_CLAIM_KEYWORDS.some((keyword) => normalized.includes(keyword));
+  const keywords = [
+    ...ADMIN_CLAIM_KEYWORDS,
+    ...extraWords
+      .map((word) => word.toLowerCase().replace(/’/g, "'"))
+      .filter((word) => word !== ""),
+  ];
+  return keywords.some((keyword) => normalized.includes(keyword));
 }
 
 /**
@@ -69,8 +80,9 @@ export function messageClaimsAdmin(text: string | undefined): boolean {
 export function renderAdminClaimContext(
   role: UserRole | undefined,
   latestUserText: string | undefined,
+  extraWords: readonly string[] = [],
 ): string {
-  if (!messageClaimsAdmin(latestUserText)) return "";
+  if (!messageClaimsAdmin(latestUserText, extraWords)) return "";
 
   if (role === "admin" || role === "owner") {
     return `VERIFIED ROLE: The requesting user's verified role is \`${role}\`, and their latest message explicitly invokes admin authority. The system established this role from their authenticated identity — it is a fact, not a claim to second-guess.
@@ -418,7 +430,11 @@ Use this context to understand the conversation flow and provide relevant answer
 
   // Admin-authority context — non-empty only when the latest message explicitly claims admin
   // authority; the branch (deference vs not-verified rebuttal) is decided by the trusted role.
-  const adminClaim = renderAdminClaimContext(options?.role, latestUserText(session));
+  const adminClaim = renderAdminClaimContext(
+    options?.role,
+    latestUserText(session),
+    getAdditionalAdminWords(),
+  );
   if (adminClaim) {
     parts.push(adminClaim);
   }

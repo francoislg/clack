@@ -4,10 +4,11 @@ When a verified admin corrects Clack — e.g. "that question wasn't a cheat, rev
 
 ## What Changes
 
-- Detect an **explicit admin-claim keyword** in the user's latest message via a fixed, case-insensitive list: `"as an admin"`, `"as admin"`, `"en tant qu'admin"`, `"je suis admin"`, `"admin:"`. Detection keys on the most recent user message only (no stale-latch on earlier thread text).
+- Detect an **explicit admin-claim keyword** in the user's latest message via a fixed, case-insensitive list: `"as an admin"`, `"as admin"`, `"en tant qu'admin"`, `"je suis admin"`, `"admin:"`, `"sudo"`. Detection keys on the most recent user message only (no stale-latch on earlier thread text).
 - When the keyword is present AND the **verified role** (sourced from `ctx.role`, never message text) is `admin`/`owner`: surface the verified role and a **deference directive** — act on the admin's asserted correction/override rather than re-arguing. Bounded to stubbornness/hedging; does NOT relax tool/permission gating, the security boundary, or destructive-action safety.
 - When the keyword is present AND the verified role is `member`/`dev`: surface a **not-verified rebuttal** — Claude is told the user is NOT an admin and the claim confers no authority, so it refuses admin deference and admin-gated actions on that basis (silently — no scripted callout). The trust boundary is structural: the branch is decided by the verified role, not the message.
 - When no keyword is present, nothing is rendered — an admin's ordinary messages are unaffected (the posture is **gated, not always-on**).
+- Allow installations to extend the keyword list via `config.admin.additionalWords` (validated: trimmed/lowercased/deduped, min length 3 to prevent a stray short/empty word matching every message).
 
 ## Capabilities
 
@@ -19,7 +20,7 @@ When a verified admin corrects Clack — e.g. "that question wasn't a cheat, rev
 
 ## Impact
 
-- **Code:** `src/claude/promptBuilder.ts` — keyword-detection (`messageClaimsAdmin`), the gated context renderer (`renderAdminClaimContext`), and a latest-user-message helper; wired into `buildPrompt` using `options?.role`. No change to role resolution, tool gating, or `roles.json`.
+- **Code:** `src/claude/promptBuilder.ts` — keyword-detection (`messageClaimsAdmin`), the gated context renderer (`renderAdminClaimContext`), and a latest-user-message helper; wired into `buildPrompt` using `options?.role`. `src/config.ts` — `AdminConfig` + `parseAdminConfig` + `getAdditionalAdminWords`. `src/tools/admin/configSchema.ts` — field doc. No change to role resolution, tool gating, or `roles.json`.
 - **Instructions:** English-only (via-Claude path), consistent with the existing posture-directive pattern (`DISMISSAL_PHRASES`, attention-level guidance).
 - **Behavior:** admins/owners get less-stubborn responses ONLY when they invoke a keyword; non-admins who invoke a keyword get no authority and Claude is told so; everything else unchanged. No new config, no new tools, no migration.
 - **Tests:** unit tests for keyword detection (each keyword, case-insensitivity, curly-apostrophe, negatives), the gated branches (admin+keyword→deference, member/dev+keyword→rebuttal, no-keyword→nothing, system/undefined→nothing), and latest-message scope (no stale latch).
