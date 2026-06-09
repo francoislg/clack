@@ -1409,7 +1409,7 @@ describe("postResponse", () => {
 // ============================================================================
 
 describe("getHandlerClaudeOptions", () => {
-  it("delegates to getClaudeOptions with userId and triggerType", async () => {
+  it("delegates to getClaudeOptions with userId, triggerType, and channelId", async () => {
     const sessionInfo = makeSessionInfo({ triggerType: "mentions" });
 
     await getHandlerClaudeOptions(sessionInfo, deps);
@@ -1417,6 +1417,7 @@ describe("getHandlerClaudeOptions", () => {
     assert.equal(mockGetClaudeOptions.mock.calls.length, 1);
     assert.equal(mockGetClaudeOptions.mock.calls[0][0], "U001");
     assert.equal(mockGetClaudeOptions.mock.calls[0][1], "mentions");
+    assert.deepEqual(mockGetClaudeOptions.mock.calls[0][2], { channelId: "C001" });
   });
 
   it("defaults triggerType to directMessages when not set", async () => {
@@ -1467,9 +1468,10 @@ describe("silentThinking mode", () => {
     assert.equal(mockStreamerStart.mock.calls.length, 0);
   });
 
-  it("does not post a primary to the channelless sentinel on a post-to-only success", async () => {
-    // Regression: a channelless cron (e.g. casual-talk) delivers via post_to auto-execute,
-    // so `alreadyDelivered` is false on success. Without the channelless guard, handleSuccess
+  it("does not post a primary to the channelless sentinel on success", async () => {
+    // Regression: a channelless cron (e.g. casual-talk) delivers via `deliver_to` inside
+    // submit_response (to real channels), so the streamer `deliver` is never called and
+    // `alreadyDelivered` stays false on success. Without the channelless guard, handleSuccess
     // would post the raw answer to the synthetic `channelless:<id>` channel and crash the job
     // with channel_not_found.
     const client = makeClient();

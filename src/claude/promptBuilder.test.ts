@@ -870,8 +870,9 @@ describe("buildPrompt", () => {
       const prompt = buildPrompt(session);
 
       assert.ok(prompt.includes("Mode: Scheduled message — channelless"));
-      assert.ok(prompt.includes("`submit_response` is a run terminator only"));
-      assert.ok(prompt.includes("post_to`"));
+      assert.ok(prompt.includes("`submit_response({ deliver_to: [...] })`"));
+      assert.ok(prompt.includes("explicit `channel`"));
+      assert.ok(!prompt.includes("post_to"));
     });
 
     it("renders the original channel-bound variant when channelId is a real Slack channel", () => {

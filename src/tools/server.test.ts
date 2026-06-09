@@ -353,13 +353,14 @@ describe("buildClackTools — query mode", () => {
       const submitResponse = registered["submit_response"];
       assert.ok(submitResponse, "submit_response must be registered");
 
-      // Channelless has no bound primary channel: the schema exposes skip_response + actions
-      // (so post_to can deliver), but NONE of the primary delivery fields.
+      // Channelless has no bound primary channel: the schema exposes skip_response + deliver_to
+      // (each entry names an explicit channel), but NONE of the primary delivery fields and no
+      // top-level actions.
       const keys = Object.keys(submitResponse.inputSchema.shape ?? {}).sort();
       assert.deepEqual(
         keys,
-        ["actions", "skip_response"],
-        `channelless schema must accept skip_response + actions only — got [${keys.join(", ")}]`,
+        ["deliver_to", "skip_response"],
+        `channelless schema must accept skip_response + deliver_to only — got [${keys.join(", ")}]`,
       );
     });
 

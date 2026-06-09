@@ -13,7 +13,11 @@ import type {
   ToolBuildContext,
   QueryToolContext,
   WorkerToolContext,
+  DeliverToChannelFn,
 } from "./types.js";
+import { postAnswerToChannel } from "../slack/handlers/dmActions.js";
+import { extractDisplayText } from "../slack/blockText.js";
+import { errorMessage } from "../errors.js";
 import { meetsMinimumRole } from "../permissions.js";
 import { getLoadedPlugins } from "../plugins/state.js";
 import { logger } from "../logger.js";
@@ -524,6 +528,46 @@ function buildQueryTools(ctx: QueryToolContext): ClackQueryToolsResult {
     const snapshots = { ...session.snapshots, [id]: snapshot };
     await updateSession(ctx.session.sessionId, { snapshots });
   };
+
+  // Deliver one `deliver_to` entry to an explicit channel via the SHARED per-channel routine
+  // (`postAnswerToChannel`) — the same code path `post_to` auto-execute uses, not a parallel
+  // one. Only wired when a Slack client is present (absent in test/verify contexts).
+  const slackClient = ctx.slackClient;
+  const deliverToChannel: DeliverToChannelFn | undefined = slackClient
+    ? async ({ channel, threadTs, payload }) => {
+        try {
+          const snapshot: ResponseSnapshot = {
+            text: extractDisplayText(payload.blocks),
+            blocks: payload.blocks,
+            ...(payload.table && { table: payload.table }),
+            ...(payload.actions && payload.actions.length > 0 && { actions: payload.actions }),
+            ...(payload.reactions &&
+              payload.reactions.length > 0 && { reactions: payload.reactions }),
+            ...(payload.suppress_unfurls === true && { suppressUnfurls: true }),
+            ...(payload.thread_replies &&
+              payload.thread_replies.length > 0 && { thread_replies: payload.thread_replies }),
+          };
+          const res = await postAnswerToChannel(
+            slackClient,
+            snapshot,
+            channel,
+            threadTs,
+            undefined,
+            {
+              sessionId: ctx.session.sessionId,
+            },
+          );
+          return { ok: true as const, ts: res.ts };
+        } catch (error) {
+          return { ok: false as const, error: errorMessage(error) };
+        }
+      }
+    : undefined;
+
+  const recordResponseTs = async (ts: string): Promise<void> => {
+    await updateSession(ctx.session.sessionId, { responseTs: ts });
+  };
+
   const triggerType = ctx.session.triggerType;
   tools.push(
     createSubmitResponseTool({
@@ -532,6 +576,8 @@ function buildQueryTools(ctx: QueryToolContext): ClackQueryToolsResult {
       recorder,
       sessionId: ctx.session.sessionId,
       deliver: ctx.deliver,
+      ...(deliverToChannel && { deliverToChannel }),
+      recordResponseTs,
       persistSnapshot,
       // In scheduled mode, submit_response delivers top-level to the channel.
       // Pass the channel so post_to validation can reject duplicates.

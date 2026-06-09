@@ -6,10 +6,11 @@ import type { AttentionLevel } from "../../sessions.js";
 import type { StagedIntent, ResponseSnapshot } from "../types.js";
 import { parseToolResult, toolResultText } from "../testHelpers.js";
 import {
+  buildSubmitResponseSchema,
   createSubmitResponseTool,
-  validateSingleMessage,
   type SubmitResponseDeps,
 } from "./submitResponse.js";
+import { validateSingleMessage } from "./submitResponse/messageValidation.js";
 
 // ---------------------------------------------------------------------------
 // Block function mocks — injected via SubmitResponseDeps
@@ -44,6 +45,12 @@ function makeDeps(
       threadTs?: string;
       suppressUnfurls?: boolean;
     }) => Promise<{ ok: true; ts?: string } | { ok: false; error: string }>;
+    deliverToChannel: (args: {
+      channel: string;
+      threadTs?: string;
+      payload: unknown;
+    }) => Promise<{ ok: true; ts?: string } | { ok: false; error: string }>;
+    recordResponseTs: (ts: string) => Promise<void>;
     persistSnapshot: (id: string, snapshot: ResponseSnapshot) => Promise<void>;
     appendStagedIntents: (
       sessionId: string,
@@ -95,6 +102,8 @@ function makeDeps(
     recorder,
     sessionId: overrides.sessionId ?? "sess-123",
     deliver: overrides.deliver,
+    deliverToChannel: overrides.deliverToChannel,
+    recordResponseTs: overrides.recordResponseTs,
     persistSnapshot: overrides.persistSnapshot,
     appendStagedIntents: overrides.appendStagedIntents ?? (async () => {}),
     allowSkip: overrides.allowSkip,
@@ -176,6 +185,18 @@ interface CallToolRawArgs {
   suppress_unfurls?: boolean;
   additional_messages?: CallToolFollowerArgs[];
   thread_replies?: CallToolFollowerArgs[];
+  deliver_to?: {
+    channel?: string;
+    thread_ts?: string;
+    response: {
+      blocks?: unknown[];
+      table?: unknown;
+      actions?: ToolAction[];
+      reactions?: string[];
+      suppress_unfurls?: boolean;
+      thread_replies?: CallToolFollowerArgs[];
+    };
+  }[];
 }
 
 async function callToolRawTopLevel(deps: ReturnType<typeof makeDeps>, args: CallToolRawArgs) {
@@ -305,13 +326,27 @@ describe("createSubmitResponseTool", () => {
     });
   });
 
-  describe("optional-post-to mode (channelless delivery)", () => {
-    const postToAction = {
-      type: "post_to",
-      channel: "C1",
-      auto: true,
-      blocks: [{ type: "section", text: { type: "mrkdwn", text: "hi" } }],
-    };
+  describe("optional-post-to mode (channelless deliver_to)", () => {
+    const block = { type: "section", text: { type: "mrkdwn", text: "hi" } };
+    const entry = (channel: string, thread_ts?: string) => ({
+      channel,
+      ...(thread_ts && { thread_ts }),
+      response: { blocks: [block] },
+    });
+
+    /** A deliverToChannel mock that records every call and returns a per-call ts. */
+    function trackingDeliver() {
+      const calls: { channel: string; threadTs?: string; payload: unknown }[] = [];
+      const deliverToChannel = async (args: {
+        channel: string;
+        threadTs?: string;
+        payload: unknown;
+      }) => {
+        calls.push(args);
+        return { ok: true as const, ts: `ts-${calls.length}` };
+      };
+      return { deliverToChannel, calls };
+    }
 
     function trackingCapture(): {
       capture: ResponseCapture;
@@ -345,68 +380,220 @@ describe("createSubmitResponseTool", () => {
       };
     }
 
-    it("delivers via a post_to action and records success without a primary", async () => {
-      const snapshots: string[] = [];
+    it("delivers a single deliver_to entry and records responseTs from the first post", async () => {
+      const { deliverToChannel, calls } = trackingDeliver();
+      const recorded: string[] = [];
       const tracker = trackingCapture();
       const deps = makeDeps({
         submitResponseMode: "optional-post-to",
-        persistSnapshot: async (id) => {
-          snapshots.push(id);
-        },
-        responseCapture: tracker.capture,
-      });
-
-      const parsed = parseToolResult(await callToolRawTopLevel(deps, { actions: [postToAction] }));
-      assert.equal(parsed.success, true);
-      assert.equal(parsed.skipped, undefined);
-      assert.equal(parsed.delivered, false);
-      assert.equal(parsed.actionsCount, 1);
-      assert.equal(snapshots.length, 1, "a post_to snapshot is persisted");
-      assert.equal(tracker.setCalls, 1, "the post_to payload is captured for autoExecute");
-    });
-
-    it("records a skip when neither post_to nor skip_response is provided", async () => {
-      const tracker = trackingCapture();
-      const deps = makeDeps({
-        submitResponseMode: "optional-post-to",
-        responseCapture: tracker.capture,
-      });
-
-      const parsed = parseToolResult(await callToolRawTopLevel(deps, {}));
-      assert.equal(parsed.success, true);
-      assert.equal(parsed.skipped, true);
-      assert.equal(tracker.skipCalls, 1);
-    });
-
-    it("records a skip on bare skip_response: true", async () => {
-      const deps = makeDeps({ submitResponseMode: "optional-post-to" });
-      const parsed = parseToolResult(await callToolRawTopLevel(deps, { skip_response: true }));
-      assert.equal(parsed.skipped, true);
-    });
-
-    it("delivers when skip_response AND post_to actions are both present (actions win)", async () => {
-      // Claude commonly sends both in one call (the prompt told it to end with a skip).
-      // Actions must take precedence — otherwise the post is silently dropped.
-      const snapshots: string[] = [];
-      const tracker = trackingCapture();
-      const deps = makeDeps({
-        submitResponseMode: "optional-post-to",
-        persistSnapshot: async (id) => {
-          snapshots.push(id);
+        deliverToChannel,
+        recordResponseTs: async (ts) => {
+          recorded.push(ts);
         },
         responseCapture: tracker.capture,
       });
 
       const parsed = parseToolResult(
-        await callToolRawTopLevel(deps, { skip_response: true, actions: [postToAction] }),
+        await callToolRawTopLevel(deps, { deliver_to: [entry("C456")] }),
+      );
+      assert.equal(parsed.success, true);
+      assert.equal(parsed.skipped, undefined);
+      assert.equal(parsed.delivered, true);
+      assert.equal(parsed.messagesDelivered, 1);
+      assert.equal(calls.length, 1);
+      assert.equal(calls[0].channel, "C456");
+      assert.equal(calls[0].threadTs, undefined, "no thread_ts → top-level post");
+      assert.deepEqual(recorded, ["ts-1"], "responseTs is the first entry's ts");
+      assert.equal(tracker.setCalls, 1);
+      assert.equal(tracker.skipCalls, 0);
+    });
+
+    it("delivers multiple entries (different and same channels) in order", async () => {
+      const { deliverToChannel, calls } = trackingDeliver();
+      const recorded: string[] = [];
+      const deps = makeDeps({
+        submitResponseMode: "optional-post-to",
+        deliverToChannel,
+        recordResponseTs: async (ts) => {
+          recorded.push(ts);
+        },
+      });
+
+      const parsed = parseToolResult(
+        await callToolRawTopLevel(deps, {
+          deliver_to: [entry("C1"), entry("C2"), entry("C1")],
+        }),
+      );
+      assert.equal(parsed.success, true);
+      assert.equal(parsed.messagesDelivered, 3);
+      assert.deepEqual(
+        calls.map((c) => c.channel),
+        ["C1", "C2", "C1"],
+      );
+      assert.deepEqual(recorded, ["ts-1"], "responseTs is the FIRST entry's ts only");
+    });
+
+    it("delivers an entry that carries thread_ts as a threaded reply", async () => {
+      const { deliverToChannel, calls } = trackingDeliver();
+      const deps = makeDeps({
+        submitResponseMode: "optional-post-to",
+        deliverToChannel,
+        recordResponseTs: async () => {},
+      });
+
+      const parsed = parseToolResult(
+        await callToolRawTopLevel(deps, { deliver_to: [entry("C1", "1700000000.000100")] }),
+      );
+      assert.equal(parsed.success, true);
+      assert.equal(calls[0].threadTs, "1700000000.000100");
+    });
+
+    it("delivers entries with no auto flag anywhere (deliver_to is not an action)", async () => {
+      const { deliverToChannel } = trackingDeliver();
+      const deps = makeDeps({
+        submitResponseMode: "optional-post-to",
+        deliverToChannel,
+        recordResponseTs: async () => {},
+      });
+      // The entry shape has no `auto` field at all — delivery happens immediately.
+      const parsed = parseToolResult(
+        await callToolRawTopLevel(deps, { deliver_to: [entry("C1")] }),
+      );
+      assert.equal(parsed.success, true);
+      assert.equal(parsed.delivered, true);
+    });
+
+    it("delivers when deliver_to AND skip_response are both present (deliver_to wins)", async () => {
+      const { deliverToChannel, calls } = trackingDeliver();
+      const tracker = trackingCapture();
+      const deps = makeDeps({
+        submitResponseMode: "optional-post-to",
+        deliverToChannel,
+        recordResponseTs: async () => {},
+        responseCapture: tracker.capture,
+      });
+
+      const parsed = parseToolResult(
+        await callToolRawTopLevel(deps, { skip_response: true, deliver_to: [entry("C1")] }),
       );
       assert.equal(parsed.success, true);
       assert.equal(parsed.skipped, undefined, "must NOT be treated as a skip");
-      assert.equal(parsed.delivered, false);
-      assert.equal(parsed.actionsCount, 1);
-      assert.equal(snapshots.length, 1, "the post_to snapshot is persisted for delivery");
-      assert.equal(tracker.setCalls, 1, "the post_to payload is captured");
+      assert.equal(calls.length, 1, "the entry is still delivered");
       assert.equal(tracker.skipCalls, 0, "setSkipped must not be called");
+    });
+
+    it("records a skip on bare skip_response: true (no deliver_to)", async () => {
+      const tracker = trackingCapture();
+      const deps = makeDeps({
+        submitResponseMode: "optional-post-to",
+        responseCapture: tracker.capture,
+      });
+      const parsed = parseToolResult(await callToolRawTopLevel(deps, { skip_response: true }));
+      assert.equal(parsed.skipped, true);
+      assert.equal(tracker.skipCalls, 1);
+    });
+
+    it("returns a hard error when NEITHER deliver_to nor skip_response is provided", async () => {
+      const tracker = trackingCapture();
+      const deps = makeDeps({
+        submitResponseMode: "optional-post-to",
+        responseCapture: tracker.capture,
+      });
+      const result = await callToolRawTopLevel(deps, {});
+      const parsed = parseToolResult(result);
+      assert.equal(parsed.success, undefined);
+      assert.ok(parsed.error.includes("deliver_to"));
+      assert.equal(tracker.skipCalls, 0, "an empty call is NOT a silent skip");
+    });
+
+    it("returns a hard error on an empty deliver_to array with no skip", async () => {
+      const tracker = trackingCapture();
+      const deps = makeDeps({
+        submitResponseMode: "optional-post-to",
+        responseCapture: tracker.capture,
+      });
+      const parsed = parseToolResult(await callToolRawTopLevel(deps, { deliver_to: [] }));
+      assert.equal(parsed.success, undefined);
+      assert.ok(parsed.error.includes("deliver_to"));
+      assert.equal(tracker.skipCalls, 0);
+    });
+
+    it("rejects (and does not deliver) a post_to action inside a deliver_to entry's actions", async () => {
+      // Confirms validateDeliverToEntries is actually wired into the handler: a post_to nested
+      // in an entry's response.actions blocks the whole delivery.
+      const { deliverToChannel, calls } = trackingDeliver();
+      const deps = makeDeps({
+        submitResponseMode: "optional-post-to",
+        deliverToChannel,
+        recordResponseTs: async () => {},
+      });
+      const postTo = { type: "post_to", channel: "C2", blocks: [block] };
+      const parsed = parseToolResult(
+        await callToolRawTopLevel(deps, {
+          deliver_to: [{ channel: "C1", response: { blocks: [block], actions: [postTo] } }],
+        }),
+      );
+      assert.equal(parsed.success, undefined);
+      assert.ok(String(parsed.error).includes("post_to is not allowed"));
+      assert.equal(calls.length, 0, "nothing is delivered when validation fails");
+    });
+
+    it("records the run as an error when a Slack post fails", async () => {
+      const deps = makeDeps({
+        submitResponseMode: "optional-post-to",
+        deliverToChannel: async () => ({ ok: false as const, error: "channel_not_found" }),
+        recordResponseTs: async () => {},
+      });
+      const parsed = parseToolResult(
+        await callToolRawTopLevel(deps, { deliver_to: [entry("C1")] }),
+      );
+      assert.equal(parsed.success, undefined);
+      assert.equal(parsed.error, "delivery_failed");
+      assert.ok(String(parsed.details).includes("channel_not_found"));
+    });
+  });
+
+  describe("optional-post-to schema shape", () => {
+    const block = { type: "section", text: { type: "mrkdwn", text: "hi" } };
+    const shape = buildSubmitResponseSchema({ submitResponseMode: "optional-post-to" });
+
+    it("exposes exactly skip_response and deliver_to — no primary fields or top-level actions", () => {
+      assert.deepEqual(Object.keys(shape).sort(), ["deliver_to", "skip_response"]);
+      for (const forbidden of [
+        "blocks",
+        "actions",
+        "table",
+        "reactions",
+        "message",
+        "post_top_level",
+        "attention_level",
+        "additional_messages",
+        "thread_replies",
+      ]) {
+        assert.ok(!(forbidden in shape), `optional-post-to schema must not offer ${forbidden}`);
+      }
+    });
+
+    it("rejects a deliver_to entry that omits the required channel", () => {
+      const schema = z.object(shape);
+      const result = schema.safeParse({ deliver_to: [{ response: { blocks: [block] } }] });
+      assert.equal(result.success, false);
+    });
+
+    it("rejects a deliver_to entry with empty response.blocks", () => {
+      const schema = z.object(shape);
+      const result = schema.safeParse({
+        deliver_to: [{ channel: "C1", response: { blocks: [] } }],
+      });
+      assert.equal(result.success, false);
+    });
+
+    it("accepts a well-formed deliver_to entry", () => {
+      const schema = z.object(shape);
+      const result = schema.safeParse({
+        deliver_to: [{ channel: "C1", thread_ts: "1.2", response: { blocks: [block] } }],
+      });
+      assert.equal(result.success, true);
     });
   });
 

@@ -1,9 +1,5 @@
-# submit-response-mode Specification
+## MODIFIED Requirements
 
-## Purpose
-
-Allow cron jobs to declare an explicit `submitResponseMode` that overrides auto-derivation of skip-response availability, constraining the schema to `{ skip_response: true }` for "skipped" mode and enabling tool-produced deliverables without competing `submit_response` confirmation messages.
-## Requirements
 ### Requirement: submitResponseMode Field on Cron Jobs
 
 The `CronJob` data model SHALL accept an optional `submitResponseMode` field with values `"always"`, `"optional"`, `"optional-post-to"`, or `"skipped"`. The field SHALL be optional; absence means today's auto-derivation rules apply (allowSkip derived from triggerType + skipConditions).
@@ -58,55 +54,6 @@ When the field is unset, the existing auto-derivation rules (defined by the `ski
 - **THEN** a warning is logged identifying the offending field and row
 - **AND** the field is dropped from the in-memory record (or the row is rejected, matching how other invalid-typed cron fields are handled today)
 
-### Requirement: submit_response Schema Variant for "skipped" Mode
-
-When the active run's `submitResponseMode === "skipped"`, the `submit_response` tool SHALL use a Zod schema that accepts ONLY a single field:
-
-```ts
-{
-  skip_response: z.literal(true);
-}
-```
-
-The schema SHALL NOT include `blocks`, `actions`, `table`, `reactions`, `message`, `post_top_level`, or `attention_level`. Any of those keys in the input SHALL cause Zod to reject the call with an unknown-field error before the handler runs.
-
-#### Scenario: Skipped schema accepts the correct shape
-
-- **GIVEN** an active run with `submitResponseMode === "skipped"`
-- **WHEN** Claude calls `submit_response({ skip_response: true })`
-- **THEN** the call passes Zod validation
-- **AND** the handler proceeds to the requiredTools gate, then to the skip branch
-- **AND** the run is recorded as skipped
-
-#### Scenario: Skipped schema rejects extra fields
-
-- **GIVEN** an active run with `submitResponseMode === "skipped"`
-- **WHEN** Claude calls `submit_response({ skip_response: true, blocks: [...] })`
-- **THEN** Zod rejects the call with an error citing the unknown `blocks` field
-- **AND** the handler is NOT invoked
-- **AND** no message is delivered
-
-#### Scenario: Skipped schema rejects attention_level field
-
-- **GIVEN** an active run with `submitResponseMode === "skipped"`
-- **WHEN** Claude calls `submit_response({ skip_response: true, attention_level: "off" })`
-- **THEN** Zod rejects the call with an error citing the unknown `attention_level` field
-- **AND** the handler is NOT invoked
-
-#### Scenario: Skipped schema rejects skip_response: false
-
-- **GIVEN** an active run with `submitResponseMode === "skipped"`
-- **WHEN** Claude calls `submit_response({ skip_response: false })`
-- **THEN** Zod rejects the call (literal type mismatch)
-- **AND** the handler is NOT invoked
-
-#### Scenario: Skipped schema rejects an empty call
-
-- **GIVEN** an active run with `submitResponseMode === "skipped"`
-- **WHEN** Claude calls `submit_response({})`
-- **THEN** Zod rejects the call (missing required `skip_response`)
-- **AND** the handler is NOT invoked
-
 ### Requirement: Mode Precedence Over Auto-Derivation
 
 When `submitResponseMode` is set on a cron job, it SHALL take precedence over the existing auto-derivation rules in `computeAllowSkip` (which currently derives `allowSkip` from `triggerType` and `skipConditions`).
@@ -149,57 +96,6 @@ When the mode is set, `skipConditions` is still honored as guidance (the prompt 
 - **GIVEN** a scheduled cron job with `submitResponseMode` unset AND no `skipConditions`
 - **WHEN** the run fires
 - **THEN** the schema does NOT include `skip_response` (today's behavior)
-- **AND** behavior is byte-identical to the pre-change implementation
-
-### Requirement: requiredTools Gate Runs Before the Skip Branch
-
-The existing `requiredTools` gate on `submit_response` SHALL fire BEFORE the skip branch under all three modes. A `"skipped"` run that has not satisfied `requiredTools` SHALL be rejected with the standard missing-tools error, even when the call is a valid `{ skip_response: true }`.
-
-#### Scenario: Skipped run with unsatisfied requiredTools is rejected
-
-- **GIVEN** an active run with `submitResponseMode: "skipped"` AND `requiredTools: ["mcp__trivia__post_questions"]`
-- **AND** `mcp__trivia__post_questions` has NOT been called during this run
-- **WHEN** Claude calls `submit_response({ skip_response: true })`
-- **THEN** the gate returns the missing-tools error
-- **AND** the run is NOT marked as skipped
-- **AND** Claude is expected to call `post_questions` and retry
-
-#### Scenario: Skipped run with satisfied requiredTools succeeds
-
-- **GIVEN** an active run with `submitResponseMode: "skipped"` AND `requiredTools: ["mcp__trivia__post_questions"]`
-- **AND** `mcp__trivia__post_questions` HAS been called at least once
-- **WHEN** Claude calls `submit_response({ skip_response: true })`
-- **THEN** the gate passes
-- **AND** the skip branch executes
-- **AND** the run is recorded as skipped successfully
-
-### Requirement: Prompt Guidance for "skipped" Mode
-
-The prompt builder SHALL include guidance in the scheduled-prompt context when `submitResponseMode === "skipped"` is set. The guidance SHALL instruct Claude that:
-
-1. The run's actual deliverable is produced by one of the required tools (not by `submit_response`).
-2. The only valid `submit_response` call is `{ skip_response: true }`, with no other fields.
-3. Attempting to include `blocks`, `actions`, or other delivery fields will be rejected at the schema layer.
-
-#### Scenario: Skipped-mode prompt hint is rendered
-
-- **GIVEN** a scheduled session with `submitResponseMode: "skipped"`
-- **WHEN** the prompt builder renders the additionalSystemPrompt
-- **THEN** the prompt includes a `"skipped"`-mode hint
-- **AND** the hint mentions `submit_response({ skip_response: true })` as the run terminator
-
-#### Scenario: Skipped-mode hint is absent for other modes
-
-- **GIVEN** a scheduled session with `submitResponseMode: "always"` (or unset, or "optional")
-- **WHEN** the prompt builder renders the additionalSystemPrompt
-- **THEN** the prompt does NOT include the `"skipped"`-mode hint
-
-#### Scenario: skipConditions guidance still rendered when applicable
-
-- **GIVEN** a scheduled session with `submitResponseMode: "optional"` AND a non-empty `skipConditions`
-- **WHEN** the prompt builder renders the additionalSystemPrompt
-- **THEN** the existing `skipConditions` pre-check guidance is rendered
-- **AND** the `"skipped"`-mode hint is NOT rendered (since mode is `"optional"`, not `"skipped"`)
 
 ### Requirement: Channelless Delivery Context Forces Optional-Post-To Schema
 
@@ -310,4 +206,3 @@ This is the middleground between `"optional"` (full primary schema, may skip) an
 - **WHEN** Claude calls `submit_response({})` (no `deliver_to`, no `skip_response`)
 - **THEN** the handler returns an error to Claude indicating it must provide `deliver_to` or `skip_response`
 - **AND** the run is NOT silently recorded as a successful skip
-
