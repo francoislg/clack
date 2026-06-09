@@ -655,7 +655,10 @@ export async function processMessage(
         onRegistered: release,
       },
       abortController,
-      silentThinking,
+      // An engaged thread marked `deliveryMode: "invisible"` runs silently; an explicit
+      // `silentThinking` (cron) stays silent regardless. This is the single place the
+      // per-thread mode reaches delivery, so every engaged-session reuse honors it.
+      silentThinking: silentThinking || session.deliveryMode === "invisible",
       preAnalysis: ctx.preAnalysis,
     });
   });

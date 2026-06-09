@@ -12,7 +12,7 @@ import type {
   Action,
 } from "../../tools/types.js";
 import type { UserRole } from "../../roles.js";
-import type { SessionContext, AttentionLevel } from "../../sessions.js";
+import type { SessionContext, AttentionLevel, DeliveryMode } from "../../sessions.js";
 import type { SessionInfo } from "../activeSessions.js";
 import type { SlackDeliveryContext } from "./changeAction.js";
 import { handleAutoExecuteActions, type AutoExecuteDeps } from "./autoExecute.js";
@@ -66,7 +66,7 @@ const mockRegisterThreadSession = vi.fn<
   (
     channel: string,
     threadRoot: string,
-    opts: { attentionLevel: AttentionLevel; followUpContext?: string },
+    opts: { attentionLevel: AttentionLevel; followUpContext?: string; deliveryMode?: DeliveryMode },
   ) => Promise<SessionContext | null>
 >(async () => null);
 const mockPostAnswerToChannel = vi.fn<
@@ -344,6 +344,28 @@ describe("handleAutoExecuteActions — post_to thread engagement", () => {
       "1700000000.999999",
       { attentionLevel: "high", followUpContext: "ctx" },
     ]);
+  });
+
+  it("forwards default_delivery_mode into registerThreadSession", async () => {
+    mockGetSession.mockResolvedValue(sessionWithSnapshot());
+    mockPostAnswerToChannel.mockResolvedValue({ ok: true, ts: "1700000000.999999" });
+    const params = makeBaseParams({
+      response: makeResponseWithActions(
+        {
+          blocks: [],
+          actions: [postTo({ attention_level: "high", default_delivery_mode: "invisible" })],
+        },
+        {},
+      ),
+    });
+
+    await handleAutoExecuteActions(params, makeDeps());
+
+    assert.equal(mockRegisterThreadSession.mock.calls.length, 1);
+    assert.deepEqual(mockRegisterThreadSession.mock.calls[0][2], {
+      attentionLevel: "high",
+      deliveryMode: "invisible",
+    });
   });
 
   it("seeds the action's thread_ts as root for a threaded cross-post", async () => {

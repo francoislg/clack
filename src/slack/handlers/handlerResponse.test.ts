@@ -56,6 +56,7 @@ const mockAppendStagedIntents = vi.fn<HandlerResponseDeps["appendStagedIntents"]
 const mockUpdateSession = vi.fn<(...args: never[]) => Promise<void>>(async () => {});
 const mockAddError = vi.fn<(...args: never[]) => Promise<void>>(async () => {});
 const mockSetAttentionLevel = vi.fn<HandlerResponseDeps["setAttentionLevel"]>(async () => {});
+const mockSetDeliveryMode = vi.fn<HandlerResponseDeps["setDeliveryMode"]>(async () => {});
 
 const mockGetErrorBlocksWithRetry = vi.fn(() => [{ type: "section" }]);
 const mockAsSlackBlocks = vi.fn((blocks: never) => blocks);
@@ -113,6 +114,7 @@ function makeDeps(): HandlerResponseDeps {
     updateSession: mockUpdateSession as never,
     addError: mockAddError as never,
     setAttentionLevel: mockSetAttentionLevel,
+    setDeliveryMode: mockSetDeliveryMode,
     getErrorBlocksWithRetry: mockGetErrorBlocksWithRetry as never,
     asSlackBlocks: mockAsSlackBlocks as never,
     sendErrorReport: mockSendErrorReport as never,
@@ -1596,6 +1598,34 @@ describe("silentThinking mode", () => {
       assert.equal(lastAssistant.payload, undefined);
     });
 
+    it("persists a skipped turn and a deliveryMode switch in a single updateSession call", async () => {
+      resetStreamerInstance({ messageTs: "1234.5678" });
+      mockAskClaude.mockImplementationOnce(async () => ({
+        success: true,
+        skipped: true,
+        deliveryMode: "invisible",
+        answer: "",
+      }));
+      mockUpdateSession.mockClear();
+
+      const client = makeClient();
+      const response = await executeAndDeliver({
+        client,
+        session: makeSession(),
+        sessionInfo: makeSessionInfo(),
+        claudeOptions: { role: "dev" as const, changesWorkflowEnabled: false },
+        deps,
+      });
+
+      assert.equal(response.skipped, true);
+      assert.equal(response.deliveryMode, "invisible");
+      // Both the appended skipped message AND the deliveryMode switch ride the same write.
+      assert.equal(mockUpdateSession.mock.calls.length, 1);
+      const updates = mockUpdateSession.mock.calls[0][1] as Partial<SessionContext>;
+      assert.equal(updates.deliveryMode, "invisible");
+      assert.ok(Array.isArray(updates.messages));
+    });
+
     it("skip without disengage: appended message has no disengaged flag and attentionLevel unchanged", async () => {
       resetStreamerInstance({ messageTs: "1234.5678" });
       mockAskClaude.mockImplementationOnce(async () => ({
@@ -1669,6 +1699,51 @@ describe("silentThinking mode", () => {
       });
 
       assert.equal(mockSetAttentionLevel.mock.calls.length, 0);
+    });
+
+    it("calls setDeliveryMode when a success response switches the mode", async () => {
+      resetStreamerInstance({ messageTs: "1234.5678" });
+      mockAskClaude.mockImplementationOnce(async () => ({
+        success: true,
+        deliveryMode: "streamer",
+        answer: "Let's get to work.",
+      }));
+      mockSetDeliveryMode.mockClear();
+
+      const client = makeClient();
+      const response = await executeAndDeliver({
+        client,
+        session: makeSession(),
+        sessionInfo: makeSessionInfo(),
+        claudeOptions: { role: "dev" as const, changesWorkflowEnabled: false },
+        deps,
+      });
+
+      assert.equal(response.success, true);
+      assert.equal(response.deliveryMode, "streamer");
+      assert.equal(mockSetDeliveryMode.mock.calls.length, 1);
+      assert.equal(mockSetDeliveryMode.mock.calls[0][0], "session-1");
+      assert.equal(mockSetDeliveryMode.mock.calls[0][1], "streamer");
+    });
+
+    it("does NOT call setDeliveryMode on success without a default_delivery_mode", async () => {
+      resetStreamerInstance({ messageTs: "1234.5678" });
+      mockAskClaude.mockImplementationOnce(async () => ({
+        success: true,
+        answer: "regular answer",
+      }));
+      mockSetDeliveryMode.mockClear();
+
+      const client = makeClient();
+      await executeAndDeliver({
+        client,
+        session: makeSession(),
+        sessionInfo: makeSessionInfo(),
+        claudeOptions: { role: "dev" as const, changesWorkflowEnabled: false },
+        deps,
+      });
+
+      assert.equal(mockSetDeliveryMode.mock.calls.length, 0);
     });
 
     it("handles skip gracefully when streamer has no messageTs", async () => {

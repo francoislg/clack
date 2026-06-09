@@ -14,7 +14,7 @@ import type {
 import { DEFAULT_MAX_ADDITIONAL_MESSAGES } from "../../config.js";
 import { logger } from "../../logger.js";
 import { appendStagedIntents as _appendStagedIntents } from "../../sessions.js";
-import type { AttentionLevel } from "../../sessions.js";
+import type { AttentionLevel, DeliveryMode } from "../../sessions.js";
 import { readInstructionFile as _readInstructionFile } from "../../configurationFiles.js";
 import { textResult } from "../helpers.js";
 import { DISMISSAL_PHRASES_INLINE } from "../../claude/dismissalPhrases.js";
@@ -136,6 +136,15 @@ const followUpContextField = z
       "(e.g. how to handle clarification requests). Only meaningful alongside a non-`off` `attention_level`.",
   );
 
+const threadEngagementDeliveryModeField = z
+  .enum(["streamer", "invisible"])
+  .optional()
+  .describe(
+    "Optional. Seed the DESTINATION thread's delivery mode. `streamer` (default) shows the live " +
+      "thinking card on future replies; `invisible` suppresses it so replies just appear, which feels " +
+      "natural for casual chatter. Only meaningful alongside a non-`off` `attention_level`.",
+  );
+
 const postToActionSchema = z.object({
   type: z.literal("post_to"),
   label: buttonLabelSchema
@@ -163,6 +172,7 @@ const postToActionSchema = z.object({
     ),
   attention_level: threadEngagementAttentionField,
   follow_up_context: followUpContextField,
+  default_delivery_mode: threadEngagementDeliveryModeField,
   suppress_unfurls: z
     .boolean()
     .optional()
@@ -581,6 +591,8 @@ interface SubmitResponseSuccessResult {
   skipped?: true;
   /** Echoes back the attention level Claude set this turn, when it set one. */
   attentionLevel?: AttentionLevel;
+  /** Echoes back the delivery mode Claude set this turn, when it set one. */
+  deliveryMode?: DeliveryMode;
   /** True when `attention_level: "off"` disengaged the thread this turn. */
   disengaged?: true;
   postedTopLevel?: true;
@@ -654,6 +666,17 @@ const attentionLevelField = z
       "(reply and adjust in the same turn) OR skip_response: true (decline and adjust).",
   );
 
+const deliveryModeField = z
+  .enum(["streamer", "invisible"])
+  .optional()
+  .describe(
+    "Set how THIS thread delivers Clack's future replies. `streamer` (default) shows the live " +
+      "thinking / tool-progress card; `invisible` suppresses it so replies just appear, which feels " +
+      "natural for casual chatter. Takes effect on the NEXT reply — the current turn's visibility is " +
+      "already fixed. Switch to `streamer` when a casual thread turns into real work, or back to " +
+      "`invisible` when it returns to banter. Omit to keep the current mode.",
+  );
+
 const postTopLevelField = z
   .boolean()
   .optional()
@@ -672,6 +695,7 @@ const postTopLevelField = z
 const attentionLevelEnabledResponseSchema = {
   ...normalResponseSchema,
   attention_level: attentionLevelField,
+  default_delivery_mode: deliveryModeField,
 };
 
 const skipResponseField = z
@@ -699,6 +723,7 @@ const skipEnabledResponseSchema = {
   ...normalResponseSchema,
   skip_response: skipResponseField,
   attention_level: attentionLevelField,
+  default_delivery_mode: deliveryModeField,
   blocks: skipOptionalBlocks,
   actions: skipOptionalActions,
   suppress_unfurls: suppressUnfurlsField,
@@ -773,6 +798,7 @@ const deliverToEntrySchema = z
       ),
     attention_level: threadEngagementAttentionField,
     follow_up_context: followUpContextField,
+    default_delivery_mode: threadEngagementDeliveryModeField,
     response: deliverToResponseSchema,
   })
   .strict();
@@ -824,6 +850,7 @@ interface SubmitResponseArgs {
   suppress_unfurls?: boolean;
   skip_response?: boolean;
   attention_level?: AttentionLevel;
+  default_delivery_mode?: DeliveryMode;
   post_top_level?: boolean;
   additional_messages?: MessagePayload[];
   thread_replies?: MessagePayload[];
@@ -1034,6 +1061,7 @@ export function createSubmitResponseTool(deps: SubmitResponseDeps) {
               payload: entry.response,
               ...(entry.attention_level && { attentionLevel: entry.attention_level }),
               ...(entry.follow_up_context && { followUpContext: entry.follow_up_context }),
+              ...(entry.default_delivery_mode && { deliveryMode: entry.default_delivery_mode }),
             });
             if (!res.ok) {
               const prior =
@@ -1094,15 +1122,20 @@ export function createSubmitResponseTool(deps: SubmitResponseDeps) {
           }
         }
         const newLevel = "attention_level" in args ? args.attention_level : undefined;
+        const newMode = "default_delivery_mode" in args ? args.default_delivery_mode : undefined;
         responseCapture.setSkipped();
         if (newLevel) {
           responseCapture.setAttentionLevel(newLevel);
+        }
+        if (newMode) {
+          responseCapture.setDeliveryMode(newMode);
         }
         const result: SubmitResponseSuccessResult = {
           success: true,
           skipped: true,
           ...(newLevel && { attentionLevel: newLevel }),
           ...(newLevel === "off" && { disengaged: true as const }),
+          ...(newMode && { deliveryMode: newMode }),
         };
         recordSuccess(recorder, args, result);
         return textResult(result);
@@ -1317,8 +1350,12 @@ export function createSubmitResponseTool(deps: SubmitResponseDeps) {
       responseCapture.set(payload, renderedBlocks);
 
       const newLevel = "attention_level" in args ? args.attention_level : undefined;
+      const newMode = "default_delivery_mode" in args ? args.default_delivery_mode : undefined;
       if (newLevel) {
         responseCapture.setAttentionLevel(newLevel);
+      }
+      if (newMode) {
+        responseCapture.setDeliveryMode(newMode);
       }
       if (wantsPostTopLevel) {
         responseCapture.setPostedTopLevel();
@@ -1332,6 +1369,7 @@ export function createSubmitResponseTool(deps: SubmitResponseDeps) {
         ...(messagesDelivered > 0 && { messagesDelivered }),
         ...(newLevel && { attentionLevel: newLevel }),
         ...(newLevel === "off" && { disengaged: true as const }),
+        ...(newMode && { deliveryMode: newMode }),
         ...(wantsPostTopLevel && { postedTopLevel: true as const }),
       };
       recordSuccess(recorder, args, result);

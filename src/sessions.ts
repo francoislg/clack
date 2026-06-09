@@ -177,6 +177,14 @@ export type AttentionLevel = "always" | "high" | "medium" | "low" | "off";
  */
 export type SettableAttentionLevel = Exclude<AttentionLevel, "off">;
 
+/**
+ * Per-thread delivery mode. `"streamer"` (the default — absent reads as this) shows the live
+ * `SlackStreamer` thinking / tool-progress card; `"invisible"` suppresses it and delivers the
+ * turn silently (the existing `silentThinking` path). Sibling of {@link AttentionLevel}: where
+ * attention governs *how eagerly* a thread is followed, delivery mode governs *how* it delivers.
+ */
+export type DeliveryMode = "streamer" | "invisible";
+
 export interface SessionContext {
   sessionId: string;
   channelId: string;
@@ -234,6 +242,9 @@ export interface SessionContext {
   /** Per-conversation attention dial governing thread auto-respond engagement and the
    *  pre-analysis gate's eagerness. Absent reads as `"medium"`. `"off"` is disengaged. */
   attentionLevel?: AttentionLevel;
+  /** Per-thread delivery mode read at turn start to drive `silentThinking`. Absent reads as
+   *  `"streamer"`. `"invisible"` suppresses the live thinking card on this thread's turns. */
+  deliveryMode?: DeliveryMode;
   /**
    * Integrations the session has attached via `attach_integration` mid-session.
    * Persisted so resumed turns can re-attach (call `query.setMcpServers`) before
@@ -554,6 +565,8 @@ export interface CreateSessionOptions {
   channelName?: string;
   /** Initial attention level seeded by the trigger source (cron/rule). Defaults to `"medium"`. */
   attentionLevel?: SettableAttentionLevel;
+  /** Initial delivery mode seeded by the trigger source. Omit to leave it default (`"streamer"`). */
+  deliveryMode?: DeliveryMode;
 }
 
 export async function createSession(opts: CreateSessionOptions): Promise<SessionContext> {
@@ -587,6 +600,7 @@ export async function createSession(opts: CreateSessionOptions): Promise<Session
     lastActivity: now,
     createdAt: now,
     attentionLevel: opts.attentionLevel ?? "medium",
+    ...(opts.deliveryMode && { deliveryMode: opts.deliveryMode }),
   };
 
   // Write to disk (strip runtime fields)
@@ -608,6 +622,8 @@ export interface EngageThreadOptions {
   attentionLevel: AttentionLevel;
   /** Guidance injected into the answer turn (stored as the session's `additionalSystemPrompt`). */
   followUpContext?: string;
+  /** Delivery mode to seed onto the destination thread. Omit to leave it default (`"streamer"`). */
+  deliveryMode?: DeliveryMode;
 }
 
 /**
@@ -642,6 +658,7 @@ export async function registerThreadSession(
     trigger: { type: "scheduled", prompt: "Seeded thread engagement (awaiting human reply)." },
     attentionLevel: opts.attentionLevel,
     additionalSystemPrompt: opts.followUpContext,
+    ...(opts.deliveryMode && { deliveryMode: opts.deliveryMode }),
   });
 }
 
@@ -859,6 +876,10 @@ export function updateSession(
 
 export async function setAttentionLevel(sessionId: string, level: AttentionLevel): Promise<void> {
   await updateSession(sessionId, { attentionLevel: level });
+}
+
+export async function setDeliveryMode(sessionId: string, mode: DeliveryMode): Promise<void> {
+  await updateSession(sessionId, { deliveryMode: mode });
 }
 
 /** A session is engaged for thread auto-respond unless its attention level is `"off"`.

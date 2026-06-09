@@ -81,6 +81,17 @@ describe("casual-talk prompt", () => {
     assert.match(prompt, /INVISIBLE scheduled tick/);
   });
 
+  it("instructs Claude to set default_delivery_mode: invisible so casual replies feel natural", () => {
+    const prompt = buildPrompt({
+      die: 28,
+      rateLabel: "daily (1/28)",
+      channels: ["C111"],
+      smallTalkTopics: [],
+    });
+    assert.ok(prompt.includes('default_delivery_mode: "invisible"'));
+    assert.match(prompt, /`default_delivery_mode: "invisible"` is MANDATORY/);
+  });
+
   it("instructs Claude to never reveal the trigger mechanism", () => {
     const prompt = buildPrompt({
       die: 28,

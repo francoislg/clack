@@ -2,7 +2,7 @@ import { describe, it, beforeEach, vi } from "vitest";
 import assert from "node:assert/strict";
 import { z } from "zod";
 import type { IntentStore, ResponseCapture, ToolCallRecorder } from "../server.js";
-import type { AttentionLevel } from "../../sessions.js";
+import type { AttentionLevel, DeliveryMode } from "../../sessions.js";
 import type { StagedIntent, ResponseSnapshot } from "../types.js";
 import { parseToolResult, toolResultText } from "../testHelpers.js";
 import {
@@ -32,10 +32,27 @@ const mockGetResponseActionBlocks = vi.fn<ActionBlocksFn>();
 // Helpers
 // ---------------------------------------------------------------------------
 
+function mockResponseCapture(overrides: Partial<ResponseCapture> = {}): ResponseCapture {
+  return {
+    set: vi.fn<ResponseCapture["set"]>(),
+    get: vi.fn<ResponseCapture["get"]>(() => null),
+    getRenderedBlocks: vi.fn<ResponseCapture["getRenderedBlocks"]>(() => null),
+    setSkipped: vi.fn<ResponseCapture["setSkipped"]>(),
+    setAttentionLevel: vi.fn<ResponseCapture["setAttentionLevel"]>(),
+    setDeliveryMode: vi.fn<ResponseCapture["setDeliveryMode"]>(),
+    setPostedTopLevel: vi.fn<ResponseCapture["setPostedTopLevel"]>(),
+    isSkipped: vi.fn<ResponseCapture["isSkipped"]>(() => false),
+    getAttentionLevel: vi.fn<ResponseCapture["getAttentionLevel"]>(() => null),
+    getDeliveryMode: vi.fn<ResponseCapture["getDeliveryMode"]>(() => null),
+    isPostedTopLevel: vi.fn<ResponseCapture["isPostedTopLevel"]>(() => false),
+    ...overrides,
+  };
+}
+
 function makeDeps(
   overrides: Partial<{
     intentStore: IntentStore;
-    responseCapture: ResponseCapture;
+    responseCapture: Partial<ResponseCapture>;
     recorder: ToolCallRecorder;
     sessionId: string;
     deliver: (opts: {
@@ -51,6 +68,7 @@ function makeDeps(
       payload: unknown;
       attentionLevel?: AttentionLevel;
       followUpContext?: string;
+      deliveryMode?: DeliveryMode;
     }) => Promise<{ ok: true; ts?: string } | { ok: false; error: string }>;
     recordResponseTs: (ts: string) => Promise<void>;
     persistSnapshot: (id: string, snapshot: ResponseSnapshot) => Promise<void>;
@@ -79,18 +97,7 @@ function makeDeps(
     ...overrides.intentStore,
   };
 
-  const responseCapture: ResponseCapture = {
-    set: vi.fn<(payload: unknown, blocks: unknown) => void>(),
-    get: vi.fn<() => null>(() => null),
-    getRenderedBlocks: vi.fn<() => null>(() => null),
-    setSkipped: vi.fn<() => void>(),
-    setAttentionLevel: vi.fn<(level: AttentionLevel) => void>(),
-    setPostedTopLevel: vi.fn<() => void>(),
-    isSkipped: vi.fn<() => boolean>(() => false),
-    getAttentionLevel: vi.fn<() => AttentionLevel | null>(() => null),
-    isPostedTopLevel: vi.fn<() => boolean>(() => false),
-    ...overrides.responseCapture,
-  };
+  const responseCapture = mockResponseCapture(overrides.responseCapture);
 
   const recorder: ToolCallRecorder = {
     record: vi.fn<(tool: string, args: object, result: object) => void>(),
@@ -183,6 +190,7 @@ interface CallToolRawArgs {
   reactions?: string[];
   skip_response?: boolean;
   attention_level?: AttentionLevel;
+  default_delivery_mode?: DeliveryMode;
   post_top_level?: boolean;
   suppress_unfurls?: boolean;
   additional_messages?: CallToolFollowerArgs[];
@@ -192,6 +200,7 @@ interface CallToolRawArgs {
     thread_ts?: string;
     attention_level?: AttentionLevel;
     follow_up_context?: string;
+    default_delivery_mode?: DeliveryMode;
     response: {
       blocks?: unknown[];
       table?: unknown;
@@ -254,14 +263,6 @@ describe("createSubmitResponseTool", () => {
           set: ((...args: unknown[]) => {
             setCalls.push(args);
           }) as ResponseCapture["set"],
-          get: () => null,
-          getRenderedBlocks: () => null,
-          setSkipped: () => {},
-          setAttentionLevel: () => {},
-          setPostedTopLevel: () => {},
-          isSkipped: () => false,
-          getAttentionLevel: () => null,
-          isPostedTopLevel: () => false,
         },
       });
 
@@ -358,21 +359,14 @@ describe("createSubmitResponseTool", () => {
       readonly skipCalls: number;
     } {
       const state = { setCalls: 0, skipCalls: 0 };
-      const capture: ResponseCapture = {
+      const capture = mockResponseCapture({
         set: () => {
           state.setCalls++;
         },
-        get: () => null,
-        getRenderedBlocks: () => null,
         setSkipped: () => {
           state.skipCalls++;
         },
-        setAttentionLevel: () => {},
-        setPostedTopLevel: () => {},
-        isSkipped: () => false,
-        getAttentionLevel: () => null,
-        isPostedTopLevel: () => false,
-      };
+      });
       return {
         capture,
         get setCalls() {
@@ -456,6 +450,42 @@ describe("createSubmitResponseTool", () => {
       assert.equal(seen[0].attentionLevel, "high");
       assert.equal(seen[0].followUpContext, "ctx");
       assert.equal(seen[0].threadTs, "1700000000.000100");
+    });
+
+    it("forwards default_delivery_mode to the delivery adapter", async () => {
+      const seen: { deliveryMode?: DeliveryMode }[] = [];
+      const deliverToChannel = async (args: {
+        channel: string;
+        threadTs?: string;
+        payload: unknown;
+        attentionLevel?: AttentionLevel;
+        followUpContext?: string;
+        deliveryMode?: DeliveryMode;
+      }) => {
+        seen.push({ deliveryMode: args.deliveryMode });
+        return { ok: true as const, ts: `ts-${seen.length}` };
+      };
+      const deps = makeDeps({
+        submitResponseMode: "optional-post-to",
+        deliverToChannel,
+        recordResponseTs: async () => {},
+      });
+
+      parseToolResult(
+        await callToolRawTopLevel(deps, {
+          deliver_to: [
+            {
+              channel: "C1",
+              thread_ts: "1700000000.000100",
+              attention_level: "high",
+              default_delivery_mode: "invisible",
+              response: { blocks: [block] },
+            },
+          ],
+        }),
+      );
+      assert.equal(seen.length, 1);
+      assert.equal(seen[0].deliveryMode, "invisible");
     });
 
     it("omits engagement fields when the entry has no attention_level", async () => {
@@ -1026,14 +1056,6 @@ describe("createSubmitResponseTool", () => {
           set: (() => {
             setCalls.push(true);
           }) as ResponseCapture["set"],
-          get: () => null,
-          getRenderedBlocks: () => null,
-          setSkipped: () => {},
-          setAttentionLevel: () => {},
-          setPostedTopLevel: () => {},
-          isSkipped: () => false,
-          getAttentionLevel: () => null,
-          isPostedTopLevel: () => false,
         },
       });
 
@@ -1180,14 +1202,6 @@ describe("createSubmitResponseTool", () => {
           set: ((...args: unknown[]) => {
             setCalls.push(args);
           }) as ResponseCapture["set"],
-          get: () => null,
-          getRenderedBlocks: () => null,
-          setSkipped: () => {},
-          setAttentionLevel: () => {},
-          setPostedTopLevel: () => {},
-          isSkipped: () => false,
-          getAttentionLevel: () => null,
-          isPostedTopLevel: () => false,
         },
       });
 
@@ -1411,14 +1425,6 @@ describe("createSubmitResponseTool", () => {
           set: ((...args: unknown[]) => {
             setCalls.push(args);
           }) as ResponseCapture["set"],
-          get: () => null,
-          getRenderedBlocks: () => null,
-          setSkipped: () => {},
-          setAttentionLevel: () => {},
-          setPostedTopLevel: () => {},
-          isSkipped: () => false,
-          getAttentionLevel: () => null,
-          isPostedTopLevel: () => false,
         },
       });
 
@@ -1443,14 +1449,6 @@ describe("createSubmitResponseTool", () => {
           set: ((...args: unknown[]) => {
             setCalls.push(args);
           }) as ResponseCapture["set"],
-          get: () => null,
-          getRenderedBlocks: () => null,
-          setSkipped: () => {},
-          setAttentionLevel: () => {},
-          setPostedTopLevel: () => {},
-          isSkipped: () => false,
-          getAttentionLevel: () => null,
-          isPostedTopLevel: () => false,
         },
       });
 
@@ -1599,6 +1597,29 @@ describe("createSubmitResponseTool", () => {
       assert.equal(parsed.disengaged, undefined);
       assert.equal(setAttentionLevelFn.mock.calls.length, 1);
       assert.equal(setAttentionLevelFn.mock.calls[0][0], "high");
+    });
+
+    it("persists default_delivery_mode on a normal response (switch the thread mode)", async () => {
+      const setDeliveryModeFn = vi.fn<(mode: DeliveryMode) => void>();
+      const deps = makeDeps({
+        allowSkip: true,
+        responseCapture: {
+          ...makeDeps().responseCapture,
+          setDeliveryMode: setDeliveryModeFn,
+        },
+      });
+      const result = await callToolRaw(deps, {
+        default_delivery_mode: "invisible",
+        blocks: [{ type: "section", text: { type: "mrkdwn", text: "Hey." } }],
+        actions: [],
+      });
+
+      assert.notEqual(result.isError, true);
+      const parsed = parseToolResult(result);
+      assert.equal(parsed.success, true);
+      assert.equal(parsed.deliveryMode, "invisible");
+      assert.equal(setDeliveryModeFn.mock.calls.length, 1);
+      assert.equal(setDeliveryModeFn.mock.calls[0][0], "invisible");
     });
 
     it("calls both setSkipped and setAttentionLevel on skip + attention_level: off", async () => {

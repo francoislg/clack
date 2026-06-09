@@ -1,10 +1,4 @@
-# engaged-thread-registration Specification
-
-## Purpose
-
-Enable plugins and Claude-authored code to seed engaged sessions for specific threads, allowing human replies in those threads to be answered with custom follow-up context without requiring a prior Q&A session.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Engaged-Thread Registration Primitive
 
@@ -52,13 +46,3 @@ The seeded session's `userId` SHALL be a synthetic placeholder (it never gates a
 - **GIVEN** a real Q&A session already owns `(C1, T)`
 - **WHEN** the helper is called for `(C1, T)`
 - **THEN** the existing session is left intact (no overwrite)
-
-### Requirement: followUpContext Reaches The Answer Turn
-
-When a human reply engages a seeded thread session, the system SHALL inject the session's `additionalSystemPrompt` (the `followUpContext`) into the answer turn's prompt, the same way an auto-respond rule's `extraContext` is injected.
-
-#### Scenario: followUpContext shapes the reply
-
-- **GIVEN** a seeded session with `additionalSystemPrompt: "Only answer clarifications while the question is pending."`
-- **WHEN** a human reply triggers the answer turn
-- **THEN** that guidance is present in the prompt for the turn

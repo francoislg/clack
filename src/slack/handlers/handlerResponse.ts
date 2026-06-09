@@ -17,6 +17,7 @@ import {
   updateSession,
   addError,
   setAttentionLevel,
+  setDeliveryMode,
   createSession,
   appendAssistantMessage,
   appendStagedIntents,
@@ -49,6 +50,7 @@ export interface HandlerResponseDeps {
   appendStagedIntents: typeof appendStagedIntents;
   addError: typeof addError;
   setAttentionLevel: typeof setAttentionLevel;
+  setDeliveryMode: typeof setDeliveryMode;
   /** Optional: when present, top-level posts create a follow-up session tied to the new thread. */
   createSession?: typeof createSession;
   getErrorBlocksWithRetry: typeof getErrorBlocksWithRetry;
@@ -74,6 +76,7 @@ export const defaultHandlerResponseDeps: HandlerResponseDeps = {
   appendStagedIntents,
   addError,
   setAttentionLevel,
+  setDeliveryMode,
   createSession,
   getErrorBlocksWithRetry,
   asSlackBlocks,
@@ -536,6 +539,7 @@ async function handleSkip(ctx: DeliveryContext, response: ClaudeResponse): Promi
       messages: [...existing, skippedMessage],
     };
     if (response.attentionLevel) updates.attentionLevel = response.attentionLevel;
+    if (response.deliveryMode) updates.deliveryMode = response.deliveryMode;
     await ctx.deps.updateSession(ctx.session.sessionId, updates);
   } catch (err) {
     logger.error("Failed to persist skipped turn to session:", err);
@@ -576,6 +580,16 @@ async function handleSuccess(ctx: DeliveryContext, response: ClaudeResponse): Pr
       await ctx.deps.setAttentionLevel(ctx.session.sessionId, response.attentionLevel);
     } catch (err) {
       logger.error("Failed to persist attention level on success:", err);
+    }
+  }
+
+  // Persist a delivery-mode switch the same way as attention level. Takes effect on the
+  // thread's next turn — this turn's streaming UX was fixed before Claude ran.
+  if (response.deliveryMode) {
+    try {
+      await ctx.deps.setDeliveryMode(ctx.session.sessionId, response.deliveryMode);
+    } catch (err) {
+      logger.error("Failed to persist delivery mode on success:", err);
     }
   }
 

@@ -58,6 +58,20 @@ describe("plugin thread engagement — seed → resolve → reply-turn prompt", 
     );
   });
 
+  it("an invisible delivery makes the resolved thread session carry deliveryMode: invisible", async () => {
+    // The seeding a casual-talk deliver_to entry performs: high attention + invisible mode.
+    await registerThreadSession("C_DEST_INV", "1700000000.000300", {
+      attentionLevel: "high",
+      deliveryMode: "invisible",
+    });
+
+    // A human reply resolves the seeded session; core.ts reads deliveryMode to drive silentThinking.
+    const seeded = await findSessionByThread("C_DEST_INV", "1700000000.000300");
+    assert.ok(seeded, "destination thread must resolve to a seeded session");
+    assert.equal(seeded.deliveryMode, "invisible");
+    assert.ok(isEngaged(seeded), "seeded session must be engaged");
+  });
+
   it("an off / absent attention level seeds nothing (fire-and-forget preserved)", async () => {
     const off = await registerThreadSession("C_DEST2", "1700000000.000200", {
       attentionLevel: "off",

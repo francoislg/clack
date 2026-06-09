@@ -65,6 +65,27 @@ describe("registerThreadSession", () => {
     assert.equal(seeded.additionalSystemPrompt, undefined);
   });
 
+  it("seeds deliveryMode onto the engaged session when supplied", async () => {
+    const seeded = await registerThreadSession("C104", "1700000000.000500", {
+      attentionLevel: "high",
+      deliveryMode: "invisible",
+    });
+    assert.ok(seeded);
+    assert.equal(seeded.deliveryMode, "invisible");
+
+    const found = await findSessionByThread("C104", "1700000000.000500");
+    assert.ok(found);
+    assert.equal(found.deliveryMode, "invisible");
+  });
+
+  it("leaves deliveryMode unset when omitted (reads as streamer)", async () => {
+    const seeded = await registerThreadSession("C105", "1700000000.000600", {
+      attentionLevel: "high",
+    });
+    assert.ok(seeded);
+    assert.equal(seeded.deliveryMode, undefined);
+  });
+
   it("does not clobber an existing session for the same thread", async () => {
     const existing = await createSession({
       channelId: "C103",

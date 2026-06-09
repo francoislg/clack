@@ -25,7 +25,7 @@ import type { McpSdkServerConfigWithInstance } from "@anthropic-ai/claude-agent-
 import { asSlackBlocks } from "../slack/blocks.js";
 import type { SlackBlocks } from "../slack/blocks.js";
 import { updateSession, getSession, registerThreadSession } from "../sessions.js";
-import type { SessionContext, AttentionLevel } from "../sessions.js";
+import type { SessionContext, AttentionLevel, DeliveryMode } from "../sessions.js";
 import { canRequestChanges, canEditConfig } from "../permissions.js";
 
 // Query tools
@@ -211,10 +211,13 @@ export interface ResponseCapture {
   getRenderedBlocks: () => SlackBlocks | null;
   setSkipped: () => void;
   setAttentionLevel: (level: AttentionLevel) => void;
+  setDeliveryMode: (mode: DeliveryMode) => void;
   setPostedTopLevel: () => void;
   isSkipped: () => boolean;
   /** The attention level Claude set via `submit_response.attention_level`, or null if unset. */
   getAttentionLevel: () => AttentionLevel | null;
+  /** The delivery mode Claude set via `submit_response.default_delivery_mode`, or null if unset. */
+  getDeliveryMode: () => DeliveryMode | null;
   isPostedTopLevel: () => boolean;
 }
 
@@ -223,6 +226,7 @@ export function createResponseCapture(): ResponseCapture {
   let blocks: SlackBlocks | null = null;
   let skipped = false;
   let attentionLevel: AttentionLevel | null = null;
+  let deliveryMode: DeliveryMode | null = null;
   let postedTopLevel = false;
 
   return {
@@ -247,6 +251,10 @@ export function createResponseCapture(): ResponseCapture {
       attentionLevel = level;
     },
 
+    setDeliveryMode(mode: DeliveryMode): void {
+      deliveryMode = mode;
+    },
+
     setPostedTopLevel(): void {
       postedTopLevel = true;
     },
@@ -257,6 +265,10 @@ export function createResponseCapture(): ResponseCapture {
 
     getAttentionLevel(): AttentionLevel | null {
       return attentionLevel;
+    },
+
+    getDeliveryMode(): DeliveryMode | null {
+      return deliveryMode;
     },
 
     isPostedTopLevel(): boolean {
@@ -534,7 +546,7 @@ function buildQueryTools(ctx: QueryToolContext): ClackQueryToolsResult {
   // one. Only wired when a Slack client is present (absent in test/verify contexts).
   const slackClient = ctx.slackClient;
   const deliverToChannel: DeliverToChannelFn | undefined = slackClient
-    ? async ({ channel, threadTs, payload, attentionLevel, followUpContext }) => {
+    ? async ({ channel, threadTs, payload, attentionLevel, followUpContext, deliveryMode }) => {
         try {
           const snapshot: ResponseSnapshot = {
             text: extractDisplayText(payload.blocks),
@@ -564,7 +576,11 @@ function buildQueryTools(ctx: QueryToolContext): ClackQueryToolsResult {
             const root = threadTs ?? res.ts;
             if (root) {
               try {
-                await registerThreadSession(channel, root, { attentionLevel, followUpContext });
+                await registerThreadSession(channel, root, {
+                  attentionLevel,
+                  followUpContext,
+                  ...(deliveryMode && { deliveryMode }),
+                });
               } catch (err) {
                 logger.warn(
                   `deliver_to: failed to seed engaged thread (delivery succeeded): ${err}`,
@@ -690,6 +706,7 @@ function buildQueryTools(ctx: QueryToolContext): ClackQueryToolsResult {
     getToolCallHistory: () => recorder.getHistory(),
     isSkipped: () => responseCapture.isSkipped(),
     getAttentionLevel: () => responseCapture.getAttentionLevel(),
+    getDeliveryMode: () => responseCapture.getDeliveryMode(),
     isPostedTopLevel: () => responseCapture.isPostedTopLevel(),
   };
 }
@@ -725,6 +742,7 @@ function buildWorkerTools(ctx: WorkerToolContext): ClackWorkerToolsResult {
     getToolCallHistory: () => [],
     isSkipped: () => false,
     getAttentionLevel: () => null,
+    getDeliveryMode: () => null,
     isPostedTopLevel: () => false,
   };
 }
