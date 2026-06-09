@@ -21,7 +21,14 @@ import { unfurlOptions } from "../slack/unfurlOptions.js";
 import type { PluginActionHandler, PluginViewHandler } from "../slack/pluginActionRegistry.js";
 export type { PluginActionHandler, PluginViewHandler };
 import { logger } from "../logger.js";
-import { findByPluginOwner, createJob, updateJob, deleteJob, type SkipDate } from "../cronJobs.js";
+import {
+  findByPluginOwner,
+  createJob,
+  updateJob,
+  deleteJob,
+  MAX_JITTER_MINUTES,
+  type SkipDate,
+} from "../cronJobs.js";
 import { registerThreadSession } from "../sessions.js";
 import type { SettableAttentionLevel, AttentionLevel } from "../sessions.js";
 export type { SettableAttentionLevel, AttentionLevel };
@@ -224,6 +231,15 @@ export interface CronJobSpec {
    * `CronJob.attentionLevel` unset (the session defaults to `"medium"`).
    */
   attentionLevel?: SettableAttentionLevel;
+  /**
+   * Maximum minutes the effective fire may be delayed past the canonical cron slot. When set
+   * (a positive integer, capped at 30), the scheduler shifts the 60-second match window forward
+   * by a deterministic per-occurrence offset so the cadence reads as organic instead of always
+   * landing on the exact slot. The `cronExpression` is never modified. Must stay below the
+   * cron's inter-fire gap (an every-15-minute cron must use jitter < 15) or adjacent
+   * occurrences can overlap. Declarative: omit to clear the resulting `CronJob.jitterMinutes`.
+   */
+  jitterMinutes?: number;
 }
 
 /**
@@ -665,6 +681,15 @@ function validateCronJobSpec(spec: CronJobSpec): string | null {
   ) {
     return `attentionLevel "${spec.attentionLevel}" is invalid (expected always | high | medium | low)`;
   }
+  if (spec.jitterMinutes !== undefined) {
+    if (
+      !Number.isInteger(spec.jitterMinutes) ||
+      spec.jitterMinutes < 0 ||
+      spec.jitterMinutes > MAX_JITTER_MINUTES
+    ) {
+      return `jitterMinutes must be an integer in [0, ${MAX_JITTER_MINUTES}] (got ${spec.jitterMinutes})`;
+    }
+  }
   return null;
 }
 
@@ -929,6 +954,9 @@ export function createClackSdk(
             // updateJob treats `null` as "clear" — a spec dropping attentionLevel reverts the
             // job to the default-medium behavior.
             attentionLevel: spec.attentionLevel ?? null,
+            // updateJob treats `null` as "clear" — a spec dropping jitterMinutes reverts the
+            // job to firing on the canonical slot.
+            jitterMinutes: spec.jitterMinutes ?? null,
             // updateJob: undefined leaves the persisted name untouched, while a non-empty
             // string overwrites it. The spec contract is "spec.name absent → leave alone",
             // so we deliberately omit the field rather than passing "".
@@ -957,6 +985,7 @@ export function createClackSdk(
               ? { attachedTopics: spec.attachedTopics }
               : {}),
             ...(spec.attentionLevel ? { attentionLevel: spec.attentionLevel } : {}),
+            ...(spec.jitterMinutes ? { jitterMinutes: spec.jitterMinutes } : {}),
           });
         }
       }

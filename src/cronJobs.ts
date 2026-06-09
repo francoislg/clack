@@ -149,6 +149,16 @@ export interface CronJob {
    */
   attentionLevel?: SettableAttentionLevel;
   /**
+   * Maximum minutes the effective fire may be delayed past the canonical cron slot. When set
+   * (a positive integer), the scheduler shifts the 60-second match window forward by a
+   * deterministic per-occurrence offset in `[0, jitterMinutes)` minutes so the cadence reads
+   * as organic instead of always landing on the exact slot (e.g. `:15`). The stored
+   * `cronExpression` is never modified — jitter applies only to the match computation.
+   * Absent or `0` → no jitter (fires on the canonical slot, today's behavior). Plugins set it
+   * via `CronJobSpec.jitterMinutes`. Ignored for static jobs (no scheduler match needed).
+   */
+  jitterMinutes?: number;
+  /**
    * Recent execution history (most recent last). Capped by
    * `config.cron.maxRunHistory` (default 50); older entries are
    * dropped from the front when {@link updateJobRunStatus} records a new run.
@@ -299,6 +309,25 @@ export interface CreateCronJobParams {
   attachedTopics?: string[];
   /** Attention level for the session this job creates. See `CronJob.attentionLevel`. */
   attentionLevel?: SettableAttentionLevel;
+  /** Forward match-window jitter in minutes. See `CronJob.jitterMinutes`. */
+  jitterMinutes?: number;
+}
+
+/** Upper bound on `jitterMinutes`; a coarse safety cap (plugins must keep jitter below their cron gap). */
+export const MAX_JITTER_MINUTES = 30;
+
+/**
+ * Throw if `jitterMinutes` is present but not an integer in `[0, MAX_JITTER_MINUTES]`. Defense in
+ * depth: the plugin reconcile path and casual-talk config already validate, so a bad value here is
+ * a programmer error.
+ */
+function assertValidJitter(jitterMinutes: number | null | undefined): void {
+  if (jitterMinutes === undefined || jitterMinutes === null) return;
+  if (!Number.isInteger(jitterMinutes) || jitterMinutes < 0 || jitterMinutes > MAX_JITTER_MINUTES) {
+    throw new Error(
+      `createJob: jitterMinutes must be an integer in [0, ${MAX_JITTER_MINUTES}] (got ${jitterMinutes})`,
+    );
+  }
 }
 
 export async function createJob(params: CreateCronJobParams): Promise<CronJob> {
@@ -318,6 +347,7 @@ export async function createJob(params: CreateCronJobParams): Promise<CronJob> {
   if (params.createdBy !== null && params.systemActor) {
     throw new Error("createJob: systemActor must not be set when createdBy is a user ID");
   }
+  assertValidJitter(params.jitterMinutes);
 
   const jobs = await loadJobs();
   const job: CronJob = {
@@ -345,6 +375,9 @@ export async function createJob(params: CreateCronJobParams): Promise<CronJob> {
       ? { attachedTopics: params.attachedTopics }
       : {}),
     ...(params.attentionLevel ? { attentionLevel: params.attentionLevel } : {}),
+    ...(params.jitterMinutes && params.jitterMinutes > 0
+      ? { jitterMinutes: params.jitterMinutes }
+      : {}),
   };
   jobs.push(job);
   await saveState({ jobs });
@@ -402,6 +435,8 @@ export interface UpdateCronJobParams {
   attachedTopics?: string[];
   /** Pass a level to set; `null` to clear; undefined leaves the field unchanged. */
   attentionLevel?: SettableAttentionLevel | null;
+  /** Pass minutes to set; `null` or `0` to clear; undefined leaves the field unchanged. */
+  jitterMinutes?: number | null;
 }
 
 export async function updateJob(
@@ -444,6 +479,13 @@ export async function updateJob(
   }
   if (params.attentionLevel !== undefined) {
     job.attentionLevel = params.attentionLevel === null ? undefined : params.attentionLevel;
+  }
+  if (params.jitterMinutes !== undefined) {
+    assertValidJitter(params.jitterMinutes);
+    job.jitterMinutes =
+      params.jitterMinutes === null || params.jitterMinutes === 0
+        ? undefined
+        : params.jitterMinutes;
   }
 
   await saveState({ jobs });

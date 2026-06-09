@@ -661,6 +661,7 @@ describe("ClackSdk", () => {
       submitResponseMode?: "always" | "optional" | "optional-post-to" | "skipped";
       skipDates?: Array<{ date: string; label: string }>;
       attachedTopics?: string[];
+      jitterMinutes?: number;
       runs?: Array<{ executedAt: string; status: "success" | "error" | "skipped" }>;
       lastRunAt?: string;
       lastRunStatus?: "success" | "error" | "skipped";
@@ -699,6 +700,7 @@ describe("ClackSdk", () => {
               submitResponseMode: j.submitResponseMode,
               skipDates: j.skipDates,
               attachedTopics: j.attachedTopics,
+              jitterMinutes: j.jitterMinutes,
               runs: j.runs,
               lastRunAt: j.lastRunAt,
               lastRunStatus: j.lastRunStatus,
@@ -724,6 +726,7 @@ describe("ClackSdk", () => {
             submitResponseMode: params.submitResponseMode,
             skipDates: params.skipDates,
             attachedTopics: params.attachedTopics,
+            jitterMinutes: params.jitterMinutes,
           };
           jobs.push(job);
           return {
@@ -768,6 +771,12 @@ describe("ClackSdk", () => {
           if (updates.attachedTopics !== undefined) {
             job.attachedTopics =
               updates.attachedTopics.length > 0 ? updates.attachedTopics : undefined;
+          }
+          if (updates.jitterMinutes !== undefined) {
+            job.jitterMinutes =
+              updates.jitterMinutes === null || updates.jitterMinutes === 0
+                ? undefined
+                : updates.jitterMinutes;
           }
           if (updates.name !== undefined) {
             const trimmed = updates.name.trim();
@@ -1213,6 +1222,65 @@ describe("ClackSdk", () => {
         await sdk.reconcileCronJobs("casual-talk", [channellessSpec]);
 
         assert.equal(store.jobs[0].channel, undefined, "channel cleared on re-reconcile");
+      });
+    });
+
+    describe("jitterMinutes", () => {
+      it("persists jitterMinutes on create", async () => {
+        const store = makeFakeStore();
+        const { sdk } = makeSdk("casual-talk", store.deps);
+
+        await sdk.reconcileCronJobs("casual-talk", [{ ...validSpec, jitterMinutes: 5 }]);
+
+        assert.equal(store.jobs[0].jitterMinutes, 5);
+      });
+
+      it("creates a job without jitterMinutes when the spec omits it", async () => {
+        const store = makeFakeStore();
+        const { sdk } = makeSdk("casual-talk", store.deps);
+
+        await sdk.reconcileCronJobs("casual-talk", [validSpec]);
+
+        assert.equal(store.jobs[0].jitterMinutes, undefined);
+      });
+
+      it("updates jitterMinutes in place, preserving id", async () => {
+        const store = makeFakeStore();
+        const { sdk } = makeSdk("casual-talk", store.deps);
+
+        await sdk.reconcileCronJobs("casual-talk", [{ ...validSpec, jitterMinutes: 5 }]);
+        const originalId = store.jobs[0].id;
+
+        await sdk.reconcileCronJobs("casual-talk", [{ ...validSpec, jitterMinutes: 8 }]);
+
+        assert.equal(store.jobs[0].id, originalId);
+        assert.equal(store.jobs[0].jitterMinutes, 8);
+      });
+
+      it("clears jitterMinutes on re-reconcile without it (declarative ownership)", async () => {
+        const store = makeFakeStore();
+        const { sdk } = makeSdk("casual-talk", store.deps);
+
+        await sdk.reconcileCronJobs("casual-talk", [{ ...validSpec, jitterMinutes: 6 }]);
+        assert.equal(store.jobs[0].jitterMinutes, 6);
+
+        await sdk.reconcileCronJobs("casual-talk", [validSpec]);
+
+        assert.equal(store.jobs[0].jitterMinutes, undefined);
+      });
+
+      it("skips a spec with an out-of-range jitterMinutes without dropping siblings", async () => {
+        const store = makeFakeStore();
+        const { sdk } = makeSdk("casual-talk", store.deps);
+
+        await sdk.reconcileCronJobs("casual-talk", [
+          { ...validSpec, specKey: "bad", jitterMinutes: 99 },
+          { ...validSpec, specKey: "good", jitterMinutes: 4 },
+        ]);
+
+        assert.equal(store.jobs.length, 1);
+        assert.equal(store.jobs[0].specKey, "good");
+        assert.equal(store.jobs[0].jitterMinutes, 4);
       });
     });
   });

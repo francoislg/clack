@@ -1126,4 +1126,129 @@ describe("cronJobs", () => {
       assert.equal(fromCache.channel, undefined);
     });
   });
+
+  describe("jitterMinutes", () => {
+    it("persists jitterMinutes and round-trips through disk", async () => {
+      const job = await createJob({
+        name: "Jittered",
+        cronExpression: "*/15 * * * *",
+        channel: "C123",
+        prompt: "p",
+        createdBy: "U456",
+        timezone: "UTC",
+        jitterMinutes: 7,
+      });
+      assert.equal(job.jitterMinutes, 7);
+
+      clearCronJobsCache();
+      const loaded = await getJob(job.id);
+      assert.ok(loaded);
+      assert.equal(loaded.jitterMinutes, 7);
+    });
+
+    it("omits jitterMinutes when not supplied (backwards compatible)", async () => {
+      const job = await createJob({
+        name: "No jitter",
+        cronExpression: "0 9 * * *",
+        channel: "C123",
+        prompt: "p",
+        createdBy: "U456",
+        timezone: "UTC",
+      });
+      assert.equal(job.jitterMinutes, undefined);
+    });
+
+    it("omits jitterMinutes when supplied as 0 (and round-trips as absent)", async () => {
+      const job = await createJob({
+        name: "Zero jitter",
+        cronExpression: "0 9 * * *",
+        channel: "C123",
+        prompt: "p",
+        createdBy: "U456",
+        timezone: "UTC",
+        jitterMinutes: 0,
+      });
+      assert.equal(job.jitterMinutes, undefined);
+
+      clearCronJobsCache();
+      const loaded = await getJob(job.id);
+      assert.ok(loaded);
+      assert.equal(loaded.jitterMinutes, undefined);
+    });
+
+    it("accepts jitterMinutes at the MAX boundary (30)", async () => {
+      const job = await createJob({
+        name: "Max jitter",
+        cronExpression: "0 9 * * *",
+        channel: "C123",
+        prompt: "p",
+        createdBy: "U456",
+        timezone: "UTC",
+        jitterMinutes: 30,
+      });
+      assert.equal(job.jitterMinutes, 30);
+    });
+
+    for (const bad of [31, 7.5, -1]) {
+      it(`rejects an out-of-range jitterMinutes (${bad}) at create time`, async () => {
+        await assert.rejects(
+          createJob({
+            name: "Bad jitter",
+            cronExpression: "0 9 * * *",
+            channel: "C123",
+            prompt: "p",
+            createdBy: "U456",
+            timezone: "UTC",
+            jitterMinutes: bad,
+          }),
+          /jitterMinutes must be an integer/,
+        );
+      });
+    }
+
+    it("update clears jitterMinutes when passed 0", async () => {
+      const job = await createJob({
+        name: "Jittered",
+        cronExpression: "0 9 * * *",
+        channel: "C123",
+        prompt: "p",
+        createdBy: "U456",
+        timezone: "UTC",
+        jitterMinutes: 5,
+      });
+      const updated = await updateJob(job.id, { jitterMinutes: 0 });
+      assert.ok(updated);
+      assert.equal(updated.jitterMinutes, undefined);
+    });
+
+    it("update clears jitterMinutes when passed null", async () => {
+      const job = await createJob({
+        name: "Jittered",
+        cronExpression: "0 9 * * *",
+        channel: "C123",
+        prompt: "p",
+        createdBy: "U456",
+        timezone: "UTC",
+        jitterMinutes: 5,
+      });
+      const updated = await updateJob(job.id, { jitterMinutes: null });
+      assert.ok(updated);
+      assert.equal(updated.jitterMinutes, undefined);
+    });
+
+    it("update sets a new jitterMinutes value", async () => {
+      const job = await createJob({
+        name: "Jittered",
+        cronExpression: "0 9 * * *",
+        channel: "C123",
+        prompt: "p",
+        createdBy: "U456",
+        timezone: "UTC",
+        jitterMinutes: 5,
+      });
+      const updated = await updateJob(job.id, { jitterMinutes: 9 });
+      assert.ok(updated);
+      assert.equal(updated.jitterMinutes, 9);
+    });
+  });
 });

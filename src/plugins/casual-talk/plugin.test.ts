@@ -223,6 +223,13 @@ describe("casual-talk plugin load", () => {
     assert.deepEqual(created.requiredTools, ["mcp__clack__random_roll"]);
     assert.deepEqual(created.attachedTopics, ["casual-talk"]);
     assert.equal(created.name, "Casual chatter");
+    // Internal jitter constant carried onto the spec; must stay below the 15-minute cadence.
+    assert.ok(
+      typeof created.jitterMinutes === "number" &&
+        created.jitterMinutes > 0 &&
+        created.jitterMinutes < 15,
+      `expected 0 < jitterMinutes < 15, got ${created.jitterMinutes}`,
+    );
     // Cron expression for 9-16 weekdays
     assert.equal(created.cronExpression, "*/15 9-15 * * 1,2,3,4,5");
     // Prompt embeds the channel IDs and topics
