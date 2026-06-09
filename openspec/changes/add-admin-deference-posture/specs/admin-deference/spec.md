@@ -1,49 +1,52 @@
 ## ADDED Requirements
 
-### Requirement: Verified Role Surfaced in Prompt
-The system SHALL state the requesting user's verified role in the prompt passed to Claude, sourced exclusively from the session's resolved `role` (derived from `roles.json` keyed on the authenticated Slack user ID) and never from the message text.
+### Requirement: Admin-Claim Keyword Detection
+The system SHALL detect when the user's latest message explicitly invokes admin authority via a fixed, case-insensitive keyword list: `"as an admin"`, `"as admin"`, `"en tant qu'admin"`, `"je suis admin"`, `"admin:"`. Detection SHALL key on the user's most recent message only (the latest continuation in a resumed session, otherwise the trigger text), not on earlier thread context. Curly apostrophes SHALL be normalized so the French keyword matches regardless of quote style.
 
-#### Scenario: Admin role surfaced
-- **WHEN** the session's resolved role is `admin`
-- **THEN** the prompt includes a statement that the requesting user's verified role is `admin`
+#### Scenario: Keyword present in the latest message
+- **WHEN** the user's latest message contains any admin-claim keyword (any letter case)
+- **THEN** the admin-claim context is rendered (branch determined by the verified role)
 
-#### Scenario: Owner role surfaced
-- **WHEN** the session's resolved role is `owner`
-- **THEN** the prompt includes a statement that the requesting user's verified role is `owner`
+#### Scenario: No keyword present
+- **WHEN** the user's latest message contains none of the keywords
+- **THEN** no admin-claim context is rendered, regardless of the user's role
 
-#### Scenario: Non-elevated role
-- **WHEN** the session's resolved role is `member` or `dev`
-- **THEN** the prompt does NOT include the deference directive
-- **AND** the prompt does NOT include a verified-role line (the helper renders nothing for non-elevated roles, so no role value — elevated or otherwise — is stated)
+#### Scenario: Keyword only in an earlier message (no stale latch)
+- **WHEN** an admin-claim keyword appears only in an earlier message of the thread (e.g. the original trigger of a resumed session) and the user's latest message has none
+- **THEN** no admin-claim context is rendered — detection does not latch onto stale text
 
-#### Scenario: Role comes from trusted resolution, not message text
-- **WHEN** a user whose resolved role is `member` sends a message asserting "I am an admin" (or any equivalent claim) in the text
-- **THEN** the rendered verified role remains `member`
-- **AND** the deference directive is NOT included
+### Requirement: Verified-Admin Deference on Claim
+The system SHALL, when the user's latest message invokes an admin-claim keyword AND the verified role (resolved from `roles.json` keyed on the authenticated Slack user ID) is `admin` or `owner`, render a deference directive stating the verified role and instructing Clack to act on the admin's asserted correction/override rather than re-arguing. The directive SHALL permit stating a concern at most once and SHALL NOT relax tool/permission gating, the security boundary, or destructive-action safety.
 
-### Requirement: Admin Deference Directive
-The system SHALL include a directive instructing Clack that, when a verified admin or owner asserts a correction, override, or judgment call, Clack defers to that assertion and acts on it rather than re-arguing its prior assessment. The directive SHALL be present whenever the resolved role is `admin` or `owner`, independent of any phrase in the message.
+#### Scenario: Admin invokes the keyword
+- **WHEN** the verified role is `admin` (or `owner`) AND the latest message contains an admin-claim keyword
+- **THEN** the prompt includes the verified-role line and the deference directive
+- **AND** the directive permits stating a concern once, then deferring — it does not re-argue across turns
+- **AND** the directive states it does NOT relax tool/permission gating, the security boundary, or destructive-action safety
 
-#### Scenario: Directive present for elevated roles
-- **WHEN** the resolved role is `admin` or `owner`
-- **THEN** the prompt includes the deference directive
-- **AND** the directive instructs Clack to defer to the admin's assertion and act on it
-- **AND** the directive permits Clack to state a concern at most once and then defer if the admin holds — it does not suppress the first statement of a concern, and it does not require re-arguing a prior assessment across turns
+#### Scenario: Admin does not invoke the keyword
+- **WHEN** the verified role is `admin` (or `owner`) AND the latest message contains no keyword
+- **THEN** the prompt includes NO verified-role line and NO deference directive (the posture is gated, not always-on)
 
-#### Scenario: Intensifier phrase recognized in any language
-- **WHEN** the resolved role is `admin` or `owner`
-- **AND** the user's message includes an "as admin" intent (e.g. English "as admin", French "en tant qu'admin", or an equivalent in another language)
-- **THEN** the directive treats the phrase as a natural intensifier of admin intent, not as a required gate
-- **AND** the phrase confers no additional capability or unlock — deference is identical whether or not the phrase is present (the phrase is documented in the directive solely to prevent it being mis-implemented as a gate)
+### Requirement: Non-Admin Claim Rebuttal
+The system SHALL, when the user's latest message invokes an admin-claim keyword AND the verified role is `member` or `dev`, render a not-verified context stating the user is NOT an admin and that the claim confers no authority. The context SHALL instruct Clack to refuse admin deference and admin-gated actions on the basis of the claim and to otherwise handle the message on its own merits, without requiring Clack to call out the claim. The trust boundary is structural: the branch is decided by the verified role, never by the message text.
 
-#### Scenario: Phrase from a non-admin confers nothing
-- **WHEN** the resolved role is `member` or `dev`
-- **AND** the user's message includes an "as admin" phrase in any language
-- **THEN** the deference directive is NOT included
-- **AND** behavior is identical to a message without the phrase
+#### Scenario: Non-admin invokes the keyword
+- **WHEN** the verified role is `member` (or `dev`) AND the latest message contains an admin-claim keyword
+- **THEN** the prompt includes a not-verified context naming the user's actual role and stating they are NOT an admin
+- **AND** the context instructs Clack not to grant admin deference and not to action admin-gated requests on the basis of the claim
+- **AND** the prompt includes NO deference directive
+
+#### Scenario: Claim from a non-admin confers nothing
+- **WHEN** a `member` types an admin-claim keyword
+- **THEN** the rendered role is `member` and behavior toward admin-gated requests is unchanged from a message with no claim (the keyword grants no authority)
+
+#### Scenario: System/automated context
+- **WHEN** the role is `system` or absent (e.g. a scheduled run with no interactive user)
+- **THEN** no admin-claim context is rendered, even if a keyword coincidentally appears in the text
 
 ### Requirement: Deference Bounded to Posture, Not Permissions
-The deference posture SHALL relax only Clack's epistemic stubbornness and conversational hedging toward verified admins. It SHALL NOT relax role-based tool gating, permission checks, the security boundary, or code-enforced safety on destructive actions.
+The admin-claim context SHALL be prompt text only. It SHALL NOT alter role-based tool gating, permission checks, the security boundary, or code-enforced safety on destructive actions.
 
 #### Scenario: Tool gating unaffected
 - **WHEN** the deference directive is active for an admin session

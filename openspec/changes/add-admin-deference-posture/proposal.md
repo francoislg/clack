@@ -4,22 +4,22 @@ When a verified admin corrects Clack — e.g. "that question wasn't a cheat, rev
 
 ## What Changes
 
-- Surface the requesting user's **verified role** to Claude in the prompt as a fact sourced from `ctx.role` (never from message text), so Claude knows when it is talking to an admin/owner.
-- Add an always-on **deference posture** directive: when a verified admin or owner asserts a correction, override, or judgment call, Clack defers and acts rather than re-arguing its prior position. The phrase "as admin" / "en tant qu'admin" (any language) is recognized as a natural intensifier of this intent, not a required gate.
-- The posture is **global** (applies across all subsystems, not just trivia) and is bounded: it relaxes epistemic stubbornness and hedging toward verified admins; it does NOT relax the security boundary, role-permission gating, or destructive-action safety that lives in code.
-- Members and devs see no behavioral change — a non-admin claiming "I am admin" in text changes nothing, because the role is not read from the message.
+- Detect an **explicit admin-claim keyword** in the user's latest message via a fixed, case-insensitive list: `"as an admin"`, `"as admin"`, `"en tant qu'admin"`, `"je suis admin"`, `"admin:"`. Detection keys on the most recent user message only (no stale-latch on earlier thread text).
+- When the keyword is present AND the **verified role** (sourced from `ctx.role`, never message text) is `admin`/`owner`: surface the verified role and a **deference directive** — act on the admin's asserted correction/override rather than re-arguing. Bounded to stubbornness/hedging; does NOT relax tool/permission gating, the security boundary, or destructive-action safety.
+- When the keyword is present AND the verified role is `member`/`dev`: surface a **not-verified rebuttal** — Claude is told the user is NOT an admin and the claim confers no authority, so it refuses admin deference and admin-gated actions on that basis (silently — no scripted callout). The trust boundary is structural: the branch is decided by the verified role, not the message.
+- When no keyword is present, nothing is rendered — an admin's ordinary messages are unaffected (the posture is **gated, not always-on**).
 
 ## Capabilities
 
 ### New Capabilities
-- `admin-deference`: Surfaces the requesting user's verified role into Claude's prompt and instructs Clack to defer to verified admin/owner assertions instead of re-litigating, while preserving the deterministic trust boundary (claims in message text never confer role).
+- `admin-deference`: Detects an explicit admin-claim keyword in the user's latest message and, gated on the verified role, either defers to a verified admin/owner or rebuts a non-admin's claim — preserving the deterministic trust boundary (claims in message text never confer role).
 
 ### Modified Capabilities
 <!-- None: role gating, tool permissions, and the security boundary are unchanged. -->
 
 ## Impact
 
-- **Code:** `src/claude/promptBuilder.ts` (render verified-role line + deference directive in the prompt; role already threaded via `PromptOptions.role` / `buildDeliveryContext`). No change to role resolution, tool gating, or `roles.json`.
-- **Instructions:** optional supporting guidance, English-only (via-Claude path), consistent with the existing posture-directive pattern (`DISMISSAL_PHRASES`, attention-level guidance).
-- **Behavior:** admins/owners get less-stubborn, less-hedged responses; members/devs unchanged. No new config, no new tools, no migration.
-- **Tests:** prompt-assembly unit tests asserting the role line + directive appear for admin/owner and are absent (or member-valued) for member/dev; a trust-boundary test asserting a member's "I am admin" text does not elevate the rendered role.
+- **Code:** `src/claude/promptBuilder.ts` — keyword-detection (`messageClaimsAdmin`), the gated context renderer (`renderAdminClaimContext`), and a latest-user-message helper; wired into `buildPrompt` using `options?.role`. No change to role resolution, tool gating, or `roles.json`.
+- **Instructions:** English-only (via-Claude path), consistent with the existing posture-directive pattern (`DISMISSAL_PHRASES`, attention-level guidance).
+- **Behavior:** admins/owners get less-stubborn responses ONLY when they invoke a keyword; non-admins who invoke a keyword get no authority and Claude is told so; everything else unchanged. No new config, no new tools, no migration.
+- **Tests:** unit tests for keyword detection (each keyword, case-insensitivity, curly-apostrophe, negatives), the gated branches (admin+keyword→deference, member/dev+keyword→rebuttal, no-keyword→nothing, system/undefined→nothing), and latest-message scope (no stale latch).
