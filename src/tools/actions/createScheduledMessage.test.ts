@@ -63,6 +63,7 @@ interface CallArgs {
   timezone?: string;
   skipConditions?: string;
   submitResponseMode?: "always" | "optional" | "skipped";
+  jitterMinutes?: number;
 }
 
 type CreateTool = ReturnType<typeof createCreateScheduledMessageTool>;
@@ -78,6 +79,7 @@ function callHandler(tool: CreateTool, args: CallArgs) {
       dayOfWeek: "*",
       timezone: "America/New_York",
       oneShot: undefined,
+      jitterMinutes: undefined,
       requiredTools: undefined,
       plugin: undefined,
       skipConditions: undefined,
@@ -295,6 +297,7 @@ describe("createScheduledMessage tool", () => {
         prompt: "test",
         requiredTools: ["mcp__clack__not_a_real_tool", "bare_name_missing_prefix"],
         oneShot: undefined,
+        jitterMinutes: undefined,
         plugin: undefined,
         skipConditions: undefined,
         submitResponseMode: undefined,
@@ -328,6 +331,7 @@ describe("createScheduledMessage tool", () => {
         prompt: "test",
         requiredTools: ["mcp__clack__fetch_channel_messages"],
         oneShot: undefined,
+        jitterMinutes: undefined,
         plugin: undefined,
         skipConditions: undefined,
         submitResponseMode: undefined,
@@ -404,6 +408,26 @@ describe("createScheduledMessage tool", () => {
 
     const jobs = await getJobs();
     assert.equal(jobs[0].submitResponseMode, undefined);
+  });
+
+  it("persists jitterMinutes on the saved job when supplied", async () => {
+    const ctx = buildCtx();
+    const deps = makeDeps();
+    const tool = createCreateScheduledMessageTool(ctx, deps);
+    await callHandler(tool, { channel: "C456", prompt: "x", jitterMinutes: 5 });
+
+    const jobs = await getJobs();
+    assert.equal(jobs[0].jitterMinutes, 5);
+  });
+
+  it("omits jitterMinutes from the saved record when not supplied", async () => {
+    const ctx = buildCtx();
+    const deps = makeDeps();
+    const tool = createCreateScheduledMessageTool(ctx, deps);
+    await callHandler(tool, { channel: "C456", prompt: "x" });
+
+    const jobs = await getJobs();
+    assert.equal(jobs[0].jitterMinutes, undefined);
   });
 
   it("persists the name on the saved job", async () => {

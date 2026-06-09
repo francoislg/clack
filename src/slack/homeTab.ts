@@ -1659,6 +1659,9 @@ async function buildScheduledMessagesSection(
               : t("home.scheduled.skipped_suffix")
             : "";
       const typeLabel = job.oneShot ? t("home.scheduled.one_time_suffix") : "";
+      const jitterLabel = job.jitterMinutes
+        ? t("home.scheduled.jitter_suffix", { minutes: job.jitterMinutes })
+        : "";
       // userJobs filters out pluginManaged rows, so createdBy is always a real userId here.
       const creator =
         isAdmin && job.createdBy !== null && job.createdBy !== userId
@@ -1671,7 +1674,7 @@ async function buildScheduledMessagesSection(
         type: "section",
         text: {
           type: "mrkdwn",
-          text: `${namePrefix}${channelRef}${schedule}${typeLabel}${creator}${statusLabel}`,
+          text: `${namePrefix}${channelRef}${schedule}${jitterLabel}${typeLabel}${creator}${statusLabel}`,
         },
         accessory: {
           type: "button",
@@ -1712,6 +1715,9 @@ async function buildScheduledMessagesSection(
       const ownerLabel = job.plugin
         ? t("home.scheduled.plugin_suffix", { plugin: job.plugin })
         : "";
+      const jitterLabel = job.jitterMinutes
+        ? t("home.scheduled.jitter_suffix", { minutes: job.jitterMinutes })
+        : "";
       const namePrefix = job.name ? `*${escapeMrkdwn(job.name)}* — ` : "";
 
       const channelRef = job.channel ? `<#${job.channel}> · ` : "";
@@ -1719,7 +1725,7 @@ async function buildScheduledMessagesSection(
         type: "section",
         text: {
           type: "mrkdwn",
-          text: `${namePrefix}${channelRef}${schedule}${ownerLabel}${statusLabel}`,
+          text: `${namePrefix}${channelRef}${schedule}${jitterLabel}${ownerLabel}${statusLabel}`,
         },
         accessory: {
           type: "button",
@@ -1769,6 +1775,15 @@ function buildPluginCronJobModal(job: CronJob, viewerTimezone?: string): View {
       text: `*${t("home.scheduled.cron_label")}*: \`${escapeMrkdwn(job.cronExpression)}\` — ${schedule}`,
     },
   });
+  if (job.jitterMinutes) {
+    blocks.push({
+      type: "section",
+      text: {
+        type: "mrkdwn",
+        text: `*${t("home.scheduled.jitter_modal_label")}*: ${job.jitterMinutes}m`,
+      },
+    });
+  }
 
   if (job.prompt) {
     blocks.push({
@@ -1872,6 +1887,19 @@ export function buildCronJobModal(job?: CronJob, viewerTimezone?: string): View 
         type: "plain_text",
         text: t("home.scheduled.cron_hint"),
       },
+    },
+    {
+      type: "input",
+      block_id: "cron_jitter_block",
+      label: { type: "plain_text", text: t("home.scheduled.jitter_label") },
+      optional: true,
+      element: {
+        type: "plain_text_input",
+        action_id: "cron_jitter",
+        ...(job?.jitterMinutes && { initial_value: String(job.jitterMinutes) }),
+        placeholder: { type: "plain_text", text: t("home.scheduled.jitter_placeholder") },
+      },
+      hint: { type: "plain_text", text: t("home.scheduled.jitter_hint") },
     },
     {
       type: "input",

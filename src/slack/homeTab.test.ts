@@ -1483,6 +1483,34 @@ describe("buildHomeView — Scheduled Messages skipConditions", () => {
     );
   });
 
+  it("appends a 'jitter: Nm' suffix to the row when jitterMinutes is set", async () => {
+    setDefaultMocks("member");
+    mockGetJobsByUser.mockImplementation(async () => [baseJob({ jitterMinutes: 5 })]);
+
+    const deps = makeDeps();
+    const view = await buildHomeView({ userId: "U001" }, deps);
+    const blocks = view.blocks as KnownBlock[];
+    const sections = blocks.filter((b) => b.type === "section");
+    const jobLine = sections.find(
+      (s) => s.text?.type === "mrkdwn" && s.text.text.includes("jitter: 5m"),
+    );
+    assert.ok(jobLine, "row should carry an inline 'jitter: 5m' suffix");
+  });
+
+  it("omits the jitter suffix when the job has no jitter", async () => {
+    setDefaultMocks("member");
+    mockGetJobsByUser.mockImplementation(async () => [baseJob()]);
+
+    const deps = makeDeps();
+    const view = await buildHomeView({ userId: "U001" }, deps);
+    const blocks = view.blocks as KnownBlock[];
+    const sections = blocks.filter((b) => b.type === "section");
+    assert.ok(
+      !sections.some((s) => s.text?.type === "mrkdwn" && s.text.text.includes("jitter:")),
+      "no jitter suffix should render when jitterMinutes is absent",
+    );
+  });
+
   it("renders a distinct 'last run skipped' indicator for skipped status", async () => {
     setDefaultMocks("member");
     mockGetJobsByUser.mockImplementation(async () => [baseJob({ lastRunStatus: "skipped" })]);
@@ -1607,6 +1635,51 @@ describe("buildCronJobModal — skipConditions input", () => {
   it("leaves the input empty when the job has no skipConditions", () => {
     const modal = buildCronJobModal(jobWith());
     const input = findSkipConditionsInput(modal);
+    assert.ok(input);
+    if (input.type === "input" && "initial_value" in input.element) {
+      assert.equal(input.element.initial_value, undefined);
+    }
+  });
+});
+
+describe("buildCronJobModal — jitter input", () => {
+  function jobWith(overrides: Partial<CronJob> = {}): CronJob {
+    return {
+      id: "job-1",
+      cronExpression: "0 9 * * *",
+      channel: "C456",
+      prompt: "Summarize PRs",
+      createdBy: "U001",
+      createdAt: new Date().toISOString(),
+      enabled: true,
+      timezone: "UTC",
+      ...overrides,
+    };
+  }
+
+  function findJitterInput(view: View): KnownBlock | undefined {
+    const blocks = view.blocks as KnownBlock[];
+    return blocks.find((b) => "block_id" in b && b.block_id === "cron_jitter_block");
+  }
+
+  it("includes an optional jitter input in the modal", () => {
+    const input = findJitterInput(buildCronJobModal(jobWith()));
+    assert.ok(input, "modal should include the jitter input block");
+    if (input.type === "input") {
+      assert.equal(input.optional, true);
+    }
+  });
+
+  it("pre-fills the input with the stored jitterMinutes as a string", () => {
+    const input = findJitterInput(buildCronJobModal(jobWith({ jitterMinutes: 5 })));
+    assert.ok(input);
+    if (input.type === "input" && "initial_value" in input.element) {
+      assert.equal(input.element.initial_value, "5");
+    }
+  });
+
+  it("leaves the input empty when the job has no jitter", () => {
+    const input = findJitterInput(buildCronJobModal(jobWith()));
     assert.ok(input);
     if (input.type === "input" && "initial_value" in input.element) {
       assert.equal(input.element.initial_value, undefined);

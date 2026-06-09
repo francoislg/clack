@@ -35,7 +35,7 @@ import {
 } from "../../configurationFiles.js";
 import { setUserPreference } from "../../userPreferences.js";
 import type { ReactionDelivery } from "../../userPreferences.js";
-import { toggleJob, deleteJob, getJob, updateJob } from "../../cronJobs.js";
+import { toggleJob, deleteJob, getJob, updateJob, MAX_JITTER_MINUTES } from "../../cronJobs.js";
 import { runJobNow } from "../../cronScheduler.js";
 import { openDmChannel } from "../channelResolver.js";
 import { getUserInfo } from "../userCache.js";
@@ -1047,6 +1047,7 @@ export function registerHomeTabHandler(app: App, deps: HomeTabDeps = defaultHome
     const prompt = view.state.values.cron_prompt_block.prompt.value;
     const skipConditions =
       view.state.values.cron_skip_conditions_block?.skip_conditions.value ?? "";
+    const jitterRaw = view.state.values.cron_jitter_block?.cron_jitter.value?.trim() ?? "";
 
     if (name.length === 0) {
       await ack({
@@ -1081,6 +1082,22 @@ export function registerHomeTabHandler(app: App, deps: HomeTabDeps = defaultHome
       return;
     }
 
+    // Empty clears jitter (null); otherwise an integer in [0, MAX_JITTER_MINUTES].
+    let jitterMinutes: number | null = null;
+    if (jitterRaw.length > 0) {
+      const parsed = Number(jitterRaw);
+      if (!Number.isInteger(parsed) || parsed < 0 || parsed > MAX_JITTER_MINUTES) {
+        await ack({
+          response_action: "errors",
+          errors: {
+            cron_jitter_block: `Enter a whole number of minutes between 0 and ${MAX_JITTER_MINUTES}`,
+          },
+        });
+        return;
+      }
+      jitterMinutes = parsed;
+    }
+
     await ack();
     try {
       await deps.updateJob(jobId, {
@@ -1090,6 +1107,7 @@ export function registerHomeTabHandler(app: App, deps: HomeTabDeps = defaultHome
         prompt,
         // Empty string clears; a non-empty string sets.
         skipConditions,
+        jitterMinutes,
       });
       await publishHomeView(client, body.user.id, deps);
     } catch (error) {
