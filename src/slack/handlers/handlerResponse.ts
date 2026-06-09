@@ -10,7 +10,10 @@ import type { SessionInfo } from "../activeSessions.js";
 import type { SessionContext } from "../../sessions.js";
 import { errorMessage as toErrorMessage } from "../../errors.js";
 import type { AskClaudeOptions, ClaudeResponse } from "../../claude/index.js";
-import type { DeliverFn, ToolCallRecord } from "../../tools/types.js";
+import type { DeliverFn, DeliveryControl, ToolCallRecord } from "../../tools/types.js";
+import type { DeliveryHandler } from "./delivery/types.js";
+import { StreamingDelivery } from "./delivery/streamingDelivery.js";
+import { SilentDelivery } from "./delivery/silentDelivery.js";
 import { getErrorBlocksWithRetry, asSlackBlocks, type SlackBlocks } from "../blocks.js";
 import { t } from "../../i18n/t.js";
 import {
@@ -22,7 +25,7 @@ import {
   appendAssistantMessage,
   appendStagedIntents,
 } from "../../sessions.js";
-import type { SessionAssistantMessage } from "../../sessions.js";
+import type { SessionAssistantMessage, DeliveryMode } from "../../sessions.js";
 import { askClaude } from "../../claude/index.js";
 import { analyzeError } from "../../claude/utilities.js";
 import { sendErrorReport } from "../messagesApi.js";
@@ -111,13 +114,15 @@ export interface ExecuteAndDeliverParams {
   deps?: HandlerResponseDeps;
 }
 
-/** Internal context shared by executeAndDeliver and its helpers. */
+/** Internal context shared by executeAndDeliver and its helpers. `current` is the active
+ *  delivery handler — mutable so a mid-run `setDelivery` swap is visible to every closure that
+ *  reads `ctx.current` (the `onEvent` forwarder, the deliver fn, and the handle* helpers). */
 interface DeliveryContext {
   client: App["client"];
   session: SessionContext;
   sessionInfo: SessionInfo;
   claudeOptions: AskClaudeOptions;
-  streamer: SlackStreamer | null;
+  current: DeliveryHandler;
   targetChannel: string;
   targetThread: string;
   alreadyDelivered: boolean;
@@ -150,37 +155,41 @@ export async function executeAndDeliver(params: ExecuteAndDeliverParams): Promis
 
   const userInfo = await deps.getUserInfo(client, sessionInfo.userId);
 
-  // Create streamer only for interactive sessions
-  let streamer: SlackStreamer | null = null;
-  if (!silentThinking) {
-    // Slack's streaming API requires a human user as recipient — bot users cause
-    // channel_type_not_supported errors. Fall back to the bot's own user ID when
-    // the session user is a bot (e.g., auto-respond triggered by a Sentry message).
+  // Construct (not start) the streamer lazily, so its bot-fallback auth.test runs only when a
+  // streaming surface is actually opened — at turn start for streamer mode, or at a mid-run
+  // switch into streamer mode. Slack's streaming API requires a human recipient, so fall back
+  // to the bot's own user id when the session user is a bot (e.g. a Sentry-triggered run).
+  const makeStreamer = async (): Promise<SlackStreamer> => {
     let streamUserId = sessionInfo.userId;
     if (userInfo?.isBot || sessionInfo.userId === "auto-respond") {
       const authResult = await client.auth.test();
       streamUserId = authResult.user_id ?? streamUserId;
     }
-
-    streamer = deps.createStreamer({
+    return deps.createStreamer({
       client,
       channel: targetChannel,
       threadTs: targetThread,
       userId: streamUserId,
     });
+  };
 
-    const streamStarted = await streamer.start();
-    if (!streamStarted) {
-      logger.warn("Stream failed to start, will fall back to one-shot posting");
-    }
-  }
+  const handlerFor = (silent: boolean): DeliveryHandler =>
+    silent
+      ? new SilentDelivery({
+          client,
+          targetChannel,
+          recordResponseTs: async (ts) => {
+            await deps.updateSession(session.sessionId, { responseTs: ts });
+          },
+        })
+      : new StreamingDelivery({ client, targetChannel, targetThread, makeStreamer });
 
   const ctx: DeliveryContext = {
     client,
     session,
     sessionInfo,
     claudeOptions,
-    streamer,
+    current: handlerFor(silentThinking),
     targetChannel,
     targetThread,
     alreadyDelivered: false,
@@ -190,7 +199,32 @@ export async function executeAndDeliver(params: ExecuteAndDeliverParams): Promis
     deps,
   };
 
-  const deliver = silentThinking ? buildDirectDeliverFn(ctx) : buildDeliverFn(ctx);
+  await ctx.current.windUp();
+
+  // Swap the active handler mid-run: tear down the old surface (discarding it), install the
+  // new one, open it. The `onEvent`/deliver closures read `ctx.current`, so the swap is live.
+  const setDelivery = async (next: DeliveryHandler): Promise<void> => {
+    await ctx.current.windDown({ discard: true });
+    ctx.current = next;
+    await ctx.current.windUp();
+  };
+
+  let currentMode: DeliveryMode = silentThinking ? "invisible" : "streamer";
+  const deliveryControl: DeliveryControl = {
+    switchTo: async (mode) => {
+      if (ctx.alreadyDelivered) return; // this turn's surface is already finalized
+      if (mode === currentMode) return; // idempotent
+      await setDelivery(handlerFor(mode === "invisible"));
+      currentMode = mode;
+      try {
+        await deps.setDeliveryMode(session.sessionId, mode);
+      } catch (err) {
+        logger.error("Failed to persist delivery mode on switch:", err);
+      }
+    },
+  };
+
+  const deliver = buildDeliverFn(ctx);
 
   try {
     const user = userInfo?.displayName ?? userInfo?.username ?? sessionInfo.userId;
@@ -207,7 +241,12 @@ export async function executeAndDeliver(params: ExecuteAndDeliverParams): Promis
       ...claudeOptions,
       slackClient: client,
       deliver,
-      onEvent: streamer?.handleEvent ?? (() => {}),
+      // Only where a real delivery surface exists. A channelless run posts to a synthetic
+      // channel, so there is nothing to switch — omit the control (and thus the tool).
+      ...(!isChannellessChannelId(targetChannel) && { deliveryControl }),
+      // Stable forwarder: reads `ctx.current` live so a handler installed mid-run (via a
+      // `switch_delivery_context` swap) starts receiving events without rebinding.
+      onEvent: (event) => ctx.current.handleEvent(event),
       onToolCall: (record) => {
         liveToolHistory.push(record);
       },
@@ -237,7 +276,9 @@ export async function executeAndDeliver(params: ExecuteAndDeliverParams): Promis
     await handleUnexpectedError(ctx, error);
     throw error;
   } finally {
-    await streamer?.stop();
+    // Safety net: ensure the surface is closed (frozen, not discarded) even on paths that
+    // didn't deliver. Idempotent — a no-op when the handler already finalized.
+    await ctx.current.windDown();
   }
 }
 
@@ -245,20 +286,30 @@ export async function executeAndDeliver(params: ExecuteAndDeliverParams): Promis
 // DELIVERY HELPERS
 // ============================================================
 
+/** Fire-and-forget reaction adding (never blocks delivery). Shared by every deliver branch. */
+function applyDeliveryReactions(
+  ctx: DeliveryContext,
+  ts: string | undefined,
+  reactions?: string[],
+) {
+  if (reactions?.length && ts) {
+    addDeliveryReactions(ctx.client, ctx.targetChannel, ts, reactions).catch((err) =>
+      logger.warn(`addDeliveryReactions threw: ${err}`),
+    );
+  }
+}
+
 /**
- * Build the DeliverFn that Claude's submit_response tool calls.
- * Tries the streamer first, falls back to chat.postMessage.
+ * Build the single DeliverFn that Claude's submit_response tool calls. The active delivery
+ * handler (`ctx.current`) owns the primary landing (streaming finalizes its card in place;
+ * silent posts directly); this function keeps the mode-agnostic concerns — the follower /
+ * already-delivered guards, the top-level repost, reactions, and the response-ping decision.
  */
 function buildDeliverFn(ctx: DeliveryContext): DeliverFn {
   return async (opts) => {
-    // Follower delivery (multi-message batch): the primary has already consumed the streamer,
-    // and we want to bypass the `alreadyDelivered` guard for subsequent posts in the batch.
-    // Two flavors:
-    //   - `threadTs` set: thread reply (thread_replies field). Posts with thread_ts.
-    //   - `postTopLevel` true AND already delivered: separate top-level channel message
-    //     (additional_messages field). Posts to the channel without thread_ts.
-    //   When neither is set on a follower call, fall through (and the alreadyDelivered guard
-    //   below rejects it as a duplicate primary).
+    // Follower delivery (multi-message batch): bypass the `alreadyDelivered` guard for thread
+    // replies (`threadTs`) and extra top-level messages (`postTopLevel`). A plain post — the
+    // primary already consumed the surface. Mode-agnostic.
     if (ctx.alreadyDelivered && (opts.threadTs || opts.postTopLevel)) {
       try {
         const result = await ctx.client.chat.postMessage({
@@ -268,13 +319,8 @@ function buildDeliverFn(ctx: DeliveryContext): DeliverFn {
           blocks: opts.blocks,
           ...unfurlOptions(opts.suppressUnfurls),
         });
-        const ts = result.ts;
-        if (opts.reactions?.length && ts) {
-          addDeliveryReactions(ctx.client, ctx.targetChannel, ts, opts.reactions).catch((err) =>
-            logger.warn(`addDeliveryReactions threw: ${err}`),
-          );
-        }
-        return { ok: true as const, ts };
+        applyDeliveryReactions(ctx, result.ts, opts.reactions);
+        return { ok: true as const, ts: result.ts };
       } catch (error) {
         logger.error("Follower delivery failed:", error);
         return { ok: false as const, error: ctx.deps.toErrorMessage(error) };
@@ -286,22 +332,11 @@ function buildDeliverFn(ctx: DeliveryContext): DeliverFn {
     }
 
     try {
-      let ts: string | undefined;
-
-      // Top-level delivery: streamer is thread-bound, so delete its message(s) and post
-      // fresh to the channel with no thread_ts. Iterates every block the streamer opened
-      // (rollover can produce multiple), so all in-thread footprint is removed.
+      // Top-level delivery: the active surface is thread-bound, so tear it down (discarding
+      // any messages it opened) and post fresh to the channel with no thread_ts. A top-level
+      // post is a new conversational context, so seed a follow-up session for replies to it.
       if (opts.postTopLevel) {
-        if (ctx.streamer) {
-          await ctx.streamer.stop();
-          for (const ts of ctx.streamer.getAllMessageTss()) {
-            try {
-              await ctx.client.chat.delete({ channel: ctx.targetChannel, ts });
-            } catch (err) {
-              logger.warn("Failed to delete streamer message before top-level post:", err);
-            }
-          }
-        }
+        await ctx.current.windDown({ discard: true });
         const fallbackText = notificationText(opts.blocks);
         const result = await ctx.client.chat.postMessage({
           channel: ctx.targetChannel,
@@ -309,14 +344,11 @@ function buildDeliverFn(ctx: DeliveryContext): DeliverFn {
           blocks: opts.blocks,
           ...unfurlOptions(opts.suppressUnfurls),
         });
-        ts = result.ts;
+        const ts = result.ts;
         ctx.alreadyDelivered = true;
-        // A top-level post is a new conversational context — replies to it belong to a
-        // thread Clack just created, not the parent thread that triggered the bot. Create
-        // a fresh session for that new thread so future replies get their own pre-analysis,
-        // their own disengage state, and their own history, while inheriting "similar
-        // context" from the parent (channel, channelName, auto-respond rule's extraContext).
-        // Silently log on failure — losing the follow-up session is a UX regression, not a
+        // Future replies belong to a thread Clack just created, not the parent that triggered
+        // the bot. Inherit "similar context" (channel, channelName, extraContext) from the
+        // parent. Log on failure — losing the follow-up session is a UX regression, not a
         // correctness failure, so delivery should still succeed.
         if (ts && ctx.deps.createSession) {
           try {
@@ -340,108 +372,23 @@ function buildDeliverFn(ctx: DeliveryContext): DeliverFn {
             logger.warn("Failed to create follow-up session for top-level post:", err);
           }
         }
-        if (opts.reactions?.length && ts) {
-          addDeliveryReactions(ctx.client, ctx.targetChannel, ts, opts.reactions).catch((err) =>
-            logger.warn(`addDeliveryReactions threw: ${err}`),
-          );
-        }
+        applyDeliveryReactions(ctx, ts, opts.reactions);
         return { ok: true as const, ts };
       }
 
-      if (ctx.streamer && !ctx.streamer.hasFailed) {
-        await ctx.streamer.stop({ blocks: opts.blocks });
-
-        if (!ctx.streamer.hasFailed) {
-          ts = ctx.streamer.getMessageTs();
-          ctx.alreadyDelivered = true;
-          await sendResponseNotification(ctx);
-          if (opts.reactions?.length && ts) {
-            addDeliveryReactions(ctx.client, ctx.targetChannel, ts, opts.reactions).catch((err) =>
-              logger.warn(`addDeliveryReactions threw: ${err}`),
-            );
-          }
-          return { ok: true as const, ts };
-        }
-        // Stop failed — fall through to chat.postMessage fallback
-      }
-
-      // Fallback: post via chat.postMessage
-      const result = await ctx.client.chat.postMessage({
-        channel: ctx.targetChannel,
-        thread_ts: ctx.targetThread,
-        text: notificationText(opts.blocks),
+      // Primary delivery via the active handler. It reports whether its delivery already
+      // notified the user (a real post does; a streaming in-place edit does not).
+      const res = await ctx.current.deliver({
         blocks: opts.blocks,
-        ...unfurlOptions(opts.suppressUnfurls),
+        suppressUnfurls: opts.suppressUnfurls,
       });
-      ts = result.ts;
+      if (!res.ok) return res;
       ctx.alreadyDelivered = true;
-      if (opts.reactions?.length && ts) {
-        addDeliveryReactions(ctx.client, ctx.targetChannel, ts, opts.reactions).catch((err) =>
-          logger.warn(`addDeliveryReactions threw: ${err}`),
-        );
-      }
-      return { ok: true as const, ts };
+      if (!res.notified) await sendResponseNotification(ctx);
+      applyDeliveryReactions(ctx, res.ts, opts.reactions);
+      return { ok: true as const, ts: res.ts };
     } catch (error) {
       logger.error("Delivery failed:", error);
-      return { ok: false as const, error: ctx.deps.toErrorMessage(error) };
-    }
-  };
-}
-
-/**
- * Build a DeliverFn that posts directly via chat.postMessage without thread_ts.
- * Used for silentThinking mode (e.g., cron jobs) where no streaming UX is needed.
- */
-function buildDirectDeliverFn(ctx: DeliveryContext): DeliverFn {
-  return async (opts) => {
-    // Follower delivery: post-primary calls bypass the `alreadyDelivered` guard. Both
-    // thread-reply (`threadTs`) and top-level (`postTopLevel`) flavors are supported.
-    if (ctx.alreadyDelivered && (opts.threadTs || opts.postTopLevel)) {
-      try {
-        const result = await ctx.client.chat.postMessage({
-          channel: ctx.targetChannel,
-          ...(opts.threadTs && { thread_ts: opts.threadTs }),
-          text: notificationText(opts.blocks),
-          blocks: opts.blocks,
-          ...unfurlOptions(opts.suppressUnfurls),
-        });
-        const ts = result.ts;
-        if (opts.reactions?.length && ts) {
-          addDeliveryReactions(ctx.client, ctx.targetChannel, ts, opts.reactions).catch((err) =>
-            logger.warn(`addDeliveryReactions threw: ${err}`),
-          );
-        }
-        return { ok: true as const, ts };
-      } catch (error) {
-        logger.error("Direct follower delivery failed:", error);
-        return { ok: false as const, error: ctx.deps.toErrorMessage(error) };
-      }
-    }
-
-    if (ctx.alreadyDelivered) {
-      return { ok: false as const, error: "Response already delivered" };
-    }
-
-    try {
-      const result = await ctx.client.chat.postMessage({
-        channel: ctx.targetChannel,
-        text: notificationText(opts.blocks),
-        blocks: opts.blocks,
-        ...unfurlOptions(opts.suppressUnfurls),
-      });
-      ctx.alreadyDelivered = true;
-      const ts = result.ts;
-      if (ts) {
-        await ctx.deps.updateSession(ctx.session.sessionId, { responseTs: ts });
-      }
-      if (opts.reactions?.length && ts) {
-        addDeliveryReactions(ctx.client, ctx.targetChannel, ts, opts.reactions).catch((err) =>
-          logger.warn(`addDeliveryReactions threw: ${err}`),
-        );
-      }
-      return { ok: true as const, ts };
-    } catch (error) {
-      logger.error("Direct delivery failed:", error);
       return { ok: false as const, error: ctx.deps.toErrorMessage(error) };
     }
   };
@@ -469,18 +416,14 @@ async function sendResponseNotification(ctx: DeliveryContext): Promise<void> {
 }
 
 /**
- * Deliver a message via streamer with chat.postMessage fallback.
+ * Deliver a raw-text answer (a turn that ended without submit_response) via the active handler,
+ * pinging only when the handler's delivery did not notify on its own.
  */
 async function deliverViaStreamerOrFallback(ctx: DeliveryContext, text: string): Promise<void> {
-  if (ctx.streamer) {
-    await ctx.streamer.stop({ markdownText: text });
-    if (!ctx.streamer.hasFailed) return;
+  const res = await ctx.current.deliver({ markdownText: text });
+  if (res.ok && !res.notified) {
+    await sendResponseNotification(ctx);
   }
-  await ctx.client.chat.postMessage({
-    channel: ctx.targetChannel,
-    ...(ctx.silentThinking ? {} : { thread_ts: ctx.targetThread }),
-    text,
-  });
 }
 
 /**
@@ -490,16 +433,8 @@ async function deliverViaStreamerOrFallback(ctx: DeliveryContext, text: string):
  */
 async function handleCancellation(ctx: DeliveryContext): Promise<void> {
   if (ctx.alreadyDelivered) return;
-
-  await ctx.streamer?.stop();
-
-  for (const ts of ctx.streamer?.getAllMessageTss() ?? []) {
-    try {
-      await ctx.client.chat.delete({ channel: ctx.targetChannel, ts });
-    } catch (error) {
-      logger.warn("Failed to delete streamer message after cancellation:", error);
-    }
-  }
+  // Discard the surface so the thread shows no trace of the cancelled run.
+  await ctx.current.windDown({ discard: true });
 }
 
 /**
@@ -507,18 +442,9 @@ async function handleCancellation(ctx: DeliveryContext): Promise<void> {
  * Skips session persistence and auto-execute.
  */
 async function handleSkip(ctx: DeliveryContext, response: ClaudeResponse): Promise<void> {
-  // Stop the streamer first so the finally block's stop() becomes a no-op
-  // (stop checks this.stopped internally). Must happen before chat.delete
-  // to avoid the finally block attempting to finalize a deleted message.
-  await ctx.streamer?.stop();
-
-  for (const ts of ctx.streamer?.getAllMessageTss() ?? []) {
-    try {
-      await ctx.client.chat.delete({ channel: ctx.targetChannel, ts });
-    } catch (error) {
-      logger.warn("Failed to delete streamer message after skip:", error);
-    }
-  }
+  // Discard the surface so no trace remains. windDown stops first, so the finally net's
+  // windDown becomes a no-op (the streamer checks its own stopped state internally).
+  await ctx.current.windDown({ discard: true });
 
   // unified-conversation-log: persist the skipped turn in a single updateSession
   // call together with the disengage flag (per skip-response spec requirement:
@@ -560,9 +486,6 @@ async function handleSuccess(ctx: DeliveryContext, response: ClaudeResponse): Pr
   if (!ctx.alreadyDelivered && !isChannellessChannelId(ctx.targetChannel)) {
     // submit_response was NOT called — deliver raw text via stream
     await deliverViaStreamerOrFallback(ctx, response.answer);
-    if (ctx.streamer && !ctx.streamer.hasFailed) {
-      await sendResponseNotification(ctx);
-    }
     // When the turn ends without submit_response but actionable intents are staged,
     // those intents are orphans: handleAutoExecuteActions only fires actions from a
     // submit_response payload. Warn explicitly instead of silently dropping them so
@@ -686,9 +609,10 @@ async function handleError(ctx: DeliveryContext, response: ClaudeResponse): Prom
     return;
   }
 
-  // Post error via chat.postMessage (stream may already be stopped if submit_response
-  // delivered before the SDK errored)
-  await ctx.streamer?.stop();
+  // Post error via chat.postMessage. Freeze the surface in place (no discard) so the user
+  // sees where the run got stuck; the surface may already be closed if submit_response
+  // delivered before the SDK errored.
+  await ctx.current.windDown();
   await ctx.client.chat.postMessage({
     channel: ctx.targetChannel,
     thread_ts: ctx.targetThread,
