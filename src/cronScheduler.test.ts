@@ -451,6 +451,9 @@ describe("cronScheduler", () => {
             ...responseOverride,
           };
         },
+        // Stubbed so the post-response session read-back never touches the real disk-scan
+        // fallback in sessions.ts (which would scan data/sessions/ and make the test slow).
+        findSessionByMessage: async () => null,
         markJobStarted: async (...args) => {
           order.push("markJobStarted");
           calls.markJobStarted.push(args);
@@ -656,6 +659,7 @@ describe("cronScheduler", () => {
           calls.processMessage.push(params);
           return { success: true, answer: "" };
         },
+        findSessionByMessage: async () => null,
         markJobStarted: async (...args) => {
           calls.markJobStarted.push(args);
         },
@@ -866,6 +870,7 @@ describe("cronScheduler", () => {
           calls.processMessage.push(params);
           return { success: true, answer: "", ...responseOverride };
         },
+        findSessionByMessage: async () => null,
         markJobStarted: async () => {},
         updateJobRunStatus: async (...args) => {
           calls.updateJobRunStatus.push(args);

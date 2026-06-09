@@ -30,6 +30,7 @@ import { makeChannellessChannelId } from "./channelless.js";
 
 export interface CronSchedulerDeps {
   processMessage: typeof processMessage;
+  findSessionByMessage: typeof findSessionByMessage;
   markJobStarted: typeof markJobStarted;
   updateJobRunStatus: typeof updateJobRunStatus;
   deleteJob: typeof deleteJob;
@@ -281,6 +282,7 @@ export function matchesSkipDate(
 
 const defaultDeps: CronSchedulerDeps = {
   processMessage,
+  findSessionByMessage,
   markJobStarted,
   updateJobRunStatus,
   deleteJob,
@@ -428,7 +430,7 @@ export async function executeDynamicJob(
   // Read back the session to capture the Slack message timestamp. For channelless
   // jobs the lookup key is the synthesized sentinel — the session was stored under
   // the same value, so this still finds the right record.
-  const session = await findSessionByMessage(dispatchChannelId, messageTs, effectiveUserId);
+  const session = await deps.findSessionByMessage(dispatchChannelId, messageTs, effectiveUserId);
   return { skipped: false, responseTs: session?.responseTs };
 }
 
