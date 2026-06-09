@@ -10,6 +10,7 @@ import {
   getActiveChangeForUser,
   getActiveWorkers,
   getActiveChangeBranches,
+  snapshotRunningChanges,
   setActiveStateDeps,
   type ActiveStateDeps,
   type ActiveChangeState,
@@ -437,5 +438,85 @@ describe("getActiveChangeBranches", () => {
     assert.ok(branches.has("feat/active"));
     assert.ok(branches.has("feat/also-active"));
     assert.ok(!branches.has("feat/done"));
+  });
+});
+
+// ============================================================================
+// snapshotRunningChanges
+// ============================================================================
+
+describe("snapshotRunningChanges", () => {
+  it("reports no active runs when there are no changes", () => {
+    const snap = snapshotRunningChanges();
+    assert.equal(snap.active, 0);
+    assert.deepEqual(snap.changes, []);
+  });
+
+  it("counts a change whose handle is running, with identity and age", () => {
+    vi.useFakeTimers();
+    try {
+      const startedAt = new Date();
+      setActiveChange(
+        "session-1",
+        makeChange({
+          repo: "org/repo",
+          branch: "feat/live",
+          status: "executing",
+          startedAt,
+          handle: makeFakeRunHandle("running"),
+        }),
+        makeRef(),
+      );
+      vi.advanceTimersByTime(3000);
+
+      const snap = snapshotRunningChanges();
+      assert.equal(snap.active, 1);
+      assert.deepEqual(snap.changes[0], {
+        repo: "org/repo",
+        branch: "feat/live",
+        status: "executing",
+        ageMs: 3000,
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not count a change whose handle is absent (e.g. pr_created awaiting follow-up)", () => {
+    setActiveChange(
+      "session-1",
+      makeChange({ status: "pr_created", handle: undefined }),
+      makeRef(),
+    );
+    assert.equal(snapshotRunningChanges().active, 0);
+  });
+
+  it("does not count a change whose handle has stopped", () => {
+    setActiveChange("session-1", makeChange({ handle: makeFakeRunHandle("stopped") }), makeRef());
+    assert.equal(snapshotRunningChanges().active, 0);
+  });
+
+  it("does not count a change whose handle has settled", () => {
+    setActiveChange("session-1", makeChange({ handle: makeFakeRunHandle("settled") }), makeRef());
+    assert.equal(snapshotRunningChanges().active, 0);
+  });
+
+  it("counts only the running changes when several are active", () => {
+    setActiveChange(
+      "session-1",
+      makeChange({ branch: "feat/a", handle: makeFakeRunHandle("running") }),
+      makeRef(),
+    );
+    setActiveChange(
+      "session-2",
+      makeChange({ branch: "feat/b", handle: makeFakeRunHandle("running") }),
+      makeRef(),
+    );
+    setActiveChange(
+      "session-3",
+      makeChange({ branch: "feat/c", handle: makeFakeRunHandle("settled") }),
+      makeRef(),
+    );
+    assert.equal(snapshotRunningChanges().active, 2);
   });
 });

@@ -25,6 +25,7 @@ import { getPinnedEntries, loadMcpServers, resolveEffectiveRegistry } from "./mc
 import { getLoadedPluginIntegrations } from "./plugins/state.js";
 import { installAllPinnedMcpServers } from "./mcpInstaller.js";
 import { runBaselineSmoke } from "./startupBaselineSmoke.js";
+import { startStatusServer } from "./statusServer.js";
 
 // Load environment variables from .env files (later files don't override earlier ones)
 dotenvConfig({ path: join(process.cwd(), ".env") });
@@ -265,6 +266,9 @@ async function main(): Promise<void> {
   // Step 5: Start all schedulers, watchers, and monitors (after Slack app is ready)
   startAll();
 
+  // Step 6: Start the loopback runtime status endpoint (auxiliary; non-fatal on failure)
+  const statusServer = startStatusServer();
+
   logger.startup("Clack is ready!");
 
   // Background: clean up stale worktrees and sessions (non-blocking)
@@ -285,6 +289,7 @@ async function main(): Promise<void> {
     logger.startup(`Received ${signal}, shutting down gracefully...`);
 
     stopAll();
+    statusServer?.close();
     await stopSlackApp();
 
     logger.startup("Shutdown complete");

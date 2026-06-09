@@ -33,6 +33,11 @@ gcloud builds submit --tag "$IMAGE_NAME" --quiet
 echo -e "${GREEN}✓ Image pushed to $IMAGE_NAME${NC}"
 echo ""
 
+# Runtime status endpoint (published to the VM's loopback in the run command below)
+# and the drain gate's bound wait. Override via env if needed.
+STATUS_PORT="${STATUS_PORT:-8787}"
+DRAIN_MAX_WAIT="${DRAIN_MAX_WAIT:-300}"
+
 # ============================================
 # Phase 1: Pre-pull new image (old container keeps running, no downtime)
 # ============================================
@@ -61,6 +66,42 @@ echo -e "${GREEN}✓ New image pulled${NC}"
 echo ""
 
 # ============================================
+# Phase 1.5: Drain — wait for the running bot to go idle before the swap
+# ============================================
+# Bounded wait (then proceed) so the hard `docker stop` lands on an idle bot
+# instead of killing an in-flight Claude run. Probes the running container's
+# status endpoint via `docker exec ... node` — guaranteed present in the image,
+# so no dependency on curl/jq being on the COS host. Unreachable endpoint (e.g.
+# an older image without /status) => skip and proceed.
+echo -e "${YELLOW}Draining: waiting for active runs to finish (up to ${DRAIN_MAX_WAIT}s)...${NC}"
+
+gcloud compute ssh "$INSTANCE_NAME" --zone="$ZONE" --quiet --command="bash -s ${STATUS_PORT} ${DRAIN_MAX_WAIT}" <<'REMOTE' || true
+PORT="$1"
+MAX="$2"
+deadline=$(( $(date +%s) + MAX ))
+probe() {
+    docker exec -e SP="$PORT" clack node -e 'fetch("http://127.0.0.1:"+process.env.SP+"/status").then(r=>r.json()).then(j=>process.stdout.write(j.busy+" "+j.activeRuns.count+" "+j.workers.active)).catch(()=>process.exit(2))' 2>/dev/null
+}
+while :; do
+    out=$(probe) || { echo "Drain check skipped (status endpoint unreachable)."; exit 0; }
+    set -- $out
+    busy="$1"; runs="$2"; workers="$3"
+    if [ "$busy" != "true" ] && [ "$busy" != "false" ]; then
+        echo "Drain check skipped (status endpoint returned unexpected output)."; exit 0
+    fi
+    if [ "$busy" = "false" ]; then echo "Bot idle — proceeding."; exit 0; fi
+    if [ "$(date +%s)" -ge "$deadline" ]; then
+        echo "Drain timeout — still busy ($runs runs, $workers workers). Proceeding with swap."
+        exit 0
+    fi
+    echo "Draining: ($runs runs, $workers workers) waiting..."
+    sleep 5
+done
+REMOTE
+
+echo ""
+
+# ============================================
 # Phase 2: Swap container (downtime starts here)
 # ============================================
 echo -e "${YELLOW}Stopping old container and starting new one...${NC}"
@@ -75,6 +116,7 @@ gcloud compute ssh "$INSTANCE_NAME" --zone="$ZONE" --quiet --command="
         --name clack \\
         --restart unless-stopped \\
         --env-file $DATA_MOUNT_POINT/data/auth/.env \\
+        -p 127.0.0.1:${STATUS_PORT}:${STATUS_PORT} \\
         -v $DATA_MOUNT_POINT/data:/app/data \\
         $IMAGE_NAME
 "

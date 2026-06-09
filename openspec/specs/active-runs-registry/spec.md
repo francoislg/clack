@@ -3,9 +3,7 @@
 ## Purpose
 
 In-memory registry of in-flight `ClaudeRunHandle`s, keyed by `(channelId, threadTs)` and (for direct messages) `(channelId, dmUserId)`. Single source of truth for "is a Claude run active for this conversation?" — used by every Slack handler to decide whether to spawn a fresh run or push a follow-up onto an existing one.
-
 ## Requirements
-
 ### Requirement: Active-Runs Registry
 
 The system SHALL maintain an in-memory registry of active `ClaudeRunHandle`s. Each handle is registered under one or more lookup keys: a thread key `(channelId, threadTs)` for threaded conversations and, additionally for direct messages, a per-user DM key `(channelId, dmUserId)`. The registry SHALL hold at most one handle per key. The registry replaces the prior `(channelId, messageTs)`-keyed in-flight request registry as the single source of truth for "is a Claude run active for this conversation?"
@@ -168,3 +166,33 @@ The active-runs registry SHALL be the only place that tracks which Claude runs a
 - **WHEN** a worker run is cancelled (via `cancel_worker_run`, stop reaction, or inline stop emoji)
 - **THEN** the cancellation calls `handle.stop(reason)` on the worker's `ClaudeRunHandle`
 - **AND** does NOT consult `activeChange.abortController` (which no longer exists as a separate field)
+
+### Requirement: Registry Entry Start Time and Snapshot
+
+Each active-runs registry entry SHALL record the time at which the run was registered. The registry SHALL expose a `snapshot()` accessor that returns the current set of active runs without mutating state, for consumption by the runtime status endpoint. The snapshot SHALL report, per run, the lookup identity (`channel`, `thread`), the handle's lifecycle `status`, and the elapsed age in milliseconds since registration (`ageMs`). The existing `size()` accessor and all routing behavior SHALL be unchanged. No entry SHALL be evicted on the basis of age — the snapshot only observes; it does not reap.
+
+#### Scenario: Entry records its start time
+
+- **WHEN** a `ClaudeRunHandle` is registered for a `(channelId, threadTs)` slot
+- **THEN** the entry records the registration timestamp
+
+#### Scenario: Snapshot reports per-run age and identity
+
+- **WHEN** `snapshot()` is called while one or more runs are registered
+- **THEN** it returns one entry per active run
+- **AND** each entry includes `channel`, `thread`, the handle's `status`, and an `ageMs` derived from the recorded start time
+- **AND** the registry contents are not modified by the call
+
+#### Scenario: Snapshot of an empty registry
+
+- **WHEN** `snapshot()` is called and no runs are registered
+- **THEN** it returns an empty set
+- **AND** the reported active-run count is zero
+
+#### Scenario: Snapshot does not evict stale entries
+
+- **WHEN** a run has been registered for a long duration without settling
+- **AND** `snapshot()` is called
+- **THEN** the run is reported with a large `ageMs`
+- **AND** the entry remains registered (the snapshot does not remove it)
+
