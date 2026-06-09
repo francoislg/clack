@@ -56,22 +56,21 @@ export class SlackStreamer {
    *  pushed here and `messageTs` resets for the new block to capture. */
   private priorMessageTss: string[] = [];
   private reactiveRolloverCount = 0;
-  private preemptiveRolloverCount = 0;
-  /** Serializes concurrent rollover paths (preemptive timer firing while a reactive append
-   *  failure is also triggering rollover in the same tick). */
-  private rolloverInFlight = false;
+  /** Monotonic id of the current chat stream, bumped after each successful open. An append
+   *  snapshots it before its API call; on a recoverable failure it only rolls over if the
+   *  snapshot still matches, so a single expired stream yields exactly one rollover even when
+   *  many fire-and-forget appends reject together. */
+  private generation = 0;
+  /** The single in-flight rollover, if one is running. Concurrent failing appends await this
+   *  same promise rather than each starting a rollover, then replay onto the new stream. Covers
+   *  the in-rollover window; the `generation` guard covers the post-rollover window. */
+  private rolloverInFlight: Promise<boolean> | null = null;
   private keepaliveTimer: ReturnType<typeof setInterval> | null = null;
-  private preemptiveTimer: ReturnType<typeof setTimeout> | null = null;
   private lastEventAt = 0;
   private lastKeepaliveTickAt = 0;
 
   private static readonly KEEPALIVE_INTERVAL_MS = 15_000;
   private static readonly VISIBLE_PROGRESS_THRESHOLD_MS = 30_000;
-  private static readonly MAX_REACTIVE_ROLLOVERS = 2;
-  /** At PREEMPTIVE_ROLLOVER_INTERVAL_MS = 4min, 20 rotations covers ~80 minutes of work. */
-  private static readonly MAX_PREEMPTIVE_ROLLOVERS = 20;
-  /** Sized under Slack's empirically-observed ~5-minute chatStream TTL. */
-  private static readonly PREEMPTIVE_ROLLOVER_INTERVAL_MS = 4 * 60 * 1000;
 
   private static readonly THINKING_TASK_ID = "__thinking__";
 
@@ -124,6 +123,7 @@ export class SlackStreamer {
   async start(): Promise<boolean> {
     try {
       this.chatStreamer = await this.openChatStream();
+      this.generation++;
 
       await this.append([
         {
@@ -138,7 +138,6 @@ export class SlackStreamer {
       this.lastEventAt = now;
       this.lastKeepaliveTickAt = now;
       this.startKeepalive();
-      this.schedulePreemptiveRollover();
       return true;
     } catch (error) {
       this.logger.error("Failed to start chat stream:", error);
@@ -161,14 +160,15 @@ export class SlackStreamer {
 
   /**
    * Rotate to a fresh chat stream. Triggered reactively on a recoverable append failure
-   * (Slack TTL expiry, assistant API GC) or preemptively on a timer before Slack's ~5min
-   * TTL would expire the current stream. Returns false if another rollover is already in
-   * flight, or if the new stream fails to open.
+   * (Slack TTL expiry, assistant API GC). Single-flight: concurrent callers share the one
+   * in-flight rollover and all observe its result, so a burst of failing appends from one
+   * dead stream produces exactly one new block. Resolves false if the new stream fails to open.
    */
-  private async rollover(opts: { preemptive?: boolean } = {}): Promise<boolean> {
-    const preemptive = opts.preemptive === true;
-    if (this.rolloverInFlight) return false;
-    this.rolloverInFlight = true;
+  private rollover(): Promise<boolean> {
+    return (this.rolloverInFlight ??= this.runRollover());
+  }
+
+  private async runRollover(): Promise<boolean> {
     try {
       // Snapshot + mark-complete must run BEFORE this.chatStreamer is reassigned below.
       const snapshot = this.snapshotInFlightTasks();
@@ -180,18 +180,14 @@ export class SlackStreamer {
       this.taskSlack.clear();
       this.taskLabels.clear();
       this.activeTasks.clear();
-      if (!preemptive) this.thinkingFinalized = false;
+      this.thinkingFinalized = false;
       this.failed = false;
-      if (preemptive) this.preemptiveRolloverCount++;
-      else this.reactiveRolloverCount++;
+      this.reactiveRolloverCount++;
 
       this.chatStreamer = await this.openChatStream();
+      this.generation++;
 
-      const continuationTitle = preemptive
-        ? this.thinkingFinalized
-          ? this.thinkingTitle
-          : t("streamer.acknowledged")
-        : t("streamer.continuing");
+      const continuationTitle = t("streamer.continuing");
 
       // Direct chatStreamer.append rather than `this.append()` so that a failure here throws
       // synchronously and is caught by this method (rather than recursively re-entering
@@ -213,13 +209,12 @@ export class SlackStreamer {
       this.lastKeepaliveTickAt = now;
 
       await this.reEmitInFlightTasksOnNewBlock(snapshot, now);
-      this.schedulePreemptiveRollover();
       return true;
     } catch (error) {
       this.logger.warn("Rollover failed:", error, this.streamDiagnostics());
       return false;
     } finally {
-      this.rolloverInFlight = false;
+      this.rolloverInFlight = null;
     }
   }
 
@@ -296,31 +291,6 @@ export class SlackStreamer {
     } catch {
       // Rollover itself succeeded (continuation cue landed); the regular append path will
       // retry on the next handleEvent or keepalive tick.
-    }
-  }
-
-  private schedulePreemptiveRollover(): void {
-    this.clearPreemptiveTimer();
-    if (this.preemptiveRolloverCount >= SlackStreamer.MAX_PREEMPTIVE_ROLLOVERS) {
-      this.logger.warn(
-        "Preemptive rollover cap reached; no further preemptive rotations will be scheduled",
-        this.streamDiagnostics(),
-      );
-      return;
-    }
-    this.preemptiveTimer = setTimeout(() => {
-      if (this.failed || this.stopped) return;
-      this.rollover({ preemptive: true }).catch((err) => {
-        this.logger.warn("Preemptive rollover threw:", err, this.streamDiagnostics());
-      });
-    }, SlackStreamer.PREEMPTIVE_ROLLOVER_INTERVAL_MS);
-    this.preemptiveTimer.unref?.();
-  }
-
-  private clearPreemptiveTimer(): void {
-    if (this.preemptiveTimer) {
-      clearTimeout(this.preemptiveTimer);
-      this.preemptiveTimer = null;
     }
   }
 
@@ -563,7 +533,6 @@ export class SlackStreamer {
    */
   async stop(opts?: { markdownText?: string; blocks?: (KnownBlock | Block)[] }): Promise<void> {
     this.stopKeepalive();
-    this.clearPreemptiveTimer();
 
     if (!this.chatStreamer || this.stopped) return;
 
@@ -746,6 +715,10 @@ export class SlackStreamer {
 
   private async append(chunks: TaskUpdateChunk[]): Promise<void> {
     if (!this.chatStreamer || this.failed) return;
+    // Snapshot the stream generation before the call. If a recoverable failure later finds the
+    // generation has advanced, a sibling append already rolled this stream over and we must not
+    // roll over again — we replay onto the new stream instead.
+    const gen = this.generation;
     try {
       const result = await this.chatStreamer.append({ chunks });
       if (!this.messageTs && result?.ts) {
@@ -765,33 +738,25 @@ export class SlackStreamer {
         this.logger.warn("Chat stream stopped by user", this.streamDiagnostics());
         this.failed = true;
         this.stopKeepalive();
-        this.clearPreemptiveTimer();
         return;
       }
 
       // Slack expires streams after inactivity OR GCs the assistant API placeholder when a
-      // new userMessage arrives. Both are recoverable via rollover; cap prevents flapping.
+      // new userMessage arrives. Both are recoverable by rotating to a fresh stream.
       const recoverable = code === "message_not_in_streaming_state" || code === "message_not_found";
-      if (recoverable && this.reactiveRolloverCount < SlackStreamer.MAX_REACTIVE_ROLLOVERS) {
+      if (recoverable) {
+        // If the generation already advanced, a sibling append rolled this stream over while
+        // our call was in flight (or just before our catch ran). `this.chatStreamer` now points
+        // at the live stream — replay onto it rather than opening a second one.
+        if (this.generation !== gen) {
+          return this.replayOnCurrentStream(chunks);
+        }
+        // We're the first to discover this stream died: roll over exactly once, then replay.
         const ok = await this.rollover();
         if (ok && this.chatStreamer) {
-          // The rollover already posted its own continuation chunk for THINKING_TASK_ID;
-          // replaying e.g. a stale "Acknowledged" idle ping would clobber that title.
-          const replayChunks = chunks.filter((c) => c.id !== SlackStreamer.THINKING_TASK_ID);
-          if (replayChunks.length === 0) return;
-          try {
-            const result = await this.chatStreamer.append({ chunks: replayChunks });
-            if (!this.messageTs && result?.ts) {
-              this.messageTs = result.ts;
-            }
-            return;
-          } catch {
-            // Retry on the new stream also failed — fall through to the failure-logging path.
-          }
+          return this.replayOnCurrentStream(chunks);
         }
-      }
-
-      if (recoverable) {
+        // Rollover itself failed to open a new stream — fall through to the failure path.
         this.logger.warn(
           `Chat stream no longer writable (${code}), falling back to post`,
           this.streamDiagnostics(),
@@ -802,7 +767,24 @@ export class SlackStreamer {
 
       this.failed = true;
       this.stopKeepalive();
-      this.clearPreemptiveTimer();
+    }
+  }
+
+  /** Replay an append's chunks onto the current (post-rollover) stream. The rollover already
+   *  posted its own continuation chunk for THINKING_TASK_ID, so a stale "Acknowledged"/idle
+   *  ping for that id is filtered out to avoid clobbering the continuation title. A best-effort
+   *  retry: if it fails, the next handleEvent or keepalive tick will append again. */
+  private async replayOnCurrentStream(chunks: TaskUpdateChunk[]): Promise<void> {
+    if (!this.chatStreamer) return;
+    const replayChunks = chunks.filter((c) => c.id !== SlackStreamer.THINKING_TASK_ID);
+    if (replayChunks.length === 0) return;
+    try {
+      const result = await this.chatStreamer.append({ chunks: replayChunks });
+      if (!this.messageTs && result?.ts) {
+        this.messageTs = result.ts;
+      }
+    } catch {
+      // Stream may have expired again; leave recovery to the next append.
     }
   }
 
@@ -811,7 +793,6 @@ export class SlackStreamer {
     msSinceLastEvent: number;
     activeTaskCount: number;
     reactiveRolloverCount: number;
-    preemptiveRolloverCount: number;
   } {
     const now = Date.now();
     return {
@@ -819,7 +800,6 @@ export class SlackStreamer {
       msSinceLastEvent: this.lastEventAt === 0 ? -1 : now - this.lastEventAt,
       activeTaskCount: this.activeTasks.size,
       reactiveRolloverCount: this.reactiveRolloverCount,
-      preemptiveRolloverCount: this.preemptiveRolloverCount,
     };
   }
 }
