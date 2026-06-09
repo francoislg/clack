@@ -4,6 +4,7 @@ import type { App } from "@slack/bolt";
 import type { SessionContext } from "../../sessions.js";
 import type { ProcessMessageParams, CoreDeps } from "./core.js";
 import { processMessage } from "./core.js";
+import type { GetClaudeOptionsArgs } from "./changeWorkflowHelper.js";
 import {
   withThreadLock,
   register as registerActiveRun,
@@ -89,7 +90,13 @@ const mockResolveChannelLabel = vi.fn<() => Promise<string>>();
 const mockResolveUserLabel = vi.fn<() => Promise<string>>();
 const mockSlackLink = vi.fn<() => Promise<string>>();
 const mockGetClaudeOptions =
-  vi.fn<(userId: string, triggerType: TriggerType) => Promise<AskClaudeOptions>>();
+  vi.fn<
+    (
+      userId: string,
+      triggerType: TriggerType,
+      options?: GetClaudeOptionsArgs,
+    ) => Promise<AskClaudeOptions>
+  >();
 const mockGetReactionDelivery = vi.fn<(userId: string) => Promise<string>>();
 const mockStoreDmCoordinates =
   vi.fn<
@@ -228,6 +235,13 @@ describe("processMessage — reaction delivery preference", () => {
     await processMessage(makeParams({ triggerType: "mentions" }), deps);
 
     assert.equal(mockGetReactionDelivery.mock.calls.length, 0);
+  });
+
+  it("forwards the channelId to getClaudeOptions", async () => {
+    const deps = makeDeps();
+    await processMessage(makeParams({ triggerType: "mentions", channelId: "C123" }), deps);
+
+    assert.equal(mockGetClaudeOptions.mock.calls[0]![2]?.channelId, "C123");
   });
 
   it("does NOT check delivery preference for directMessages", async () => {

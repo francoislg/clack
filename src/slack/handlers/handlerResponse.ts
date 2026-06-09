@@ -814,5 +814,7 @@ export function getHandlerClaudeOptions(
   sessionInfo: SessionInfo,
   deps: HandlerResponseDeps = defaultHandlerResponseDeps,
 ): Promise<AskClaudeOptions> {
-  return deps.getClaudeOptions(sessionInfo.userId, sessionInfo.triggerType ?? "directMessages");
+  return deps.getClaudeOptions(sessionInfo.userId, sessionInfo.triggerType ?? "directMessages", {
+    channelId: sessionInfo.channelId,
+  });
 }

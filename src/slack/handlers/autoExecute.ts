@@ -38,6 +38,7 @@ import {
 } from "../../sessions.js";
 import { activeSessions, type SessionInfo } from "../activeSessions.js";
 import { logger } from "../../logger.js";
+import { isChannellessChannelId } from "../../channelless.js";
 import type { StagedChangeIntent } from "../../tools/types.js";
 import type { SlackDeliveryContext } from "./changeAction.js";
 
@@ -149,10 +150,19 @@ export async function handleAutoExecuteActions(
 
   if (!response.response?.actions) return;
 
-  // Handle post_to auto-execute first — available to all roles, not intent-based
+  // Handle post_to auto-execute first — available to all roles, not intent-based.
+  // post_to targets a real channel, so it stays available even in a channelless dispatch
+  // (which depends on it to deliver).
   await handlePostToAutoExecute(params, deps);
 
   if (!response.stagedIntents) return;
+
+  // Invisible context: a channelless cron dispatch can't surface clickable actions, so
+  // intent-based auto-execution (change/config/update/skill) is suppressed there.
+  if (isChannellessChannelId(channelId)) {
+    logger.debug("Auto-execute: skipping intent actions in channelless context");
+    return;
+  }
 
   // Filter to actions that have both `auto: true` and a `ref`
   type AutoAction = Action & { auto: true; ref: string };
