@@ -23,6 +23,10 @@ import {
 const MANAGEMENT_DESCRIPTION =
   "Manage the casual-talk plugin: candidate channels, small-talk topics, chattiness rate, work hours, and the enabled flag. Tools here mutate `data/plugins/casual-talk/config.json`; changes hot-reload and take effect on the next scheduled tick.";
 
+// Forward jitter applied to every chatter fire so posts don't always land on the quarter-hour.
+// Kept below the fixed 15-minute cadence (see buildCronExpression) so adjacent fires can't overlap.
+const CHATTER_JITTER_MINUTES = 7;
+
 export const casualTalkPlugin: ClackPlugin = async (sdk: ClackSdk) => {
   // Casual-talk is a cron-driven plugin. Without the scheduler tick loop, none of its
   // tools or instructions are useful. Refuse to load with a clear reason so admins see
@@ -113,6 +117,7 @@ export const casualTalkPlugin: ClackPlugin = async (sdk: ClackSdk) => {
         submitResponseMode: "optional-post-to",
         requiredTools: ["mcp__clack__random_roll"],
         attachedTopics: ["casual-talk"],
+        jitterMinutes: CHATTER_JITTER_MINUTES,
       });
     } else if (config.enabled && config.channels.length === 0) {
       sdk.logger.info("enabled but no channels configured — no cron spec reconciled");

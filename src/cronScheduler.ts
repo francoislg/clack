@@ -135,7 +135,13 @@ async function tick(): Promise<void> {
       continue;
     }
 
-    if (matchesCron(job.cronExpression, now, job.timezone, job.lastRunAt)) {
+    if (
+      matchesCron(job.cronExpression, now, job.timezone, {
+        lastRunAt: job.lastRunAt,
+        jobId: job.id,
+        jitterMinutes: job.jitterMinutes,
+      })
+    ) {
       if (!slackClient) {
         logger.error(`Cron job ${job.id}: no Slack client available`);
         continue;
@@ -163,16 +169,38 @@ export function shouldSkipUserJob(job: CronJob, userSchedulesEnabled: boolean): 
 // Cron Matching
 // ============================================================================
 
-// Future hook: a `jitterMinutes?: number` field on `CronJob` could perturb the matching
-// window by ±N minutes per cycle so scheduled fires feel less mechanical (see the
-// `channelless-cron-jobs` design.md, "Forward hook for `jitterMinutes`"). Non-goal v1.
-// The cron expression itself stays canonical for inspection / Home Tab description —
-// jitter would apply on top of the prev/next compute below.
+/**
+ * Deterministic forward offset (in ms) applied to a job's canonical cron slot when
+ * `jitterMinutes` is set. Seeded on `jobId` + the canonical slot's ISO string so every tick
+ * within one occurrence computes the same value (the 60s poll then matches exactly one tick),
+ * while distinct occurrences vary. Returns `0` for any non-finite or non-positive jitter. Uses a
+ * FNV-1a 32-bit hash — distribution quality matters, not cryptographic strength.
+ */
+export function seededOffsetMs(jobId: string, prev: Date, jitterMinutes: number): number {
+  if (!Number.isFinite(jitterMinutes) || jitterMinutes <= 0) return 0;
+  let h = 0x811c9dc5;
+  const seed = `${jobId}|${prev.toISOString()}`;
+  for (let i = 0; i < seed.length; i++) {
+    h ^= seed.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return (h >>> 0) % (jitterMinutes * 60_000);
+}
+
+export interface MatchesCronOptions {
+  lastRunAt?: string;
+  /** Required alongside `jitterMinutes` for jitter to apply — seeds the per-occurrence offset. */
+  jobId?: string;
+  jitterMinutes?: number;
+}
+
+// The cron expression stays canonical for inspection / Home Tab description; `jitterMinutes`
+// only shifts the match window forward via `seededOffsetMs`.
 export function matchesCron(
   expression: string,
   now: Date,
   timezone: string,
-  lastRunAt?: string,
+  { lastRunAt, jobId, jitterMinutes }: MatchesCronOptions = {},
 ): boolean {
   try {
     const interval = CronExpressionParser.parse(expression, {
@@ -180,17 +208,20 @@ export function matchesCron(
       tz: timezone,
     });
 
-    // Get the previous scheduled time and check if it falls within the current minute
+    // Shift the canonical slot forward by the deterministic per-occurrence jitter offset, then
+    // check whether `now` falls within the 60-second window after the (possibly shifted) slot.
     const prev = interval.prev().toDate();
-    const diffMs = now.getTime() - prev.getTime();
+    const offsetMs = jobId && jitterMinutes ? seededOffsetMs(jobId, prev, jitterMinutes) : 0;
+    const effectivePrev = prev.getTime() + offsetMs;
+    const diffMs = now.getTime() - effectivePrev;
     if (diffMs < 0 || diffMs >= 60_000) return false;
 
-    // Guard against double-fire: if this cron time was already handled, skip it.
+    // Guard against double-fire: if this (jittered) cron time was already handled, skip it.
     // setInterval can drift slightly, causing two consecutive ticks to both fall
     // within the same 60-second matching window.
     if (lastRunAt) {
       const lastRun = new Date(lastRunAt).getTime();
-      if (prev.getTime() <= lastRun) return false;
+      if (effectivePrev <= lastRun) return false;
     }
 
     return true;

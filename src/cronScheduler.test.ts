@@ -6,6 +6,7 @@ import {
   matchesCron,
   matchesSkipDate,
   notifyCreatorOfError,
+  seededOffsetMs,
   shouldSkipUserJob,
   type CronSchedulerDeps,
   type NotifyErrorDeps,
@@ -41,18 +42,124 @@ describe("cronScheduler", () => {
     it("skips when lastRunAt already covers this cron time", () => {
       const now = new Date("2026-03-31T09:00:55Z");
       const lastRunAt = new Date("2026-03-31T09:00:10Z").toISOString();
-      assert.equal(matchesCron("0 9 * * *", now, "UTC", lastRunAt), false);
+      assert.equal(matchesCron("0 9 * * *", now, "UTC", { lastRunAt }), false);
     });
 
     it("fires when lastRunAt is from a previous cron time", () => {
       const now = new Date("2026-03-31T09:00:30Z");
       const lastRunAt = new Date("2026-03-30T09:00:10Z").toISOString();
-      assert.equal(matchesCron("0 9 * * *", now, "UTC", lastRunAt), true);
+      assert.equal(matchesCron("0 9 * * *", now, "UTC", { lastRunAt }), true);
     });
 
     it("fires when no lastRunAt is set", () => {
       const now = new Date("2026-03-31T09:00:30Z");
-      assert.equal(matchesCron("0 9 * * *", now, "UTC", undefined), true);
+      assert.equal(matchesCron("0 9 * * *", now, "UTC"), true);
+    });
+  });
+
+  describe("seededOffsetMs", () => {
+    const slot = new Date("2026-03-31T09:00:00Z");
+
+    it("returns 0 when jitter is absent or non-positive", () => {
+      assert.equal(seededOffsetMs("job-a", slot, 0), 0);
+      assert.equal(seededOffsetMs("job-a", slot, -5), 0);
+    });
+
+    it("is deterministic across calls", () => {
+      assert.equal(seededOffsetMs("job-a", slot, 8), seededOffsetMs("job-a", slot, 8));
+    });
+
+    it("stays within [0, jitterMinutes*60_000)", () => {
+      for (let i = 0; i < 200; i++) {
+        const o = seededOffsetMs(`job-${i}`, slot, 8);
+        assert.ok(o >= 0 && o < 8 * 60_000, `offset ${o} out of range`);
+      }
+    });
+
+    it("varies across occurrences (different canonical slots)", () => {
+      const offsets = new Set<number>();
+      for (let d = 0; d < 30; d++) {
+        offsets.add(seededOffsetMs("job-a", new Date(slot.getTime() + d * 86_400_000), 8));
+      }
+      assert.ok(offsets.size > 5, `expected spread, got ${offsets.size} distinct offsets`);
+    });
+
+    it("spreads across the available minute buckets (no gross clustering)", () => {
+      const buckets = new Set<number>();
+      for (let d = 0; d < 100; d++) {
+        const occ = new Date(slot.getTime() + d * 86_400_000);
+        buckets.add(Math.floor(seededOffsetMs("job-a", occ, 8) / 60_000));
+      }
+      assert.ok(buckets.size >= 6, `expected good spread, got ${buckets.size}/8 buckets`);
+    });
+  });
+
+  describe("matchesCron with jitter", () => {
+    const cron = "0 9 * * *";
+    const slot = new Date("2026-03-31T09:00:00Z");
+    const jobId = "job-a";
+    const jitter = 8;
+    const offset = seededOffsetMs(jobId, slot, jitter);
+
+    it("fires within the shifted 60s window, not before it", () => {
+      const inWindow = new Date(slot.getTime() + offset + 30_000);
+      assert.equal(matchesCron(cron, inWindow, "UTC", { jobId, jitterMinutes: jitter }), true);
+      const beforeWindow = new Date(slot.getTime() + offset - 1_000);
+      assert.equal(matchesCron(cron, beforeWindow, "UTC", { jobId, jitterMinutes: jitter }), false);
+    });
+
+    it("does not fire on the canonical slot when the offset delays past the first minute", () => {
+      // Pick a seed whose offset clearly exceeds the first 60s window.
+      let delayed = "";
+      for (let i = 0; i < 1000; i++) {
+        if (seededOffsetMs(`seek-${i}`, slot, jitter) >= 120_000) {
+          delayed = `seek-${i}`;
+          break;
+        }
+      }
+      assert.ok(delayed.length > 0, "expected to find a seed with offset >= 2min");
+      const atSlot = new Date(slot.getTime() + 30_000);
+      assert.equal(
+        matchesCron(cron, atSlot, "UTC", { jobId: delayed, jitterMinutes: jitter }),
+        false,
+      );
+    });
+
+    it("matches exactly one tick across the occurrence (no multi/missed fire)", () => {
+      let matches = 0;
+      for (let m = 0; m < 15; m++) {
+        const now = new Date(slot.getTime() + m * 60_000 + 30_000);
+        if (matchesCron(cron, now, "UTC", { jobId, jitterMinutes: jitter })) matches++;
+      }
+      assert.equal(matches, 1);
+    });
+
+    it("double-fire guard holds against the jittered fire time", () => {
+      const lastRunAt = new Date(slot.getTime() + offset + 5_000).toISOString();
+      const laterTick = new Date(slot.getTime() + offset + 45_000);
+      assert.equal(
+        matchesCron(cron, laterTick, "UTC", { lastRunAt, jobId, jitterMinutes: jitter }),
+        false,
+      );
+    });
+
+    it("next occurrence still fires after a jittered fire", () => {
+      const lastRunAt = new Date(slot.getTime() + offset + 5_000).toISOString();
+      const nextSlot = new Date(slot.getTime() + 86_400_000);
+      const nextOffset = seededOffsetMs(jobId, nextSlot, jitter);
+      const now = new Date(nextSlot.getTime() + nextOffset + 30_000);
+      assert.equal(
+        matchesCron(cron, now, "UTC", { lastRunAt, jobId, jitterMinutes: jitter }),
+        true,
+      );
+    });
+
+    it("with jitter 0 matches identically to no jitter", () => {
+      const now = new Date(slot.getTime() + 30_000);
+      assert.equal(
+        matchesCron(cron, now, "UTC", { jobId, jitterMinutes: 0 }),
+        matchesCron(cron, now, "UTC"),
+      );
     });
   });
 
