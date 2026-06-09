@@ -1,9 +1,7 @@
 ## Purpose
 
 The `casual-talk` plugin provides scheduled autonomous Slack messaging, allowing the bot to post casual conversation snippets to configured channels at configurable cadences without requiring explicit user triggers.
-
 ## Requirements
-
 ### Requirement: Plugin Registration and Capability Gating
 
 The `casual-talk` plugin SHALL be registered alongside existing Clack plugins (`src/plugins/index.ts`) and SHALL refuse to load when the host's cron scheduler is disabled.
@@ -148,11 +146,13 @@ The spec SHALL set:
 - `specKey: "chatter"`
 - `cronExpression`: from the cron-expression builder
 - `timezone`: from `workHours.tz`
-- `submitResponseMode`: `"skipped"`
+- `submitResponseMode`: `"optional-post-to"`
 - `requiredTools`: `["mcp__clack__random_roll"]`
 - `attachedTopics`: `["casual-talk"]`
 - `prompt`: the assembled prompt (see "Prompt Assembly")
 - `name`: a short human-readable label (e.g., `"Casual chatter"`)
+
+The `"optional-post-to"` mode (not `"skipped"`) is REQUIRED so the run can deliver via `deliver_to`: casual-talk's deliverable is a `deliver_to` entry to a runtime-chosen channel, and `"skipped"` would strip the `deliver_to` field, leaving the run with no delivery path. This resolves the prior contradiction between the declared mode and the mandated `deliver_to` delivery. (Channelless runs are mechanically forced to `"optional-post-to"` regardless — see `submit-response-mode` — so this declaration documents intent and stays correct if the channelless rule is ever scoped differently.)
 
 #### Scenario: Reconcile with enabled config creates one channelless spec
 
@@ -161,7 +161,7 @@ The spec SHALL set:
 - **THEN** exactly one cron spec is reconciled
 - **AND** the spec's `channel` field is omitted
 - **AND** the spec's `attachedTopics` is `["casual-talk"]`
-- **AND** the spec's `submitResponseMode` is `"skipped"`
+- **AND** the spec's `submitResponseMode` is `"optional-post-to"`
 - **AND** the spec's `requiredTools` includes `mcp__clack__random_roll`
 
 #### Scenario: Disabled config removes any prior spec
@@ -171,12 +171,13 @@ The spec SHALL set:
 - **THEN** `sdk.reconcileCronJobs("casual-talk", [])` is called
 - **AND** the prior cron job is removed
 
-#### Scenario: Empty channels list disables reconcile
+#### Scenario: Casual-talk run delivers via deliver_to
 
-- **GIVEN** a config with `enabled: true` and `channels: []`
-- **WHEN** the plugin reconciles
-- **THEN** the plugin logs an info warning that no channels are configured
-- **AND** `sdk.reconcileCronJobs("casual-talk", [])` is called (no spec)
+- **GIVEN** an enabled casual-talk channelless run that rolls a hit and chooses a destination channel
+- **WHEN** Claude calls `submit_response` with a `deliver_to` entry targeting that channel
+- **THEN** the `optional-post-to` schema accepts the call
+- **AND** the message is posted to the chosen channel
+- **AND** the run is recorded as a successful delivery
 
 ### Requirement: Prompt Assembly
 
@@ -189,8 +190,8 @@ The prompt SHALL instruct Claude to:
 
 1. Call `random_roll` with `min: 1, max: N, count: 1`.
 2. If the roll is not `1`, immediately call `submit_response({ skip_response: true })` and end the run.
-3. Otherwise: read each candidate channel via `fetch_channel_messages` (limit ~30), evaluate which channel feels most natural to join, and use `post_to {channel, text}` to deliver. End with `submit_response({ skip_response: true })`.
-4. If no channel feels right, end with `submit_response({ skip_response: true })` without posting (legitimate outcome).
+3. Otherwise: read each candidate channel via `fetch_channel_messages`, evaluate which channel feels most natural to join, and deliver in a SINGLE `submit_response` call carrying a `deliver_to` entry — `submit_response({ deliver_to: [{ channel, thread_ts?, response: { blocks } }] })`. Claude SHALL NOT also set `skip_response` on a delivering call.
+4. If no channel feels right, end with `submit_response({ skip_response: true })` and no `deliver_to` (legitimate outcome).
 5. NEVER reveal that this run was triggered by a roll or automation — the persona is "you're a person dropping in naturally."
 
 Per-channel context SHALL include the channel ID and, when set on the config entry, the `promptSuggestion` string. Channel name and Slack metadata are NOT pre-fetched in v1 — Claude reads what it needs via `fetch_channel_messages`.
@@ -235,10 +236,12 @@ Per-channel context SHALL include the channel ID and, when set on the config ent
 - **WHEN** the prompt is assembled
 - **THEN** the prompt indicates there are no fallback topics (the pre-feature empty-list rendering), and Claude is to only join already-active conversations or skip
 
-#### Scenario: Prompt explicitly tells Claude to use post_to, not submit_response text
+#### Scenario: Prompt tells Claude to deliver via deliver_to, not a post_to action
 
 - **WHEN** the prompt is assembled
-- **THEN** the prompt contains instructions stating that delivery MUST go through `post_to {channel, text}` and that `submit_response` is a run terminator only
+- **THEN** the prompt instructs that delivery MUST go through a `submit_response({ deliver_to: [...] })` call (channel + `response` blocks per entry)
+- **AND** the prompt instructs Claude NOT to also set `skip_response` on a delivering call
+- **AND** the prompt does NOT instruct Claude to use a `post_to` action for delivery
 
 #### Scenario: Prompt does NOT reveal the triggering mechanism
 
@@ -536,3 +539,4 @@ All plugin code SHALL live under `src/plugins/casual-talk/**`. The plugin SHALL 
 
 - **WHEN** the plugin code is reviewed (or linted, when enforcement lands)
 - **THEN** no `import` statement under `src/plugins/casual-talk/**` resolves to a module outside `src/plugins/casual-talk/**`, `node_modules`, or `../sdk.js`
+

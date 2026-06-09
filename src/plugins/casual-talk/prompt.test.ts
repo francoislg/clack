@@ -50,17 +50,19 @@ describe("casual-talk prompt", () => {
     assert.ok(prompt.includes("pop culture"));
   });
 
-  it("tells Claude to deliver via a post_to action and NOT to also set skip_response", () => {
+  it("tells Claude to deliver via a deliver_to entry and NOT to also set skip_response", () => {
     const prompt = buildPrompt({
       die: 28,
       rateLabel: "daily (1/28)",
       channels: ["C111"],
       smallTalkTopics: [],
     });
-    // Delivery is a submit_response call carrying a single post_to action.
-    assert.ok(prompt.includes("post_to"));
-    assert.ok(prompt.includes("actions` array holding exactly ONE `post_to` action"));
-    // Must warn against combining skip_response with the delivering post_to (the dropped-post bug).
+    // Delivery is a submit_response call carrying a single deliver_to entry.
+    assert.ok(prompt.includes("deliver_to"));
+    assert.ok(prompt.includes("deliver_to` array holding exactly ONE entry"));
+    // Delivery must NOT go through a post_to action anymore.
+    assert.ok(!prompt.includes("post_to"));
+    // Must warn against combining skip_response with the delivering call (the dropped-post bug).
     assert.ok(prompt.includes("Do NOT also set `skip_response` when you are delivering"));
     // Skip shape still documented for the no-post cases.
     assert.ok(prompt.includes("{ skip_response: true }"));
@@ -89,7 +91,7 @@ describe("casual-talk prompt", () => {
     assert.ok(prompt.includes("reply_count"));
   });
 
-  it("instructs Claude that thread_ts on post_to is the way to chip into a thread", () => {
+  it("instructs Claude that thread_ts on a deliver_to entry is the way to chip into a thread", () => {
     const prompt = buildPrompt({
       die: 28,
       rateLabel: "daily (1/28)",

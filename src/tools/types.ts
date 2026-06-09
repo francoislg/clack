@@ -69,6 +69,43 @@ export type DeliverFn = (opts: {
   threadTs?: string;
 }) => Promise<{ ok: true; ts?: string } | { ok: false; error: string }>;
 
+/**
+ * The shared message-payload entity: the content a single Slack message carries, with NO
+ * routing or terminator fields (no `channel`, `thread_ts`, `skip_response`, `deliver_to`,
+ * `additional_messages`). Referenced by each `deliver_to` entry's `response`; the same content
+ * shape the primary and `post_to` action carry. Same surface as `MessagePayload` plus
+ * `suppress_unfurls` and per-message `thread_replies`.
+ */
+export interface DeliverToPayload {
+  blocks: Block[];
+  table?: AuthoredTableBlock;
+  actions?: Action[];
+  reactions?: string[];
+  suppress_unfurls?: boolean;
+  thread_replies?: MessagePayload[];
+}
+
+/** One explicit-destination delivery in a `deliver_to` array. */
+export interface DeliverToEntry {
+  /** REQUIRED explicit destination channel id — there is no bound channel to fall back to. */
+  channel: string;
+  /** When set, the message replies into this thread; when absent, it posts top-level in `channel`. */
+  thread_ts?: string;
+  response: DeliverToPayload;
+}
+
+/**
+ * Delivers one message-payload to an explicit `(channel, thread_ts?)`. The channelless
+ * `submit_response` handler calls it once per `deliver_to` entry. Backed by the shared
+ * per-channel routine (`postAnswerToChannel`) — NOT a parallel delivery path. Surfaces Slack
+ * failures via `{ ok: false }` so the handler can record the run as an error.
+ */
+export type DeliverToChannelFn = (args: {
+  channel: string;
+  threadTs?: string;
+  payload: DeliverToPayload;
+}) => Promise<{ ok: true; ts?: string } | { ok: false; error: string }>;
+
 // ============================================================================
 // Tool Context (discriminated union)
 // ============================================================================

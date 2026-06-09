@@ -42,7 +42,17 @@ scripts/gce-fetch-session.sh '<slack-permalink>'
 
 This pulls just the matching Q&A session, worker session (if any), and the corresponding SDK JSONL into `data/.debug-sessions/<channelId>-<threadTs>/`. It's non-destructive and won't touch your real `./data/`. The script handles `?thread_ts=` parsing and SDK JSONL discovery for you. Read files from the resulting `data/.debug-sessions/<id>/` path for the rest of this skill.
 
-If the script reports `NO_MATCH`, the session was either evicted (30-day age cap) or the thread never triggered Clack — surface that to the user.
+> **Channelless plugin sessions (cron)**
+>
+> If the fetch script reports `NO_MATCH`, do NOT assume Clack never engaged. Plugin cron jobs (casual-talk, trivia, etc.) that post via `deliver_to` or `post_to` create **channelless sessions** filed under `channelless-<jobId>-...-plugin-<name>-<createdAtMs>` directories, keyed by jobId not by `<channelId>-<threadTs>`. The fetch script only matches `<channelId>-*` prefixes, so it can't see those.
+>
+> **Reliable fallback:** SSH to the GCE instance and grep all `context.json` files for the thread root ts:
+>
+> ```
+> gcloud compute ssh clack --zone=northamerica-northeast1-a --quiet --command='sudo grep -rlE "<threadTs>" /mnt/disks/clack-data/data/sessions/*/context.json'
+> ```
+>
+> (Also useful: `sudo ls -dt /mnt/disks/clack-data/data/sessions/channelless* | head` lists recent channelless plugin sessions.) Once you have the matching directory name, read its `context.json` and SDK JSONL directly over SSH rather than relying on the channel-prefix match. Channelless sessions have `triggerType: "scheduled"` and `trigger.type: "scheduled"` with a `jobId` — that signature confirms it's a cron-driven post, not a user-triggered Q&A.
 
 Two kinds of persisted sessions exist, and the right one depends on whether the thread triggered a Q&A or a Changes Workflow. Check both.
 

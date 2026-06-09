@@ -4,12 +4,15 @@ import type { IntentStore, ResponseCapture, ToolCallRecorder } from "../server.j
 import type {
   Action,
   DeliverFn,
+  DeliverToChannelFn,
+  DeliverToEntry,
   MessagePayload,
   ResponseSnapshot,
   StagedIntent,
   SubmitResponsePayload,
 } from "../types.js";
 import { DEFAULT_MAX_ADDITIONAL_MESSAGES } from "../../config.js";
+import { logger } from "../../logger.js";
 import { appendStagedIntents as _appendStagedIntents } from "../../sessions.js";
 import type { AttentionLevel } from "../../sessions.js";
 import { readInstructionFile as _readInstructionFile } from "../../configurationFiles.js";
@@ -31,7 +34,6 @@ import {
   validateBlocks as _validateBlocks,
   validateTable as _validateTable,
 } from "../../slack/blockValidate.js";
-import { extractDisplayText } from "../../slack/blockText.js";
 import {
   collectActionErrors,
   persistPostToSnapshots,
@@ -39,6 +41,8 @@ import {
   stampConfigUpdateLabels,
   validateNestedPostToButtonLabels,
 } from "./submitResponse/actions.js";
+import { validateSingleMessage, type BatchMessage } from "./submitResponse/messageValidation.js";
+import { persistDeliverToIntents, validateDeliverToEntries } from "./submitResponse/deliverTo.js";
 
 // Caps for multi-message batches — declared at module top because they're referenced by
 // `postToActionSchema` (immediate `.max(...)` calls evaluated at module load).
@@ -386,6 +390,17 @@ export interface SubmitResponseDeps {
   recorder: ToolCallRecorder;
   sessionId: string;
   deliver?: DeliverFn;
+  /**
+   * Delivers one `deliver_to` entry's payload to an explicit `(channel, thread_ts?)` via the
+   * shared per-channel routine (`postAnswerToChannel`). Only the `"optional-post-to"` (channelless)
+   * path uses it. Absent in test/verify contexts and any context without a Slack client.
+   */
+  deliverToChannel?: DeliverToChannelFn;
+  /**
+   * Persists the run's `responseTs` (the first `deliver_to` entry's posted ts) so the cron
+   * status reporter can read it back. Mirrors how the direct-deliver primary writes `responseTs`.
+   */
+  recordResponseTs?: (ts: string) => Promise<void>;
   persistSnapshot?: (id: string, snapshot: ResponseSnapshot) => Promise<void>;
   /** When set, submit_response already delivers top-level to this channel — post_to targeting it is rejected. */
   topLevelDeliveryChannel?: string;
@@ -474,26 +489,6 @@ export interface SubmitResponseDeps {
   readInstructionFile?: typeof _readInstructionFile;
 }
 
-function buildTexts(blocks: readonly Block[], message?: string) {
-  const answerText = extractDisplayText(blocks);
-  const displayText = message ? `${message}\n\n${answerText}` : answerText;
-  return { answerText, displayText };
-}
-
-const SLACK_MESSAGE_TEXT_LIMIT = 10000;
-
-/**
- * A single deliverable message in the batch, paired with the path prefix used in
- * batch-error path labels. Yielded by `enumerateBatchMessages` and consumed by the
- * per-message validation loop in the §7 aggregator.
- */
-interface BatchMessage {
-  blocks: Block[];
-  table?: AuthoredTableBlock;
-  message?: string;
-  pathPrefix: string;
-}
-
 /**
  * Enumerate every message in the batch as `{ blocks, table?, message?, pathPrefix }`:
  *  - primary (pathPrefix: "")
@@ -552,47 +547,6 @@ function enumerateBatchMessages(args: SubmitResponseArgs): BatchMessage[] {
     });
   });
   return messages;
-}
-
-/**
- * Per-message validation: block schema + table schema + length budget. Each Slack message
- * gets its own 10,000-char budget (the Slack `chat.postMessage` text limit) — no aggregate
- * sum across the batch. Returns a flat list of error strings, each path-prefixed.
- *
- * Used by the §7 aggregator to validate the primary AND each follower (`additional_messages[i]`,
- * `thread_replies[i]`, and the analogous fields inside every `post_to` action).
- *
- * Exported for direct unit testing.
- */
-export function validateSingleMessage(args: {
-  blocks: Block[];
-  table?: AuthoredTableBlock;
-  /** Optional preamble — counted toward this message's length budget. */
-  message?: string;
-  pathPrefix: string;
-  validateBlocks: typeof _validateBlocks;
-  validateTable: typeof _validateTable;
-}): string[] {
-  const errors: string[] = [];
-  const blockErrors = args.validateBlocks(args.blocks);
-  for (const e of blockErrors) {
-    errors.push(`${args.pathPrefix}${args.pathPrefix ? "." : ""}${e.field}: ${e.message}`);
-  }
-  if (args.table) {
-    const tableField = args.pathPrefix ? `${args.pathPrefix}.table` : "table";
-    const tableErrors = args.validateTable(args.table, tableField);
-    for (const e of tableErrors) {
-      errors.push(`${e.field}: ${e.message}`);
-    }
-  }
-  const { displayText } = buildTexts(args.blocks, args.message);
-  if (displayText.length > SLACK_MESSAGE_TEXT_LIMIT) {
-    const where = args.pathPrefix || "primary";
-    errors.push(
-      `${where}: response_too_long — text (${displayText.length} chars) exceeds the ${SLACK_MESSAGE_TEXT_LIMIT}-char per-message limit. Shorten this message; each message in a multi-message batch has its own budget.`,
-    );
-  }
-  return errors;
 }
 
 function recordError(recorder: ToolCallRecorder, args: unknown, errData: Record<string, unknown>) {
@@ -754,23 +708,78 @@ const skippedOnlyResponseSchema = {
     ),
 };
 
+// Shared message-payload entity carried by each `deliver_to` entry's `response`. Builds on
+// `messageContentFields` (blocks/table/reactions) and adds the per-message `actions`,
+// `suppress_unfurls`, and `thread_replies`. It is routing-free: no `channel`, `thread_ts`,
+// `skip_response`, `deliver_to`, or `additional_messages` — those belong to the entry/call that
+// wraps it. A `post_to` action is NOT allowed in `actions` (validated in the handler).
+const deliverToResponseSchema = z
+  .object({
+    ...messageContentFields,
+    actions: z
+      .array(z.lazy((): z.ZodType<Action> => actionSchema))
+      .optional()
+      .describe(
+        "Optional interactive buttons rendered on this delivered message. Same action types as a " +
+          "normal response (followup, choice, change, …). A `post_to` action is NOT allowed here.",
+      ),
+    suppress_unfurls: suppressUnfurlsField,
+    thread_replies: z
+      .array(z.lazy((): z.ZodType<MessagePayload> => messagePayloadSchema))
+      .max(THREAD_REPLIES_MAX)
+      .optional()
+      .describe(
+        `Reply messages threaded under this delivered message (posted after it lands, using its ts as their thread_ts). Capped at ${THREAD_REPLIES_MAX}.`,
+      ),
+  })
+  .strict();
+
+const deliverToEntrySchema = z
+  .object({
+    channel: z
+      .string()
+      .describe(
+        'REQUIRED explicit destination channel ID (e.g. "C0APQ9JU865"). This run has no bound ' +
+          "channel, so every entry must name its own destination.",
+      ),
+    thread_ts: z
+      .string()
+      .optional()
+      .describe(
+        "Optional target thread timestamp. Set it to reply into an existing thread; omit to post " +
+          "as a top-level message in `channel`.",
+      ),
+    response: deliverToResponseSchema,
+  })
+  .strict();
+
 // Schema for runs declared `submitResponseMode: "optional-post-to"` (and every channelless
-// run). There is no bound primary channel, so the primary delivery fields are absent — but
-// `actions` (and therefore the `post_to` action, which carries its own explicit `channel`)
-// IS available. The run delivers via one or more `post_to` actions OR terminates with
-// `skip_response: true`. The middleground between `"optional"` (full primary schema, may
-// skip) and `"skipped"` (terminator only).
+// run). There is no bound primary channel, so the primary delivery fields AND a top-level
+// `actions`/`post_to` path are absent. The run delivers via one or more `deliver_to` entries
+// (each naming an explicit `channel`) OR terminates with `skip_response: true`. The
+// middleground between `"optional"` (full primary schema, may skip) and `"skipped"`
+// (terminator only).
 const optionalPostToResponseSchema = {
   skip_response: z
     .literal(true)
     .optional()
     .describe(
-      "Set to `true` to decline posting this run (no `post_to`). This run has no bound primary " +
-        "channel: deliver by emitting one or more `post_to` actions (each with an explicit `channel`), " +
-        "OR call `submit_response({ skip_response: true })` to decline. Do NOT include `blocks`, " +
-        "`message`, `table`, `reactions`, `post_top_level`, or `attention_level` — they are rejected.",
+      "Set to `true` to decline posting this run (no `deliver_to`). This run has no bound primary " +
+        "channel: deliver by emitting one or more `deliver_to` entries (each naming an explicit " +
+        "`channel`), OR call `submit_response({ skip_response: true })` to decline. Do NOT include " +
+        "`blocks`, `message`, `table`, `reactions`, `actions`, `post_top_level`, or `attention_level` " +
+        "— they are rejected.",
     ),
-  actions: skipOptionalActions,
+  deliver_to: z
+    .array(deliverToEntrySchema)
+    .optional()
+    .describe(
+      "One or more destinations to deliver to. Each entry is `{ channel, thread_ts?, response }` " +
+        "where `response` is the message payload (`blocks` plus optional `table`/`actions`/" +
+        "`reactions`/`suppress_unfurls`/`thread_replies`). Send the same content to several channels " +
+        "with repeated entries; post several separate messages to one channel with multiple entries " +
+        "sharing a `channel`; reply into a thread by setting `thread_ts`.",
+    ),
 };
 
 /**
@@ -794,6 +803,7 @@ interface SubmitResponseArgs {
   post_top_level?: boolean;
   additional_messages?: MessagePayload[];
   thread_replies?: MessagePayload[];
+  deliver_to?: DeliverToEntry[];
 }
 
 /**
@@ -808,7 +818,7 @@ interface SubmitResponseArgs {
  * never what they want. The `post_to.additional_messages` / `post_to.thread_replies`
  * fields stay available everywhere because `post_to` carries an explicit `channel`.
  */
-function buildSubmitResponseSchema(
+export function buildSubmitResponseSchema(
   deps: Pick<
     SubmitResponseDeps,
     | "submitResponseMode"
@@ -858,6 +868,8 @@ export function createSubmitResponseTool(deps: SubmitResponseDeps) {
     recorder,
     sessionId,
     deliver,
+    deliverToChannel,
+    recordResponseTs,
     persistSnapshot,
     topLevelDeliveryChannel,
     sessionChannelId,
@@ -937,59 +949,103 @@ export function createSubmitResponseTool(deps: SubmitResponseDeps) {
         }
       }
 
-      // --- Post-to-only path (optional-post-to / channelless) ---
-      // This mode has no bound primary channel: a post_to action IS the response (auto-executed
-      // after the run), and the absence of one is the skip. The whole mode is handled here —
-      // BEFORE the generic skip path — so a `post_to` always delivers even if Claude also set
-      // `skip_response` in the same call. No deliverable (empty / bare skip_response) → skip.
+      // --- deliver_to path (optional-post-to / channelless) ---
+      // This mode has no bound primary channel. The run resolves to exactly one of three
+      // outcomes (deliver-or-skip-or-error — see the `submit-response-deliver-to` capability):
+      //   - non-empty `deliver_to`  → deliver each entry via the shared per-channel routine.
+      //   - bare `skip_response`     → record a skip.
+      //   - neither (or empty array) → a hard error returned to Claude (never a silent no-op).
+      // A present `deliver_to` always wins over `skip_response` if Claude sets both.
       if (submitResponseMode === "optional-post-to") {
-        const postToActions =
-          "actions" in args && Array.isArray(args.actions) ? args.actions : undefined;
-        if (!postToActions || postToActions.length === 0) {
-          responseCapture.setSkipped();
-          const skipResult: SubmitResponseSuccessResult = { success: true, skipped: true };
-          recordSuccess(recorder, args, skipResult);
-          return textResult(skipResult);
+        const deliverTo =
+          "deliver_to" in args && Array.isArray(args.deliver_to) ? args.deliver_to : undefined;
+
+        if (!deliverTo || deliverTo.length === 0) {
+          if ("skip_response" in args && args.skip_response) {
+            responseCapture.setSkipped();
+            const skipResult: SubmitResponseSuccessResult = { success: true, skipped: true };
+            recordSuccess(recorder, args, skipResult);
+            return textResult(skipResult);
+          }
+          return recordError(recorder, args, {
+            error:
+              "This run has no bound channel — a bare submit_response delivers nothing. Provide " +
+              "`deliver_to` (one or more `{ channel, response }` entries) to post, or " +
+              "`skip_response: true` to decline.",
+          });
         }
 
-        const { errors: ptErrors, flat: ptFlat } = collectActionErrors(
-          args,
+        const deliverToErrors = validateDeliverToEntries(deliverTo, {
           intentStore,
-          topLevelDeliveryChannel,
-        );
-        if (ptErrors.length > 0) {
+          sessionId,
+          validateBlocks,
+          validateTable,
+          validateActionButtonLabels,
+          getResponseActionBlocks,
+        });
+        if (deliverToErrors.length > 0) {
           return recordError(
             recorder,
             args,
-            ptErrors.length === 1
-              ? { error: ptErrors[0] }
-              : { error: "invalid_batch", details: ptErrors },
+            deliverToErrors.length === 1
+              ? { error: deliverToErrors[0] }
+              : { error: "invalid_batch", details: deliverToErrors },
           );
         }
-        stampConfigUpdateLabels(ptFlat, intentStore, readInstructionFile);
 
-        if (persistSnapshot) await persistPostToSnapshots(postToActions, persistSnapshot);
+        // Persist referenced staged intents before delivery, so a fast button click on a
+        // delivered message can't outrun the writeback.
+        await persistDeliverToIntents(deliverTo, intentStore, sessionId, appendStagedIntents);
 
-        const ptLabelErrors = validateNestedPostToButtonLabels(
-          postToActions,
-          sessionId,
-          getResponseActionBlocks,
-          validateActionButtonLabels,
-        );
-        if (ptLabelErrors.length > 0) {
-          return recordError(recorder, args, { error: "invalid_blocks", details: ptLabelErrors });
+        // Deliver each entry in array order via the shared per-channel routine. The first
+        // entry's posted ts becomes the run's responseTs (the anchor cron status reads).
+        let messagesDelivered = 0;
+        let firstTs: string | undefined;
+        if (deliverToChannel) {
+          for (let i = 0; i < deliverTo.length; i++) {
+            const entry = deliverTo[i];
+            const res = await deliverToChannel({
+              channel: entry.channel,
+              ...(entry.thread_ts && { threadTs: entry.thread_ts }),
+              payload: entry.response,
+            });
+            if (!res.ok) {
+              const prior =
+                messagesDelivered > 0
+                  ? ` (${messagesDelivered} earlier ${messagesDelivered === 1 ? "entry" : "entries"} already posted to their channel(s); only retry the remaining entries to avoid duplicates)`
+                  : "";
+              return recordError(recorder, args, {
+                error: "delivery_failed",
+                details: `deliver_to[${i}]: ${res.error}${prior}`,
+                messagesDelivered,
+              });
+            }
+            messagesDelivered++;
+            if (firstTs === undefined) firstTs = res.ts;
+          }
+          // The messages have already landed — a failure to persist the anchor responseTs must
+          // NOT turn a successful delivery into a tool error (which would make Claude retry and
+          // double-post). Log and continue; cron status simply records success without the ts.
+          if (firstTs && recordResponseTs) {
+            try {
+              await recordResponseTs(firstTs);
+            } catch (err) {
+              logger.warn(`deliver_to: failed to persist responseTs (delivery succeeded): ${err}`);
+            }
+          }
         }
 
-        await persistReferencedIntents(postToActions, intentStore, sessionId, appendStagedIntents);
-
-        responseCapture.set({ blocks: [], actions: postToActions }, []);
-        const ptResult: SubmitResponseSuccessResult = {
+        // Mark the run as delivered (not skipped) so it records as a success. The captured
+        // payload is intentionally content-free — the real messages already landed in their
+        // explicit channels above.
+        responseCapture.set({ blocks: [], actions: [] }, []);
+        const result: SubmitResponseSuccessResult = {
           success: true,
-          delivered: false,
-          actionsCount: postToActions.length,
+          delivered: !!deliverToChannel,
+          ...(messagesDelivered > 0 && { messagesDelivered }),
         };
-        recordSuccess(recorder, args, ptResult);
-        return textResult(ptResult);
+        recordSuccess(recorder, args, result);
+        return textResult(result);
       }
 
       // --- Skip path ---

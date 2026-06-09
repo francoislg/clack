@@ -15,9 +15,9 @@ interface BuildPromptArgs {
  *
  * The prompt structure is contractual: Claude must roll first, only proceed on a hit,
  * fetch channel context, decide a destination, then deliver in a SINGLE `submit_response`
- * call carrying one `post_to` action (no `skip_response`). On a miss (or genuine
- * impossibility) it calls `submit_response({ skip_response: true })` with no actions. The
- * channelless cron uses the `optional-post-to` submit_response schema (skip OR post_to);
+ * call carrying one `deliver_to` entry (no `skip_response`). On a miss (or genuine
+ * impossibility) it calls `submit_response({ skip_response: true })` with no `deliver_to`. The
+ * channelless cron uses the `optional-post-to` submit_response schema (skip OR deliver_to);
  * the prompt restates the contract so Claude understands the dance.
  */
 export function buildPrompt(args: BuildPromptArgs): string {
@@ -48,12 +48,12 @@ export function buildPrompt(args: BuildPromptArgs): string {
         ``,
         `You rolled a 1, so this tick posts. Reading the channels decides WHERE and WHAT, never WHETHER. "Nothing is active right now" is NOT a reason to skip — that is exactly when you post a fresh small-talk opener (Step 3). A quiet day is the normal case, not an error.`,
         ``,
-        `Only skip — \`submit_response({ skip_response: true })\` with no \`post_to\` — when posting is genuinely impossible: every candidate channel errored or was inaccessible when you tried to read it. A channel being full of OTHER bots' posts (trivia, digests, notices) is NOT impossibility — a fresh opener is a new conversation, so post it. Do NOT use the skip as a default escape hatch; if you have at least one readable channel, you post.`,
+        `Only skip — \`submit_response({ skip_response: true })\` with no \`deliver_to\` — when posting is genuinely impossible: every candidate channel errored or was inaccessible when you tried to read it. A channel being full of OTHER bots' posts (trivia, digests, notices) is NOT impossibility — a fresh opener is a new conversation, so post it. Do NOT use the skip as a default escape hatch; if you have at least one readable channel, you post.`,
       ]
     : [
         `## Step 4 — When to skip`,
         ``,
-        `No fallback small-talk topics are configured, so this run can only chip into already-active conversations — it never opens fresh small talk. If no candidate channel has a conversation worth joining, end with \`submit_response({ skip_response: true })\` and no \`post_to\`. On a quiet day that is the expected outcome in this configuration.`,
+        `No fallback small-talk topics are configured, so this run can only chip into already-active conversations — it never opens fresh small talk. If no candidate channel has a conversation worth joining, end with \`submit_response({ skip_response: true })\` and no \`deliver_to\`. On a quiet day that is the expected outcome in this configuration.`,
       ];
 
   return [
@@ -69,7 +69,7 @@ export function buildPrompt(args: BuildPromptArgs): string {
     ``,
     `## Step 2 — On a hit (roll === 1)`,
     ``,
-    `A hit means this tick posts. Reading the channels below decides WHERE and WHAT to post — not WHETHER. Expect to call \`post_to\` exactly once this run; the only outs are in Step 4.`,
+    `A hit means this tick posts. Reading the channels below decides WHERE and WHAT to post — not WHETHER. Expect to deliver exactly one \`deliver_to\` entry this run; the only outs are in Step 4.`,
     ``,
     `Read recent activity in each candidate channel via \`fetch_channel_messages\` with \`include_threads: true\` (channel, limit ~30). This returns an OVERVIEW, not full threads: each top-level message carries \`reply_count\` (total replies), \`last_reply\` (ONLY the single newest reply, with its own \`ts\` and \`is_bot\` flag), and \`url\` (a permalink). The \`last_reply\` is your cheap triage signal — it tells you how fresh the thread is and whether a human spoke last. To actually READ a thread before joining it, call \`fetch_slack_message\` on that message's \`url\`. Long message text is truncated; read the full text the same way.`,
     ``,
@@ -93,17 +93,17 @@ export function buildPrompt(args: BuildPromptArgs): string {
     ``,
     `## Step 3 — Deliver`,
     ``,
-    `Deliver by calling \`submit_response\` with an \`actions\` array holding exactly ONE \`post_to\` action — \`{ type: "post_to", channel, blocks, [thread_ts] }\` — where \`channel\` is the explicit destination. That single call both delivers and terminates the run. Do NOT also set \`skip_response\` when you are delivering: \`skip_response: true\` is ONLY for the no-post cases (a roll that wasn't 1, or the genuine-impossibility skip below). Setting both at once drops your post.`,
+    `Deliver by calling \`submit_response\` with a \`deliver_to\` array holding exactly ONE entry — \`{ channel, [thread_ts], response: { blocks } }\` — where \`channel\` is the explicit destination and \`response.blocks\` is your message. That single call both delivers and terminates the run. Do NOT also set \`skip_response\` when you are delivering: \`skip_response: true\` is ONLY for the no-post cases (a roll that wasn't 1, or the genuine-impossibility skip below). Setting both at once is ignored — the post still goes — but don't do it.`,
     ``,
     `Pick the most natural destination:`,
-    `- **Reply in an active thread** — if a candidate channel has a thread that matches the "worth joining" signals above, set \`post_to.thread_ts\` to that thread's parent message \`ts\` and drop a short follow-up that fits the conversation. This is the preferred mode when there's a real thread happening.`,
-    `- **Reply to a fresh human message** — a recent human top-level message with no replies yet that's relevant: respond to it by setting \`post_to.thread_ts\` to that message's \`ts\` (starting the thread). Being the first reply is fine — that's engaging, not spam.`,
+    `- **Reply in an active thread** — if a candidate channel has a thread that matches the "worth joining" signals above, set the entry's \`thread_ts\` to that thread's parent message \`ts\` and drop a short follow-up that fits the conversation. This is the preferred mode when there's a real thread happening.`,
+    `- **Reply to a fresh human message** — a recent human top-level message with no replies yet that's relevant: respond to it by setting the entry's \`thread_ts\` to that message's \`ts\` (starting the thread). Being the first reply is fine — that's engaging, not spam.`,
     `- **Join an active channel-level conversation** — if recent top-level messages (last ~2 hours) show real engagement but no thread, post top-level (omit \`thread_ts\`) with a natural follow-up.`,
     `- **Fresh small-talk opener** — this is the DEFAULT when no channel has an active conversation (the common case). Don't skip — pick the channel whose character best fits a light opener, post top-level (omit \`thread_ts\`) using a topic from the list above. Vary phrasing every time, keep it 1-2 sentences. Other bots' recent posts (trivia, digests, notices) do NOT block a fresh opener — it's a new conversation, not a reply to them. The ONLY time to hold off: YOUR OWN last casual opener is the most recent thing in the channel and nobody engaged — then pick a different channel rather than stacking another opener.`,
     ``,
     `If a channel entry has a \`hint:\` annotation above, tailor the post to that hint (e.g. memes-only channels get a meme-tier one-liner).`,
     ``,
-    `The single \`submit_response\` call carrying the \`post_to\` action terminates the run — nothing else is needed, and you must NOT add \`skip_response\` to it.`,
+    `The single \`submit_response\` call carrying the \`deliver_to\` entry terminates the run — nothing else is needed, and you must NOT add \`skip_response\` to it.`,
     ``,
     ...step4,
     ``,

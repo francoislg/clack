@@ -23,7 +23,7 @@ Specifically:
 
 - File I/O under `data/plugins/<name>/`: use `sdk.readFile(path)` / `sdk.writeFile(path, content)` / `sdk.watchFile(path, cb)`. Never `node:fs` with absolute paths into `data/`.
 - Logging: `sdk.logger.{debug,info,warn,error}`. Never `console.log` for production output, never import `../../logger.js`.
-- Cron jobs: `sdk.reconcileCronJobs(...)` with `CronJobSpec[]`. Never write to `data/state/cron-jobs.json` directly. `CronJobSpec.channel` is OPTIONAL — omit it to declare a channelless job that decides its delivery destination at fire time via `post_to`. Channelless runs get a `submit_response` schema mechanically restricted to `{ skip_response: true }`; `post_to` is the only legitimate delivery.
+- Cron jobs: `sdk.reconcileCronJobs(...)` with `CronJobSpec[]`. Never write to `data/state/cron-jobs.json` directly. `CronJobSpec.channel` is OPTIONAL — omit it to declare a channelless job that decides its delivery destination at fire time. Channelless runs get the `optional-post-to` `submit_response` schema: deliver via a `deliver_to` array (each entry names an explicit `channel`) OR terminate with `skip_response: true`. Providing neither is a hard error — `deliver_to` is the only legitimate delivery.
 - Slack: `sdk.dmOwner(...)`, `sdk.getSlackClient(...)` (for advanced cases). Never import from `src/slack/...`.
 
 If the SDK is missing a capability you need, **expand the SDK** rather than reaching past it. Adding a new SDK method is a deliberate API decision; bypassing the SDK silently breaks the contract for every other plugin.

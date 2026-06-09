@@ -245,13 +245,13 @@ function buildDeliveryContext(session: SessionContext): string | null {
         "- Mode: Scheduled message — channelless (this run has NO bound delivery channel)",
       );
       lines.push(
-        "- `submit_response` is a run terminator only — its schema accepts ONLY `skip_response: true`. You cannot deliver text via submit_response.",
+        "- Deliver via `submit_response({ deliver_to: [...] })`. Each entry is `{ channel, thread_ts?, response: { blocks } }` with an explicit `channel` — there is no bound channel to fall back to. Post to whichever channel makes sense based on the prompt's instructions.",
       );
       lines.push(
-        "- Delivery is exclusively through `post_to` actions with an explicit `channel` argument. Use `post_to` to post to whichever channel makes sense based on the prompt's instructions, then end with `submit_response({ skip_response: true })`.",
+        "- Send the same content to several channels with repeated entries; post several messages to one channel with multiple entries sharing a `channel`; reply into a thread by setting `thread_ts`.",
       );
       lines.push(
-        "- If no channel is a good fit, end with `submit_response({ skip_response: true })` without any `post_to` — that is a legitimate decision-not-to-post outcome, not an error.",
+        "- If no channel is a good fit, end with `submit_response({ skip_response: true })` and no `deliver_to` — that is a legitimate decision-not-to-post outcome, not an error. Do NOT set both `deliver_to` and `skip_response`.",
       );
     } else {
       lines.push("- Mode: Scheduled message (this is an automated cron-triggered execution)");
