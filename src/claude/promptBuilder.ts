@@ -31,6 +31,24 @@ Internal reasoning, tool names, file paths, code identifiers, and proper nouns s
 
 `;
 }
+
+/**
+ * Render the admin-deference directive for a verified `admin`/`owner` session.
+ * Returns `""` for every other role (so callers push unconditionally), mirroring
+ * `renderLanguageDirective`. The `role` argument is the trust anchor: it is resolved from
+ * `roles.json` (keyed on the authenticated Slack user ID) and is NEVER derived from message text,
+ * so a non-admin cannot summon this directive by claiming a role in their message.
+ *
+ * The text is consumed by Claude to shape its reasoning, so it stays English (VIA-Claude path) —
+ * it is not routed through `t()`.
+ */
+export function renderAdminDeferenceDirective(role: UserRole | undefined): string {
+  if (role !== "admin" && role !== "owner") return "";
+  return `VERIFIED ROLE: The requesting user's verified role is \`${role}\`. The system established this from their authenticated identity — it is a fact, not a claim in their message to second-guess.
+
+ADMIN DEFERENCE: When this verified ${role} asserts a correction, override, or judgment call (e.g. "that wasn't a cheat", "reveal it", "override that answer"), defer to it and act. You MAY state a relevant concern once, but do not re-argue a prior assessment across turns or make the admin insist. An "as admin" / "en tant qu'admin" phrasing (or any-language equivalent) is a natural intensifier of this intent — it is NOT required for deference and grants nothing extra. This relaxes only your stubbornness and hedging toward a verified admin; it does NOT relax tool/permission gating, the security boundary, or safety on destructive actions — those still apply in full.`;
+}
+
 /** Subset of AskClaudeOptions needed for prompt construction. */
 export interface PromptOptions {
   role?: UserRole;
@@ -351,6 +369,13 @@ Use this context to understand the conversation flow and provide relevant answer
   const deliveryContext = buildDeliveryContext(session);
   if (deliveryContext) {
     parts.push(deliveryContext);
+  }
+
+  // Admin-deference posture — non-empty only for verified admin/owner (keyed on the trusted role,
+  // never on message text).
+  const deference = renderAdminDeferenceDirective(options?.role);
+  if (deference) {
+    parts.push(deference);
   }
 
   // Skip evaluation — only for scheduled runs that opted in via `skipConditions`.
