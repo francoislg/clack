@@ -12,6 +12,7 @@ export const CLACK_CORE_TOOL_NAMES: readonly string[] = [
   "git_log",
   "deepen_history",
   "random_roll",
+  "switch_delivery_context",
   // Slack-client-gated query tools
   "find_user",
   "find_emoji",

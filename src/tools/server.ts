@@ -102,6 +102,7 @@ import { createFindSessionTranscriptTool } from "./query/findSessionTranscript.j
 
 // Presentation tool
 import { createSubmitResponseTool } from "./presentation/submitResponse.js";
+import { createSwitchDeliveryContextTool } from "./query/switchDeliveryContext.js";
 
 // Worker tools
 import { createGitPushTool } from "./worker/gitPush.js";
@@ -363,6 +364,12 @@ function buildQueryTools(ctx: QueryToolContext): ClackQueryToolsResult {
   tools.push(createGitLogTool(ctx));
   tools.push(createDeepenHistoryTool(ctx));
   tools.push(createRandomRollTool());
+
+  // Interactive turns only — the orchestrator provides a `deliveryControl` to swap the live
+  // delivery surface. Absent in channelless cron / worker contexts (nothing to switch).
+  if (ctx.deliveryControl) {
+    tools.push(createSwitchDeliveryContextTool(ctx.deliveryControl));
+  }
 
   if (ctx.slackClient) {
     const usersCache = createUsersCache(ctx.slackClient);

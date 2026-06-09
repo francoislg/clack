@@ -1443,6 +1443,98 @@ describe("getHandlerClaudeOptions", () => {
   });
 });
 
+describe("delivery switching via deliveryControl", () => {
+  beforeEach(() => {
+    resetStreamerInstance({ messageTs: "switch.1" });
+    mockAskClaude.mockClear();
+    mockSetDeliveryMode.mockClear();
+    mockStreamerStart.mockClear();
+  });
+
+  it("an invisible turn that switches to streamer mid-run opens a card and persists the mode", async () => {
+    mockAskClaude.mockImplementationOnce(async (_session, options) => {
+      await options?.deliveryControl?.switchTo("streamer");
+      return { success: true, answer: "now working" };
+    });
+
+    const client = makeClient();
+    await executeAndDeliver({
+      client,
+      session: makeSession({ deliveryMode: "invisible" }),
+      sessionInfo: makeSessionInfo(),
+      claudeOptions: { role: "dev" as const, changesWorkflowEnabled: false },
+      silentThinking: true,
+      deps,
+    });
+
+    // The switch wound up a streaming surface mid-run (silent turns open no card on their own)...
+    assert.equal(mockStreamerStart.mock.calls.length, 1);
+    // ...and persisted the new mode so future turns follow it.
+    assert.deepEqual(mockSetDeliveryMode.mock.calls[0], ["session-1", "streamer"]);
+  });
+
+  it("a streamer turn that switches to invisible mid-run discards the card and persists the mode", async () => {
+    mockAskClaude.mockImplementationOnce(async (_session, options) => {
+      await options?.deliveryControl?.switchTo("invisible");
+      return { success: true, answer: "casual now" };
+    });
+
+    const client = makeClient();
+    await executeAndDeliver({
+      client,
+      session: makeSession({ deliveryMode: "streamer" }),
+      sessionInfo: makeSessionInfo(),
+      claudeOptions: { role: "dev" as const, changesWorkflowEnabled: false },
+      // streamer turn (silentThinking false)
+      deps,
+    });
+
+    // The streaming card was wound up at turn start, then torn down on the switch...
+    assert.equal(mockStreamerStart.mock.calls.length, 1);
+    // ...and the new mode persisted.
+    assert.deepEqual(mockSetDeliveryMode.mock.calls[0], ["session-1", "invisible"]);
+  });
+
+  it("ignores a switch attempted after the turn already delivered (no persist, no new card)", async () => {
+    mockAskClaude.mockImplementationOnce(async (_session, options) => {
+      // Deliver first (sets alreadyDelivered), then attempt a switch — must be a no-op.
+      await options?.deliver?.({
+        blocks: [{ type: "section", text: { type: "mrkdwn", text: "answer" } }],
+      });
+      await options?.deliveryControl?.switchTo("invisible");
+      return { success: true, answer: "answer" };
+    });
+
+    const client = makeClient();
+    await executeAndDeliver({
+      client,
+      session: makeSession({ deliveryMode: "streamer" }),
+      sessionInfo: makeSessionInfo(),
+      claudeOptions: { role: "dev" as const, changesWorkflowEnabled: false },
+      deps,
+    });
+
+    // The post-delivery switch was guarded out — no mode persisted.
+    assert.equal(mockSetDeliveryMode.mock.calls.length, 0);
+  });
+
+  it("does not expose deliveryControl on a channelless run (nothing to switch)", async () => {
+    mockAskClaude.mockImplementationOnce(async () => ({ success: true, answer: "x" }));
+    const client = makeClient();
+    await executeAndDeliver({
+      client,
+      session: makeSession({ channelId: "channelless:job-1" }),
+      sessionInfo: makeSessionInfo({ channelId: "channelless:job-1" }),
+      claudeOptions: { role: "system" as const, changesWorkflowEnabled: false },
+      silentThinking: true,
+      deps,
+    });
+
+    const callArgs = mockAskClaude.mock.calls[0][1] as { deliveryControl?: unknown };
+    assert.equal(callArgs.deliveryControl, undefined);
+  });
+});
+
 describe("silentThinking mode", () => {
   beforeEach(() => {
     resetStreamerInstance();

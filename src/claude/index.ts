@@ -19,6 +19,7 @@ import type {
   ToolCallRecord,
   StagedIntent,
   DeliverFn,
+  DeliveryControl,
   ClackToolsResult,
 } from "../tools/types.js";
 import { McpServerManager, prepareMcpSession, completeSessionStart } from "./mcpServerManager.js";
@@ -89,6 +90,9 @@ export interface AskClaudeOptions {
   onEvent?: (event: StreamEvent) => void | Promise<void>;
   /** Delivery callback — when provided, submit_response delivers to Slack directly */
   deliver?: DeliverFn;
+  /** Mid-run delivery-mode switch handle — when provided, the `switch_delivery_context` tool
+   *  becomes available (interactive turns only). Absent in channelless cron / worker contexts. */
+  deliveryControl?: DeliveryControl;
   /** Available Slack images keyed by file ID */
   availableImages?: Map<string, SlackImageFile>;
   /** Available non-image Slack files keyed by file ID */
@@ -258,6 +262,7 @@ async function buildQuerySetup(
     cronUserSchedules: config.cron?.userSchedules ?? false,
     slackClient: options?.slackClient,
     deliver: wrapDeliverWithDeliveredMark(options?.deliver, markDelivered),
+    deliveryControl: options?.deliveryControl,
     availableImages: options?.availableImages,
     availableFiles: options?.availableFiles,
     requiredTools: options?.requiredTools,

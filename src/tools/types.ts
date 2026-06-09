@@ -70,6 +70,16 @@ export type DeliverFn = (opts: {
 }) => Promise<{ ok: true; ts?: string } | { ok: false; error: string }>;
 
 /**
+ * Handle the `switch_delivery_context` tool uses to change the in-flight delivery mode of the
+ * current turn. Provided by the delivery orchestrator (`executeAndDeliver`); the tool never
+ * touches a streamer directly. `switchTo` swaps the active handler now AND persists the new
+ * mode as the session's `deliveryMode`. Idempotent; a no-op once the turn has delivered.
+ */
+export interface DeliveryControl {
+  switchTo: (mode: DeliveryMode) => Promise<void>;
+}
+
+/**
  * The shared message-payload entity: the content a single Slack message carries, with NO
  * routing or terminator fields (no `channel`, `thread_ts`, `skip_response`, `deliver_to`,
  * `additional_messages`). Referenced by each `deliver_to` entry's `response`; the same content
@@ -145,6 +155,9 @@ export interface QueryToolContext {
   slackClient?: App["client"];
   /** Delivery callback — when provided, submit_response delivers to Slack directly */
   deliver?: DeliverFn;
+  /** Mid-run delivery-mode switch handle. Present only on interactive turns; enables the
+   *  `switch_delivery_context` tool. Absent in channelless cron / worker contexts. */
+  deliveryControl?: DeliveryControl;
   /** Available Slack images (from triggering message + thread) keyed by file ID */
   availableImages?: Map<string, SlackImageFile>;
   /** Available Slack files (non-image: PDFs, text, etc.) keyed by file ID */
