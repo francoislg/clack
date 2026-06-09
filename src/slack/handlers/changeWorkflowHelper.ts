@@ -7,11 +7,25 @@ import type { UserRole } from "../../roles.js";
 import type { Config } from "../../config.js";
 import { isChangesEnabledForTrigger, getChangeEnabledRepos } from "../../changes/detection.js";
 
+/**
+ * Per-call options for {@link getClaudeOptions}. `roleOverride` lets callers (e.g. the cron
+ * scheduler for plugin-managed jobs) bypass `getRole(userId)` and run as a specific role —
+ * needed for system-owned jobs whose `userId` is a synthetic actor source, not a Slack user.
+ */
+export interface GetClaudeOptionsArgs {
+  channelId?: string;
+  roleOverride?: UserRole;
+}
+
 export interface ChangeWorkflowHelperDeps {
   getConfig: () => Config;
   getRole: (userId: string) => Promise<UserRole>;
   canRequestChanges: (role: UserRole) => boolean;
-  isChangesEnabledForTrigger: (triggerType: TriggerType, config: Config) => boolean;
+  isChangesEnabledForTrigger: (
+    triggerType: TriggerType,
+    config: Config,
+    channelId?: string,
+  ) => boolean;
   getChangeEnabledRepos: (
     config: Config,
     role: UserRole,
@@ -29,21 +43,17 @@ export const defaultChangeWorkflowHelperDeps: ChangeWorkflowHelperDeps = {
 /**
  * Get Claude options for a user and trigger type.
  * Dynamic state (repos, sessions) is now queryable through clack tools.
- *
- * `roleOverride` lets callers (e.g. the cron scheduler for plugin-managed jobs)
- * bypass `getRole(userId)` and run as a specific role — needed for system-owned
- * jobs whose `userId` is a synthetic actor source, not a Slack user.
  */
 export async function getClaudeOptions(
   userId: string,
   triggerType: TriggerType,
-  roleOverride?: UserRole,
+  { channelId, roleOverride }: GetClaudeOptionsArgs = {},
   deps: ChangeWorkflowHelperDeps = defaultChangeWorkflowHelperDeps,
 ): Promise<AskClaudeOptions> {
   const config = deps.getConfig();
   const role = roleOverride ?? (await deps.getRole(userId));
 
-  const changesEnabled = deps.isChangesEnabledForTrigger(triggerType, config);
+  const changesEnabled = deps.isChangesEnabledForTrigger(triggerType, config, channelId);
   const isChangeCapable = changesEnabled && deps.canRequestChanges(role);
 
   if (!isChangeCapable) {

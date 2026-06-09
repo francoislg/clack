@@ -22,7 +22,7 @@ import { getChannelInfo } from "../channelCache.js";
 import { openDmChannel } from "../channelResolver.js";
 import { isChannellessChannelId } from "../../channelless.js";
 import { resolveChannelLabel, resolveUserLabel, slackLink } from "../logContext.js";
-import { getClaudeOptions } from "./changeWorkflowHelper.js";
+import { getClaudeOptions, type GetClaudeOptionsArgs } from "./changeWorkflowHelper.js";
 import { getReactionDelivery } from "../../userPreferences.js";
 import {
   getForChannelMessage as getActiveRunForChannelMessage,
@@ -73,7 +73,7 @@ export interface CoreDeps {
   getClaudeOptions: (
     userId: string,
     triggerType: TriggerType,
-    roleOverride?: UserRole,
+    options?: GetClaudeOptionsArgs,
   ) => Promise<AskClaudeOptions>;
   getReactionDelivery: (userId: string) => Promise<string>;
   storeDmCoordinates: typeof storeDmCoordinates;
@@ -631,7 +631,10 @@ export async function processMessage(
     // 6. Build Claude options and execute. The active-runs registry replaces the previous
     // in-flight tracking wrapper — `askClaude` registers itself under (channelId, threadTs)
     // when the run is constructed and deregisters via the handle's `onTerminal` hook.
-    const claudeOptions = await deps.getClaudeOptions(userId, triggerType, ctx.roleOverride);
+    const claudeOptions = await deps.getClaudeOptions(userId, triggerType, {
+      channelId,
+      roleOverride: ctx.roleOverride,
+    });
     const abortController = new AbortController();
 
     return deps.executeAndDeliver({

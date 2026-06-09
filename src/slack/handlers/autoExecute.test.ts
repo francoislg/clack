@@ -1448,3 +1448,72 @@ describe("handleAutoExecuteActions — post_to auto-execute", () => {
     assert.ok(msgArgs.text.includes("channel_not_found"));
   });
 });
+
+// ============================================================================
+// Channelless (invisible) context
+// ============================================================================
+
+describe("handleAutoExecuteActions — channelless context", () => {
+  it("suppresses intent auto-execute in a channelless context", async () => {
+    const changeIntent: StagedChangeIntent = {
+      type: "change",
+      branch: "feat/x",
+      description: "desc",
+      repo: "org/repo",
+    };
+    const params = makeBaseParams({
+      channelId: "channelless:job-1",
+      response: makeResponseWithActions(
+        { blocks: [], actions: [{ type: "change", ref: "r1", auto: true }] },
+        { r1: changeIntent },
+      ),
+    });
+
+    await handleAutoExecuteActions(params, makeDeps());
+    assert.equal(mockTriggerChangeWorkflow.mock.calls.length, 0);
+  });
+
+  it("still runs post_to auto-execute in a channelless context", async () => {
+    const fakeSession: Partial<SessionContext> = {
+      sessionId: "session-1",
+      channelId: "channelless:job-1",
+      snapshots: {
+        snap1: {
+          text: "Channel post content",
+          blocks: [{ type: "section", text: { type: "mrkdwn", text: "Channel post content" } }],
+        },
+      },
+    };
+    mockGetSession.mockImplementation(async () => fakeSession as SessionContext);
+    mockActiveSessions.restore.mockImplementation(async () => null);
+
+    const params = makeBaseParams({
+      channelId: "channelless:job-1",
+      response: makeResponseWithActions(
+        {
+          blocks: [{ type: "section", text: { type: "mrkdwn", text: "Thread response" } }],
+          actions: [
+            {
+              type: "post_to" as const,
+              auto: true,
+              channel: "C999",
+              blocks: [
+                {
+                  type: "section" as const,
+                  text: { type: "mrkdwn" as const, text: "Channel post content" },
+                },
+              ],
+              _snapshotId: "snap1",
+            },
+          ],
+        },
+        {},
+      ),
+    });
+
+    await handleAutoExecuteActions(params, makeDeps());
+
+    assert.equal(mockPostAnswerToChannel.mock.calls.length, 1);
+    assert.equal(mockPostAnswerToChannel.mock.calls[0][2], "C999");
+  });
+});

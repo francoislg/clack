@@ -61,6 +61,30 @@ describe("isChangesEnabledForTrigger", () => {
     assert.equal(isChangesEnabledForTrigger("directMessages", config), false);
     assert.equal(isChangesEnabledForTrigger("mentions", config), false);
   });
+
+  it("enables threadReply, autoRespond, and scheduled in a visible context when global is on", () => {
+    const config = makeConfig({ changesWorkflow: { enabled: true } });
+    assert.equal(isChangesEnabledForTrigger("threadReply", config, "C123"), true);
+    assert.equal(isChangesEnabledForTrigger("autoRespond", config, "C123"), true);
+    assert.equal(isChangesEnabledForTrigger("scheduled", config, "C123"), true);
+  });
+
+  it("disables every trigger in an invisible (channelless) context", () => {
+    const config = makeConfig({
+      changesWorkflow: { enabled: true },
+      reactions: { trigger: "eyes", changesWorkflow: { enabled: true } },
+    });
+    const channelless = "channelless:job-1";
+    assert.equal(isChangesEnabledForTrigger("threadReply", config, channelless), false);
+    assert.equal(isChangesEnabledForTrigger("autoRespond", config, channelless), false);
+    assert.equal(isChangesEnabledForTrigger("scheduled", config, channelless), false);
+    assert.equal(isChangesEnabledForTrigger("reactions", config, channelless), false);
+  });
+
+  it("treats an undefined channelId as visible", () => {
+    const config = makeConfig({ changesWorkflow: { enabled: true } });
+    assert.equal(isChangesEnabledForTrigger("threadReply", config), true);
+  });
 });
 
 describe("findChangeEnabledRepo", () => {

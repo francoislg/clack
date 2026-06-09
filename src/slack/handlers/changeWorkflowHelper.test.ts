@@ -1,4 +1,4 @@
-import { describe, it, vi, beforeEach } from "vitest";
+import { describe, it, vi } from "vitest";
 import assert from "node:assert/strict";
 import type { UserRole } from "../../roles.js";
 import type { Config } from "../../config.js";
@@ -11,12 +11,12 @@ import { getClaudeOptions, type ChangeWorkflowHelperDeps } from "./changeWorkflo
 
 function makeDeps(overrides: Partial<ChangeWorkflowHelperDeps> = {}): ChangeWorkflowHelperDeps {
   return {
-    getConfig: vi.fn<() => Config>(() => ({}) as never),
+    getConfig: vi.fn<() => Config>(() => ({}) as Config),
     getRole: vi.fn<(userId: string) => Promise<UserRole>>(async () => "dev"),
     canRequestChanges: vi.fn<(role: UserRole) => boolean>(() => true),
-    isChangesEnabledForTrigger: vi.fn<(triggerType: TriggerType, config: Config) => boolean>(
-      () => true,
-    ),
+    isChangesEnabledForTrigger: vi.fn<
+      (triggerType: TriggerType, config: Config, channelId?: string) => boolean
+    >(() => true),
     getChangeEnabledRepos: vi.fn<
       (config: Config, role: UserRole) => Array<{ name: string; description: string }>
     >(() => [{ name: "org/repo", description: "desc" }]),
@@ -31,7 +31,7 @@ function makeDeps(overrides: Partial<ChangeWorkflowHelperDeps> = {}): ChangeWork
 describe("getClaudeOptions", () => {
   it("returns changesWorkflowEnabled true when all conditions are met", async () => {
     const deps = makeDeps();
-    const result = await getClaudeOptions("U001", "mentions", undefined, deps);
+    const result = await getClaudeOptions("U001", "mentions", {}, deps);
 
     assert.equal(result.changesWorkflowEnabled, true);
     assert.equal(result.role, "dev");
@@ -42,7 +42,7 @@ describe("getClaudeOptions", () => {
       isChangesEnabledForTrigger: vi.fn(() => false),
     });
 
-    const result = await getClaudeOptions("U001", "mentions", undefined, deps);
+    const result = await getClaudeOptions("U001", "mentions", {}, deps);
 
     assert.equal(result.changesWorkflowEnabled, false);
   });
@@ -52,7 +52,7 @@ describe("getClaudeOptions", () => {
       canRequestChanges: vi.fn(() => false),
     });
 
-    const result = await getClaudeOptions("U001", "mentions", undefined, deps);
+    const result = await getClaudeOptions("U001", "mentions", {}, deps);
 
     assert.equal(result.changesWorkflowEnabled, false);
   });
@@ -62,33 +62,34 @@ describe("getClaudeOptions", () => {
       getChangeEnabledRepos: vi.fn(() => []),
     });
 
-    const result = await getClaudeOptions("U001", "mentions", undefined, deps);
+    const result = await getClaudeOptions("U001", "mentions", {}, deps);
 
     assert.equal(result.changesWorkflowEnabled, false);
   });
 
-  it("passes the config to isChangesEnabledForTrigger", async () => {
-    const fakeConfig = { changesWorkflow: { enabled: true } } as never;
-    const mockIsChangesEnabled = vi.fn<(triggerType: TriggerType, config: Config) => boolean>(
-      () => true,
-    );
+  it("passes the config and channelId to isChangesEnabledForTrigger", async () => {
+    const fakeConfig: Partial<Config> = { changesWorkflow: { enabled: true } };
+    const mockIsChangesEnabled = vi.fn<
+      (triggerType: TriggerType, config: Config, channelId?: string) => boolean
+    >(() => true);
     const deps = makeDeps({
-      getConfig: vi.fn(() => fakeConfig),
+      getConfig: vi.fn<() => Config>(() => fakeConfig as Config),
       isChangesEnabledForTrigger: mockIsChangesEnabled,
     });
 
-    await getClaudeOptions("U001", "directMessages", undefined, deps);
+    await getClaudeOptions("U001", "directMessages", { channelId: "C123" }, deps);
 
     assert.equal(mockIsChangesEnabled.mock.calls.length, 1);
     assert.equal(mockIsChangesEnabled.mock.calls[0]![0], "directMessages");
     assert.equal(mockIsChangesEnabled.mock.calls[0]![1], fakeConfig);
+    assert.equal(mockIsChangesEnabled.mock.calls[0]![2], "C123");
   });
 
   it("resolves the role for the given userId", async () => {
     const mockGetRole = vi.fn<(userId: string) => Promise<UserRole>>(async () => "admin");
     const deps = makeDeps({ getRole: mockGetRole });
 
-    const result = await getClaudeOptions("U_ADMIN", "reactions", undefined, deps);
+    const result = await getClaudeOptions("U_ADMIN", "reactions", {}, deps);
 
     assert.equal(result.role, "admin");
     assert.equal(mockGetRole.mock.calls.length, 1);
@@ -96,17 +97,17 @@ describe("getClaudeOptions", () => {
   });
 
   it("passes role and config to getChangeEnabledRepos", async () => {
-    const fakeConfig = { repositories: [] } as never;
+    const fakeConfig: Partial<Config> = { repositories: [] };
     const mockGetChangeEnabledRepos = vi.fn<
       (config: Config, role: UserRole) => Array<{ name: string; description: string }>
     >(() => [{ name: "r", description: "d" }]);
     const deps = makeDeps({
-      getConfig: vi.fn(() => fakeConfig),
+      getConfig: vi.fn<() => Config>(() => fakeConfig as Config),
       getRole: vi.fn(async () => "owner" as UserRole),
       getChangeEnabledRepos: mockGetChangeEnabledRepos,
     });
 
-    await getClaudeOptions("U001", "mentions", undefined, deps);
+    await getClaudeOptions("U001", "mentions", {}, deps);
 
     assert.equal(mockGetChangeEnabledRepos.mock.calls.length, 1);
     assert.equal(mockGetChangeEnabledRepos.mock.calls[0]![0], fakeConfig);
@@ -120,7 +121,7 @@ describe("getClaudeOptions", () => {
       getChangeEnabledRepos: mockGetChangeEnabledRepos,
     });
 
-    await getClaudeOptions("U001", "mentions", undefined, deps);
+    await getClaudeOptions("U001", "mentions", {}, deps);
 
     assert.equal(mockGetChangeEnabledRepos.mock.calls.length, 0);
   });
@@ -132,7 +133,7 @@ describe("getClaudeOptions", () => {
       getChangeEnabledRepos: mockGetChangeEnabledRepos,
     });
 
-    await getClaudeOptions("U001", "mentions", undefined, deps);
+    await getClaudeOptions("U001", "mentions", {}, deps);
 
     assert.equal(mockGetChangeEnabledRepos.mock.calls.length, 0);
   });

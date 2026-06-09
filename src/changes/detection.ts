@@ -3,32 +3,44 @@ import type { TriggerType, FollowUpInfo, FollowUpCommand } from "./types.js";
 import { runClaudeInWorktree } from "./execution.js";
 import { getWritableRepos } from "../repoAccess.js";
 import type { UserRole } from "../roles.js";
+import { isChannellessChannelId } from "../channelless.js";
 
 // ============================================================================
 // Change Request Detection
 // ============================================================================
 
 /**
- * Check if changes workflow is enabled for a specific trigger type
+ * Check whether the changes workflow is available for a trigger type in the given channel
+ * context (channelless dispatches are invisible and never qualify).
  */
-export function isChangesEnabledForTrigger(triggerType: TriggerType, config: Config): boolean {
+export function isChangesEnabledForTrigger(
+  triggerType: TriggerType,
+  config: Config,
+  channelId?: string,
+): boolean {
   // Global changesWorkflow must be enabled
   if (!config.changesWorkflow?.enabled) {
     return false;
   }
 
-  // Auto-respond, scheduled, and thread reply triggers never support changes workflow
-  if (
-    triggerType === "autoRespond" ||
-    triggerType === "scheduled" ||
-    triggerType === "threadReply"
-  ) {
+  // Invisible context: a channelless cron dispatch has no bound channel and no human
+  // watching, so actions can't surface there and the changes workflow stays off.
+  if (isChannellessChannelId(channelId)) {
     return false;
   }
 
-  // Check trigger-specific config
-  const triggerConfig = config[triggerType];
-  return triggerConfig?.changesWorkflow?.enabled === true;
+  // mentions / directMessages / reactions require per-trigger opt-in.
+  if (
+    triggerType === "mentions" ||
+    triggerType === "directMessages" ||
+    triggerType === "reactions"
+  ) {
+    return config[triggerType]?.changesWorkflow?.enabled === true;
+  }
+
+  // threadReply / autoRespond / scheduled have no config block: enabled in any visible
+  // context. The acting user's role is gated separately downstream.
+  return true;
 }
 
 /**
