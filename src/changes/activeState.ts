@@ -282,6 +282,37 @@ export function getActiveWorkers(): ActiveWorker[] {
   return workers;
 }
 
+/** One executing Changes-Workflow run, as surfaced by `snapshotRunningChanges()`. */
+export interface RunningChangeInfo {
+  repo: string;
+  branch: string;
+  status: ChangeStatus;
+  ageMs: number;
+}
+
+/**
+ * Snapshot the Changes-Workflow runs that are currently EXECUTING Claude — i.e. changes
+ * whose live run handle is `"running"`. Mode-independent (holds for both disposable and
+ * reusable pools). A change that exists but is not executing (e.g. `pr_created` awaiting a
+ * follow-up, where `handle` is cleared) is deliberately excluded, so the count reflects
+ * in-flight work that a deploy would interrupt — not idle sessions.
+ */
+export function snapshotRunningChanges(): { active: number; changes: RunningChangeInfo[] } {
+  const now = Date.now();
+  const changes: RunningChangeInfo[] = [];
+  for (const change of activeChanges.values()) {
+    if (change.handle?.status === "running") {
+      changes.push({
+        repo: change.repo,
+        branch: change.branch,
+        status: change.status,
+        ageMs: Math.max(0, now - change.startedAt.getTime()),
+      });
+    }
+  }
+  return { active: changes.length, changes };
+}
+
 /**
  * Get the set of branches that have active (non-terminal) changes.
  * Used by worktree cleanup to avoid removing worktrees for active sessions.

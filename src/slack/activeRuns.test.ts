@@ -1,4 +1,4 @@
-import { describe, it, beforeEach } from "vitest";
+import { describe, it, beforeEach, afterEach, vi } from "vitest";
 import assert from "node:assert/strict";
 import type { ClaudeRunHandle } from "../claude/runHandle.js";
 import {
@@ -7,6 +7,7 @@ import {
   getForChannelMessage,
   unregister,
   size,
+  snapshot,
   withThreadLock,
   _resetForTesting,
 } from "./activeRuns.js";
@@ -224,5 +225,62 @@ describe("withThreadLock", () => {
       return "2";
     });
     assert.equal(secondRan, true);
+  });
+});
+
+describe("activeRuns snapshot", () => {
+  beforeEach(() => {
+    _resetForTesting();
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("reports an empty registry as count 0", () => {
+    const snap = snapshot();
+    assert.equal(snap.count, 0);
+    assert.deepEqual(snap.runs, []);
+  });
+
+  it("reports per-run identity, status, and age", () => {
+    register({ channelId: "C1", threadTs: "1700000000.0001" }, fakeHandle("a"));
+    vi.advanceTimersByTime(2500);
+
+    const snap = snapshot();
+    assert.equal(snap.count, 1);
+    assert.deepEqual(snap.runs[0], {
+      channel: "C1",
+      thread: "1700000000.0001",
+      status: "running",
+      ageMs: 2500,
+    });
+  });
+
+  it("reports many runs", () => {
+    register({ channelId: "C1", threadTs: "T1" }, fakeHandle("a"));
+    register({ channelId: "C2", threadTs: "T2" }, fakeHandle("b"));
+    assert.equal(snapshot().count, 2);
+  });
+
+  it("age advances with time", () => {
+    register({ channelId: "C1", threadTs: "T1" }, fakeHandle("a"));
+    vi.advanceTimersByTime(1000);
+    assert.equal(snapshot().runs[0].ageMs, 1000);
+    vi.advanceTimersByTime(4000);
+    assert.equal(snapshot().runs[0].ageMs, 5000);
+  });
+
+  it("reports a stale run but does not evict it", () => {
+    register({ channelId: "C1", threadTs: "T1" }, fakeHandle("a"));
+    vi.advanceTimersByTime(60 * 60 * 1000);
+
+    const snap = snapshot();
+    assert.equal(snap.count, 1);
+    assert.equal(snap.runs[0].ageMs, 60 * 60 * 1000);
+    // The slot is still held — snapshot only observes.
+    assert.equal(size(), 1);
+    assert.ok(getByThread("C1", "T1"));
   });
 });

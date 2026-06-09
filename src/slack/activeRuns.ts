@@ -20,7 +20,21 @@ function makeThreadKey(channelId: string, threadTs: string): string {
   return `${channelId}:${threadTs}`;
 }
 
-const registry = new Map<string, ClaudeRunHandle>();
+interface RegistryEntry {
+  handle: ClaudeRunHandle;
+  /** Epoch millis at which the run was registered. Used to report run age. */
+  startedAt: number;
+}
+
+/** One observed active run, as surfaced by `snapshot()`. */
+export interface ActiveRunInfo {
+  channel: string;
+  thread: string;
+  status: ClaudeRunHandle["status"];
+  ageMs: number;
+}
+
+const registry = new Map<string, RegistryEntry>();
 
 /** Tracks the key each handle was registered under so `unregister` can find it from the
  * handle reference alone. Keyed by the handle reference (WeakMap so a forgotten handle
@@ -43,7 +57,7 @@ export function register(opts: RegisterOptions, handle: ClaudeRunHandle): boolea
     logger.debug(`active-runs: slot already occupied for ${key}`);
     return false;
   }
-  registry.set(key, handle);
+  registry.set(key, { handle, startedAt: Date.now() });
   handleKeys.set(handle, key);
   logger.debug(`active-runs: registered ${key}`);
   return true;
@@ -51,7 +65,7 @@ export function register(opts: RegisterOptions, handle: ClaudeRunHandle): boolea
 
 /** Look up the active run for a thread. Returns `undefined` if no run is active. */
 export function getByThread(channelId: string, threadTs: string): ClaudeRunHandle | undefined {
-  return registry.get(makeThreadKey(channelId, threadTs));
+  return registry.get(makeThreadKey(channelId, threadTs))?.handle;
 }
 
 /**
@@ -77,11 +91,32 @@ export function getForChannelMessage(
 export function unregister(handle: ClaudeRunHandle): void {
   const key = handleKeys.get(handle);
   if (!key) return;
-  if (registry.get(key) === handle) {
+  if (registry.get(key)?.handle === handle) {
     registry.delete(key);
   }
   handleKeys.delete(handle);
   logger.debug(`active-runs: unregistered ${key}`);
+}
+
+/**
+ * Observe the currently-registered runs without mutating the registry. Used by the
+ * runtime status endpoint. Reports per-run identity, the handle's lifecycle status, and
+ * the elapsed age since registration. Stale entries are reported (with a large `ageMs`),
+ * never evicted — the registry only frees a slot via `unregister`.
+ */
+export function snapshot(): { count: number; runs: ActiveRunInfo[] } {
+  const now = Date.now();
+  const runs: ActiveRunInfo[] = [];
+  for (const [key, entry] of registry) {
+    const sep = key.indexOf(":");
+    runs.push({
+      channel: key.slice(0, sep),
+      thread: key.slice(sep + 1),
+      status: entry.handle.status,
+      ageMs: Math.max(0, now - entry.startedAt),
+    });
+  }
+  return { count: runs.length, runs };
 }
 
 /**
