@@ -41,6 +41,7 @@ function callHandler(
       dayOfWeek: string;
     };
     timezone?: string;
+    jitterMinutes?: number;
   },
 ) {
   return tool.handler(
@@ -48,6 +49,7 @@ function callHandler(
       id: args.id,
       schedule: args.schedule,
       timezone: args.timezone,
+      jitterMinutes: args.jitterMinutes,
       channel: undefined,
       prompt: args.prompt,
       requiredTools: undefined,
@@ -119,6 +121,51 @@ describe("update_scheduled_message tool — skipConditions", () => {
     const updated = await getJob(job.id);
     assert.equal(updated?.skipConditions, "Keep me");
     assert.equal(updated?.prompt, "New prompt");
+  });
+
+  it("sets jitterMinutes when supplied", async () => {
+    const job = await seedJob();
+    const tool = createUpdateScheduledMessageTool(buildCtx());
+
+    const result = await callHandler(tool, { id: job.id, jitterMinutes: 7 });
+
+    assert.notEqual(result.isError, true);
+    const updated = await getJob(job.id);
+    assert.equal(updated?.jitterMinutes, 7);
+  });
+
+  it("clears jitterMinutes when supplied as 0", async () => {
+    const job = await createJob({
+      cronExpression: "0 9 * * *",
+      channel: "C456",
+      prompt: "Summarize PRs",
+      createdBy: "U123",
+      timezone: "UTC",
+      jitterMinutes: 10,
+    });
+    const tool = createUpdateScheduledMessageTool(buildCtx());
+
+    await callHandler(tool, { id: job.id, jitterMinutes: 0 });
+
+    const updated = await getJob(job.id);
+    assert.equal(updated?.jitterMinutes, undefined);
+  });
+
+  it("leaves jitterMinutes unchanged when the field is omitted", async () => {
+    const job = await createJob({
+      cronExpression: "0 9 * * *",
+      channel: "C456",
+      prompt: "Summarize PRs",
+      createdBy: "U123",
+      timezone: "UTC",
+      jitterMinutes: 4,
+    });
+    const tool = createUpdateScheduledMessageTool(buildCtx());
+
+    await callHandler(tool, { id: job.id, prompt: "New prompt" });
+
+    const updated = await getJob(job.id);
+    assert.equal(updated?.jitterMinutes, 4);
   });
 
   it("returns an error when the job does not exist", async () => {

@@ -4,7 +4,7 @@ import { CronExpressionParser } from "cron-parser";
 import type { QueryToolContext } from "../types.js";
 import { textResult, errorResult } from "../helpers.js";
 import { resolveChannelId } from "../../slack/channelResolver.js";
-import { getJob, updateJob } from "../../cronJobs.js";
+import { getJob, updateJob, MAX_JITTER_MINUTES } from "../../cronJobs.js";
 import { canManageRoles } from "../../permissions.js";
 import { humanReadableSchedule } from "../../cronFormatter.js";
 import { isValidTimezone } from "../../timezone.js";
@@ -53,6 +53,17 @@ export function createUpdateScheduledMessageTool(ctx: QueryToolContext) {
         .optional()
         .describe(
           "New IANA timezone the hour/minute are expressed in (e.g. 'America/New_York', 'UTC'). Omit to keep unchanged.",
+        ),
+      jitterMinutes: z
+        .number()
+        .int()
+        .min(0)
+        .max(MAX_JITTER_MINUTES)
+        .optional()
+        .describe(
+          "Forward jitter in minutes — spreads each fire by a deterministic random offset of up " +
+            "to this many minutes past the scheduled time (the cron expression is never changed). " +
+            `Pass 0 to clear jitter (fire precisely on schedule). Omit to leave unchanged. Max ${MAX_JITTER_MINUTES}.`,
         ),
       channel: z.string().optional().describe("New target channel"),
       prompt: z
@@ -167,6 +178,7 @@ export function createUpdateScheduledMessageTool(ctx: QueryToolContext) {
         const updated = await updateJob(args.id, {
           ...(newCronExpression && { cronExpression: newCronExpression }),
           ...(args.timezone !== undefined && { timezone: args.timezone }),
+          ...(args.jitterMinutes !== undefined && { jitterMinutes: args.jitterMinutes }),
           ...(channelId && { channel: channelId }),
           ...(args.prompt !== undefined && { prompt: args.prompt }),
           ...(args.requiredTools !== undefined && { requiredTools: args.requiredTools }),

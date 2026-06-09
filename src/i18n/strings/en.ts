@@ -200,6 +200,7 @@ export const en = {
   "home.scheduled.ran_without_responses_suffix": " _(ran without responses)_",
   "home.scheduled.one_time_suffix": " · _one-time_",
   "home.scheduled.plugin_suffix": " · _plugin: {plugin}_",
+  "home.scheduled.jitter_suffix": " · jitter: {minutes}m",
   "home.scheduled.pause": "Pause",
   "home.scheduled.resume": "Resume",
   "home.scheduled.modal_title_edit": "Edit Schedule",
@@ -212,6 +213,11 @@ export const en = {
   "home.scheduled.cron_label": "Cron Expression",
   "home.scheduled.cron_placeholder": "e.g. 0 9 * * * (daily at 9am)",
   "home.scheduled.cron_hint": "5-field cron: minute hour day-of-month month day-of-week",
+  "home.scheduled.jitter_label": "Jitter (minutes, optional)",
+  "home.scheduled.jitter_placeholder": "e.g. 5",
+  "home.scheduled.jitter_hint":
+    "Spreads each fire by a random offset of up to this many minutes past the scheduled time, so a recurring post doesn't always land exactly on the clock tick. 0 or empty = fire precisely on schedule. Max 30.",
+  "home.scheduled.jitter_modal_label": "Jitter",
   "home.scheduled.prompt_label": "Prompt (dynamic content)",
   "home.scheduled.prompt_placeholder":
     "What should Claude do? e.g. Summarize merged PRs from today",

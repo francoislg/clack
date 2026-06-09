@@ -4,7 +4,7 @@ import { CronExpressionParser } from "cron-parser";
 import type { QueryToolContext } from "../types.js";
 import { textResult, errorResult } from "../helpers.js";
 import { resolveChannelId } from "../../slack/channelResolver.js";
-import { createJob, type CronJob } from "../../cronJobs.js";
+import { createJob, MAX_JITTER_MINUTES, type CronJob } from "../../cronJobs.js";
 import { isValidTimezone } from "../../timezone.js";
 import { logger } from "../../logger.js";
 import { errorMessage } from "../../errors.js";
@@ -109,6 +109,19 @@ export function createCreateScheduledMessageTool(
         .boolean()
         .optional()
         .describe("If true, the scheduled message fires once and is automatically deleted."),
+      jitterMinutes: z
+        .number()
+        .int()
+        .min(0)
+        .max(MAX_JITTER_MINUTES)
+        .optional()
+        .describe(
+          "Optional forward jitter. Spreads each fire by a deterministic random offset of up to " +
+            "this many minutes past the scheduled time, so a recurring post doesn't always land " +
+            "exactly on the clock tick. The cron expression itself is never changed. Omit or 0 = " +
+            `fire precisely on schedule (today's behavior). Max ${MAX_JITTER_MINUTES}; keep it below ` +
+            "the cron's inter-fire gap.",
+        ),
       requiredTools: z
         .array(z.string())
         .optional()
@@ -205,6 +218,7 @@ export function createCreateScheduledMessageTool(
           createdBy: ctx.userId,
           timezone: args.timezone,
           oneShot: args.oneShot,
+          jitterMinutes: args.jitterMinutes,
           requiredTools: args.requiredTools,
           plugin: args.plugin,
           skipConditions: args.skipConditions,

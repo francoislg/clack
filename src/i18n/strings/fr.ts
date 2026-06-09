@@ -205,6 +205,7 @@ export const fr: Partial<Record<StringKey, string>> = {
   "home.scheduled.ran_without_responses_suffix": " _(exécuté sans réponses)_",
   "home.scheduled.one_time_suffix": " · _ponctuel_",
   "home.scheduled.plugin_suffix": " · _plugin : {plugin}_",
+  "home.scheduled.jitter_suffix": " · décalage : {minutes}m",
   "home.scheduled.pause": "Pause",
   "home.scheduled.resume": "Reprendre",
   "home.scheduled.modal_title_edit": "Modifier la programmation",
@@ -218,6 +219,11 @@ export const fr: Partial<Record<StringKey, string>> = {
   "home.scheduled.cron_label": "Expression cron",
   "home.scheduled.cron_placeholder": "ex. 0 9 * * * (tous les jours à 9h)",
   "home.scheduled.cron_hint": "Cron 5 champs : minute heure jour-du-mois mois jour-de-semaine",
+  "home.scheduled.jitter_label": "Décalage aléatoire (minutes, optionnel)",
+  "home.scheduled.jitter_placeholder": "p.ex. 5",
+  "home.scheduled.jitter_hint":
+    "Étale chaque exécution d'un décalage aléatoire allant jusqu'à ce nombre de minutes après l'heure programmée, pour qu'un message récurrent ne tombe pas toujours pile à l'heure ronde. 0 ou vide = exécution exactement à l'heure. Max 30.",
+  "home.scheduled.jitter_modal_label": "Décalage aléatoire",
   "home.scheduled.prompt_label": "Prompt (contenu dynamique)",
   "home.scheduled.prompt_placeholder":
     "Que doit faire Claude ? ex. Résumer les PR mergées aujourd'hui",
