@@ -61,6 +61,21 @@ describe("SilentDelivery", () => {
     expect(recordResponseTs).not.toHaveBeenCalled();
   });
 
+  it("threaded raw-text delivery: posts with thread_ts (anchor applies to markdownText too)", async () => {
+    const { client, postMessage } = makeClient();
+    const recordResponseTs = vi.fn(async () => {});
+    const handler = new SilentDelivery({
+      client,
+      targetChannel: "C1",
+      targetThread: "T1",
+      recordResponseTs,
+    });
+
+    await handler.deliver({ markdownText: "just text" });
+    expect(postMessage.mock.calls[0][0].thread_ts).toBe("T1");
+    expect(recordResponseTs).not.toHaveBeenCalled();
+  });
+
   it("windUp / handleEvent / windDown are no-ops (no Slack calls)", async () => {
     const { client, postMessage } = makeClient();
     const handler = new SilentDelivery({
