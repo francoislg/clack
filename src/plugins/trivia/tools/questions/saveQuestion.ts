@@ -361,14 +361,13 @@ export function createSaveQuestionTool(
         ...questionTypeOutcome.recordExtras,
       };
 
-      // Handler validates per-format args AND attaches its format-specific
-      // fields (isTrue / choices+correctIndex / expectedAnswer+...) in one
-      // step — no two-method dance, no opportunity to skip validation. The
-      // judgeLeniency stamp is among the format-specific fields (freeform only).
-      const outcome = handler.getSavedQuestion(base, args, {
-        config: getConfigFn(),
-        resolvedJudgeLeniency,
-      });
+      // The questionType handler owns WHETHER the answer key is required at save time
+      // and delegates to the matching answersFormat save path: fact/topical use the
+      // keyed save; prediction defers (no key — `settle_question` stamps it later, and
+      // `resolved: false` rode in on the questionType handler's recordExtras above).
+      // save_question never branches on the type itself.
+      const saveCtx = { config: getConfigFn(), resolvedJudgeLeniency };
+      const outcome = questionTypeHandler.composeSavedQuestion(handler, base, args, saveCtx);
       if (!outcome.ok) {
         return errorResult(outcome.error);
       }

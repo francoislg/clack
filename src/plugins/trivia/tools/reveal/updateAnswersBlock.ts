@@ -10,7 +10,7 @@ import {
 } from "../../core/configBridge.js";
 import { requireWritableGame } from "../../core/gamesRegistry.js";
 import { getAnswerTypeHandler } from "../../answerTypes/registry.js";
-import { editRevealIntoCard } from "../../revealCards/editCard.js";
+import { editRevealIntoCard, editInvalidatedIntoCard } from "../../revealCards/editCard.js";
 import type { ClackSdk } from "../../../sdk.js";
 import type { TriviaDataLayer } from "../../core/types.js";
 import {
@@ -85,7 +85,20 @@ export function createUpdateAnswersBlockTool(
         // Per-card isolation: a projection or edit failure (I/O, parse) records an
         // error and moves on — it must never abort the rest of the batch.
         try {
+          // Invalidated → repaint the card as "invalidated" (no results footer). Works
+          // whether it was invalidated before or after its reveal.
+          if (question.invalidated === true) {
+            await editInvalidatedIntoCard({
+              updateMessage: (channel, ts, blocks) => slackDeps.updateMessage(channel, ts, blocks),
+              question,
+            });
+            edited.push(question.id);
+            continue;
+          }
           const handler = getAnswerTypeHandler(question.answersFormat);
+          // A deferred prediction with no answer key yet — leave its card untouched
+          // so its vote buttons stay live for picks until it is settled and revealed.
+          if (!handler.hasAnswerKey(question)) continue;
           const outcome = await handler.projectReveal(question, projectDeps);
           if (!outcome.ok) {
             errors.push({ questionId: question.id, error: outcome.error });

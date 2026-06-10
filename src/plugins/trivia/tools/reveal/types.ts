@@ -168,6 +168,19 @@ export interface ProcessRevealResult {
    * renderer, not folded into this flag.
    */
   showAllTimeRow?: boolean;
+  /**
+   * Questions in the reveal batch that were INVALIDATED (`settle_question` with
+   * `invalidate`). Present only when non-empty. Worth 0 points, never scored; the
+   * reveal prompt renders each as an "invalidated" line (with its reason) and
+   * `update_answers_block` repaints the card as invalidated.
+   */
+  invalidatedQuestions?: Array<{
+    questionId: string;
+    statement: string;
+    category: string;
+    emojis: string[];
+    invalidatedReason?: string;
+  }>;
   errors?: Array<{ questionId: string; error: string }>;
   /**
    * Resolved value of the replace-cascade `instructions` axis at reveal time.

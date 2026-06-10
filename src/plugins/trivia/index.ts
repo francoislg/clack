@@ -30,6 +30,7 @@ import { createStartNewSeasonTool } from "./tools/seasons/startNewSeason.js";
 import { createComputeAnswersTool } from "./tools/reveal/computeAnswers.js";
 import { createUpdateAnswersBlockTool } from "./tools/reveal/updateAnswersBlock.js";
 import { createOverrideAnswerTool } from "./tools/reveal/overrideAnswer.js";
+import { createSettleQuestionTool } from "./tools/reveal/settleQuestion.js";
 import { createRemoveCheatTool } from "./tools/answers/removeCheat.js";
 import {
   getTriviaCheckInstruction,
@@ -123,6 +124,7 @@ export const triviaPlugin: ClackPlugin = async (sdk: ClackSdk) => {
     sdk.t("label.find_previous_subjects"),
   );
   sdk.registerTool("admin", createGetQuestionHistoryTool(data), sdk.t("label.question_history"));
+  sdk.registerTool("admin", createSettleQuestionTool(data), sdk.t("label.settle_question"));
   sdk.registerTool("admin", createComputeAnswersTool(data, sdk), sdk.t("label.compute_answers"));
   sdk.registerTool(
     "admin",

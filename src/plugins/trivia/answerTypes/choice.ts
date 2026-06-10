@@ -21,6 +21,8 @@ import type {
   ResolvedClick,
   SaveQuestionArgs,
   SaveValidationContext,
+  SettleOutcomeInput,
+  SettleOutcomeResult,
   SuggestionRollDeps,
   TriviaQuestionBase,
 } from "./types.js";
@@ -58,6 +60,33 @@ const CHOICE_VOTE_PATTERN = /^vote:[^:]+:[0-9]+$/;
 /** Inclusive uniform integer in `[min, max]`. */
 function randomIntInclusive(min: number, max: number): number {
   return Math.floor(Math.random() * (max - min + 1)) + min;
+}
+
+/**
+ * Validate the option list shared by both the answered (`getSavedQuestion`) and the
+ * deferred-prediction (`getDeferredSavedQuestion`) save paths: count within bounds,
+ * each option 1–40 chars after trim, and unique after trim+case-fold. Returns the
+ * Claude-readable error string, or null when valid. The `correctIndex` check stays
+ * out of here — it only applies to the answered path.
+ */
+function validateChoiceList(
+  choices: string[],
+  bounds: { min: number; max: number },
+): string | null {
+  if (choices.length < bounds.min || choices.length > bounds.max) {
+    return `Choice question must have between ${bounds.min} and ${bounds.max} options (got ${choices.length}).`;
+  }
+  for (let i = 0; i < choices.length; i++) {
+    const trimmed = choices[i].trim();
+    if (trimmed.length < 1 || trimmed.length > 40) {
+      return `Choice at index ${i} must be 1-40 characters after trim (got ${trimmed.length}).`;
+    }
+  }
+  const normalized = choices.map((c) => c.trim().toLowerCase());
+  if (new Set(normalized).size !== normalized.length) {
+    return "Choices must be unique (after trimming and case-folding).";
+  }
+  return null;
 }
 
 export const choiceAnswerHandler: ClickableAnswerHandler = {
@@ -99,8 +128,15 @@ export const choiceAnswerHandler: ClickableAnswerHandler = {
     if (answerIndex < 0 || answerIndex >= choicesLength) return null;
     return {
       payload: { answerIndex },
-      correct: answerIndex === (question.correctIndex ?? -1),
+      // No key yet (deferred prediction) → pending verdict; the reveal derives it
+      // once `settle_question` stamps `correctIndex`.
+      correct:
+        question.correctIndex === undefined ? undefined : answerIndex === question.correctIndex,
     };
+  },
+
+  hasAnswerKey(question: TriviaQuestion): boolean {
+    return question.correctIndex !== undefined;
   },
 
   toAnswerPatch(resolved: ResolvedClick): Partial<SubmittedAnswer> {
@@ -153,15 +189,18 @@ export const choiceAnswerHandler: ClickableAnswerHandler = {
       return { ok: false, error: "choice question is missing correctIndex" };
     }
 
-    if (deps.isReprocessMode) {
-      // Re-derive ONLY the verdict on each RETAINED answer row from the (possibly
-      // corrected) `correctIndex`. The raw button click is the canonical record and
-      // is never deleted — reprocess recomputes `correct`, nothing else.
+    // Derive the verdict on RETAINED answer rows from the `correctIndex` key. Reprocess
+    // re-derives every row (after a key/config correction); the default reveal only
+    // fills rows still PENDING (`correct: undefined`) — clicks placed on a deferred
+    // prediction before it was settled. The raw button click is canonical and never
+    // deleted.
+    {
       const rows = (await deps.scoped.loadAnswers()).filter((a) => a.questionId === question.id);
       for (const row of rows) {
         // A hand-overridden row (originalVerdict set) is admin-authoritative: keep
         // its stored verdict, don't recompute it from the key.
         if (row.originalVerdict !== undefined) continue;
+        if (!deps.isReprocessMode && row.correct !== undefined) continue;
         const correct = row.answerIndex === question.correctIndex;
         await deps.scoped.updateAnswer(row.userId, question.id, { correct });
       }
@@ -202,7 +241,7 @@ export const choiceAnswerHandler: ClickableAnswerHandler = {
     );
   },
 
-  getSavedQuestion(
+  composeStatic(
     base: TriviaQuestionBase,
     args: SaveQuestionArgs,
     ctx: SaveValidationContext,
@@ -210,43 +249,48 @@ export const choiceAnswerHandler: ClickableAnswerHandler = {
     if (args.choices === undefined) {
       return { ok: false, error: 'Choice questions require "choices".' };
     }
-    if (args.correctIndex === undefined) {
+    const listError = validateChoiceList(
+      args.choices,
+      ctx.config?.choices ?? DEFAULT_TRIVIA_CHOICES,
+    );
+    if (listError !== null) {
+      return { ok: false, error: listError };
+    }
+    return { ok: true, question: { ...base, choices: args.choices } };
+  },
+
+  settleInputFromSaveArgs(args: SaveQuestionArgs): SettleOutcomeInput {
+    return { outcome: args.correctIndex };
+  },
+
+  settleOutcome(question: TriviaQuestion, input: SettleOutcomeInput): SettleOutcomeResult {
+    const { outcome } = input;
+    if (outcome === undefined) {
       return { ok: false, error: 'Choice questions require "correctIndex".' };
     }
-    const bounds = ctx.config?.choices ?? DEFAULT_TRIVIA_CHOICES;
-    if (args.choices.length < bounds.min || args.choices.length > bounds.max) {
-      return {
-        ok: false,
-        error: `Choice question must have between ${bounds.min} and ${bounds.max} options (got ${args.choices.length}).`,
-      };
+    const choices = question.choices ?? [];
+    if (choices.length === 0) {
+      return { ok: false, error: "choice question is missing its choices" };
     }
-    if (args.correctIndex < 0 || args.correctIndex >= args.choices.length) {
-      return {
-        ok: false,
-        error: `correctIndex (${args.correctIndex}) must be in [0, ${args.choices.length}).`,
-      };
-    }
-    for (let i = 0; i < args.choices.length; i++) {
-      const trimmed = args.choices[i].trim();
-      if (trimmed.length < 1 || trimmed.length > 40) {
-        return {
-          ok: false,
-          error: `Choice at index ${i} must be 1-40 characters after trim (got ${trimmed.length}).`,
-        };
+    let index: number;
+    if (typeof outcome === "number") {
+      index = outcome;
+    } else if (typeof outcome === "string") {
+      const target = outcome.trim().toLowerCase();
+      index = choices.findIndex((c) => c.trim().toLowerCase() === target);
+      if (index < 0) {
+        return { ok: false, error: `Outcome "${outcome}" does not match any of the choices.` };
       }
+    } else {
+      return {
+        ok: false,
+        error: "Choice answer must be the winning option's 0-based index or exact text.",
+      };
     }
-    const normalized = args.choices.map((c) => c.trim().toLowerCase());
-    if (new Set(normalized).size !== normalized.length) {
-      return { ok: false, error: "Choices must be unique (after trimming and case-folding)." };
+    if (!Number.isInteger(index) || index < 0 || index >= choices.length) {
+      return { ok: false, error: `correctIndex (${index}) must be in [0, ${choices.length}).` };
     }
-    return {
-      ok: true,
-      question: {
-        ...base,
-        choices: args.choices,
-        correctIndex: args.correctIndex,
-      },
-    };
+    return { ok: true, keyPatch: { correctIndex: index }, resolvedOutcome: choices[index] };
   },
 
   rollGenerationSuggestions(deps: SuggestionRollDeps): Record<string, JsonValue> {

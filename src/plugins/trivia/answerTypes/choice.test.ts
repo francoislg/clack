@@ -2,6 +2,7 @@ import { describe, it } from "vitest";
 import assert from "node:assert/strict";
 import { choiceAnswerHandler } from "./choice.js";
 import { isClickableHandler } from "./registry.js";
+import { composeWithKey } from "../questionTypes/compose.js";
 import { createInMemoryDataLayer, FIXTURE_GAME_NAME } from "../testHelpers.js";
 import type { TriviaQuestion } from "../core/types.js";
 import type { ProcessRevealDeps } from "./types.js";
@@ -219,7 +220,8 @@ describe("choiceAnswerHandler", () => {
     };
 
     it("validates and composes a happy-path choice record", () => {
-      const out = choiceAnswerHandler.getSavedQuestion(
+      const out = composeWithKey(
+        choiceAnswerHandler,
         base,
         {
           answersFormat: "choice",
@@ -240,7 +242,8 @@ describe("choiceAnswerHandler", () => {
     });
 
     it("rejects when correctIndex is out of range", () => {
-      const out = choiceAnswerHandler.getSavedQuestion(
+      const out = composeWithKey(
+        choiceAnswerHandler,
         base,
         {
           answersFormat: "choice",
@@ -258,7 +261,8 @@ describe("choiceAnswerHandler", () => {
     });
 
     it("rejects duplicate choices after case-folding", () => {
-      const out = choiceAnswerHandler.getSavedQuestion(
+      const out = composeWithKey(
+        choiceAnswerHandler,
         base,
         {
           answersFormat: "choice",
@@ -276,7 +280,8 @@ describe("choiceAnswerHandler", () => {
     });
 
     it("rejects choices outside the active bounds", () => {
-      const out = choiceAnswerHandler.getSavedQuestion(
+      const out = composeWithKey(
+        choiceAnswerHandler,
         base,
         {
           answersFormat: "choice",

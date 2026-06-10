@@ -47,11 +47,14 @@ export interface TriviaAnswersFormatWeights {
 }
 
 /**
- * Weighted-random map for the orthogonal fact-vs-topical axis. `fact` questions draw
+ * Weighted-random map for the orthogonal question-source axis. `fact` questions draw
  * from static knowledge; `topical` questions invoke `WebSearch` to find a recent
- * newsworthy event. Defaults to `{ fact: 1, topical: 0 }` (pre-topical behavior).
+ * newsworthy event; `prediction` questions invoke `WebSearch` to find an UPCOMING
+ * event whose outcome is unknown at write time (the answer key is deferred to settle
+ * time). Defaults to `{ fact: 1, topical: 0, prediction: 0 }` (pre-topical behavior —
+ * existing games never roll topical or prediction unless they opt in).
  */
-export type TriviaQuestionTypeWeights = Record<"fact" | "topical", number>;
+export type TriviaQuestionTypeWeights = Record<"fact" | "topical" | "prediction", number>;
 
 /**
  * Weighted-random map for the orthogonal prompt-delivery medium axis. `text` questions
@@ -444,7 +447,11 @@ export interface TriviaConfig extends CascadeAxes {
 export const DEFAULT_TRIVIA_CHOICES: TriviaChoicesConfig = { min: 4, max: 4 };
 
 /** Built-in fallback when no `questionType` weights are set at any cascade tier. */
-export const DEFAULT_QUESTION_TYPE_WEIGHTS: TriviaQuestionTypeWeights = { fact: 1, topical: 0 };
+export const DEFAULT_QUESTION_TYPE_WEIGHTS: TriviaQuestionTypeWeights = {
+  fact: 1,
+  topical: 0,
+  prediction: 0,
+};
 
 /** Built-in fallback when no `promptMedium` weights are set at any cascade tier. */
 export const DEFAULT_PROMPT_MEDIUM_WEIGHTS: PromptMediumWeights = { text: 1, image: 0 };

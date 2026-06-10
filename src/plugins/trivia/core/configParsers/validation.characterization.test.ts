@@ -124,12 +124,18 @@ runValidator(
   "validateQuestionTypeMap",
   validateQuestionTypeMap,
   "questionType",
-  [{ name: "full map", input: { fact: 1, topical: 0 }, value: { fact: 1, topical: 0 } }],
+  [
+    {
+      name: "full map",
+      input: { fact: 1, topical: 0 },
+      value: { fact: 1, topical: 0, prediction: 0 },
+    },
+  ],
   [
     {
       name: "unknown key",
       input: { fact: 1, nope: 1 },
-      error: "'questionType' contains unknown key 'nope' (allowed: fact, topical)",
+      error: "'questionType' contains unknown key 'nope' (allowed: fact, topical, prediction)",
     },
     {
       name: "all-zero",

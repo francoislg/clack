@@ -41,6 +41,7 @@ export const en = {
   // readers the full verdict/WHY/voter breakdown is in the thread. Travels the
   // via-Claude path: the reveal prompt dictates it verbatim into a `context` block.
   "reveal.see_in_thread": "💬 Full reveal in the thread 👇",
+  "reveal.invalidated": "🚫 *Invalidated* — {reason} _(worth 0 points)_",
 
   // Reveal leaderboard table row labels + season-finale podium labels. These travel the
   // via-Claude path (Claude authors the `table`/podium via `submit_response`), but the prompt
@@ -101,6 +102,7 @@ export const en = {
   "label.find_previous": "Searching past trivia questions — {game}",
   "label.find_previous_subjects": "Checking for repeat image subjects — {subjectId}",
   "label.question_history": "Loading trivia question history — {game}",
+  "label.settle_question": "Settling trivia prediction — {game}",
   "label.compute_answers": "Scoring trivia reveal — {game}",
   "label.update_answers_block": "Updating trivia question cards — {game}",
   "label.override_answer": "Overriding trivia answer — {game}",
@@ -140,6 +142,7 @@ export const fr: Partial<Record<keyof typeof en, string>> = {
   "reveal.n_no_answer": "🤷 {count} n'ont pas répondu",
 
   "reveal.see_in_thread": "💬 La révélation complète dans le fil 👇",
+  "reveal.invalidated": "🚫 *Invalidée* — {reason} _(vaut 0 point)_",
 
   "leaderboard.this_round": "Ce tour",
   "leaderboard.current_season": "Saison en cours",
@@ -191,6 +194,7 @@ export const fr: Partial<Record<keyof typeof en, string>> = {
   "label.find_previous": "Recherche de questions trivia passées — {game}",
   "label.find_previous_subjects": "Vérification des sujets d'image déjà utilisés — {subjectId}",
   "label.question_history": "Chargement de l'historique des questions trivia — {game}",
+  "label.settle_question": "Résolution d'une prédiction trivia — {game}",
   "label.compute_answers": "Calcul des réponses trivia — {game}",
   "label.update_answers_block": "Mise à jour des cartes de questions trivia — {game}",
   "label.override_answer": "Correction d'une réponse trivia — {game}",

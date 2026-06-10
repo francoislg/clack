@@ -2,6 +2,7 @@ import { describe, it } from "vitest";
 import assert from "node:assert/strict";
 import { booleanAnswerHandler } from "./boolean.js";
 import { isClickableHandler } from "./registry.js";
+import { composeWithKey } from "../questionTypes/compose.js";
 import { createInMemoryDataLayer, FIXTURE_GAME_NAME } from "../testHelpers.js";
 import type { TriviaQuestion } from "../core/types.js";
 import type { ProcessRevealDeps } from "./types.js";
@@ -240,7 +241,8 @@ describe("booleanAnswerHandler", () => {
     };
 
     it("validates and composes a happy-path boolean record", () => {
-      const out = booleanAnswerHandler.getSavedQuestion(
+      const out = composeWithKey(
+        booleanAnswerHandler,
         base,
         {
           answersFormat: "boolean",
@@ -261,7 +263,8 @@ describe("booleanAnswerHandler", () => {
     });
 
     it("rejects when isTrue is missing", () => {
-      const out = booleanAnswerHandler.getSavedQuestion(
+      const out = composeWithKey(
+        booleanAnswerHandler,
         base,
         {
           answersFormat: "boolean",

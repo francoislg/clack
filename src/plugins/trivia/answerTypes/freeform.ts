@@ -31,6 +31,8 @@ import type {
   RevealAnswerDescriptor,
   SaveQuestionArgs,
   SaveValidationContext,
+  SettleOutcomeInput,
+  SettleOutcomeResult,
   SuggestionRollDeps,
   TriviaQuestionBase,
 } from "./types.js";
@@ -137,6 +139,76 @@ export const freeformAnswerHandler: AnswerTypeHandler = {
     const sample = group.rows[0]?.answerText;
     const source = sample && sample.length > 0 ? sample : group.groupKey;
     return `"${truncate(source.trim(), ROSTER_LABEL_MAX_CHARS)}"`;
+  },
+
+  hasAnswerKey(question: TriviaQuestion): boolean {
+    return question.expectedAnswer !== undefined;
+  },
+
+  composeStatic(
+    base: TriviaQuestionBase,
+    args: SaveQuestionArgs,
+    ctx: SaveValidationContext,
+  ): GetSavedQuestionOutcome {
+    // Static fields only: the answer shape + the judge-leniency policy in effect when
+    // the question was posed. The canonical answer + accepted variants + grading notes
+    // are answer-related and arrive via `settleOutcome`.
+    if (args.freeformAnswerShape === undefined) {
+      return {
+        ok: false,
+        error:
+          'Freeform questions require "freeformAnswerShape" — pass through the value from get_ideas\' suggestedFreeformAnswerShape.',
+      };
+    }
+    return {
+      ok: true,
+      question: {
+        ...base,
+        freeformAnswerShape: args.freeformAnswerShape,
+        ...(ctx.resolvedJudgeLeniency !== DEFAULT_JUDGE_LENIENCY
+          ? { judgeLeniency: ctx.resolvedJudgeLeniency }
+          : {}),
+      },
+    };
+  },
+
+  settleInputFromSaveArgs(args: SaveQuestionArgs): SettleOutcomeInput {
+    return {
+      outcome: args.expectedAnswer,
+      acceptableAnswers: args.acceptableAnswers,
+      gradingNotes: args.gradingNotes,
+    };
+  },
+
+  settleOutcome(_q: TriviaQuestion, input: SettleOutcomeInput): SettleOutcomeResult {
+    if (
+      input.outcome === undefined ||
+      (typeof input.outcome === "string" && input.outcome.trim().length === 0)
+    ) {
+      return {
+        ok: false,
+        error: 'Freeform questions require "expectedAnswer" (the canonical correct answer).',
+      };
+    }
+    if (typeof input.outcome !== "string") {
+      return { ok: false, error: "Freeform answer must be the canonical answer text." };
+    }
+    const expectedAnswer = input.outcome.trim();
+    // The answer-related judge spec (canonical answer + accepted variants + grading
+    // notes) is prepared HERE — immediately at save for a non-prediction, later at
+    // settle for a prediction — the reveal judge needs the full spec.
+    const extrasError = validateFreeformAnswerExtras(input.acceptableAnswers, input.gradingNotes);
+    if (extrasError !== null) return { ok: false, error: extrasError };
+    if (expectedAnswer.length > 200) {
+      return {
+        ok: false,
+        error: `"expectedAnswer" must be at most 200 characters (got ${expectedAnswer.length}).`,
+      };
+    }
+    const keyPatch: Partial<TriviaQuestion> = { expectedAnswer };
+    if (input.acceptableAnswers !== undefined) keyPatch.acceptableAnswers = input.acceptableAnswers;
+    if (input.gradingNotes !== undefined) keyPatch.gradingNotes = input.gradingNotes;
+    return { ok: true, keyPatch, resolvedOutcome: expectedAnswer };
   },
 
   buildRevealAnswer(question: TriviaQuestion) {
@@ -253,68 +325,6 @@ export const freeformAnswerHandler: AnswerTypeHandler = {
       voters,
       false,
     );
-  },
-
-  getSavedQuestion(
-    base: TriviaQuestionBase,
-    args: SaveQuestionArgs,
-    ctx: SaveValidationContext,
-  ): GetSavedQuestionOutcome {
-    if (args.expectedAnswer === undefined || args.expectedAnswer.trim().length === 0) {
-      return {
-        ok: false,
-        error: 'Freeform questions require "expectedAnswer" (the canonical correct answer).',
-      };
-    }
-    if (args.expectedAnswer.length > 200) {
-      return {
-        ok: false,
-        error: `"expectedAnswer" must be at most 200 characters (got ${args.expectedAnswer.length}).`,
-      };
-    }
-    if (args.acceptableAnswers !== undefined) {
-      for (let i = 0; i < args.acceptableAnswers.length; i++) {
-        const trimmed = args.acceptableAnswers[i].trim();
-        if (trimmed.length < 1 || trimmed.length > 200) {
-          return {
-            ok: false,
-            error: `acceptableAnswers[${i}] must be 1-200 characters after trim (got ${trimmed.length}).`,
-          };
-        }
-      }
-    }
-    if (args.gradingNotes !== undefined && args.gradingNotes.length > 500) {
-      return {
-        ok: false,
-        error: `"gradingNotes" must be at most 500 characters (got ${args.gradingNotes.length}).`,
-      };
-    }
-    if (args.freeformAnswerShape === undefined) {
-      return {
-        ok: false,
-        error:
-          'Freeform questions require "freeformAnswerShape" — pass through the value from get_ideas\' suggestedFreeformAnswerShape.',
-      };
-    }
-    return {
-      ok: true,
-      question: {
-        ...base,
-        expectedAnswer: args.expectedAnswer,
-        ...(args.acceptableAnswers !== undefined
-          ? { acceptableAnswers: args.acceptableAnswers }
-          : {}),
-        ...(args.gradingNotes !== undefined ? { gradingNotes: args.gradingNotes } : {}),
-        freeformAnswerShape: args.freeformAnswerShape,
-        // Stamp the resolved judge-leniency so the reveal judge scores by the policy in
-        // effect when the question was posed. Only non-default is stored (absence reads
-        // as DEFAULT_JUDGE_LENIENCY). Freeform is the only judged format, so the stamp
-        // lives here, not in save_question.
-        ...(ctx.resolvedJudgeLeniency !== DEFAULT_JUDGE_LENIENCY
-          ? { judgeLeniency: ctx.resolvedJudgeLeniency }
-          : {}),
-      },
-    };
   },
 
   formatSubmittedAnswer(_question: TriviaQuestion, row: SubmittedAnswer): string {
@@ -566,4 +576,26 @@ function buildFreeformVoters(
     noAnswer: [],
     reactions: [],
   };
+}
+
+/**
+ * Validate the answer-related judge extras (`acceptableAnswers`, `gradingNotes`) shared
+ * by the save path and the settle path. Returns a Claude-readable error or null.
+ */
+function validateFreeformAnswerExtras(
+  acceptableAnswers: string[] | undefined,
+  gradingNotes: string | undefined,
+): string | null {
+  if (acceptableAnswers !== undefined) {
+    for (let i = 0; i < acceptableAnswers.length; i++) {
+      const trimmed = acceptableAnswers[i].trim();
+      if (trimmed.length < 1 || trimmed.length > 200) {
+        return `acceptableAnswers[${i}] must be 1-200 characters after trim (got ${trimmed.length}).`;
+      }
+    }
+  }
+  if (gradingNotes !== undefined && gradingNotes.length > 500) {
+    return `"gradingNotes" must be at most 500 characters (got ${gradingNotes.length}).`;
+  }
+  return null;
 }

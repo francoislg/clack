@@ -58,6 +58,7 @@ describe("buildGameSpecs", () => {
   it("reveal spec requiredTools is the compute + project + rollover list", () => {
     const [, reveal] = buildGameSpecs([baseGame]);
     assert.deepEqual(reveal.requiredTools, [
+      "mcp__trivia__settle_question",
       "mcp__trivia__compute_answers",
       "mcp__trivia__update_answers_block",
       "mcp__trivia__start_new_season",

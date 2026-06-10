@@ -8,11 +8,13 @@
 import type { TriviaQuestionType } from "../core/types.js";
 import { FACT_SAVE_FIELDS, factQuestionTypeHandler } from "./fact.js";
 import { TOPICAL_SAVE_FIELDS, topicalQuestionTypeHandler } from "./topical.js";
+import { predictionQuestionTypeHandler } from "./prediction.js";
 import type { QuestionTypeHandler } from "./types.js";
 
 const HANDLERS: Record<TriviaQuestionType, QuestionTypeHandler> = {
   fact: factQuestionTypeHandler,
   topical: topicalQuestionTypeHandler,
+  prediction: predictionQuestionTypeHandler,
 };
 
 export function getQuestionTypeHandler(
@@ -39,4 +41,8 @@ export const ALL_QUESTION_TYPE_SAVE_FIELDS = {
 export const QUESTION_TYPE_SAVE_FIELD_NAMES: Record<TriviaQuestionType, readonly string[]> = {
   fact: Object.keys(FACT_SAVE_FIELDS),
   topical: Object.keys(TOPICAL_SAVE_FIELDS),
+  // Prediction reuses topical's `sourceUrl` / `eventDate` fields — same web-search
+  // citation, no separate schema fragment. Sharing the field names keeps the
+  // central collision check from treating either type's fields as foreign.
+  prediction: Object.keys(TOPICAL_SAVE_FIELDS),
 };

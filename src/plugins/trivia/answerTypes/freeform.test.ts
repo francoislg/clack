@@ -2,6 +2,7 @@ import { describe, it } from "vitest";
 import assert from "node:assert/strict";
 import { freeformAnswerHandler } from "./freeform.js";
 import { isClickableHandler } from "./registry.js";
+import { composeWithKey } from "../questionTypes/compose.js";
 import { createInMemoryDataLayer, FIXTURE_GAME_NAME } from "../testHelpers.js";
 import type { TriviaQuestion } from "../core/types.js";
 import type { ProcessRevealDeps } from "./types.js";
@@ -406,7 +407,8 @@ describe("freeformAnswerHandler", () => {
     };
 
     it("validates and composes a happy-path freeform record", () => {
-      const out = freeformAnswerHandler.getSavedQuestion(
+      const out = composeWithKey(
+        freeformAnswerHandler,
         base,
         {
           answersFormat: "freeform",
@@ -428,7 +430,8 @@ describe("freeformAnswerHandler", () => {
     });
 
     it("rejects when expectedAnswer is missing", () => {
-      const out = freeformAnswerHandler.getSavedQuestion(
+      const out = composeWithKey(
+        freeformAnswerHandler,
         base,
         {
           answersFormat: "freeform",
@@ -446,7 +449,8 @@ describe("freeformAnswerHandler", () => {
 
     it("rejects expectedAnswer over 200 chars", () => {
       const long = "a".repeat(201);
-      const out = freeformAnswerHandler.getSavedQuestion(
+      const out = composeWithKey(
+        freeformAnswerHandler,
         base,
         {
           answersFormat: "freeform",
@@ -464,7 +468,8 @@ describe("freeformAnswerHandler", () => {
     });
 
     it("rejects when freeformAnswerShape is missing", () => {
-      const out = freeformAnswerHandler.getSavedQuestion(
+      const out = composeWithKey(
+        freeformAnswerHandler,
         base,
         {
           answersFormat: "freeform",
@@ -484,7 +489,8 @@ describe("freeformAnswerHandler", () => {
     // save_question's central loop, not in the handler.
 
     it("composes optional fields when supplied", () => {
-      const out = freeformAnswerHandler.getSavedQuestion(
+      const out = composeWithKey(
+        freeformAnswerHandler,
         base,
         {
           answersFormat: "freeform",

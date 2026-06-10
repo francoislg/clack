@@ -88,7 +88,11 @@ describe("compute_answers —showAllTimeRow", () => {
   async function run(tool: ReturnType<typeof createComputeAnswersTool>) {
     return parseToolResult(
       await tool.handler(
-        { game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined, reprocessBatchId: undefined },
+        {
+          game: FIXTURE_GAME_NAME,
+          reprocessQuestionIds: undefined,
+          reprocessBatchId: undefined,
+        },
         SESSION,
       ),
     );
@@ -140,7 +144,11 @@ describe("compute_answers —orchestrator", () => {
 
     const res = parseToolResult(
       await tool.handler(
-        { game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined, reprocessBatchId: undefined },
+        {
+          game: FIXTURE_GAME_NAME,
+          reprocessQuestionIds: undefined,
+          reprocessBatchId: undefined,
+        },
         SESSION,
       ),
     );
@@ -166,7 +174,11 @@ describe("compute_answers —orchestrator", () => {
 
     const res = parseToolResult(
       await tool.handler(
-        { game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined, reprocessBatchId: undefined },
+        {
+          game: FIXTURE_GAME_NAME,
+          reprocessQuestionIds: undefined,
+          reprocessBatchId: undefined,
+        },
         SESSION,
       ),
     );
@@ -210,7 +222,11 @@ describe("compute_answers —orchestrator", () => {
 
     const res = parseToolResult(
       await tool.handler(
-        { game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined, reprocessBatchId: undefined },
+        {
+          game: FIXTURE_GAME_NAME,
+          reprocessQuestionIds: undefined,
+          reprocessBatchId: undefined,
+        },
         SESSION,
       ),
     );
@@ -250,7 +266,11 @@ describe("compute_answers —orchestrator", () => {
 
     const res = parseToolResult(
       await tool.handler(
-        { game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined, reprocessBatchId: undefined },
+        {
+          game: FIXTURE_GAME_NAME,
+          reprocessQuestionIds: undefined,
+          reprocessBatchId: undefined,
+        },
         SESSION,
       ),
     );
@@ -278,7 +298,11 @@ describe("compute_answers —orchestrator", () => {
 
     const res = parseToolResult(
       await tool.handler(
-        { game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined, reprocessBatchId: undefined },
+        {
+          game: FIXTURE_GAME_NAME,
+          reprocessQuestionIds: undefined,
+          reprocessBatchId: undefined,
+        },
         SESSION,
       ),
     );
@@ -321,7 +345,11 @@ describe("compute_answers —orchestrator", () => {
 
     const res = parseToolResult(
       await tool.handler(
-        { game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined, reprocessBatchId: undefined },
+        {
+          game: FIXTURE_GAME_NAME,
+          reprocessQuestionIds: undefined,
+          reprocessBatchId: undefined,
+        },
         SESSION,
       ),
     );
@@ -349,7 +377,11 @@ describe("compute_answers —orchestrator", () => {
 
     const res = parseToolResult(
       await tool.handler(
-        { game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined, reprocessBatchId: undefined },
+        {
+          game: FIXTURE_GAME_NAME,
+          reprocessQuestionIds: undefined,
+          reprocessBatchId: undefined,
+        },
         SESSION,
       ),
     );
@@ -398,7 +430,11 @@ describe("compute_answers —orchestrator", () => {
 
     const res = parseToolResult(
       await tool.handler(
-        { game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined, reprocessBatchId: undefined },
+        {
+          game: FIXTURE_GAME_NAME,
+          reprocessQuestionIds: undefined,
+          reprocessBatchId: undefined,
+        },
         SESSION,
       ),
     );
@@ -443,7 +479,11 @@ describe("compute_answers —orchestrator", () => {
 
     const res = parseToolResult(
       await tool.handler(
-        { game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined, reprocessBatchId: undefined },
+        {
+          game: FIXTURE_GAME_NAME,
+          reprocessQuestionIds: undefined,
+          reprocessBatchId: undefined,
+        },
         SESSION,
       ),
     );
@@ -489,7 +529,11 @@ describe("compute_answers —orchestrator", () => {
 
     const res = parseToolResult(
       await tool.handler(
-        { game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined, reprocessBatchId: undefined },
+        {
+          game: FIXTURE_GAME_NAME,
+          reprocessQuestionIds: undefined,
+          reprocessBatchId: undefined,
+        },
         SESSION,
       ),
     );
@@ -536,7 +580,11 @@ describe("compute_answers —orchestrator", () => {
 
     const res = parseToolResult(
       await tool.handler(
-        { game: FIXTURE_GAME_NAME, reprocessQuestionIds: ["q1"], reprocessBatchId: undefined },
+        {
+          game: FIXTURE_GAME_NAME,
+          reprocessQuestionIds: ["q1"],
+          reprocessBatchId: undefined,
+        },
         SESSION,
       ),
     );
@@ -581,7 +629,11 @@ describe("compute_answers —orchestrator", () => {
 
     const tool = createComputeAnswersTool(data, fakeSdk(), fixtureGetGames, fakeSlackDeps());
     await tool.handler(
-      { game: FIXTURE_GAME_NAME, reprocessQuestionIds: ["q1"], reprocessBatchId: undefined },
+      {
+        game: FIXTURE_GAME_NAME,
+        reprocessQuestionIds: ["q1"],
+        reprocessBatchId: undefined,
+      },
       SESSION,
     );
 
@@ -604,7 +656,11 @@ describe("compute_answers —orchestrator", () => {
 
     const res = parseToolResult(
       await tool.handler(
-        { game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined, reprocessBatchId: undefined },
+        {
+          game: FIXTURE_GAME_NAME,
+          reprocessQuestionIds: undefined,
+          reprocessBatchId: undefined,
+        },
         SESSION,
       ),
     );
@@ -635,7 +691,11 @@ describe("compute_answers —orchestrator", () => {
 
     const res = parseToolResult(
       await tool.handler(
-        { game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined, reprocessBatchId: undefined },
+        {
+          game: FIXTURE_GAME_NAME,
+          reprocessQuestionIds: undefined,
+          reprocessBatchId: undefined,
+        },
         SESSION,
       ),
     );
@@ -657,7 +717,11 @@ describe("compute_answers —orchestrator", () => {
       );
       const res = parseToolResult(
         await tool.handler(
-          { game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined, reprocessBatchId: undefined },
+          {
+            game: FIXTURE_GAME_NAME,
+            reprocessQuestionIds: undefined,
+            reprocessBatchId: undefined,
+          },
           SESSION,
         ),
       );
@@ -676,7 +740,11 @@ describe("compute_answers —orchestrator", () => {
       );
       const res = parseToolResult(
         await tool.handler(
-          { game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined, reprocessBatchId: undefined },
+          {
+            game: FIXTURE_GAME_NAME,
+            reprocessQuestionIds: undefined,
+            reprocessBatchId: undefined,
+          },
           SESSION,
         ),
       );
@@ -703,7 +771,11 @@ describe("compute_answers —orchestrator", () => {
       );
       const res = parseToolResult(
         await tool.handler(
-          { game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined, reprocessBatchId: undefined },
+          {
+            game: FIXTURE_GAME_NAME,
+            reprocessQuestionIds: undefined,
+            reprocessBatchId: undefined,
+          },
           SESSION,
         ),
       );
@@ -737,7 +809,11 @@ describe("compute_answers —orchestrator", () => {
 
       const res = parseToolResult(
         await tool.handler(
-          { game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined, reprocessBatchId: undefined },
+          {
+            game: FIXTURE_GAME_NAME,
+            reprocessQuestionIds: undefined,
+            reprocessBatchId: undefined,
+          },
           SESSION,
         ),
       );
@@ -771,7 +847,11 @@ describe("compute_answers — reprocess re-applies current config", () => {
 
     const res = parseToolResult(
       await tool.handler(
-        { game: FIXTURE_GAME_NAME, reprocessQuestionIds: ["q1"], reprocessBatchId: undefined },
+        {
+          game: FIXTURE_GAME_NAME,
+          reprocessQuestionIds: ["q1"],
+          reprocessBatchId: undefined,
+        },
         SESSION,
       ),
     );
@@ -793,7 +873,11 @@ describe("compute_answers — reprocess re-applies current config", () => {
       fakeSlackDeps(),
     );
     await tool.handler(
-      { game: FIXTURE_GAME_NAME, reprocessQuestionIds: ["q1"], reprocessBatchId: undefined },
+      {
+        game: FIXTURE_GAME_NAME,
+        reprocessQuestionIds: ["q1"],
+        reprocessBatchId: undefined,
+      },
       SESSION,
     );
     const stored = (await scoped.loadQuestions()).find((q) => q.id === "q1");
@@ -813,7 +897,11 @@ describe("compute_answers — reprocess re-applies current config", () => {
 
     const res = parseToolResult(
       await tool.handler(
-        { game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined, reprocessBatchId: "B" },
+        {
+          game: FIXTURE_GAME_NAME,
+          reprocessQuestionIds: undefined,
+          reprocessBatchId: "B",
+        },
         SESSION,
       ),
     );
@@ -832,7 +920,11 @@ describe("compute_answers — reprocess re-applies current config", () => {
     const tool = createComputeAnswersTool(data, fakeSdk(), fixtureGetGames, fakeSlackDeps());
     const res = parseToolResult(
       await tool.handler(
-        { game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined, reprocessBatchId: "missing" },
+        {
+          game: FIXTURE_GAME_NAME,
+          reprocessQuestionIds: undefined,
+          reprocessBatchId: "missing",
+        },
         SESSION,
       ),
     );
@@ -852,7 +944,11 @@ describe("compute_answers — reprocess re-applies current config", () => {
     const tool = createComputeAnswersTool(data, fakeSdk(), fixtureGetGames, fakeSlackDeps());
     const res = parseToolResult(
       await tool.handler(
-        { game: FIXTURE_GAME_NAME, reprocessQuestionIds: ["solo"], reprocessBatchId: "B" },
+        {
+          game: FIXTURE_GAME_NAME,
+          reprocessQuestionIds: ["solo"],
+          reprocessBatchId: "B",
+        },
         SESSION,
       ),
     );
@@ -889,7 +985,11 @@ describe("compute_answers — reprocess re-applies current config", () => {
     const tool = createComputeAnswersTool(data, fakeSdk(), getGames, fakeSlackDeps());
 
     await tool.handler(
-      { game: FIXTURE_GAME_NAME, reprocessQuestionIds: ["f1"], reprocessBatchId: undefined },
+      {
+        game: FIXTURE_GAME_NAME,
+        reprocessQuestionIds: ["f1"],
+        reprocessBatchId: undefined,
+      },
       SESSION,
     );
     const stored = (await scoped.loadQuestions()).find((q) => q.id === "f1");
@@ -906,7 +1006,11 @@ describe("compute_answers — reprocess re-applies current config", () => {
     const tool = createComputeAnswersTool(data, fakeSdk(), fixtureGetGames, fakeSlackDeps());
     const res = parseToolResult(
       await tool.handler(
-        { game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined, reprocessBatchId: "legacy" },
+        {
+          game: FIXTURE_GAME_NAME,
+          reprocessQuestionIds: undefined,
+          reprocessBatchId: "legacy",
+        },
         SESSION,
       ),
     );
@@ -945,7 +1049,11 @@ describe("compute_answers — reprocess re-applies current config", () => {
     const tool = createComputeAnswersTool(data, fakeSdk(), fixtureGetGames, fakeSlackDeps());
     const res = parseToolResult(
       await tool.handler(
-        { game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined, reprocessBatchId: "B" },
+        {
+          game: FIXTURE_GAME_NAME,
+          reprocessQuestionIds: undefined,
+          reprocessBatchId: "B",
+        },
         SESSION,
       ),
     );
@@ -982,7 +1090,11 @@ describe("compute_answers —hint non-leak regression", () => {
     const tool = createComputeAnswersTool(data, fakeSdk(), fixtureGetGames, fakeSlackDeps());
     const res = parseToolResult(
       await tool.handler(
-        { game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined, reprocessBatchId: undefined },
+        {
+          game: FIXTURE_GAME_NAME,
+          reprocessQuestionIds: undefined,
+          reprocessBatchId: undefined,
+        },
         SESSION,
       ),
     );
@@ -1019,7 +1131,11 @@ describe("compute_answers —hint non-leak regression", () => {
 
     const tool = createComputeAnswersTool(data, fakeSdk(), fixtureGetGames, fakeSlackDeps());
     await tool.handler(
-      { game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined, reprocessBatchId: undefined },
+      {
+        game: FIXTURE_GAME_NAME,
+        reprocessQuestionIds: undefined,
+        reprocessBatchId: undefined,
+      },
       SESSION,
     );
 
@@ -1093,7 +1209,11 @@ describe("compute_answers — does not edit cards (projection moved to update_an
     const tool = createComputeAnswersTool(data, fakeSdk(), fixtureGetGames, deps);
     const res = parseToolResult(
       await tool.handler(
-        { game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined, reprocessBatchId: undefined },
+        {
+          game: FIXTURE_GAME_NAME,
+          reprocessQuestionIds: undefined,
+          reprocessBatchId: undefined,
+        },
         SESSION,
       ),
     );
@@ -1130,7 +1250,11 @@ describe("compute_answers —image-medium attribution", () => {
     const tool = createComputeAnswersTool(data, fakeSdk(), fixtureGetGames, fakeSlackDeps());
     const res = parseToolResult(
       await tool.handler(
-        { game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined, reprocessBatchId: undefined },
+        {
+          game: FIXTURE_GAME_NAME,
+          reprocessQuestionIds: undefined,
+          reprocessBatchId: undefined,
+        },
         SESSION,
       ),
     );
@@ -1148,7 +1272,11 @@ describe("compute_answers —image-medium attribution", () => {
     const tool = createComputeAnswersTool(data, fakeSdk(), fixtureGetGames, fakeSlackDeps());
     const res = parseToolResult(
       await tool.handler(
-        { game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined, reprocessBatchId: undefined },
+        {
+          game: FIXTURE_GAME_NAME,
+          reprocessQuestionIds: undefined,
+          reprocessBatchId: undefined,
+        },
         SESSION,
       ),
     );
@@ -1171,7 +1299,11 @@ describe("compute_answers —image-medium attribution", () => {
     const raw = JSON.stringify(
       parseToolResult(
         await tool.handler(
-          { game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined, reprocessBatchId: undefined },
+          {
+            game: FIXTURE_GAME_NAME,
+            reprocessQuestionIds: undefined,
+            reprocessBatchId: undefined,
+          },
           SESSION,
         ),
       ),
@@ -1195,7 +1327,11 @@ describe("compute_answers — includeRevealInQuestions axis", () => {
   async function run(tool: ReturnType<typeof createComputeAnswersTool>) {
     return parseToolResult(
       await tool.handler(
-        { game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined, reprocessBatchId: undefined },
+        {
+          game: FIXTURE_GAME_NAME,
+          reprocessQuestionIds: undefined,
+          reprocessBatchId: undefined,
+        },
         SESSION,
       ),
     );
@@ -1241,7 +1377,11 @@ describe("compute_answers — finalRevealSummary axis", () => {
   async function run(tool: ReturnType<typeof createComputeAnswersTool>) {
     return parseToolResult(
       await tool.handler(
-        { game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined, reprocessBatchId: undefined },
+        {
+          game: FIXTURE_GAME_NAME,
+          reprocessQuestionIds: undefined,
+          reprocessBatchId: undefined,
+        },
         SESSION,
       ),
     );
@@ -1282,7 +1422,11 @@ describe("compute_answers — tagPlayers axis", () => {
   async function run(tool: ReturnType<typeof createComputeAnswersTool>) {
     return parseToolResult(
       await tool.handler(
-        { game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined, reprocessBatchId: undefined },
+        {
+          game: FIXTURE_GAME_NAME,
+          reprocessQuestionIds: undefined,
+          reprocessBatchId: undefined,
+        },
         SESSION,
       ),
     );
@@ -1296,5 +1440,96 @@ describe("compute_answers — tagPlayers axis", () => {
   it("payload carries the resolved game-tier value", async () => {
     const res = await run(toolWith(createInMemoryDataLayer(), false));
     assert.equal(res.tagPlayers, false);
+  });
+});
+
+describe("compute_answers — predictions & invalidation", () => {
+  const FAKE_REACTIONS: RevealSlackDeps = {
+    isAvailable: () => null,
+    fetchBotUserId: async () => "UBOT",
+    fetchMessageReactions: async () => [],
+    fetchUserDisplayName: async () => null,
+    updateMessage: async () => {},
+  };
+
+  function predictionTool(data: ReturnType<typeof createInMemoryDataLayer>) {
+    return createComputeAnswersTool(data, fakeSdk(), fixtureGetGames, FAKE_REACTIONS);
+  }
+  function runDefault(t: ReturnType<typeof createComputeAnswersTool>) {
+    return t.handler(
+      { game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined, reprocessBatchId: undefined },
+      SESSION,
+    );
+  }
+
+  it("refuses to score while a prediction is still pending (resolved:false)", async () => {
+    const data = createInMemoryDataLayer();
+    const scoped = data.forGame(FIXTURE_GAME_NAME);
+    await scoped.saveQuestion(
+      makeQuestion({
+        id: "pred",
+        batchId: "B",
+        questionType: "prediction",
+        isTrue: undefined,
+        resolved: false,
+      }),
+    );
+    const res = parseToolResult(await runDefault(predictionTool(data)));
+    assert.match(res.error, /UNDECIDED_PREDICTIONS/);
+    const after = await scoped.loadQuestions();
+    assert.equal(after.find((q) => q.id === "pred")?.processedAt, undefined);
+  });
+
+  it("scores a settled prediction and derives the verdict on its pending answer rows", async () => {
+    const data = createInMemoryDataLayer();
+    const scoped = data.forGame(FIXTURE_GAME_NAME);
+    await scoped.saveQuestion(
+      makeQuestion({
+        id: "pred",
+        batchId: "B",
+        questionType: "prediction",
+        isTrue: true,
+        resolved: true,
+      }),
+    );
+    await scoped.saveAnswer({
+      userId: "U1",
+      questionId: "pred",
+      answer: true,
+      correct: undefined,
+      timestamp: 1,
+    });
+    await scoped.saveAnswer({
+      userId: "U2",
+      questionId: "pred",
+      answer: false,
+      correct: undefined,
+      timestamp: 2,
+    });
+
+    const res = parseToolResult(await runDefault(predictionTool(data)));
+    assert.equal(res.reveals.length, 1);
+    const answers = await scoped.loadAnswers();
+    assert.equal(answers.find((a) => a.userId === "U1")?.correct, true);
+    assert.equal(answers.find((a) => a.userId === "U2")?.correct, false);
+  });
+
+  it("surfaces an invalidated question, stamps processedAt, and never scores it", async () => {
+    const data = createInMemoryDataLayer();
+    const scoped = data.forGame(FIXTURE_GAME_NAME);
+    await scoped.saveQuestion(
+      makeQuestion({
+        id: "void1",
+        batchId: "B",
+        invalidated: true,
+        invalidatedReason: "match postponed",
+      }),
+    );
+    const res = parseToolResult(await runDefault(predictionTool(data)));
+    assert.equal(res.reveals.length, 0);
+    assert.equal(res.invalidatedQuestions.length, 1);
+    assert.equal(res.invalidatedQuestions[0].invalidatedReason, "match postponed");
+    const after = await scoped.loadQuestions();
+    assert.notEqual(after.find((q) => q.id === "void1")?.processedAt, undefined);
   });
 });

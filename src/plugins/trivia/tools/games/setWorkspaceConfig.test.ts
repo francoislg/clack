@@ -179,7 +179,7 @@ describe("set_workspace_config", () => {
     const cfg = loadTriviaConfig();
     assert.deepEqual(cfg?.answersFormat, { boolean: 1, choice: 0, freeform: 0 });
     assert.deepEqual(cfg?.choices, { min: 3, max: 4 });
-    assert.deepEqual(cfg?.questionType, { fact: 0, topical: 1 });
+    assert.deepEqual(cfg?.questionType, { fact: 0, topical: 1, prediction: 0 });
   });
 
   it("rejects empty update", async () => {

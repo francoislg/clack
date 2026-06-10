@@ -425,7 +425,7 @@ describe("list_games — workspaceDefaults block", () => {
 
   it("workspaceDefaults is always present even on an empty games list", async () => {
     const cfg: TriviaConfig = {
-      questionType: { fact: 1, topical: 1 },
+      questionType: { fact: 1, topical: 1, prediction: 0 },
     };
     const tool = createListGamesTool(
       () => [],

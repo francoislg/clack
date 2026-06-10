@@ -23,7 +23,7 @@ describe("topical-question end-to-end flow", () => {
 
   it("get_ideas with topical-only weights rolls suggestedQuestionType='topical' every time", async () => {
     const cfg = makeConfig({
-      questionType: { fact: 0, topical: 1 },
+      questionType: { fact: 0, topical: 1, prediction: 0 },
     });
     const getIdeas = createGetIdeasTool(data, () => cfg, fixtureGetGames);
     for (let i = 0; i < 20; i++) {
@@ -58,7 +58,7 @@ describe("topical-question end-to-end flow", () => {
 
   it("save_question stores topical fields end-to-end", async () => {
     const cfg = makeConfig({
-      questionType: { fact: 0, topical: 1 },
+      questionType: { fact: 0, topical: 1, prediction: 0 },
       contexts: [{ name: "Quebec" }],
     });
     const saveQuestion = createSaveQuestionTool(data, () => cfg, fixtureGetGames);

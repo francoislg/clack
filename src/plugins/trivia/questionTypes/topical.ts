@@ -6,8 +6,9 @@
  */
 
 import { z } from "zod";
-import type { JsonValue } from "../core/configTypes.js";
 import type { QuestionTypeHandler, QuestionTypeValidationOutcome } from "./types.js";
+import { validateEventSource } from "./eventSource.js";
+import { composeWithKey } from "./compose.js";
 
 /**
  * Per-tier Zod field-fragment for `save_question`. Spread into the tool's
@@ -30,31 +31,9 @@ export const TOPICAL_SAVE_FIELDS = {
     ),
 } as const;
 
-const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
-
 export const topicalQuestionTypeHandler: QuestionTypeHandler = {
   validate(args): QuestionTypeValidationOutcome {
-    if (args.sourceUrl === undefined || args.sourceUrl.length === 0) {
-      return {
-        ok: false,
-        error: 'Topical questions require "sourceUrl" (an HTTPS citation URL).',
-      };
-    }
-    if (!args.sourceUrl.startsWith("https://")) {
-      return { ok: false, error: '"sourceUrl" must use https://.' };
-    }
-    const hostPart = args.sourceUrl.slice("https://".length).split("/")[0];
-    if (hostPart.length === 0 || !hostPart.includes(".")) {
-      return { ok: false, error: '"sourceUrl" must include a valid host.' };
-    }
-    if (args.eventDate !== undefined && !ISO_DATE_RE.test(args.eventDate)) {
-      return {
-        ok: false,
-        error: '"eventDate" must be ISO 8601 calendar date (YYYY-MM-DD).',
-      };
-    }
-    const recordExtras: Record<string, JsonValue> = { sourceUrl: args.sourceUrl };
-    if (args.eventDate !== undefined) recordExtras.eventDate = args.eventDate;
-    return { ok: true, recordExtras };
+    return validateEventSource(args, "Topical");
   },
+  composeSavedQuestion: composeWithKey,
 };

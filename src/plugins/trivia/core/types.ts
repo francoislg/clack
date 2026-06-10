@@ -26,8 +26,12 @@ export type TriviaAnswersFormat = "boolean" | "choice" | "freeform";
  * - `"fact"` → static knowledge; no WebSearch.
  * - `"topical"` → recent newsworthy event; written after a `WebSearch` step.
  *   Topical records carry `sourceUrl` (required) and optionally `eventDate`.
+ * - `"prediction"` → UPCOMING event whose outcome is unknown at write time. Written
+ *   after a `WebSearch` step (carries `sourceUrl`), saved with NO answer key and
+ *   `resolved: false`. The key is stamped later by `settle_question` at reveal time.
+ *   Restricted to `boolean`/`choice` answer formats (never `freeform`).
  */
-export type TriviaQuestionType = "fact" | "topical";
+export type TriviaQuestionType = "fact" | "topical" | "prediction";
 
 /**
  * Prompt-delivery medium, orthogonal to `answersFormat` and `questionType`.
@@ -202,6 +206,34 @@ export interface TriviaQuestion {
    * non-freeform rows; absence SHALL be read as `"strict-with-typos"`.
    */
   judgeLeniency?: JudgeLeniency;
+  /**
+   * Prediction lifecycle flag. Present (and `false`) only on `questionType: "prediction"`
+   * records, which are saved without an answer key (`isTrue` / `correctIndex`). Flipped to
+   * `true` by `settle_question` once the real-world outcome is known. Absence reads as a
+   * normal answered question (legacy and non-prediction rows carry their key from save time
+   * and omit this field) — readers MUST NOT treat an absent `resolved` as pending.
+   */
+  resolved?: boolean;
+  /**
+   * The settled outcome stamped by `settle_question` alongside the answer key — boolean for
+   * boolean predictions, the winning option text for choice predictions. Audit-only; scoring
+   * reads the stamped key (`isTrue` / `correctIndex`). Absent on voided records.
+   */
+  resolvedOutcome?: boolean | string;
+  /** Epoch millis when `settle_question` decided the question (answered or invalidated). */
+  resolvedAt?: number;
+  /**
+   * General INVALIDATED flag (any format / any questionType). An invalidated question is worth
+   * 0 points, is never scored, and renders as "invalidated / no result" at reveal. Invalidating
+   * a pending prediction also sets `resolved: true` (it counts as a decision for the reveal
+   * gate). Absent everywhere else.
+   */
+  invalidated?: boolean;
+  /**
+   * Human-readable reason a question was invalidated (e.g. "match postponed"). Present iff
+   * `invalidated`.
+   */
+  invalidatedReason?: string;
 }
 
 // `cheatAttempts` is cumulative across seasons — season rollover does not reset it.

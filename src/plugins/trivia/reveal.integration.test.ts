@@ -157,7 +157,11 @@ describe("reveal flow integration — compute → update → start_new_season", 
     // ── Step 1: compute_answers (the scorer) ──────────────────────────────
     const computed = parseToolResult(
       await compute.handler(
-        { game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined, reprocessBatchId: undefined },
+        {
+          game: FIXTURE_GAME_NAME,
+          reprocessQuestionIds: undefined,
+          reprocessBatchId: undefined,
+        },
         SESSION,
       ),
     );
@@ -209,7 +213,11 @@ describe("reveal flow integration — compute → update → start_new_season", 
 
     const computed = parseToolResult(
       await compute.handler(
-        { game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined, reprocessBatchId: undefined },
+        {
+          game: FIXTURE_GAME_NAME,
+          reprocessQuestionIds: undefined,
+          reprocessBatchId: undefined,
+        },
         SESSION,
       ),
     );
@@ -260,7 +268,11 @@ describe("reveal flow integration — compute → update → start_new_season", 
 
     const computed = parseToolResult(
       await compute.handler(
-        { game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined, reprocessBatchId: undefined },
+        {
+          game: FIXTURE_GAME_NAME,
+          reprocessQuestionIds: undefined,
+          reprocessBatchId: undefined,
+        },
         SESSION,
       ),
     );
@@ -311,7 +323,11 @@ describe("reveal flow integration — compute → update → start_new_season", 
     // Fire 1 drains the oldest batch (B1) only.
     const first = parseToolResult(
       await compute.handler(
-        { game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined, reprocessBatchId: undefined },
+        {
+          game: FIXTURE_GAME_NAME,
+          reprocessQuestionIds: undefined,
+          reprocessBatchId: undefined,
+        },
         SESSION,
       ),
     );
@@ -325,7 +341,11 @@ describe("reveal flow integration — compute → update → start_new_season", 
     // Fire 2 drains the next batch (B2), leaving the already-revealed B1 alone.
     const second = parseToolResult(
       await compute.handler(
-        { game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined, reprocessBatchId: undefined },
+        {
+          game: FIXTURE_GAME_NAME,
+          reprocessQuestionIds: undefined,
+          reprocessBatchId: undefined,
+        },
         SESSION,
       ),
     );
@@ -344,7 +364,11 @@ describe("reveal flow integration — compute → update → start_new_season", 
     // Fire 3 has nothing left to drain.
     const third = parseToolResult(
       await compute.handler(
-        { game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined, reprocessBatchId: undefined },
+        {
+          game: FIXTURE_GAME_NAME,
+          reprocessQuestionIds: undefined,
+          reprocessBatchId: undefined,
+        },
         SESSION,
       ),
     );

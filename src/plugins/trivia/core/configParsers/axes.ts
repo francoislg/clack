@@ -64,7 +64,7 @@ export interface ParseIssue {
 }
 
 export const ANSWERS_FORMAT_KEYS = ["boolean", "choice", "freeform"] as const;
-export const QUESTION_TYPE_KEYS = ["fact", "topical"] as const;
+export const QUESTION_TYPE_KEYS = ["fact", "topical", "prediction"] as const;
 export const PROMPT_MEDIUM_KEYS = ["text", "image"] as const;
 export const FREEFORM_ANSWER_SHAPE_KEYS = [
   "name",
@@ -420,6 +420,7 @@ export const answersFormatZod = z.object({
 export const questionTypeZod = z.object({
   fact: integerWeight,
   topical: integerWeight,
+  prediction: integerWeight,
 } satisfies WeightShape<(typeof QUESTION_TYPE_KEYS)[number]>);
 
 /** Shared zod schema for the `promptMedium` axis. */

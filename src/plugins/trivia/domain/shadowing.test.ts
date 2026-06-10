@@ -56,7 +56,7 @@ describe("detectGameWriteShadowing", () => {
   });
 
   it("returns undefined when no written field is shadowed", () => {
-    const s = season({ questionType: { fact: 1, topical: 0 } }); // shadows a DIFFERENT field
+    const s = season({ questionType: { fact: 1, topical: 0, prediction: 0 } }); // shadows a DIFFERENT field
     expect(detectGameWriteShadowing(["answersFormat"], s, baseGame)).toBeUndefined();
   });
 });

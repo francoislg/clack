@@ -33,7 +33,7 @@ describe("validateFormat", () => {
         label: "History Choice",
         categories: ["History", "Ancient Civilizations"],
         answersFormat: { boolean: 0, choice: 1, freeform: 0 },
-        questionType: { fact: 1, topical: 0 },
+        questionType: { fact: 1, topical: 0, prediction: 0 },
         contexts: [{ name: "academic", weight: 2 }],
       });
     }
@@ -180,13 +180,13 @@ describe("validateQuestionType", () => {
   it("accepts a positive fact weight", () => {
     const r = validateQuestionType({ fact: 1 });
     assert.equal(r.ok, true);
-    if (r.ok) assert.deepEqual(r.value, { fact: 1, topical: 0 });
+    if (r.ok) assert.deepEqual(r.value, { fact: 1, topical: 0, prediction: 0 });
   });
 
   it("accepts mixed positive weights", () => {
     const r = validateQuestionType({ fact: 3, topical: 1 });
     assert.equal(r.ok, true);
-    if (r.ok) assert.deepEqual(r.value, { fact: 3, topical: 1 });
+    if (r.ok) assert.deepEqual(r.value, { fact: 3, topical: 1, prediction: 0 });
   });
 
   it("rejects all-zero", () => {

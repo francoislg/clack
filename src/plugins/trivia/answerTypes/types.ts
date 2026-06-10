@@ -109,7 +109,13 @@ export interface ResolvedClick {
    * through `handler.toAnswerPatch(resolved)` to get the merge-into-row patch.
    */
   payload: ClickPayload;
-  correct: boolean;
+  /**
+   * Synchronously-computed verdict, or `undefined` when the question has no answer
+   * key yet (a deferred-answer prediction awaiting `settle_question`). A pending
+   * (`undefined`) row stays out of the leaderboard until the reveal derives its
+   * verdict from the settled key.
+   */
+  correct: boolean | undefined;
 }
 
 /**
@@ -261,6 +267,16 @@ export interface AnswerTypeHandler {
   ): string;
 
   /**
+   * Whether this question carries its answer key (boolean `isTrue` / choice
+   * `correctIndex` / freeform `expectedAnswer`). The handler owns its key fields,
+   * so it owns this check — consumers ask the handler instead of branching on
+   * questionType. A deferred-answer prediction reads `false` until `settle_question`
+   * stamps the key; every other question reads `true`. Drives the reveal scorer /
+   * card editor skip and the settle precondition.
+   */
+  hasAnswerKey(question: TriviaQuestion): boolean;
+
+  /**
    * Emit the descriptive answer payload for this question — what the reveal
    * renderer sees in `reveals[i].answer`. Each handler knows its own shape;
    * the reveal flow doesn't switch on format strings.
@@ -314,22 +330,38 @@ export interface AnswerTypeHandler {
   projectReveal(question: TriviaQuestion, deps: ProjectRevealDeps): Promise<ProcessRevealOutcome>;
 
   /**
-   * Validate the per-format save args AND compose the persistable
-   * `TriviaQuestion` in one step. The tool runs all cross-format checks
-   * (statement length / emoji count / slot / category / context / fact-vs-topical
-   * / sourceUrl) BEFORE calling this; this method's only job is to handle the
-   * per-format slice and produce the final record.
-   *
-   * Returning a single union (record-or-error) — rather than splitting into
-   * separate validate + build methods — keeps the contract simple and ensures
-   * a caller can never "compose without validating." Adding a new format means
-   * writing one method, not two.
+   * Compose the persistable record from a question's STATIC fields ONLY — never its
+   * answer key. The tool runs all cross-format checks (statement / emoji / slot /
+   * category / context / sourceUrl) BEFORE calling this. Boolean adds nothing; choice
+   * validates + attaches `choices` (not `correctIndex`); freeform validates + attaches
+   * `freeformAnswerShape` + `judgeLeniency` (not `expectedAnswer`/`acceptableAnswers`/
+   * `gradingNotes`). The answer key is stamped separately by `settleOutcome` — for a
+   * non-prediction immediately at save time, for a prediction later via `settle_question`.
    */
-  getSavedQuestion(
+  composeStatic(
     base: TriviaQuestionBase,
     args: SaveQuestionArgs,
     ctx: SaveValidationContext,
   ): GetSavedQuestionOutcome;
+
+  /**
+   * Extract this format's ANSWER-related fields from `save_question` args into a settle
+   * input, so a non-prediction question can settle immediately from the same call.
+   * Boolean → `{ outcome: isTrue }`; choice → `{ outcome: correctIndex }`; freeform →
+   * `{ outcome: expectedAnswer, acceptableAnswers, gradingNotes }`. `outcome` is
+   * `undefined` when the answer field is absent (settle then reports it required).
+   */
+  settleInputFromSaveArgs(args: SaveQuestionArgs): SettleOutcomeInput;
+
+  /**
+   * Validate a now-known answer and produce the answer-key patch to stamp on a question
+   * composed statically. The SINGLE place an answer key is composed — used immediately at
+   * save time (non-prediction) and later by `settle_question` (prediction). Boolean →
+   * `{ isTrue }`; choice → `{ correctIndex }` (from index or option text); freeform →
+   * `{ expectedAnswer, acceptableAnswers?, gradingNotes? }`. `resolvedOutcome` is the
+   * audit value stamped alongside.
+   */
+  settleOutcome(question: TriviaQuestion, input: SettleOutcomeInput): SettleOutcomeResult;
 
   /**
    * Roll the per-format suggestion metadata returned by get_ideas. The tool
@@ -376,10 +408,45 @@ export interface AnswerTypeHandler {
 }
 
 /**
+ * The primary now-known result a handler settles. Boolean expects a `boolean`; choice
+ * the winning option's 0-based index (`number`) or exact text (`string`); freeform the
+ * canonical answer text (`string`). `undefined` means the answer field was absent on the
+ * save args (a non-prediction that forgot it) — settle reports it required. The handler
+ * validates the shape.
+ */
+export type SettleOutcomeArg = boolean | number | string | undefined;
+
+/**
+ * Structured settle input. `outcome` is the primary result; the optional freeform-only
+ * fields let a freeform prediction prepare its full judge spec at settle time (the
+ * canonical answer plus accepted variants / grading guidance) — boolean and choice
+ * ignore them. Mirrors how `save_question` carries per-format extras.
+ */
+export interface SettleOutcomeInput {
+  outcome: SettleOutcomeArg;
+  acceptableAnswers?: string[];
+  gradingNotes?: string;
+}
+
+/**
+ * Result of settling a prediction outcome. On success, `keyPatch` is the answer-key
+ * merge (`{ isTrue }` / `{ correctIndex }`) and `resolvedOutcome` is the audit value
+ * stamped alongside it. On failure, a Claude-readable error.
+ */
+export type SettleOutcomeResult =
+  | { ok: true; keyPatch: Partial<TriviaQuestion>; resolvedOutcome: boolean | string }
+  | { ok: false; error: string };
+
+/**
  * Extension implemented by formats that score answers synchronously at click
  * time (boolean and choice). Freeform's click handler doesn't return scoring
  * — its rows persist with `correct: undefined` until the reveal-time judge
  * runs, which is a wholly separate pipeline.
+ *
+ * The two prediction seams (`getDeferredSavedQuestion` / `settleOutcome`) live
+ * here, not on the base handler: predictions are restricted to clickable formats,
+ * so freeform never participates and `save_question` rejects a freeform prediction
+ * before any handler runs.
  */
 export interface ClickableAnswerHandler extends AnswerTypeHandler {
   /**

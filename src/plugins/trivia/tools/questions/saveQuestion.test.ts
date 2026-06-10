@@ -527,7 +527,7 @@ describe("save_question — choice shape", () => {
         acceptableAnswers: undefined,
         gradingNotes: undefined,
         freeformAnswerShape: undefined,
-        choices: ["A", "B"],
+        choices: ["A", "B", "C", "D"],
         correctIndex: undefined,
         suggestedDifficulty: undefined,
         difficulty: undefined,
