@@ -117,6 +117,7 @@ interface RawSlot {
 
 interface RawFormat {
   questions?: RawSlot[];
+  flexible?: unknown;
 }
 
 /**
@@ -142,7 +143,16 @@ export function validateFormat(
     if (!r.ok) return r;
     normalized.push(r.value);
   }
-  return { ok: true, value: { questions: normalized } };
+  if (raw.flexible !== undefined && typeof raw.flexible !== "boolean") {
+    return { ok: false, error: `'${fieldLabel}.flexible' must be a boolean` };
+  }
+  return {
+    ok: true,
+    value: {
+      questions: normalized,
+      ...(raw.flexible !== undefined ? { flexible: raw.flexible } : {}),
+    },
+  };
 }
 
 /**
@@ -327,6 +337,7 @@ const seasonFormatSlotZod = z.object({
  */
 export const seasonFormatZod = z.object({
   questions: z.array(seasonFormatSlotZod),
+  flexible: z.boolean().optional(),
 });
 
 /**

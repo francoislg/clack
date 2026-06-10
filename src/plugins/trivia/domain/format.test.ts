@@ -45,4 +45,19 @@ describe("resolveEffectiveFormat", () => {
     assert.equal(resolveEffectiveFormat(baseSeason, baseGame), null);
     assert.equal(resolveEffectiveFormat(null, null), null);
   });
+
+  it("carries the winning format's flexible flag (game tier, no season format)", () => {
+    const flexibleGameFormat: SeasonFormat = { questions: [{}, {}], flexible: true };
+    const out = resolveEffectiveFormat(baseSeason, { ...baseGame, format: flexibleGameFormat });
+    assert.equal(out?.flexible, true);
+  });
+
+  it("masks a game's flexible flag when the season supplies a (fixed) format", () => {
+    const out = resolveEffectiveFormat(
+      { ...baseSeason, format: twoSlot },
+      { ...baseGame, format: { questions: [{}], flexible: true } },
+    );
+    assert.equal(out, twoSlot);
+    assert.equal(out?.flexible, undefined);
+  });
 });

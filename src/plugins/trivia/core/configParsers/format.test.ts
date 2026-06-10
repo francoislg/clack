@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { validateSlotConfig, validateSlotOverrides } from "./format.js";
+import { validateFormat, validateSlotConfig, validateSlotOverrides } from "./format.js";
 
 describe("validateSlotConfig", () => {
   it("accepts a partial slot (only one axis set; others inherit)", () => {
@@ -35,6 +35,37 @@ describe("validateSlotConfig", () => {
     );
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.error).toContain("format.questions[2].answersFormat");
+  });
+});
+
+describe("validateFormat flexible flag", () => {
+  it("carries flexible: true through", () => {
+    const r = validateFormat({ questions: [{}, {}], flexible: true });
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.value).toEqual({ questions: [{}, {}], flexible: true });
+  });
+
+  it("carries flexible: false through", () => {
+    const r = validateFormat({ questions: [{}], flexible: false });
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.value.flexible).toBe(false);
+  });
+
+  it("omits flexible when absent (reads as fixed)", () => {
+    const r = validateFormat({ questions: [{}] });
+    expect(r.ok).toBe(true);
+    if (r.ok) expect("flexible" in r.value).toBe(false);
+  });
+
+  it("rejects a non-boolean flexible with a labeled error", () => {
+    const r = validateFormat({ questions: [{}], flexible: "yes" }, "format");
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toContain("format.flexible");
+  });
+
+  it("still rejects an empty questions array regardless of flexible", () => {
+    const r = validateFormat({ questions: [], flexible: true });
+    expect(r.ok).toBe(false);
   });
 });
 

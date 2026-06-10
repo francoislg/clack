@@ -376,12 +376,18 @@ export interface SeasonFormatSlot extends CascadeAxes {
 }
 
 /**
- * Question composition for one tier (season or game). When present, each
- * question-cron fire posts `questions.length` questions (one per slot, in array
- * order).
+ * Question composition for one tier (season or game). When present, a
+ * question-cron fire posts one question per slot, in array order.
+ *
+ * `flexible` is a structural sub-field (NOT a `CascadeAxes` member): it resolves
+ * with the format it belongs to (whole-format replace per tier). When absent or
+ * `false`, a fire posts exactly `questions.length` questions. When `true`, a fire
+ * posts a PREFIX — `0..questions.length` questions, filled in order, the count
+ * chosen by available material — and posting zero (skipping the day) is valid.
  */
 export interface SeasonFormat {
   questions: SeasonFormatSlot[];
+  flexible?: boolean;
 }
 
 /**
