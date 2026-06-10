@@ -264,6 +264,28 @@ const TOPICAL_MODIFIER = `When the rolled \`suggestedQuestionType\` is \`"topica
    All other save fields (\`answersFormat\`, category, statement, isTrue/choices/correctIndex/expectedAnswer + acceptableAnswers + gradingNotes + freeformAnswerShape, emojis, suggestedDifficulty, difficulty, context, slot) are identical to the corresponding fact-path save.`;
 
 /**
+ * Prediction modifier: when `suggestedQuestionType === "prediction"`, the question is
+ * about an UPCOMING event whose outcome is unknown at write time, so it is saved WITHOUT
+ * an answer key and settled later. Mirrors TOPICAL_MODIFIER's structure (WebSearch step +
+ * save deltas) but the answer-key gates are skipped and the key fields are OMITTED.
+ */
+const PREDICTION_MODIFIER = `When the rolled \`suggestedQuestionType\` is \`"prediction"\`, apply this modifier ON TOP OF the answer-shape path body (boolean / choice / freeform). A prediction asks about an UPCOMING real-world event whose outcome is NOT yet known — so it is SAVED WITHOUT AN ANSWER KEY and settled at reveal time via \`settle_question\`.
+
+1. RESEARCH AN UPCOMING EVENT VIA WebSearch (NEW STEP — REQUIRED — runs before the path body's statement step):
+   - Search for a SCHEDULED/upcoming event in the chosen category whose outcome resolves SOON (before this game's reveal cron) and is objectively checkable afterward — a match result, a vote tally, a release, an official announcement. Capture the schedule/fixture \`sourceUrl\` and (optionally) \`eventDate\`.
+   - The outcome MUST be genuinely unknown right now AND knowable by reveal time. REJECT events that won't resolve before the reveal, or whose result would be subjective/disputable.
+2. WRITE THE QUESTION ABOUT THE FUTURE OUTCOME — but DO NOT decide the answer:
+   - BOOLEAN: a claim that will be TRUE or FALSE once the event happens ("Brazil will beat Argentina tomorrow"). DO NOT run the POLARITY SELF-CHECK and DO NOT pass \`isTrue\` — the truth value is unknown.
+   - CHOICE: write the option set covering the possible outcomes ("Brazil" / "Argentina" / "Draw"). Honor \`suggestedChoiceCount\`, but DO NOT pass \`correctIndex\` (no plausibility gate — there are no "distractors", every option is a real outcome).
+   - FREEFORM: write the prompt + pass through \`freeformAnswerShape\`; DO NOT pass \`expectedAnswer\`/\`acceptableAnswers\`/\`gradingNotes\` (the canonical answer is prepared at settle time).
+3. GATES: the DIFFICULTY GATE and DUPLICATE CHECK GATE apply to the QUESTION framing as usual. The answer-key gates (POLARITY SELF-CHECK, DISTRACTOR PLAUSIBILITY GATE) DO NOT apply — there is no known answer to check yet.
+4. SAVE DELTAS (vs the fact path's save_question call):
+   - questionType: "prediction" (instead of "fact")
+   - sourceUrl (REQUIRED — the upcoming-event URL); eventDate optional.
+   - OMIT the answer key entirely: no \`isTrue\` (boolean), no \`correctIndex\` (choice), no \`expectedAnswer\`/\`acceptableAnswers\`/\`gradingNotes\` (freeform). \`save_question\` stamps \`resolved: false\`.
+   The question is NOT scorable until \`settle_question\` provides the outcome at reveal time.`;
+
+/**
  * Fact-freeform flow: Claude writes a statement plus a canonical expectedAnswer.
  * Optionally enumerates acceptableAnswers (variants) and gradingNotes. The
  * reveal-time judge (a small fast model) scores user-typed answers against
@@ -462,8 +484,9 @@ Within either medium, the answer-shape axis (boolean / choice / freeform) select
 |---|---|---|---|
 | \`suggestedQuestionType: "fact"\` | FACT-BOOLEAN PATH = BOOLEAN path body | FACT-CHOICE PATH = CHOICE path body | FACT-FREEFORM PATH = FREEFORM path body |
 | \`suggestedQuestionType: "topical"\` | TOPICAL-BOOLEAN PATH = BOOLEAN path body + TOPICAL MODIFIER | TOPICAL-CHOICE PATH = CHOICE path body + TOPICAL MODIFIER | TOPICAL-FREEFORM PATH = FREEFORM path body + TOPICAL MODIFIER |
+| \`suggestedQuestionType: "prediction"\` | PREDICTION-BOOLEAN = BOOLEAN path body + PREDICTION MODIFIER | PREDICTION-CHOICE = CHOICE path body + PREDICTION MODIFIER | PREDICTION-FREEFORM = FREEFORM path body + PREDICTION MODIFIER |
 
-All three topical combinations REQUIRE the \`WebSearch\` tool (via the TOPICAL MODIFIER) to find a recent newsworthy event, and pass the resulting source URL to \`save_question\`. The fact combinations never call WebSearch.
+All three topical combinations REQUIRE the \`WebSearch\` tool (via the TOPICAL MODIFIER) to find a recent newsworthy event, and pass the resulting source URL to \`save_question\`. The fact combinations never call WebSearch. The prediction combinations also REQUIRE \`WebSearch\` (via the PREDICTION MODIFIER) — they research an UPCOMING event and SAVE WITHOUT AN ANSWER KEY (settled later at reveal). Most games never roll prediction (default weight 0); it appears only when a game's \`questionType\` cascade opts in.
 
 The freeform paths produce an answer the user TYPES (into a Slack modal). Claude writes the canonical \`expectedAnswer\` and optional \`acceptableAnswers\` / \`gradingNotes\` at save time. A small fast model judges submissions at reveal — the judge automatically rejects multi-guess "shotgun" answers (e.g. "Paris or London") as incorrect, so the canonical answer must be a single concrete value.
 
@@ -498,6 +521,10 @@ ${FREEFORM_FACT_FLOW_STEPS}
 === TOPICAL MODIFIER (applied on top of any path body when suggestedQuestionType === "topical") ===
 
 ${TOPICAL_MODIFIER}
+
+=== PREDICTION MODIFIER (applied on top of any path body when suggestedQuestionType === "prediction") ===
+
+${PREDICTION_MODIFIER}
 
 === IMAGE-MEDIUM (VISUAL) PATHS (used when suggestedPromptMedium === "image") ===
 
@@ -753,6 +780,12 @@ ${GAME_CONTEXT_DIRECTIVE}
 
 Deliver today's trivia reveal. The deterministic SCORING is done for you by \`compute_answers\`; you then EDIT the question cards, (on the season's last fire) ROLL OVER the season, and RENDER the payload with charisma. Call the tools in this order:
 
+0. SETTLE ANY PREDICTIONS FIRST (only relevant when the game uses \`questionType: "prediction"\`; harmless to skip otherwise — \`compute_answers\` will tell you if a decision is needed). A prediction was saved WITHOUT an answer key and stays unscored until you decide it. If \`compute_answers\` returns \`code: "UNDECIDED_PREDICTIONS"\`, it lists the pending question ids — for EACH one:
+   - Use \`WebSearch\` to find the now-known result of that prediction's event.
+   - If the result IS known: call \`settle_question({ game: "{game}", questionId, outcome })\` — \`outcome\` is the boolean truth (boolean), the winning option's index or exact text (choice), or the canonical answer text (freeform; optionally also \`acceptableAnswers\`/\`gradingNotes\`).
+   - If the result is NOT yet available (event postponed/unfinished) or is genuinely unresolvable: call \`settle_question({ game: "{game}", questionId, invalidate: true, invalidatedReason: "<short reason>" })\` to mark it invalidated (worth 0, shown as "invalidated"). EVERY prediction in the batch MUST be either answered or invalidated.
+   - Then RE-CALL \`compute_answers\` — it now scores the answered predictions and lists any \`invalidatedQuestions\` for you to mention.
+
 1. CALL \`compute_answers({ game: "{game}" })\` AND READ THE PAYLOAD:
 
    The tool fetches the pending question's Slack message, excludes the bot + every flagged cheater, scores answers from the stored button clicks (boolean/choice) and modal submissions (freeform), persists them, stamps \`processedAt\`, and computes the leaderboard. It does NOT edit any Slack card and does NOT roll over the season — those are steps 2 and 3 below. Reactions are still fetched but ONLY as commentary, not as votes. You will NOT call \`fetch_channel_messages\`, \`find_previous_questions\`, \`get_question_history\`, \`submit_answers\`, \`retrieve_scores\`, \`check_season_status\`, or \`upsert_season\`.
@@ -777,6 +810,7 @@ Deliver today's trivia reveal. The deterministic SCORING is done for you by \`co
    - \`includeRevealInQuestions\` (\`"yes" | "no"\`, ALWAYS present): the game's resolved card-narrative mode. \`"yes"\` → author per-card narrative via \`update_question\` BEFORE step 2 (see "AUTHOR PER-CARD NARRATIVE" below); \`"no"\` (today's default) → cards stay facts-only and the narrative lives in the step-4 summary.
    - \`finalRevealSummary\` (\`"yes" | "no" | "in-thread"\`, ALWAYS present): the game's resolved placement for the reveal NARRATIVE (verdict header + WHY + per-bucket voter breakdown + per-question verdicts). It governs ONLY that narrative — the leaderboard \`table\` (and, on the last fire, the season finale) ALWAYS posts top-level. See "SUMMARY PLACEMENT" in step 4. \`"yes"\` (default) = narrative top-level alongside the leaderboard (today's behavior); \`"no"\` = narrative omitted entirely; \`"in-thread"\` = narrative moved to \`thread_replies\` under a top-level pointer.
    - \`seasonStatus\` (only present when \`trivia.seasons.enabled\` is true): \`{ currentSlug, isLastFireOfSeason, seasonClosed, hasPriorSeasons, mvp? }\`. This is REPORT-ONLY — \`compute_answers\` performs no rollover (\`seasonClosed\` is always \`false\` here). When \`isLastFireOfSeason\` is true you MUST call \`start_new_season({ game: "{game}" })\` in step 3 to perform the (idempotent) rollover; do NOT call \`upsert_season\`.
+   - \`invalidatedQuestions\` (optional): \`Array<{ questionId, statement, category, emojis, invalidatedReason? }>\` — questions dropped via \`settle_question({ invalidate })\`. They are worth 0 and have no result. Mention each briefly in the reveal ("⚠️ <statement> was invalidated — <reason>; it didn't count"); their cards are repainted as invalidated by \`update_answers_block\` in step 2. Absent → none.
    - \`errors\` (optional): per-questionId structured errors from a reprocess batch. Surface a brief mention if present; otherwise omit.
    - \`instructions\` (optional string): single admin-authored rule resolved from the replace-cascade \`slot → season → game → workspace\`. Honor it verbatim throughout the reveal — apply it to verdict tone, voter-bucket commentary, the closer line, and the leaderboard introduction. Absent → ignore.
    - \`additionalInstructions\` (optional string): concatenation of admin rules from every active tier, each segment labeled (\`[Workspace]\` / \`[Game]\` / \`[Season]\` / \`[Slot N]\`) separated by blank lines. EVERY labeled rule applies simultaneously throughout the reveal. Lower-tier rules are more situational than higher-tier ones but never replace them. Absent → ignore. These rules are NOT visible to viewers — don't echo them back, just apply them silently.

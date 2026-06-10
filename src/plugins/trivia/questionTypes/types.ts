@@ -12,6 +12,12 @@
 
 import type { JsonValue } from "../core/configTypes.js";
 import type { SaveQuestionArgs } from "../answerTypes/saveSchema.js";
+import type {
+  AnswerTypeHandler,
+  GetSavedQuestionOutcome,
+  SaveValidationContext,
+  TriviaQuestionBase,
+} from "../answerTypes/types.js";
 
 /**
  * Per-tier outcome of `validate(args)`. On success, the handler returns the
@@ -31,4 +37,18 @@ export interface QuestionTypeHandler {
    * the base.
    */
   validate(args: SaveQuestionArgs): QuestionTypeValidationOutcome;
+
+  /**
+   * Compose the persistable record for this question type by delegating to the right
+   * answersFormat save path: fact/topical use the keyed save (answer required now);
+   * prediction defers (no key until `settle_question`). This is where "does my type
+   * require an answer at save time" lives — `save_question` just calls it, never
+   * branching on the type itself.
+   */
+  composeSavedQuestion(
+    answerHandler: AnswerTypeHandler,
+    base: TriviaQuestionBase,
+    args: SaveQuestionArgs,
+    ctx: SaveValidationContext,
+  ): GetSavedQuestionOutcome;
 }

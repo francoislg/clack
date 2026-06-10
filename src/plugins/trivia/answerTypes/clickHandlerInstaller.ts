@@ -157,6 +157,9 @@ export function installClickableVoteHandler(
     }
 
     const now = Date.now();
+    // The patch's verdict is whatever `resolveClick` computed — `undefined` (pending)
+    // when the question has no answer key yet (a deferred prediction), a real verdict
+    // otherwise. The handler owns that decision; this installer stays format-agnostic.
     const patch = handler.toAnswerPatch(scored);
     const allAnswers = await scoped.loadAnswers();
     const existing = allAnswers.find((a) => a.userId === userId && a.questionId === questionId);

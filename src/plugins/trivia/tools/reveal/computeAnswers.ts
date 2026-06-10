@@ -69,7 +69,10 @@ ${PER_FORMAT_ANSWER_SHAPES}
 - \`leaderboard\`: same shape as retrieve_scores' return.
 - \`roundSummary\` (ALWAYS present): \`{ totalQuestions, perPlayer: Array<{ userId, displayName, correct, answered, roundMvp? }> }\` — the per-player round scoreboard, an AGGREGATE derived from the scored answers (same source as \`leaderboard\`), INDEPENDENT of every entry's \`revealResponses\`. \`perPlayer\` is empty only when nobody answered this round. Cheaters/bot are excluded.
 - \`seasonStatus\` (only when seasons enabled): \`{ currentSlug, isLastFireOfSeason, seasonClosed, hasPriorSeasons, mvp? }\`. This tool REPORTS the status but performs NO rollover — \`seasonClosed\` is always \`false\` here and no continuation season is created. When \`isLastFireOfSeason\` is true, the renderer SHALL call \`start_new_season({ game })\` to perform the rollover.
-- \`instructions\` / \`additionalInstructions\` (optional): resolved guidance axes; honor verbatim. Absent → ignore.`;
+- \`invalidatedQuestions\` (optional): \`Array<{ questionId, statement, category, emojis, invalidatedReason? }>\` — questions in this batch marked INVALIDATED via \`settle_question({ invalidate: true })\`. Worth 0, never scored; render an "invalidated" line for each and (via \`update_answers_block\`) their cards repaint as invalidated. Absent when none.
+- \`instructions\` / \`additionalInstructions\` (optional): resolved guidance axes; honor verbatim. Absent → ignore.
+
+PREDICTION DECISION GATE (default mode): if any \`questionType: "prediction"\` in the oldest pending batch is still undecided (\`resolved: false\`), this tool REFUSES (returns \`code: "UNDECIDED_PREDICTIONS"\` + the ids) and scores nothing. Decide each first with \`settle_question\` — pass the real \`outcome\` to answer, or \`invalidate: true\` + \`invalidatedReason\` to drop it.`;
 
 /**
  * Slack-touching seam. Production wraps the real Slack WebClient via the plugin SDK;
@@ -206,6 +209,29 @@ export function createComputeAnswersTool(
         ? selectReprocessTargets(allQuestions, reprocessIds, reprocessBatchId, perIdErrors)
         : selectOldestPendingBatch(allQuestions);
 
+      // ── Prediction-decision gate (default reveal only) ──────────────────
+      // A prediction still `resolved: false` has not been decided. Every prediction in
+      // the batch MUST be decided first — answered (`settle_question` with the outcome)
+      // or invalidated (`settle_question` with `invalidate`). Refuse, before any write,
+      // when one is still pending, so Claude can't silently drop it from the reveal.
+      if (!isReprocessMode) {
+        const undecided = targets.filter((q) => q.resolved === false);
+        if (undecided.length > 0) {
+          return errorResult(
+            JSON.stringify({
+              code: "UNDECIDED_PREDICTIONS",
+              message:
+                "Every prediction in the reveal batch needs an explicit decision before scoring. For each id below, call settle_question — pass the real `outcome` to answer it, or `invalidate: true` + `invalidatedReason` to drop it (scores 0, shown as invalidated).",
+              undecided: undecided.map((q) => ({
+                questionId: q.id,
+                statement: q.statement,
+                category: q.category,
+              })),
+            }),
+          );
+        }
+      }
+
       // ── Bot user ID (singleton per session, fetch once) ─────────────────
       const botUserId = await resolveBotUserId(slackDeps, "compute_answers");
 
@@ -232,6 +258,15 @@ export function createComputeAnswersTool(
       // flow just iterates, calls `handler.processReveal`, and accumulates
       // outcomes. No card editing happens here (that is `update_answers_block`).
       const entriesById = new Map<string, ProcessRevealEntry>();
+      // Invalidated questions are worth 0 and never scored — surface them so the reveal
+      // post can render an "invalidated" line, and stamp `processedAt` so they're done.
+      const invalidatedQuestions: Array<{
+        questionId: string;
+        statement: string;
+        category: string;
+        emojis: string[];
+        invalidatedReason?: string;
+      }> = [];
       const revealDeps = {
         scoped,
         data,
@@ -245,6 +280,26 @@ export function createComputeAnswersTool(
       };
       for (const question of targets) {
         const handler = getAnswerTypeHandler(question.answersFormat);
+        // Invalidated → 0 points, never scored. Surface it (for the "invalidated" reveal
+        // line + the card repaint) and stamp `processedAt` so it's terminal.
+        if (question.invalidated === true) {
+          invalidatedQuestions.push({
+            questionId: question.id,
+            statement: question.statement,
+            category: question.category,
+            emojis: question.emojis,
+            ...(question.invalidatedReason !== undefined
+              ? { invalidatedReason: question.invalidatedReason }
+              : {}),
+          });
+          await scoped.updateQuestion(question.id, { processedAt: now });
+          continue;
+        }
+        // Defense: a still-keyless question (only reachable via reprocess targeting a
+        // pending prediction) can't be scored — skip it without a verdict.
+        if (!handler.hasAnswerKey(question)) {
+          continue;
+        }
         // Reprocess re-applies CURRENT config: re-resolve each format's frozen
         // axes from the live cascade (rebuilt from this question's own stamped
         // slot/season) and re-stamp them before scoring. Isolated per question —
@@ -304,8 +359,10 @@ export function createComputeAnswersTool(
 
       // The batch handle for `update_answers_block`: the shared batchId of the
       // processed questions, or the first question's id for legacy/singleton rows.
+      // Keyed on `reveals` (not `targets`) so a batch that produced only deferred
+      // predictions — nothing scored — returns no handle to re-render.
       const processedBatchId =
-        targets.length > 0 ? (targets[0].batchId ?? targets[0].id) : undefined;
+        reveals.length > 0 ? (targets[0].batchId ?? targets[0].id) : undefined;
 
       // ── Leaderboard ─────────────────────────────────────────────────────
       const refreshedAnswers = await scoped.loadAnswers();
@@ -396,6 +453,7 @@ export function createComputeAnswersTool(
               ),
             }
           : {}),
+        ...(invalidatedQuestions.length > 0 ? { invalidatedQuestions } : {}),
         ...(perIdErrors.length > 0 ? { errors: perIdErrors } : {}),
         ...(resolvedInstructions !== null ? { instructions: resolvedInstructions } : {}),
         ...(resolvedAdditionalInstructions !== null

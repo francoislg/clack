@@ -17,6 +17,7 @@
 import type { KnownBlock } from "@slack/types";
 import { triviaLogger as logger } from "../core/pluginLogger.js";
 import { getAnswerTypeHandler } from "../answerTypes/registry.js";
+import { t } from "../i18n/t.js";
 import type { TriviaConfig, TriviaGame } from "../core/configTypes.js";
 import type { TriviaQuestion } from "../core/types.js";
 import type { ProcessRevealEntry } from "../tools/reveal/types.js";
@@ -27,6 +28,41 @@ import { POST_GAME_BUTTONS } from "./postGameRegistry.js";
 
 /** `block_id` prefixes of the answer-affordance block appended by `post_questions`. */
 const ANSWER_ACTIONS_BLOCK_PREFIXES = ["vote-actions:", "freeform-answer-actions:"] as const;
+
+/**
+ * Resolve the `chat.update` target for a card repaint: the channel + ts from the
+ * stored `messageLink`, and the body blocks (the stored `postedBlocks` minus the
+ * answer-affordance block). Returns null (after logging) for a legacy row without
+ * `postedBlocks`/`messageLink` or an unparseable link. Shared by the reveal-results
+ * and invalidated repaints.
+ */
+function resolveCardTarget(
+  question: TriviaQuestion,
+): { channel: string; ts: string; bodyBlocks: KnownBlock[] } | null {
+  if (question.postedBlocks === undefined) {
+    logger.warn(
+      `[trivia:reveal-card] edit skipped — question ${question.id} has no postedBlocks (legacy row)`,
+    );
+    return null;
+  }
+  if (!question.messageLink) {
+    logger.warn(`[trivia:reveal-card] edit skipped — question ${question.id} has no messageLink`);
+    return null;
+  }
+  const ts = parseTsFromPermalink(question.messageLink);
+  const channel = parseChannelFromPermalink(question.messageLink);
+  if (ts === null || channel === null) {
+    logger.warn(
+      `[trivia:reveal-card] edit skipped — could not parse ts/channel for question ${question.id}: ${question.messageLink}`,
+    );
+    return null;
+  }
+  const bodyBlocks = question.postedBlocks.filter((block) => {
+    const id = block.block_id ?? "";
+    return !ANSWER_ACTIONS_BLOCK_PREFIXES.some((prefix) => id.startsWith(prefix));
+  });
+  return { channel, ts, bodyBlocks };
+}
 
 export interface EditRevealParams {
   /**
@@ -51,29 +87,9 @@ export interface EditRevealParams {
 export async function editRevealIntoCard(params: EditRevealParams): Promise<void> {
   const { updateMessage, question, entry, actionId, game, config } = params;
 
-  if (question.postedBlocks === undefined) {
-    logger.warn(
-      `[trivia:reveal-card] edit skipped — question ${question.id} has no postedBlocks (legacy row)`,
-    );
-    return;
-  }
-  if (!question.messageLink) {
-    logger.warn(`[trivia:reveal-card] edit skipped — question ${question.id} has no messageLink`);
-    return;
-  }
-  const ts = parseTsFromPermalink(question.messageLink);
-  const channel = parseChannelFromPermalink(question.messageLink);
-  if (ts === null || channel === null) {
-    logger.warn(
-      `[trivia:reveal-card] edit skipped — could not parse ts/channel for question ${question.id}: ${question.messageLink}`,
-    );
-    return;
-  }
-
-  const bodyBlocks = question.postedBlocks.filter((block) => {
-    const id = block.block_id ?? "";
-    return !ANSWER_ACTIONS_BLOCK_PREFIXES.some((prefix) => id.startsWith(prefix));
-  });
+  const target = resolveCardTarget(question);
+  if (target === null) return;
+  const { channel, ts, bodyBlocks } = target;
 
   const handler = getAnswerTypeHandler(question.answersFormat);
   const answerLine = handler.formatCorrectAnswer(question);
@@ -107,5 +123,31 @@ export async function editRevealIntoCard(params: EditRevealParams): Promise<void
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     logger.warn(`[trivia:reveal-card] chat.update failed for question ${question.id}: ${msg}`);
+  }
+}
+
+/**
+ * Repaint an INVALIDATED question's card: drop the answer buttons and append a single
+ * "invalidated" context line (with the reason). No results footer, no post-game buttons —
+ * the question scored 0 and has no result. Used by `update_answers_block` for any question
+ * carrying `invalidated: true`, whether invalidated before or after its reveal.
+ */
+export async function editInvalidatedIntoCard(params: {
+  updateMessage: (channel: string, ts: string, blocks: KnownBlock[]) => Promise<void>;
+  question: TriviaQuestion;
+}): Promise<void> {
+  const { updateMessage, question } = params;
+  const target = resolveCardTarget(question);
+  if (target === null) return;
+
+  const reason = question.invalidatedReason ?? "";
+  const footer: KnownBlock[] = [
+    { type: "context", elements: [{ type: "mrkdwn", text: t("reveal.invalidated", { reason }) }] },
+  ];
+  try {
+    await updateMessage(target.channel, target.ts, [...target.bodyBlocks, ...footer]);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    logger.warn(`[trivia:reveal-card] invalidated chat.update failed for ${question.id}: ${msg}`);
   }
 }

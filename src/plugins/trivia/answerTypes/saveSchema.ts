@@ -31,9 +31,9 @@ const COMMON_SAVE_FIELDS = {
     .enum(["boolean", "choice", "freeform"])
     .describe('Answer shape: "boolean", "choice", or "freeform" (user types the answer).'),
   questionType: z
-    .enum(["fact", "topical"])
+    .enum(["fact", "topical", "prediction"])
     .describe(
-      'Source axis: "fact" for static knowledge, "topical" for recent events (requires sourceUrl).',
+      'Source axis: "fact" for static knowledge, "topical" for a recent event (requires sourceUrl), "prediction" for an UPCOMING event whose outcome is unknown — requires sourceUrl, saved WITHOUT an answer key, settled later. Composes with every answer format.',
     ),
   category: z.string().describe("The category from the pool (must exist)"),
   statement: z.string().describe("The trivia statement"),

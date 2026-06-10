@@ -48,7 +48,7 @@ const GAME: TriviaGame = {
     questions: [
       {
         answersFormat: { boolean: 0, choice: 1, freeform: 0 },
-        questionType: { fact: 0, topical: 1 },
+        questionType: { fact: 0, topical: 1, prediction: 0 },
         promptMedium: { text: 0, image: 1 },
         instructions: "slot-0 instructions",
         additionalInstructions: "slot-0 add",
@@ -198,7 +198,11 @@ describe("cascade parity — explain_cascade ≡ get_ideas ≡ save_question (ga
     const reveal = createComputeAnswersTool(data, fakeSdk(), getGames, fakeSlackDeps(), getConfig);
     const res = parseToolResult(
       await reveal.handler(
-        { game: "parity", reprocessQuestionIds: undefined, reprocessBatchId: undefined },
+        {
+          game: "parity",
+          reprocessQuestionIds: undefined,
+          reprocessBatchId: undefined,
+        },
         SESSION,
       ),
     );

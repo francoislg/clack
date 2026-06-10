@@ -480,7 +480,7 @@ describe("upsert_game — update branch", () => {
         {
           ...baseGame,
           answersFormat: { boolean: 1, choice: 1, freeform: 0 },
-          questionType: { fact: 1, topical: 0 },
+          questionType: { fact: 1, topical: 0, prediction: 0 },
         },
       ],
     });
@@ -488,7 +488,7 @@ describe("upsert_game — update branch", () => {
     await tool.handler(args({ name: "main", questionType: { fact: 0, topical: 1 } }), SESSION);
     const game = loadTriviaConfig()?.games?.[0];
     assert.deepEqual(game?.answersFormat, { boolean: 1, choice: 1, freeform: 0 });
-    assert.deepEqual(game?.questionType, { fact: 0, topical: 1 });
+    assert.deepEqual(game?.questionType, { fact: 0, topical: 1, prediction: 0 });
   });
 
   it("toggles enabled to false", async () => {

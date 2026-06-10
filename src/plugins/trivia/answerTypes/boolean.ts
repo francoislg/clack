@@ -19,7 +19,8 @@ import type {
   ProjectRevealDeps,
   ResolvedClick,
   SaveQuestionArgs,
-  SaveValidationContext,
+  SettleOutcomeInput,
+  SettleOutcomeResult,
   SuggestionRollDeps,
   TriviaQuestionBase,
 } from "./types.js";
@@ -86,8 +87,14 @@ export const booleanAnswerHandler: ClickableAnswerHandler = {
     const answer = rawValue === "true";
     return {
       payload: { answer },
-      correct: answer === (question.isTrue ?? false),
+      // No key yet (deferred prediction) → pending verdict; the reveal derives it
+      // once `settle_question` stamps `isTrue`.
+      correct: question.isTrue === undefined ? undefined : answer === question.isTrue,
     };
+  },
+
+  hasAnswerKey(question: TriviaQuestion): boolean {
+    return question.isTrue !== undefined;
   },
 
   toAnswerPatch(resolved: ResolvedClick): Partial<SubmittedAnswer> {
@@ -132,15 +139,18 @@ export const booleanAnswerHandler: ClickableAnswerHandler = {
     question: TriviaQuestion,
     deps: ProcessRevealDeps,
   ): Promise<ProcessRevealOutcome> {
-    if (deps.isReprocessMode) {
-      // Re-derive ONLY the verdict on each RETAINED answer row from the (possibly
-      // corrected) `isTrue` key. The raw button click is the canonical record and
-      // is never deleted — reprocess recomputes `correct`, nothing else.
+    // Derive the verdict on RETAINED answer rows from the `isTrue` key. Reprocess
+    // re-derives every row (after a key/config correction); the default reveal only
+    // fills rows still PENDING (`correct: undefined`) — clicks placed on a deferred
+    // prediction before it was settled. The raw button click is canonical and never
+    // deleted.
+    {
       const rows = (await deps.scoped.loadAnswers()).filter((a) => a.questionId === question.id);
       for (const row of rows) {
         // A hand-overridden row (originalVerdict set) is admin-authoritative: keep
         // its stored verdict, don't recompute it from the key.
         if (row.originalVerdict !== undefined) continue;
+        if (!deps.isReprocessMode && row.correct !== undefined) continue;
         const correct = (row.answer ?? false) === (question.isTrue ?? false);
         await deps.scoped.updateAnswer(row.userId, question.id, { correct });
       }
@@ -177,15 +187,23 @@ export const booleanAnswerHandler: ClickableAnswerHandler = {
     );
   },
 
-  getSavedQuestion(
-    base: TriviaQuestionBase,
-    args: SaveQuestionArgs,
-    _ctx: SaveValidationContext,
-  ): GetSavedQuestionOutcome {
-    if (args.isTrue === undefined) {
+  composeStatic(base: TriviaQuestionBase): GetSavedQuestionOutcome {
+    return { ok: true, question: { ...base } };
+  },
+
+  settleInputFromSaveArgs(args: SaveQuestionArgs): SettleOutcomeInput {
+    return { outcome: args.isTrue };
+  },
+
+  settleOutcome(_q: TriviaQuestion, input: SettleOutcomeInput): SettleOutcomeResult {
+    const { outcome } = input;
+    if (outcome === undefined) {
       return { ok: false, error: 'Boolean questions require "isTrue".' };
     }
-    return { ok: true, question: { ...base, isTrue: args.isTrue } };
+    if (typeof outcome !== "boolean") {
+      return { ok: false, error: "Boolean answer must be true or false." };
+    }
+    return { ok: true, keyPatch: { isTrue: outcome }, resolvedOutcome: outcome };
   },
 
   rollGenerationSuggestions(_deps: SuggestionRollDeps): Record<string, JsonValue> {

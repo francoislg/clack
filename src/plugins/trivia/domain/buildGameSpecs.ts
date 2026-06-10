@@ -39,12 +39,14 @@ const PREP_REQUIRED_TOOLS = [
 ];
 
 /**
- * Reveal required-tools list. `compute_answers` scores and returns the payload (+ `batchId`);
- * `update_answers_block` edits the question cards; `start_new_season` performs the idempotent
- * season rollover the prompt invokes only on the season's last fire (harmless when seasons are
- * off — the prompt simply never calls it).
+ * Reveal required-tools list. `settle_question` stamps a prediction's now-known outcome
+ * before scoring (harmless for games with no predictions — the prompt simply never calls
+ * it); `compute_answers` scores and returns the payload (+ `batchId`); `update_answers_block`
+ * edits the question cards; `start_new_season` performs the idempotent season rollover the
+ * prompt invokes only on the season's last fire (harmless when seasons are off).
  */
 const REVEAL_REQUIRED_TOOLS = [
+  "mcp__trivia__settle_question",
   "mcp__trivia__compute_answers",
   "mcp__trivia__update_answers_block",
   "mcp__trivia__start_new_season",
