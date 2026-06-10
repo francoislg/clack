@@ -2,9 +2,7 @@
 
 ## Purpose
 Enable org members to author reusable skills directly from Slack, persisted on disk and available in every Claude session. Skills are discoverable via the Home Tab, loadable on-demand via `load_skill`, and manageable (create, update, disable, restore) through intent-staged Slack actions.
-
 ## Requirements
-
 ### Requirement: userSkills Config Block
 
 The system SHALL accept an optional `userSkills` block in `data/config.json` with an `enabled: boolean` field. When `enabled` is `false` or the block is absent, the feature SHALL be fully inert: none of the new MCP tools are registered, the prompt catalog renders no "USER SKILLS" subsection, the Home Tab Skills section is hidden, and the `data/user-skills/` directory is ignored even if it contains files. The parser SHALL reject non-object `userSkills`, non-boolean `enabled`, and unknown sibling keys with clear errors.
@@ -543,3 +541,18 @@ The four new MCP tool names (`propose_skill_create`, `propose_skill_update`, `pr
 
 - **WHEN** the tool name validator is asked to validate the assembled tool list including the user-skills tools
 - **THEN** all five names pass validation
+
+### Requirement: User-skill metadata load is schema-driven
+
+`readMeta` SHALL validate a user skill's `.meta.json` against a `UserSkillMeta` zod schema rather than the hand-rolled `isValidMetaShape` guard, preserving its graceful contract: a missing file, invalid JSON, or shape mismatch SHALL return `null`, never throw. The slug and description write-time rules (`validateSlug`, `validateDescription`) MAY be expressed as reusable `z.string()` constraints shared with the meta schema, keeping their current accept/reject behavior and `ValidationResult` envelope.
+
+#### Scenario: Corrupt meta degrades to null
+
+- **WHEN** a skill's `.meta.json` is absent, not valid JSON, or fails schema validation
+- **THEN** `readMeta` returns `null` exactly as today
+
+#### Scenario: Slug/description validation is unchanged
+
+- **WHEN** a slug or description is validated at write time
+- **THEN** the same inputs are accepted/rejected as before, and the `ValidationResult { ok; error? }` envelope is preserved
+

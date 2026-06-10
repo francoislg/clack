@@ -1,6 +1,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { randomUUID } from "node:crypto";
+import { z } from "zod";
 import { logger } from "./logger.js";
 import { fileExists } from "./fs.js";
 import type { SettableAttentionLevel } from "./sessions.js";
@@ -27,6 +28,23 @@ export interface AutoRespondRule {
 interface AutoRespondState {
   rules: AutoRespondRule[];
 }
+
+// Lenient on load: matches the on-disk shape real rules carry (written by addRule)
+// without rejecting any saved rule. Per-field strictness lives at the mutation boundary.
+const autoRespondRuleZod = z.object({
+  id: z.string(),
+  channels: z.array(z.string()),
+  userFilters: z.array(z.string()).optional(),
+  keywords: z.array(z.string()).optional(),
+  extraContext: z.string().optional(),
+  preAnalysisContext: z.string().optional(),
+  attentionLevel: z.enum(["always", "high", "medium", "low"]).optional(),
+  enabled: z.boolean(),
+});
+
+const autoRespondStateZod = z.object({
+  rules: z.array(autoRespondRuleZod).optional(),
+});
 
 // ============================================================================
 // Storage
@@ -58,8 +76,13 @@ export async function loadRules(): Promise<AutoRespondRule[]> {
 
   try {
     const content = await readFile(filePath, "utf-8");
-    const parsed = JSON.parse(content) as Partial<AutoRespondState>;
-    cached = { rules: parsed.rules ?? [] };
+    const parsed = autoRespondStateZod.safeParse(JSON.parse(content));
+    if (!parsed.success) {
+      logger.error("auto-respond state has unexpected shape; using empty:", parsed.error.message);
+      cached = { ...DEFAULT_STATE, rules: [] };
+      return cached.rules;
+    }
+    cached = { rules: parsed.data.rules ?? [] };
     return cached.rules;
   } catch (error) {
     logger.error("Failed to load auto-respond rules:", error);

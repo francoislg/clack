@@ -8,6 +8,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { join, resolve } from "node:path";
+import { z } from "zod";
 import { getDataDir } from "./config.js";
 import { logger } from "./logger.js";
 
@@ -151,23 +152,15 @@ function renderSkillMd(slug: string, description: string, body: string): string 
   return `---\nname: ${slug}\ndescription: "${escapedDescription}"\n---\n\n${trimmedBody}`;
 }
 
-/** Type guard for a parsed `.meta.json` payload. */
-function isValidMetaShape(value: unknown): value is UserSkillMeta {
-  if (typeof value !== "object" || value === null) return false;
-  const v = value as {
-    ownerUserId?: unknown;
-    createdAt?: unknown;
-    updatedAt?: unknown;
-    disabledAt?: unknown;
-    editableByAnyone?: unknown;
-  };
-  if (typeof v.ownerUserId !== "string") return false;
-  if (typeof v.createdAt !== "string") return false;
-  if (typeof v.updatedAt !== "string") return false;
-  if (v.disabledAt !== undefined && typeof v.disabledAt !== "string") return false;
-  if (v.editableByAnyone !== undefined && typeof v.editableByAnyone !== "boolean") return false;
-  return true;
-}
+// Default-strip (not strict): a `.meta.json` with extra keys still validates and the
+// unknown keys are dropped, matching the prior field-by-field reconstruction.
+const userSkillMetaZod = z.object({
+  ownerUserId: z.string(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+  disabledAt: z.string().optional(),
+  editableByAnyone: z.boolean().optional(),
+});
 
 // ---------------------------------------------------------------------------
 // Dependency injection (mirrors src/skillPlugins.ts)
@@ -236,16 +229,8 @@ function readMeta(slug: string): UserSkillMeta | null {
   if (!deps.existsSync(path)) return null;
   try {
     const raw = deps.readFileSync(path, "utf-8");
-    const parsed: unknown = JSON.parse(raw);
-    if (!isValidMetaShape(parsed)) return null;
-    const result: UserSkillMeta = {
-      ownerUserId: parsed.ownerUserId,
-      createdAt: parsed.createdAt,
-      updatedAt: parsed.updatedAt,
-    };
-    if (parsed.disabledAt !== undefined) result.disabledAt = parsed.disabledAt;
-    if (parsed.editableByAnyone !== undefined) result.editableByAnyone = parsed.editableByAnyone;
-    return result;
+    const result = userSkillMetaZod.safeParse(JSON.parse(raw));
+    return result.success ? result.data : null;
   } catch (error) {
     logger.debug(`Failed to read user-skill .meta.json for '${slug}': ${error}`);
     return null;

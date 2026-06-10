@@ -3,9 +3,7 @@
 ## Purpose
 
 Long-lived reusable worker pools for the Changes Workflow — an alternative to the disposable-per-branch model. Workers persist across multiple change requests, each starting from a clean origin/<default> state. The pool manages acquisition, branch switching, idle release, dirty quarantine, and visibility.
-
 ## Requirements
-
 ### Requirement: Worker Pool Configuration
 
 The system SHALL support `changesWorkflow.reusableFolders` configuration that selects between the disposable per-branch worktree model (default) and the reusable worker-pool model.
@@ -368,3 +366,18 @@ The system SHALL verify that a selected idle worker's folder exists on disk befo
 
 - **WHEN** a worker entry carries an unparseable `lastUsedAt`/`createdAt` string
 - **THEN** the loader's handling matches the pre-migration `new Date(string)` behavior exactly (the schema's date transform MUST NOT newly reject an entry that the current loader accepts) — the characterization gate pins whether that yields an Invalid Date or drops the entry
+
+### Requirement: Quarantine sidecar load is schema-driven
+
+`readQuarantineRecord` SHALL validate the `.clack-quarantine.json` sidecar against a `QuarantineRecord` zod schema rather than the hand-rolled `isQuarantineRecord` guard, preserving its graceful contract: a missing file, invalid JSON, or shape mismatch SHALL return `null` (the worker is simply treated as not quarantined), never throw.
+
+#### Scenario: Malformed sidecar yields null, not a crash
+
+- **WHEN** a worker's quarantine sidecar is missing, not valid JSON, or does not match the `QuarantineRecord` shape
+- **THEN** `readQuarantineRecord` returns `null` exactly as today, and the worker pool continues
+
+#### Scenario: A valid sidecar round-trips unchanged
+
+- **WHEN** a sidecar written by `writeQuarantineRecord` (current or older builds) is read back
+- **THEN** the parsed `QuarantineRecord` is identical to the pre-migration result
+
