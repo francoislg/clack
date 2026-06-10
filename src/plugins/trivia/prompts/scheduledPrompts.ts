@@ -77,7 +77,7 @@ const DIFFICULTY_GATE = `DIFFICULTY GATE (REQUIRED — STRICT MEMBERSHIP — sha
    - Rating ≥2 points outside \`[min, max]\` (either direction) → REJECT immediately and re-call get_ideas for a fresh roll. Do NOT reframe — the topic is wrong, not the framing. Reframing a question rated 3 to fit a Hard bucket [8,10] produces forced, awkward questions.
 
    Per-path reframe overrides (apply during REFRAME ONCE):
-   - BOOLEAN paths: IMMEDIATELY re-run the POLARITY SELF-CHECK on the reframed statement BEFORE re-rating. Reframing-by-detail-swap can silently flip a TRUE statement to FALSE — the polarity gate is what catches this. If polarity fails on the reframe, REJECT and re-call get_ideas (you've burned your retry; don't try a second reframe).
+   - BOOLEAN paths: dial difficulty by PLAUSIBILITY, not obscurity — too easy → make the statement more subtly either-way (a subtler swap, less obviously true/false); too hard → make it more recognizable (a more familiar claim, or a more clearly-off swap). Do NOT raise boolean difficulty by reaching for a more obscure fact. Then IMMEDIATELY re-run the POLARITY SELF-CHECK on the reframed statement BEFORE re-rating. Reframing-by-detail-swap can silently flip a TRUE statement to FALSE — the polarity gate is what catches this. If polarity fails on the reframe, REJECT and re-call get_ideas (you've burned your retry; don't try a second reframe).
    - CHOICE paths: the correct answer's POSITION stays LOCKED at \`suggestedCorrectIndex\` during reframe — rewrite only the question text or the distractors, never move the correct answer.
    - FREEFORM paths: the canonical \`expectedAnswer\` may need updating if the reframe changes what the question is asking about.`;
 
@@ -108,6 +108,15 @@ const EMOJI_SELECTION_GATE = `EMOJI SELECTION GATE (shared across all paths — 
    - DO: stay at the CATEGORY level or go generic — 🌍 / 🏳️ for a geography/flag question, 🐾 for an animal question, 🪧 for a road-sign question. Same principle the visual paths already apply to \`media.altText\` ("a national flag", not "the flag of Ecuador").
    - Quick self-check before saving: "Could a player narrow down or read the answer off any of these emojis?" If yes for any emoji, swap it for a category-level or generic one.`;
 
+const PUZZLE_QUALITY_GATE = `PUZZLE QUALITY GATE (shared across all paths — invoke whenever a path's step says "apply the PUZZLE QUALITY GATE"). Before saving, STOP and REASON about the question as a puzzle — write out your judgment for each check, don't just assert "pass." If a check fails, fix it; if you can't fix it, RE-ROLL — re-rolling beats shipping a weak question.
+   1. SOLVABLE BY KNOWING, NOT GUESSING. A knowledgeable player must be able to REASON to the answer. The truth must NOT hinge on recalling an isolated datum disconnected from understanding — an exact year, a raw figure, a one-off statistic, or (for choice) a set of options that are all years or close numbers.
+      - DON'T: "The Berlin Wall fell in 1989." (T/F — just remembering a number) / "In what year did X happen? A) 1972 B) 1976 C) 1980" (a memory test).
+      - DO: "The Berlin Wall fell during the Reagan administration." (T/F) / ask WHO / WHAT / WHERE / WHY / the consequence — things a player can reason about. If a category only yields date-anchored facts, re-roll the category rather than writing a year question.
+   2. NO SURFACE TELL. Strip the truth value and read it cold: phrasing, specificity, length, or confidence must NOT tilt a clueless player toward the answer. boolean — a TRUE and a FALSE framing of this fact must read equally plausible (don't let an over-specific statement read as obviously true); choice — the correct option must not stand out from the distractors in length, specificity, or confidence; freeform — the prompt must not telegraph the answer.
+   3. DOUBT FITS THE DIFFICULTY. The answer must be genuinely ambiguous on the surface yet resolvable by a player with relevant knowledge and reasoning. Difficulty comes from that doubt, NEVER from obscurity or memorization — a harder question is more plausibly either-way, not about a rarer fact.
+   4. FLAVOR NEVER LEAKS. Surfaced non-question text (patter, subtitle, emojis, hint, alt text) must not narrow or reveal the answer. This is enforced in full by the NO-SPOILER GATE at post time — just confirm here that nothing you've drafted leaks.
+   5. WORTH CARING ABOUT. The subject should be something the audience would find interesting or relevant (for topical, genuinely salient) — not a "who cares" datum.`;
+
 /**
  * Shared step sequence for generating a new FACT-typed boolean trivia question.
  * Used by the scheduled question-posting prompt; kept as a single source so
@@ -132,12 +141,6 @@ const QUESTION_FLOW_STEPS = `1. GET CATEGORY IDEAS AND SUGGESTIONS:
      c) A real fact with one key detail swapped to something incorrect (e.g. "shrimp" → "lobster", "Stockholm" → "Oslo"). The underlying real fact must remain a real fact — only the surfaced statement is wrong.
      Do not start from a true fact and ask "how do I flip this?" — start from "what false-but-plausible statement can I write about this topic?"
 
-   AVOID YEAR/DATE ANCHORING (HARD CONSTRAINT). Don't make the truth value hinge on a specific year, exact date, or numeric quantity that players can't reasonably verify — that turns the question into a memorization test rather than a thinking test. Concretely:
-     - DON'T: "The Berlin Wall fell in 1989." / "Mount Tambora erupted in 1815." — answering correctly just means remembering a number, and a knowledgeable player can't tell whether the year is right.
-     - DO: "The Berlin Wall fell during the Reagan administration." / "Mount Tambora's eruption caused a worldwide volcanic winter the following year." — the truth value hinges on something verifiable from understanding.
-     - When you DO need to swap a number to make a FALSE statement, swap the WHAT (the agent, the mechanism, the location, the consequence), NOT the WHEN. Year-swap distractors ("1969" → "1971") are forbidden.
-     - Year context is fine as flavor when the year is famous in its own right (1969 moon landing, 1989 Berlin Wall, 2008 financial crisis) — but the truth value still must NOT hinge on the year being correct.
-
    Aim at the inclusive 1-10 range from \`suggestedDifficultyRange\` (the bucket's target band on THIS game type — freeform's bands are softer than boolean/choice's). You will self-rate against the same 1-10 scale in step 6.
 
    Do NOT randomize the polarity yourself; the random pick has already been made server-side.
@@ -160,7 +163,9 @@ const QUESTION_FLOW_STEPS = `1. GET CATEGORY IDEAS AND SUGGESTIONS:
 
 8. HINT (optional): apply the HINT DRAFTING GATE (shared definition above). When \`suggestedHintMode\` is non-\`"none"\`, the gate produces an optional \`hint\` field to include in the save_question call below.
 
-9. SAVE TO DATABASE:
+9. PUZZLE QUALITY GATE: apply the PUZZLE QUALITY GATE (shared definition above) — reason through all five checks; revise or re-roll on failure.
+
+10. SAVE TO DATABASE:
    - Call save_question with:
      - answersFormat: "boolean"
      - questionType: "fact"
@@ -190,12 +195,6 @@ const CHOICE_FLOW_STEPS = `1. GET CATEGORY IDEAS AND SUGGESTIONS:
    - Research a verified true fact about the topic and write the correct option text FIRST. This option will occupy the index named by suggestedCorrectIndex. The correct answer's POSITION is LOCKED — you MUST NOT rewrite or swap the correct answer later to fix a gate failure, because that defeats the server-rolled suggestedCorrectIndex (which is what keeps the leaderboard fair).
    - Then write (suggestedChoiceCount − 1) plausible-but-wrong distractors. Each distractor should be a confident-sounding but incorrect option a knowledgeable person could be tempted by — not joke filler.
 
-   AVOID YEAR/DATE QUESTIONS (HARD CONSTRAINT). Don't write questions whose options are all years, exact dates, or close numeric values that players can't reasonably distinguish (e.g. "In what year did X happen? A) 1972 B) 1976 C) 1980"). That's a memory test, not a thinking test. Concretely:
-     - DON'T: questions where all options are years/dates, OR where the correct answer is a year/date the player can't reason their way to.
-     - DO: questions where the options are WHAT (people, places, events, mechanisms, causes, outcomes) — things players can reason about.
-     - If the topic naturally suggests a date question ("when did X happen?"), reframe to WHAT happened, WHO did it, WHERE it happened, or WHY it mattered.
-     - This rule overrides "use what you researched" — if your research only surfaces date-anchored facts about this category, re-call \`get_ideas\` for a different category rather than writing a year question.
-
    After writing the choices, apply the STATEMENT–CHOICES NON-OVERLAP GATE (shared definition above).
 
 3. DISTRACTOR PLAUSIBILITY GATE (REQUIRED — DO NOT SKIP):
@@ -215,7 +214,9 @@ const CHOICE_FLOW_STEPS = `1. GET CATEGORY IDEAS AND SUGGESTIONS:
 
 7. HINT (optional): apply the HINT DRAFTING GATE (shared definition above). When \`suggestedHintMode\` is non-\`"none"\`, the gate produces an optional \`hint\` field to include in the save_question call below.
 
-8. SAVE TO DATABASE:
+8. PUZZLE QUALITY GATE: apply the PUZZLE QUALITY GATE (shared definition above) — reason through all five checks; revise or re-roll on failure.
+
+9. SAVE TO DATABASE:
    - Call save_question with:
      - answersFormat: "choice"
      - questionType: "fact"
@@ -243,14 +244,14 @@ const TOPICAL_MODIFIER = `When the rolled \`suggestedQuestionType\` is \`"topica
 
 1. RESEARCH A RECENT EVENT VIA WebSearch (NEW STEP — REQUIRED — DO NOT SKIP, runs before the fact path's step 2):
    - Compose a WebSearch query that combines the chosen category, the chosen lens from contextPriority[0] (if applicable), and a recency hint (e.g. "this week", "yesterday", "last few days", a recent year).
-   - Aim for events from the last day or two. Go back further (up to a week) only if nothing notable surfaced from the most recent days.
+   - SALIENCE BAR: pick an event the general audience (this workspace's members) would recognize as genuinely newsworthy and interesting — trending, breaking, or widely-reported — not a niche item only specialists track, so a knowledgeable player has a reasoning foothold. Prefer SALIENCE over recency: a widely-reported event from the past week beats a trivial one from this morning.
    - Pick ONE specific newsworthy event from the results to anchor the question on. Capture:
      - \`sourceUrl\`: the most authoritative URL that supports the claim (must begin with https://).
      - \`eventDate\` (optional but encouraged): the ISO 8601 date (YYYY-MM-DD) the event occurred, when easy to determine.
-   - If the current lens (contextPriority[0]) yielded no usable event, descend per the CONTEXTS guidance. If every lens fails, re-call get_ideas.
+   - If the current lens (contextPriority[0]) yielded no usable event, descend per the CONTEXTS guidance. If no lens yields an event that clears the SALIENCE BAR, FALL BACK to the fact path for the same answersFormat (preferred — it keeps the slot productive); re-call get_ideas only if the fact path is unsuitable. Do NOT force an obscure event.
 
 2. ANCHOR THE QUESTION/ANSWER ON THE EVENT. The statement (boolean), correct option (choice), or canonical \`expectedAnswer\` (freeform) is derived from the event you captured. Per-shape topical levers (apply alongside the fact path's statement-writing step):
-   - **BOOLEAN paths**: for FALSE statements, event-aware levers — swap a date, a name, a place, or a number to something subtly incorrect; or assert a tempting misconception about the event that the actual reporting contradicts.
+   - **BOOLEAN paths**: for FALSE statements, swap exactly ONE element of the event's SUBSTANCE — the person, the place, what-happened, or the consequence — to something plausibly incorrect; or assert a tempting misconception the actual reporting contradicts. NEVER make it false by swapping a date or a number: the "Current News" frame already asserts recency and the statement carries no date stamp, so a date/number swap contradicts the frame and degrades the question into a recall-only test rather than a reasoning one.
    - **CHOICE paths**: distractors drawn from the same news domain work well (other people in the story, other recent similar events, related-but-wrong dates/places/numbers). WebSearch payloads love surfacing the runner-up / co-star / opponent adjacent to the winner — that detail is exactly the wrong thing to keep in the statement when you also list it as an option, so apply the STATEMENT-CHOICES NON-OVERLAP GATE accordingly.
    - **FREEFORM paths**: no shape-specific change beyond anchoring the answer on the event.
 
@@ -321,7 +322,9 @@ const FREEFORM_FACT_FLOW_STEPS = `1. GET CATEGORY IDEAS AND SUGGESTIONS:
 
 9. HINT (optional): apply the HINT DRAFTING GATE (shared definition above). When \`suggestedHintMode\` is non-\`"none"\`, the gate produces an optional \`hint\` field to include in the save_question call below.
 
-10. SAVE TO DATABASE:
+10. PUZZLE QUALITY GATE: apply the PUZZLE QUALITY GATE (shared definition above) — reason through all five checks; revise or re-roll on failure.
+
+11. SAVE TO DATABASE:
    - Call save_question with:
      - answersFormat: "freeform"
      - questionType: "fact"
@@ -420,7 +423,8 @@ const VISUAL_CHOICE_FLOW_STEPS = `1. Run the VISUAL RESEARCH SUBFLOW (shared def
 5. DIFFICULTY GATE (shared definition above) — CHOICE reframe rule (correct POSITION locked at suggestedCorrectIndex). (Dedup is handled by \`find_previous_subjects\` inside the subflow — do NOT also run the text DUPLICATE CHECK GATE here; the templated "Which … is shown?" prompt would false-positive against every prior visual question.)
 6. Choose 1–4 emojis: apply the EMOJI SELECTION GATE (shared definition above). Compose \`media.altText\` — an accessibility description of the image that does NOT reveal the answer (describe generically, e.g. "a national flag" not "the flag of Ecuador").
 7. HINT (optional): apply the HINT DRAFTING GATE (shared definition above).
-8. SAVE: call save_question with \`promptMedium: "image"\`, \`answersFormat: "choice"\`, \`questionType: "fact"\`, category, statement, choices, correctIndex (= suggestedCorrectIndex), \`media: { kind: "image", url: <imageUrl>, altText, subjectId, title, license?, attribution? }\`, emojis, suggestedDifficulty, difficulty, context?, hint?, slot?. Store the returned questionId AND slot.index for the post step.`;
+8. PUZZLE QUALITY GATE: apply the PUZZLE QUALITY GATE (shared definition above) — reason through all five checks; revise or re-roll on failure.
+9. SAVE: call save_question with \`promptMedium: "image"\`, \`answersFormat: "choice"\`, \`questionType: "fact"\`, category, statement, choices, correctIndex (= suggestedCorrectIndex), \`media: { kind: "image", url: <imageUrl>, altText, subjectId, title, license?, attribution? }\`, emojis, suggestedDifficulty, difficulty, context?, hint?, slot?. Store the returned questionId AND slot.index for the post step.`;
 
 const VISUAL_BOOLEAN_FLOW_STEPS = `1. Run the VISUAL RESEARCH SUBFLOW (shared definition above). get_ideas also returned \`suggestedAnswer\` — the truth value the claim MUST have.
 2. WRITE A CLAIM-BASED STATEMENT about the image's subject. Branch on suggestedAnswer:
@@ -433,7 +437,8 @@ const VISUAL_BOOLEAN_FLOW_STEPS = `1. Run the VISUAL RESEARCH SUBFLOW (shared de
 6. DIFFICULTY GATE (shared definition above) — BOOLEAN reframe rule (re-run the POLARITY SELF-CHECK on any reframe).
 7. Choose 1–4 emojis: apply the EMOJI SELECTION GATE (shared definition above). Compose \`media.altText\` (generic; never reveal the answer).
 8. HINT (optional): apply the HINT DRAFTING GATE (shared definition above).
-9. SAVE: call save_question with \`promptMedium: "image"\`, \`answersFormat: "boolean"\`, \`questionType: "fact"\`, category, statement, isTrue (= suggestedAnswer), \`media: { kind: "image", url: <imageUrl>, altText, subjectId, title, license?, attribution? }\`, emojis, suggestedDifficulty, difficulty, context?, hint?, slot?. Store the returned questionId AND slot.index.`;
+9. PUZZLE QUALITY GATE: apply the PUZZLE QUALITY GATE (shared definition above) — reason through all five checks; revise or re-roll on failure.
+10. SAVE: call save_question with \`promptMedium: "image"\`, \`answersFormat: "boolean"\`, \`questionType: "fact"\`, category, statement, isTrue (= suggestedAnswer), \`media: { kind: "image", url: <imageUrl>, altText, subjectId, title, license?, attribution? }\`, emojis, suggestedDifficulty, difficulty, context?, hint?, slot?. Store the returned questionId AND slot.index.`;
 
 const VISUAL_FREEFORM_FLOW_STEPS = `1. Run the VISUAL RESEARCH SUBFLOW (shared definition above). get_ideas also returned \`suggestedFreeformAnswerShape\` — pass it through to save unchanged.
 2. WRITE A TYPED-IDENTIFICATION PROMPT that REQUIRES the image ("Who is this?", "What animal is this?", "Which landmark is shown?"). Set \`expectedAnswer\` to the subject's \`title\` from the metadata block (canonical, trimmed form — no articles/qualifiers). Optionally populate \`acceptableAnswers\` with observed variants ("Eiffel Tower" / "La Tour Eiffel" / "Sagarmatha") and \`gradingNotes\` when a category-level acceptance pattern helps the reveal-time judge. No polarity gate, no plausibility gate (no distractors, no polarity to flip).
@@ -442,7 +447,8 @@ const VISUAL_FREEFORM_FLOW_STEPS = `1. Run the VISUAL RESEARCH SUBFLOW (shared d
 4. DIFFICULTY GATE (shared definition above) — FREEFORM reframe rule.
 5. Choose 1–4 emojis: apply the EMOJI SELECTION GATE (shared definition above). Compose \`media.altText\` (generic; never reveal the answer).
 6. HINT (optional): apply the HINT DRAFTING GATE (shared definition above).
-7. SAVE: call save_question with \`promptMedium: "image"\`, \`answersFormat: "freeform"\`, \`questionType: "fact"\`, category, statement, expectedAnswer, acceptableAnswers?, gradingNotes?, freeformAnswerShape (= suggestedFreeformAnswerShape), \`media: { kind: "image", url: <imageUrl>, altText, subjectId, title, license?, attribution? }\`, emojis, suggestedDifficulty, difficulty, context?, hint?, slot?. Store the returned questionId AND slot.index.`;
+7. PUZZLE QUALITY GATE: apply the PUZZLE QUALITY GATE (shared definition above) — reason through all five checks; revise or re-roll on failure.
+8. SAVE: call save_question with \`promptMedium: "image"\`, \`answersFormat: "freeform"\`, \`questionType: "fact"\`, category, statement, expectedAnswer, acceptableAnswers?, gradingNotes?, freeformAnswerShape (= suggestedFreeformAnswerShape), \`media: { kind: "image", url: <imageUrl>, altText, subjectId, title, license?, attribution? }\`, emojis, suggestedDifficulty, difficulty, context?, hint?, slot?. Store the returned questionId AND slot.index.`;
 
 const PER_SLOT_GENERATION_PATHS = `Per-question/per-slot generation DISPATCHES on a 3-axis matrix: \`suggestedPromptMedium\` × \`suggestedAnswersFormat\` × \`suggestedQuestionType\`.
 
@@ -474,6 +480,8 @@ ${STATEMENT_CHOICES_NON_OVERLAP_GATE}
 ${HINT_DRAFTING_GATE}
 
 ${EMOJI_SELECTION_GATE}
+
+${PUZZLE_QUALITY_GATE}
 
 === BOOLEAN PATH BODY (per question / per slot) ===
 
