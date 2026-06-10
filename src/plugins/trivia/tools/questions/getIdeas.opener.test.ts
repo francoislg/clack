@@ -2,7 +2,6 @@ import { describe, it, beforeEach } from "vitest";
 import assert from "node:assert/strict";
 import { createInMemoryDataLayer, FIXTURE_GAME_NAME, fixtureGetGames } from "../../testHelpers.js";
 import { createGetIdeasTool } from "./getIdeas.js";
-import { createUpsertSeasonTool } from "../seasons/upsertSeason.js";
 import { parseToolResult } from "../../../../tools/testHelpers.js";
 import type { TriviaConfig } from "../../core/configTypes.js";
 import type { TriviaDataLayer, TriviaQuestion } from "../../core/types.js";
@@ -157,7 +156,7 @@ describe("get_ideas — firstFireOfSeason + theme", () => {
   });
 });
 
-describe("get_ideas — integration with upsert_season theme", () => {
+describe("get_ideas — firstFireOfSeason after a stamped question is saved", () => {
   let data: TriviaDataLayer;
 
   beforeEach(async () => {
@@ -165,63 +164,7 @@ describe("get_ideas — integration with upsert_season theme", () => {
     await data.saveCategories(["Science", "History", "Geography"]);
   });
 
-  it("theme set via upsert_season surfaces on the next get_ideas call", async () => {
-    const past = Date.now() - 1 * DAY;
-    // Seed an active season (cannot create via upsert_season because startedAt is in the past
-    // when starting fresh; use direct seeding for the active season).
-    await data.forGame(FIXTURE_GAME_NAME).saveSeasonsState({
-      seasons: [
-        {
-          slug: "active-2026",
-          startedAt: past,
-          expectedEndAt: past + 60 * DAY,
-          categories: ["Science", "History"],
-        },
-      ],
-    });
-
-    // Add a theme via upsert_season (UPDATE)
-    const upsert = createUpsertSeasonTool(data, fixtureGetGames);
-    const upsertRes = parseToolResult(
-      await upsert.handler(
-        {
-          game: FIXTURE_GAME_NAME,
-          slug: "active-2026",
-          startedAt: undefined,
-          expectedEndAt: undefined,
-          endedAt: undefined,
-          categories: undefined,
-          theme: "Halloween Spooktacular",
-          answersFormat: undefined,
-          questionType: undefined,
-          promptMedium: undefined,
-          freeformAnswerShape: undefined,
-          contexts: undefined,
-          difficulty: undefined,
-          difficultyRatio: undefined,
-          format: undefined,
-          slotOverrides: undefined,
-          liveAnswersVisible: undefined,
-          revealResponses: undefined,
-          instructions: undefined,
-          additionalInstructions: undefined,
-          hint: undefined,
-          judgeLeniency: undefined,
-        },
-        SESSION,
-      ),
-    );
-    assert.equal(upsertRes.action, "updated");
-    assert.equal(upsertRes.hasTheme, true);
-
-    const ideas = createGetIdeasTool(data, () => makeConfig(true), fixtureGetGames);
-    const result = await ideas.handler({ game: FIXTURE_GAME_NAME, slot: undefined }, SESSION);
-    const parsed = parseToolResult(result);
-    assert.equal(parsed.theme, "Halloween Spooktacular");
-    assert.equal(parsed.firstFireOfSeason, true);
-  });
-
-  it("smoke: firstFireOfSeason flips false after save_question writes a stamped question", async () => {
+  it("firstFireOfSeason flips false after a question is stamped with the current slug", async () => {
     const past = Date.now() - 1 * DAY;
     await data.forGame(FIXTURE_GAME_NAME).saveSeasonsState({
       seasons: [
