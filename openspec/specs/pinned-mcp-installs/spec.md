@@ -3,9 +3,7 @@
 ## Purpose
 
 Replace `npx -y`-based MCP server spawning with pinned, isolated installs to eliminate npm hoisting bugs that produce partial top-level "shadow" copies of transitive dependencies. Each stdio entry in `data/mcp.json` may declare `package` + `version`; Clack installs the package into `data/mcp_packages/<name>/` with `--install-strategy=nested` (no hoisting) at boot, then spawns the resolved binary via `node`. Existing `npx`-shaped entries keep working with a one-time migration warning. HTTP/SSE entries are unaffected.
-
 ## Requirements
-
 ### Requirement: Pinned Install Schema for stdio MCP Entries
 
 The system SHALL accept two new optional fields on stdio entries in `data/mcp.json`: `package` (the npm package name) and `version` (the exact version to install). Both fields MUST be specified together. An entry that sets one without the other is a configuration error and MUST cause boot to fail with a message identifying the entry.
@@ -133,3 +131,18 @@ The system SHALL preserve the existing behavior of stdio entries that do not set
 - **GIVEN** the bot is already running with an npx-shaped `hubspot` entry that emitted the warning at startup
 - **WHEN** any subsequent code path re-resolves the `hubspot` server config (e.g., a config reload)
 - **THEN** no additional warning is logged for `hubspot` within the current process
+
+### Requirement: Pinned-MCP stdio entry validation is schema-driven
+
+`parseStdioEntry` SHALL validate a stdio MCP entry against a zod schema rather than hand-rolled `typeof` checks, while preserving its fail-fast contract: a partial pin (exactly one of `package` / `version` set) and other malformed entries SHALL still throw with an equivalent message. The discriminated pinned-vs-legacy result SHALL be unchanged.
+
+#### Scenario: Partial pin still throws
+
+- **WHEN** an `mcp.json` stdio entry sets `package` without `version` (or vice versa)
+- **THEN** `parseStdioEntry` throws an error naming the entry, equivalent to the pre-migration message
+
+#### Scenario: Valid pinned and legacy entries parse unchanged
+
+- **WHEN** a fully-pinned entry (`package` + `version`) or a legacy entry is parsed
+- **THEN** the returned discriminated result matches the pre-migration shape
+
