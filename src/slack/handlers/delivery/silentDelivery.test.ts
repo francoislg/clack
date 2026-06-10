@@ -21,7 +21,7 @@ function makeClient() {
 const SECTION: Block[] = [{ type: "section" }];
 
 describe("SilentDelivery", () => {
-  it("deliver posts with no thread_ts, reports notified:true, and records responseTs for blocks", async () => {
+  it("top-level (no anchor): posts with no thread_ts, notified:true, and records responseTs for blocks", async () => {
     const { client, postMessage } = makeClient();
     const recordResponseTs = vi.fn(async () => {});
     const handler = new SilentDelivery({ client, targetChannel: "C1", recordResponseTs });
@@ -32,6 +32,24 @@ describe("SilentDelivery", () => {
     expect(arg.channel).toBe("C1");
     expect(arg.thread_ts).toBeUndefined();
     expect(recordResponseTs).toHaveBeenCalledWith("555.000");
+  });
+
+  it("threaded (anchor set): posts with thread_ts and does NOT record responseTs", async () => {
+    const { client, postMessage } = makeClient();
+    const recordResponseTs = vi.fn(async () => {});
+    const handler = new SilentDelivery({
+      client,
+      targetChannel: "C1",
+      targetThread: "T1",
+      recordResponseTs,
+    });
+
+    const res = await handler.deliver({ blocks: SECTION });
+    expect(res).toEqual({ ok: true, ts: "555.000", notified: true });
+    const arg = postMessage.mock.calls[0][0];
+    expect(arg.channel).toBe("C1");
+    expect(arg.thread_ts).toBe("T1");
+    expect(recordResponseTs).not.toHaveBeenCalled();
   });
 
   it("a raw-text delivery does not record responseTs", async () => {
