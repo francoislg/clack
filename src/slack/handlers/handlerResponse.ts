@@ -178,6 +178,7 @@ export async function executeAndDeliver(params: ExecuteAndDeliverParams): Promis
       ? new SilentDelivery({
           client,
           targetChannel,
+          targetThread,
           recordResponseTs: async (ts) => {
             await deps.updateSession(session.sessionId, { responseTs: ts });
           },

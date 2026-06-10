@@ -1562,6 +1562,25 @@ describe("silentThinking mode", () => {
     assert.equal(mockStreamerStart.mock.calls.length, 0);
   });
 
+  it("delivers the silent answer INTO the session thread, not top-level", async () => {
+    const client = makeClient();
+
+    await executeAndDeliver({
+      client,
+      session: makeSession(),
+      sessionInfo: makeSessionInfo({ threadTs: "1700000000.000001" }),
+      claudeOptions: { role: "dev" as const, changesWorkflowEnabled: false },
+      silentThinking: true,
+      deps,
+    });
+
+    const primary = mockPostMessage.mock.calls.find(
+      (c) => (c[0] as { channel?: string }).channel === "C001",
+    );
+    assert.ok(primary, "expected a primary post to the channel");
+    assert.equal((primary![0] as { thread_ts?: string }).thread_ts, "1700000000.000001");
+  });
+
   it("does not post a primary to the channelless sentinel on success", async () => {
     // Regression: a channelless cron (e.g. casual-talk) delivers via `deliver_to` inside
     // submit_response (to real channels), so the streamer `deliver` is never called and
