@@ -1,8 +1,16 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { resolve, join, basename } from "node:path";
+import { z } from "zod";
 import type { SdkPluginConfig } from "@anthropic-ai/claude-agent-sdk";
 import { getConfig, getDataDir } from "./config.js";
 import type { SkillPluginRegistry } from "./config.js";
+
+// Only the two fields discovery reads; everything optional so a real manifest never
+// fails validation (a JSON/parse failure still falls through to basename defaults).
+const skillPluginManifestZod = z.object({
+  name: z.string().optional(),
+  plugins: z.array(z.object({ skills: z.array(z.unknown()).optional() })).optional(),
+});
 
 // ============================================================================
 // Dependency Injection
@@ -98,7 +106,9 @@ export function discoverSkillPluginInfo(): SkillPluginInfo[] {
     let skillCount = 0;
 
     try {
-      const manifest = JSON.parse(deps.readFileSync(manifestPath, "utf-8"));
+      const manifest = skillPluginManifestZod.parse(
+        JSON.parse(deps.readFileSync(manifestPath, "utf-8")),
+      );
       name = manifest.name ?? name;
       // Count skills from manifest or from skills/ directory
       if (manifest.plugins?.[0]?.skills) {

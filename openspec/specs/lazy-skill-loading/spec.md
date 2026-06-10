@@ -2,9 +2,7 @@
 
 ## Purpose
 Lazy-load Claude Code skill plugins on demand via `load_skill` tool, reducing baseline token cost. Plugins tagged `lazyLoad: true` in the `skillPlugins` registry are excluded from `--plugin-dir` at session start — their skill frontmatter never enters the baseline. A compact catalog in the user prompt advertises available lazy packs; `list_skill_pack_skills` browses a pack's skills; `load_skill` returns a specific SKILL.md body on demand. Loads persist on the session so repeats short-circuit across resumes.
-
 ## Requirements
-
 ### Requirement: Skill Plugin Registry in config.json
 
 The system SHALL accept a `skillPlugins` registry in `data/config.json`, keyed by plugin name (the directory name under `data/skill-plugins/`). Each entry SHALL declare `lazyLoad: boolean`; when `lazyLoad: true`, the entry SHALL also declare `description: string` (a human-readable summary rendered in the AVAILABLE SKILL PACKS catalog). The parser SHALL reject non-object entries, non-boolean `lazyLoad`, non-string `description`, and lazy-tagged entries missing a description, at startup. Absent entries SHALL be treated as `lazyLoad: false` (backwards-compatible with pre-lazy behavior). The registry field itself SHALL be optional — configs without it MUST remain valid.
@@ -282,3 +280,18 @@ The baseline `integrations.md` SHALL include a rule instructing Claude that if i
 
 - **WHEN** `data/default_configuration/user/integrations.md` is read
 - **THEN** the content includes a section describing the `Skill()`-vs-`load_skill` distinction and the fallback behavior
+
+### Requirement: Skill-plugin manifest read is schema-driven
+
+Skill-plugin discovery SHALL parse a plugin's manifest JSON against a narrow zod schema rather than a blind `as` cast, preserving its graceful contract: a missing/unreadable/invalid manifest SHALL fall back to the current defaults (name = directory basename, skill count = 0), never throw.
+
+#### Scenario: Missing or malformed manifest falls back to defaults
+
+- **WHEN** a skill plugin has no manifest, an unreadable manifest, or one that fails schema validation
+- **THEN** discovery uses the directory basename as the name and a zero skill count, exactly as today
+
+#### Scenario: A valid manifest is read unchanged
+
+- **WHEN** a well-formed plugin manifest is present
+- **THEN** the discovered plugin info matches the pre-migration result
+

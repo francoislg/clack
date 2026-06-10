@@ -1,6 +1,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { randomUUID } from "node:crypto";
+import { z } from "zod";
 import { logger } from "./logger.js";
 import { fileExists } from "./fs.js";
 import { getCronMaxRunHistory } from "./config.js";
@@ -178,26 +179,52 @@ const DEFAULT_STATE: CronJobState = { jobs: [] };
 
 let cached: CronJobState | null = null;
 
-const VALID_SUBMIT_RESPONSE_MODES = new Set(["always", "optional", "optional-post-to", "skipped"]);
+const cronRunZod = z.object({
+  executedAt: z.string(),
+  status: z.enum(["success", "error", "skipped"]),
+  responseTs: z.string().optional(),
+  replayOf: z.string().optional(),
+});
 
-/**
- * Drop `submitResponseMode` from jobs whose persisted value isn't one of the three valid
- * strings. Logs a warning identifying the offending row(s). Other fields are trusted.
- */
-function sanitizeLoadedJobs(jobs: CronJob[]): CronJob[] {
-  for (const job of jobs) {
-    if (
-      job.submitResponseMode !== undefined &&
-      !VALID_SUBMIT_RESPONSE_MODES.has(job.submitResponseMode)
-    ) {
-      logger.warn(
-        `Cron job ${job.id}: ignoring invalid submitResponseMode "${job.submitResponseMode}" (expected one of: always, optional, optional-post-to, skipped). Falling back to auto-derivation.`,
-      );
-      job.submitResponseMode = undefined;
-    }
-  }
-  return jobs;
-}
+const skipDateZod = z.object({
+  date: z.string(),
+  label: z.string(),
+});
+
+const cronJobZod = z.object({
+  id: z.string(),
+  cronExpression: z.string(),
+  channel: z.string().optional(),
+  prompt: z.string(),
+  name: z.string().optional(),
+  createdBy: z.string().nullable(),
+  systemActor: z.string().optional(),
+  createdAt: z.string(),
+  enabled: z.boolean(),
+  timezone: z.string(),
+  oneShot: z.boolean().optional(),
+  lastRunAt: z.string().optional(),
+  lastRunStatus: z.enum(["success", "error", "skipped"]).optional(),
+  requiredTools: z.array(z.string()).optional(),
+  plugin: z.string().optional(),
+  skipConditions: z.string().optional(),
+  // Invalid persisted values coerce to undefined (auto-derivation), tolerating on-disk typos.
+  submitResponseMode: z
+    .enum(["always", "optional", "optional-post-to", "skipped"])
+    .optional()
+    .catch(undefined),
+  skipDates: z.array(skipDateZod).optional(),
+  pluginManaged: z.boolean().optional(),
+  specKey: z.string().optional(),
+  attachedTopics: z.array(z.string()).optional(),
+  attentionLevel: z.enum(["always", "high", "medium", "low"]).optional(),
+  jitterMinutes: z.number().optional(),
+  runs: z.array(cronRunZod).optional(),
+});
+
+const cronJobStateZod = z.object({
+  jobs: z.array(cronJobZod).optional(),
+});
 
 function getStateDir(): string {
   return resolve(process.cwd(), "data", "state");
@@ -221,8 +248,13 @@ export async function loadJobs(): Promise<CronJob[]> {
 
   try {
     const content = await readFile(filePath, "utf-8");
-    const parsed = JSON.parse(content) as Partial<CronJobState>;
-    cached = { jobs: sanitizeLoadedJobs(parsed.jobs ?? []) };
+    const parsed = cronJobStateZod.safeParse(JSON.parse(content));
+    if (!parsed.success) {
+      logger.error("cron-jobs state has unexpected shape; using empty:", parsed.error.message);
+      cached = { ...DEFAULT_STATE, jobs: [] };
+      return cached.jobs;
+    }
+    cached = { jobs: parsed.data.jobs ?? [] };
     return cached.jobs;
   } catch (error) {
     logger.error("Failed to load cron jobs:", error);

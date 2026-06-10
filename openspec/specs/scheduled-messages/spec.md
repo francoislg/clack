@@ -2,9 +2,7 @@
 
 ## Purpose
 Scheduled message tools allowing users to schedule, list, and cancel future Slack messages via Claude, with timezone-aware scheduling and a configuration gate.
-
 ## Requirements
-
 ### Requirement: Scheduled Cron-Job Prompt Format Guidance Uses Blocks Vocabulary
 
 Scheduled cron-job prompt text (the `jobs[].prompt` field of `data/state/cron-jobs.json`) SHALL, when it references response formatting, layout, or markdown patterns, use the blocks vocabulary defined in the `clack-tool-response` capability (`header`, `section`, `context`, `divider`, `image`, `fields`). Prompts that do not reference formatting remain free-text instructions for Claude to run at fire time, with delivery handled by `submit_response` as for any other Claude run.
@@ -228,3 +226,18 @@ The scheduled message tools SHALL only be available when `config.cron.userSchedu
 - **THEN** the system SHALL log a warning naming both keys
 - **AND** treat `userSchedules` as `false` for all gating decisions during that boot
 - **AND** the persisted config file is NOT rewritten (the value is coerced in-memory only)
+
+### Requirement: Cron-jobs load is schema-driven
+
+`loadJobs` SHALL parse the cron-jobs store against zod schemas (`CronJobState`/`CronJob`/`CronRun`/`SkipDate`) rather than a blind `as Partial<CronJobState>` cast plus the hand-rolled `sanitizeLoadedJobs` pass. The `submitResponseMode` field SHALL be a `z.enum`, replacing the manual enum sanitize. The contract stays graceful: a missing file, invalid JSON, or shape mismatch SHALL log and return `[]`, never throw. Legacy on-disk jobs (e.g. nameless jobs) SHALL still load.
+
+#### Scenario: Invalid submitResponseMode is handled by the enum, not a manual sanitize
+
+- **WHEN** a stored job carries a `submitResponseMode` value outside the allowed set
+- **THEN** the schema rejects/normalizes it equivalently to the pre-migration `sanitizeLoadedJobs` behavior, with the same logged warning intent
+
+#### Scenario: Legacy and current jobs round-trip
+
+- **WHEN** a cron-jobs file written by a prior build (including legacy nameless jobs and populated `runs[]`/`skipDates[]`) is loaded
+- **THEN** the returned `CronJob[]` is identical to the pre-migration result; a corrupt file still yields `[]`
+

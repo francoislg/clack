@@ -1,5 +1,6 @@
 import { mkdir, writeFile, readdir, readFile } from "node:fs/promises";
 import { resolve } from "node:path";
+import { z } from "zod";
 import { getDataDir } from "./config.js";
 import { logger } from "./logger.js";
 import { fileExists } from "./fs.js";
@@ -20,6 +21,18 @@ export interface ErrorReport {
   analysis?: string;
   timestamp: number;
 }
+
+// Gate the scalar fields; the nested SDK arrays stay lenient so a real report (which
+// always carries them) is never rejected over their internal shape.
+const errorReportZod = z.object({
+  sessionId: z.string(),
+  errorMessage: z.string(),
+  conversationTrace: z.array(z.unknown()),
+  toolCallHistory: z.array(z.unknown()).optional(),
+  stderrOutput: z.string().optional(),
+  analysis: z.string().optional(),
+  timestamp: z.number(),
+});
 
 function getErrorReportsDir(): string {
   return resolve(getDataDir(), "error-reports");
@@ -59,7 +72,8 @@ export async function readErrorReport(filename: string): Promise<ErrorReport | n
 
   try {
     const content = await readFile(filepath, "utf-8");
-    return JSON.parse(content) as ErrorReport;
+    const parsed: unknown = JSON.parse(content);
+    return errorReportZod.safeParse(parsed).success ? (parsed as ErrorReport) : null;
   } catch {
     logger.error(`Failed to read error report: ${filename}`);
     return null;

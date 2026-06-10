@@ -1,6 +1,7 @@
 import { existsSync, writeFileSync, mkdirSync, appendFileSync, rmSync } from "node:fs";
 import { readFile, readdir, stat, rm } from "node:fs/promises";
 import { join } from "node:path";
+import { z } from "zod";
 import { getWorktreeSessionsDir } from "../config.js";
 import { logger } from "../logger.js";
 import type {
@@ -125,23 +126,22 @@ export function appendExecutionLog(branchName: string, message: string): void {
   deps.appendFileSync(logPath, entry);
 }
 
-function isValidSessionState(parsed: unknown): parsed is PersistedSessionState {
-  return (
-    typeof parsed === "object" &&
-    parsed !== null &&
-    "sessionId" in parsed &&
-    "branch" in parsed &&
-    "status" in parsed
-  );
-}
+// Intentionally loose: gate only on the three fields restore depends on, leaving the
+// rest untouched so older or hand-edited state files are not rejected.
+const sessionStateGateZod = z.object({
+  sessionId: z.string(),
+  branch: z.string(),
+  status: z.string(),
+});
 
 function parseSessionState(content: string): PersistedSessionState | null {
+  let parsed: unknown;
   try {
-    const parsed: unknown = JSON.parse(content);
-    return isValidSessionState(parsed) ? parsed : null;
+    parsed = JSON.parse(content);
   } catch {
     return null;
   }
+  return sessionStateGateZod.safeParse(parsed).success ? (parsed as PersistedSessionState) : null;
 }
 
 export async function readSessionState(branchName: string): Promise<PersistedSessionState | null> {

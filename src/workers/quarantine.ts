@@ -1,5 +1,6 @@
 import { existsSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { z } from "zod";
 import { getConfigurationDir } from "../config.js";
 import { logger } from "../logger.js";
 import { errorMessage } from "../errors.js";
@@ -7,20 +8,16 @@ import { getGitInstance } from "../repositories.js";
 import type { Worker } from "./types.js";
 import { QUARANTINE_SIDECAR } from "./persistence.js";
 
-type JsonPrimitive = string | number | boolean | null;
-type JsonArray = JsonValue[];
-interface JsonObject {
-  [key: string]: JsonValue;
-}
-type JsonValue = JsonPrimitive | JsonArray | JsonObject;
+// `quarantinedAt` stays an ISO string (no `Date` coercion) — readers expect a string.
+const quarantineRecordZod = z.object({
+  workerId: z.string(),
+  repo: z.string(),
+  branch: z.string().nullable(),
+  dirtyFiles: z.array(z.string()),
+  quarantinedAt: z.string(),
+});
 
-interface QuarantineRecord {
-  workerId: string;
-  repo: string;
-  branch: string | null;
-  dirtyFiles: string[];
-  quarantinedAt: string;
-}
+type QuarantineRecord = z.infer<typeof quarantineRecordZod>;
 
 /**
  * Match a path against a glob-ish pattern. Supports `*` (any chars within a segment),
@@ -108,26 +105,13 @@ export function clearQuarantineRecord(worker: Worker): void {
   }
 }
 
-function isQuarantineRecord(value: JsonValue): value is JsonObject & QuarantineRecord {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
-  return (
-    typeof value.workerId === "string" &&
-    typeof value.repo === "string" &&
-    (typeof value.branch === "string" || value.branch === null) &&
-    Array.isArray(value.dirtyFiles) &&
-    value.dirtyFiles.every((f) => typeof f === "string") &&
-    typeof value.quarantinedAt === "string"
-  );
-}
-
 export function readQuarantineRecord(worker: Worker): QuarantineRecord | null {
   const path = join(worker.worktreePath, QUARANTINE_SIDECAR);
   if (!existsSync(path)) return null;
   try {
     const raw = readFileSync(path, "utf-8");
-    const parsed: JsonValue = JSON.parse(raw);
-    if (!isQuarantineRecord(parsed)) return null;
-    return parsed;
+    const result = quarantineRecordZod.safeParse(JSON.parse(raw));
+    return result.success ? result.data : null;
   } catch {
     return null;
   }
