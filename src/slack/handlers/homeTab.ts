@@ -40,6 +40,10 @@ import { runJobNow } from "../../cronScheduler.js";
 import { openDmChannel } from "../channelResolver.js";
 import { getUserInfo } from "../userCache.js";
 import { CronExpressionParser } from "cron-parser";
+import { z } from "zod";
+
+const configFileModalMetaZod = z.object({ dir: z.string(), filename: z.string() });
+const configCreateModalMetaZod = z.object({ dir: z.string() });
 
 // Some BlockAction variants carry the surrounding view; read its id without unsafe casts.
 function viewIdFromBody(body: object): string | undefined {
@@ -572,8 +576,7 @@ export function registerHomeTabHandler(app: App, deps: HomeTabDeps = defaultHome
       return;
     }
 
-    const metadata = JSON.parse(view.private_metadata);
-    const { dir, filename } = metadata as { dir: string; filename: string };
+    const { dir, filename } = configFileModalMetaZod.parse(JSON.parse(view.private_metadata));
     const content = view.state.values.content_block.file_content.value ?? "";
 
     try {
@@ -616,8 +619,7 @@ export function registerHomeTabHandler(app: App, deps: HomeTabDeps = defaultHome
       return;
     }
 
-    const metadata = JSON.parse(view.private_metadata);
-    const { dir } = metadata as { dir: string };
+    const { dir } = configCreateModalMetaZod.parse(JSON.parse(view.private_metadata));
     let filename = view.state.values.filename_block.filename.value ?? "";
     const content = view.state.values.content_block.file_content.value ?? "";
 
