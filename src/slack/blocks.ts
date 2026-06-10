@@ -6,6 +6,7 @@ import type {
   DividerBlock,
   SectionBlock,
 } from "@slack/types";
+import { z } from "zod";
 import type { AuthoredTableBlock, Block } from "./blockSchema.js";
 import { prepareBlocks, prepareTable } from "./blockPrepare.js";
 import type { BlockValidationError } from "./blockValidate.js";
@@ -96,29 +97,32 @@ function encodeActionValue(sessionId: string, action: Action): string {
   }
 }
 
-/** Wire shape produced by encodeActionValue; all fields optional at the wire level. */
-interface EncodedActionValue {
-  s?: string;
-  r?: string;
-  v?: string;
-  p?: string;
-  h?: string;
-  w?: boolean;
-  c?: string;
-  t?: string;
-  sn?: string;
-}
+// Wire shape produced by encodeActionValue; every field optional at the wire level.
+// `w` stays a plain boolean (not `literal(true)`) so a `w: false` value is tolerated and
+// normalized by the decoder rather than rejected as a parse failure.
+const encodedActionValueZod = z.object({
+  s: z.string().optional(),
+  r: z.string().optional(),
+  v: z.string().optional(),
+  p: z.string().optional(),
+  h: z.string().optional(),
+  w: z.boolean().optional(),
+  c: z.string().optional(),
+  t: z.string().optional(),
+  sn: z.string().optional(),
+});
+
+type EncodedActionValue = z.infer<typeof encodedActionValueZod>;
 
 function tryParseEncodedActionValue(value: string): EncodedActionValue | null {
+  let raw: unknown;
   try {
-    const raw = JSON.parse(value);
-    if (typeof raw === "object" && raw !== null && !Array.isArray(raw)) {
-      return raw;
-    }
+    raw = JSON.parse(value);
   } catch {
-    // Not JSON — fall through
+    return null;
   }
-  return null;
+  const result = encodedActionValueZod.safeParse(raw);
+  return result.success ? result.data : null;
 }
 
 /** Decode a button value to extract sessionId */

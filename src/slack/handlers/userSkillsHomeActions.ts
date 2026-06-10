@@ -1,4 +1,5 @@
 import type { App, BlockAction, ViewSubmitAction } from "@slack/bolt";
+import { z } from "zod";
 import { logger } from "../../logger.js";
 import { errorMessage } from "../../errors.js";
 import { getRole } from "../../roles.js";
@@ -347,25 +348,18 @@ function readCheckboxChecked(
   return selected.some((opt) => opt.value === optionValue);
 }
 
-interface PrivateMetadata {
-  slug: string;
-}
+const slugMetadataZod = z.object({ slug: z.string() });
 
-function parseSlugMetadata(raw: string): PrivateMetadata | null {
+function parseSlugMetadata(raw: string): { slug: string } | null {
   if (!raw) return null;
+  let parsed: unknown;
   try {
-    const parsed: unknown = JSON.parse(raw);
-    if (
-      typeof parsed === "object" &&
-      parsed !== null &&
-      typeof (parsed as { slug?: unknown }).slug === "string"
-    ) {
-      return { slug: (parsed as { slug: string }).slug };
-    }
+    parsed = JSON.parse(raw);
   } catch {
-    // not JSON
+    return null;
   }
-  return null;
+  const result = slugMetadataZod.safeParse(parsed);
+  return result.success ? result.data : null;
 }
 
 async function refreshHomeView(client: App["client"], userId: string): Promise<void> {
