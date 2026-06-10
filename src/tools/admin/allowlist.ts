@@ -1,4 +1,5 @@
 import { resolve, sep } from "node:path";
+import { z } from "zod";
 import {
   existsSync as _existsSync,
   readdirSync as _readdirSync,
@@ -6,11 +7,8 @@ import {
   writeFileSync as _writeFileSync,
   mkdirSync as _mkdirSync,
 } from "node:fs";
-import {
-  getDataDir as _getDataDir,
-  validateConfig as _validateConfig,
-  loadSlackAuth as _loadSlackAuth,
-} from "../../config.js";
+import { getDataDir as _getDataDir, loadSlackAuth as _loadSlackAuth } from "../../config.js";
+import { validateConfig as _validateConfig } from "../../configZod.js";
 
 // ---------------------------------------------------------------------------
 // Dependency injection
@@ -121,6 +119,15 @@ function validateConfigJson(content: string, deps: AllowlistDeps): ValidationRes
   }
 }
 
+const mcpJsonZod = z.object(
+  {
+    mcpServers: z.record(z.string(), z.unknown(), {
+      error: "mcp.json must contain an 'mcpServers' object",
+    }),
+  },
+  { error: "mcp.json must be a JSON object" },
+);
+
 function validateMcpJson(content: string): ValidationResult {
   let parsed: unknown;
   try {
@@ -129,15 +136,10 @@ function validateMcpJson(content: string): ValidationResult {
     return { valid: false, error: `Invalid JSON: ${e instanceof Error ? e.message : String(e)}` };
   }
 
-  if (!parsed || typeof parsed !== "object") {
-    return { valid: false, error: "mcp.json must be a JSON object" };
+  const result = mcpJsonZod.safeParse(parsed);
+  if (!result.success) {
+    return { valid: false, error: result.error.issues.map((i) => i.message).join("; ") };
   }
-
-  const obj = parsed as Record<string, unknown>;
-  if (!obj.mcpServers || typeof obj.mcpServers !== "object" || Array.isArray(obj.mcpServers)) {
-    return { valid: false, error: "mcp.json must contain an 'mcpServers' object" };
-  }
-
   return { valid: true };
 }
 

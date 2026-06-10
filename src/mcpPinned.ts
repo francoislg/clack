@@ -1,3 +1,4 @@
+import { z } from "zod";
 import type { McpServerConfig } from "@anthropic-ai/claude-agent-sdk";
 import { logger } from "./logger.js";
 
@@ -38,19 +39,32 @@ const warnedNpxLegacy = new Set<string>();
  * The caller (mcp.ts's `loadStaticMcpConfig`) collects all pinned results,
  * then calls `recordPinnedEntries` to populate the cache.
  */
+/** Schema for the pinned-install invariant: `package` and `version` are all-or-nothing. */
+function stdioEntrySchema(name: string) {
+  return z.object({ package: z.unknown(), version: z.unknown() }).superRefine((entry, ctx) => {
+    const hasPackage = typeof entry.package === "string" && entry.package.length > 0;
+    const hasVersion = typeof entry.version === "string" && entry.version.length > 0;
+    if (hasPackage !== hasVersion) {
+      ctx.addIssue({
+        code: "custom",
+        message: `MCP entry '${name}': '${hasPackage ? "package" : "version"}' is set but '${hasPackage ? "version" : "package"}' is missing. Both fields are required for pinned installs.`,
+      });
+    }
+  });
+}
+
 export function parseStdioEntry(
   name: string,
   stdio: StdioMcpEntry,
   substituteEnvVars: (env?: Record<string, string>) => Record<string, string> | undefined,
 ): StdioParseResult {
+  const parsed = stdioEntrySchema(name).safeParse(stdio);
+  if (!parsed.success) {
+    throw new Error(parsed.error.issues.map((i) => i.message).join("; "));
+  }
+
   const hasPackage = typeof stdio.package === "string" && stdio.package.length > 0;
   const hasVersion = typeof stdio.version === "string" && stdio.version.length > 0;
-
-  if (hasPackage !== hasVersion) {
-    throw new Error(
-      `MCP entry '${name}': '${hasPackage ? "package" : "version"}' is set but '${hasPackage ? "version" : "package"}' is missing. Both fields are required for pinned installs.`,
-    );
-  }
 
   if (hasPackage && hasVersion) {
     return {
