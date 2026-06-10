@@ -379,6 +379,7 @@ const STAGED_POOL_CHECK_AND_DISPATCH = `STAGED POOL CHECK (REQUIRED FIRST STEP):
 
 - \`format: null\` → SINGLE-QUESTION FLOW. The active season has no format. ONE question per fire.
 - \`format: { slotCount: N, slots: [...] }\` → MULTI-SLOT FLOW. The active season has a format with N slots.
+- \`format.flexible: true\` (on the multi-slot \`format\` above) → \`slotCount\` is a CEILING, not a mandate. Fill a PREFIX of the slots — see FLEXIBLE PREFIX at the end of this loop.
 
 PER-SLOT FILL LOOP (REQUIRED — applies to BOTH flows; for \`format: null\` treat as one slot at index 0):
 
@@ -396,7 +397,9 @@ PER-SLOT FILL LOOP (REQUIRED — applies to BOTH flows; for \`format: null\` tre
      5. SAVE BEFORE ADVANCING. The \`save_question\` call for slot \`i\` MUST complete before you call \`get_ideas\` (or do any other work) for slot \`i+1\`. Do NOT batch saves at the end of the loop, and do NOT carry multiple un-saved drafts forward — finish slot \`i\` (gen + save) as a unit, then start slot \`i+1\` fresh.
    - When a slot was already FILLED from the staged pool, no \`get_ideas\` call is needed for that slot — the staged record carries its own resolved values from when it was generated.
 
-Repeat until every slot index in \`[0..slotCount-1]\` is covered (either FILLED from the pool or freshly saved).`;
+Repeat until every slot index in \`[0..slotCount-1]\` is covered (either FILLED from the pool or freshly saved).
+
+FLEXIBLE PREFIX (ONLY when \`format.flexible: true\`): the loop fills a PREFIX, not every slot. Walk slot indices in order. A slot is SATISFIED when it is FILLED from the staged pool OR you freshly generate a question that PASSES the quality gates. At the FIRST slot that is neither — i.e. it is MISSING from the pool AND you cannot produce a question that passes the gates (no fresh/usable material for this slot) — STOP the loop immediately: do NOT force a weak question, and do NOT skip ahead to a later slot. The fire posts only the slots already SATISFIED below that index (indices \`0..i-1\`). If the FIRST uncovered slot (lowest missing index, normally slot 0) yields no usable question, save nothing — the fire posts ZERO questions and the day is skipped (post_questions is not called; terminate per the POST step's zero-question handling). A flexible fire therefore posts anywhere from 0 to \`slotCount\` questions.`;
 
 /**
  * The six per-slot generation paths (FACT × BOOLEAN/CHOICE/FREEFORM and TOPICAL × same).
@@ -652,6 +655,8 @@ General emoji rule (re-emphasized): the opener's header MUST use Unicode emoji (
 10. POST THE QUESTION(S):
     Build one \`{ questionId, blocks }\` item per saved question. In the SINGLE-QUESTION FLOW, that is exactly one item. In the MULTI-SLOT FLOW, the items array length equals \`slotCount\` and items MUST be in slot-index order (slot 0 first, slot 1 second, …).
 
+    FLEXIBLE FORMAT (\`format.flexible: true\`): the items array is the PREFIX of slots you actually SATISFIED — anywhere from 0 to \`slotCount\` items, still in slot-index order. If you saved ZERO questions (the flexible day was skipped — no usable material for even the first slot), do NOT call \`post_questions\` at all; go straight to END THE RUN below.
+
     Call \`post_questions({ game: "{game}", items })\` ONCE with the full array. The tool:
     - Posts each item as its own message to the game's configured Slack channel (you do NOT pass a channel).
     - Appends an \`actions\` block with answer buttons sized to the question's \`answersFormat\` (boolean → 2 buttons, choice → \`choices.length\` buttons, freeform → 1 \`Answer\` button that opens the modal). You do NOT pass a reactions or buttons argument — the tool builds the block from the stored question record.
@@ -691,6 +696,8 @@ Create today's trivia question(s). Begin with ONE call to \`get_ideas({ game: "{
   4. When saving, pass \`slot: { index: i }\` to \`save_question\`. Store the returned \`questionId\` paired with \`i\` for the post step.
   Repeat until all N slots have been generated and saved. Then build the question cards (one set of blocks per slot, in slot order) and call \`post_questions\` ONCE with an N-item \`items\` array.
 
+  FLEXIBLE FORMAT (\`format.flexible: true\`): treat \`N\` as a CEILING, not a mandate. Walk slots \`0..N-1\` in order; at the FIRST slot where you cannot generate a question that passes the quality gates (no fresh/usable material), STOP — do NOT force a weak question and do NOT skip ahead to a later slot. Post only the slots already saved (\`0..i-1\`). If even slot 0 yields nothing, save and post NOTHING — the day is skipped (see step 10's zero-question handling). A flexible fire posts 0 to N questions.
+
 ${CONTEXT_PRIORITY_PREAMBLE}
 
 ${PER_SLOT_GENERATION_PATHS}
@@ -723,7 +730,7 @@ ${PER_SLOT_GENERATION_PATHS}
 === END OF PREP RUN ===
 
 FINAL VALIDATION (REQUIRED):
-   After saving every MISSING slot identified above, re-call \`find_previous_questions({ games: ["{game}"], seasons: ["current"], posted: false, match: "all" })\` and confirm that every slot index in \`[0..slotCount-1]\` is now covered (either by the records that were already staged, or by the records you just saved). If any slot is still missing — for example because a \`save_question\` call failed mid-loop — log the gap mentally (you will not DM admins from this run) and continue to termination so the next prep fire or the question cron's inline-gen fallback can recover.
+   After saving every MISSING slot identified above, re-call \`find_previous_questions({ games: ["{game}"], seasons: ["current"], posted: false, match: "all" })\` and confirm that every slot index in \`[0..slotCount-1]\` is now covered (either by the records that were already staged, or by the records you just saved). If any slot is still missing — for example because a \`save_question\` call failed mid-loop — log the gap mentally (you will not DM admins from this run) and continue to termination so the next prep fire or the question cron's inline-gen fallback can recover. (When \`format.flexible: true\`, full coverage is NOT expected — the FLEXIBLE PREFIX may legitimately stop early or stage nothing; do not force-fill a slot that has no usable material.)
 
 END THE RUN:
    Call \`submit_response({ skip_response: true })\` to terminate. Do NOT call \`post_questions\` — it is not in your tool allowlist for this run, and the cron is channelless, so attempting to post would fail at the SDK boundary. The trivia question records you saved (with \`postedAt\` undefined) are the deliverable.`;

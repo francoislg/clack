@@ -22,6 +22,34 @@ function frResolver(key: string, vars?: Record<string, string | number>): string
   return out;
 }
 
+describe("flexible-format prefix wording", () => {
+  it("SEND instructs a flexible PREFIX with stop-early and zero-skip", () => {
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /flexible/i);
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /CEILING/);
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /STOP/);
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /post NOTHING|post 0|skipped/i);
+  });
+
+  it("SEND preserves the fixed fill-every-slot mandate", () => {
+    assert.match(
+      SEND_QUESTIONS_INSTRUCTIONS,
+      /Repeat until all N slots have been generated and saved/,
+    );
+  });
+
+  it("POST and PREP (staged-pool dispatch) carry the FLEXIBLE PREFIX clause", () => {
+    assert.match(POST_QUESTIONS_INSTRUCTIONS, /FLEXIBLE PREFIX/);
+    assert.match(PREP_QUESTIONS_INSTRUCTIONS, /FLEXIBLE PREFIX/);
+  });
+
+  it("POST step preserves the fixed every-slot loop", () => {
+    assert.match(
+      POST_QUESTIONS_INSTRUCTIONS,
+      /every slot index in `\[0\.\.slotCount-1\]` is covered/,
+    );
+  });
+});
+
 describe("SEND_QUESTIONS_INSTRUCTIONS (boolean path)", () => {
   it("is a non-empty prompt", () => {
     assert.equal(typeof SEND_QUESTIONS_INSTRUCTIONS, "string");

@@ -78,6 +78,81 @@ describe("get_ideas — format meta and slot routing", () => {
     assert.deepEqual(parsed.format.slots[1].categories, ["History"]);
   });
 
+  it("surfaces flexible: true when the active season format is flexible", async () => {
+    await seedSeason(data, {
+      format: { questions: [{}, {}], flexible: true },
+    });
+    const tool = createGetIdeasTool(data, () => SEASONS_ON_CONFIG, fixtureGetGames);
+    const parsed = parseToolResult(
+      await tool.handler({ game: FIXTURE_GAME_NAME, slot: 0 }, SESSION),
+    );
+    assert.equal(parsed.format.flexible, true);
+    assert.equal(parsed.format.slotCount, 2);
+  });
+
+  it("omits flexible for a fixed format (payload unchanged)", async () => {
+    await seedSeason(data, {
+      format: { questions: [{}, {}] },
+    });
+    const tool = createGetIdeasTool(data, () => SEASONS_ON_CONFIG, fixtureGetGames);
+    const parsed = parseToolResult(
+      await tool.handler({ game: FIXTURE_GAME_NAME, slot: 0 }, SESSION),
+    );
+    assert.equal(parsed.format.flexible, undefined);
+  });
+
+  it("surfaces flexible from a game format when no season format is active", async () => {
+    await seedSeason(data);
+    const gameWithFlexibleFormat = [
+      {
+        name: FIXTURE_GAME_NAME,
+        channel: "C100000000",
+        questionCron: "0 9 * * 1-5",
+        revealCron: "0 17 * * 1-5",
+        timezone: "UTC",
+        enabled: true,
+        format: { questions: [{}, {}, {}], flexible: true },
+      },
+    ];
+    const tool = createGetIdeasTool(
+      data,
+      () => SEASONS_ON_CONFIG,
+      () => gameWithFlexibleFormat,
+    );
+    const parsed = parseToolResult(
+      await tool.handler({ game: FIXTURE_GAME_NAME, slot: 0 }, SESSION),
+    );
+    assert.equal(parsed.format.flexible, true);
+    assert.equal(parsed.format.slotCount, 3);
+  });
+
+  it("masks a game's flexible flag when a fixed season format wins", async () => {
+    await seedSeason(data, {
+      format: { questions: [{}, {}] },
+    });
+    const gameWithFlexibleFormat = [
+      {
+        name: FIXTURE_GAME_NAME,
+        channel: "C100000000",
+        questionCron: "0 9 * * 1-5",
+        revealCron: "0 17 * * 1-5",
+        timezone: "UTC",
+        enabled: true,
+        format: { questions: [{}], flexible: true },
+      },
+    ];
+    const tool = createGetIdeasTool(
+      data,
+      () => SEASONS_ON_CONFIG,
+      () => gameWithFlexibleFormat,
+    );
+    const parsed = parseToolResult(
+      await tool.handler({ game: FIXTURE_GAME_NAME, slot: 0 }, SESSION),
+    );
+    assert.equal(parsed.format.slotCount, 2);
+    assert.equal(parsed.format.flexible, undefined);
+  });
+
   it("routes category pool through the slot's resolved categories", async () => {
     await seedSeason(data, {
       format: {

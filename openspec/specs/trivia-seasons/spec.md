@@ -942,7 +942,8 @@ format: {
     answersFormat?: Record<"boolean" | "choice", number>,
     questionType?: Record<"fact" | "topical", number>,
     contexts?: Array<{ name: string; weight?: number }>
-  }>
+  }>,
+  flexible?: boolean
 }
 ```
 
@@ -955,10 +956,13 @@ Invariants:
 5. Each slot's `questionType`, when present, MUST contain only the keys `"fact"` and `"topical"`, with the same positive-weight invariant.
 6. Each slot's `contexts`, when present, MUST be a non-empty array with the same name/weight invariants as the season-level `contexts`.
 7. All slot fields are optional individually; an entirely empty slot (`{}`) is permitted and means "use season defaults for everything".
+8. `format.flexible`, when present, MUST be a boolean. When absent it reads as `false`. The same field is accepted identically on a game-tier `format`.
 
-Resolution for a question-cron fire SHALL follow the cascade: `season.format → game.format → (single-question fallback)`. The first present tier wins as a whole. When neither the season nor the game provides a `format`, the cron fire SHALL post a single question rolled from the season's `categories`, `answersFormat`, `questionType`, and `contexts`.
+Resolution for a question-cron fire SHALL follow the cascade: `season.format → game.format → (single-question fallback)`. The first present tier wins as a whole (including its `flexible` value). When neither the season nor the game provides a `format`, the cron fire SHALL post a single question rolled from the season's `categories`, `answersFormat`, `questionType`, and `contexts`.
 
-When a season's `format` is present, each question-cron fire SHALL post `format.questions.length` questions (one per slot, in array order). The same applies when the game's `format` is present and the season's is absent — the game's slot count drives the fire's posted count.
+When the resolved `format` is NOT flexible (`flexible` absent or `false`), each question-cron fire SHALL post `format.questions.length` questions (one per slot, in array order). The same applies when the game's `format` is present and the season's is absent — the game's slot count drives the fire's posted count.
+
+When the resolved `format` has `flexible: true`, each question-cron fire SHALL post a PREFIX of the slots — between `0` and `format.questions.length` questions inclusive, filled in array order — with the count chosen during generation by available material. Posting fewer than `questions.length` (including zero, which skips the day) is valid. Slot definitions and `save_question` index validation (`[0, questions.length)`) are unchanged.
 
 #### Scenario: No season format and no game format behaves as pre-format
 
@@ -983,6 +987,29 @@ When a season's `format` is present, each question-cron fire SHALL post `format.
 - **GIVEN** the active season has no `format` field and game `main` has `format: { questions: [{}, {}] }` (2 slots)
 - **WHEN** the question cron fires for game `main`
 - **THEN** exactly two questions are posted
+
+#### Scenario: Flexible format posts a prefix when material is thin
+
+- **GIVEN** the active season has no `format` and game `main` has `format: { questions: [{}, {}, {}], flexible: true }`
+- **AND** usable material exists for slots 0 and 1 but not slot 2
+- **WHEN** the question cron fires for game `main`
+- **THEN** exactly two questions are posted (slots 0 and 1)
+
+#### Scenario: Flexible format posts zero and skips the day
+
+- **GIVEN** game `main` has `format: { questions: [{}], flexible: true }` and no usable material this fire
+- **WHEN** the question cron fires for game `main`
+- **THEN** zero questions are posted and the run terminates cleanly with no error
+
+#### Scenario: Flexible flag accepted on write
+
+- **WHEN** `upsert_season` is called with `format: { questions: [{}, {}], flexible: true }`
+- **THEN** the call succeeds and the stored season format carries `flexible: true`
+
+#### Scenario: Non-boolean flexible rejected on write
+
+- **WHEN** `upsert_season` is called with `format: { questions: [{}], flexible: "sometimes" }`
+- **THEN** the call is rejected with an error identifying `format.flexible` as needing a boolean
 
 #### Scenario: Slot can override questionType
 

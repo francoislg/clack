@@ -162,7 +162,7 @@ Image sources are **external, independently-installed plugins** (`commons-image-
 
 **Structural per-game overrides.** Beyond the four axes, three structural fields on `TriviaGame` cascade with the same season-wins-over-game ordering:
 
-- `format` (`SeasonFormat`) — per-game slot composition. Cascade: `season.format → game.format → single-question fallback`. When the active season has no `format` but the game does, the game's slots drive the per-fire question count.
+- `format` (`SeasonFormat`) — per-game slot composition. Cascade: `season.format → game.format → single-question fallback`. When the active season has no `format` but the game does, the game's slots drive the per-fire question count. The format carries an optional `flexible?: boolean` sub-field (NOT a `CascadeAxes` member — it resolves with the format it belongs to, whole-format replace per tier, so a season's format masks a game's `flexible`). When `flexible` is absent/`false` a fire posts exactly `questions.length` questions; when `true`, `slotCount` is a CEILING and a fire posts a PREFIX (`0..questions.length`, in order, count chosen by available material) — posting zero (skipping the day) is valid, and the reveal's existing empty-batch branch (`reveals.length === 0`) silently skips it. `get_ideas` surfaces `flexible: true` in its `format` payload; the generation prompt's per-slot loop stops at the first slot with no usable question.
 - `categories` (`string[]`) — per-game category pool. Cascade: `slot.categories → season.categories → game.categories → categories.json`.
 - `theme` (`string`) — per-game narrative label surfaced in openers/finales. Cascade: `season.theme → game.theme → (no theme)`.
 

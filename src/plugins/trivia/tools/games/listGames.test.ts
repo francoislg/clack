@@ -47,6 +47,23 @@ describe("list_games — per-game entries", () => {
     assert.equal(entry.theme, "Channel Lore Trivia");
   });
 
+  it("surfaces format.flexible inside the echoed format when set", async () => {
+    const games: readonly TriviaGame[] = [
+      {
+        name: "flex",
+        channel: "C300000000",
+        questionCron: "0 9 * * 1-5",
+        revealCron: "0 17 * * 1-5",
+        timezone: "UTC",
+        enabled: true,
+        format: { questions: [{}, {}, {}], flexible: true },
+      },
+    ];
+    const tool = createListGamesTool(() => games, emptyTriviaConfig);
+    const parsed = parseToolResult(await tool.handler({ includeDisabled: undefined }, SESSION));
+    assert.equal(parsed.games[0].format.flexible, true);
+  });
+
   it("omits per-game format / categories / theme when not set", async () => {
     const tool = createListGamesTool(fixtureGetGames, emptyTriviaConfig);
     const parsed = parseToolResult(await tool.handler({ includeDisabled: undefined }, SESSION));

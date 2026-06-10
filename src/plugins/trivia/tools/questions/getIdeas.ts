@@ -40,7 +40,7 @@ const BUCKET_TO_LABEL: Record<"easy" | "medium" | "hard", SuggestedDifficulty> =
 const DESCRIPTION = `Get 5 random trivia category suggestions (excluding recently used categories), plus server-rolled metadata the question-flow prompt must honor.
 
 Always returns:
-- \`format\`: \`{ slotCount, slots: [{ index, label?, categories }] }\` when the active season defines a \`format\` (multi-slot composition), else \`null\`. \`slots[i].categories\` is the slot's RESOLVED pool (slot.categories ?? season.categories).
+- \`format\`: \`{ slotCount, slots: [{ index, label?, categories }], flexible? }\` when the active season (or game) defines a \`format\` (multi-slot composition), else \`null\`. \`slots[i].categories\` is the slot's RESOLVED pool (slot.categories ?? season.categories). \`flexible: true\` (present only when the resolved format is flexible) means \`slotCount\` is a CEILING, not a mandate: fill slots in order and STOP at the first slot with no good question — posting fewer than \`slotCount\`, down to ZERO (skip the day), is valid.
 - \`slot\` (number): echoes the request's \`slot\` argument (default 0).
 - \`categories.ideas\`: 5 random categories drawn from the active source pool (slot's resolved pool when format is present, season's categories otherwise)
 - \`suggestedAnswersFormat\`: \`"boolean"\`, \`"choice"\`, or \`"freeform"\` — picked from active answersFormat weights (slot.answersFormat → season.answersFormat → config.trivia.answersFormat → boolean default). \`"freeform"\` means the user types their answer into a Slack modal; Claude writes the canonical answer and a small fast model judges submissions at reveal.
@@ -66,7 +66,7 @@ When suggestedAnswersFormat is \`"choice"\`, also returns:
 When suggestedAnswersFormat is \`"freeform"\`, also returns:
 - \`suggestedFreeformAnswerShape\`: one of \`"name" | "place" | "phrase" | "title" | "date" | "countable" | "other"\` — picked from active freeformAnswerShape weights (slot.freeformAnswerShape → season.freeformAnswerShape → config.trivia.freeformAnswerShape → uniform default). The question MUST be answered by a value of that shape; this exists to break Claude's strong default bias toward numeric answers. \`"other"\` is a wildcard where Claude reaches for an unconventional answer shape.
 
-Each call rolls suggestions independently — no caching across slot indices. When the active season has a \`format\`, loop slots 0..slotCount-1 with separate calls; do NOT pre-roll all slots up front.
+Each call rolls suggestions independently — no caching across slot indices. When the active season has a \`format\`, loop slots 0..slotCount-1 with separate calls; do NOT pre-roll all slots up front. When \`format.flexible\` is true, the loop is a PREFIX: stop at the first slot with no good question and post what you have (zero is valid — skip the day).
 
 The format / type / answer / index / context rolls are server-side to prevent Claude from biasing them.
 
@@ -180,6 +180,7 @@ export function createGetIdeasTool(
         effectiveFormat !== null
           ? {
               slotCount: effectiveFormat.questions.length,
+              ...(effectiveFormat.flexible === true ? { flexible: true } : {}),
               slots: effectiveFormat.questions.map((q, i) => ({
                 index: i,
                 ...(q.label !== undefined ? { label: q.label } : {}),
