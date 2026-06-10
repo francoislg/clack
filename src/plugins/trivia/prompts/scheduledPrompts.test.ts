@@ -245,9 +245,22 @@ describe("SEND_QUESTIONS_INSTRUCTIONS — topical paths", () => {
     assert.match(SEND_QUESTIONS_INSTRUCTIONS, /questionType: "fact"/);
   });
 
-  it("aims topical research at the last day or two with up-to-a-week fallback", () => {
-    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /last day or two/i);
-    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /up to a week/i);
+  it("prefers salient events over mere recency", () => {
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /SALIENCE BAR/);
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /Prefer SALIENCE over recency/i);
+  });
+
+  it("constrains topical FALSE boolean statements to substance swaps, never date/number", () => {
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /swap exactly ONE element of the event's SUBSTANCE/);
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /NEVER make it false by swapping a date or a number/);
+    assert.doesNotMatch(SEND_QUESTIONS_INSTRUCTIONS, /swap a date, a name, a place, or a number/);
+  });
+
+  it("falls back to the fact path for the same answersFormat when no salient event surfaces", () => {
+    assert.match(
+      SEND_QUESTIONS_INSTRUCTIONS,
+      /FALL BACK to the fact path for the same answersFormat/,
+    );
   });
 });
 
@@ -932,5 +945,59 @@ describe("SEND_QUESTIONS_INSTRUCTIONS — EMOJI SELECTION GATE", () => {
 
   it("leaves the visual paths' media.altText non-spoiler wording intact", () => {
     assert.match(SEND_QUESTIONS_INSTRUCTIONS, /not "the flag of Ecuador"/);
+  });
+});
+
+describe("PUZZLE QUALITY GATE", () => {
+  for (const [name, prompt] of [
+    ["SEND", SEND_QUESTIONS_INSTRUCTIONS],
+    ["PREP", PREP_QUESTIONS_INSTRUCTIONS],
+    ["POST", POST_QUESTIONS_INSTRUCTIONS],
+  ] as const) {
+    it(`${name}: defines the gate exactly once`, () => {
+      const defs = prompt.match(/PUZZLE QUALITY GATE \(shared across all paths/g);
+      assert.ok(defs !== null && defs.length === 1, "expected exactly one gate definition");
+    });
+
+    it(`${name}: is referenced before save by all six path bodies`, () => {
+      const refs = prompt.match(/apply the PUZZLE QUALITY GATE/g);
+      assert.ok(
+        refs !== null && refs.length >= 6,
+        "expected ≥6 references (text + visual boolean/choice/freeform)",
+      );
+    });
+  }
+
+  it("mandates explicit reasoning and prefers re-roll over shipping weak", () => {
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /REASON about the question as a puzzle/i);
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /don't just assert "pass/i);
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /re-rolling beats shipping a weak question/i);
+  });
+
+  it("absorbs the year/date principle with a worked example", () => {
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /SOLVABLE BY KNOWING, NOT GUESSING/);
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /Berlin Wall fell during the Reagan administration/);
+    // the year/date principle lives in the gate, not in standalone per-path blocks
+    assert.doesNotMatch(SEND_QUESTIONS_INSTRUCTIONS, /AVOID YEAR\/DATE ANCHORING/);
+    assert.doesNotMatch(SEND_QUESTIONS_INSTRUCTIONS, /AVOID YEAR\/DATE QUESTIONS/);
+  });
+
+  it("names the per-format surface-tell manifestations", () => {
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /NO SURFACE TELL/);
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /read equally plausible/i);
+  });
+
+  it("defers flavor-leak enforcement to the existing NO-SPOILER GATE (no duplicate prose)", () => {
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /FLAVOR NEVER LEAKS[\s\S]*?NO-SPOILER GATE/);
+  });
+});
+
+describe("difficulty is doubt, not obscurity (boolean)", () => {
+  it("boolean reframe dials plausibility, not obscurity", () => {
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /dial difficulty by PLAUSIBILITY, not obscurity/);
+    assert.match(
+      SEND_QUESTIONS_INSTRUCTIONS,
+      /Do NOT raise boolean difficulty by reaching for a more obscure fact/,
+    );
   });
 });
