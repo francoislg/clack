@@ -2,14 +2,10 @@ import { z } from "zod";
 import { tool } from "@anthropic-ai/claude-agent-sdk";
 import { CronExpressionParser } from "cron-parser";
 import { textResult, errorResult } from "../../../../tools/helpers.js";
-import {
-  loadTriviaConfig,
-  saveTriviaConfig,
-  defaultGetGames,
-  type GetGamesFn,
-} from "../../core/configBridge.js";
+import { loadTriviaConfig, defaultGetGames, type GetGamesFn } from "../../core/configBridge.js";
 import { validateSeasonSlug, findCurrentSeason } from "../../core/seasonTimeline.js";
 import { detectGameWriteShadowing, type WrittenField } from "../../domain/shadowing.js";
+import { persistGameWrite } from "../../domain/persistGame.js";
 import type { SeasonEntry, TriviaDataLayer } from "../../core/types.js";
 import type {
   JsonObject,
@@ -574,11 +570,7 @@ export function createUpsertGameTool(
 
       const currentConfig: TriviaConfig = loadTriviaConfig() ?? {};
       const nextConfig: TriviaConfig = { ...currentConfig, games };
-      await saveTriviaConfig(nextConfig);
-
-      if (initialSeasonEntry !== undefined && data !== undefined) {
-        await data.forGame(args.name).saveSeasonsState({ seasons: [initialSeasonEntry] });
-      }
+      await persistGameWrite(nextConfig, { gameName: args.name, data, initialSeasonEntry });
 
       const hasAxisOverrides = Object.keys(mergedAxes).length > 0;
       const hasStructuralOverrides = Object.keys(mergedStructural).length > 0;

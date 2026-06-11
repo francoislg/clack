@@ -2,7 +2,7 @@ import { describe, it } from "vitest";
 import assert from "node:assert/strict";
 import {
   createInMemoryDataLayer,
-  fakeSdkUsers,
+  createFakeSdk,
   FIXTURE_GAME_NAME,
   fixtureGetGames,
 } from "../../testHelpers.js";
@@ -22,46 +22,12 @@ function makeFakeSdk(opts: FakeSdkOptions = {}): {
 } {
   const dmOwnerCalls: string[] = [];
   const result = opts.dmOwnerResult ?? { ok: true as const };
-  const sdk: ClackSdk = {
-    logger: { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} },
-    capabilities: { crons: true },
-    error: () => {},
-    addInstruction: () => {},
-    addTopicInstruction: () => {},
-    registerTool: () => {},
-    mcpServer: { fullName: "test", registerTool: () => {}, addTopicInstruction: () => {} },
-    registerMcpServer: () => ({
-      fullName: "test",
-      registerTool: () => {},
-      addTopicInstruction: () => {},
-    }),
-    readFile: async () => null,
-    writeFile: async () => {},
-    watchFile: () => {
-      throw new Error("watchFile not used in saveCheating tests");
-    },
-    reconcileCronJobs: async () => {},
-    findOwnedCronJobs: async () => [],
+  const sdk = createFakeSdk({
     dmOwner: async (text: string) => {
       dmOwnerCalls.push(text);
       return result;
     },
-    getSlackClient: () => null,
-    sendMessage: async () => ({ ok: true as const, ts: "1", channel: "C" }),
-    engageThread: async () => {},
-    startThreadConversation: async () => {},
-    registerAction: () => {},
-    registerView: () => {},
-    actionId: (key: string) => `plugin:test:${key}`,
-    viewCallbackId: (key: string) => `plugin:test:${key}`,
-    askClaude: async () => {
-      throw new Error("askClaude not used in saveCheating tests");
-    },
-    requestSoftRestart: () => {},
-    registerDictionary: () => {},
-    t: (key: string) => key,
-    users: fakeSdkUsers(),
-  };
+  });
   return { sdk, dmOwnerCalls };
 }
 

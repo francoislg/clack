@@ -13,8 +13,6 @@ import type { ChatPostMessageArguments } from "@slack/web-api";
 import { CronExpressionParser } from "cron-parser";
 import { z } from "zod";
 import { loadRoles, type UserRole } from "../roles.js";
-import { listUserIdentities, getUserNamespace, mergeUserNamespace } from "../userRegistry.js";
-import { resolveUserIdentity } from "../slack/userCache.js";
 import { createUsersSurface } from "./sdkUsers.js";
 import type { RoleDir } from "../cascadingConfigResolver.js";
 import type { ToolEntryObject } from "../streaming/toolMappingLoader.js";
@@ -628,15 +626,6 @@ export interface ClackSdkDeps {
   deleteJob?: typeof deleteJob;
   clackQuery: typeof defaultClackQuery;
   /**
-   * Registry-backed user accessors powering `sdk.users`. Optional so tests that don't
-   * exercise the user surface can omit them; the factory falls back to the real
-   * registry/userCache implementations.
-   */
-  resolveUserIdentity?: typeof resolveUserIdentity;
-  listUserIdentities?: typeof listUserIdentities;
-  getUserNamespace?: typeof getUserNamespace;
-  mergeUserNamespace?: typeof mergeUserNamespace;
-  /**
    * Backs `sdk.startThreadConversation`. Bound at the `loadAndInstallPlugins` call
    * sites to a closure over core's `processMessage` (which isn't reachable at SDK
    * module-eval time without an import cycle). Absent → `startThreadConversation`
@@ -676,10 +665,6 @@ export const defaultClackSdkDeps: ClackSdkDeps = {
   updateJob,
   deleteJob,
   clackQuery: defaultClackQuery,
-  resolveUserIdentity,
-  listUserIdentities,
-  getUserNamespace,
-  mergeUserNamespace,
 };
 
 const WATCH_DEBOUNCE_MS = 500;

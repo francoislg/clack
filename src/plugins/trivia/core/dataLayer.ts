@@ -17,10 +17,35 @@ const triviaUserDataZod = z.object({
   cheatAttempts: z.number().optional(),
 });
 
-async function readSdkJson<T>(sdk: ClackSdk, path: string, fallback: T): Promise<T> {
+// Permissive shape gates for the persisted collections: each validates only the load-bearing
+// fields every real record carries, so a corrupt/wrong-shape file falls back to empty while
+// legacy/evolved records (extra fields) pass untouched — never wipe valid state (see CLAUDE.md).
+const categoriesSchema = z.array(z.string());
+const questionsSchema = z.array(z.object({ id: z.string() }));
+const answersSchema = z.array(z.object({ userId: z.string(), questionId: z.string() }));
+const cheatsSchema = z.array(z.object({ cheaterUserId: z.string(), questionId: z.string() }));
+
+async function readSdkJson<T>(
+  sdk: ClackSdk,
+  path: string,
+  fallback: T,
+  schema?: z.ZodTypeAny,
+): Promise<T> {
   const raw = await sdk.readFile(path);
   if (raw === null) return fallback;
-  const parsed: T = JSON.parse(raw);
+  let parsed: T;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (err) {
+    sdk.logger.warn(
+      `trivia: ${path} is not valid JSON; using fallback: ${err instanceof Error ? err.message : String(err)}`,
+    );
+    return fallback;
+  }
+  if (schema !== undefined && !schema.safeParse(parsed).success) {
+    sdk.logger.warn(`trivia: ${path} has an unexpected shape; using fallback`);
+    return fallback;
+  }
   return parsed;
 }
 
@@ -41,7 +66,7 @@ function endOfCurrentMonthUtc(now: Date): number {
 export function createSdkDataLayer(sdk: ClackSdk): TriviaDataLayer {
   // ── Global accessors ────────────────────────────────────────────────────────
   async function loadCategories(): Promise<string[]> {
-    return readSdkJson<string[]>(sdk, "categories.json", []);
+    return readSdkJson<string[]>(sdk, "categories.json", [], categoriesSchema);
   }
 
   async function saveCategories(categories: string[]): Promise<void> {
@@ -74,7 +99,7 @@ export function createSdkDataLayer(sdk: ClackSdk): TriviaDataLayer {
     const sPath = `games/${name}/seasons.json`;
 
     async function loadQuestions(): Promise<TriviaQuestion[]> {
-      return readSdkJson<TriviaQuestion[]>(sdk, qPath, []);
+      return readSdkJson<TriviaQuestion[]>(sdk, qPath, [], questionsSchema);
     }
 
     async function saveQuestion(q: TriviaQuestion): Promise<void> {
@@ -92,7 +117,7 @@ export function createSdkDataLayer(sdk: ClackSdk): TriviaDataLayer {
     }
 
     async function loadAnswers(): Promise<SubmittedAnswer[]> {
-      return readSdkJson<SubmittedAnswer[]>(sdk, aPath, []);
+      return readSdkJson<SubmittedAnswer[]>(sdk, aPath, [], answersSchema);
     }
 
     async function saveAnswer(a: SubmittedAnswer): Promise<void> {
@@ -119,7 +144,7 @@ export function createSdkDataLayer(sdk: ClackSdk): TriviaDataLayer {
     }
 
     async function loadCheats(): Promise<CheatReport[]> {
-      return readSdkJson<CheatReport[]>(sdk, cPath, []);
+      return readSdkJson<CheatReport[]>(sdk, cPath, [], cheatsSchema);
     }
 
     /**

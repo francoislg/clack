@@ -8,7 +8,7 @@ import {
   loadTriviaConfig,
 } from "../../core/configBridge.js";
 import { parseToolResult } from "../../../../tools/testHelpers.js";
-import { createInMemoryDataLayer, fakeSdkUsers } from "../../testHelpers.js";
+import { createInMemoryDataLayer, createFakeSdk } from "../../testHelpers.js";
 import type { ClackSdk } from "../../../sdk.js";
 import type { TriviaConfig, TriviaGame } from "../../core/configTypes.js";
 
@@ -19,19 +19,7 @@ interface FakeSdkState {
 }
 
 function makeFakeSdk(state: FakeSdkState): ClackSdk {
-  return {
-    logger: { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} },
-    capabilities: { crons: true },
-    error: () => {},
-    addInstruction: () => {},
-    addTopicInstruction: () => {},
-    registerTool: () => {},
-    mcpServer: { fullName: "test", registerTool: () => {}, addTopicInstruction: () => {} },
-    registerMcpServer: () => ({
-      fullName: "test",
-      registerTool: () => {},
-      addTopicInstruction: () => {},
-    }),
+  return createFakeSdk({
     readFile: async (path) => state.writes.get(path) ?? null,
     writeFile: async (path, content) => {
       state.writes.set(path, content);
@@ -39,27 +27,7 @@ function makeFakeSdk(state: FakeSdkState): ClackSdk {
     watchFile: () => {
       throw new Error("watchFile not used in upsert_game tests");
     },
-    reconcileCronJobs: async () => {},
-    findOwnedCronJobs: async () => [],
-    dmOwner: async () => ({ ok: true as const }),
-    getSlackClient: () => null,
-    sendMessage: async () => ({ ok: true as const, ts: "1", channel: "C" }),
-    engageThread: async () => {},
-    startThreadConversation: async () => {},
-    registerAction: () => {},
-    registerView: () => {},
-    actionId: (key: string) => `plugin:test:${key}`,
-    viewCallbackId: (key: string) => `plugin:test:${key}`,
-    askClaude: async () => ({
-      text: "",
-      stopReason: "end_turn",
-      usage: { inputTokens: 0, outputTokens: 0 },
-    }),
-    requestSoftRestart: () => {},
-    registerDictionary: () => {},
-    t: (key: string) => key,
-    users: fakeSdkUsers(),
-  };
+  });
 }
 
 function primeBridge(initial: TriviaConfig | null): FakeSdkState {
