@@ -8,8 +8,9 @@ import type {
   MarkdownBlock,
   TableBlock,
   RawTextElement,
+  CardBlock,
+  CarouselBlock,
 } from "@slack/types";
-import type { CardBlock, CarouselBlock } from "./customSlackTypes.js";
 
 // ============================================================================
 // Text object shapes (plain_text / mrkdwn)
@@ -136,11 +137,12 @@ export const tableBlockSchema = z.looseObject({
 // Card and Carousel blocks
 // ----------------------------------------------------------------------------
 // Slack's card / carousel block types — newer Block Kit additions for entity
-// summaries (PR cards, repo cards, etc). `@slack/types@2.20.0` does not yet
-// export these; types are hand-rolled in `customSlackTypes.ts` until upstream
-// catches up. v1 disallows the card-level `actions` field — interactive
-// buttons go through the top-level `actions: Action[]` field on
-// `submit_response`. See design.md for `add-card-and-carousel-blocks`.
+// summaries (PR cards, repo cards, etc). Clack's v1 disallows the card-level
+// `actions` field — interactive buttons go through the top-level
+// `actions: Action[]` field on `submit_response`. `@slack/types`'s `CardBlock`
+// permits `actions`, so the Zod schema below accepts it as a passthrough and
+// `validateCard` rejects it at validation time. See design.md for
+// `add-card-and-carousel-blocks`.
 
 const cardImageObjectSchema = z.looseObject({
   type: z.literal("image"),

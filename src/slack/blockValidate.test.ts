@@ -579,8 +579,6 @@ describe("validateBlocks — card", () => {
     const block: Block = {
       type: "card",
       title: { type: "mrkdwn", text: "ok" },
-      // @ts-expect-error — `actions` isn't part of CardBlock; we simulate a
-      // looseObject pass-through to verify the validator catches it.
       actions: [{ type: "button", text: { type: "plain_text", text: "Go" }, action_id: "x" }],
     };
     const error = validateBlocks([block]).find((e) => e.field === "blocks[0].actions");
