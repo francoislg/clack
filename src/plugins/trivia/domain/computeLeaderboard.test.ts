@@ -15,7 +15,7 @@ function makeAnswer(
 }
 
 function makeUser(userId: string, displayName: string): [string, TriviaUser] {
-  return [userId, { userId, displayName, joinedAt: 0 }];
+  return [userId, { userId, displayName }];
 }
 
 describe("computeLeaderboard", () => {
@@ -104,7 +104,7 @@ describe("computeLeaderboard", () => {
     const answers: SubmittedAnswer[] = [];
     for (let i = 0; i < 15; i++) {
       const uid = `U${i}`;
-      users.set(uid, { userId: uid, displayName: `User${i}`, joinedAt: 0 });
+      users.set(uid, { userId: uid, displayName: `User${i}` });
       // Each user has (i+1) correct answers to ensure unique ordering.
       for (let j = 0; j <= i; j++) {
         answers.push(makeAnswer({ userId: uid, correct: true }));

@@ -500,7 +500,6 @@ export const freeformAnswerHandler: AnswerTypeHandler = {
       }
 
       const userId = body.user.id;
-      const displayName = body.user.name ?? userId;
       const existing = (await scoped.loadAnswers()).find(
         (a) => a.userId === userId && a.questionId === meta.questionId,
       );
@@ -518,10 +517,8 @@ export const freeformAnswerHandler: AnswerTypeHandler = {
           timestamp: Date.now(),
           ...(question.season !== undefined ? { season: question.season } : {}),
         });
-        const users = await data.loadUsers();
-        if (!users.has(userId)) {
-          await data.saveUser({ userId, displayName, joinedAt: Date.now() });
-        }
+        await data.recordJoin(userId);
+        await data.refreshIdentities([userId]);
       }
 
       await ack();

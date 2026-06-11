@@ -785,7 +785,9 @@ describe("compute_answers —orchestrator", () => {
 
   describe("display-name refresh", () => {
     it("propagates a refreshed Slack display name into the leaderboard", async () => {
-      const data = createInMemoryDataLayer();
+      const data = createInMemoryDataLayer({
+        resolveIdentity: (userId) => (userId === "U1" ? "NewName" : undefined),
+      });
       const scoped = data.forGame(FIXTURE_GAME_NAME);
       await scoped.saveQuestion(
         makeQuestion({ id: "q1", batchId: "B", postedAt: 1_000, revealResponses: "yes" }),

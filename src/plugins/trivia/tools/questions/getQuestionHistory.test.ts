@@ -1,14 +1,18 @@
 import { describe, it, beforeEach } from "vitest";
 import assert from "node:assert/strict";
-import { createInMemoryDataLayer, FIXTURE_GAME_NAME, fixtureGetGames } from "../../testHelpers.js";
+import {
+  createInMemoryDataLayer,
+  FIXTURE_GAME_NAME,
+  fixtureGetGames,
+  type InMemoryDataLayer,
+} from "../../testHelpers.js";
 import { createGetQuestionHistoryTool } from "./getQuestionHistory.js";
 import { parseToolResult } from "../../../../tools/testHelpers.js";
-import type { TriviaDataLayer } from "../../core/types.js";
 
 const SESSION = { sessionId: "test" };
 
 describe("get_question_history", () => {
-  let data: TriviaDataLayer;
+  let data: InMemoryDataLayer;
 
   beforeEach(async () => {
     data = createInMemoryDataLayer();
@@ -250,7 +254,7 @@ describe("get_question_history", () => {
 });
 
 describe("get_question_history — choice questions", () => {
-  let data: TriviaDataLayer;
+  let data: InMemoryDataLayer;
 
   beforeEach(async () => {
     data = createInMemoryDataLayer();

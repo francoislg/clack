@@ -1,6 +1,11 @@
 import { describe, it } from "vitest";
 import assert from "node:assert/strict";
-import { createInMemoryDataLayer, FIXTURE_GAME_NAME, fixtureGetGames } from "../../testHelpers.js";
+import {
+  createInMemoryDataLayer,
+  fakeSdkUsers,
+  FIXTURE_GAME_NAME,
+  fixtureGetGames,
+} from "../../testHelpers.js";
 import { createSaveCheatingTool } from "./saveCheating.js";
 import { parseToolResult } from "../../../../tools/testHelpers.js";
 import type { ClackSdk } from "../../../sdk.js";
@@ -55,6 +60,7 @@ function makeFakeSdk(opts: FakeSdkOptions = {}): {
     requestSoftRestart: () => {},
     registerDictionary: () => {},
     t: (key: string) => key,
+    users: fakeSdkUsers(),
   };
   return { sdk, dmOwnerCalls };
 }
@@ -81,8 +87,8 @@ describe("save_cheating tool", () => {
     assert.equal(body.totalAttempts, 1);
     assert.equal(body.ownerNotified, true);
 
-    const users = await data.loadUsers();
-    assert.equal(users.get("U123")?.cheatAttempts, 1);
+    const userData = await data.getUserData("U123");
+    assert.equal(userData?.cheatAttempts, 1);
 
     const cheats = await data.forGame(FIXTURE_GAME_NAME).loadCheats();
     assert.equal(cheats.length, 1);
@@ -153,8 +159,8 @@ describe("save_cheating tool", () => {
     const body = parseToolResult(result);
     assert.equal(body.totalAttempts, 2);
 
-    const users = await data.loadUsers();
-    assert.equal(users.get("U123")?.cheatAttempts, 2);
+    const userData = await data.getUserData("U123");
+    assert.equal(userData?.cheatAttempts, 2);
 
     const cheats = await data.forGame(FIXTURE_GAME_NAME).loadCheats();
     assert.equal(cheats.length, 2);
@@ -252,7 +258,8 @@ describe("save_cheating tool", () => {
     const users = await data.loadUsers();
     const u = users.get("U99");
     assert.equal(u?.displayName, "Alice");
-    assert.equal(u?.joinedAt, 1_700_000_000_000);
-    assert.equal(u?.cheatAttempts, 1);
+    const uData = await data.getUserData("U99");
+    assert.equal(uData?.joinedAt, 1_700_000_000_000);
+    assert.equal(uData?.cheatAttempts, 1);
   });
 });

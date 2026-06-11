@@ -11,7 +11,11 @@ import type { App } from "@slack/bolt";
 import type { KnownBlock } from "@slack/types";
 import type { ChatPostMessageArguments } from "@slack/web-api";
 import { CronExpressionParser } from "cron-parser";
+import { z } from "zod";
 import { loadRoles, type UserRole } from "../roles.js";
+import { listUserIdentities, getUserNamespace, mergeUserNamespace } from "../userRegistry.js";
+import { resolveUserIdentity } from "../slack/userCache.js";
+import { createUsersSurface } from "./sdkUsers.js";
 import type { RoleDir } from "../cascadingConfigResolver.js";
 import type { ToolEntryObject } from "../streaming/toolMappingLoader.js";
 import { openDmChannel, isChannelId } from "../slack/channelResolver.js";
@@ -265,6 +269,35 @@ export interface ClackSdkCapabilities {
   crons: boolean;
 }
 
+/** Plugin-facing user identity — core fields only; never carries `lastFetched` or namespaces. */
+export interface ClackUser {
+  userId: string;
+  displayName: string;
+}
+
+/**
+ * Read/merge access to the calling plugin's own per-user namespace, validated by the
+ * plugin-supplied zod schema. Auto-scoped to the plugin (same convention as `readFile`).
+ *
+ * The namespace is persisted as JSON, so `T` MUST be JSON-serializable — use plain
+ * primitives/arrays/objects in the schema, not `z.date()`, `z.map()`, `z.set()`, etc.
+ */
+export interface ClackSdkUserData<T> {
+  get(userId: string): Promise<T | null>;
+  merge(userId: string, partial: Partial<T>): Promise<void>;
+}
+
+/**
+ * Centralized user registry surface. `get`/`list` expose core identity (population,
+ * persistence, and freshness are handled invisibly by core); `data(schema)` reaches the
+ * plugin's own namespace bag.
+ */
+export interface ClackSdkUsers {
+  get(userId: string): Promise<ClackUser | null>;
+  list(): Promise<ClackUser[]>;
+  data<T>(schema: z.ZodType<T>): ClackSdkUserData<T>;
+}
+
 export interface ClackSdk {
   /**
    * Plugin-scoped logger. Prefixes every line with `[<pluginName>]` for filterability.
@@ -400,6 +433,12 @@ export interface ClackSdk {
    * inside their tool handler — never close over the result at module top-level.
    */
   getSlackClient(): App["client"] | null;
+  /**
+   * Centralized user registry. `get`/`list` return core identity sourced from the shared
+   * registry (the plugin never fetches or caches display names itself); `data(schema)` reads
+   * and merges the plugin's own per-user namespace. See {@link ClackSdkUsers}.
+   */
+  users: ClackSdkUsers;
   /**
    * Register a Slack action handler scoped to this plugin. The `key` is the
    * suffix the plugin owns; the SDK prefixes it as `plugin:<pluginName>:<key>`
@@ -589,6 +628,15 @@ export interface ClackSdkDeps {
   deleteJob?: typeof deleteJob;
   clackQuery: typeof defaultClackQuery;
   /**
+   * Registry-backed user accessors powering `sdk.users`. Optional so tests that don't
+   * exercise the user surface can omit them; the factory falls back to the real
+   * registry/userCache implementations.
+   */
+  resolveUserIdentity?: typeof resolveUserIdentity;
+  listUserIdentities?: typeof listUserIdentities;
+  getUserNamespace?: typeof getUserNamespace;
+  mergeUserNamespace?: typeof mergeUserNamespace;
+  /**
    * Backs `sdk.startThreadConversation`. Bound at the `loadAndInstallPlugins` call
    * sites to a closure over core's `processMessage` (which isn't reachable at SDK
    * module-eval time without an import cycle). Absent → `startThreadConversation`
@@ -628,6 +676,10 @@ export const defaultClackSdkDeps: ClackSdkDeps = {
   updateJob,
   deleteJob,
   clackQuery: defaultClackQuery,
+  resolveUserIdentity,
+  listUserIdentities,
+  getUserNamespace,
+  mergeUserNamespace,
 };
 
 const WATCH_DEBOUNCE_MS = 500;
@@ -1015,6 +1067,8 @@ export function createClackSdk(
     getSlackClient(): App["client"] | null {
       return deps.getSlackClient();
     },
+
+    users: createUsersSurface(deps, pluginName, (message) => logger.warn(message)),
 
     registerAction(key: string | RegExp, handler: PluginActionHandler): void {
       const fullKey = buildFullKey(key);

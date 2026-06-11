@@ -1,6 +1,6 @@
 import { describe, it, beforeEach } from "vitest";
 import assert from "node:assert/strict";
-import { createInMemoryDataLayer } from "../testHelpers.js";
+import { createInMemoryDataLayer, type InMemoryDataLayer } from "../testHelpers.js";
 import { createGetIdeasTool } from "./questions/getIdeas.js";
 import { createSaveQuestionTool } from "./questions/saveQuestion.js";
 import { createExplainCascadeTool } from "./games/explainCascade.js";
@@ -8,7 +8,6 @@ import { createComputeAnswersTool, type RevealSlackDeps } from "./reveal/compute
 import { parseToolResult } from "../../../tools/testHelpers.js";
 import type { ClackSdk } from "../../sdk.js";
 import type { TriviaConfig, TriviaGame } from "../core/configTypes.js";
-import type { TriviaDataLayer } from "../core/types.js";
 
 const SESSION = { sessionId: "test" };
 
@@ -104,7 +103,7 @@ function makeSaveArgs(overrides: Partial<SaveArgs>): SaveArgs {
 }
 
 describe("cascade parity — explain_cascade ≡ get_ideas ≡ save_question (game format, no season)", () => {
-  let data: TriviaDataLayer;
+  let data: InMemoryDataLayer;
 
   beforeEach(async () => {
     data = createInMemoryDataLayer();
@@ -186,7 +185,7 @@ describe("cascade parity — explain_cascade ≡ get_ideas ≡ save_question (ga
       revealResponses: "yes",
       slot: { index: 0 },
     });
-    await data.saveUser({ userId: "U1", displayName: "Alice", joinedAt: 0 });
+    await data.saveUser({ userId: "U1", displayName: "Alice", joinedAt: 0 }); // seeding userData namespace
     await scoped.saveAnswer({
       userId: "U1",
       questionId: "q1",

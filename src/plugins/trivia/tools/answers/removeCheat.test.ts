@@ -29,7 +29,7 @@ describe("remove_cheat tool", () => {
     const cheats = await scoped.loadCheats();
     assert.equal(cheats.length, 1);
     assert.equal(cheats[0].questionId, "q2", "the unrelated report is preserved");
-    assert.equal((await data.loadUsers()).get("U1")?.cheatAttempts, 1);
+    assert.equal((await data.getUserData("U1"))?.cheatAttempts, 1);
   });
 
   it("removes every matching report and drops the counter by that count", async () => {
@@ -83,7 +83,7 @@ describe("remove_cheat tool", () => {
     assert.equal(body.removed, 0);
     assert.match(body.message, /No cheat report/);
     assert.equal((await scoped.loadCheats()).length, 1, "report untouched");
-    assert.equal((await data.loadUsers()).get("U1")?.cheatAttempts, 1, "counter untouched");
+    assert.equal((await data.getUserData("U1"))?.cheatAttempts, 1, "counter untouched");
   });
 
   it("points at the reprocess-refresh flow when the question was already revealed", async () => {

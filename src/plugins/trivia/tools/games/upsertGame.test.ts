@@ -8,7 +8,7 @@ import {
   loadTriviaConfig,
 } from "../../core/configBridge.js";
 import { parseToolResult } from "../../../../tools/testHelpers.js";
-import { createInMemoryDataLayer } from "../../testHelpers.js";
+import { createInMemoryDataLayer, fakeSdkUsers } from "../../testHelpers.js";
 import type { ClackSdk } from "../../../sdk.js";
 import type { TriviaConfig, TriviaGame } from "../../core/configTypes.js";
 
@@ -58,6 +58,7 @@ function makeFakeSdk(state: FakeSdkState): ClackSdk {
     requestSoftRestart: () => {},
     registerDictionary: () => {},
     t: (key: string) => key,
+    users: fakeSdkUsers(),
   };
 }
 

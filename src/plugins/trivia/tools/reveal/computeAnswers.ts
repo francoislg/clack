@@ -25,7 +25,6 @@ import {
   fetchUserDisplayName as fetchUserDisplayNameViaSlackClient,
 } from "./slack.js";
 import { pickSeasonMvp } from "./rollover.js";
-import { refreshUserDisplayNames } from "./refreshDisplayNames.js";
 import { computeRoundSummary, type RoundAnswer } from "./roundSummary.js";
 import { isScoredAnswer } from "../../answerTypes/cheaterFilter.js";
 import type { ClackSdk } from "../../../sdk.js";
@@ -236,19 +235,12 @@ export function createComputeAnswersTool(
       const botUserId = await resolveBotUserId(slackDeps, "compute_answers");
 
       // ── Process each target ─────────────────────────────────────────────
-      const users = await data.loadUsers();
-
-      // Refresh display names against live Slack profiles BEFORE the per-handler
-      // loop so both the voter lists rendered inside `processReveal` and the
-      // leaderboard built below see the same fresh labels.
+      // Warm answerer identities through the registry BEFORE loading the lookup so both the
+      // voter lists rendered inside `processReveal` and the leaderboard built below see the
+      // same fresh labels. The registry handles TTL-gated refresh and fetch failures.
       const answersForRefresh = await scoped.loadAnswers();
-      await refreshUserDisplayNames({
-        userIds: new Set(answersForRefresh.map((a) => a.userId)),
-        users,
-        data,
-        fetchDisplayName: (userId) => slackDeps.fetchUserDisplayName(userId),
-        logger,
-      });
+      await data.refreshIdentities(answersForRefresh.map((a) => a.userId));
+      const users = await data.loadUsers();
 
       const gameEntry = getGamesFn().find((g) => g.name === args.game) ?? null;
       const triviaConfig = getTriviaConfigFn();

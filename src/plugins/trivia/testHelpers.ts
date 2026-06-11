@@ -1,13 +1,51 @@
+import type { ClackSdkUsers } from "../sdk.js";
 import type { TriviaGame } from "./core/configTypes.js";
 import type {
   TriviaQuestion,
   TriviaUser,
+  TriviaUserData,
   SubmittedAnswer,
   CheatReport,
   SeasonsState,
   TriviaDataLayer,
   ScopedTriviaDataLayer,
 } from "./core/types.js";
+
+/**
+ * In-memory data layer with test-only seeding seams. Production identity is owned by the
+ * central registry (`sdk.users`); tests seed it directly via `saveUser`/`saveUsers`.
+ */
+export type InMemoryDataLayer = TriviaDataLayer & {
+  saveUser(u: TriviaUser & TriviaUserData): Promise<void>;
+  saveUsers(users: readonly (TriviaUser & TriviaUserData)[]): Promise<void>;
+  /** Read trivia's namespace slice for a user — the in-memory stand-in for `sdk.users.data`. */
+  getUserData(userId: string): Promise<TriviaUserData | null>;
+};
+
+/**
+ * Stub for `sdk.users` in tests that build a fake `ClackSdk` but don't exercise the registry.
+ * `get`/`list` resolve from the optional `identities` seed; `data(schema)` is an inert
+ * get→null / merge→no-op pair.
+ */
+export function fakeSdkUsers(identities: Record<string, string> = {}): ClackSdkUsers {
+  return {
+    async get(userId) {
+      const displayName = identities[userId];
+      return displayName === undefined ? null : { userId, displayName };
+    },
+    async list() {
+      return Object.entries(identities).map(([userId, displayName]) => ({ userId, displayName }));
+    },
+    data() {
+      return {
+        async get() {
+          return null;
+        },
+        async merge() {},
+      };
+    },
+  };
+}
 import { findCurrentSeason } from "./core/seasonTimeline.js";
 
 /** Conventional fixture name used throughout the trivia test suite. */
@@ -86,10 +124,29 @@ interface GameCell {
  *   which tests typically don't load); seed `seasonsState` explicitly via
  *   `forGame(name).saveSeasonsState(state)` when needed.
  */
-export function createInMemoryDataLayer(): TriviaDataLayer {
+/**
+ * @param opts.resolveIdentity Stands in for the registry's Slack-backed refresh: when
+ *   `refreshIdentities` runs, each id is passed through this and any returned name updates the
+ *   identity map. Omit for tests that don't exercise refresh (refreshIdentities is then a no-op).
+ */
+export function createInMemoryDataLayer(opts?: {
+  resolveIdentity?: (userId: string) => string | undefined;
+}): InMemoryDataLayer {
   let categories: string[] = [];
-  const users = new Map<string, TriviaUser>();
+  const identities = new Map<string, TriviaUser>();
+  const userData = new Map<string, TriviaUserData>();
   const gameCells = new Map<string, GameCell>();
+
+  function seedUser(u: TriviaUser & TriviaUserData): void {
+    identities.set(u.userId, { userId: u.userId, displayName: u.displayName });
+    const namespace: TriviaUserData = {
+      ...(u.joinedAt !== undefined ? { joinedAt: u.joinedAt } : {}),
+      ...(u.cheatAttempts !== undefined ? { cheatAttempts: u.cheatAttempts } : {}),
+    };
+    if (Object.keys(namespace).length > 0) {
+      userData.set(u.userId, { ...userData.get(u.userId), ...namespace });
+    }
+  }
 
   function cellFor(name: string): GameCell {
     let cell = gameCells.get(name);
@@ -132,17 +189,10 @@ export function createInMemoryDataLayer(): TriviaDataLayer {
       },
       async saveCheat(report) {
         cell.cheats.push(report);
-        const existing = users.get(report.cheaterUserId);
-        const next: TriviaUser = existing
-          ? { ...existing, cheatAttempts: (existing.cheatAttempts ?? 0) + 1 }
-          : {
-              userId: report.cheaterUserId,
-              displayName: report.cheaterUserId,
-              joinedAt: Date.now(),
-              cheatAttempts: 1,
-            };
-        users.set(report.cheaterUserId, next);
-        return { totalAttempts: next.cheatAttempts ?? 1 };
+        const existing = userData.get(report.cheaterUserId);
+        const totalAttempts = (existing?.cheatAttempts ?? 0) + 1;
+        userData.set(report.cheaterUserId, { ...existing, cheatAttempts: totalAttempts });
+        return { totalAttempts };
       },
       async removeCheat(cheaterUserId, questionId) {
         const before = cell.cheats.length;
@@ -150,15 +200,13 @@ export function createInMemoryDataLayer(): TriviaDataLayer {
           (c) => !(c.cheaterUserId === cheaterUserId && c.questionId === questionId),
         );
         const removedCount = before - cell.cheats.length;
-        const existing = users.get(cheaterUserId);
+        const existing = userData.get(cheaterUserId);
         if (removedCount === 0) {
           return { removedCount: 0, totalAttempts: existing?.cheatAttempts ?? 0 };
         }
-        const nextCount = Math.max(0, (existing?.cheatAttempts ?? 0) - removedCount);
-        if (existing) {
-          users.set(cheaterUserId, { ...existing, cheatAttempts: nextCount });
-        }
-        return { removedCount, totalAttempts: nextCount };
+        const totalAttempts = Math.max(0, (existing?.cheatAttempts ?? 0) - removedCount);
+        userData.set(cheaterUserId, { ...existing, cheatAttempts: totalAttempts });
+        return { removedCount, totalAttempts };
       },
       async loadSeasonsState() {
         return cell.seasonsState === null ? null : structuredClone(cell.seasonsState);
@@ -180,13 +228,28 @@ export function createInMemoryDataLayer(): TriviaDataLayer {
       categories = [...c];
     },
     async loadUsers() {
-      return new Map(users);
+      return new Map(identities);
+    },
+    async refreshIdentities(userIds) {
+      if (opts?.resolveIdentity === undefined) return;
+      for (const userId of userIds) {
+        const displayName = opts.resolveIdentity(userId);
+        if (displayName !== undefined) identities.set(userId, { userId, displayName });
+      }
+    },
+    async recordJoin(userId) {
+      const existing = userData.get(userId);
+      if (existing?.joinedAt !== undefined) return;
+      userData.set(userId, { ...existing, joinedAt: Date.now() });
     },
     async saveUser(u) {
-      users.set(u.userId, u);
+      seedUser(u);
     },
     async saveUsers(updates) {
-      for (const u of updates) users.set(u.userId, u);
+      for (const u of updates) seedUser(u);
+    },
+    async getUserData(userId) {
+      return userData.get(userId) ?? null;
     },
     forGame,
   };

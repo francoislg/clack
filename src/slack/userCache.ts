@@ -1,5 +1,6 @@
 import type { App } from "@slack/bolt";
 import { logger } from "../logger.js";
+import { getUserRecord, upsertIdentity, type UserIdentity } from "../userRegistry.js";
 
 export interface UserInfo {
   userId: string;
@@ -10,6 +11,14 @@ export interface UserInfo {
 }
 
 const userCache = new Map<string, UserInfo>();
+
+// How long a persisted display name is considered fresh before `resolveUserIdentity`
+// re-fetches it from Slack. Lives here (not in config) — refresh logic owns the knob.
+const DISPLAY_NAME_TTL_MS = 6 * 60 * 60 * 1000;
+
+// Dedupes concurrent stale refreshes so two simultaneous resolves of the same user trigger
+// at most one Slack call.
+const inFlightFetches = new Map<string, Promise<UserInfo | undefined>>();
 
 // Slack platform errors that mean "this ID cannot be resolved by this bot" — an
 // expected outcome (deactivated users, external Slack Connect users, cross-workspace
@@ -47,7 +56,19 @@ export async function getUserInfo(
     return fallback;
   }
 
-  // Bot IDs start with "B" — use bots.info instead of users.info
+  return fetchUserInfo(client, userId);
+}
+
+// The display name to persist into the registry — Slack profile name, else username, else
+// the raw id so a record never carries an empty identity once a fetch has succeeded.
+function registryDisplayName(info: UserInfo): string {
+  return info.displayName ?? info.username ?? info.userId;
+}
+
+// Always hits Slack (no in-memory short-circuit), caches the result, and write-throughs the
+// resolved identity into the central registry. This is the single core resolution primitive.
+async function fetchUserInfo(client: App["client"], userId: string): Promise<UserInfo | undefined> {
+  // Bot IDs start with "B" — use bots.info instead of users.info (bots are not registry users)
   if (userId.startsWith("B")) {
     return getBotInfo(client, userId);
   }
@@ -68,8 +89,8 @@ export async function getUserInfo(
       tz: result.user.tz ?? undefined,
     };
 
-    // Cache the result
     userCache.set(userId, userInfo);
+    await upsertIdentity(userId, registryDisplayName(userInfo), Date.now());
     logger.debug(`Cached user info for ${userId}: ${userInfo.displayName || userInfo.username}`);
 
     return userInfo;
@@ -81,6 +102,43 @@ export async function getUserInfo(
     logger.error(`Error fetching user info for ${userId}:`, error);
     return undefined;
   }
+}
+
+function coalescedFetch(client: App["client"], userId: string): Promise<UserInfo | undefined> {
+  const existing = inFlightFetches.get(userId);
+  if (existing) {
+    return existing;
+  }
+  const pending = fetchUserInfo(client, userId).finally(() => inFlightFetches.delete(userId));
+  inFlightFetches.set(userId, pending);
+  return pending;
+}
+
+/**
+ * Registry-backed identity resolution with TTL-gated lazy refresh. Returns the persisted
+ * identity when fresh; otherwise refreshes from Slack (coalescing concurrent calls), stamps
+ * `lastFetched`, and persists. On a missing Slack client or a failed fetch, falls back to the
+ * stale persisted record (or `null` when the user is wholly unknown) — never throws.
+ */
+export async function resolveUserIdentity(
+  client: App["client"] | null,
+  userId: string,
+): Promise<UserIdentity | null> {
+  const record = await getUserRecord(userId);
+  const isFresh = record !== null && Date.now() - record.lastFetched <= DISPLAY_NAME_TTL_MS;
+  if (record && isFresh) {
+    return { userId, displayName: record.displayName };
+  }
+
+  if (!client) {
+    return record ? { userId, displayName: record.displayName } : null;
+  }
+
+  const info = await coalescedFetch(client, userId);
+  if (info) {
+    return { userId, displayName: registryDisplayName(info) };
+  }
+  return record ? { userId, displayName: record.displayName } : null;
 }
 
 async function getBotInfo(client: App["client"], botId: string): Promise<UserInfo | undefined> {
@@ -141,6 +199,7 @@ export async function resolveUsers(
  */
 export function clearUserCache(): void {
   userCache.clear();
+  inFlightFetches.clear();
 }
 
 /**
