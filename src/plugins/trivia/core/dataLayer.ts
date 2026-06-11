@@ -123,12 +123,15 @@ export function createSdkDataLayer(sdk: ClackSdk): TriviaDataLayer {
     }
 
     /**
-     * Lazy season-bootstrap: when seasons is enabled and this game's seasons.json
+     * Fallback season-bootstrap: when seasons is enabled and this game's seasons.json
      * is missing, seed a starter season (slug `season-YYYY-MM`) before returning.
-     * Subsequent calls find the file and skip the seed. The starter entry has no
-     * `categories` field — it inherits from the cascade (game's `categories` if
-     * set, else the global `categories.json`). See `resolveActiveCategories` in
-     * `../domain/categories.ts`.
+     * The primary path is `upsert_game`'s required `initialSeason`, which writes the
+     * file at creation; this fallback covers games that acquire a seasons.json by
+     * another route (hand-edited `config.json`, pre-existing games), so no consumer
+     * ever sees a seasons-enabled game with a null current season. Subsequent calls
+     * find the file and skip the seed. The starter entry has no `categories` field —
+     * it inherits from the cascade (game's `categories` if set, else the global
+     * `categories.json`). See `resolveActiveCategories` in `../domain/categories.ts`.
      */
     async function loadSeasonsState(): Promise<SeasonsState | null> {
       const raw = await sdk.readFile(sPath);

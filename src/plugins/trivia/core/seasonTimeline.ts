@@ -1,5 +1,20 @@
 import type { SeasonsState, SeasonEntry } from "./types.js";
 
+// Non-empty kebab-case.
+const SEASON_SLUG_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+
+// Shared so every tool that accepts a season slug enforces the same rule AND surfaces the same message.
+export function validateSeasonSlug(
+  slug: string,
+  label = "slug",
+): { ok: true } | { ok: false; error: string } {
+  if (SEASON_SLUG_RE.test(slug)) return { ok: true };
+  return {
+    ok: false,
+    error: `Invalid ${label} "${slug}": must be non-empty kebab-case (lowercase letters/digits, segments separated by single hyphens).`,
+  };
+}
+
 /**
  * Returns the season whose active window contains `now`, or null when `now` falls
  * in a gap between seasons (or there is no current state at all).

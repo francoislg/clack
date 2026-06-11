@@ -118,6 +118,7 @@ function args(overrides: Partial<UpsertGameArgs> & Pick<UpsertGameArgs, "name">)
     judgeLeniency: undefined,
     tellMeMore: undefined,
     choices: undefined,
+    initialSeason: undefined,
     ...overrides,
   };
 }
@@ -916,5 +917,131 @@ describe("upsert_game — shadowing detection", () => {
       ),
     );
     assert.equal(result.shadowedBy, undefined);
+  });
+});
+
+describe("upsert_game — initialSeason (seasons enabled)", () => {
+  const seasonsOn: TriviaConfig = { games: [], seasons: { enabled: true, prompt: "p" } };
+
+  beforeEach(() => {
+    _resetTriviaConfigBridge();
+  });
+
+  function createArgs(extra: Partial<UpsertGameArgs> = {}): UpsertGameArgs {
+    return args({
+      name: "engineering",
+      channel: "C1",
+      questionCron: "0 9 * * *",
+      revealCron: "0 17 * * *",
+      timezone: "UTC",
+      ...extra,
+    });
+  }
+
+  it("rejects CREATE with no initialSeason and writes nothing", async () => {
+    primeBridge(seasonsOn);
+    const data = createInMemoryDataLayer();
+    const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? [], data);
+    const result = parseToolResult(await tool.handler(createArgs(), SESSION));
+    assert.match(result.error, /initialSeason/);
+    assert.equal(loadTriviaConfig()?.games?.length, 0);
+    assert.equal(await data.forGame("engineering").loadSeasonsState(), null);
+  });
+
+  it("writes the game and its first season atomically with only timeline fields", async () => {
+    primeBridge(seasonsOn);
+    const data = createInMemoryDataLayer();
+    const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? [], data);
+    const startedAt = 1_000;
+    const expectedEndAt = 9_000;
+    const result = parseToolResult(
+      await tool.handler(
+        createArgs({ initialSeason: { slug: "kickoff-2026", startedAt, expectedEndAt } }),
+        SESSION,
+      ),
+    );
+    assert.equal(result.action, "created");
+    assert.equal(loadTriviaConfig()?.games?.length, 1);
+    const state = await data.forGame("engineering").loadSeasonsState();
+    assert.deepEqual(state, { seasons: [{ slug: "kickoff-2026", startedAt, expectedEndAt }] });
+  });
+
+  it("defaults initialSeason.startedAt to creation time when omitted", async () => {
+    primeBridge(seasonsOn);
+    const data = createInMemoryDataLayer();
+    const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? [], data);
+    const before = Date.now();
+    const result = parseToolResult(
+      await tool.handler(
+        createArgs({ initialSeason: { slug: "kickoff-2026", expectedEndAt: before + 1_000_000 } }),
+        SESSION,
+      ),
+    );
+    const after = Date.now();
+    assert.equal(result.action, "created");
+    const entry = (await data.forGame("engineering").loadSeasonsState())?.seasons[0];
+    assert.ok(entry !== undefined);
+    assert.ok(entry.startedAt >= before && entry.startedAt <= after);
+    assert.equal(await data.forGame("engineering").getCurrentSeasonSlug(), "kickoff-2026");
+  });
+
+  it("rejects initialSeason whose expectedEndAt is not after startedAt", async () => {
+    primeBridge(seasonsOn);
+    const data = createInMemoryDataLayer();
+    const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? [], data);
+    const result = parseToolResult(
+      await tool.handler(
+        createArgs({
+          initialSeason: { slug: "kickoff-2026", startedAt: 9_000, expectedEndAt: 1_000 },
+        }),
+        SESSION,
+      ),
+    );
+    assert.match(result.error, /strictly less than expectedEndAt/);
+    assert.equal(loadTriviaConfig()?.games?.length, 0);
+  });
+
+  it("rejects non-kebab-case initialSeason slugs and writes nothing", async () => {
+    for (const bad of ["", "Kickoff 2026", "UPPER", "trailing-", "-leading", "doub--le"]) {
+      primeBridge(seasonsOn);
+      const data = createInMemoryDataLayer();
+      const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? [], data);
+      const result = parseToolResult(
+        await tool.handler(
+          createArgs({ initialSeason: { slug: bad, expectedEndAt: 9_000 } }),
+          SESSION,
+        ),
+      );
+      assert.match(result.error, /kebab-case/, `slug ${JSON.stringify(bad)} should be rejected`);
+      assert.equal(loadTriviaConfig()?.games?.length, 0);
+    }
+  });
+
+  it("rejects initialSeason when seasons are disabled", async () => {
+    primeBridge({ games: [] });
+    const data = createInMemoryDataLayer();
+    const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? [], data);
+    const result = parseToolResult(
+      await tool.handler(
+        createArgs({ initialSeason: { slug: "kickoff-2026", expectedEndAt: 9_000 } }),
+        SESSION,
+      ),
+    );
+    assert.match(result.error, /seasons are currently disabled/);
+    assert.equal(loadTriviaConfig()?.games?.length, 0);
+  });
+
+  it("rejects initialSeason on UPDATE of an existing game", async () => {
+    primeBridge({ games: [baseGame], seasons: { enabled: true, prompt: "p" } });
+    const data = createInMemoryDataLayer();
+    const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? [], data);
+    const result = parseToolResult(
+      await tool.handler(
+        args({ name: "main", initialSeason: { slug: "kickoff-2026", expectedEndAt: 9_000 } }),
+        SESSION,
+      ),
+    );
+    assert.match(result.error, /upsert_season/);
+    assert.equal(await data.forGame("main").loadSeasonsState(), null);
   });
 });
