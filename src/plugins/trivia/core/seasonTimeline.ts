@@ -15,6 +15,19 @@ export function validateSeasonSlug(
   };
 }
 
+// Shared start-before-end check for a season's active window. `label` names the start field in the message.
+export function validateSeasonWindow(
+  startedAt: number,
+  expectedEndAt: number,
+  label = "startedAt",
+): { ok: true } | { ok: false; error: string } {
+  if (startedAt < expectedEndAt) return { ok: true };
+  return {
+    ok: false,
+    error: `${label} (${startedAt}) must be strictly less than expectedEndAt (${expectedEndAt}).`,
+  };
+}
+
 /**
  * Returns the season whose active window contains `now`, or null when `now` falls
  * in a gap between seasons (or there is no current state at all).

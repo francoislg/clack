@@ -3,6 +3,7 @@ import { tool } from "@anthropic-ai/claude-agent-sdk";
 import { textResult, errorResult } from "../../../../tools/helpers.js";
 import {
   validateSeasonSlug,
+  validateSeasonWindow,
   findSeasonBySlug,
   validateNoOverlap,
 } from "../../core/seasonTimeline.js";
@@ -239,10 +240,9 @@ export function createUpsertSeasonTool(
         if (args.startedAt === undefined || args.expectedEndAt === undefined) {
           return errorResult("Creating a new season requires both startedAt and expectedEndAt.");
         }
-        if (args.startedAt >= args.expectedEndAt) {
-          return errorResult(
-            `startedAt (${args.startedAt}) must be strictly less than expectedEndAt (${args.expectedEndAt}).`,
-          );
+        const windowCheck = validateSeasonWindow(args.startedAt, args.expectedEndAt);
+        if (!windowCheck.ok) {
+          return errorResult(windowCheck.error);
         }
         if (args.endedAt !== undefined && args.endedAt <= args.startedAt) {
           return errorResult(

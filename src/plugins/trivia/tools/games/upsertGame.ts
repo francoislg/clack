@@ -3,7 +3,11 @@ import { tool } from "@anthropic-ai/claude-agent-sdk";
 import { CronExpressionParser } from "cron-parser";
 import { textResult, errorResult } from "../../../../tools/helpers.js";
 import { loadTriviaConfig, defaultGetGames, type GetGamesFn } from "../../core/configBridge.js";
-import { validateSeasonSlug, findCurrentSeason } from "../../core/seasonTimeline.js";
+import {
+  validateSeasonSlug,
+  validateSeasonWindow,
+  findCurrentSeason,
+} from "../../core/seasonTimeline.js";
 import { detectGameWriteShadowing, type WrittenField } from "../../domain/shadowing.js";
 import { persistGameWrite } from "../../domain/persistGame.js";
 import type { SeasonEntry, TriviaDataLayer } from "../../core/types.js";
@@ -326,10 +330,13 @@ export function createUpsertGameTool(
         if (!slugCheck.ok) {
           return errorResult(slugCheck.error);
         }
-        if (startedAt >= expectedEndAt) {
-          return errorResult(
-            `initialSeason.startedAt (${startedAt}) must be strictly less than expectedEndAt (${expectedEndAt}).`,
-          );
+        const windowCheck = validateSeasonWindow(
+          startedAt,
+          expectedEndAt,
+          "initialSeason.startedAt",
+        );
+        if (!windowCheck.ok) {
+          return errorResult(windowCheck.error);
         }
         if (data === undefined) {
           return errorResult(
