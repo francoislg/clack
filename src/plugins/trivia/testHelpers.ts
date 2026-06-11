@@ -1,4 +1,4 @@
-import type { ClackSdkUsers } from "../sdk.js";
+import type { ClackSdk, ClackSdkUsers } from "../sdk.js";
 import type { TriviaGame } from "./core/configTypes.js";
 import type {
   TriviaQuestion,
@@ -44,6 +44,54 @@ export function fakeSdkUsers(identities: Record<string, string> = {}): ClackSdkU
         async merge() {},
       };
     },
+  };
+}
+
+/**
+ * A fully-stubbed `ClackSdk` for tool tests, with no-op defaults for every member. Pass
+ * `overrides` to supply the few behaviors a given test exercises (typically `readFile`/
+ * `writeFile` over a backing store, or `dmOwner`).
+ */
+export function createFakeSdk(overrides: Partial<ClackSdk> = {}): ClackSdk {
+  return {
+    logger: { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} },
+    capabilities: { crons: true },
+    error: () => {},
+    addInstruction: () => {},
+    addTopicInstruction: () => {},
+    registerTool: () => {},
+    mcpServer: { fullName: "test", registerTool: () => {}, addTopicInstruction: () => {} },
+    registerMcpServer: () => ({
+      fullName: "test",
+      registerTool: () => {},
+      addTopicInstruction: () => {},
+    }),
+    readFile: async () => null,
+    writeFile: async () => {},
+    watchFile: () => {
+      throw new Error("watchFile not stubbed in this fake sdk");
+    },
+    reconcileCronJobs: async () => {},
+    findOwnedCronJobs: async () => [],
+    dmOwner: async () => ({ ok: true as const }),
+    getSlackClient: () => null,
+    sendMessage: async () => ({ ok: true as const, ts: "1", channel: "C" }),
+    engageThread: async () => {},
+    startThreadConversation: async () => {},
+    registerAction: () => {},
+    registerView: () => {},
+    actionId: (key: string) => `plugin:test:${key}`,
+    viewCallbackId: (key: string) => `plugin:test:${key}`,
+    askClaude: async () => ({
+      text: "",
+      stopReason: "end_turn",
+      usage: { inputTokens: 0, outputTokens: 0 },
+    }),
+    requestSoftRestart: () => {},
+    registerDictionary: () => {},
+    t: (key: string) => key,
+    users: fakeSdkUsers(),
+    ...overrides,
   };
 }
 import { findCurrentSeason } from "./core/seasonTimeline.js";

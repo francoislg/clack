@@ -6,52 +6,17 @@ import {
   _setTriviaConfigForTests,
   _setTriviaConfigSdkForTests,
 } from "./configBridge.js";
-import { fakeSdkUsers } from "../testHelpers.js";
+import { createFakeSdk } from "../testHelpers.js";
 import type { ClackSdk } from "../../sdk.js";
 import type { TriviaConfig } from "./configTypes.js";
 
 function makeMemorySdk(files: Map<string, string>): ClackSdk {
-  return {
-    logger: { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} },
-    capabilities: { crons: true },
-    error: () => {},
-    addInstruction: () => {},
-    addTopicInstruction: () => {},
-    registerTool: () => {},
-    mcpServer: { fullName: "test", registerTool: () => {}, addTopicInstruction: () => {} },
-    registerMcpServer: () => ({
-      fullName: "test",
-      registerTool: () => {},
-      addTopicInstruction: () => {},
-    }),
+  return createFakeSdk({
     readFile: async (path) => files.get(path) ?? null,
     writeFile: async (path, content) => {
       files.set(path, content);
     },
-    watchFile: () => {
-      throw new Error("watchFile not used in dataLayer tests");
-    },
-    reconcileCronJobs: async () => {},
-    findOwnedCronJobs: async () => [],
-    dmOwner: async () => ({ ok: true as const }),
-    getSlackClient: () => null,
-    sendMessage: async () => ({ ok: true as const, ts: "1", channel: "C" }),
-    engageThread: async () => {},
-    startThreadConversation: async () => {},
-    registerAction: () => {},
-    registerView: () => {},
-    actionId: (key: string) => `plugin:test:${key}`,
-    viewCallbackId: (key: string) => `plugin:test:${key}`,
-    askClaude: async () => ({
-      text: "",
-      stopReason: "end_turn",
-      usage: { inputTokens: 0, outputTokens: 0 },
-    }),
-    requestSoftRestart: () => {},
-    registerDictionary: () => {},
-    t: (key: string) => key,
-    users: fakeSdkUsers(),
-  };
+  });
 }
 
 function primeConfig(config: TriviaConfig | null): Map<string, string> {
@@ -107,5 +72,38 @@ describe("dataLayer — fallback season seed", () => {
     assert.deepEqual(state, {
       seasons: [{ slug: "kickoff-2026", startedAt: 1, expectedEndAt: 2 }],
     });
+  });
+});
+
+describe("dataLayer — graceful JSON reads", () => {
+  beforeEach(() => {
+    _resetTriviaConfigBridge();
+  });
+
+  it("falls back to empty on malformed JSON", async () => {
+    const files = new Map<string, string>([["games/g/questions.json", "{ not json"]]);
+    const data = createSdkDataLayer(makeMemorySdk(files));
+    assert.deepEqual(await data.forGame("g").loadQuestions(), []);
+  });
+
+  it("falls back to empty when the shape is wrong (missing load-bearing field)", async () => {
+    const files = new Map<string, string>([
+      ["games/g/answers.json", JSON.stringify([{ userId: "U1" }])], // no questionId
+    ]);
+    const data = createSdkDataLayer(makeMemorySdk(files));
+    assert.deepEqual(await data.forGame("g").loadAnswers(), []);
+  });
+
+  it("returns records untouched when the load-bearing fields are present, preserving extra fields", async () => {
+    const stored = [{ id: "q1", statement: "S", answersFormat: "boolean", futureField: 7 }];
+    const files = new Map<string, string>([["games/g/questions.json", JSON.stringify(stored)]]);
+    const data = createSdkDataLayer(makeMemorySdk(files));
+    assert.deepEqual(await data.forGame("g").loadQuestions(), stored);
+  });
+
+  it("falls back to empty when categories.json is not an array of strings", async () => {
+    const files = new Map<string, string>([["categories.json", JSON.stringify({ bad: true })]]);
+    const data = createSdkDataLayer(makeMemorySdk(files));
+    assert.deepEqual(await data.loadCategories(), []);
   });
 });

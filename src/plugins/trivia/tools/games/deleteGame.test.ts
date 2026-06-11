@@ -8,57 +8,14 @@ import {
   loadTriviaConfig,
 } from "../../core/configBridge.js";
 import { parseToolResult } from "../../../../tools/testHelpers.js";
-import { fakeSdkUsers } from "../../testHelpers.js";
-import type { ClackSdk } from "../../../sdk.js";
+import { createFakeSdk } from "../../testHelpers.js";
 import type { TriviaConfig, TriviaGame } from "../../core/configTypes.js";
 
 const SESSION = { sessionId: "test" };
 
-function makeFakeSdk(): ClackSdk {
-  return {
-    logger: { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} },
-    capabilities: { crons: true },
-    error: () => {},
-    addInstruction: () => {},
-    addTopicInstruction: () => {},
-    registerTool: () => {},
-    mcpServer: { fullName: "test", registerTool: () => {}, addTopicInstruction: () => {} },
-    registerMcpServer: () => ({
-      fullName: "test",
-      registerTool: () => {},
-      addTopicInstruction: () => {},
-    }),
-    readFile: async () => null,
-    writeFile: async () => {},
-    watchFile: () => {
-      throw new Error("watchFile not used in delete_game tests");
-    },
-    reconcileCronJobs: async () => {},
-    findOwnedCronJobs: async () => [],
-    dmOwner: async () => ({ ok: true as const }),
-    getSlackClient: () => null,
-    sendMessage: async () => ({ ok: true as const, ts: "1", channel: "C" }),
-    engageThread: async () => {},
-    startThreadConversation: async () => {},
-    registerAction: () => {},
-    registerView: () => {},
-    actionId: (key: string) => `plugin:test:${key}`,
-    viewCallbackId: (key: string) => `plugin:test:${key}`,
-    askClaude: async () => ({
-      text: "",
-      stopReason: "end_turn",
-      usage: { inputTokens: 0, outputTokens: 0 },
-    }),
-    requestSoftRestart: () => {},
-    registerDictionary: () => {},
-    t: (key: string) => key,
-    users: fakeSdkUsers(),
-  };
-}
-
 function primeBridge(initial: TriviaConfig | null): void {
   _resetTriviaConfigBridge();
-  _setTriviaConfigSdkForTests(makeFakeSdk());
+  _setTriviaConfigSdkForTests(createFakeSdk());
   _setTriviaConfigForTests(initial);
 }
 
