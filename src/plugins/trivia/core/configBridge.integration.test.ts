@@ -211,6 +211,7 @@ describe("trivia config relocation — end-to-end smoke", () => {
           judgeLeniency: undefined,
           tellMeMore: undefined,
           choices: undefined,
+          initialSeason: undefined,
         },
         SESSION,
       ),

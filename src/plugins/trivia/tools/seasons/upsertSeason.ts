@@ -1,7 +1,11 @@
 import { z } from "zod";
 import { tool } from "@anthropic-ai/claude-agent-sdk";
 import { textResult, errorResult } from "../../../../tools/helpers.js";
-import { findSeasonBySlug, validateNoOverlap } from "../../core/seasonTimeline.js";
+import {
+  validateSeasonSlug,
+  findSeasonBySlug,
+  validateNoOverlap,
+} from "../../core/seasonTimeline.js";
 import { defaultGetGames, type GetGamesFn } from "../../core/configBridge.js";
 import { requireWritableGame } from "../../core/gamesRegistry.js";
 import {
@@ -58,8 +62,6 @@ import type {
   TriviaDifficultyRatioConfig,
   TriviaHintConfig,
 } from "../../core/configTypes.js";
-
-const SLUG_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
 const SLOT_OVERRIDES_VS_FORMAT_MSG =
   "A season cannot set both `format` and `slotOverrides`: `format` declares the question count/structure, while `slotOverrides` layers count-decoupled per-slot deltas over the game format. Pick one.";
@@ -223,10 +225,9 @@ export function createUpsertSeasonTool(
         return errorResult(err instanceof Error ? err.message : String(err));
       }
 
-      if (!SLUG_RE.test(args.slug)) {
-        return errorResult(
-          `Invalid slug "${args.slug}": must be non-empty kebab-case (lowercase letters/digits, segments separated by single hyphens).`,
-        );
+      const slugCheck = validateSeasonSlug(args.slug);
+      if (!slugCheck.ok) {
+        return errorResult(slugCheck.error);
       }
 
       const scoped = data.forGame(args.game);

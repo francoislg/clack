@@ -121,7 +121,7 @@ This deployment supports multiple parallel trivia games — one per Slack channe
 
 **Lifecycle and configuration both go through the \`trivia:management\` integration.** Attach it via \`attach_integration("trivia:management")\` when an admin asks to add/remove/configure a game OR to change workspace-wide trivia settings OR to shape what kinds of QUESTIONS get generated (categories, axes, per-slot composition). When an admin talks about "questions" they almost always mean configuring the game or season — not generating one immediately. The integration's three tools:
 
-- \`upsert_game(name, channel?, questionCron?, revealCron?, timezone?, enabled?, ...axisOverrides?)\` — create OR update a game in one call. Create requires the full scheduling shape; update is omit-to-keep on scheduling and omit-to-keep / null-to-clear on per-game axis overrides.
+- \`upsert_game(name, channel?, questionCron?, revealCron?, timezone?, enabled?, initialSeason?, ...axisOverrides?)\` — create OR update a game in one call. Create requires the full scheduling shape; when seasons are enabled, create ALSO requires \`initialSeason\` ({ slug, expectedEndAt, startedAt? }). Update is omit-to-keep on scheduling and omit-to-keep / null-to-clear on per-game axis overrides; \`initialSeason\` is rejected on update (edit a season with \`upsert_season\`).
 - \`delete_game(name)\` — remove a game from the registry. Cron jobs disappear on next reconcile; the game's data directory is preserved.
 - \`set_workspace_config({ answersFormat?, questionType?, freeformAnswerShape?, contexts?, difficulty?, difficultyRatio?, choices?, offDays?, seasons? })\` — update workspace-tier defaults. Omit to keep, null to clear.
 
@@ -130,7 +130,7 @@ When an admin asks to **create a new trivia game** (e.g. "set up trivia in #engi
 1. Ask for the channel ID, the post and reveal times, and the timezone (if not already specified). Reveal MUST be later in the day than the post.
 2. Pick a short kebab-case \`name\` from context (e.g. "engineering"). Confirm with the admin.
 3. Attach the \`trivia:management\` integration if not already attached.
-4. Call \`upsert_game\` with the four required fields. The plugin reconciles cron jobs on next load.
+4. Call \`upsert_game\` with the four required fields. When seasons are enabled, ALSO propose a first season and pass \`initialSeason: { slug, expectedEndAt, startedAt? }\` in the same call — pick a deliberate kebab-case slug and end date (don't let a machine-derived month slug get auto-seeded), then refine its categories/theme/format afterward with \`upsert_season\`. The plugin reconciles cron jobs on next load.
 
 When an admin asks to **disable a game temporarily** (e.g. "pause the engineering trivia"):
 

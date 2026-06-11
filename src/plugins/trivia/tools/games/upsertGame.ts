@@ -8,9 +8,9 @@ import {
   defaultGetGames,
   type GetGamesFn,
 } from "../../core/configBridge.js";
-import { findCurrentSeason } from "../../core/seasonTimeline.js";
+import { validateSeasonSlug, findCurrentSeason } from "../../core/seasonTimeline.js";
 import { detectGameWriteShadowing, type WrittenField } from "../../domain/shadowing.js";
-import type { TriviaDataLayer } from "../../core/types.js";
+import type { SeasonEntry, TriviaDataLayer } from "../../core/types.js";
 import type {
   JsonObject,
   JsonValue,
@@ -213,7 +213,7 @@ export function createUpsertGameTool(
 ) {
   return tool(
     "upsert_game",
-    'Create OR update a trivia game in data/plugins/trivia/config.json. CREATE branch: triggered when the named game doesn\'t exist yet — requires channel, questionCron, revealCron, timezone; enabled defaults to true. UPDATE branch: triggered when the game exists — every scheduling field is omit-to-keep (only update what you pass), every axis field AND every structural field (`format`, `categories`, `theme`) uses null-to-clear / omit-to-keep semantics. `prepCron` is an OPTIONAL scheduling field that opts the game into pre-staging — when set, the plugin emits a third channelless cron spec for `<name>:prep` and the question cron switches to the staged-pool-aware POST prompt; when absent, the legacy gen-and-post behavior is preserved. Game name is immutable — to rename, delete + upsert. Axis fields participate in the cascade slot → season → game → workspace → built-in default. Structural fields participate in the cascade season → game → (fallback). For workspace-tier changes use set_workspace_config. Mutates the plugin config file directly — no confirm/approval flow. When a field you write is masked by a higher cascade tier, the result includes `shadowedBy: { tier: "season" | "slot", slug?, fields: string[] }` (`fields` is a string array; `"format"` appears as a string pseudo-field; `slug` only for season). This means your game-tier edit will NOT take effect for the active season (or for the slot that masks it): surface this to the admin and offer to apply it to the current season too — on confirmation, clear the season override(s) with `upsert_season(slug, { <field>: null, ... })` so they fall through to the new game value.',
+    'Create OR update a trivia game in data/plugins/trivia/config.json. CREATE branch: triggered when the named game doesn\'t exist yet — requires channel, questionCron, revealCron, timezone; enabled defaults to true. When `trivia.seasons.enabled` is true, CREATE ALSO requires `initialSeason` ({ slug, expectedEndAt, startedAt? }) and writes it as the game\'s first season atomically — propose a deliberate slug and end date, then enrich categories/theme/format afterward via `upsert_season`. `initialSeason` is rejected when seasons are disabled and on UPDATE. UPDATE branch: triggered when the game exists — every scheduling field is omit-to-keep (only update what you pass), every axis field AND every structural field (`format`, `categories`, `theme`) uses null-to-clear / omit-to-keep semantics. `prepCron` is an OPTIONAL scheduling field that opts the game into pre-staging — when set, the plugin emits a third channelless cron spec for `<name>:prep` and the question cron switches to the staged-pool-aware POST prompt; when absent, the legacy gen-and-post behavior is preserved. Game name is immutable — to rename, delete + upsert. Axis fields participate in the cascade slot → season → game → workspace → built-in default. Structural fields participate in the cascade season → game → (fallback). For workspace-tier changes use set_workspace_config. Mutates the plugin config file directly — no confirm/approval flow. When a field you write is masked by a higher cascade tier, the result includes `shadowedBy: { tier: "season" | "slot", slug?, fields: string[] }` (`fields` is a string array; `"format"` appears as a string pseudo-field; `slug` only for season). This means your game-tier edit will NOT take effect for the active season (or for the slot that masks it): surface this to the admin and offer to apply it to the current season too — on confirmation, clear the season override(s) with `upsert_season(slug, { <field>: null, ... })` so they fall through to the new game value.',
     {
       name: z
         .string()
@@ -262,6 +262,24 @@ export function createUpsertGameTool(
         .describe(
           "When false, the plugin skips this entry during cron reconcile AND per-game write tools refuse. Defaults to true on create; omit on update to keep.",
         ),
+      initialSeason: z
+        .object({
+          slug: z.string().describe("Non-empty kebab-case identifier for the first season."),
+          expectedEndAt: z
+            .number()
+            .describe("Unix-ms when the first season's window is expected to end."),
+          startedAt: z
+            .number()
+            .optional()
+            .describe(
+              "Unix-ms when the first season begins. Defaults to creation time when omitted.",
+            ),
+        })
+        .strict()
+        .optional()
+        .describe(
+          "Minimal first-season bootstrap. REQUIRED on CREATE when `trivia.seasons.enabled` is true, so the game and its current season come into existence atomically. Carries ONLY `slug` + `expectedEndAt` (+ optional `startedAt`) — categories / theme / format / axes are rejected here; enrich those afterward via `upsert_season`. REJECTED when seasons are disabled, and REJECTED on UPDATE (use `upsert_season` to edit an existing game's timeline).",
+        ),
       ...axisBagSchema,
       ...structuralFieldsSchema,
     },
@@ -288,6 +306,45 @@ export function createUpsertGameTool(
             "Creating a new game requires channel, questionCron, revealCron, and timezone.",
           );
         }
+      }
+
+      // Seasons-enabled games must be born with their first season so there is never a
+      // window in which a seasons-on game exists without a current season. The lazy
+      // bootstrap in dataLayer remains a fallback for config-edited / pre-existing games.
+      const seasonsEnabled = loadTriviaConfig()?.seasons?.enabled === true;
+      let initialSeasonEntry: SeasonEntry | undefined;
+      if (args.initialSeason !== undefined) {
+        if (!seasonsEnabled) {
+          return errorResult(
+            "initialSeason is only accepted when trivia.seasons is enabled; seasons are currently disabled.",
+          );
+        }
+        if (!isCreate) {
+          return errorResult(
+            "initialSeason is only accepted when creating a new game; edit an existing game's timeline with upsert_season.",
+          );
+        }
+        const { slug, expectedEndAt } = args.initialSeason;
+        const startedAt = args.initialSeason.startedAt ?? Date.now();
+        const slugCheck = validateSeasonSlug(slug, "initialSeason.slug");
+        if (!slugCheck.ok) {
+          return errorResult(slugCheck.error);
+        }
+        if (startedAt >= expectedEndAt) {
+          return errorResult(
+            `initialSeason.startedAt (${startedAt}) must be strictly less than expectedEndAt (${expectedEndAt}).`,
+          );
+        }
+        if (data === undefined) {
+          return errorResult(
+            "Cannot persist initialSeason without a data layer — internal misconfiguration.",
+          );
+        }
+        initialSeasonEntry = { slug, startedAt, expectedEndAt };
+      } else if (isCreate && seasonsEnabled) {
+        return errorResult(
+          "Creating a new game while trivia.seasons is enabled requires initialSeason ({ slug, expectedEndAt, startedAt? }). Enrich categories/theme/format afterward via upsert_season.",
+        );
       }
       if (channel === undefined || !CHANNEL_RE.test(channel)) {
         return errorResult(
@@ -518,6 +575,10 @@ export function createUpsertGameTool(
       const currentConfig: TriviaConfig = loadTriviaConfig() ?? {};
       const nextConfig: TriviaConfig = { ...currentConfig, games };
       await saveTriviaConfig(nextConfig);
+
+      if (initialSeasonEntry !== undefined && data !== undefined) {
+        await data.forGame(args.name).saveSeasonsState({ seasons: [initialSeasonEntry] });
+      }
 
       const hasAxisOverrides = Object.keys(mergedAxes).length > 0;
       const hasStructuralOverrides = Object.keys(mergedStructural).length > 0;
