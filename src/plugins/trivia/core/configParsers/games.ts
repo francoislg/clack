@@ -14,6 +14,7 @@ import type {
   JudgeLeniency,
   TriviaAllTimeRowMode,
   TriviaFinalRevealSummary,
+  TriviaChoicesConfig,
   TriviaGame,
   TriviaHintConfig,
   TriviaIncludeRevealInQuestions,
@@ -28,12 +29,45 @@ import {
   validateIncludeRevealInQuestions,
   validateJudgeLeniency,
   validateTellMeMore,
+  validateTriviaChoicesConfig,
   type ParseIssue,
 } from "./axes.js";
 import { validateFormat } from "./format.js";
 
 /** Game-name format: filesystem-safe kebab-case, 1–32 chars. */
 const TRIVIA_GAME_NAME_RE = /^[a-z0-9-]+$/;
+
+/**
+ * Lenient optional-cron parser shared by `prepCron` and `lockCron`: a malformed value
+ * pushes an issue and returns `undefined` (the field is dropped) while the rest of the
+ * game survives; an absent value returns `undefined` with no issue.
+ */
+function parseLenientCron(
+  value: JsonValue | undefined,
+  field: string,
+  timezone: string,
+  issues: ParseIssue[],
+): string | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== "string") {
+    issues.push({ field, error: `must be a string (got ${typeof value})` });
+    return undefined;
+  }
+  if (value.length === 0) {
+    issues.push({ field, error: "must be a non-empty string" });
+    return undefined;
+  }
+  try {
+    CronExpressionParser.parse(value, { tz: timezone });
+    return value;
+  } catch (err) {
+    issues.push({
+      field,
+      error: `"${value}" is invalid (${err instanceof Error ? err.message : String(err)})`,
+    });
+    return undefined;
+  }
+}
 
 /** Slack channel ID format — plugin-local, no bot-core import. */
 function isChannelId(input: string): boolean {
@@ -113,31 +147,12 @@ export function parseTriviaGame(
     return { game: null, issues };
   }
 
-  // prepCron is LENIENT: a malformed value drops the field with a logged issue
-  // but the game still loads with no prep cron emitted. This contrasts with
-  // questionCron / revealCron above which reject the whole entry on failure.
-  // Absence is silently accepted (no issue logged) — prep is opt-in per game.
-  let prepCron: string | undefined;
-  if (e.prepCron !== undefined && e.prepCron !== null) {
-    if (typeof e.prepCron !== "string") {
-      issues.push({
-        field: `${fieldPrefix}.prepCron`,
-        error: `must be a string (got ${typeof e.prepCron})`,
-      });
-    } else if (e.prepCron.length === 0) {
-      issues.push({ field: `${fieldPrefix}.prepCron`, error: "must be a non-empty string" });
-    } else {
-      try {
-        CronExpressionParser.parse(e.prepCron, { tz: timezone });
-        prepCron = e.prepCron;
-      } catch (err) {
-        issues.push({
-          field: `${fieldPrefix}.prepCron`,
-          error: `"${e.prepCron}" is invalid (${err instanceof Error ? err.message : String(err)})`,
-        });
-      }
-    }
-  }
+  // prepCron / lockCron are LENIENT: a malformed value drops the field with a logged
+  // issue but the game still loads with that cron not emitted. This contrasts with
+  // questionCron / revealCron above which reject the whole entry on failure. Absence
+  // is silently accepted (no issue logged) — both are opt-in per game.
+  const prepCron = parseLenientCron(e.prepCron, `${fieldPrefix}.prepCron`, timezone, issues);
+  const lockCron = parseLenientCron(e.lockCron, `${fieldPrefix}.lockCron`, timezone, issues);
 
   let enabled = true;
   if ("enabled" in e && e.enabled !== undefined) {
@@ -326,6 +341,13 @@ export function parseTriviaGame(
     else issues.push({ field: `${fieldPrefix}.judgeLeniency`, error: r.error });
   }
 
+  let choices: TriviaChoicesConfig | undefined;
+  if (e.choices !== undefined && e.choices !== null) {
+    const r = validateTriviaChoicesConfig(e.choices, `${fieldPrefix}.choices`);
+    if (r.ok) choices = r.value;
+    else issues.push({ field: `${fieldPrefix}.choices`, error: r.error });
+  }
+
   seenNames.add(name);
   return {
     game: {
@@ -336,6 +358,7 @@ export function parseTriviaGame(
       timezone,
       enabled,
       ...(prepCron !== undefined ? { prepCron } : {}),
+      ...(lockCron !== undefined ? { lockCron } : {}),
       ...axes,
       ...(format ? { format } : {}),
       ...(categories ? { categories } : {}),
@@ -346,6 +369,7 @@ export function parseTriviaGame(
       ...(revealResponses !== undefined ? { revealResponses } : {}),
       ...(hint !== undefined ? { hint } : {}),
       ...(judgeLeniency !== undefined ? { judgeLeniency } : {}),
+      ...(choices !== undefined ? { choices } : {}),
       ...(allTimeRow !== undefined ? { allTimeRow } : {}),
       ...(tagPlayers !== undefined ? { tagPlayers } : {}),
       ...(includeRevealInQuestions !== undefined ? { includeRevealInQuestions } : {}),

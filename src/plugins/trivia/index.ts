@@ -31,6 +31,8 @@ import { createComputeAnswersTool } from "./tools/reveal/computeAnswers.js";
 import { createUpdateAnswersBlockTool } from "./tools/reveal/updateAnswersBlock.js";
 import { createOverrideAnswerTool } from "./tools/reveal/overrideAnswer.js";
 import { createSettleQuestionTool } from "./tools/reveal/settleQuestion.js";
+import { createLockQuestionsTool } from "./tools/lock/lockQuestions.js";
+import { createUnlockQuestionsTool } from "./tools/lock/unlockQuestions.js";
 import { createRemoveCheatTool } from "./tools/answers/removeCheat.js";
 import {
   getTriviaCheckInstruction,
@@ -117,6 +119,7 @@ export const triviaPlugin: ClackPlugin = async (sdk: ClackSdk) => {
   sdk.registerTool("admin", createSaveQuestionTool(data), sdk.t("label.save_question"));
   sdk.registerTool("admin", createUpdateQuestionTool(data), sdk.t("label.update_question"));
   sdk.registerTool("admin", createPostQuestionsTool(data, sdk), sdk.t("label.post_questions"));
+  sdk.registerTool("admin", createLockQuestionsTool(data, sdk), sdk.t("label.lock_questions"));
   sdk.registerTool("member", createFindPreviousQuestionsTool(data), sdk.t("label.find_previous"));
   sdk.registerTool(
     "member",
@@ -150,6 +153,11 @@ export const triviaPlugin: ClackPlugin = async (sdk: ClackSdk) => {
     sdk.t("label.upsert_game"),
   );
   management.registerTool("admin", createDeleteGameTool(), sdk.t("label.delete_game"));
+  management.registerTool(
+    "admin",
+    createUnlockQuestionsTool(data, sdk),
+    sdk.t("label.unlock_questions"),
+  );
   management.registerTool(
     "admin",
     createSetWorkspaceConfigTool(),

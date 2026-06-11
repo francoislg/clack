@@ -9,18 +9,19 @@
  * is what lets `resolveCascade` read any axis off any tier by key, and what makes
  * `AXIS_REGISTRY` compile-time exhaustive.
  *
- * Membership (13), per the rule above:
- *   - Uniform first-wins (10): answersFormat, questionType, promptMedium,
- *     freeformAnswerShape, contexts, hint, judgeLeniency, instructions,
+ * Membership (14), per the rule above:
+ *   - Uniform first-wins (11): answersFormat, questionType, promptMedium,
+ *     freeformAnswerShape, contexts, hint, judgeLeniency, choices, instructions,
  *     liveAnswersVisible, revealResponses. (The last two resolve at POST time,
- *     not generation time, but are 4-tier first-wins cascades all the same.)
+ *     not generation time, but are 4-tier first-wins cascades all the same.
+ *     `choices` is the `{ min, max }` option-count bound for choice questions,
+ *     consumed by the get_ideas roll and save_question length validation.)
  *   - Custom (3): difficulty (per-field merge), difficultyRatio (answersFormat-
  *     keyed), additionalInstructions (CUMULATIVE concat across tiers).
  *
  * Deliberately EXCLUDED (not per-question cascades): `format`, `categories`,
- * `theme` (structural-special), `allTimeRow` (game+workspace only), `choices`
- * (workspace-only). These keep their own resolvers and are audited via
- * `list_games` / `list_seasons`.
+ * `theme` (structural-special), `allTimeRow` (game+workspace only). These keep
+ * their own resolvers and are audited via `list_games` / `list_seasons`.
  *
  * Type-only imports keep this a leaf in the type graph: `configTypes.ts` and
  * `types.ts` import `CascadeAxes` back for their `extends` clauses, but because
@@ -36,6 +37,7 @@ import type {
   TriviaDifficultyRatioConfig,
   TriviaHintConfig,
   JudgeLeniency,
+  TriviaChoicesConfig,
   RevealResponsesMode,
   SeasonFormatSlot,
   TriviaGame,
@@ -55,6 +57,7 @@ export interface CascadeAxes {
   contexts?: TriviaContextEntry[];
   hint?: TriviaHintConfig;
   judgeLeniency?: JudgeLeniency;
+  choices?: TriviaChoicesConfig;
   instructions?: string;
   liveAnswersVisible?: boolean;
   revealResponses?: RevealResponsesMode;

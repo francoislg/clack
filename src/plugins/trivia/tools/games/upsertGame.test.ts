@@ -93,6 +93,7 @@ function args(overrides: Partial<UpsertGameArgs> & Pick<UpsertGameArgs, "name">)
     questionCron: undefined,
     revealCron: undefined,
     prepCron: undefined,
+    lockCron: undefined,
     timezone: undefined,
     enabled: undefined,
     answersFormat: undefined,
@@ -115,6 +116,7 @@ function args(overrides: Partial<UpsertGameArgs> & Pick<UpsertGameArgs, "name">)
     finalRevealSummary: undefined,
     judgeLeniency: undefined,
     tellMeMore: undefined,
+    choices: undefined,
     ...overrides,
   };
 }
@@ -793,6 +795,77 @@ describe("upsert_game — judgeLeniency", () => {
     );
     assert.equal(cleared.hasJudgeLeniency, false);
     assert.equal(loadTriviaConfig()?.games?.[0]?.judgeLeniency, undefined);
+  });
+});
+
+describe("upsert_game — choices", () => {
+  beforeEach(() => {
+    _resetTriviaConfigBridge();
+  });
+
+  it("creates a game carrying a choices override", async () => {
+    primeBridge({ games: [] });
+    const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
+    const result = parseToolResult(
+      await tool.handler(
+        args({
+          name: "narrow-game",
+          channel: "C1",
+          questionCron: "0 9 * * *",
+          revealCron: "0 17 * * *",
+          timezone: "UTC",
+          choices: { min: 2, max: 2 },
+        }),
+        SESSION,
+      ),
+    );
+    assert.equal(result.hasChoices, true);
+    assert.deepEqual(loadTriviaConfig()?.games?.[0]?.choices, { min: 2, max: 2 });
+  });
+
+  it("rejects out-of-range bounds", async () => {
+    primeBridge({ games: [] });
+    const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
+    const result = parseToolResult(
+      await tool.handler(
+        args({
+          name: "bad-game",
+          channel: "C1",
+          questionCron: "0 9 * * *",
+          revealCron: "0 17 * * *",
+          timezone: "UTC",
+          choices: { min: 1, max: 4 },
+        }),
+        SESSION,
+      ),
+    );
+    assert.ok(result.error || result.isError);
+  });
+
+  it("updates and then clears choices on an existing game", async () => {
+    primeBridge({
+      games: [
+        {
+          name: "g",
+          channel: "C1",
+          questionCron: "0 9 * * *",
+          revealCron: "0 17 * * *",
+          timezone: "UTC",
+          enabled: true,
+          choices: { min: 2, max: 2 },
+        },
+      ],
+    });
+    const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
+
+    await tool.handler(args({ name: "g", choices: { min: 3, max: 4 } }), SESSION);
+    assert.deepEqual(loadTriviaConfig()?.games?.[0]?.choices, { min: 3, max: 4 });
+
+    const cleared = parseToolResult(
+      await tool.handler(args({ name: "g", choices: null }), SESSION),
+    );
+    assert.equal(cleared.hasChoices, false);
+    assert.equal(loadTriviaConfig()?.games?.[0]?.choices, undefined);
   });
 });
 

@@ -263,3 +263,57 @@ describe("parseTriviaGames — prepCron", () => {
     assert.ok(issues.some((i) => i.field === "trivia.games[0].timezone"));
   });
 });
+
+describe("parseTriviaGames — lockCron", () => {
+  it("accepts a valid lockCron alongside the other crons", () => {
+    const { games, issues } = parseTriviaGames([{ ...validBase, lockCron: "0 19 * * 1-5" }]);
+    assert.equal(issues.length, 0);
+    assert.equal(games?.length, 1);
+    assert.equal(games?.[0].lockCron, "0 19 * * 1-5");
+  });
+
+  it("absence of lockCron is silently accepted (no issues, field undefined)", () => {
+    const { games, issues } = parseTriviaGames([{ ...validBase }]);
+    assert.equal(issues.length, 0);
+    assert.equal(games?.[0].lockCron, undefined);
+  });
+
+  it("drops the field with a logged issue when lockCron is malformed", () => {
+    const { games, issues } = parseTriviaGames([{ ...validBase, lockCron: "not a cron" }]);
+    assert.equal(games?.length, 1);
+    assert.equal(games?.[0].lockCron, undefined);
+    assert.equal(games?.[0].name, "main");
+    assert.equal(issues.length, 1);
+    assert.equal(issues[0].field, "trivia.games[0].lockCron");
+    assert.match(issues[0].error, /invalid/);
+  });
+
+  it("drops the field when lockCron is the wrong type", () => {
+    const { games, issues } = parseTriviaGames([{ ...validBase, lockCron: 42 }]);
+    assert.equal(games?.length, 1);
+    assert.equal(games?.[0].lockCron, undefined);
+    assert.equal(issues.length, 1);
+    assert.equal(issues[0].field, "trivia.games[0].lockCron");
+    assert.match(issues[0].error, /must be a string/);
+  });
+
+  it("drops the field when lockCron is an empty string", () => {
+    const { games, issues } = parseTriviaGames([{ ...validBase, lockCron: "" }]);
+    assert.equal(games?.length, 1);
+    assert.equal(games?.[0].lockCron, undefined);
+    assert.equal(issues.length, 1);
+    assert.equal(issues[0].field, "trivia.games[0].lockCron");
+    assert.match(issues[0].error, /non-empty/);
+  });
+
+  it("a malformed lockCron does not affect a valid prepCron on the same entry", () => {
+    const { games, issues } = parseTriviaGames([
+      { ...validBase, prepCron: "30 8 * * 1-5", lockCron: "not a cron" },
+    ]);
+    assert.equal(games?.length, 1);
+    assert.equal(games?.[0].prepCron, "30 8 * * 1-5");
+    assert.equal(games?.[0].lockCron, undefined);
+    assert.equal(issues.length, 1);
+    assert.equal(issues[0].field, "trivia.games[0].lockCron");
+  });
+});

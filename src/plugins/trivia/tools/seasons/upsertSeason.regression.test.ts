@@ -60,6 +60,7 @@ describe("upsert_season — schema unification regressions", () => {
         additionalInstructions: undefined,
         hint: undefined,
         judgeLeniency: undefined,
+        choices: undefined,
       },
       SESSION,
     );
@@ -102,6 +103,7 @@ describe("upsert_season — schema unification regressions", () => {
         additionalInstructions: undefined,
         hint: undefined,
         judgeLeniency: undefined,
+        choices: undefined,
       },
       SESSION,
     );
@@ -142,6 +144,7 @@ describe("upsert_season — schema unification regressions", () => {
         additionalInstructions: undefined,
         hint: undefined,
         judgeLeniency: undefined,
+        choices: undefined,
       },
       SESSION,
     );
@@ -170,6 +173,7 @@ describe("upsert_season — schema unification regressions", () => {
         additionalInstructions: undefined,
         hint: undefined,
         judgeLeniency: undefined,
+        choices: undefined,
       },
       SESSION,
     );

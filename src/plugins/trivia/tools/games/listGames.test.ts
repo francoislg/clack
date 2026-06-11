@@ -265,6 +265,35 @@ describe("list_games — per-game entries", () => {
     assert.equal("judgeLeniency" in without.games[0], false);
   });
 
+  it("surfaces per-game choices in axisOverrides when set, omits it when absent", async () => {
+    const games: readonly TriviaGame[] = [
+      {
+        name: "narrow-game",
+        channel: "C400000000",
+        questionCron: "0 9 * * 1-5",
+        revealCron: "0 17 * * 1-5",
+        timezone: "UTC",
+        enabled: true,
+        choices: { min: 2, max: 2 },
+      },
+    ];
+    const withValue = parseToolResult(
+      await createListGamesTool(() => games, emptyTriviaConfig).handler(
+        { includeDisabled: undefined },
+        SESSION,
+      ),
+    );
+    assert.deepEqual(withValue.games[0].axisOverrides.choices, { min: 2, max: 2 });
+
+    const without = parseToolResult(
+      await createListGamesTool(fixtureGetGames, emptyTriviaConfig).handler(
+        { includeDisabled: undefined },
+        SESSION,
+      ),
+    );
+    assert.equal("choices" in without.games[0].axisOverrides, false);
+  });
+
   it("surfaces prepCron and nextPrepFire when set", async () => {
     const games: readonly TriviaGame[] = [
       {

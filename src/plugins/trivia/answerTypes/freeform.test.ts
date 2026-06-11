@@ -419,7 +419,11 @@ describe("freeformAnswerHandler", () => {
           freeformAnswerShape: "place",
           emojis: ["🇫🇷"],
         },
-        { config: null, resolvedJudgeLeniency: "strict-with-typos" },
+        {
+          config: null,
+          resolvedChoiceBounds: { min: 4, max: 4 },
+          resolvedJudgeLeniency: "strict-with-typos",
+        },
       );
       assert.equal(out.ok, true);
       if (out.ok) {
@@ -441,7 +445,11 @@ describe("freeformAnswerHandler", () => {
           freeformAnswerShape: "place",
           emojis: ["🇫🇷"],
         },
-        { config: null, resolvedJudgeLeniency: "strict-with-typos" },
+        {
+          config: null,
+          resolvedChoiceBounds: { min: 4, max: 4 },
+          resolvedJudgeLeniency: "strict-with-typos",
+        },
       );
       assert.equal(out.ok, false);
       if (!out.ok) assert.match(out.error, /expectedAnswer/);
@@ -461,7 +469,11 @@ describe("freeformAnswerHandler", () => {
           freeformAnswerShape: "phrase",
           emojis: ["🇫🇷"],
         },
-        { config: null, resolvedJudgeLeniency: "strict-with-typos" },
+        {
+          config: null,
+          resolvedChoiceBounds: { min: 4, max: 4 },
+          resolvedJudgeLeniency: "strict-with-typos",
+        },
       );
       assert.equal(out.ok, false);
       if (!out.ok) assert.match(out.error, /200 characters/);
@@ -479,7 +491,11 @@ describe("freeformAnswerHandler", () => {
           expectedAnswer: "Paris",
           emojis: ["🇫🇷"],
         },
-        { config: null, resolvedJudgeLeniency: "strict-with-typos" },
+        {
+          config: null,
+          resolvedChoiceBounds: { min: 4, max: 4 },
+          resolvedJudgeLeniency: "strict-with-typos",
+        },
       );
       assert.equal(out.ok, false);
       if (!out.ok) assert.match(out.error, /freeformAnswerShape/);
@@ -503,7 +519,11 @@ describe("freeformAnswerHandler", () => {
           freeformAnswerShape: "place",
           emojis: ["🇫🇷"],
         },
-        { config: null, resolvedJudgeLeniency: "strict-with-typos" },
+        {
+          config: null,
+          resolvedChoiceBounds: { min: 4, max: 4 },
+          resolvedJudgeLeniency: "strict-with-typos",
+        },
       );
       assert.equal(out.ok, true);
       if (out.ok) {

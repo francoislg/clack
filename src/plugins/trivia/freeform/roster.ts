@@ -1,6 +1,7 @@
 import type { App } from "@slack/bolt";
 import type { ContextBlock, DividerBlock, KnownBlock } from "@slack/types";
 import { triviaLogger as logger } from "../core/pluginLogger.js";
+import { stripAnswerButtons } from "../revealCards/answerActions.js";
 import { t } from "../i18n/t.js";
 import { renderPlayerRef } from "../domain/tagPlayers.js";
 import type { AnswerTypeHandler } from "../answerTypes/types.js";
@@ -171,6 +172,15 @@ function buildRosterDivider(questionId: string): DividerBlock {
   };
 }
 
+/** Context block shown in place of the buttons + roster once a question is locked. */
+function buildLockedNotice(questionId: string): ContextBlock {
+  return {
+    type: "context",
+    block_id: `locked-notice:${questionId}`,
+    elements: [{ type: "mrkdwn", text: t("card.locked_notice") }],
+  };
+}
+
 /**
  * Narrow slice of the Slack web client used by `editRosterIntoCard`. The function
  * only calls `chat.update`, so we accept the smaller surface — production passes
@@ -222,26 +232,33 @@ export async function editRosterIntoCard(params: EditRosterParams): Promise<void
     return;
   }
 
-  const allAnswers = await scoped.loadAnswers();
-  const forThisQuestion = allAnswers.filter((a) => a.questionId === question.id);
-  const cheats = await scoped.loadCheats();
-  const cheaterIds = new Set(
-    cheats.filter((c) => c.questionId === question.id).map((c) => c.cheaterUserId),
-  );
-  const filtered = forThisQuestion.filter((a) => !cheaterIds.has(a.userId));
-
-  const tagPlayers = question.tagPlayers ?? true;
-  const users = await data.loadUsers();
-  const nameOf = (userId: string): string =>
-    renderPlayerRef(userId, users.get(userId)?.displayName ?? userId, tagPlayers);
-
   // Always rebuild from postedBlocks — never from the current Slack state — so
-  // edits can't accumulate stale roster blocks.
-  const updatedBlocks: KnownBlock[] = [
-    ...question.postedBlocks,
-    buildRosterDivider(question.id),
-    buildRosterBlock(filtered, question, handler, nameOf),
-  ];
+  // edits can't accumulate stale roster blocks. A locked question drops the answer
+  // buttons and the live roster in favour of the lock notice; an unlocked one keeps
+  // both (the buttons live inside postedBlocks, so unlocking restores them for free).
+  let updatedBlocks: KnownBlock[];
+  if (question.answerLocked === true) {
+    updatedBlocks = [...stripAnswerButtons(question.postedBlocks), buildLockedNotice(question.id)];
+  } else {
+    const allAnswers = await scoped.loadAnswers();
+    const forThisQuestion = allAnswers.filter((a) => a.questionId === question.id);
+    const cheats = await scoped.loadCheats();
+    const cheaterIds = new Set(
+      cheats.filter((c) => c.questionId === question.id).map((c) => c.cheaterUserId),
+    );
+    const filtered = forThisQuestion.filter((a) => !cheaterIds.has(a.userId));
+
+    const tagPlayers = question.tagPlayers ?? true;
+    const users = await data.loadUsers();
+    const nameOf = (userId: string): string =>
+      renderPlayerRef(userId, users.get(userId)?.displayName ?? userId, tagPlayers);
+
+    updatedBlocks = [
+      ...question.postedBlocks,
+      buildRosterDivider(question.id),
+      buildRosterBlock(filtered, question, handler, nameOf),
+    ];
+  }
 
   try {
     await client.chat.update({ channel, ts, blocks: updatedBlocks });

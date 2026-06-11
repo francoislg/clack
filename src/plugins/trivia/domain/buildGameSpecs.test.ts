@@ -297,6 +297,86 @@ describe("buildGameSpecs", () => {
     });
   });
 
+  describe("lockCron — opt-in voting lock schedule", () => {
+    it("game without lockCron emits no lock spec (legacy behavior)", () => {
+      const specs = buildGameSpecs([baseGame]);
+      assert.ok(!specs.some((s) => s.specKey === "ops:lock"));
+    });
+
+    it("game with lockCron emits an additional ops:lock spec", () => {
+      const specs = buildGameSpecs([{ ...baseGame, lockCron: "0 19 * * 1-5" }]);
+      assert.equal(specs.length, 3);
+      assert.deepEqual(
+        specs.map((s) => s.specKey),
+        ["ops:question", "ops:lock", "ops:reveal"],
+      );
+    });
+
+    it("lock spec is channelless (no channel field)", () => {
+      const lock = buildGameSpecs([{ ...baseGame, lockCron: "0 19 * * 1-5" }]).find(
+        (s) => s.specKey === "ops:lock",
+      );
+      assert.ok(lock);
+      assert.equal(lock.channel, undefined);
+    });
+
+    it("lock spec carries the lockCron expression + game timezone + descriptive name", () => {
+      const lock = buildGameSpecs([{ ...baseGame, lockCron: "0 19 * * 1-5" }]).find(
+        (s) => s.specKey === "ops:lock",
+      );
+      assert.ok(lock);
+      assert.equal(lock.cronExpression, "0 19 * * 1-5");
+      assert.equal(lock.timezone, "America/Montreal");
+      assert.equal(lock.name, "Trivia: ops — lock");
+    });
+
+    it("lock spec's requiredTools is just lock_questions — excludes post_questions", () => {
+      const lock = buildGameSpecs([{ ...baseGame, lockCron: "0 19 * * 1-5" }]).find(
+        (s) => s.specKey === "ops:lock",
+      );
+      assert.ok(lock);
+      assert.deepEqual(lock.requiredTools, ["mcp__trivia__lock_questions"]);
+      assert.ok(!lock.requiredTools.includes("mcp__trivia__post_questions"));
+    });
+
+    it("lock spec is set to skipped submitResponseMode and attaches the trivia topic", () => {
+      const lock = buildGameSpecs([{ ...baseGame, lockCron: "0 19 * * 1-5" }]).find(
+        (s) => s.specKey === "ops:lock",
+      );
+      assert.ok(lock);
+      assert.equal(lock.submitResponseMode, "skipped");
+      assert.deepEqual(lock.attachedTopics, ["trivia"]);
+    });
+
+    it("lock spec uses the LOCK_QUESTIONS_INSTRUCTIONS prompt with {game} substituted", () => {
+      const lock = buildGameSpecs([{ ...baseGame, lockCron: "0 19 * * 1-5" }]).find(
+        (s) => s.specKey === "ops:lock",
+      );
+      assert.ok(lock);
+      assert.match(lock.prompt, /lock_questions/);
+      assert.match(lock.prompt, /Freeze voting for game `ops`/);
+    });
+
+    it("skipDates propagates to the lock spec", () => {
+      const offDays = [{ date: "12-25", label: "Christmas" }];
+      const lock = buildGameSpecs([{ ...baseGame, lockCron: "0 19 * * 1-5" }], offDays).find(
+        (s) => s.specKey === "ops:lock",
+      );
+      assert.ok(lock);
+      assert.deepEqual(lock.skipDates, offDays);
+    });
+
+    it("prep + lock together emit four specs in question/lock/reveal order after prep", () => {
+      const specs = buildGameSpecs([
+        { ...baseGame, prepCron: "30 8 * * 1-5", lockCron: "0 19 * * 1-5" },
+      ]);
+      assert.deepEqual(
+        specs.map((s) => s.specKey),
+        ["ops:prep", "ops:question", "ops:lock", "ops:reveal"],
+      );
+    });
+  });
+
   describe("offDays propagation", () => {
     it("propagates offDays into every emitted spec's skipDates", () => {
       const offDays = [

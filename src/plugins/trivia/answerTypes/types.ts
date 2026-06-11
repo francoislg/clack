@@ -20,7 +20,12 @@
 
 import type { SlackBlocks } from "../../../slack/blocks.js";
 import type { ClackSdk } from "../../sdk.js";
-import type { JsonValue, JudgeLeniency, TriviaConfig } from "../core/configTypes.js";
+import type {
+  JsonValue,
+  JudgeLeniency,
+  TriviaChoicesConfig,
+  TriviaConfig,
+} from "../core/configTypes.js";
 import type { CascadeContext } from "../core/cascadeAxes.js";
 import type {
   ScopedTriviaDataLayer,
@@ -147,18 +152,23 @@ export type TriviaQuestionBase = Omit<
 >;
 
 /**
- * Per-format save context. Only `config` is needed today (for choice bounds),
- * but the shape leaves room for future cross-format inputs.
+ * Per-format save context. Carries the raw `config` plus the per-coordinate cascade
+ * values that handlers validate or stamp against. `save_question` resolves the cascade
+ * values once and hands them down so format-specific logic stays in the handler.
  */
 export interface SaveValidationContext {
   config: TriviaConfig | null;
   /**
    * The cascade-resolved `judgeLeniency` for this coordinate. Handlers that judge
    * answers (freeform) stamp it on the record when it differs from the default; handlers
-   * that don't (boolean/choice) ignore it. Resolved once by `save_question` via
-   * `resolveCascade` and handed down so format-specific stamping stays in the handler.
+   * that don't (boolean/choice) ignore it.
    */
   resolvedJudgeLeniency: JudgeLeniency;
+  /**
+   * The cascade-resolved choice option-count bounds for this coordinate. The choice
+   * handler validates `choices.length` against it; other handlers ignore it.
+   */
+  resolvedChoiceBounds: TriviaChoicesConfig;
 }
 
 /**

@@ -420,4 +420,99 @@ describe("editRosterIntoCard", () => {
     assert.match(text, /@Alice/, "uses the display name");
     assert.doesNotMatch(text, /<@U_ALICE>/, "no pinging mention when tagPlayers=false");
   });
+
+  describe("answerLocked branch", () => {
+    function lockableQuestion(overrides: Partial<TriviaQuestion> = {}): TriviaQuestion {
+      const blocks: KnownBlock[] = [
+        { type: "header", text: { type: "plain_text", text: "🎯 TRIVIA TIME!" } },
+        { type: "section", text: { type: "mrkdwn", text: "Statement" } },
+        { type: "actions", block_id: "vote-actions:q-1", elements: [] },
+      ];
+      return { ...postedQuestion(), postedBlocks: blocks, ...overrides };
+    }
+
+    function blockIds(call: CapturedCall): string[] {
+      return call.blocks.map((b) => (b as { block_id?: string }).block_id ?? "");
+    }
+
+    it("strips the answer buttons and shows the lock notice (no roster) when locked", async () => {
+      const data = createInMemoryDataLayer();
+      const scoped = data.forGame(FIXTURE_GAME_NAME);
+      const question = lockableQuestion({ answerLocked: true });
+      await scoped.saveQuestion(question);
+      await scoped.saveAnswer(booleanRow("U_ALICE", 1000, true));
+      await data.saveUser({ userId: "U_ALICE", displayName: "Alice", joinedAt: 0 });
+
+      const client = fakeClient();
+      await editRosterIntoCard({
+        client,
+        scoped,
+        data,
+        question,
+        handler: getAnswerTypeHandler(question.answersFormat),
+      });
+
+      const ids = blockIds(client.calls[0]);
+      assert.ok(!ids.includes("vote-actions:q-1"), "answer buttons stripped");
+      assert.ok(
+        !ids.some((id) => id.startsWith("freeform-answered-roster:")),
+        "no live roster on a locked card",
+      );
+      assert.equal(ids[ids.length - 1], "locked-notice:q-1", "lock notice is the last block");
+      assert.match(rosterText(client.calls[0]), /Locked in/i);
+    });
+
+    it("keeps the buttons and appends the roster when not locked", async () => {
+      const data = createInMemoryDataLayer();
+      const scoped = data.forGame(FIXTURE_GAME_NAME);
+      const question = lockableQuestion(); // answerLocked absent
+      await scoped.saveQuestion(question);
+      await scoped.saveAnswer(booleanRow("U_ALICE", 1000, true));
+      await data.saveUser({ userId: "U_ALICE", displayName: "Alice", joinedAt: 0 });
+
+      const client = fakeClient();
+      await editRosterIntoCard({
+        client,
+        scoped,
+        data,
+        question,
+        handler: getAnswerTypeHandler(question.answersFormat),
+      });
+
+      const ids = blockIds(client.calls[0]);
+      assert.ok(ids.includes("vote-actions:q-1"), "answer buttons retained");
+      assert.ok(!ids.includes("locked-notice:q-1"), "no lock notice when unlocked");
+      assert.match(rosterText(client.calls[0]), /<@U_ALICE>/, "roster footer present");
+    });
+
+    it("restores the buttons when a previously-locked question is unlocked", async () => {
+      const data = createInMemoryDataLayer();
+      const scoped = data.forGame(FIXTURE_GAME_NAME);
+      const question = lockableQuestion();
+      await scoped.saveQuestion(question);
+
+      const client = fakeClient();
+      // Lock, then unlock — both rebuild from the same postedBlocks.
+      await editRosterIntoCard({
+        client,
+        scoped,
+        data,
+        question: { ...question, answerLocked: true },
+        handler: getAnswerTypeHandler(question.answersFormat),
+      });
+      await editRosterIntoCard({
+        client,
+        scoped,
+        data,
+        question: { ...question, answerLocked: false },
+        handler: getAnswerTypeHandler(question.answersFormat),
+      });
+
+      const lockedIds = blockIds(client.calls[0]);
+      const unlockedIds = blockIds(client.calls[1]);
+      assert.ok(!lockedIds.includes("vote-actions:q-1"), "buttons gone while locked");
+      assert.ok(unlockedIds.includes("vote-actions:q-1"), "buttons back after unlock");
+      assert.ok(!unlockedIds.includes("locked-notice:q-1"), "notice gone after unlock");
+    });
+  });
 });

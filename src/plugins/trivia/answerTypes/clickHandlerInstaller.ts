@@ -126,18 +126,25 @@ export function installClickableVoteHandler(
       return;
     }
 
+    const notifyClosed = async (text: string): Promise<void> => {
+      if (typeof respond !== "function") return;
+      try {
+        await respond({ response_type: "ephemeral", text });
+      } catch (err) {
+        logger.warn(`[trivia:vote] ephemeral respond failed: ${err}`);
+      }
+    };
+
     // Lock-out: post-reveal clicks ack silently and show an ephemeral note.
     if (question.processedAt !== undefined) {
-      if (typeof respond === "function") {
-        try {
-          await respond({
-            response_type: "ephemeral",
-            text: t("error.answers_closed_round"),
-          });
-        } catch (err) {
-          logger.warn(`[trivia:vote] ephemeral respond failed: ${err}`);
-        }
-      }
+      await notifyClosed(t("error.answers_closed_round"));
+      return;
+    }
+
+    // Lock-out: a click on a frozen question (buttons removed, but a stale client
+    // may still fire) ack's and shows the locked note without writing an answer.
+    if (question.answerLocked === true) {
+      await notifyClosed(t("error.answers_locked"));
       return;
     }
 

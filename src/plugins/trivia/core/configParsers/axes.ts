@@ -519,6 +519,12 @@ export const triviaJudgeLeniencyZod = z.enum(
   JUDGE_LENIENCY_KEYS as readonly [JudgeLeniency, ...JudgeLeniency[]],
 );
 
+/** Shared zod schema for the `choices` axis (structural; `2 ≤ min ≤ max ≤ 4` in `validateTriviaChoicesConfig`). */
+export const triviaChoicesZod = z.object({
+  min: z.number().int(),
+  max: z.number().int(),
+});
+
 /**
  * The axis zod schemas as a single map — handy for tools that splat them into
  * the input schema with `...axisFieldsZod` rather than naming each axis.

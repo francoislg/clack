@@ -91,7 +91,8 @@ export interface TriviaContextEntry {
 
 /**
  * Bounds for the number of options in a `choice` question. Both bounds must satisfy
- * `2 <= min <= max <= 4`. Workspace-only — not season-overridable.
+ * `2 <= min <= max <= 4`. A first-wins cascade axis: resolves
+ * `slot → season → game → workspace → DEFAULT_TRIVIA_CHOICES`.
  */
 export interface TriviaChoicesConfig {
   min: number;
@@ -302,6 +303,15 @@ export interface TriviaGame extends CascadeAxes {
    * the bot — see the trivia management admin instruction for derivation guidance.
    */
   prepCron?: string;
+  /**
+   * Optional cron expression for the lock run. When set, the plugin emits an extra
+   * channelless cron spec (`<name>:lock`) whose only `requiredTool` is `lock_questions`
+   * — it freezes voting on every posted-but-unrevealed question by stripping the answer
+   * buttons and showing a "locked in" notice. When absent, no lock spec is emitted and
+   * voting stays open until reveal. Typically scheduled between `questionCron` and
+   * `revealCron` (e.g. at an event's kickoff). Admins set it explicitly via `upsert_game`.
+   */
+  lockCron?: string;
   /** IANA timezone the cron expressions are interpreted in. */
   timezone: string;
   /** When `false`, the plugin skips this entry during cron reconcile AND per-game write tools refuse. Defaults to `true`. */
@@ -407,10 +417,8 @@ export interface OffDay {
  */
 export interface TriviaConfig extends CascadeAxes {
   seasons?: TriviaSeasonsConfig;
-  // The 13 cascading-axis fields are the workspace tier and are inherited from
-  // CascadeAxes — the single source of truth.
-  /** Bounds for choice-question option counts. Workspace-only — not a cascade axis. */
-  choices?: TriviaChoicesConfig;
+  // The 14 cascading-axis fields are the workspace tier and are inherited from
+  // CascadeAxes — the single source of truth. `choices` is among them.
   /** Declarative trivia games. */
   games?: TriviaGame[];
   /** Plugin-level off-days, shared by every entry in `games[]`. */

@@ -6,6 +6,7 @@ import {
   SEND_QUESTIONS_INSTRUCTIONS,
   PREP_QUESTIONS_INSTRUCTIONS,
   POST_QUESTIONS_INSTRUCTIONS,
+  LOCK_QUESTIONS_INSTRUCTIONS,
   buildProcessRevealInstructions,
 } from "../prompts/scheduledPrompts.js";
 
@@ -37,6 +38,14 @@ const PREP_REQUIRED_TOOLS = [
   "mcp__trivia__find_previous_subjects",
   "mcp__trivia__save_question",
 ];
+
+/**
+ * Lock-cron required-tools list — the single tool `lock_questions`. Like the prep spec,
+ * the lock spec is channelless (so `submit_response` is locked to `{ skip_response: true }`)
+ * AND deliberately excludes `post_questions`: locking only edits existing cards, it must
+ * never deliver a new message. Either restriction alone would suffice; both are present.
+ */
+const LOCK_REQUIRED_TOOLS = ["mcp__trivia__lock_questions"];
 
 /**
  * Reveal required-tools list. `settle_question` stamps a prediction's now-known outcome
@@ -138,6 +147,25 @@ export function buildGameSpecs(games: TriviaGame[], offDays?: OffDay[]): CronJob
       attentionLevel: "low",
       ...(skipDates ? { skipDates } : {}),
     });
+
+    // Lock spec — only emitted when the game opts in via `lockCron`. Channelless
+    // (no `channel` field) so the SDK locks `submit_response` to `{ skip_response: true }`,
+    // AND `requiredTools` is just `lock_questions` (no `post_questions`) — locking edits
+    // existing cards via chat.update and must never post a new message.
+    if (game.lockCron !== undefined) {
+      specs.push({
+        specKey: `${game.name}:lock`,
+        name: `Trivia: ${game.name} — lock`,
+        cronExpression: game.lockCron,
+        // Intentionally NO `channel` field — channelless cron.
+        prompt: substituteGame(LOCK_QUESTIONS_INSTRUCTIONS, game.name),
+        timezone: game.timezone,
+        requiredTools: LOCK_REQUIRED_TOOLS,
+        submitResponseMode: "skipped",
+        attachedTopics: ["trivia"],
+        ...(skipDates ? { skipDates } : {}),
+      });
+    }
 
     specs.push({
       specKey: `${game.name}:reveal`,

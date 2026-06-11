@@ -37,9 +37,11 @@ import {
   questionTypeZod,
   promptMediumZod,
   triviaDifficultyRatioZod,
+  triviaChoicesZod,
   triviaHintZod,
   triviaJudgeLeniencyZod,
   validateHintConfig,
+  validateTriviaChoicesConfig,
 } from "../../core/configParsers/axes.js";
 import type {
   JudgeLeniency,
@@ -51,6 +53,7 @@ import type {
   PromptMediumWeights,
   TriviaFreeformAnswerShapeWeights,
   TriviaContextEntry,
+  TriviaChoicesConfig,
   TriviaDifficultyConfig,
   TriviaDifficultyRatioConfig,
   TriviaHintConfig,
@@ -206,6 +209,12 @@ export function createUpsertSeasonTool(
         .describe(
           'Per-season tier of the reveal-judge leniency axis for freeform answers. One of `"strict"` | `"strict-with-typos"` | `"lenient"`. `"strict"` forgives only case, numeral↔word substitution, decade-form, and singular/plural; `"strict-with-typos"` (the workspace default) adds typo + loose-writing tolerance; `"lenient"` accepts any rendering that unmistakably shows the player knew the answer. Resolved at save time and stamped on each freeform question. Cascade: `slot → season → game → workspace → "strict-with-typos"`. Whole-value replace per tier. On UPDATE: passing `null` clears the field. Mid-season mutation permitted.',
         ),
+      choices: triviaChoicesZod
+        .nullable()
+        .optional()
+        .describe(
+          "Per-season tier of the choice option-count bounds axis. Object shape `{ min, max }` with `2 ≤ min ≤ max ≤ 4`. Bounds how many options a `choice` question gets (get_ideas rolls a count in `[min, max]`; save_question validates against it). Cascade: `slot → season → game → workspace → { min: 4, max: 4 }`. Whole-object replace per tier. On UPDATE: passing `null` clears the field. Mid-season mutation permitted.",
+        ),
     },
     async (args) => {
       try {
@@ -351,6 +360,13 @@ export function createUpsertSeasonTool(
             ? undefined
             : args.judgeLeniency;
 
+        let choices: TriviaChoicesConfig | undefined;
+        if (args.choices !== undefined && args.choices !== null) {
+          const validated = validateTriviaChoicesConfig(args.choices, "choices");
+          if (!validated.ok) return errorResult(validated.error);
+          choices = validated.value;
+        }
+
         const liveAnswersVisible: boolean | undefined =
           args.liveAnswersVisible === undefined || args.liveAnswersVisible === null
             ? undefined
@@ -385,6 +401,7 @@ export function createUpsertSeasonTool(
           ...(additionalInstructions !== undefined ? { additionalInstructions } : {}),
           ...(hint !== undefined ? { hint } : {}),
           ...(judgeLeniency !== undefined ? { judgeLeniency } : {}),
+          ...(choices !== undefined ? { choices } : {}),
         };
 
         try {
@@ -422,6 +439,7 @@ export function createUpsertSeasonTool(
           hasAdditionalInstructions: entry.additionalInstructions !== undefined,
           hasHint: entry.hint !== undefined,
           hasJudgeLeniency: entry.judgeLeniency !== undefined,
+          hasChoices: entry.choices !== undefined,
         });
       }
 
@@ -597,6 +615,15 @@ export function createUpsertSeasonTool(
         updatedJudgeLeniency = args.judgeLeniency;
       }
 
+      let updatedChoices: TriviaChoicesConfig | undefined = existing.choices;
+      if (args.choices === null) {
+        updatedChoices = undefined;
+      } else if (args.choices !== undefined) {
+        const validated = validateTriviaChoicesConfig(args.choices, "choices");
+        if (!validated.ok) return errorResult(validated.error);
+        updatedChoices = validated.value;
+      }
+
       const updated: SeasonEntry = {
         slug: existing.slug,
         startedAt: args.startedAt ?? existing.startedAt,
@@ -633,6 +660,7 @@ export function createUpsertSeasonTool(
           : {}),
         ...(updatedHint !== undefined ? { hint: updatedHint } : {}),
         ...(updatedJudgeLeniency !== undefined ? { judgeLeniency: updatedJudgeLeniency } : {}),
+        ...(updatedChoices !== undefined ? { choices: updatedChoices } : {}),
       };
 
       const effectiveEnd = updated.endedAt ?? updated.expectedEndAt;
@@ -677,6 +705,7 @@ export function createUpsertSeasonTool(
         hasAdditionalInstructions: updated.additionalInstructions !== undefined,
         hasHint: updated.hint !== undefined,
         hasJudgeLeniency: updated.judgeLeniency !== undefined,
+        hasChoices: updated.choices !== undefined,
       });
     },
   );

@@ -28,7 +28,7 @@ The system SHALL support two answer formats: `boolean` (true/false questions) an
 
 ### Requirement: Choice-question configuration
 
-The system SHALL accept an optional `trivia.answersFormat` configuration block — a map from answers-format name (`"boolean"` or `"choice"`) to a non-negative integer weight — and an optional `trivia.choices` configuration block with numeric `min` and `max` fields (defaults: `min: 2`, `max: 4`; both must satisfy `2 ≤ min ≤ max ≤ 4`). When `trivia.answersFormat` is absent or contains only the `"boolean"` key, the system SHALL behave identically to pre-choice deployments (no choice questions are generated).
+The system SHALL accept an optional `trivia.answersFormat` configuration block — a map from answers-format name (`"boolean"` or `"choice"`) to a non-negative integer weight — and an optional `choices` configuration block with numeric `min` and `max` fields (both must satisfy `2 ≤ min ≤ max ≤ 4`; built-in default when absent at every tier is `DEFAULT_TRIVIA_CHOICES`). The `choices` block is a cascading axis settable at the slot, season, game, and workspace (`trivia.choices`) tiers, validated identically at every tier. When `trivia.answersFormat` is absent or contains only the `"boolean"` key, the system SHALL behave identically to pre-choice deployments (no choice questions are generated).
 
 #### Scenario: Default configuration generates boolean questions only
 
@@ -54,6 +54,12 @@ The system SHALL accept an optional `trivia.answersFormat` configuration block �
 - **WHEN** the config is loaded
 - **THEN** the system rejects the config with a validation error indicating bounds must satisfy `2 ≤ min ≤ max ≤ 4`
 
+#### Scenario: Invalid choice bounds rejected at any tier
+
+- **GIVEN** a game carries `choices: { min: 1, max: 4 }`
+- **WHEN** the config is loaded (or `upsert_game` is called with those bounds)
+- **THEN** the system rejects it with the same `2 ≤ min ≤ max ≤ 4` validation error used at the workspace tier
+
 ### Requirement: answersFormat is per-season, with config fallback
 
 `questionsTypes` resolution at `get_ideas` time SHALL follow this priority:
@@ -63,7 +69,7 @@ The system SHALL accept an optional `trivia.answersFormat` configuration block �
 3. Otherwise (seasons disabled, `now` falls in a timeline gap, the current entry has no `format` or the slot has no `questionTypes`, AND the current entry has no top-level `questionTypes` field), use `config.trivia.questionsTypes`.
 4. Otherwise (all sources absent), default to `{ "boolean": 1 }` (pure-boolean, equivalent to pre-change behavior).
 
-The system SHALL re-read these sources on every `get_ideas` call — no caching, no pre-computation. The `choices.{min, max}` setting SHALL NOT be season-overridable or slot-overridable — it lives only at `config.trivia.choices` with defaults `{ min: 2, max: 4 }`.
+The system SHALL re-read these sources on every `get_ideas` call — no caching, no pre-computation. The `choices.{min, max}` setting SHALL resolve through the full cascade (`slot → season → game → workspace → built-in default`) like every other cascade axis — see the dedicated "Choice option-count bounds cascade through all tiers" requirement.
 
 #### Scenario: Slot's questionTypes overrides season's
 
@@ -124,18 +130,11 @@ The system SHALL re-read these sources on every `get_ideas` call — no caching,
 - **WHEN** `upsert_season(currentSlug, { questionTypes: { "choice": 1 } })` is called and `get_ideas` is called again
 - **THEN** the second call uses the updated weights
 
-#### Scenario: choices.min/max is not per-season or per-slot
-
-- **GIVEN** `config.trivia.choices` is `{ min: 2, max: 4 }`
-- **AND** the active season has a `format` with slots that specify `questionTypes`
-- **WHEN** `get_ideas` reads the choice bounds (for a choice-typed roll)
-- **THEN** the bounds come from `config.trivia.choices` regardless of which slot is in play or what fields the season carries
-
 ### Requirement: Server-rolled choice metadata in get_ideas
 
 When `suggestedAnswersFormat` resolves to `"choice"`, `get_ideas` SHALL additionally return:
 
-- `suggestedChoiceCount`: a uniform random integer in `[min, max]` (where `min` and `max` come from the active `trivia.choices` source).
+- `suggestedChoiceCount`: a uniform random integer in `[min, max]`, where `min` and `max` are the cascade-resolved choice bounds for the call's coordinate (`resolveCascade("choices", cascadeCtx)`: slot → season → game → workspace → built-in default).
 - `suggestedCorrectIndex`: a uniform random integer in `[0, suggestedChoiceCount)`.
 
 When `suggestedAnswersFormat` resolves to `"boolean"`, the boolean-path `suggestedAnswer` SHALL continue to be returned as before, and `suggestedChoiceCount` and `suggestedCorrectIndex` SHALL NOT be returned.
@@ -160,10 +159,10 @@ When `suggestedAnswersFormat` resolves to `"boolean"`, the boolean-path `suggest
 
 ### Requirement: save_question accepts choice-question shape
 
-The `save_question` MCP tool SHALL accept the discriminated arguments for choice questions: `answersFormat: "choice"`, `choices: string[]` (length within the active `[min, max]` bounds), and `correctIndex: number` (an integer in `[0, choices.length)`). The tool SHALL validate:
+The `save_question` MCP tool SHALL accept the discriminated arguments for choice questions: `answersFormat: "choice"`, `choices: string[]` (length within the cascade-resolved `[min, max]` bounds for the question's coordinate), and `correctIndex: number` (an integer in `[0, choices.length)`). The tool SHALL validate:
 
 - `answersFormat` MUST be `"choice"` for the choice path (and `"boolean"` for the boolean path; the field is now required on writes).
-- `choices.length` MUST be ≥ active `min` and ≤ active `max`.
+- `choices.length` MUST be ≥ resolved `min` and ≤ resolved `max`, where `min`/`max` come from `resolveCascade("choices", …)` evaluated at the saved question's slot/season/game/workspace coordinate (handed to the choice handler as a pre-resolved value, mirroring `resolvedJudgeLeniency`).
 - `correctIndex` MUST be an integer in `[0, choices.length)`.
 - `new Set(choices.map(c => c.trim().toLowerCase())).size === choices.length` — no duplicate or whitespace-equivalent choice strings.
 - Each choice string MUST be 1–100 characters after trimming.
@@ -191,11 +190,11 @@ On validation failure, the tool SHALL return a structured error indicating which
 - **WHEN** `save_question` is called with `choices: ["Paris", "  PARIS  ", "London", "Rome"]`
 - **THEN** the tool returns a validation error indicating choices must be unique (after trimming and case-folding)
 
-#### Scenario: Choices out of configured bounds rejected
+#### Scenario: Choices out of resolved bounds rejected
 
-- **GIVEN** active `min: 2`, `max: 4`
-- **WHEN** `save_question` is called with `choices` of length 5
-- **THEN** the tool returns a validation error indicating choices length is outside `[min, max]`
+- **GIVEN** the question's coordinate resolves to bounds `min: 2`, `max: 3`
+- **WHEN** `save_question` is called with `choices` of length 4
+- **THEN** the tool returns a validation error indicating choices length is outside the resolved `[min, max]`
 
 #### Scenario: Choice question with isTrue rejected
 
@@ -387,3 +386,42 @@ A `TriviaQuestion` record with `answersFormat: "freeform"` SHALL carry `expected
 
 - **WHEN** `save_question` is called with `answersFormat: "freeform"` and `isTrue: true` supplied
 - **THEN** the tool returns an error indicating `isTrue` is not valid for freeform questions
+
+### Requirement: Choice option-count bounds cascade through all tiers
+
+The `choices: { min, max }` option-count bounds SHALL be a first-wins cascade axis resolved through `resolveCascade("choices", ctx)`, following the standard order `slot → season → game → workspace → built-in default` with whole-object replace per tier (no field-level merge across tiers). The built-in default is `DEFAULT_TRIVIA_CHOICES` (`{ min: 4, max: 4 }`). Both consumers — the `get_ideas` choice-count roll and the `save_question` length validation — SHALL resolve bounds through this single path for the same coordinate, so a count the roll produces always passes save validation. The bounds SHALL NOT be stamped on the `TriviaQuestion` record (the stored `choices` array already encodes the resolved count).
+
+#### Scenario: Game override wins over workspace
+
+- **GIVEN** `config.trivia.choices` is `{ min: 4, max: 4 }` and a game carries `choices: { min: 2, max: 2 }`
+- **WHEN** `get_ideas` rolls a choice question for that game (no season active, no slot override)
+- **THEN** `suggestedChoiceCount` is `2`
+
+#### Scenario: Per-slot pacing via game format
+
+- **GIVEN** a game's `format.questions` is `[{ choices: { min: 2, max: 2 } }, { choices: { min: 4, max: 4 } }]` and no active season
+- **WHEN** `get_ideas` rolls a choice question for `slot: 0`, then for `slot: 1`
+- **THEN** slot 0 yields `suggestedChoiceCount: 2` and slot 1 yields `suggestedChoiceCount: 4`
+
+#### Scenario: Season override wins over game
+
+- **GIVEN** seasons are enabled, the active season carries `choices: { min: 3, max: 3 }`, and the game carries `choices: { min: 2, max: 2 }`
+- **WHEN** `get_ideas` rolls a choice question (no per-slot override)
+- **THEN** `suggestedChoiceCount` is `3`
+
+#### Scenario: Absent at every tier falls back to default
+
+- **GIVEN** no `choices` value is set at the slot, season, game, or workspace tier
+- **WHEN** `get_ideas` rolls a choice question
+- **THEN** the bounds are `DEFAULT_TRIVIA_CHOICES` (`{ min: 4, max: 4 }`) and `suggestedChoiceCount` is `4`
+
+#### Scenario: Roll and save agree on bounds
+
+- **GIVEN** a coordinate resolves to bounds `{ min: 2, max: 2 }`
+- **WHEN** `get_ideas` rolls `suggestedChoiceCount: 2` for that coordinate and `save_question` is called with `choices` of length 2 for the same coordinate
+- **THEN** `save_question` accepts the question (no bounds error), because both used `resolveCascade("choices", …)`
+
+#### Scenario: explain_cascade reports the choices ladder
+
+- **WHEN** a `member`+ user calls `explain_cascade({ game: "x", slot: 0 })`
+- **THEN** the `choices` axis appears in the result with its resolved `value`, winning `tier`, and per-tier `ladder`
