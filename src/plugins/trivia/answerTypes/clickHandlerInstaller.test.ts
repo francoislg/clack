@@ -3,9 +3,13 @@ import assert from "node:assert/strict";
 import { installClickableVoteHandler } from "./clickHandlerInstaller.js";
 import { booleanAnswerHandler } from "./boolean.js";
 import { choiceAnswerHandler } from "./choice.js";
-import { createInMemoryDataLayer, FIXTURE_GAME_NAME } from "../testHelpers.js";
+import {
+  createInMemoryDataLayer,
+  type InMemoryDataLayer,
+  FIXTURE_GAME_NAME,
+} from "../testHelpers.js";
 import type { PluginActionHandler } from "../../sdk.js";
-import type { TriviaDataLayer, TriviaQuestion } from "../core/types.js";
+import type { TriviaQuestion } from "../core/types.js";
 
 /**
  * Integration-style tests for the shared `vote:` action handler installed by
@@ -110,7 +114,7 @@ function makeChoiceQuestion(overrides: Partial<TriviaQuestion> = {}): TriviaQues
   };
 }
 
-function setupBoolean(): { data: TriviaDataLayer; installed: CapturedRegistration } {
+function setupBoolean(): { data: InMemoryDataLayer; installed: CapturedRegistration } {
   const sdk = fakeSdk();
   const data = createInMemoryDataLayer();
   installClickableVoteHandler(
@@ -122,7 +126,7 @@ function setupBoolean(): { data: TriviaDataLayer; installed: CapturedRegistratio
   return { data, installed: sdk.registrations[0] };
 }
 
-function setupChoice(): { data: TriviaDataLayer; installed: CapturedRegistration } {
+function setupChoice(): { data: InMemoryDataLayer; installed: CapturedRegistration } {
   const sdk = fakeSdk();
   const data = createInMemoryDataLayer();
   installClickableVoteHandler(
@@ -152,9 +156,9 @@ describe("installClickableVoteHandler — vote click flow", () => {
     assert.equal(answers[0].correct, true);
     assert.equal(answers[0].answer, true);
 
-    // Auto-registers the user.
-    const users = await data.loadUsers();
-    assert.equal(users.has("U_ALICE"), true);
+    // Records the user's join time in trivia's registry namespace.
+    const joined = await data.getUserData("U_ALICE");
+    assert.equal(joined?.joinedAt !== undefined, true);
   });
 
   it("re-click overwrites the same user's existing answer instead of inserting a duplicate row", async () => {

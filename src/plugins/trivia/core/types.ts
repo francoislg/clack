@@ -245,11 +245,19 @@ export interface TriviaQuestion {
   invalidatedReason?: string;
 }
 
-// `cheatAttempts` is cumulative across seasons — season rollover does not reset it.
+/** Plugin-facing identity, sourced from the central user registry via `sdk.users`. */
 export interface TriviaUser {
   userId: string;
   displayName: string;
-  joinedAt: number;
+}
+
+/**
+ * Trivia's per-user namespace slice in the central registry (`plugins.trivia`). `joinedAt`
+ * is the first-answer timestamp; `cheatAttempts` is the cumulative cheat tally (never reset
+ * on season rollover).
+ */
+export interface TriviaUserData {
+  joinedAt?: number;
   cheatAttempts?: number;
 }
 
@@ -396,20 +404,19 @@ export interface TriviaDataLayer {
   /** Global — shared across all games. */
   loadCategories(): Promise<string[]>;
   saveCategories(categories: string[]): Promise<void>;
-  /** Global — shared across all games (incl. cumulative `cheatAttempts`). */
+  /** Global identity lookup, sourced from the central user registry (`sdk.users.list`). */
   loadUsers(): Promise<Map<string, TriviaUser>>;
-  saveUser(u: TriviaUser): Promise<void>;
   /**
-   * Atomic batch write for multiple user updates. Reads users.json once,
-   * merges the supplied entries (last-write-wins on duplicate userIds), and
-   * writes once. Callers that need to persist N independent user updates MUST
-   * use this instead of looping `saveUser` — `saveUser` is a read-modify-write
-   * over the whole file and concurrent calls race (later writes overwrite
-   * earlier ones with stale baselines).
-   *
-   * No-op when `users` is empty.
+   * Warm/refresh identities for `userIds` through the registry (`sdk.users.get`), so a
+   * subsequent `loadUsers` reflects current display names. Used at reveal time and on first
+   * answer. The registry handles TTL-gated refresh and Slack-fetch failures internally.
    */
-  saveUsers(users: readonly TriviaUser[]): Promise<void>;
+  refreshIdentities(userIds: readonly string[]): Promise<void>;
+  /**
+   * Record the first-answer join time in trivia's user namespace — only-if-absent, so a
+   * re-answer never overwrites the original join time.
+   */
+  recordJoin(userId: string): Promise<void>;
   /** Per-game data accessor — every read/write is scoped to `games/<name>/`. */
   forGame(name: string): ScopedTriviaDataLayer;
 }

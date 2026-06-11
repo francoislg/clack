@@ -1,6 +1,11 @@
 import { describe, it, beforeEach } from "vitest";
 import assert from "node:assert/strict";
-import { createInMemoryDataLayer, FIXTURE_GAME_NAME, fixtureGetGames } from "./testHelpers.js";
+import {
+  createInMemoryDataLayer,
+  FIXTURE_GAME_NAME,
+  fixtureGetGames,
+  type InMemoryDataLayer,
+} from "./testHelpers.js";
 import { createGetIdeasTool } from "./tools/questions/getIdeas.js";
 import { createSaveQuestionTool } from "./tools/questions/saveQuestion.js";
 import { createFindPreviousQuestionsTool } from "./tools/questions/findPreviousQuestions.js";
@@ -11,7 +16,6 @@ import {
 } from "./tools/questions/postQuestions.js";
 import { parseToolResult } from "../../tools/testHelpers.js";
 import type { TriviaConfig } from "./core/configTypes.js";
-import type { TriviaDataLayer } from "./core/types.js";
 import type { ClackSdk } from "../sdk.js";
 
 function fakeSdk(): Pick<ClackSdk, "getSlackClient" | "actionId" | "t" | "engageThread"> {
@@ -47,7 +51,7 @@ function makeConfig(trivia?: TriviaConfig): TriviaConfig {
 }
 
 describe("choice-questions end-to-end flow", () => {
-  let data: TriviaDataLayer;
+  let data: InMemoryDataLayer;
 
   beforeEach(async () => {
     data = createInMemoryDataLayer();

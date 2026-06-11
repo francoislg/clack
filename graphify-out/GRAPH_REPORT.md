@@ -1,12 +1,12 @@
 # Graph Report - claude-slack-bot  (2026-06-11)
 
 ## Corpus Check
-- 779 files · ~2,036,975 words
+- 783 files · ~2,040,366 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 3622 nodes · 7740 edges · 176 communities detected
-- Extraction: 82% EXTRACTED · 16% INFERRED · 0% AMBIGUOUS · INFERRED: 1236 edges (avg confidence: 0.8)
+- 3651 nodes · 7811 edges · 175 communities detected
+- Extraction: 82% EXTRACTED · 16% INFERRED · 0% AMBIGUOUS · INFERRED: 1249 edges (avg confidence: 0.8)
 - Token cost: 0 input · 0 output
 
 ## Community Hubs (Navigation)
@@ -52,35 +52,37 @@
 - [[_COMMUNITY_Community 39|Community 39]]
 - [[_COMMUNITY_Community 40|Community 40]]
 - [[_COMMUNITY_Community 41|Community 41]]
-- [[_COMMUNITY_Community 43|Community 43]]
+- [[_COMMUNITY_Community 42|Community 42]]
 - [[_COMMUNITY_Community 44|Community 44]]
 - [[_COMMUNITY_Community 45|Community 45]]
 - [[_COMMUNITY_Community 46|Community 46]]
 - [[_COMMUNITY_Community 47|Community 47]]
+- [[_COMMUNITY_Community 48|Community 48]]
 - [[_COMMUNITY_Community 50|Community 50]]
 - [[_COMMUNITY_Community 51|Community 51]]
-- [[_COMMUNITY_Community 52|Community 52]]
 - [[_COMMUNITY_Community 54|Community 54]]
+- [[_COMMUNITY_Community 55|Community 55]]
 - [[_COMMUNITY_Community 56|Community 56]]
-- [[_COMMUNITY_Community 57|Community 57]]
-- [[_COMMUNITY_Community 58|Community 58]]
+- [[_COMMUNITY_Community 59|Community 59]]
+- [[_COMMUNITY_Community 60|Community 60]]
 - [[_COMMUNITY_Community 61|Community 61]]
 - [[_COMMUNITY_Community 62|Community 62]]
 - [[_COMMUNITY_Community 63|Community 63]]
 - [[_COMMUNITY_Community 64|Community 64]]
 - [[_COMMUNITY_Community 65|Community 65]]
 - [[_COMMUNITY_Community 66|Community 66]]
-- [[_COMMUNITY_Community 67|Community 67]]
 - [[_COMMUNITY_Community 68|Community 68]]
+- [[_COMMUNITY_Community 69|Community 69]]
+- [[_COMMUNITY_Community 70|Community 70]]
 - [[_COMMUNITY_Community 71|Community 71]]
 - [[_COMMUNITY_Community 72|Community 72]]
 - [[_COMMUNITY_Community 73|Community 73]]
 - [[_COMMUNITY_Community 74|Community 74]]
 - [[_COMMUNITY_Community 75|Community 75]]
 - [[_COMMUNITY_Community 76|Community 76]]
-- [[_COMMUNITY_Community 77|Community 77]]
-- [[_COMMUNITY_Community 78|Community 78]]
-- [[_COMMUNITY_Community 79|Community 79]]
+- [[_COMMUNITY_Community 80|Community 80]]
+- [[_COMMUNITY_Community 81|Community 81]]
+- [[_COMMUNITY_Community 82|Community 82]]
 - [[_COMMUNITY_Community 83|Community 83]]
 - [[_COMMUNITY_Community 84|Community 84]]
 - [[_COMMUNITY_Community 85|Community 85]]
@@ -97,9 +99,9 @@
 - [[_COMMUNITY_Community 96|Community 96]]
 - [[_COMMUNITY_Community 97|Community 97]]
 - [[_COMMUNITY_Community 98|Community 98]]
-- [[_COMMUNITY_Community 99|Community 99]]
-- [[_COMMUNITY_Community 100|Community 100]]
 - [[_COMMUNITY_Community 101|Community 101]]
+- [[_COMMUNITY_Community 102|Community 102]]
+- [[_COMMUNITY_Community 103|Community 103]]
 - [[_COMMUNITY_Community 104|Community 104]]
 - [[_COMMUNITY_Community 105|Community 105]]
 - [[_COMMUNITY_Community 106|Community 106]]
@@ -183,13 +185,10 @@
 - [[_COMMUNITY_Community 184|Community 184]]
 - [[_COMMUNITY_Community 185|Community 185]]
 - [[_COMMUNITY_Community 186|Community 186]]
-- [[_COMMUNITY_Community 187|Community 187]]
-- [[_COMMUNITY_Community 188|Community 188]]
-- [[_COMMUNITY_Community 189|Community 189]]
 
 ## God Nodes (most connected - your core abstractions)
 1. `tool()` - 114 edges
-2. `resolve()` - 86 edges
+2. `resolve()` - 88 edges
 3. `buildQueryTools()` - 80 edges
 4. `t()` - 76 edges
 5. `errorMessage()` - 44 edges
@@ -204,10 +203,10 @@
   README.md → openspec/changes/add-worker-verification-gate/proposal.md
 - `Two-Tier Instruction System` --semantically_similar_to--> `In-Process MCP Tool Server`  [INFERRED] [semantically similar]
   README.md → openspec/changes/archive/2026-02-17-clack-mcp-tools/specs/clack-tools/spec.md
-- `main()` --calls--> `loadConfig()`  [INFERRED]
-  scripts/askClaudeWorktree.ts → src/plugins/casual-talk/config.ts
-- `main()` --calls--> `loadConfig()`  [INFERRED]
-  scripts/askClaudeWorktree.ts → src/config.ts
+- `main()` --calls--> `truncate()`  [INFERRED]
+  scripts/askClaudeWorktree.ts → src/plugins/trivia/answerTypes/freeform.ts
+- `main()` --calls--> `truncate()`  [INFERRED]
+  scripts/askClaudeWorktree.ts → src/text.ts
 - `loadConfigForManifest()` --calls--> `resolve()`  [INFERRED]
   scripts/generate-manifest.ts → src/streaming/toolLabels.ts
 
@@ -232,39 +231,39 @@
 
 ### Community 0 - "Community 0"
 Cohesion: 0.01
-Nodes (141): assembleBooleanVoters(), makeDeps(), buildExcludeSet(), isScoredAnswer(), assembleChoiceVoters(), makeDeps(), installClickableVoteHandler(), fakeSdk() (+133 more)
+Nodes (151): makeFakeSdk(), assembleBooleanVoters(), makeDeps(), buildExcludeSet(), isScoredAnswer(), assembleChoiceVoters(), makeDeps(), installClickableVoteHandler() (+143 more)
 
 ### Community 1 - "Community 1"
 Cohesion: 0.01
-Nodes (136): makeCtx(), makeRepo(), makeActiveChange(), makeCtx(), deleteClackMessage(), buildChangeSessionForPersistence(), setActiveChange(), updateActiveChangePrUrl() (+128 more)
+Nodes (148): makeCtx(), makeRepo(), deleteClackMessage(), findChangeEnabledRepo(), getChangeEnabledRepos(), isChangesEnabledForTrigger(), classifySession(), markSessionFailed() (+140 more)
 
 ### Community 2 - "Community 2"
 Cohesion: 0.02
-Nodes (204): loadConfig(), clearActiveChange(), getActiveChange(), defaultGetReusablePool(), fetchPRReviewContext(), getPRStatus(), parsePrUrl(), buildQuerySetup() (+196 more)
+Nodes (185): loadConfig(), clearActiveChange(), getActiveChange(), detectFollowUpCommand(), executeChange(), readBranchHead(), resolveChangesInstructions(), runClaude() (+177 more)
 
 ### Community 3 - "Community 3"
 Cohesion: 0.02
-Nodes (148): createAddAutoRespondRuleTool(), createCancelReminderTool(), createCancelScheduledMessageTool(), createCancelWorkerRunTool(), createCreateScheduledMessageTool(), createDeleteAutoRespondRuleTool(), createProposeChangeTool(), createProposeConfigUpdateTool() (+140 more)
+Nodes (146): createAddAutoRespondRuleTool(), createCancelReminderTool(), createCancelScheduledMessageTool(), createCancelWorkerRunTool(), createCreateScheduledMessageTool(), createDeleteAutoRespondRuleTool(), createProposeChangeTool(), createProposeConfigUpdateTool() (+138 more)
 
 ### Community 4 - "Community 4"
 Cohesion: 0.02
-Nodes (68): truncate(), executeChange(), readBranchHead(), resolveChangesInstructions(), runClaude(), runClaudeInWorktree(), runWorktreeInstall(), runWorktreeSetup() (+60 more)
+Nodes (61): checkSessionCompletion(), cleanupSession(), poolWorkerForChange(), runCompletionCheck(), runIdleSweep(), makeDeps(), makeMockPool(), fetchPRReviewContext() (+53 more)
 
 ### Community 5 - "Community 5"
-Cohesion: 0.02
-Nodes (105): formatOwnerNotification(), buildHintModal(), buildCancelledResult(), handleFollowUp(), startChangeWorkflow(), SilentDelivery, StreamingDelivery, buildRosterBlock() (+97 more)
+Cohesion: 0.03
+Nodes (88): formatOwnerNotification(), truncate(), buildHintModal(), ClaudeMessageParser, detectPlatformError(), extractToolErrorMessage(), joinContentBlocks(), stringifyToolResultContent() (+80 more)
 
 ### Community 6 - "Community 6"
-Cohesion: 0.02
-Nodes (52): completeSessionStart(), McpServerManager, createFindGifTool(), searchGiphy(), factory(), giphyPlugin(), deriveLocalPluginName(), installPluginInteractivity() (+44 more)
+Cohesion: 0.03
+Nodes (62): textResult(), convertMarkdownToSlack(), splitForSlack(), buildSuccessResponse(), buildToolResults(), handleQueryError(), optionalHistory(), buildAdditionalMessagesField() (+54 more)
 
 ### Community 7 - "Community 7"
-Cohesion: 0.02
-Nodes (68): textResult(), convertMarkdownToSlack(), splitForSlack(), buildSuccessResponse(), buildToolResults(), handleQueryError(), optionalHistory(), deliverFollower() (+60 more)
+Cohesion: 0.03
+Nodes (70): seedJob(), resolveAutoRespondContext(), respond(), triggerChangeWorkflow(), triggerFollowUp(), processMessage(), startThreadConversation(), getChannelInfo() (+62 more)
 
 ### Community 8 - "Community 8"
 Cohesion: 0.03
-Nodes (73): seedJob(), resolveAutoRespondContext(), respond(), processMessage(), startThreadConversation(), fetchViaHistory(), fetchViaReplies(), resolveReactedMessage() (+65 more)
+Nodes (33): makeHangingRun(), askClaude(), buildPolicyBlock(), formatElapsedSeconds(), formatRelativeAge(), runActiveRunPreAnalysis(), runPreAnalysis(), captureSystemPrompt() (+25 more)
 
 ### Community 9 - "Community 9"
 Cohesion: 0.05
@@ -275,146 +274,150 @@ Cohesion: 0.03
 Nodes (89): Accept Image Only Messages Change, Add Error Reporting with Conversation Trace, Add Message Mode Proposal, Add Semantic Config Tools Change, Add Stop Reaction Change, Add Slack User Context Proposal, Add User Roles with Home Tab Management, Admin Config Tools Specification (+81 more)
 
 ### Community 11 - "Community 11"
-Cohesion: 0.05
-Nodes (19): cloneValidRegistry(), isJsonObject(), parseMcpServerNames(), registriesEqual(), registryToJson(), safeJsonParse(), seedRegistry(), buildFiles() (+11 more)
+Cohesion: 0.03
+Nodes (33): makeActiveChange(), makeCtx(), buildChangeSessionForPersistence(), setActiveChange(), updateActiveChangePrUrl(), updateActiveChangeStatus(), cleanupStaleSessionFolders(), createSessionFolder() (+25 more)
 
 ### Community 12 - "Community 12"
-Cohesion: 0.06
-Nodes (68): role-based access control, add_reaction tool, Slack message URL parser, adminDeleteMessage tool, message deletion validator, adminListEnv tool, adminReadFile tool, adminSetEnv tool (+60 more)
+Cohesion: 0.04
+Nodes (23): cloneValidRegistry(), isJsonObject(), parseMcpServerNames(), registriesEqual(), registryToJson(), safeJsonParse(), seedRegistry(), buildFiles() (+15 more)
 
 ### Community 13 - "Community 13"
 Cohesion: 0.04
-Nodes (27): publishHomeView(), registerAddRoleHandlers(), registerHomeTabHandler(), registerRemoveRoleHandlers(), makeApp(), closeModalIfOpen(), extractViewId(), refreshHomeView() (+19 more)
+Nodes (40): enrichForPreAnalysis(), fetchEnrichedContext(), createUsersSurface(), epochToIso(), fetchLastReply(), formatMessage(), resolveReplyUserName(), truncateText() (+32 more)
 
 ### Community 14 - "Community 14"
 Cohesion: 0.06
-Nodes (41): registerSkillActionHandler(), invoke(), makeBody(), makeClient(), makeMockApp(), makePostMock(), call(), makeConfig() (+33 more)
+Nodes (68): role-based access control, add_reaction tool, Slack message URL parser, adminDeleteMessage tool, message deletion validator, adminListEnv tool, adminReadFile tool, adminSetEnv tool (+60 more)
 
 ### Community 15 - "Community 15"
 Cohesion: 0.05
-Nodes (29): getConfiguredMcpServerNames(), getMcpConfigPath(), getPinnedEntries(), isRemoteEntry(), loadAlwaysOnMcpServers(), loadMcpServer(), loadMcpServers(), loadStaticMcpConfig() (+21 more)
+Nodes (38): getConfiguredMcpServerNames(), getMcpConfigPath(), getPinnedEntries(), isRemoteEntry(), loadAlwaysOnMcpServers(), loadMcpServer(), loadMcpServers(), loadStaticMcpConfig() (+30 more)
 
 ### Community 16 - "Community 16"
-Cohesion: 0.05
-Nodes (25): cleanupStaleSessionFolders(), createSessionFolder(), ensureSessionsDir(), getAllPersistedSessions(), getResumableSessions(), getSessionFolderPath(), isFolderOlderThan(), parseSessionState() (+17 more)
+Cohesion: 0.04
+Nodes (27): publishHomeView(), registerAddRoleHandlers(), registerHomeTabHandler(), registerRemoveRoleHandlers(), makeApp(), closeModalIfOpen(), extractViewId(), refreshHomeView() (+19 more)
 
 ### Community 17 - "Community 17"
-Cohesion: 0.07
-Nodes (23): resolveFallbackTopics(), buildCronExpression(), computeTicks(), rateLabel(), rateToDieFromTicks(), resolveDie(), casualTalkPlugin(), buildSdk() (+15 more)
+Cohesion: 0.06
+Nodes (41): registerSkillActionHandler(), invoke(), makeBody(), makeClient(), makeMockApp(), makePostMock(), call(), makeConfig() (+33 more)
 
 ### Community 18 - "Community 18"
+Cohesion: 0.06
+Nodes (29): resolveFallbackTopics(), buildCronExpression(), computeTicks(), rateLabel(), rateToDieFromTicks(), resolveDie(), casualTalkPlugin(), buildSdk() (+21 more)
+
+### Community 19 - "Community 19"
+Cohesion: 0.04
+Nodes (20): parseFrontmatter(), prepareSkillsSession(), makeClient(), makeParams(), getByThread(), getForChannelMessage(), makeThreadKey(), register() (+12 more)
+
+### Community 20 - "Community 20"
 Cohesion: 0.05
 Nodes (10): searchRecentInteractions(), search(), discoverEagerSkillPlugins(), discoverSkillPluginInfo(), discoverSkillPlugins(), resetSkillPluginsDeps(), safeSkillPluginsRegistry(), P() (+2 more)
 
-### Community 19 - "Community 19"
-Cohesion: 0.06
-Nodes (23): enrichForPreAnalysis(), fetchEnrichedContext(), epochToIso(), fetchLastReply(), formatMessage(), resolveReplyUserName(), truncateText(), buildThreadMessage() (+15 more)
-
-### Community 20 - "Community 20"
+### Community 21 - "Community 21"
 Cohesion: 0.06
 Nodes (37): Asana Integration, Asana Personal Access Token, Changes Workflow, Clack - Slack Bot, submit_response MCP Tool, In-Process MCP Tool Server, Claude Code Integration - Query Execution, Claude Code Integration Capability (+29 more)
 
-### Community 21 - "Community 21"
+### Community 22 - "Community 22"
 Cohesion: 0.11
 Nodes (20): readDataFile(), resolveDataPath(), validateConfigJson(), validateContent(), validateJson(), validateMcpJson(), writeDataFile(), isSupportedLanguage() (+12 more)
 
-### Community 22 - "Community 22"
+### Community 23 - "Community 23"
 Cohesion: 0.1
 Nodes (12): createFindSubjectTool(), run(), commonsImageSearchPlugin(), extractExtMetadata(), fetchImageBytes(), fetchImageInfo(), fetchPageSummary(), fetchWithTimeout() (+4 more)
 
-### Community 23 - "Community 23"
+### Community 24 - "Community 24"
+Cohesion: 0.09
+Nodes (18): SilentDelivery, StreamingDelivery, setupDmDelivery(), dmAdmin(), getAdmin(), validateCronJobSpec(), getSlackClient(), isChannelId() (+10 more)
+
+### Community 25 - "Community 25"
+Cohesion: 0.09
+Nodes (9): createFindGifTool(), searchGiphy(), factory(), giphyPlugin(), createFindGifTool(), tenorGifPlugin(), searchTenor(), TenorError (+1 more)
+
+### Community 26 - "Community 26"
 Cohesion: 0.09
 Nodes (7): fetchImageBytes(), fetchWithTimeout(), mimeFromUrl(), searchImages(), createFindImageTool(), run(), braveImageSearchPlugin()
 
-### Community 24 - "Community 24"
-Cohesion: 0.16
+### Community 27 - "Community 27"
+Cohesion: 0.14
 Nodes (9): buildTestTasks(), cleanup(), main(), parallel(), readTestConfig(), runFullPathTest(), setup(), validateFinalState() (+1 more)
 
-### Community 25 - "Community 25"
+### Community 28 - "Community 28"
 Cohesion: 0.1
 Nodes (23): interface, interface, interface, function, function, function, function, function (+15 more)
 
-### Community 26 - "Community 26"
-Cohesion: 0.11
-Nodes (7): checkSessionCompletion(), cleanupSession(), poolWorkerForChange(), runCompletionCheck(), runIdleSweep(), makeDeps(), makeMockPool()
-
-### Community 27 - "Community 27"
+### Community 29 - "Community 29"
 Cohesion: 0.1
 Nodes (21): Clack MCP Tools Infrastructure, Config Update via Chat, GitHub App Authentication, GitHub MCP Auto-Configuration, Instruction System, Instruction Variables Registry, Repository Instruction Files, Role-Based Instructions (+13 more)
 
-### Community 28 - "Community 28"
-Cohesion: 0.19
-Nodes (6): callTool(), makeCtx(), makeDeps(), makeIntentStore(), buildConfigPath(), buildInstructionPath()
-
-### Community 29 - "Community 29"
+### Community 30 - "Community 30"
 Cohesion: 0.18
 Nodes (2): loadKey(), SkillsManager
 
-### Community 30 - "Community 30"
+### Community 31 - "Community 31"
 Cohesion: 0.19
 Nodes (4): makeClient(), makeClientWithStreamers(), makeMockChatStreamer(), makeStreamerFailingAfter()
 
-### Community 31 - "Community 31"
+### Community 32 - "Community 32"
 Cohesion: 0.15
 Nodes (1): createUsersCache()
 
-### Community 32 - "Community 32"
+### Community 33 - "Community 33"
 Cohesion: 0.17
 Nodes (3): makeDeps(), makeStopDeps(), MockAssistant
 
-### Community 33 - "Community 33"
+### Community 34 - "Community 34"
 Cohesion: 0.19
 Nodes (13): Cascading Configuration Resolver, ClackSdk Interface, Cron Job with requiredTools, Enforce Required Tools Feature, find_previous_questions Search Tool, Plugin Architecture Feature, Clack Plugin Contract, Per-Plugin MCP Server Namespace (+5 more)
 
-### Community 34 - "Community 34"
+### Community 35 - "Community 35"
 Cohesion: 0.31
 Nodes (7): buildEvents(), buildScopes(), generateManifest(), getEnabledFeatures(), loadConfigForManifest(), main(), validateSlackAppConfig()
 
-### Community 35 - "Community 35"
+### Community 36 - "Community 36"
 Cohesion: 0.25
 Nodes (6): loadLines(), setEnv(), writeLines(), loadEnvLines(), setEnvVar(), writeEnvLines()
 
-### Community 36 - "Community 36"
+### Community 37 - "Community 37"
 Cohesion: 0.29
 Nodes (7): extractThreadInfo(), keyFor(), PerThreadContextStore, messageArgs(), messagePayload(), threadArgs(), threadChangedPayload()
 
-### Community 37 - "Community 37"
+### Community 38 - "Community 38"
+Cohesion: 0.28
+Nodes (4): parseFullName(), discoverRegisteredCoreToolNames(), walk(), validateRequiredToolNames()
+
+### Community 39 - "Community 39"
+Cohesion: 0.28
+Nodes (3): makeRegisteredPluginTool(), pluginWithMixedTopics(), stubPlugin()
+
+### Community 40 - "Community 40"
 Cohesion: 0.22
 Nodes (9): Changes Workflow capability, Home Tab configuration simplification, Home Tab UI component, Worker session restoration on startup, close_pr tool, ensure_pr tool, git_push tool, merge_pr tool (+1 more)
 
-### Community 38 - "Community 38"
+### Community 41 - "Community 41"
 Cohesion: 0.29
 Nodes (4): clearRolesCache(), setRolesDeps(), makeDeps(), resetMocks()
 
-### Community 39 - "Community 39"
+### Community 42 - "Community 42"
 Cohesion: 0.32
 Nodes (3): makeConfig(), makeCtx(), makeSession()
 
-### Community 40 - "Community 40"
-Cohesion: 0.43
-Nodes (4): makeCtx(), makeManager(), makeRegistry(), makeSession()
-
-### Community 41 - "Community 41"
-Cohesion: 0.29
-Nodes (1): WorkerQueue
-
-### Community 43 - "Community 43"
+### Community 44 - "Community 44"
 Cohesion: 0.47
 Nodes (4): makeCtx(), makeDeps(), makeRepo(), makeSimpleGit()
 
-### Community 44 - "Community 44"
+### Community 45 - "Community 45"
 Cohesion: 0.33
 Nodes (6): Claude Agent SDK, Claude Code Integration Specification, Docker Deployment Specification, Add Docker Setup Script and Dockerfile, Use Claude Agent SDK Design, Use Claude Agent SDK Proposal
 
-### Community 45 - "Community 45"
+### Community 46 - "Community 46"
 Cohesion: 0.33
 Nodes (6): Changes Workflow Delta Specification (cancellation), Cancel Worker Run Design Document, Worker Cancellation Specification, Stream Keepalive Design Document, Stream Keepalive Proposal, Streaming Responses with Keepalive Specification
 
-### Community 46 - "Community 46"
+### Community 47 - "Community 47"
 Cohesion: 0.33
 Nodes (6): Scheduled Skip Conditions Proposal, Scheduled Messages Feature, Clack Tools Spec (Skip Conditions), Cron Messages Spec, Home Tab Spec (Skip Conditions), Skip Response Spec
 
-### Community 47 - "Community 47"
+### Community 48 - "Community 48"
 Cohesion: 0.33
 Nodes (6): Add Block Kit Markdown and Table Change, Add Card and Carousel Blocks Change, Add Post to Message Parity Change, Clack Tool Response Specification (Markdown & Table), Clack Tool Response Specification (Card & Carousel), Clack Tool Response Specification (Post to Message Parity)
 
@@ -423,432 +426,436 @@ Cohesion: 0.5
 Nodes (2): makeCtx(), makeRepo()
 
 ### Community 51 - "Community 51"
-Cohesion: 0.5
-Nodes (2): makeCtx(), makeRepo()
-
-### Community 52 - "Community 52"
 Cohesion: 0.6
 Nodes (4): makeCtx(), makeDeps(), makeRepo(), makeSimpleGit()
 
 ### Community 54 - "Community 54"
 Cohesion: 0.5
-Nodes (2): makePool(), poolWithMissingIdleWorker()
-
-### Community 56 - "Community 56"
-Cohesion: 0.5
 Nodes (5): Query tools capability, find_user query tool, UsersCache abstraction, deepen_history query tool, git_log query tool
 
-### Community 57 - "Community 57"
+### Community 55 - "Community 55"
 Cohesion: 0.4
 Nodes (5): Auto Respond Pre-Analysis Specification, Channel Context Specification, Channel Name Resolution Design Document, Channel Name Resolution Proposal, Streaming Responses Specification
 
-### Community 58 - "Community 58"
+### Community 56 - "Community 56"
 Cohesion: 0.4
 Nodes (5): Find Recent Interactions Design Document, Find Recent Interactions Tool Specification, Clack Tools Delta Specification (reactions), Message Reactions Context Design Document, Session Management Delta Specification (reactions)
 
-### Community 61 - "Community 61"
+### Community 59 - "Community 59"
 Cohesion: 0.5
 Nodes (4): HTTP/SSE MCP Configuration, Legacy npx MCP Configuration, Pinned MCP Server Configuration, MCP Server Setup and Configuration
 
-### Community 62 - "Community 62"
+### Community 60 - "Community 60"
 Cohesion: 0.5
 Nodes (4): Home Tab Repository Access Tags, Repository Access Control Change, Role Hierarchy Numeric Levels, Tool Filtering by Repository Access
 
-### Community 63 - "Community 63"
+### Community 61 - "Community 61"
 Cohesion: 0.67
 Nodes (4): Auto-execute config_update action, Claude instructions with delivery context, Delivery context (ephemeral, trigger type, DM-first), submit_response action schema
 
-### Community 64 - "Community 64"
+### Community 62 - "Community 62"
 Cohesion: 0.5
 Nodes (4): Auto-Respond Tracking Feature, autoResponseActive Session Field, Pre-Analysis Tri-State Result, stop_tracking Query Tool
 
-### Community 65 - "Community 65"
+### Community 63 - "Community 63"
 Cohesion: 0.67
 Nodes (4): Exclude Cheaters from Reveal Change, Trivia Cheating Detection Specification (Exclude Cheaters), Trivia Question Search Specification (With Cheating Gate), Trivia Scheduled Prompts Specification
 
-### Community 66 - "Community 66"
+### Community 64 - "Community 64"
 Cohesion: 0.67
 Nodes (4): Cascading Config Resolver Spec, Claude Code Integration Spec, Lazy MCP Loading Spec, Lazy MCP Loading Tasks
 
-### Community 67 - "Community 67"
+### Community 65 - "Community 65"
 Cohesion: 0.67
 Nodes (4): GIF Plugin Design, GIF Plugin Proposal, GIF Plugin Spec, Tenor API Service
 
-### Community 68 - "Community 68"
+### Community 66 - "Community 66"
 Cohesion: 0.5
 Nodes (4): cancel_worker_run MCP Tool, Worker Cancellation Specification, Worker Session Restore Specification, Worker Tools Specification
 
-### Community 71 - "Community 71"
+### Community 68 - "Community 68"
 Cohesion: 0.67
 Nodes (3): API Key Authentication, Claude Code Authentication, OAuth Token Authentication
 
-### Community 72 - "Community 72"
+### Community 69 - "Community 69"
 Cohesion: 0.67
 Nodes (3): Credentials Management (SSH keys, API keys, Slack tokens), Docker Deployment Infrastructure, Docker Setup Design
 
-### Community 73 - "Community 73"
+### Community 70 - "Community 70"
 Cohesion: 0.67
 Nodes (3): Boot Migrations System, Migration Registry Pattern, Version Tracking via data/state/version.json
 
-### Community 74 - "Community 74"
+### Community 71 - "Community 71"
 Cohesion: 0.67
 Nodes (3): Permission Gating on Follow-Up Tools, Simplify Worker Modes, Single Unified Worker Mode
 
-### Community 75 - "Community 75"
+### Community 72 - "Community 72"
 Cohesion: 0.67
 Nodes (3): Admin Set Role Tool Specification, Admin Set Role Design Document, User Roles Delta Specification
 
-### Community 76 - "Community 76"
+### Community 73 - "Community 73"
 Cohesion: 0.67
 Nodes (3): Clack Tools Delta Specification (interactions), Delivery Context Delta Specification (interactions), Find Recent Interactions Proposal
 
-### Community 77 - "Community 77"
+### Community 74 - "Community 74"
 Cohesion: 0.67
 Nodes (3): add_reaction MCP Tool, Reaction Tools Feature, remove_reaction MCP Tool
 
-### Community 78 - "Community 78"
+### Community 75 - "Community 75"
 Cohesion: 1.0
 Nodes (3): Add Auto Respond MCP Tools Change, Auto Respond Rule Tools Specification, Auto Respond Specification (MCP Tools)
 
-### Community 79 - "Community 79"
+### Community 76 - "Community 76"
 Cohesion: 0.67
 Nodes (3): Auto Execute Actions Specification, Auto Respond Rule Tools Specification (Final), Auto Respond Specification (Final)
 
-### Community 83 - "Community 83"
+### Community 80 - "Community 80"
 Cohesion: 1.0
 Nodes (2): Lazy Skill Loading Feature, OpenSpec: Add Lazy Skill Loading
 
-### Community 84 - "Community 84"
+### Community 81 - "Community 81"
 Cohesion: 1.0
 Nodes (2): Error Reporting and Tool Context, Session Management - Tool Call History
 
-### Community 85 - "Community 85"
+### Community 82 - "Community 82"
 Cohesion: 1.0
 Nodes (2): Simplified Orchestrator Pattern, Worker Tools (MCP-Based Infrastructure)
 
-### Community 86 - "Community 86"
+### Community 83 - "Community 83"
 Cohesion: 1.0
 Nodes (2): Session auto-cleanup notification removal, Completion monitor
 
-### Community 87 - "Community 87"
+### Community 84 - "Community 84"
 Cohesion: 1.0
 Nodes (2): Send to Thread Content, Unified Response Delivery
 
-### Community 88 - "Community 88"
+### Community 85 - "Community 85"
 Cohesion: 1.0
 Nodes (2): Slack File Attachments, Slack Image Support
 
-### Community 89 - "Community 89"
+### Community 86 - "Community 86"
 Cohesion: 1.0
 Nodes (2): Clack Tools Delta Specification (admin-set-role), Admin Set Role Proposal
 
-### Community 90 - "Community 90"
+### Community 87 - "Community 87"
 Cohesion: 1.0
 Nodes (2): Clack Tools Delta Specification (cancellation), Cancel Worker Run Proposal
 
-### Community 91 - "Community 91"
+### Community 88 - "Community 88"
 Cohesion: 1.0
 Nodes (2): Clack Tools Delta Specification (delete message), Admin Delete Message Proposal
 
-### Community 92 - "Community 92"
+### Community 89 - "Community 89"
 Cohesion: 1.0
 Nodes (2): Admin Delete Message Specification, Admin Delete Message Design Document
 
-### Community 93 - "Community 93"
+### Community 90 - "Community 90"
 Cohesion: 1.0
 Nodes (2): Channel Context Delta Specification (reactions), Message Reactions Context Proposal
 
-### Community 94 - "Community 94"
+### Community 91 - "Community 91"
 Cohesion: 1.0
 Nodes (2): Clack Plugins Specification, Trivia Instruction Tools Change
 
-### Community 95 - "Community 95"
+### Community 92 - "Community 92"
 Cohesion: 1.0
 Nodes (2): Channel Context Specification, Harden Fetch Channel Messages Change
 
-### Community 96 - "Community 96"
+### Community 93 - "Community 93"
 Cohesion: 1.0
 Nodes (2): Pin MCP Installs Change, Pinned MCP Installs Specification
 
-### Community 97 - "Community 97"
+### Community 94 - "Community 94"
 Cohesion: 1.0
 Nodes (2): Slack File Attachments Specification, Slack Image Support Specification
 
-### Community 98 - "Community 98"
+### Community 95 - "Community 95"
 Cohesion: 1.0
 Nodes (2): Trivia Batch Answers Specification, Trivia Categories Specification
 
-### Community 99 - "Community 99"
+### Community 96 - "Community 96"
 Cohesion: 1.0
 Nodes (2): Trivia Cheating Detection Specification, Trivia Question Search Specification
 
-### Community 100 - "Community 100"
+### Community 97 - "Community 97"
+Cohesion: 1.0
+Nodes (2): function, function
+
+### Community 98 - "Community 98"
 Cohesion: 1.0
 Nodes (2): function, function
 
 ### Community 101 - "Community 101"
 Cohesion: 1.0
-Nodes (2): function, function
-
-### Community 104 - "Community 104"
-Cohesion: 1.0
 Nodes (1): Project Context - Clack Bot
 
-### Community 105 - "Community 105"
+### Community 102 - "Community 102"
 Cohesion: 1.0
 Nodes (1): Clack MCP Tools - Change Request Detection
 
-### Community 106 - "Community 106"
+### Community 103 - "Community 103"
 Cohesion: 1.0
 Nodes (1): Worktree Auth Wrapper
 
-### Community 107 - "Community 107"
+### Community 104 - "Community 104"
 Cohesion: 1.0
 Nodes (1): Auto-Execute Change Actions
 
-### Community 108 - "Community 108"
+### Community 105 - "Community 105"
 Cohesion: 1.0
 Nodes (1): DM-First Reactions Response Delivery
 
-### Community 109 - "Community 109"
+### Community 106 - "Community 106"
 Cohesion: 1.0
 Nodes (1): Migrate Execution to SDK
 
-### Community 110 - "Community 110"
+### Community 107 - "Community 107"
 Cohesion: 1.0
 Nodes (1): Unify Work Emoji Flow
 
-### Community 111 - "Community 111"
+### Community 108 - "Community 108"
 Cohesion: 1.0
 Nodes (1): Config File Read/Write Tools
 
-### Community 112 - "Community 112"
+### Community 109 - "Community 109"
 Cohesion: 1.0
 Nodes (1): Find Pull Requests Tool
 
-### Community 113 - "Community 113"
+### Community 110 - "Community 110"
 Cohesion: 1.0
 Nodes (1): Work Mode Prompt Hint
 
-### Community 114 - "Community 114"
+### Community 111 - "Community 111"
 Cohesion: 1.0
 Nodes (1): Admin DM Interaction for Migrations
 
-### Community 115 - "Community 115"
+### Community 112 - "Community 112"
 Cohesion: 1.0
 Nodes (1): Cancel on Edit Implementation Tasks
 
-### Community 116 - "Community 116"
+### Community 113 - "Community 113"
 Cohesion: 1.0
 Nodes (1): Session Management Specification (Cancellation)
 
-### Community 117 - "Community 117"
+### Community 114 - "Community 114"
 Cohesion: 1.0
 Nodes (1): Session-Derived Delivery Context Tasks
 
-### Community 118 - "Community 118"
+### Community 115 - "Community 115"
 Cohesion: 1.0
 Nodes (1): Slack Assistant Implementation Tasks
 
-### Community 119 - "Community 119"
+### Community 116 - "Community 116"
 Cohesion: 1.0
 Nodes (1): Unified Response Delivery Implementation Tasks
 
-### Community 120 - "Community 120"
+### Community 117 - "Community 117"
 Cohesion: 1.0
 Nodes (1): Config Editor Modal
 
-### Community 121 - "Community 121"
+### Community 118 - "Community 118"
 Cohesion: 1.0
 Nodes (1): Conditional Hidden Rules
 
-### Community 122 - "Community 122"
+### Community 119 - "Community 119"
 Cohesion: 1.0
 Nodes (1): Configurable Tool Labels
 
-### Community 123 - "Community 123"
+### Community 120 - "Community 120"
 Cohesion: 1.0
 Nodes (1): Auto-Respond Pre-Analysis Implementation Tasks
 
-### Community 124 - "Community 124"
+### Community 121 - "Community 121"
 Cohesion: 1.0
 Nodes (1): Silent Thinking Delivery Mode Specification
 
-### Community 125 - "Community 125"
+### Community 122 - "Community 122"
 Cohesion: 1.0
 Nodes (1): Scheduled Reminders Change (2026-03-27)
 
-### Community 126 - "Community 126"
+### Community 123 - "Community 123"
 Cohesion: 1.0
 Nodes (1): Slack chat.scheduleMessage API
 
-### Community 127 - "Community 127"
+### Community 124 - "Community 124"
 Cohesion: 1.0
 Nodes (1): Static Migrations Change (2026-03-27)
 
-### Community 128 - "Community 128"
+### Community 125 - "Community 125"
 Cohesion: 1.0
 Nodes (1): Admin Tools Change (2026-03-31)
 
-### Community 129 - "Community 129"
+### Community 126 - "Community 126"
 Cohesion: 1.0
 Nodes (1): Secure Env Tools Change (2026-04-01)
 
-### Community 130 - "Community 130"
+### Community 127 - "Community 127"
 Cohesion: 1.0
 Nodes (1): Paginated Slack Thread Fetch Change (2026-04-02)
 
-### Community 131 - "Community 131"
+### Community 128 - "Community 128"
 Cohesion: 1.0
 Nodes (1): Slack conversations.replies API
 
-### Community 132 - "Community 132"
+### Community 129 - "Community 129"
 Cohesion: 1.0
 Nodes (1): SDK Session Resume Change (2026-04-02)
 
-### Community 133 - "Community 133"
+### Community 130 - "Community 130"
 Cohesion: 1.0
 Nodes (1): Skip Response Change (2026-04-02)
 
-### Community 134 - "Community 134"
+### Community 131 - "Community 131"
 Cohesion: 1.0
 Nodes (1): Reaction Tools Tasks
 
-### Community 135 - "Community 135"
+### Community 132 - "Community 132"
 Cohesion: 1.0
 Nodes (1): Submit Response with Reactions Feature
 
-### Community 136 - "Community 136"
+### Community 133 - "Community 133"
 Cohesion: 1.0
 Nodes (1): GIF Plugin Tasks
 
-### Community 137 - "Community 137"
+### Community 134 - "Community 134"
 Cohesion: 1.0
 Nodes (1): Lazy MCP Loading Design
 
-### Community 138 - "Community 138"
+### Community 135 - "Community 135"
 Cohesion: 1.0
 Nodes (1): Lazy MCP Loading Proposal
 
-### Community 139 - "Community 139"
+### Community 136 - "Community 136"
 Cohesion: 1.0
 Nodes (1): Separate Session Trigger Tasks
 
-### Community 140 - "Community 140"
+### Community 137 - "Community 137"
 Cohesion: 1.0
 Nodes (1): Separate Session Trigger Design
 
-### Community 141 - "Community 141"
+### Community 138 - "Community 138"
 Cohesion: 1.0
 Nodes (1): Separate Session Trigger Proposal
 
-### Community 142 - "Community 142"
+### Community 139 - "Community 139"
 Cohesion: 1.0
 Nodes (1): Auto-Respond Pre-Analysis Spec
 
-### Community 143 - "Community 143"
+### Community 140 - "Community 140"
 Cohesion: 1.0
 Nodes (1): Find Recent Interactions Spec
 
-### Community 144 - "Community 144"
+### Community 141 - "Community 141"
 Cohesion: 1.0
 Nodes (1): Session Management Spec
 
-### Community 145 - "Community 145"
+### Community 142 - "Community 142"
 Cohesion: 1.0
 Nodes (1): Session Transcript Tool Spec
 
-### Community 146 - "Community 146"
+### Community 143 - "Community 143"
 Cohesion: 1.0
 Nodes (1): Admin Delete Message Specification
 
-### Community 147 - "Community 147"
+### Community 144 - "Community 144"
 Cohesion: 1.0
 Nodes (1): Admin Edit Instructions Specification
 
-### Community 148 - "Community 148"
+### Community 145 - "Community 145"
 Cohesion: 1.0
 Nodes (1): Admin Env Tools Specification
 
-### Community 149 - "Community 149"
+### Community 146 - "Community 146"
 Cohesion: 1.0
 Nodes (1): Admin Role Tool Specification
 
-### Community 150 - "Community 150"
+### Community 147 - "Community 147"
 Cohesion: 1.0
 Nodes (1): App Lifecycle Specification
 
-### Community 151 - "Community 151"
+### Community 148 - "Community 148"
 Cohesion: 1.0
 Nodes (1): Auto Respond Pre Analysis Specification (Final)
 
-### Community 152 - "Community 152"
+### Community 149 - "Community 149"
 Cohesion: 1.0
 Nodes (1): Auto Respond Tracking Specification (Final)
 
-### Community 153 - "Community 153"
+### Community 150 - "Community 150"
 Cohesion: 1.0
 Nodes (1): file-upload Specification
 
-### Community 154 - "Community 154"
+### Community 151 - "Community 151"
 Cohesion: 1.0
 Nodes (1): find-emoji-tool Specification
 
-### Community 155 - "Community 155"
+### Community 152 - "Community 152"
 Cohesion: 1.0
 Nodes (1): find-user-tool Specification
 
-### Community 156 - "Community 156"
+### Community 153 - "Community 153"
 Cohesion: 1.0
 Nodes (1): git-log-tools Specification
 
-### Community 157 - "Community 157"
+### Community 154 - "Community 154"
 Cohesion: 1.0
 Nodes (1): github-app Specification
 
-### Community 158 - "Community 158"
+### Community 155 - "Community 155"
 Cohesion: 1.0
 Nodes (1): github-mcp-auto-config Specification
 
-### Community 159 - "Community 159"
+### Community 156 - "Community 156"
 Cohesion: 1.0
 Nodes (1): home-tab Specification
 
-### Community 160 - "Community 160"
+### Community 157 - "Community 157"
 Cohesion: 1.0
 Nodes (1): instruction-system Specification
 
-### Community 161 - "Community 161"
+### Community 158 - "Community 158"
 Cohesion: 1.0
 Nodes (1): instruction-variables Specification
 
-### Community 162 - "Community 162"
+### Community 159 - "Community 159"
 Cohesion: 1.0
 Nodes (1): lazy-skill-loading Specification
 
-### Community 163 - "Community 163"
+### Community 160 - "Community 160"
 Cohesion: 1.0
 Nodes (1): manifest-generation Specification
 
-### Community 164 - "Community 164"
+### Community 161 - "Community 161"
 Cohesion: 1.0
 Nodes (1): pinned-mcp-installs Specification
 
-### Community 165 - "Community 165"
+### Community 162 - "Community 162"
 Cohesion: 1.0
 Nodes (1): Session Transcript Tool Specification
 
-### Community 166 - "Community 166"
+### Community 163 - "Community 163"
 Cohesion: 1.0
 Nodes (1): Skip Response Specification
 
-### Community 167 - "Community 167"
+### Community 164 - "Community 164"
 Cohesion: 1.0
 Nodes (1): Tool Label Config Specification
 
-### Community 168 - "Community 168"
+### Community 165 - "Community 165"
 Cohesion: 1.0
 Nodes (1): function
+
+### Community 166 - "Community 166"
+Cohesion: 1.0
+Nodes (1): function
+
+### Community 167 - "Community 167"
+Cohesion: 1.0
+Nodes (1): function
+
+### Community 168 - "Community 168"
+Cohesion: 1.0
+Nodes (1): class
 
 ### Community 169 - "Community 169"
 Cohesion: 1.0
@@ -860,7 +867,7 @@ Nodes (1): function
 
 ### Community 171 - "Community 171"
 Cohesion: 1.0
-Nodes (1): class
+Nodes (1): function
 
 ### Community 172 - "Community 172"
 Cohesion: 1.0
@@ -880,248 +887,236 @@ Nodes (1): function
 
 ### Community 176 - "Community 176"
 Cohesion: 1.0
-Nodes (1): function
+Nodes (1): type
 
 ### Community 177 - "Community 177"
 Cohesion: 1.0
-Nodes (1): function
+Nodes (1): interface
 
 ### Community 178 - "Community 178"
 Cohesion: 1.0
-Nodes (1): function
+Nodes (1): interface
 
 ### Community 179 - "Community 179"
 Cohesion: 1.0
-Nodes (1): type
+Nodes (1): EnvFileUtils
 
 ### Community 180 - "Community 180"
 Cohesion: 1.0
-Nodes (1): interface
+Nodes (1): adminRestartApp tool
 
 ### Community 181 - "Community 181"
 Cohesion: 1.0
-Nodes (1): interface
+Nodes (1): viewSlackFile tool
 
 ### Community 182 - "Community 182"
 Cohesion: 1.0
-Nodes (1): EnvFileUtils
+Nodes (1): findSessionTranscript tool
 
 ### Community 183 - "Community 183"
 Cohesion: 1.0
-Nodes (1): adminRestartApp tool
+Nodes (1): findChanges tool
 
 ### Community 184 - "Community 184"
 Cohesion: 1.0
-Nodes (1): viewSlackFile tool
+Nodes (1): auto-respond rule fetcher
 
 ### Community 185 - "Community 185"
 Cohesion: 1.0
-Nodes (1): findSessionTranscript tool
-
-### Community 186 - "Community 186"
-Cohesion: 1.0
-Nodes (1): findChanges tool
-
-### Community 187 - "Community 187"
-Cohesion: 1.0
-Nodes (1): auto-respond rule fetcher
-
-### Community 188 - "Community 188"
-Cohesion: 1.0
 Nodes (1): QueryToolContext type
 
-### Community 189 - "Community 189"
+### Community 186 - "Community 186"
 Cohesion: 1.0
 Nodes (1): WorkerToolContext type
 
 ## Knowledge Gaps
 - **213 isolated node(s):** `Project Context - Clack Bot`, `Reaction Trigger Mode`, `Direct Message & Mention Modes`, `Owner Role`, `Admin Role` (+208 more)
   These have ≤1 connection - possible missing edges or undocumented components.
-- **Thin community `Community 29`** (13 nodes): `loadKey()`, `SkillsManager`, `.catalog()`, `.constructor()`, `.getSkill()`, `.isEagerPack()`, `.isSkillLoaded()`, `.knownLazyPackNames()`, `.knowsLazyPack()`, `.listSkills()`, `.markLoaded()`, `.packDescription()`, `.readSkillBody()`
+- **Thin community `Community 30`** (13 nodes): `loadKey()`, `SkillsManager`, `.catalog()`, `.constructor()`, `.getSkill()`, `.isEagerPack()`, `.isSkillLoaded()`, `.knownLazyPackNames()`, `.knowsLazyPack()`, `.listSkills()`, `.markLoaded()`, `.packDescription()`, `.readSkillBody()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 31`** (13 nodes): `makeCtx()`, `makeUsersCache()`, `resetMocks()`, `createUsersCache()`, `isRealUser()`, `makeClient()`, `toUserEntry()`, `buildWildcardMatcher()`, `usersCache.test.ts`, `usersCache.ts`, `wildcardMatcher.test.ts`, `wildcardMatcher.ts`, `findUser.test.ts`
+- **Thin community `Community 32`** (13 nodes): `makeCtx()`, `makeUsersCache()`, `resetMocks()`, `createUsersCache()`, `isRealUser()`, `makeClient()`, `toUserEntry()`, `buildWildcardMatcher()`, `usersCache.test.ts`, `usersCache.ts`, `wildcardMatcher.test.ts`, `wildcardMatcher.ts`, `findUser.test.ts`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 41`** (7 nodes): `WorkerQueue`, `.depth()`, `.dequeue()`, `.enqueueAndWait()`, `.findBySession()`, `.list()`, `.removeEntry()`
+- **Thin community `Community 50`** (5 nodes): `makeCtx()`, `makeDeps()`, `makePR()`, `makeRepo()`, `findPullRequests.test.ts`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 50`** (5 nodes): `makeCtx()`, `makeDeps()`, `makeRepo()`, `makeWorker()`, `findChanges.test.ts`
+- **Thin community `Community 80`** (2 nodes): `Lazy Skill Loading Feature`, `OpenSpec: Add Lazy Skill Loading`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 51`** (5 nodes): `makeCtx()`, `makeDeps()`, `makePR()`, `makeRepo()`, `findPullRequests.test.ts`
+- **Thin community `Community 81`** (2 nodes): `Error Reporting and Tool Context`, `Session Management - Tool Call History`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 54`** (5 nodes): `reusablePool.test.ts`, `makeFakeGit()`, `makePool()`, `makeRepo()`, `poolWithMissingIdleWorker()`
+- **Thin community `Community 82`** (2 nodes): `Simplified Orchestrator Pattern`, `Worker Tools (MCP-Based Infrastructure)`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 83`** (2 nodes): `Lazy Skill Loading Feature`, `OpenSpec: Add Lazy Skill Loading`
+- **Thin community `Community 83`** (2 nodes): `Session auto-cleanup notification removal`, `Completion monitor`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 84`** (2 nodes): `Error Reporting and Tool Context`, `Session Management - Tool Call History`
+- **Thin community `Community 84`** (2 nodes): `Send to Thread Content`, `Unified Response Delivery`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 85`** (2 nodes): `Simplified Orchestrator Pattern`, `Worker Tools (MCP-Based Infrastructure)`
+- **Thin community `Community 85`** (2 nodes): `Slack File Attachments`, `Slack Image Support`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 86`** (2 nodes): `Session auto-cleanup notification removal`, `Completion monitor`
+- **Thin community `Community 86`** (2 nodes): `Clack Tools Delta Specification (admin-set-role)`, `Admin Set Role Proposal`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 87`** (2 nodes): `Send to Thread Content`, `Unified Response Delivery`
+- **Thin community `Community 87`** (2 nodes): `Clack Tools Delta Specification (cancellation)`, `Cancel Worker Run Proposal`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 88`** (2 nodes): `Slack File Attachments`, `Slack Image Support`
+- **Thin community `Community 88`** (2 nodes): `Clack Tools Delta Specification (delete message)`, `Admin Delete Message Proposal`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 89`** (2 nodes): `Clack Tools Delta Specification (admin-set-role)`, `Admin Set Role Proposal`
+- **Thin community `Community 89`** (2 nodes): `Admin Delete Message Specification`, `Admin Delete Message Design Document`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 90`** (2 nodes): `Clack Tools Delta Specification (cancellation)`, `Cancel Worker Run Proposal`
+- **Thin community `Community 90`** (2 nodes): `Channel Context Delta Specification (reactions)`, `Message Reactions Context Proposal`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 91`** (2 nodes): `Clack Tools Delta Specification (delete message)`, `Admin Delete Message Proposal`
+- **Thin community `Community 91`** (2 nodes): `Clack Plugins Specification`, `Trivia Instruction Tools Change`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 92`** (2 nodes): `Admin Delete Message Specification`, `Admin Delete Message Design Document`
+- **Thin community `Community 92`** (2 nodes): `Channel Context Specification`, `Harden Fetch Channel Messages Change`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 93`** (2 nodes): `Channel Context Delta Specification (reactions)`, `Message Reactions Context Proposal`
+- **Thin community `Community 93`** (2 nodes): `Pin MCP Installs Change`, `Pinned MCP Installs Specification`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 94`** (2 nodes): `Clack Plugins Specification`, `Trivia Instruction Tools Change`
+- **Thin community `Community 94`** (2 nodes): `Slack File Attachments Specification`, `Slack Image Support Specification`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 95`** (2 nodes): `Channel Context Specification`, `Harden Fetch Channel Messages Change`
+- **Thin community `Community 95`** (2 nodes): `Trivia Batch Answers Specification`, `Trivia Categories Specification`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 96`** (2 nodes): `Pin MCP Installs Change`, `Pinned MCP Installs Specification`
+- **Thin community `Community 96`** (2 nodes): `Trivia Cheating Detection Specification`, `Trivia Question Search Specification`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 97`** (2 nodes): `Slack File Attachments Specification`, `Slack Image Support Specification`
+- **Thin community `Community 97`** (2 nodes): `function`, `function`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 98`** (2 nodes): `Trivia Batch Answers Specification`, `Trivia Categories Specification`
+- **Thin community `Community 98`** (2 nodes): `function`, `function`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 99`** (2 nodes): `Trivia Cheating Detection Specification`, `Trivia Question Search Specification`
+- **Thin community `Community 101`** (1 nodes): `Project Context - Clack Bot`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 100`** (2 nodes): `function`, `function`
+- **Thin community `Community 102`** (1 nodes): `Clack MCP Tools - Change Request Detection`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 101`** (2 nodes): `function`, `function`
+- **Thin community `Community 103`** (1 nodes): `Worktree Auth Wrapper`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 104`** (1 nodes): `Project Context - Clack Bot`
+- **Thin community `Community 104`** (1 nodes): `Auto-Execute Change Actions`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 105`** (1 nodes): `Clack MCP Tools - Change Request Detection`
+- **Thin community `Community 105`** (1 nodes): `DM-First Reactions Response Delivery`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 106`** (1 nodes): `Worktree Auth Wrapper`
+- **Thin community `Community 106`** (1 nodes): `Migrate Execution to SDK`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 107`** (1 nodes): `Auto-Execute Change Actions`
+- **Thin community `Community 107`** (1 nodes): `Unify Work Emoji Flow`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 108`** (1 nodes): `DM-First Reactions Response Delivery`
+- **Thin community `Community 108`** (1 nodes): `Config File Read/Write Tools`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 109`** (1 nodes): `Migrate Execution to SDK`
+- **Thin community `Community 109`** (1 nodes): `Find Pull Requests Tool`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 110`** (1 nodes): `Unify Work Emoji Flow`
+- **Thin community `Community 110`** (1 nodes): `Work Mode Prompt Hint`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 111`** (1 nodes): `Config File Read/Write Tools`
+- **Thin community `Community 111`** (1 nodes): `Admin DM Interaction for Migrations`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 112`** (1 nodes): `Find Pull Requests Tool`
+- **Thin community `Community 112`** (1 nodes): `Cancel on Edit Implementation Tasks`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 113`** (1 nodes): `Work Mode Prompt Hint`
+- **Thin community `Community 113`** (1 nodes): `Session Management Specification (Cancellation)`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 114`** (1 nodes): `Admin DM Interaction for Migrations`
+- **Thin community `Community 114`** (1 nodes): `Session-Derived Delivery Context Tasks`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 115`** (1 nodes): `Cancel on Edit Implementation Tasks`
+- **Thin community `Community 115`** (1 nodes): `Slack Assistant Implementation Tasks`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 116`** (1 nodes): `Session Management Specification (Cancellation)`
+- **Thin community `Community 116`** (1 nodes): `Unified Response Delivery Implementation Tasks`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 117`** (1 nodes): `Session-Derived Delivery Context Tasks`
+- **Thin community `Community 117`** (1 nodes): `Config Editor Modal`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 118`** (1 nodes): `Slack Assistant Implementation Tasks`
+- **Thin community `Community 118`** (1 nodes): `Conditional Hidden Rules`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 119`** (1 nodes): `Unified Response Delivery Implementation Tasks`
+- **Thin community `Community 119`** (1 nodes): `Configurable Tool Labels`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 120`** (1 nodes): `Config Editor Modal`
+- **Thin community `Community 120`** (1 nodes): `Auto-Respond Pre-Analysis Implementation Tasks`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 121`** (1 nodes): `Conditional Hidden Rules`
+- **Thin community `Community 121`** (1 nodes): `Silent Thinking Delivery Mode Specification`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 122`** (1 nodes): `Configurable Tool Labels`
+- **Thin community `Community 122`** (1 nodes): `Scheduled Reminders Change (2026-03-27)`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 123`** (1 nodes): `Auto-Respond Pre-Analysis Implementation Tasks`
+- **Thin community `Community 123`** (1 nodes): `Slack chat.scheduleMessage API`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 124`** (1 nodes): `Silent Thinking Delivery Mode Specification`
+- **Thin community `Community 124`** (1 nodes): `Static Migrations Change (2026-03-27)`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 125`** (1 nodes): `Scheduled Reminders Change (2026-03-27)`
+- **Thin community `Community 125`** (1 nodes): `Admin Tools Change (2026-03-31)`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 126`** (1 nodes): `Slack chat.scheduleMessage API`
+- **Thin community `Community 126`** (1 nodes): `Secure Env Tools Change (2026-04-01)`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 127`** (1 nodes): `Static Migrations Change (2026-03-27)`
+- **Thin community `Community 127`** (1 nodes): `Paginated Slack Thread Fetch Change (2026-04-02)`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 128`** (1 nodes): `Admin Tools Change (2026-03-31)`
+- **Thin community `Community 128`** (1 nodes): `Slack conversations.replies API`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 129`** (1 nodes): `Secure Env Tools Change (2026-04-01)`
+- **Thin community `Community 129`** (1 nodes): `SDK Session Resume Change (2026-04-02)`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 130`** (1 nodes): `Paginated Slack Thread Fetch Change (2026-04-02)`
+- **Thin community `Community 130`** (1 nodes): `Skip Response Change (2026-04-02)`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 131`** (1 nodes): `Slack conversations.replies API`
+- **Thin community `Community 131`** (1 nodes): `Reaction Tools Tasks`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 132`** (1 nodes): `SDK Session Resume Change (2026-04-02)`
+- **Thin community `Community 132`** (1 nodes): `Submit Response with Reactions Feature`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 133`** (1 nodes): `Skip Response Change (2026-04-02)`
+- **Thin community `Community 133`** (1 nodes): `GIF Plugin Tasks`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 134`** (1 nodes): `Reaction Tools Tasks`
+- **Thin community `Community 134`** (1 nodes): `Lazy MCP Loading Design`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 135`** (1 nodes): `Submit Response with Reactions Feature`
+- **Thin community `Community 135`** (1 nodes): `Lazy MCP Loading Proposal`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 136`** (1 nodes): `GIF Plugin Tasks`
+- **Thin community `Community 136`** (1 nodes): `Separate Session Trigger Tasks`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 137`** (1 nodes): `Lazy MCP Loading Design`
+- **Thin community `Community 137`** (1 nodes): `Separate Session Trigger Design`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 138`** (1 nodes): `Lazy MCP Loading Proposal`
+- **Thin community `Community 138`** (1 nodes): `Separate Session Trigger Proposal`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 139`** (1 nodes): `Separate Session Trigger Tasks`
+- **Thin community `Community 139`** (1 nodes): `Auto-Respond Pre-Analysis Spec`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 140`** (1 nodes): `Separate Session Trigger Design`
+- **Thin community `Community 140`** (1 nodes): `Find Recent Interactions Spec`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 141`** (1 nodes): `Separate Session Trigger Proposal`
+- **Thin community `Community 141`** (1 nodes): `Session Management Spec`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 142`** (1 nodes): `Auto-Respond Pre-Analysis Spec`
+- **Thin community `Community 142`** (1 nodes): `Session Transcript Tool Spec`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 143`** (1 nodes): `Find Recent Interactions Spec`
+- **Thin community `Community 143`** (1 nodes): `Admin Delete Message Specification`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 144`** (1 nodes): `Session Management Spec`
+- **Thin community `Community 144`** (1 nodes): `Admin Edit Instructions Specification`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 145`** (1 nodes): `Session Transcript Tool Spec`
+- **Thin community `Community 145`** (1 nodes): `Admin Env Tools Specification`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 146`** (1 nodes): `Admin Delete Message Specification`
+- **Thin community `Community 146`** (1 nodes): `Admin Role Tool Specification`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 147`** (1 nodes): `Admin Edit Instructions Specification`
+- **Thin community `Community 147`** (1 nodes): `App Lifecycle Specification`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 148`** (1 nodes): `Admin Env Tools Specification`
+- **Thin community `Community 148`** (1 nodes): `Auto Respond Pre Analysis Specification (Final)`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 149`** (1 nodes): `Admin Role Tool Specification`
+- **Thin community `Community 149`** (1 nodes): `Auto Respond Tracking Specification (Final)`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 150`** (1 nodes): `App Lifecycle Specification`
+- **Thin community `Community 150`** (1 nodes): `file-upload Specification`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 151`** (1 nodes): `Auto Respond Pre Analysis Specification (Final)`
+- **Thin community `Community 151`** (1 nodes): `find-emoji-tool Specification`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 152`** (1 nodes): `Auto Respond Tracking Specification (Final)`
+- **Thin community `Community 152`** (1 nodes): `find-user-tool Specification`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 153`** (1 nodes): `file-upload Specification`
+- **Thin community `Community 153`** (1 nodes): `git-log-tools Specification`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 154`** (1 nodes): `find-emoji-tool Specification`
+- **Thin community `Community 154`** (1 nodes): `github-app Specification`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 155`** (1 nodes): `find-user-tool Specification`
+- **Thin community `Community 155`** (1 nodes): `github-mcp-auto-config Specification`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 156`** (1 nodes): `git-log-tools Specification`
+- **Thin community `Community 156`** (1 nodes): `home-tab Specification`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 157`** (1 nodes): `github-app Specification`
+- **Thin community `Community 157`** (1 nodes): `instruction-system Specification`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 158`** (1 nodes): `github-mcp-auto-config Specification`
+- **Thin community `Community 158`** (1 nodes): `instruction-variables Specification`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 159`** (1 nodes): `home-tab Specification`
+- **Thin community `Community 159`** (1 nodes): `lazy-skill-loading Specification`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 160`** (1 nodes): `instruction-system Specification`
+- **Thin community `Community 160`** (1 nodes): `manifest-generation Specification`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 161`** (1 nodes): `instruction-variables Specification`
+- **Thin community `Community 161`** (1 nodes): `pinned-mcp-installs Specification`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 162`** (1 nodes): `lazy-skill-loading Specification`
+- **Thin community `Community 162`** (1 nodes): `Session Transcript Tool Specification`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 163`** (1 nodes): `manifest-generation Specification`
+- **Thin community `Community 163`** (1 nodes): `Skip Response Specification`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 164`** (1 nodes): `pinned-mcp-installs Specification`
+- **Thin community `Community 164`** (1 nodes): `Tool Label Config Specification`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 165`** (1 nodes): `Session Transcript Tool Specification`
+- **Thin community `Community 165`** (1 nodes): `function`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 166`** (1 nodes): `Skip Response Specification`
+- **Thin community `Community 166`** (1 nodes): `function`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 167`** (1 nodes): `Tool Label Config Specification`
+- **Thin community `Community 167`** (1 nodes): `function`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 168`** (1 nodes): `function`
+- **Thin community `Community 168`** (1 nodes): `class`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
 - **Thin community `Community 169`** (1 nodes): `function`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
 - **Thin community `Community 170`** (1 nodes): `function`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 171`** (1 nodes): `class`
+- **Thin community `Community 171`** (1 nodes): `function`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
 - **Thin community `Community 172`** (1 nodes): `function`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
@@ -1131,48 +1126,42 @@ Nodes (1): WorkerToolContext type
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
 - **Thin community `Community 175`** (1 nodes): `function`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 176`** (1 nodes): `function`
+- **Thin community `Community 176`** (1 nodes): `type`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 177`** (1 nodes): `function`
+- **Thin community `Community 177`** (1 nodes): `interface`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 178`** (1 nodes): `function`
+- **Thin community `Community 178`** (1 nodes): `interface`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 179`** (1 nodes): `type`
+- **Thin community `Community 179`** (1 nodes): `EnvFileUtils`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 180`** (1 nodes): `interface`
+- **Thin community `Community 180`** (1 nodes): `adminRestartApp tool`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 181`** (1 nodes): `interface`
+- **Thin community `Community 181`** (1 nodes): `viewSlackFile tool`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 182`** (1 nodes): `EnvFileUtils`
+- **Thin community `Community 182`** (1 nodes): `findSessionTranscript tool`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 183`** (1 nodes): `adminRestartApp tool`
+- **Thin community `Community 183`** (1 nodes): `findChanges tool`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 184`** (1 nodes): `viewSlackFile tool`
+- **Thin community `Community 184`** (1 nodes): `auto-respond rule fetcher`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 185`** (1 nodes): `findSessionTranscript tool`
+- **Thin community `Community 185`** (1 nodes): `QueryToolContext type`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 186`** (1 nodes): `findChanges tool`
-  Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 187`** (1 nodes): `auto-respond rule fetcher`
-  Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 188`** (1 nodes): `QueryToolContext type`
-  Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 189`** (1 nodes): `WorkerToolContext type`
+- **Thin community `Community 186`** (1 nodes): `WorkerToolContext type`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `tool()` connect `Community 3` to `Community 0`, `Community 6`, `Community 7`, `Community 16`, `Community 17`, `Community 22`, `Community 23`?**
-  _High betweenness centrality (0.018) - this node is a cross-community bridge._
-- **Why does `t()` connect `Community 5` to `Community 0`, `Community 1`, `Community 2`, `Community 4`, `Community 7`, `Community 13`?**
-  _High betweenness centrality (0.018) - this node is a cross-community bridge._
-- **Why does `resolve()` connect `Community 2` to `Community 1`, `Community 34`, `Community 4`, `Community 6`, `Community 8`, `Community 9`, `Community 13`, `Community 14`, `Community 18`, `Community 21`?**
-  _High betweenness centrality (0.012) - this node is a cross-community bridge._
+- **Why does `McpServerManager` connect `Community 4` to `Community 1`, `Community 2`?**
+  _High betweenness centrality (0.020) - this node is a cross-community bridge._
+- **Why does `t()` connect `Community 5` to `Community 0`, `Community 1`, `Community 2`, `Community 6`, `Community 7`, `Community 16`, `Community 24`?**
+  _High betweenness centrality (0.017) - this node is a cross-community bridge._
+- **Why does `tool()` connect `Community 3` to `Community 0`, `Community 6`, `Community 39`, `Community 11`, `Community 18`, `Community 23`, `Community 25`, `Community 26`?**
+  _High betweenness centrality (0.017) - this node is a cross-community bridge._
 - **Are the 112 inferred relationships involving `tool()` (e.g. with `pluginWithMixedTopics()` and `createAdminSetRoleTool()`) actually correct?**
   _`tool()` has 112 INFERRED edges - model-reasoned connections that need verification._
-- **Are the 82 inferred relationships involving `resolve()` (e.g. with `loadConfigForManifest()` and `main()`) actually correct?**
-  _`resolve()` has 82 INFERRED edges - model-reasoned connections that need verification._
+- **Are the 84 inferred relationships involving `resolve()` (e.g. with `loadConfigForManifest()` and `main()`) actually correct?**
+  _`resolve()` has 84 INFERRED edges - model-reasoned connections that need verification._
 - **Are the 71 inferred relationships involving `buildQueryTools()` (e.g. with `createListRepositoriesTool()` and `createGitLogTool()`) actually correct?**
   _`buildQueryTools()` has 71 INFERRED edges - model-reasoned connections that need verification._
 - **Are the 71 inferred relationships involving `t()` (e.g. with `handleMigrationFailure()` and `stampConfigUpdateLabels()`) actually correct?**

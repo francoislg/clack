@@ -1,14 +1,45 @@
-import { describe, it, beforeEach } from "vitest";
+import { describe, it, beforeEach, afterEach } from "vitest";
 import assert from "node:assert/strict";
 import type { App } from "@slack/bolt";
 import {
   formatUserIdentity,
   getUserInfo,
   resolveUsers,
+  resolveUserIdentity,
   transformUserMentions,
   clearUserCache,
 } from "./userCache.js";
 import type { UserInfo } from "./userCache.js";
+import {
+  setUserRegistryDeps,
+  resetUserRegistryDeps,
+  clearRegistryCache,
+  upsertIdentity,
+} from "../userRegistry.js";
+
+// getUserInfo write-throughs resolved identities into the registry. Back it with an
+// in-memory store so these tests never touch real disk.
+let registryStore: Map<string, string>;
+beforeEach(() => {
+  registryStore = new Map();
+  setUserRegistryDeps({
+    readFile: async (path) => {
+      const value = registryStore.get(path);
+      if (value === undefined) throw new Error("ENOENT");
+      return value;
+    },
+    writeFile: async (path, data) => {
+      registryStore.set(path, data);
+    },
+    mkdir: async () => undefined,
+    fileExists: async (path) => registryStore.has(path),
+  });
+  clearRegistryCache();
+});
+afterEach(() => {
+  resetUserRegistryDeps();
+  clearRegistryCache();
+});
 
 // ---------------------------------------------------------------------------
 // formatUserIdentity — pure function tests
@@ -261,5 +292,48 @@ describe("transformUserMentions", () => {
     });
     const result = await transformUserMentions(client, "ask <@W123>");
     assert.equal(result, "ask [Enterprise User (@enterprise_user - ID: W123)]");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// resolveUserIdentity — registry-backed, TTL-gated lazy refresh
+// ---------------------------------------------------------------------------
+
+describe("resolveUserIdentity", () => {
+  beforeEach(() => {
+    clearUserCache();
+  });
+
+  it("serves a fresh record from the registry without a Slack call", async () => {
+    await upsertIdentity("U1", "Cached", Date.now());
+    // The client would return a different name; getting "Cached" proves no fetch happened.
+    const client = makeClient({ U1: { name: "u1", display_name: "FromSlack" } });
+    const identity = await resolveUserIdentity(client, "U1");
+    assert.deepEqual(identity, { userId: "U1", displayName: "Cached" });
+  });
+
+  it("refreshes a stale record from Slack and persists the new name", async () => {
+    await upsertIdentity("U1", "Old", 0); // lastFetched 0 → stale
+    const client = makeClient({ U1: { name: "u1", display_name: "Fresh" } });
+    const identity = await resolveUserIdentity(client, "U1");
+    assert.deepEqual(identity, { userId: "U1", displayName: "Fresh" });
+  });
+
+  it("falls back to the stale record when the Slack refresh fails", async () => {
+    await upsertIdentity("U1", "Old", 0);
+    const client = makeClient({}, {}, { U1: "user_not_found" });
+    const identity = await resolveUserIdentity(client, "U1");
+    assert.deepEqual(identity, { userId: "U1", displayName: "Old" });
+  });
+
+  it("returns the cached record without fetching when no client is connected", async () => {
+    await upsertIdentity("U1", "Alice", 0);
+    const identity = await resolveUserIdentity(null, "U1");
+    assert.deepEqual(identity, { userId: "U1", displayName: "Alice" });
+  });
+
+  it("returns null for a wholly unknown user with no client", async () => {
+    const identity = await resolveUserIdentity(null, "UX");
+    assert.equal(identity, null);
   });
 });

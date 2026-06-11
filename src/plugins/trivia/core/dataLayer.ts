@@ -1,3 +1,4 @@
+import { z } from "zod";
 import type { ClackSdk } from "../../sdk.js";
 import { loadTriviaConfig } from "./configBridge.js";
 import { findCurrentSeason } from "./seasonTimeline.js";
@@ -10,6 +11,11 @@ import type {
   TriviaDataLayer,
   ScopedTriviaDataLayer,
 } from "./types.js";
+
+const triviaUserDataZod = z.object({
+  joinedAt: z.number().optional(),
+  cheatAttempts: z.number().optional(),
+});
 
 async function readSdkJson<T>(sdk: ClackSdk, path: string, fallback: T): Promise<T> {
   const raw = await sdk.readFile(path);
@@ -42,24 +48,22 @@ export function createSdkDataLayer(sdk: ClackSdk): TriviaDataLayer {
     await sdk.writeFile("categories.json", JSON.stringify(categories, null, 2));
   }
 
+  // Trivia's slice of each user's central-registry record (`plugins.trivia`).
+  const userData = sdk.users.data(triviaUserDataZod);
+
   async function loadUsers(): Promise<Map<string, TriviaUser>> {
-    const record = await readSdkJson<Record<string, TriviaUser>>(sdk, "users.json", {});
-    return new Map(Object.entries(record));
+    const identities = await sdk.users.list();
+    return new Map(identities.map((u) => [u.userId, u]));
   }
 
-  async function saveUser(u: TriviaUser): Promise<void> {
-    const users = await loadUsers();
-    users.set(u.userId, u);
-    const record = Object.fromEntries(users);
-    await sdk.writeFile("users.json", JSON.stringify(record, null, 2));
+  async function refreshIdentities(userIds: readonly string[]): Promise<void> {
+    await Promise.all([...new Set(userIds)].map((id) => sdk.users.get(id)));
   }
 
-  async function saveUsers(updates: readonly TriviaUser[]): Promise<void> {
-    if (updates.length === 0) return;
-    const users = await loadUsers();
-    for (const u of updates) users.set(u.userId, u);
-    const record = Object.fromEntries(users);
-    await sdk.writeFile("users.json", JSON.stringify(record, null, 2));
+  async function recordJoin(userId: string): Promise<void> {
+    const existing = await userData.get(userId);
+    if (existing?.joinedAt !== undefined) return;
+    await userData.merge(userId, { joinedAt: Date.now() });
   }
 
   // ── Per-game scoped accessor ────────────────────────────────────────────────
@@ -161,21 +165,11 @@ export function createSdkDataLayer(sdk: ClackSdk): TriviaDataLayer {
       cheats.push(report);
       await sdk.writeFile(cPath, JSON.stringify(cheats, null, 2));
 
-      // Cheat tally is global — `users.json` lives at the trivia root, not under games/.
-      const users = await loadUsers();
-      const existing = users.get(report.cheaterUserId);
-      const next: TriviaUser = existing
-        ? { ...existing, cheatAttempts: (existing.cheatAttempts ?? 0) + 1 }
-        : {
-            userId: report.cheaterUserId,
-            displayName: report.cheaterUserId,
-            joinedAt: Date.now(),
-            cheatAttempts: 1,
-          };
-      users.set(report.cheaterUserId, next);
-      const record = Object.fromEntries(users);
-      await sdk.writeFile("users.json", JSON.stringify(record, null, 2));
-      return { totalAttempts: next.cheatAttempts ?? 1 };
+      // Cheat tally is global — it lives in the user's central-registry trivia namespace.
+      const existing = await userData.get(report.cheaterUserId);
+      const totalAttempts = (existing?.cheatAttempts ?? 0) + 1;
+      await userData.merge(report.cheaterUserId, { cheatAttempts: totalAttempts });
+      return { totalAttempts };
     }
 
     async function removeCheat(
@@ -188,21 +182,16 @@ export function createSdkDataLayer(sdk: ClackSdk): TriviaDataLayer {
       );
       const removedCount = cheats.length - remaining.length;
 
-      const users = await loadUsers();
-      const existing = users.get(cheaterUserId);
+      const existing = await userData.get(cheaterUserId);
       if (removedCount === 0) {
         return { removedCount: 0, totalAttempts: existing?.cheatAttempts ?? 0 };
       }
 
       await sdk.writeFile(cPath, JSON.stringify(remaining, null, 2));
 
-      const nextCount = Math.max(0, (existing?.cheatAttempts ?? 0) - removedCount);
-      if (existing) {
-        users.set(cheaterUserId, { ...existing, cheatAttempts: nextCount });
-        const record = Object.fromEntries(users);
-        await sdk.writeFile("users.json", JSON.stringify(record, null, 2));
-      }
-      return { removedCount, totalAttempts: nextCount };
+      const totalAttempts = Math.max(0, (existing?.cheatAttempts ?? 0) - removedCount);
+      await userData.merge(cheaterUserId, { cheatAttempts: totalAttempts });
+      return { removedCount, totalAttempts };
     }
 
     return {
@@ -225,8 +214,8 @@ export function createSdkDataLayer(sdk: ClackSdk): TriviaDataLayer {
     loadCategories,
     saveCategories,
     loadUsers,
-    saveUser,
-    saveUsers,
+    refreshIdentities,
+    recordJoin,
     forGame,
   };
 }

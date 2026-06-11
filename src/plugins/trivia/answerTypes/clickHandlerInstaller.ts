@@ -107,11 +107,6 @@ export function installClickableVoteHandler(
       logger.warn("[trivia:vote] action body user object missing id");
       return;
     }
-    const displayName =
-      "name" in userObj && typeof (userObj as { name: unknown }).name === "string"
-        ? (userObj as { name: string }).name
-        : userId;
-
     const game = await findGameForQuestion(data, getGameNames(), questionId);
     if (game === null) {
       logger.warn(`[trivia:vote] no game owns question ${questionId}`);
@@ -186,10 +181,8 @@ export function installClickableVoteHandler(
         ...seasonTag,
       };
       await scoped.saveAnswer(row);
-      const users = await data.loadUsers();
-      if (!users.has(userId)) {
-        await data.saveUser({ userId, displayName, joinedAt: now });
-      }
+      await data.recordJoin(userId);
+      await data.refreshIdentities([userId]);
     }
 
     if (client !== null) {

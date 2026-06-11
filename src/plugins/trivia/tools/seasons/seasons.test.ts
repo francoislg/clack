@@ -26,20 +26,21 @@ import {
 // Reveal prompt is now a builder; EN-fallback render (no `setTriviaT`) for structural assertions.
 const PROCESS_REVEAL_INSTRUCTIONS = buildProcessRevealInstructions();
 import { getTriviaCheckInstruction } from "../../prompts/triviaCheckInstruction.js";
-import type { TriviaDataLayer, SeasonEntry } from "../../core/types.js";
+import type { SeasonEntry } from "../../core/types.js";
+import type { InMemoryDataLayer } from "../../testHelpers.js";
 
 const SESSION = { sessionId: "test" };
 
 const DAY = 24 * 60 * 60 * 1000;
 
 /** Seed the timeline with the given entries, in order. */
-async function seedTimeline(data: TriviaDataLayer, entries: SeasonEntry[]): Promise<void> {
+async function seedTimeline(data: InMemoryDataLayer, entries: SeasonEntry[]): Promise<void> {
   await data.forGame(FIXTURE_GAME_NAME).saveSeasonsState({ seasons: entries });
 }
 
 /** Convenience: seed a single "currently active" season. */
 async function seedSingleActive(
-  data: TriviaDataLayer,
+  data: InMemoryDataLayer,
   overrides: Partial<SeasonEntry> = {},
 ): Promise<SeasonEntry> {
   const now = Date.now();
@@ -55,7 +56,7 @@ async function seedSingleActive(
 }
 
 /** Seed a single boolean question stamped to the given season slug. */
-async function seedStampedQuestion(data: TriviaDataLayer, seasonSlug: string): Promise<void> {
+async function seedStampedQuestion(data: InMemoryDataLayer, seasonSlug: string): Promise<void> {
   await data.forGame(FIXTURE_GAME_NAME).saveQuestion({
     id: `q-${seasonSlug}`,
     category: "Science",
@@ -165,7 +166,7 @@ describe("findCurrentSeason / findNextSeason / validateNoOverlap", () => {
 // =============================================================================
 
 describe("upsert_season tool", () => {
-  let data: TriviaDataLayer;
+  let data: InMemoryDataLayer;
 
   beforeEach(async () => {
     data = createInMemoryDataLayer();
@@ -329,7 +330,7 @@ describe("upsert_season tool", () => {
     );
     const parsed = parseToolResult(result);
     const state = await data.forGame(FIXTURE_GAME_NAME).loadSeasonsState();
-    const created = state?.seasons.find((s) => s.slug === "default-pool");
+    const created = state?.seasons.find((s: SeasonEntry) => s.slug === "default-pool");
     assert.equal(created?.categories, undefined);
     assert.equal(parsed.hasCategories, false);
     assert.equal(parsed.inheritsCategories, true);
@@ -367,7 +368,7 @@ describe("upsert_season tool", () => {
     );
     parseToolResult(result);
     const state = await data.forGame(FIXTURE_GAME_NAME).loadSeasonsState();
-    const created = state?.seasons.find((s) => s.slug === "empty-cat-arg");
+    const created = state?.seasons.find((s: SeasonEntry) => s.slug === "empty-cat-arg");
     assert.equal(created?.categories, undefined);
   });
 
@@ -967,7 +968,7 @@ describe("upsert_season tool", () => {
     );
     const state = await data.forGame(FIXTURE_GAME_NAME).loadSeasonsState();
     assert.equal(state?.seasons.length, 3);
-    const slugs = state?.seasons.map((s) => s.slug);
+    const slugs = state?.seasons.map((s: SeasonEntry) => s.slug);
     assert.ok(slugs?.includes("future-a"));
     assert.ok(slugs?.includes("future-b"));
   });
@@ -978,7 +979,7 @@ describe("upsert_season tool", () => {
 // =============================================================================
 
 describe("delete_season tool", () => {
-  let data: TriviaDataLayer;
+  let data: InMemoryDataLayer;
 
   beforeEach(async () => {
     data = createInMemoryDataLayer();
@@ -1088,7 +1089,7 @@ describe("delete_season tool", () => {
 // =============================================================================
 
 describe("list_seasons tool", () => {
-  let data: TriviaDataLayer;
+  let data: InMemoryDataLayer;
 
   beforeEach(async () => {
     data = createInMemoryDataLayer();
@@ -1155,7 +1156,7 @@ describe("list_seasons tool", () => {
 // =============================================================================
 
 describe("list_seasons — axis-config surfacing", () => {
-  let data: TriviaDataLayer;
+  let data: InMemoryDataLayer;
 
   beforeEach(async () => {
     data = createInMemoryDataLayer();
@@ -1346,7 +1347,7 @@ describe("list_seasons — axis-config surfacing", () => {
 // =============================================================================
 
 describe("check_season_status tool", () => {
-  let data: TriviaDataLayer;
+  let data: InMemoryDataLayer;
 
   beforeEach(async () => {
     data = createInMemoryDataLayer();
@@ -1461,7 +1462,7 @@ describe("check_season_status tool", () => {
 // =============================================================================
 
 describe("retrieve_scores with timeline-based current", () => {
-  let data: TriviaDataLayer;
+  let data: InMemoryDataLayer;
 
   beforeEach(async () => {
     data = createInMemoryDataLayer();
@@ -1560,7 +1561,7 @@ describe("retrieve_scores with timeline-based current", () => {
 // =============================================================================
 
 describe("find_previous_questions with timeline-based current", () => {
-  let data: TriviaDataLayer;
+  let data: InMemoryDataLayer;
 
   beforeEach(async () => {
     data = createInMemoryDataLayer();
@@ -1674,7 +1675,7 @@ describe("find_previous_questions with timeline-based current", () => {
 // =============================================================================
 
 describe("add_categories with target dispatch", () => {
-  let data: TriviaDataLayer;
+  let data: InMemoryDataLayer;
 
   beforeEach(async () => {
     data = createInMemoryDataLayer();
@@ -1738,10 +1739,10 @@ describe("add_categories with target dispatch", () => {
       SESSION,
     );
     const state = await data.forGame(FIXTURE_GAME_NAME).loadSeasonsState();
-    const future = state?.seasons.find((s) => s.slug === "future");
+    const future = state?.seasons.find((s: SeasonEntry) => s.slug === "future");
     assert.ok(future?.categories?.includes("Whales"));
     // Active season is unaffected.
-    const active = state?.seasons.find((s) => s.slug === "active");
+    const active = state?.seasons.find((s: SeasonEntry) => s.slug === "active");
     assert.ok(!active?.categories?.includes("Whales"));
   });
 
@@ -1829,7 +1830,7 @@ describe("add_categories with target dispatch", () => {
 });
 
 describe("remove_categories with target dispatch + non-empty guards", () => {
-  let data: TriviaDataLayer;
+  let data: InMemoryDataLayer;
 
   beforeEach(async () => {
     data = createInMemoryDataLayer();
@@ -1890,7 +1891,7 @@ describe("remove_categories with target dispatch + non-empty guards", () => {
     assert.deepEqual(parsed.cleared, { future: true });
     assert.equal(parsed.total, 0);
     const state = await data.forGame(FIXTURE_GAME_NAME).loadSeasonsState();
-    const future = state?.seasons.find((s) => s.slug === "future");
+    const future = state?.seasons.find((s: SeasonEntry) => s.slug === "future");
     assert.equal(future?.categories, undefined, "categories key should be dropped");
   });
 
@@ -1912,7 +1913,7 @@ describe("remove_categories with target dispatch + non-empty guards", () => {
 // =============================================================================
 
 describe("get_ideas reads currentCategories via timeline", () => {
-  let data: TriviaDataLayer;
+  let data: InMemoryDataLayer;
 
   beforeEach(async () => {
     data = createInMemoryDataLayer();
@@ -1960,7 +1961,7 @@ describe("get_ideas reads currentCategories via timeline", () => {
 // =============================================================================
 
 describe("save_question validates against active pool", () => {
-  let data: TriviaDataLayer;
+  let data: InMemoryDataLayer;
 
   beforeEach(async () => {
     data = createInMemoryDataLayer();
