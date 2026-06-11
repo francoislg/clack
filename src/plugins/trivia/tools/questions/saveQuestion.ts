@@ -331,6 +331,7 @@ export function createSaveQuestionTool(
       // the handler. WHICH formats stamp it (freeform only) and WHEN (non-default) is the
       // handler's call — save_question doesn't branch on the format string.
       const resolvedJudgeLeniency = resolveCascade("judgeLeniency", cascadeCtx).value;
+      const resolvedChoiceBounds = resolveCascade("choices", cascadeCtx).value;
 
       const currentSeasonSlug = currentSeasonEntry?.slug ?? null;
       const slotStamp =
@@ -366,7 +367,7 @@ export function createSaveQuestionTool(
       // keyed save; prediction defers (no key — `settle_question` stamps it later, and
       // `resolved: false` rode in on the questionType handler's recordExtras above).
       // save_question never branches on the type itself.
-      const saveCtx = { config: getConfigFn(), resolvedJudgeLeniency };
+      const saveCtx = { config: getConfigFn(), resolvedJudgeLeniency, resolvedChoiceBounds };
       const outcome = questionTypeHandler.composeSavedQuestion(handler, base, args, saveCtx);
       if (!outcome.ok) {
         return errorResult(outcome.error);

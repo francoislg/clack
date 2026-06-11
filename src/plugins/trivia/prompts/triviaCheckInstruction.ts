@@ -330,6 +330,21 @@ When the admin DOES explicitly ask to update an already-posted batch:
 
 NEVER use \`run_scheduled_message_now\` on the reveal job to apply a config change to a posted batch — that re-fires the whole reveal cron and is not the right tool. And never tell the admin a posted batch changed unless you actually reprocessed it: editing the config alone leaves the existing cards exactly as they were.
 
+## Topping up an unrevealed batch (flexible underflow)
+
+A \`flexible\` game posts a PREFIX of its slots — anywhere from 0 up to the slot count — so a fire can land FEWER questions than the admin wanted. When the admin asks to "add a question to today's batch", "we're one short", "append a question before the reveal", etc., AND that batch has not revealed yet, you can extend it in place rather than waiting for the next fire:
+
+1. Confirm which game, and that its most-recent batch is still pending (not revealed). \`get_question_history\` shows the latest batch and whether any question carries a \`processedAt\`. If the latest batch is already revealed, you CANNOT top it up — say so and offer to post a fresh batch instead.
+2. Generate the question the normal way: \`get_ideas\` → \`save_question\` (it rolls the cascade and saves a pending record, exactly as a fire would).
+3. Post it with \`post_questions({ game, items: [{ questionId, blocks }], appendToPreviousBatch: true })\`. The \`appendToPreviousBatch\` flag joins the game's most-recent (unrevealed) batch instead of minting a new one, so the new question reveals TOGETHER with the rest of the batch. \`post_questions\` posts it as its own new message in the game's channel automatically — there is no separate "also post to Slack" step.
+
+Two guardrails the tool enforces for you, surfaced so you can explain them:
+
+- If the latest batch is ALREADY revealed, \`appendToPreviousBatch\` fails atomically (no post, no mutation). Appending would resurrect a closed round. Drop the flag to start a fresh batch instead.
+- If the flexible fire posted ZERO questions (skipped the day), there is no pending batch to append to — \`appendToPreviousBatch\` has nothing to target. Just post a normal fresh batch (omit the flag).
+
+\`appendToPreviousBatch\` always targets the MOST-RECENT batch by post time; it cannot reach an older pending batch if a newer one exists. That's fine for the usual same-day top-up.
+
 ## The cascading axis tiers
 
 Five axes cascade across tiers when generating a question. Resolution order, first non-empty wins:
@@ -358,8 +373,9 @@ Slot lives inside a season's \`format.questions[i]\`. Season is a SeasonEntry. G
 
 ### Lifecycle — games
 
-- \`upsert_game(name, …)\` — Create OR update a game (detected by whether \`name\` already exists). **Create** requires \`channel\`, \`questionCron\`, \`revealCron\`, \`timezone\`; \`enabled\` defaults to true. **Update** is omit-to-keep on scheduling fields; axis fields are omit-to-keep with explicit \`null\` to clear. Name is immutable. **Optional pre-staging** via the \`prepCron\` field — see the dedicated section below.
+- \`upsert_game(name, …)\` — Create OR update a game (detected by whether \`name\` already exists). **Create** requires \`channel\`, \`questionCron\`, \`revealCron\`, \`timezone\`; \`enabled\` defaults to true. **Update** is omit-to-keep on scheduling fields; axis fields are omit-to-keep with explicit \`null\` to clear. Name is immutable. **Optional pre-staging** via the \`prepCron\` field and **optional voting-lock** via the \`lockCron\` field — see the dedicated sections below.
 - \`delete_game(name)\` — Remove a game from the registry. Cron jobs disappear on next plugin reload. The per-game data directory (\`data/plugins/trivia/games/<name>/\`) is preserved on disk for archival.
+- \`unlock_questions(game)\` — Admin escape hatch that reverses an early/mistaken lock: reopens voting on every locked, not-yet-revealed question (restores the answer buttons). Use when \`lockCron\` fired too soon or an event was postponed. Already-revealed questions are never reopened.
 
 ### Lifecycle — seasons
 
@@ -408,6 +424,14 @@ Pre-staging is an OPTIMIZATION, not a hard requirement. When prep fails (Claude 
 
 To opt a game back OUT of pre-staging, call \`upsert_game(name: "<game>", prepCron: null)\`. The plugin drops the prep spec on next reconcile and the question cron switches back to the legacy gen-and-post prompt.
 
+## Admin: optional voting-lock schedule (\`lockCron\`)
+
+Each game can OPT IN to a **voting lock** by setting a \`lockCron\` alongside \`questionCron\` and \`revealCron\`. When set, the plugin emits a channelless \`<name>:lock\` cron whose only deliverable is calling \`lock_questions\` — it freezes voting on every posted-but-unrevealed question by stripping the answer buttons and showing a "locked in — waiting on results" notice. It cannot post a Slack message (channelless AND its tool allowlist excludes \`post_questions\`). When \`lockCron\` is ABSENT, voting stays open until the reveal edits the cards — identical to pre-feature behavior.
+
+This is built for **prediction games**: lock picks at the event's kickoff so nobody can change their answer once the outcome starts to unfold, then reveal later once the result is known. It is type-agnostic, though — a lock simply freezes whatever questions are open.
+
+Schedule \`lockCron\` BETWEEN \`questionCron\` and \`revealCron\` (e.g. question at 9 AM, lock at kickoff 7 PM, reveal at 10 PM). To opt back out, call \`upsert_game(name: "<game>", lockCron: null)\`. If a lock fired too early or an event was postponed, call \`unlock_questions(game)\` to reopen voting.
+
 ## When to use which — examples
 
 - "Add a trivia game in #engineering at 9am" → \`upsert_game\`.
@@ -421,6 +445,8 @@ To opt a game back OUT of pre-staging, call \`upsert_game(name: "<game>", prepCr
 - "Add Christmas as an off-day" → \`set_workspace_config(offDays: [...existing, { date: "12-25", label: "Christmas" }])\` (full replacement; \`list_games\` surfaces \`workspaceDefaults.offDays\` so you can read first).
 - "Pre-generate engineering's questions 30 min before posting" → \`upsert_game(name: "engineering", prepCron: "30 8 * * 1-5")\` if questionCron is \`"0 9 * * 1-5"\`. Confirm the proposed prepCron with the admin before applying. See the dedicated pre-staging section above for derivation conventions.
 - "Stop pre-staging engineering" → \`upsert_game(name: "engineering", prepCron: null)\`.
+- "Lock predictions at 7pm before tonight's match" → \`upsert_game(name: "<game>", lockCron: "0 19 * * *")\`. Confirm the time sits between questionCron and revealCron.
+- "Reopen voting — the game was postponed" → \`unlock_questions(game: "<game>")\`.
 
 ## Cascade-tier cheatsheet for axis questions
 

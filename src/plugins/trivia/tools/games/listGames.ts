@@ -10,7 +10,6 @@ import {
 } from "../../core/configBridge.js";
 import type {
   SeasonFormat,
-  TriviaChoicesConfig,
   TriviaAllTimeRowMode,
   TriviaFinalRevealSummary,
   TriviaIncludeRevealInQuestions,
@@ -32,6 +31,20 @@ import { AXIS_KEYS, copyAxisIfSet } from "../../domain/resolveCascade.js";
  */
 type AxisOverrides = Partial<CascadeAxes>;
 
+/**
+ * Next-fire epoch ms for an optional cron in the game's timezone. Returns `undefined`
+ * when the cron is absent or (defensively — the parser validates at config-load time)
+ * unparseable, so the caller omits the field rather than failing the whole list.
+ */
+function nextFireMs(cron: string | undefined, timezone: string): number | undefined {
+  if (cron === undefined) return undefined;
+  try {
+    return CronExpressionParser.parse(cron, { tz: timezone }).next().toDate().getTime();
+  } catch {
+    return undefined;
+  }
+}
+
 interface ListGamesEntry {
   name: string;
   channel: string;
@@ -41,9 +54,12 @@ interface ListGamesEntry {
   revealCron: string;
   prepCron?: string;
   nextPrepFire?: number;
+  lockCron?: string;
+  nextLockFire?: number;
   questionJobId?: string;
   revealJobId?: string;
   prepJobId?: string;
+  lockJobId?: string;
   axisOverrides: AxisOverrides;
   format?: SeasonFormat;
   categories?: string[];
@@ -65,9 +81,9 @@ interface ListGamesEntry {
 export type FindOwnedCronJobsFn = () => Promise<Array<{ id: string; specKey: string }>>;
 const defaultFindOwnedCronJobs: FindOwnedCronJobsFn = async () => [];
 
-// The 13 cascade axes (projected from AXIS_KEYS) plus the non-axis workspace fields.
+// The cascade axes (projected from AXIS_KEYS, includes `choices`) plus the non-axis
+// workspace fields.
 type WorkspaceDefaults = Partial<CascadeAxes> & {
-  choices?: TriviaChoicesConfig;
   seasons?: TriviaSeasonsConfig;
   offDays?: OffDay[];
   allTimeRow?: TriviaAllTimeRowMode;
@@ -79,11 +95,11 @@ type WorkspaceDefaults = Partial<CascadeAxes> & {
 
 const DESCRIPTION = `List the trivia games configured in this deployment (data/plugins/trivia/config.json's \`games[]\`), plus the workspace tier of the cascading axis configuration (\`workspaceDefaults\`) AND each entry's per-game \`axisOverrides\`, so admins can audit configuration without reading the file by hand.
 
-By default, disabled games are excluded; pass \`includeDisabled: true\` to surface them too. Each game entry includes \`questionCron\`, \`revealCron\`, \`timezone\`, \`enabled\`, and an \`axisOverrides\` block surfacing the game's per-game cascade tier for EVERY cascading axis (registry-driven — \`answersFormat\`, \`questionType\`, \`promptMedium\`, \`freeformAnswerShape\`, \`contexts\`, \`difficulty\`, \`difficultyRatio\`, \`hint\`, \`judgeLeniency\`, \`instructions\`, \`additionalInstructions\`, \`liveAnswersVisible\`, \`revealResponses\`). Each axis field is present IF AND ONLY IF the game's entry literally set it. The block is always included on every entry (possibly as \`{}\`). Per-game \`format\` (slot composition), \`categories\` (narrowed pool), \`theme\` (narrative label), and \`prepCron\` (opt-in pre-staging schedule) also surface on each entry IF AND ONLY IF set. When \`prepCron\` is set, the entry also includes \`nextPrepFire\` (epoch ms of the prep cron's next fire in the game's timezone) so admins can sanity-check the schedule.
+By default, disabled games are excluded; pass \`includeDisabled: true\` to surface them too. Each game entry includes \`questionCron\`, \`revealCron\`, \`timezone\`, \`enabled\`, and an \`axisOverrides\` block surfacing the game's per-game cascade tier for EVERY cascading axis (registry-driven — \`answersFormat\`, \`questionType\`, \`promptMedium\`, \`freeformAnswerShape\`, \`contexts\`, \`difficulty\`, \`difficultyRatio\`, \`hint\`, \`judgeLeniency\`, \`choices\`, \`instructions\`, \`additionalInstructions\`, \`liveAnswersVisible\`, \`revealResponses\`). Each axis field is present IF AND ONLY IF the game's entry literally set it. The block is always included on every entry (possibly as \`{}\`). Per-game \`format\` (slot composition), \`categories\` (narrowed pool), \`theme\` (narrative label), \`prepCron\` (opt-in pre-staging schedule), and \`lockCron\` (opt-in voting-lock schedule) also surface on each entry IF AND ONLY IF set. When \`prepCron\` is set, the entry also includes \`nextPrepFire\`; when \`lockCron\` is set, it includes \`nextLockFire\` — each the epoch ms of that cron's next fire in the game's timezone, so admins can sanity-check the schedule.
 
-Each entry also surfaces the underlying cron job UUIDs — \`questionJobId\`, \`revealJobId\`, and (when \`prepCron\` is set) \`prepJobId\` — when the trivia plugin's reconcile has registered the corresponding jobs. Pass these to \`run_scheduled_message_now({id})\` to fire a slot on-demand without a separate \`list_scheduled_messages\` lookup.
+Each entry also surfaces the underlying cron job UUIDs — \`questionJobId\`, \`revealJobId\`, (when \`prepCron\` is set) \`prepJobId\`, and (when \`lockCron\` is set) \`lockJobId\` — when the trivia plugin's reconcile has registered the corresponding jobs. Pass these to \`run_scheduled_message_now({id})\` to fire a slot on-demand without a separate \`list_scheduled_messages\` lookup.
 
-\`workspaceDefaults\` carries the workspace-level values for every axis (the 5 cascading axes plus \`choices\`, \`seasons\`, \`offDays\`). Same present-iff-set rule.
+\`workspaceDefaults\` carries the workspace-level values for every cascading axis (registry-driven, including \`choices\`) plus the non-axis workspace fields (\`seasons\`, \`offDays\`, \`allTimeRow\`, \`tagPlayers\`, …). Same present-iff-set rule.
 
 The cascade tier order is: \`slot → season → game → workspace → built-in default\`. To audit the slot and season tiers, call \`list_seasons\` (its per-entry fields surface season-tier overrides, and \`format.questions[i]\` surface slot-tier overrides). To mutate either game-tier or workspace-tier values, attach the \`trivia:management\` integration and use \`upsert_game\` / \`set_workspace_config\`.
 
@@ -118,26 +134,18 @@ export function createListGamesTool(
         const axisOverrides: AxisOverrides = {};
         for (const key of AXIS_KEYS) copyAxisIfSet(axisOverrides, g, key);
 
-        // Compute next-prep-fire epoch ms only when prepCron is set. Wrapped in
-        // try/catch so a malformed cron expression (shouldn't reach here — the
-        // parser validates at config-load time — but defensive) silently omits
+        // Next-fire epoch ms for the optional prep / lock crons. See `nextFireMs`:
+        // an absent or (defensively) unparseable cron yields `undefined`, omitting
         // the field rather than blowing up the entire list.
-        let nextPrepFire: number | undefined;
-        if (g.prepCron !== undefined) {
-          try {
-            nextPrepFire = CronExpressionParser.parse(g.prepCron, { tz: g.timezone })
-              .next()
-              .toDate()
-              .getTime();
-          } catch {
-            nextPrepFire = undefined;
-          }
-        }
+        const nextPrepFire = nextFireMs(g.prepCron, g.timezone);
+        const nextLockFire = nextFireMs(g.lockCron, g.timezone);
 
         const questionJobId = jobIdBySpecKey.get(`${g.name}:question`);
         const revealJobId = jobIdBySpecKey.get(`${g.name}:reveal`);
         const prepJobId =
           g.prepCron !== undefined ? jobIdBySpecKey.get(`${g.name}:prep`) : undefined;
+        const lockJobId =
+          g.lockCron !== undefined ? jobIdBySpecKey.get(`${g.name}:lock`) : undefined;
 
         return {
           name: g.name,
@@ -148,9 +156,12 @@ export function createListGamesTool(
           revealCron: g.revealCron,
           ...(g.prepCron !== undefined ? { prepCron: g.prepCron } : {}),
           ...(nextPrepFire !== undefined ? { nextPrepFire } : {}),
+          ...(g.lockCron !== undefined ? { lockCron: g.lockCron } : {}),
+          ...(nextLockFire !== undefined ? { nextLockFire } : {}),
           ...(questionJobId !== undefined ? { questionJobId } : {}),
           ...(revealJobId !== undefined ? { revealJobId } : {}),
           ...(prepJobId !== undefined ? { prepJobId } : {}),
+          ...(lockJobId !== undefined ? { lockJobId } : {}),
           axisOverrides,
           ...(g.format !== undefined ? { format: g.format } : {}),
           ...(g.categories !== undefined ? { categories: g.categories } : {}),
@@ -183,7 +194,6 @@ export function createListGamesTool(
       if (triviaCfg) {
         for (const key of AXIS_KEYS) copyAxisIfSet(workspaceDefaults, triviaCfg, key);
         // Non-axis workspace fields kept alongside the cascade axes.
-        if (triviaCfg.choices !== undefined) workspaceDefaults.choices = triviaCfg.choices;
         if (triviaCfg.seasons !== undefined) workspaceDefaults.seasons = triviaCfg.seasons;
         if (triviaCfg.offDays !== undefined) workspaceDefaults.offDays = triviaCfg.offDays;
         if (triviaCfg.allTimeRow !== undefined) workspaceDefaults.allTimeRow = triviaCfg.allTimeRow;

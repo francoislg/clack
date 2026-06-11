@@ -31,6 +31,7 @@ function baseArgs(slug: string, startedAt: number) {
     additionalInstructions: undefined,
     hint: undefined,
     judgeLeniency: undefined,
+    choices: undefined,
   };
 }
 

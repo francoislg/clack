@@ -200,6 +200,24 @@ describe("installClickableVoteHandler — vote click flow", () => {
     assert.match(respondLog.calls[0].text ?? "", /Answers are closed/);
   });
 
+  it("click on a locked question acks silently and sends an ephemeral 'answers are locked' message", async () => {
+    const { data, installed } = setupBoolean();
+    const scoped = data.forGame(FIXTURE_GAME_NAME);
+    await scoped.saveQuestion(makeBooleanQuestion({ answerLocked: true }));
+
+    const respondLog = await invokeAction(installed, {
+      actionId: "plugin:trivia:vote:QB1:true",
+      userId: "U_LATE",
+    });
+
+    assert.equal(respondLog.ackCalled, true);
+    const answers = await scoped.loadAnswers();
+    assert.equal(answers.length, 0, "locked click must not write");
+    assert.equal(respondLog.calls.length, 1);
+    assert.equal(respondLog.calls[0].response_type, "ephemeral");
+    assert.match(respondLog.calls[0].text ?? "", /locked/i);
+  });
+
   it("flagged cheater click is silently dropped (no answer, no ephemeral)", async () => {
     const { data, installed } = setupBoolean();
     const scoped = data.forGame(FIXTURE_GAME_NAME);

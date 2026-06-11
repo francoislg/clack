@@ -184,6 +184,15 @@ export interface TriviaQuestion {
    */
   tagPlayers?: boolean;
   /**
+   * Voting-frozen flag. Set to `true` by `lock_questions` (fired by a game's optional
+   * `lockCron`) and cleared by the admin `unlock_questions` tool. The live-card rebuild
+   * (`editRosterIntoCard`) reads it: when `true` it strips the answer-actions block and
+   * shows a "locked in — waiting on results" notice instead of the buttons + roster.
+   * The vote/freeform click handlers also reject answers while it is `true`. Absent on
+   * legacy / pre-feature rows; absence SHALL be read as unlocked.
+   */
+  answerLocked?: boolean;
+  /**
    * Optional hint attached to the question. Written by `save_question` when
    * Claude generates one (driven by `get_ideas` payload's `suggestedHintMode`),
    * read by `post_questions` to render the hint button / inline block. `mode`

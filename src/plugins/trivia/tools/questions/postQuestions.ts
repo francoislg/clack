@@ -47,7 +47,7 @@ ${PER_FORMAT_AFFORDANCES}
 
 batchId selection:
 - DEFAULT (\`appendToPreviousBatch\` absent or false): the tool mints a fresh UUID once per call and stamps every freshly-posted item with it. process_reveal_answers groups questions sharing the same batchId into one reveal.
-- APPEND MODE (\`appendToPreviousBatch: true\`): the tool resolves the game's most-recent batch (the batchId group whose max(postedAt) is the largest among rows that carry a batchId) and stamps every freshly-posted item with THAT batchId — joining the prior batch instead of creating a new one. Use this on a retry of items that failed in an earlier post_questions call within the same run, so the retried items reveal together with the original successes.
+- APPEND MODE (\`appendToPreviousBatch: true\`): the tool resolves the game's most-recent batch (the batchId group whose max(postedAt) is the largest among rows that carry a batchId) and stamps every freshly-posted item with THAT batchId — joining the prior batch instead of creating a new one, so the appended items reveal together with the prior batch's questions. Two blessed uses: (1) retrying items that failed in an earlier post_questions call within the same run, and (2) an admin deliberately TOPPING UP an unrevealed batch later — e.g. a \`flexible\` game posted fewer questions than its slots and an admin wants to add one before the reveal fires.
 - APPEND MODE fails the WHOLE call atomically (no Slack posts, no record mutations) when (a) the game has no question carrying a batchId — nothing to append to, or (b) the resolved previous batch contains at least one question whose processedAt is set (the batch was already revealed). Appending to a revealed batch would resurrect a closed round.
 
 Idempotency: a question whose postedAt is already set is skipped (returned with ok: true and the prior ts/permalink). Re-calling with the same items is a no-op. Idempotent-skip semantics are identical regardless of \`appendToPreviousBatch\`.
@@ -199,7 +199,7 @@ export function createPostQuestionsTool(
         .boolean()
         .optional()
         .describe(
-          "When true, the tool reuses the game's most-recent batchId for every fresh item in this call instead of minting a new one. Use ONLY when retrying items that failed in an earlier post_questions call within the same run, so the retried items reveal together with the original successes. The call fails atomically (no Slack posts, no record mutations) if there is no prior batch for the game, or if the resolved previous batch contains any question whose processedAt is set (already revealed). Default false.",
+          "When true, the tool reuses the game's most-recent batchId for every fresh item in this call instead of minting a new one, so the items reveal together with that batch's questions. Two blessed uses: (1) retrying items that failed in an earlier post_questions call within the same run, and (2) an admin deliberately topping up an unrevealed batch later — e.g. a flexible game underflowed and an admin wants to add a question before reveal. The call fails atomically (no Slack posts, no record mutations) if there is no prior batch for the game, or if the resolved previous batch contains any question whose processedAt is set (already revealed). Default false.",
         ),
       suppress_unfurls: z
         .boolean()

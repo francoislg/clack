@@ -22,6 +22,7 @@ import {
   DEFAULT_FREEFORM_ANSWER_SHAPE_WEIGHTS,
   DEFAULT_HINT_CONFIG,
   DEFAULT_JUDGE_LENIENCY,
+  DEFAULT_TRIVIA_CHOICES,
 } from "../core/configTypes.js";
 import type {
   AxisDef,
@@ -227,6 +228,7 @@ export const AXIS_REGISTRY: AxisRegistry = {
   contexts: makeFirstWins("contexts", null),
   hint: makeFirstWins("hint", DEFAULT_HINT_CONFIG),
   judgeLeniency: makeFirstWins("judgeLeniency", DEFAULT_JUDGE_LENIENCY),
+  choices: makeFirstWins("choices", DEFAULT_TRIVIA_CHOICES),
   instructions: makeFirstWins("instructions", null),
   liveAnswersVisible: makeFirstWins("liveAnswersVisible", true),
   revealResponses: makeFirstWins("revealResponses", "yes"),
@@ -248,6 +250,7 @@ export const AXIS_KEYS: readonly (keyof CascadeAxes)[] = [
   "contexts",
   "hint",
   "judgeLeniency",
+  "choices",
   "instructions",
   "liveAnswersVisible",
   "revealResponses",

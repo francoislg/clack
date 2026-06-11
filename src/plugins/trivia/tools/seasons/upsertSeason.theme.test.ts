@@ -32,6 +32,7 @@ function baseArgs(slug: string, future: number) {
     additionalInstructions: undefined,
     hint: undefined,
     judgeLeniency: undefined,
+    choices: undefined,
   };
 }
 

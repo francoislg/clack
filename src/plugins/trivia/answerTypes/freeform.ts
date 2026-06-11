@@ -431,7 +431,8 @@ export const freeformAnswerHandler: AnswerTypeHandler = {
 
       const answers = await scoped.loadAnswers();
       const myRow = answers.find((a) => a.userId === userId && a.questionId === questionId);
-      const locked = question.processedAt !== undefined;
+      // Read-only once the round is revealed OR the question is locked (picks frozen).
+      const locked = question.processedAt !== undefined || question.answerLocked === true;
 
       const view = buildFreeformModal({
         callbackId: sdk.viewCallbackId(`freeform-modal:${questionId}`),
@@ -486,6 +487,14 @@ export const freeformAnswerHandler: AnswerTypeHandler = {
         await ack({
           response_action: "errors",
           errors: { "freeform-answer-input": t("error.answers_closed_question") },
+        });
+        return;
+      }
+
+      if (question.answerLocked === true) {
+        await ack({
+          response_action: "errors",
+          errors: { "freeform-answer-input": t("error.answers_locked") },
         });
         return;
       }

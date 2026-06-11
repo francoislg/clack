@@ -1,0 +1,101 @@
+import { describe, it } from "vitest";
+import assert from "node:assert/strict";
+import { createUnlockQuestionsTool } from "./unlockQuestions.js";
+import { type LockSlackDeps } from "./lockQuestions.js";
+import { createInMemoryDataLayer, FIXTURE_GAME_NAME, fixtureGetGames } from "../../testHelpers.js";
+import { parseToolResult } from "../../../../tools/testHelpers.js";
+import type { RosterEditClient } from "../../freeform/roster.js";
+import type { KnownBlock } from "@slack/types";
+import type { TriviaDataLayer, TriviaQuestion } from "../../core/types.js";
+
+const SESSION = { sessionId: "test" };
+
+interface UnlockResult {
+  unlocked?: string[];
+  errors?: Array<{ questionId: string; error: string }>;
+  error?: string;
+}
+
+function fakeSdk(): { sdk: LockSlackDeps; updateCalls: string[] } {
+  const updateCalls: string[] = [];
+  const chat: RosterEditClient["chat"] = {
+    async update(args) {
+      updateCalls.push("ts" in args && typeof args.ts === "string" ? args.ts : "");
+      return { ok: true };
+    },
+  };
+  return { sdk: { getSlackClient: () => ({ chat }) }, updateCalls };
+}
+
+function locked(overrides: Partial<TriviaQuestion>): TriviaQuestion {
+  const blocks: KnownBlock[] = [
+    { type: "section", text: { type: "mrkdwn", text: "stmt" } },
+    { type: "actions", block_id: "vote-actions:q", elements: [] },
+  ];
+  return {
+    id: "q",
+    category: "C",
+    statement: "stmt",
+    answersFormat: "boolean",
+    questionType: "fact",
+    isTrue: true,
+    emojis: ["🎯"],
+    createdAt: 0,
+    postedAt: 1000,
+    messageLink: "https://x.slack.com/archives/C100000000/p1700000000000000",
+    postedBlocks: blocks,
+    answerLocked: true,
+    ...overrides,
+  };
+}
+
+async function run(data: TriviaDataLayer, sdk: LockSlackDeps): Promise<UnlockResult> {
+  const tool = createUnlockQuestionsTool(data, sdk, fixtureGetGames);
+  return parseToolResult(await tool.handler({ game: FIXTURE_GAME_NAME }, SESSION));
+}
+
+describe("unlock_questions", () => {
+  it("clears the flag and repaints every locked, unrevealed question", async () => {
+    const data = createInMemoryDataLayer();
+    const scoped = data.forGame(FIXTURE_GAME_NAME);
+    await scoped.saveQuestion(locked({ id: "a" }));
+    await scoped.saveQuestion(locked({ id: "b" }));
+    const { sdk, updateCalls } = fakeSdk();
+
+    const res = await run(data, sdk);
+
+    assert.deepEqual(res.unlocked?.sort(), ["a", "b"]);
+    assert.equal(updateCalls.length, 2);
+    const after = await scoped.loadQuestions();
+    assert.ok(after.every((q) => q.answerLocked === false));
+  });
+
+  it("does not reopen an already-revealed (and locked) question", async () => {
+    const data = createInMemoryDataLayer();
+    const scoped = data.forGame(FIXTURE_GAME_NAME);
+    await scoped.saveQuestion(locked({ id: "revealed", processedAt: 2000 }));
+    const { sdk } = fakeSdk();
+
+    const res = await run(data, sdk);
+
+    assert.deepEqual(res.unlocked, []);
+    const after = (await scoped.loadQuestions()).find((q) => q.id === "revealed");
+    assert.equal(after?.answerLocked, true, "revealed+locked question stays locked");
+  });
+
+  it("ignores questions that are not locked", async () => {
+    const data = createInMemoryDataLayer();
+    const scoped = data.forGame(FIXTURE_GAME_NAME);
+    await scoped.saveQuestion(locked({ id: "open", answerLocked: undefined }));
+    const { sdk } = fakeSdk();
+
+    const res = await run(data, sdk);
+    assert.deepEqual(res.unlocked, []);
+  });
+
+  it("errors when the Slack client is unavailable", async () => {
+    const data = createInMemoryDataLayer();
+    const res = await run(data, { getSlackClient: () => null });
+    assert.match(res.error ?? "", /Slack client is not available/);
+  });
+});

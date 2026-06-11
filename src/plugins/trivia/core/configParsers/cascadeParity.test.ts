@@ -37,6 +37,7 @@ describe("cascade parity — parser accepts every registry axis", () => {
       contexts: [{ name: "lens-a" }],
       hint: { mode: "button" },
       judgeLeniency: "lenient",
+      choices: { min: 2, max: 4 },
       instructions: "do this",
       liveAnswersVisible: false,
       revealResponses: "no",

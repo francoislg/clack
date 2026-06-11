@@ -15,6 +15,9 @@ export const en = {
   "roster.answered_label": "📝 *Answered:*",
   "roster.no_answers_yet": "(no answers yet)",
 
+  // Notice replacing the answer buttons once a question is locked (lock_questions).
+  "card.locked_notice": "🔒 *Locked in* — waiting on results",
+
   // Boolean question buttons.
   "button.true": "👍 TRUE",
   "button.false": "👎 FALSE",
@@ -88,6 +91,8 @@ export const en = {
   "error.question_gone": "This question no longer exists.",
   "error.answers_closed_question": "Answers are now closed for this question.",
   "error.answers_closed_round": "Answers are closed for this round.",
+  "error.answers_locked":
+    "Answers are locked for this question — picks are frozen until the reveal.",
 
   // Owner cheat-report DM.
   "cheat.report_title": "🚨 Trivia cheat report",
@@ -99,6 +104,8 @@ export const en = {
   "label.save_question": "Saving trivia question — {game}/{category}",
   "label.update_question": "Authoring trivia card narrative — {game}",
   "label.post_questions": "Posting trivia question — {game}",
+  "label.lock_questions": "Locking trivia questions — {game}",
+  "label.unlock_questions": "Unlocking trivia questions — {game}",
   "label.find_previous": "Searching past trivia questions — {game}",
   "label.find_previous_subjects": "Checking for repeat image subjects — {subjectId}",
   "label.question_history": "Loading trivia question history — {game}",
@@ -123,6 +130,8 @@ export const en = {
 export const fr: Partial<Record<keyof typeof en, string>> = {
   "roster.answered_label": "📝 *Réponses :*",
   "roster.no_answers_yet": "(aucune réponse pour l'instant)",
+
+  "card.locked_notice": "🔒 *Choix verrouillés* — en attente des résultats",
 
   "button.true": "👍 VRAI",
   "button.false": "👎 FAUX",
@@ -182,6 +191,8 @@ export const fr: Partial<Record<keyof typeof en, string>> = {
   "error.question_gone": "Cette question n'existe plus.",
   "error.answers_closed_question": "Les réponses sont maintenant closes pour cette question.",
   "error.answers_closed_round": "Les réponses sont closes pour cette manche.",
+  "error.answers_locked":
+    "Les réponses sont verrouillées pour cette question — les choix sont figés jusqu'au dévoilement.",
 
   "cheat.report_title": "🚨 Rapport de triche au trivia",
 
@@ -191,6 +202,8 @@ export const fr: Partial<Record<keyof typeof en, string>> = {
   "label.save_question": "Enregistrement de la question trivia — {game}/{category}",
   "label.update_question": "Rédaction du récit de la carte trivia — {game}",
   "label.post_questions": "Publication de la question trivia — {game}",
+  "label.lock_questions": "Verrouillage des questions trivia — {game}",
+  "label.unlock_questions": "Déverrouillage des questions trivia — {game}",
   "label.find_previous": "Recherche de questions trivia passées — {game}",
   "label.find_previous_subjects": "Vérification des sujets d'image déjà utilisés — {subjectId}",
   "label.question_history": "Chargement de l'historique des questions trivia — {game}",

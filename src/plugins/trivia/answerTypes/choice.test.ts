@@ -232,7 +232,11 @@ describe("choiceAnswerHandler", () => {
           correctIndex: 2,
           emojis: ["🎸"],
         },
-        { config: { choices: { min: 2, max: 4 } }, resolvedJudgeLeniency: "strict-with-typos" },
+        {
+          config: null,
+          resolvedChoiceBounds: { min: 2, max: 4 },
+          resolvedJudgeLeniency: "strict-with-typos",
+        },
       );
       assert.equal(out.ok, true);
       if (out.ok) {
@@ -254,7 +258,11 @@ describe("choiceAnswerHandler", () => {
           correctIndex: 5,
           emojis: ["🎸"],
         },
-        { config: { choices: { min: 2, max: 4 } }, resolvedJudgeLeniency: "strict-with-typos" },
+        {
+          config: null,
+          resolvedChoiceBounds: { min: 2, max: 4 },
+          resolvedJudgeLeniency: "strict-with-typos",
+        },
       );
       assert.equal(out.ok, false);
       if (!out.ok) assert.match(out.error, /correctIndex \(5\)/);
@@ -273,7 +281,11 @@ describe("choiceAnswerHandler", () => {
           correctIndex: 0,
           emojis: ["🎸"],
         },
-        { config: { choices: { min: 2, max: 4 } }, resolvedJudgeLeniency: "strict-with-typos" },
+        {
+          config: null,
+          resolvedChoiceBounds: { min: 2, max: 4 },
+          resolvedJudgeLeniency: "strict-with-typos",
+        },
       );
       assert.equal(out.ok, false);
       if (!out.ok) assert.match(out.error, /unique/);
@@ -292,7 +304,11 @@ describe("choiceAnswerHandler", () => {
           correctIndex: 0,
           emojis: ["🎸"],
         },
-        { config: { choices: { min: 2, max: 4 } }, resolvedJudgeLeniency: "strict-with-typos" },
+        {
+          config: null,
+          resolvedChoiceBounds: { min: 2, max: 4 },
+          resolvedJudgeLeniency: "strict-with-typos",
+        },
       );
       assert.equal(out.ok, false);
       if (!out.ok) assert.match(out.error, /between 2 and 4/);
@@ -319,6 +335,52 @@ describe("choiceAnswerHandler", () => {
         assert.ok(count >= 3 && count <= 4);
         assert.ok(idx >= 0 && idx < count);
       }
+    });
+
+    it("rolls from the game-tier choices override over the workspace tier", () => {
+      const game = {
+        name: "g",
+        channel: "C1",
+        questionCron: "0 9 * * *",
+        revealCron: "0 17 * * *",
+        timezone: "UTC",
+        choices: { min: 2, max: 2 },
+      };
+      const out = choiceAnswerHandler.rollGenerationSuggestions({
+        cascadeCtx: {
+          seasonSlot: null,
+          gameSlot: null,
+          slotIndex: null,
+          season: null,
+          game,
+          config: { choices: { min: 4, max: 4 } },
+        },
+      });
+      assert.equal(out.suggestedChoiceCount, 2);
+      const idx = out.suggestedCorrectIndex;
+      assert.ok(typeof idx === "number" && idx >= 0 && idx < 2);
+    });
+
+    it("rolls from a game-format slot (gameSlot) override over the game tier", () => {
+      const game = {
+        name: "g",
+        channel: "C1",
+        questionCron: "0 9 * * *",
+        revealCron: "0 17 * * *",
+        timezone: "UTC",
+        choices: { min: 4, max: 4 },
+      };
+      const out = choiceAnswerHandler.rollGenerationSuggestions({
+        cascadeCtx: {
+          seasonSlot: null,
+          gameSlot: { choices: { min: 2, max: 2 } },
+          slotIndex: 0,
+          season: null,
+          game,
+          config: null,
+        },
+      });
+      assert.equal(out.suggestedChoiceCount, 2);
     });
   });
 

@@ -252,7 +252,11 @@ describe("booleanAnswerHandler", () => {
           isTrue: true,
           emojis: ["⚡"],
         },
-        { config: null, resolvedJudgeLeniency: "strict-with-typos" },
+        {
+          config: null,
+          resolvedChoiceBounds: { min: 4, max: 4 },
+          resolvedJudgeLeniency: "strict-with-typos",
+        },
       );
       assert.equal(out.ok, true);
       if (out.ok) {
@@ -273,7 +277,11 @@ describe("booleanAnswerHandler", () => {
           statement: "S",
           emojis: ["⚡"],
         },
-        { config: null, resolvedJudgeLeniency: "strict-with-typos" },
+        {
+          config: null,
+          resolvedChoiceBounds: { min: 4, max: 4 },
+          resolvedJudgeLeniency: "strict-with-typos",
+        },
       );
       assert.equal(out.ok, false);
       if (!out.ok) assert.match(out.error, /isTrue/);

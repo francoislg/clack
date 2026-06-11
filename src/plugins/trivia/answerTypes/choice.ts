@@ -2,8 +2,7 @@ import { z } from "zod";
 import type { ClackSdk } from "../../sdk.js";
 import type { SlackBlocks } from "../../../slack/blocks.js";
 import type { JsonValue } from "../core/configTypes.js";
-import { DEFAULT_TRIVIA_CHOICES } from "../core/configTypes.js";
-import { getActiveChoiceBounds } from "../domain/questionTypes.js";
+import { resolveCascade } from "../domain/resolveCascade.js";
 import type { SubmittedAnswer, TriviaQuestion, TriviaUser } from "../core/types.js";
 import type { Voter, VoterBuckets } from "../tools/reveal/types.js";
 import { buildExcludeSet, isScoredAnswer, loadQuestionCheaterIds } from "./cheaterFilter.js";
@@ -249,10 +248,7 @@ export const choiceAnswerHandler: ClickableAnswerHandler = {
     if (args.choices === undefined) {
       return { ok: false, error: 'Choice questions require "choices".' };
     }
-    const listError = validateChoiceList(
-      args.choices,
-      ctx.config?.choices ?? DEFAULT_TRIVIA_CHOICES,
-    );
+    const listError = validateChoiceList(args.choices, ctx.resolvedChoiceBounds);
     if (listError !== null) {
       return { ok: false, error: listError };
     }
@@ -294,7 +290,7 @@ export const choiceAnswerHandler: ClickableAnswerHandler = {
   },
 
   rollGenerationSuggestions(deps: SuggestionRollDeps): Record<string, JsonValue> {
-    const bounds = getActiveChoiceBounds(deps.cascadeCtx.config);
+    const bounds = resolveCascade("choices", deps.cascadeCtx).value;
     const suggestedChoiceCount = randomIntInclusive(bounds.min, bounds.max);
     const suggestedCorrectIndex = randomIntInclusive(0, suggestedChoiceCount - 1);
     return { suggestedChoiceCount, suggestedCorrectIndex };

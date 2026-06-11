@@ -15,6 +15,7 @@ import type {
   JsonObject,
   JsonValue,
   RevealResponsesMode,
+  TriviaChoicesConfig,
   TriviaConfig,
   TriviaGame,
   TriviaHintConfig,
@@ -31,10 +32,12 @@ import {
   triviaFinalRevealSummaryZod,
   triviaIncludeRevealInQuestionsZod,
   triviaDifficultyRatioZod,
+  triviaChoicesZod,
   triviaHintZod,
   triviaJudgeLeniencyZod,
   triviaTellMeMoreZod,
   validateHintConfig,
+  validateTriviaChoicesConfig,
   type ParseIssue,
 } from "../../core/configParsers/axes.js";
 import {
@@ -52,6 +55,31 @@ import {
 
 const TRIVIA_GAME_NAME_RE = /^[a-z0-9-]+$/;
 const CHANNEL_RE = /^[CGD][A-Z0-9_]+$/;
+
+/**
+ * Resolve an optional cron arg with `null`-to-clear / omit-to-keep / validate-and-set
+ * semantics, shared by `prepCron` and `lockCron`. Returns the resolved value on success,
+ * or an error string the caller surfaces via `errorResult` (a parse failure must not set
+ * the field). `null` clears, `undefined` keeps `existing`, a string is validated in `timezone`.
+ */
+function resolveOptionalCron(
+  arg: string | null | undefined,
+  existing: string | undefined,
+  timezone: string,
+  fieldName: string,
+): { ok: true; value: string | undefined } | { ok: false; error: string } {
+  if (arg === null) return { ok: true, value: undefined };
+  if (arg === undefined) return { ok: true, value: existing };
+  try {
+    CronExpressionParser.parse(arg, { tz: timezone });
+  } catch (err) {
+    return {
+      ok: false,
+      error: `Invalid ${fieldName} "${arg}": ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
+  return { ok: true, value: arg };
+}
 
 const axisBagSchema = {
   answersFormat: answersFormatZod
@@ -171,6 +199,12 @@ const structuralFieldsSchema = {
     .describe(
       'Per-game tier of the "Tell me more" reveal affordance. Object shape `{ enabled: boolean }`. When enabled, the revealed question card grows a "Tell me more" button that starts a thread conversation asking Clack for deeper detail about the question/answer. Cascade: `game → workspace → { enabled: false }` (no season/slot tier). On UPDATE: explicit null clears the field.',
     ),
+  choices: triviaChoicesZod
+    .nullable()
+    .optional()
+    .describe(
+      "Per-game tier of the choice option-count bounds axis. Object shape `{ min, max }` with `2 ≤ min ≤ max ≤ 4`. Bounds how many options a `choice` question gets (get_ideas rolls a count in `[min, max]`; save_question validates against it). Cascade: `slot → season → game → workspace → { min: 4, max: 4 }`. Whole-object replace per tier. On UPDATE: explicit null clears the field.",
+    ),
 };
 
 export function createUpsertGameTool(
@@ -208,6 +242,13 @@ export function createUpsertGameTool(
         .optional()
         .describe(
           "Optional cron expression for the pre-staging run, evaluated in the game's timezone. When set, the plugin emits a third channelless cron spec (`<name>:prep`) that gen-saves questions ahead of the question cron WITHOUT posting. The question cron then picks the oldest staged question per slot, falling back to inline-gen for missing slots. The bot does NOT derive this value automatically; YOU propose it conversationally (typically 30 minutes before questionCron) and the admin confirms or overrides. Watch for midnight crossings — shifting `0 0 * * *` back 30 min produces `30 23 * * *` which fires on the PREVIOUS calendar day; surface this trade-off when proposing. UPDATE semantics: omit to keep current value; pass `null` to clear and disable pre-staging.",
+        ),
+      lockCron: z
+        .string()
+        .nullable()
+        .optional()
+        .describe(
+          "Optional cron expression for the lock run, evaluated in the game's timezone. When set, the plugin emits a channelless cron spec (`<name>:lock`) that freezes voting on every posted-but-unrevealed question — stripping the answer buttons and showing a 'locked in — waiting on results' notice. Typically scheduled between questionCron and revealCron (e.g. at an event's kickoff). When absent, voting stays open until reveal. UPDATE semantics: omit to keep current value; pass `null` to clear and disable locking.",
         ),
       timezone: z
         .string()
@@ -274,25 +315,15 @@ export function createUpsertGameTool(
         );
       }
 
-      // Resolve prepCron with null-to-clear / omit-to-keep semantics:
-      // - undefined (omitted)  → keep existing.prepCron
-      // - null                 → clear (remove the field)
-      // - string               → validate + set
-      let prepCron: string | undefined;
-      if (args.prepCron === null) {
-        prepCron = undefined;
-      } else if (args.prepCron === undefined) {
-        prepCron = existing?.prepCron;
-      } else {
-        try {
-          CronExpressionParser.parse(args.prepCron, { tz: timezone });
-        } catch (err) {
-          return errorResult(
-            `Invalid prepCron "${args.prepCron}": ${err instanceof Error ? err.message : String(err)}`,
-          );
-        }
-        prepCron = args.prepCron;
-      }
+      // Resolve the two optional crons with null-to-clear / omit-to-keep / validate-and-set
+      // semantics (see `resolveOptionalCron`). A parse failure short-circuits to errorResult.
+      const prepRes = resolveOptionalCron(args.prepCron, existing?.prepCron, timezone, "prepCron");
+      if (!prepRes.ok) return errorResult(prepRes.error);
+      const prepCron = prepRes.value;
+
+      const lockRes = resolveOptionalCron(args.lockCron, existing?.lockCron, timezone, "lockCron");
+      if (!lockRes.ok) return errorResult(lockRes.error);
+      const lockCron = lockRes.value;
 
       // Validate axis fields via the shared parser. Issues become hard errors here
       // (strict mode); the parser itself does no I/O.
@@ -352,6 +383,12 @@ export function createUpsertGameTool(
         const r = validateHintConfig(args.hint, "hint");
         if (!r.ok) issues.push({ field: "hint", error: r.error });
         else parsedHint = r.value;
+      }
+      let parsedChoices: TriviaChoicesConfig | undefined;
+      if (args.choices !== undefined && args.choices !== null) {
+        const r = validateTriviaChoicesConfig(args.choices, "choices");
+        if (!r.ok) issues.push({ field: "choices", error: r.error });
+        else parsedChoices = r.value;
       }
 
       if (issues.length > 0) {
@@ -424,6 +461,7 @@ export function createUpsertGameTool(
           ? { finalRevealSummary: existing.finalRevealSummary }
           : {}),
         ...(existing?.tellMeMore !== undefined ? { tellMeMore: existing.tellMeMore } : {}),
+        ...(existing?.choices !== undefined ? { choices: existing.choices } : {}),
       };
       if (args.format === null) delete mergedStructural.format;
       else if (parsedFormat !== undefined) mergedStructural.format = parsedFormat;
@@ -457,6 +495,8 @@ export function createUpsertGameTool(
       if (args.judgeLeniency === null) delete mergedStructural.judgeLeniency;
       else if (args.judgeLeniency !== undefined)
         mergedStructural.judgeLeniency = args.judgeLeniency;
+      if (args.choices === null) mergedStructural.choices = undefined;
+      else if (parsedChoices !== undefined) mergedStructural.choices = parsedChoices;
 
       const enabled = args.enabled ?? existing?.enabled ?? true;
 
@@ -468,6 +508,7 @@ export function createUpsertGameTool(
         timezone,
         enabled,
         ...(prepCron !== undefined ? { prepCron } : {}),
+        ...(lockCron !== undefined ? { lockCron } : {}),
         ...mergedAxes,
         ...mergedStructural,
       };
@@ -493,6 +534,7 @@ export function createUpsertGameTool(
       if (wrote(args.difficultyRatio)) writtenFields.push("difficultyRatio");
       if (wrote(args.hint)) writtenFields.push("hint");
       if (wrote(args.judgeLeniency)) writtenFields.push("judgeLeniency");
+      if (wrote(args.choices)) writtenFields.push("choices");
       if (wrote(args.instructions)) writtenFields.push("instructions");
       if (wrote(args.additionalInstructions)) writtenFields.push("additionalInstructions");
       if (wrote(args.liveAnswersVisible)) writtenFields.push("liveAnswersVisible");
@@ -524,6 +566,7 @@ export function createUpsertGameTool(
         hasRevealResponses: mergedStructural.revealResponses !== undefined,
         hasHint: mergedStructural.hint !== undefined,
         hasJudgeLeniency: mergedStructural.judgeLeniency !== undefined,
+        hasChoices: mergedStructural.choices !== undefined,
         hasAllTimeRow: mergedStructural.allTimeRow !== undefined,
         hasTagPlayers: mergedStructural.tagPlayers !== undefined,
         hasIncludeRevealInQuestions: mergedStructural.includeRevealInQuestions !== undefined,

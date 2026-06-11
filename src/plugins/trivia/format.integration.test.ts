@@ -105,6 +105,7 @@ describe("Trivia question-format end-to-end flow", () => {
           additionalInstructions: undefined,
           hint: undefined,
           judgeLeniency: undefined,
+          choices: undefined,
         },
         SESSION,
       ),

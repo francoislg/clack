@@ -16,6 +16,7 @@ import {
   isRevealResponsesMode,
   questionTypeZod,
   promptMediumZod,
+  triviaChoicesZod,
   triviaDifficultyRatioZod,
   triviaHintZod,
   triviaJudgeLeniencyZod,
@@ -26,6 +27,7 @@ import {
   validateJudgeLeniency,
   validateQuestionTypeMap,
   validatePromptMediumMap,
+  validateTriviaChoicesConfig,
   validateTriviaDifficultyMap,
   validateTriviaDifficultyRatioMap,
 } from "./axes.js";
@@ -113,6 +115,7 @@ interface RawSlot {
   additionalInstructions?: string | null;
   hint?: unknown | null;
   judgeLeniency?: unknown | null;
+  choices?: unknown | null;
 }
 
 interface RawFormat {
@@ -280,6 +283,11 @@ export function validateSlotConfig(slot: RawSlot, slotLabel: string): Result<Sea
     if (!validated.ok) return validated;
     out.judgeLeniency = validated.value;
   }
+  if (slot.choices !== undefined && slot.choices !== null) {
+    const validated = validateTriviaChoicesConfig(slot.choices, `${slotLabel}.choices`);
+    if (!validated.ok) return validated;
+    out.choices = validated.value;
+  }
   return { ok: true, value: out };
 }
 
@@ -328,6 +336,7 @@ const seasonFormatSlotZod = z.object({
   additionalInstructions: z.string().optional(),
   hint: triviaHintZod.optional(),
   judgeLeniency: triviaJudgeLeniencyZod.optional(),
+  choices: triviaChoicesZod.optional(),
 });
 
 /**

@@ -759,6 +759,19 @@ ${PER_SLOT_GENERATION_PATHS}
 ${FORMAT_AND_POST_SECTION}`;
 
 /**
+ * LOCK-cron prompt — drives the `<game>:lock` cron spec when the game has `lockCron`
+ * configured. A single mechanical tool call: `lock_questions` freezes every posted,
+ * not-yet-revealed question (strips the answer buttons, shows a "locked in" notice).
+ * The cron is channelless and `submitResponseMode: "skipped"`, so the run posts no
+ * Slack message and terminates with `submit_response({ skip_response: true })`.
+ */
+export const LOCK_QUESTIONS_INSTRUCTIONS = `Freeze voting for game \`{game}\`.
+
+Call \`lock_questions({ game: "{game}" })\` exactly once. It locks every question that is posted but not yet revealed — removing its answer buttons and replacing them with a "locked in — waiting on results" notice. It posts no new message and is safe to run even when there is nothing to lock (it simply reports zero locked).
+
+Then call \`submit_response({ skip_response: true })\` to terminate the run. Do not post any other message — locking only edits existing cards.`;
+
+/**
  * Reveal-side prompt. A renderer brief, NOT an orchestration walkthrough.
  *
  * The deterministic work — finding the pending question, fetching reactions

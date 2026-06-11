@@ -25,9 +25,7 @@ import { parseChannelFromPermalink, parseTsFromPermalink } from "../tools/reveal
 import { buildRevealFooterBlocks } from "./footer.js";
 import { renderPostGameButtons } from "./postGameButtons.js";
 import { POST_GAME_BUTTONS } from "./postGameRegistry.js";
-
-/** `block_id` prefixes of the answer-affordance block appended by `post_questions`. */
-const ANSWER_ACTIONS_BLOCK_PREFIXES = ["vote-actions:", "freeform-answer-actions:"] as const;
+import { stripAnswerButtons } from "./answerActions.js";
 
 /**
  * Resolve the `chat.update` target for a card repaint: the channel + ts from the
@@ -57,10 +55,7 @@ function resolveCardTarget(
     );
     return null;
   }
-  const bodyBlocks = question.postedBlocks.filter((block) => {
-    const id = block.block_id ?? "";
-    return !ANSWER_ACTIONS_BLOCK_PREFIXES.some((prefix) => id.startsWith(prefix));
-  });
+  const bodyBlocks = stripAnswerButtons(question.postedBlocks);
   return { channel, ts, bodyBlocks };
 }
 
