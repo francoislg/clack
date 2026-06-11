@@ -148,7 +148,7 @@ describe("groupRosterAnswers", () => {
 describe("buildRosterBlock", () => {
   it("renders the empty-state sentinel for no answers", () => {
     const q = booleanQuestion();
-    const block = buildRosterBlock([], q, getAnswerTypeHandler(q.answersFormat), tagRef);
+    const block = buildRosterBlock([], q, getAnswerTypeHandler(q.answersFormat), tagRef, "grouped");
     const el = block.elements[0];
     if (el.type === "mrkdwn") {
       assert.match(el.text, /no answers yet/i);
@@ -158,7 +158,13 @@ describe("buildRosterBlock", () => {
   it("renders compact single-line layout under the char limit", () => {
     const rows = [booleanRow("U_A", 100, true), booleanRow("U_B", 200, false)];
     const q = booleanQuestion();
-    const block = buildRosterBlock(rows, q, getAnswerTypeHandler(q.answersFormat), tagRef);
+    const block = buildRosterBlock(
+      rows,
+      q,
+      getAnswerTypeHandler(q.answersFormat),
+      tagRef,
+      "grouped",
+    );
     const el = block.elements[0];
     if (el.type === "mrkdwn") {
       assert.match(el.text, /^📝 \*Answered:\*/);
@@ -177,17 +183,23 @@ describe("buildRosterBlock", () => {
       }
     }
     const q = choiceQuestion();
-    const block = buildRosterBlock(rows, q, getAnswerTypeHandler(q.answersFormat), tagRef);
+    const block = buildRosterBlock(
+      rows,
+      q,
+      getAnswerTypeHandler(q.answersFormat),
+      tagRef,
+      "grouped",
+    );
     const el = block.elements[0];
     if (el.type === "mrkdwn") {
       assert.match(el.text, /^📝 \*Answered:\*\n/);
     }
   });
 
-  it("hides per-pick info when liveAnswersVisible is false", () => {
+  it("hides per-pick info in flat mode", () => {
     const rows = [booleanRow("U_A", 100, true), booleanRow("U_B", 200, false)];
-    const q = booleanQuestion({ liveAnswersVisible: false });
-    const block = buildRosterBlock(rows, q, getAnswerTypeHandler(q.answersFormat), tagRef);
+    const q = booleanQuestion();
+    const block = buildRosterBlock(rows, q, getAnswerTypeHandler(q.answersFormat), tagRef, "flat");
     const el = block.elements[0];
     if (el.type === "mrkdwn") {
       assert.match(el.text, /^📝 \*Answered:\* <@/);
@@ -196,10 +208,10 @@ describe("buildRosterBlock", () => {
     }
   });
 
-  it("respects the 5-cap in hidden mode with overflow", () => {
+  it("respects the 5-cap in flat mode with overflow", () => {
     const rows = Array.from({ length: 8 }, (_, i) => booleanRow(`U${i}`, i * 100, true));
-    const q = booleanQuestion({ liveAnswersVisible: false });
-    const block = buildRosterBlock(rows, q, getAnswerTypeHandler(q.answersFormat), tagRef);
+    const q = booleanQuestion();
+    const block = buildRosterBlock(rows, q, getAnswerTypeHandler(q.answersFormat), tagRef, "flat");
     const el = block.elements[0];
     if (el.type === "mrkdwn") {
       assert.match(el.text, /\+3$/);
@@ -209,7 +221,13 @@ describe("buildRosterBlock", () => {
   it("renders freeform answer text (truncated) as the group label", () => {
     const rows = [freeformRow("U_A", 100, "Paris")];
     const q = freeformQuestion();
-    const block = buildRosterBlock(rows, q, getAnswerTypeHandler(q.answersFormat), tagRef);
+    const block = buildRosterBlock(
+      rows,
+      q,
+      getAnswerTypeHandler(q.answersFormat),
+      tagRef,
+      "grouped",
+    );
     const el = block.elements[0];
     if (el.type === "mrkdwn") {
       assert.match(el.text, /"Paris"/);
@@ -228,7 +246,13 @@ describe("buildRosterBlock", () => {
         throw new Error(`unexpected key ${key}`);
       });
       const q = booleanQuestion();
-      const block = buildRosterBlock([], q, getAnswerTypeHandler(q.answersFormat), tagRef);
+      const block = buildRosterBlock(
+        [],
+        q,
+        getAnswerTypeHandler(q.answersFormat),
+        tagRef,
+        "grouped",
+      );
       const el = block.elements[0];
       if (el.type === "mrkdwn") {
         assert.ok(
@@ -435,10 +459,10 @@ describe("editRosterIntoCard", () => {
       return call.blocks.map((b) => (b as { block_id?: string }).block_id ?? "");
     }
 
-    it("strips the answer buttons and shows the lock notice (no roster) when locked", async () => {
+    it("strips the buttons and shows the lock notice alone when revealResponses is 'no'", async () => {
       const data = createInMemoryDataLayer();
       const scoped = data.forGame(FIXTURE_GAME_NAME);
-      const question = lockableQuestion({ answerLocked: true });
+      const question = lockableQuestion({ answerLocked: true, revealResponses: "no" });
       await scoped.saveQuestion(question);
       await scoped.saveAnswer(booleanRow("U_ALICE", 1000, true));
       await data.saveUser({ userId: "U_ALICE", displayName: "Alice", joinedAt: 0 });
@@ -456,10 +480,153 @@ describe("editRosterIntoCard", () => {
       assert.ok(!ids.includes("vote-actions:q-1"), "answer buttons stripped");
       assert.ok(
         !ids.some((id) => id.startsWith("freeform-answered-roster:")),
-        "no live roster on a locked card",
+        "no roster footer when revealResponses is 'no'",
       );
       assert.equal(ids[ids.length - 1], "locked-notice:q-1", "lock notice is the last block");
       assert.match(rosterText(client.calls[0]), /Locked in/i);
+    });
+
+    it("shows the full grouped distribution while locked when revealResponses is 'yes'", async () => {
+      const data = createInMemoryDataLayer();
+      const scoped = data.forGame(FIXTURE_GAME_NAME);
+      const question = lockableQuestion({ answerLocked: true, revealResponses: "yes" });
+      await scoped.saveQuestion(question);
+      await scoped.saveAnswer(booleanRow("U_ALICE", 1000, true));
+      await scoped.saveAnswer(booleanRow("U_BOB", 1100, false));
+      await data.saveUser({ userId: "U_ALICE", displayName: "Alice", joinedAt: 0 });
+      await data.saveUser({ userId: "U_BOB", displayName: "Bob", joinedAt: 0 });
+
+      const client = fakeClient();
+      await editRosterIntoCard({
+        client,
+        scoped,
+        data,
+        question,
+        handler: getAnswerTypeHandler(question.answersFormat),
+      });
+
+      const ids = blockIds(client.calls[0]);
+      assert.ok(!ids.includes("vote-actions:q-1"), "answer buttons stripped");
+      assert.ok(ids.includes("locked-notice:q-1"), "lock notice present");
+      assert.ok(
+        ids.some((id) => id.startsWith("freeform-answered-roster:")),
+        "roster footer present below the notice",
+      );
+      const text = rosterText(client.calls[0]);
+      assert.match(text, /<@U_ALICE>/, "names answerers");
+      assert.match(text, /👍 \(1\) <@U_ALICE>/, "discloses picks (grouped)");
+      assert.match(text, /👎 \(1\) <@U_BOB>/);
+    });
+
+    for (const mode of ["just-correctness", "just-winners"] as const) {
+      it(`shows participation only (no picks) while locked when revealResponses is '${mode}'`, async () => {
+        const data = createInMemoryDataLayer();
+        const scoped = data.forGame(FIXTURE_GAME_NAME);
+        const question = lockableQuestion({ answerLocked: true, revealResponses: mode });
+        await scoped.saveQuestion(question);
+        await scoped.saveAnswer(booleanRow("U_ALICE", 1000, true));
+        await scoped.saveAnswer(booleanRow("U_BOB", 1100, false));
+        await data.saveUser({ userId: "U_ALICE", displayName: "Alice", joinedAt: 0 });
+        await data.saveUser({ userId: "U_BOB", displayName: "Bob", joinedAt: 0 });
+
+        const client = fakeClient();
+        await editRosterIntoCard({
+          client,
+          scoped,
+          data,
+          question,
+          handler: getAnswerTypeHandler(question.answersFormat),
+        });
+
+        const ids = blockIds(client.calls[0]);
+        assert.ok(
+          ids.some((id) => id.startsWith("freeform-answered-roster:")),
+          "participation roster present",
+        );
+        const text = rosterText(client.calls[0]);
+        assert.match(text, /<@U_ALICE>/, "names who answered");
+        assert.match(text, /<@U_BOB>/);
+        assert.equal(text.includes("👍"), false, "no picks disclosed");
+        assert.equal(text.includes("👎"), false, "no picks disclosed");
+      });
+    }
+
+    it("treats an absent revealResponses on a locked question as 'yes' (grouped)", async () => {
+      const data = createInMemoryDataLayer();
+      const scoped = data.forGame(FIXTURE_GAME_NAME);
+      const question = lockableQuestion({ answerLocked: true, revealResponses: undefined });
+      await scoped.saveQuestion(question);
+      await scoped.saveAnswer(booleanRow("U_ALICE", 1000, true));
+      await data.saveUser({ userId: "U_ALICE", displayName: "Alice", joinedAt: 0 });
+
+      const client = fakeClient();
+      await editRosterIntoCard({
+        client,
+        scoped,
+        data,
+        question,
+        handler: getAnswerTypeHandler(question.answersFormat),
+      });
+
+      assert.match(rosterText(client.calls[0]), /👍 \(1\) <@U_ALICE>/, "grouped distribution");
+    });
+
+    it("ignores liveAnswersVisible while locked — 'yes' stays grouped even when it is false", async () => {
+      const data = createInMemoryDataLayer();
+      const scoped = data.forGame(FIXTURE_GAME_NAME);
+      const question = lockableQuestion({
+        answerLocked: true,
+        revealResponses: "yes",
+        liveAnswersVisible: false,
+      });
+      await scoped.saveQuestion(question);
+      await scoped.saveAnswer(booleanRow("U_ALICE", 1000, true));
+      await data.saveUser({ userId: "U_ALICE", displayName: "Alice", joinedAt: 0 });
+
+      const client = fakeClient();
+      await editRosterIntoCard({
+        client,
+        scoped,
+        data,
+        question,
+        handler: getAnswerTypeHandler(question.answersFormat),
+      });
+
+      assert.match(
+        rosterText(client.calls[0]),
+        /👍 \(1\) <@U_ALICE>/,
+        "grouped despite liveAnswersVisible:false",
+      );
+    });
+
+    it("excludes flagged cheaters from the locked roster", async () => {
+      const data = createInMemoryDataLayer();
+      const scoped = data.forGame(FIXTURE_GAME_NAME);
+      const question = lockableQuestion({ answerLocked: true, revealResponses: "yes" });
+      await scoped.saveQuestion(question);
+      await scoped.saveAnswer(booleanRow("U_ALICE", 1000, true));
+      await scoped.saveAnswer(booleanRow("U_CHEAT", 1100, true));
+      await data.saveUser({ userId: "U_ALICE", displayName: "Alice", joinedAt: 0 });
+      await data.saveUser({ userId: "U_CHEAT", displayName: "Cheater", joinedAt: 0 });
+      await scoped.saveCheat({
+        cheaterUserId: "U_CHEAT",
+        questionId: question.id,
+        reason: "leaked answer",
+        detectedAt: new Date(1200).toISOString(),
+      });
+
+      const client = fakeClient();
+      await editRosterIntoCard({
+        client,
+        scoped,
+        data,
+        question,
+        handler: getAnswerTypeHandler(question.answersFormat),
+      });
+
+      const text = rosterText(client.calls[0]);
+      assert.match(text, /<@U_ALICE>/);
+      assert.doesNotMatch(text, /<@U_CHEAT>/, "cheater must not surface on a locked card");
     });
 
     it("keeps the buttons and appends the roster when not locked", async () => {
