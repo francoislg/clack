@@ -5,8 +5,9 @@ import type {
   PlainTextElement,
   MrkdwnElement,
   RawTextElement,
+  CardBlock,
+  CarouselBlock,
 } from "@slack/types";
-import type { CardBlock, CarouselBlock } from "./customSlackTypes.js";
 import { convertMarkdownToSlack, splitForSlack } from "../claude/formatting.js";
 import type {
   AuthoredRichTextCell,
