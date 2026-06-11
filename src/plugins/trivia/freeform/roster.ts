@@ -120,25 +120,31 @@ function renderHidden(answers: SubmittedAnswer[], nameOf: NameOf): string {
 }
 
 /**
- * Build the per-question roster footer. Behavior depends on the question's
- * stamped `liveAnswersVisible`:
- *
- *  - `true` (or absent, the cascaded default): grouped by answer, capped at
- *    `ROSTER_GROUP_CAP` per group, with `+N` overflow. Tries compact
- *    single-line layout first; falls back to multiline when the rendered
- *    text exceeds `ROSTER_COMPACT_CHAR_LIMIT`.
- *  - `false`: flat ungrouped list, capped at `ROSTER_GROUP_CAP` total.
+ * Disclosure layout for the roster footer:
+ *  - `"grouped"`: rows grouped by answer (names + picks), capped at
+ *    `ROSTER_GROUP_CAP` per group with `+N` overflow; compact single-line layout
+ *    first, multiline fallback past `ROSTER_COMPACT_CHAR_LIMIT`.
+ *  - `"flat"`: ungrouped "who answered" list (names only, no picks), capped at
+ *    `ROSTER_GROUP_CAP` total.
+ */
+export type RosterDisclosureMode = "grouped" | "flat";
+
+/**
+ * Build the per-question roster footer in the requested disclosure `mode`. The
+ * gate is the caller's decision and this function reads neither disclosure field:
+ * the live (unlocked) card derives `mode` from the stamped `liveAnswersVisible`,
+ * while the locked card derives it from the stamped `revealResponses`.
  */
 export function buildRosterBlock(
   answers: SubmittedAnswer[],
   question: TriviaQuestion,
   handler: AnswerTypeHandler,
   nameOf: NameOf,
+  mode: RosterDisclosureMode,
 ): ContextBlock {
-  const liveAnswersVisible = question.liveAnswersVisible ?? true;
   let text: string;
 
-  if (!liveAnswersVisible) {
+  if (mode === "flat") {
     text = renderHidden(answers, nameOf);
   } else {
     const label = t("roster.answered_label");
@@ -233,11 +239,16 @@ export async function editRosterIntoCard(params: EditRosterParams): Promise<void
   }
 
   // Always rebuild from postedBlocks — never from the current Slack state — so
-  // edits can't accumulate stale roster blocks. A locked question drops the answer
-  // buttons and the live roster in favour of the lock notice; an unlocked one keeps
-  // both (the buttons live inside postedBlocks, so unlocking restores them for free).
+  // edits can't accumulate stale roster blocks. A locked card drops the answer
+  // buttons and shows the lock notice; whether a roster follows is driven by the
+  // stamped `revealResponses` ("yes" → grouped votes, "just-*" → who-voted only,
+  // "no" → none). An unlocked card keeps the buttons (they live inside
+  // postedBlocks) and a `liveAnswersVisible`-driven live roster.
+  const locked = question.answerLocked === true;
+  const revealResponses = question.revealResponses ?? "yes";
+
   let updatedBlocks: KnownBlock[];
-  if (question.answerLocked === true) {
+  if (locked && revealResponses === "no") {
     updatedBlocks = [...stripAnswerButtons(question.postedBlocks), buildLockedNotice(question.id)];
   } else {
     const allAnswers = await scoped.loadAnswers();
@@ -253,11 +264,25 @@ export async function editRosterIntoCard(params: EditRosterParams): Promise<void
     const nameOf = (userId: string): string =>
       renderPlayerRef(userId, users.get(userId)?.displayName ?? userId, tagPlayers);
 
-    updatedBlocks = [
-      ...question.postedBlocks,
-      buildRosterDivider(question.id),
-      buildRosterBlock(filtered, question, handler, nameOf),
-    ];
+    if (locked) {
+      // Voting is frozen, so `liveAnswersVisible` (anti-bandwagoning) no longer
+      // applies. "yes" discloses the full grouped distribution; the correctness
+      // modes can't partition pre-outcome and degrade to participation-only.
+      const mode: RosterDisclosureMode = revealResponses === "yes" ? "grouped" : "flat";
+      updatedBlocks = [
+        ...stripAnswerButtons(question.postedBlocks),
+        buildLockedNotice(question.id),
+        buildRosterDivider(question.id),
+        buildRosterBlock(filtered, question, handler, nameOf, mode),
+      ];
+    } else {
+      const mode: RosterDisclosureMode = question.liveAnswersVisible === false ? "flat" : "grouped";
+      updatedBlocks = [
+        ...question.postedBlocks,
+        buildRosterDivider(question.id),
+        buildRosterBlock(filtered, question, handler, nameOf, mode),
+      ];
+    }
   }
 
   try {
