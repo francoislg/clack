@@ -22,6 +22,7 @@ import {
   triviaIncludeRevealInQuestionsZod,
   triviaDifficultyRatioZod,
   triviaHintZod,
+  triviaChoiceEmojiStyleZod,
   triviaJudgeLeniencyZod,
   triviaTellMeMoreZod,
   validateHintConfig,
@@ -145,6 +146,12 @@ export function createSetWorkspaceConfigTool() {
         .optional()
         .describe(
           'Workspace tier of the reveal-judge leniency axis for freeform answers. One of `"strict"` | `"strict-with-typos"` | `"lenient"`. `"strict"` forgives only case, numeral↔word substitution, decade-form, and singular/plural; `"strict-with-typos"` (the built-in default) adds typo + loose-writing tolerance; `"lenient"` accepts any rendering that unmistakably shows the player knew the answer. Resolved at save time and stamped on each freeform question. Cascade: `slot → season → game → workspace → "strict-with-typos"`. null clears.',
+        ),
+      choiceEmojiStyle: triviaChoiceEmojiStyleZod
+        .nullable()
+        .optional()
+        .describe(
+          'Workspace tier of the choice-button emoji-style axis. One of `"numbers"` | `"themed"`. `"numbers"` (the built-in default) prefixes choice vote buttons with 1️⃣ 2️⃣ 3️⃣ 4️⃣; `"themed"` lets Claude pick one topic-matching Unicode emoji per option at generation time (stamped on the record, shown on buttons and the live answer roster). Purely cosmetic — never affects scoring. Cascade: `slot → season → game → workspace → "numbers"`. null clears.',
         ),
       tellMeMore: triviaTellMeMoreZod
         .nullable()
@@ -353,6 +360,15 @@ export function createSetWorkspaceConfigTool() {
       } else if (args.judgeLeniency !== undefined) {
         next.judgeLeniency = args.judgeLeniency;
         updatedFields.push("judgeLeniency");
+      }
+
+      // choiceEmojiStyle: apply or clear.
+      if (args.choiceEmojiStyle === null) {
+        next.choiceEmojiStyle = undefined;
+        updatedFields.push("choiceEmojiStyle (cleared)");
+      } else if (args.choiceEmojiStyle !== undefined) {
+        next.choiceEmojiStyle = args.choiceEmojiStyle;
+        updatedFields.push("choiceEmojiStyle");
       }
 
       // instructions: validate + apply.

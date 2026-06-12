@@ -16,11 +16,13 @@ import {
   isRevealResponsesMode,
   questionTypeZod,
   promptMediumZod,
+  triviaChoiceEmojiStyleZod,
   triviaChoicesZod,
   triviaDifficultyRatioZod,
   triviaHintZod,
   triviaJudgeLeniencyZod,
   validateAnswersFormatMap,
+  validateChoiceEmojiStyle,
   validateContextsList,
   validateFreeformAnswerShapeMap,
   validateHintConfig,
@@ -116,6 +118,7 @@ interface RawSlot {
   hint?: unknown | null;
   judgeLeniency?: unknown | null;
   choices?: unknown | null;
+  choiceEmojiStyle?: unknown | null;
 }
 
 interface RawFormat {
@@ -288,6 +291,14 @@ export function validateSlotConfig(slot: RawSlot, slotLabel: string): Result<Sea
     if (!validated.ok) return validated;
     out.choices = validated.value;
   }
+  if (slot.choiceEmojiStyle !== undefined && slot.choiceEmojiStyle !== null) {
+    const validated = validateChoiceEmojiStyle(
+      slot.choiceEmojiStyle,
+      `${slotLabel}.choiceEmojiStyle`,
+    );
+    if (!validated.ok) return validated;
+    out.choiceEmojiStyle = validated.value;
+  }
   return { ok: true, value: out };
 }
 
@@ -337,6 +348,7 @@ const seasonFormatSlotZod = z.object({
   hint: triviaHintZod.optional(),
   judgeLeniency: triviaJudgeLeniencyZod.optional(),
   choices: triviaChoicesZod.optional(),
+  choiceEmojiStyle: triviaChoiceEmojiStyleZod.optional(),
 });
 
 /**

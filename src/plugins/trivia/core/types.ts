@@ -83,6 +83,14 @@ export interface TriviaQuestion {
   /** 0-based index of the correct choice. Absent on boolean and freeform questions. */
   correctIndex?: number;
   /**
+   * Per-option Unicode emoji prefixes for choice questions, parallel to `choices`.
+   * Stamped by `save_question` when the cascade-resolved `choiceEmojiStyle` is
+   * `"themed"` and Claude supplied them, so vote buttons and the live roster keep
+   * the emojis the question was posed with even if config later changes. Purely
+   * cosmetic — the vote is the button's index. Absence reads as numbered prefixes.
+   */
+  choiceEmojis?: string[];
+  /**
    * Canonical expected answer for freeform questions — the shortest correct form
    * Claude would accept as a 100%-perfect answer. Required when
    * `answersFormat === "freeform"`; forbidden otherwise.

@@ -23,6 +23,7 @@ import {
   DEFAULT_HINT_CONFIG,
   DEFAULT_JUDGE_LENIENCY,
   DEFAULT_TRIVIA_CHOICES,
+  DEFAULT_CHOICE_EMOJI_STYLE,
 } from "../core/configTypes.js";
 import type {
   AxisDef,
@@ -229,6 +230,7 @@ export const AXIS_REGISTRY: AxisRegistry = {
   hint: makeFirstWins("hint", DEFAULT_HINT_CONFIG),
   judgeLeniency: makeFirstWins("judgeLeniency", DEFAULT_JUDGE_LENIENCY),
   choices: makeFirstWins("choices", DEFAULT_TRIVIA_CHOICES),
+  choiceEmojiStyle: makeFirstWins("choiceEmojiStyle", DEFAULT_CHOICE_EMOJI_STYLE),
   instructions: makeFirstWins("instructions", null),
   liveAnswersVisible: makeFirstWins("liveAnswersVisible", true),
   revealResponses: makeFirstWins("revealResponses", "yes"),
@@ -251,6 +253,7 @@ export const AXIS_KEYS: readonly (keyof CascadeAxes)[] = [
   "hint",
   "judgeLeniency",
   "choices",
+  "choiceEmojiStyle",
   "instructions",
   "liveAnswersVisible",
   "revealResponses",

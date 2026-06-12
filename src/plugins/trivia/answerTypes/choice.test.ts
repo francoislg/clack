@@ -236,6 +236,7 @@ describe("choiceAnswerHandler", () => {
           config: null,
           resolvedChoiceBounds: { min: 2, max: 4 },
           resolvedJudgeLeniency: "strict-with-typos",
+          resolvedChoiceEmojiStyle: "numbers",
         },
       );
       assert.equal(out.ok, true);
@@ -262,6 +263,7 @@ describe("choiceAnswerHandler", () => {
           config: null,
           resolvedChoiceBounds: { min: 2, max: 4 },
           resolvedJudgeLeniency: "strict-with-typos",
+          resolvedChoiceEmojiStyle: "numbers",
         },
       );
       assert.equal(out.ok, false);
@@ -285,6 +287,7 @@ describe("choiceAnswerHandler", () => {
           config: null,
           resolvedChoiceBounds: { min: 2, max: 4 },
           resolvedJudgeLeniency: "strict-with-typos",
+          resolvedChoiceEmojiStyle: "numbers",
         },
       );
       assert.equal(out.ok, false);
@@ -307,6 +310,7 @@ describe("choiceAnswerHandler", () => {
         {
           config: null,
           resolvedChoiceBounds: { min: 2, max: 4 },
+          resolvedChoiceEmojiStyle: "numbers",
           resolvedJudgeLeniency: "strict-with-typos",
         },
       );

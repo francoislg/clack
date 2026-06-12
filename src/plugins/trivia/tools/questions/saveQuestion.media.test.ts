@@ -39,6 +39,7 @@ const BASE = {
   hint: undefined,
   media: undefined,
   emojis: ["🗼"],
+  choiceEmojis: undefined,
 };
 
 describe("save_question — promptMedium / media", () => {

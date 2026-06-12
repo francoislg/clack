@@ -33,6 +33,7 @@ function baseArgs(overrides: Partial<SaveArgs> & { emojis: string[] }): SaveArgs
     hint: undefined,
     promptMedium: undefined,
     media: undefined,
+    choiceEmojis: undefined,
     ...overrides,
   };
 }

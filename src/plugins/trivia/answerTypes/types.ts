@@ -22,6 +22,7 @@ import type { SlackBlocks } from "../../../slack/blocks.js";
 import type { ClackSdk } from "../../sdk.js";
 import type {
   JsonValue,
+  ChoiceEmojiStyle,
   JudgeLeniency,
   TriviaChoicesConfig,
   TriviaConfig,
@@ -145,6 +146,7 @@ export type TriviaQuestionBase = Omit<
   | "isTrue"
   | "choices"
   | "correctIndex"
+  | "choiceEmojis"
   | "expectedAnswer"
   | "acceptableAnswers"
   | "gradingNotes"
@@ -169,6 +171,12 @@ export interface SaveValidationContext {
    * handler validates `choices.length` against it; other handlers ignore it.
    */
   resolvedChoiceBounds: TriviaChoicesConfig;
+  /**
+   * The cascade-resolved `choiceEmojiStyle` for this coordinate. The choice handler
+   * validates and stamps `choiceEmojis` when `"themed"`, and rejects them when
+   * `"numbers"`; other handlers ignore it.
+   */
+  resolvedChoiceEmojiStyle: ChoiceEmojiStyle;
 }
 
 /**

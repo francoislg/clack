@@ -201,6 +201,7 @@ describe("upsert_season tool", () => {
         hint: undefined,
         judgeLeniency: undefined,
         choices: undefined,
+        choiceEmojiStyle: undefined,
       },
       SESSION,
     );
@@ -244,6 +245,7 @@ describe("upsert_season tool", () => {
       additionalInstructions: undefined,
       hint: undefined,
       choices: undefined,
+      choiceEmojiStyle: undefined,
     };
 
     const created = parseToolResult(
@@ -289,6 +291,7 @@ describe("upsert_season tool", () => {
         hint: undefined,
         judgeLeniency: undefined,
         choices: undefined,
+        choiceEmojiStyle: undefined,
       },
       SESSION,
     );
@@ -325,6 +328,7 @@ describe("upsert_season tool", () => {
         hint: undefined,
         judgeLeniency: undefined,
         choices: undefined,
+        choiceEmojiStyle: undefined,
       },
       SESSION,
     );
@@ -363,6 +367,7 @@ describe("upsert_season tool", () => {
         hint: undefined,
         judgeLeniency: undefined,
         choices: undefined,
+        choiceEmojiStyle: undefined,
       },
       SESSION,
     );
@@ -401,6 +406,7 @@ describe("upsert_season tool", () => {
         hint: undefined,
         judgeLeniency: undefined,
         choices: undefined,
+        choiceEmojiStyle: undefined,
       },
       SESSION,
     );
@@ -442,6 +448,7 @@ describe("upsert_season tool", () => {
         hint: undefined,
         judgeLeniency: undefined,
         choices: undefined,
+        choiceEmojiStyle: undefined,
       },
       SESSION,
     );
@@ -484,6 +491,7 @@ describe("upsert_season tool", () => {
         hint: undefined,
         judgeLeniency: undefined,
         choices: undefined,
+        choiceEmojiStyle: undefined,
       },
       SESSION,
     );
@@ -522,6 +530,7 @@ describe("upsert_season tool", () => {
         hint: undefined,
         judgeLeniency: undefined,
         choices: undefined,
+        choiceEmojiStyle: undefined,
       },
       SESSION,
     );
@@ -558,6 +567,7 @@ describe("upsert_season tool", () => {
         hint: undefined,
         judgeLeniency: undefined,
         choices: undefined,
+        choiceEmojiStyle: undefined,
       },
       SESSION,
     );
@@ -593,6 +603,7 @@ describe("upsert_season tool", () => {
         hint: undefined,
         judgeLeniency: undefined,
         choices: undefined,
+        choiceEmojiStyle: undefined,
       },
       SESSION,
     );
@@ -628,6 +639,7 @@ describe("upsert_season tool", () => {
         hint: undefined,
         judgeLeniency: undefined,
         choices: undefined,
+        choiceEmojiStyle: undefined,
       },
       SESSION,
     );
@@ -666,6 +678,7 @@ describe("upsert_season tool", () => {
         hint: undefined,
         judgeLeniency: undefined,
         choices: undefined,
+        choiceEmojiStyle: undefined,
       },
       SESSION,
     );
@@ -706,6 +719,7 @@ describe("upsert_season tool", () => {
         hint: undefined,
         judgeLeniency: undefined,
         choices: undefined,
+        choiceEmojiStyle: undefined,
       },
       SESSION,
     );
@@ -742,6 +756,7 @@ describe("upsert_season tool", () => {
         hint: undefined,
         judgeLeniency: undefined,
         choices: undefined,
+        choiceEmojiStyle: undefined,
       },
       SESSION,
     );
@@ -785,6 +800,7 @@ describe("upsert_season tool", () => {
         hint: undefined,
         judgeLeniency: undefined,
         choices: undefined,
+        choiceEmojiStyle: undefined,
       },
       SESSION,
     );
@@ -825,6 +841,7 @@ describe("upsert_season tool", () => {
         hint: undefined,
         judgeLeniency: undefined,
         choices: undefined,
+        choiceEmojiStyle: undefined,
       },
       SESSION,
     );
@@ -860,6 +877,7 @@ describe("upsert_season tool", () => {
           hint: undefined,
           judgeLeniency: undefined,
           choices: undefined,
+          choiceEmojiStyle: undefined,
         },
         SESSION,
       );
@@ -896,6 +914,7 @@ describe("upsert_season tool", () => {
         hint: undefined,
         judgeLeniency: undefined,
         choices: undefined,
+        choiceEmojiStyle: undefined,
       },
       SESSION,
     );
@@ -935,6 +954,7 @@ describe("upsert_season tool", () => {
         hint: undefined,
         judgeLeniency: undefined,
         choices: undefined,
+        choiceEmojiStyle: undefined,
       },
       SESSION,
     );
@@ -963,6 +983,7 @@ describe("upsert_season tool", () => {
         hint: undefined,
         judgeLeniency: undefined,
         choices: undefined,
+        choiceEmojiStyle: undefined,
       },
       SESSION,
     );
@@ -1648,6 +1669,7 @@ describe("find_previous_questions with timeline-based current", () => {
         hint: undefined,
         judgeLeniency: undefined,
         choices: undefined,
+        choiceEmojiStyle: undefined,
       },
     ]);
     const tool = createFindPreviousQuestionsTool(data, fixtureGetGames);
@@ -1731,6 +1753,7 @@ describe("add_categories with target dispatch", () => {
         hint: undefined,
         judgeLeniency: undefined,
         choices: undefined,
+        choiceEmojiStyle: undefined,
       },
     ]);
     const tool = createAddCategoriesTool(data, fixtureGetGames);
@@ -1985,6 +2008,7 @@ describe("save_question validates against active pool", () => {
         isTrue: true,
         choices: undefined,
         correctIndex: undefined,
+        choiceEmojis: undefined,
         expectedAnswer: undefined,
         acceptableAnswers: undefined,
         gradingNotes: undefined,
@@ -2019,6 +2043,7 @@ describe("save_question validates against active pool", () => {
         isTrue: true,
         choices: undefined,
         correctIndex: undefined,
+        choiceEmojis: undefined,
         expectedAnswer: undefined,
         acceptableAnswers: undefined,
         gradingNotes: undefined,

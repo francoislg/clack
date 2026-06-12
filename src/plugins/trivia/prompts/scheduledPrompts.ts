@@ -188,6 +188,7 @@ const CHOICE_FLOW_STEPS = `1. GET CATEGORY IDEAS AND SUGGESTIONS:
      - suggestedCorrectIndex (integer in [0, suggestedChoiceCount)): the 0-based index where the correct answer MUST be placed.
      - suggestedDifficulty ("Easy" | "Medium" | "Hard"): the bucket to aim at.
      - suggestedDifficultyRange ([min, max]): the strict 1–10 accept range for that bucket on THIS game type. Used at step 5.
+     - suggestedChoiceEmojiStyle ("numbers" | "themed"): whether the vote buttons get the standard numbered prefixes or per-option themed emojis you pick. Used at step 6b.
      - contextPriority (optional, only when contexts are configured): see CONTEXTS guidance above.
    - Pick one category from categories.ideas.
 
@@ -212,6 +213,8 @@ const CHOICE_FLOW_STEPS = `1. GET CATEGORY IDEAS AND SUGGESTIONS:
 
 6. Choose 1-4 emojis: apply the EMOJI SELECTION GATE (shared definition above).
 
+6b. CHOICE BUTTON EMOJIS (only when \`suggestedChoiceEmojiStyle\` is \`"themed"\`): follow the \`choiceEmojiGuidance\` from get_ideas — pick ONE unique Unicode emoji per option (actual emoji characters, never :shortcodes:), each evoking ITS OWN option's subject so the set gives away nothing about which is correct. These prefix the vote buttons and label the live answer roster. If no fitting set exists, skip this step (buttons fall back to numbered prefixes). When the style is \`"numbers"\`, skip this step and do NOT pass \`choiceEmojis\`.
+
 7. HINT (optional): apply the HINT DRAFTING GATE (shared definition above). When \`suggestedHintMode\` is non-\`"none"\`, the gate produces an optional \`hint\` field to include in the save_question call below.
 
 8. PUZZLE QUALITY GATE: apply the PUZZLE QUALITY GATE (shared definition above) — reason through all five checks; revise or re-roll on failure.
@@ -224,6 +227,7 @@ const CHOICE_FLOW_STEPS = `1. GET CATEGORY IDEAS AND SUGGESTIONS:
      - statement (a single-sentence question prompt — what is being asked)
      - choices (array of suggestedChoiceCount strings — the correct answer at suggestedCorrectIndex, distractors at the other positions)
      - correctIndex (MUST equal suggestedCorrectIndex)
+     - choiceEmojis (only when step 6b produced a set; omit otherwise)
      - emojis (array of 1-4 emoji strings)
      - suggestedDifficulty (the bucket from get_ideas in step 1)
      - difficulty (your 1–10 self-rating from step 5)
@@ -606,7 +610,7 @@ General emoji rule (re-emphasized): the opener's header MUST use Unicode emoji (
    - DO: keep the flavor evocative but answer-free — e.g. "🕶️ SECRET AGENT SHOWDOWN — QUESTION 3!" or a plain "🎯 QUESTION 3!" — it sets the spy vibe without naming the line.
    - SELF-CHECK before handing the blocks to \`post_questions\`: take the question's answer (and every choice string, for choice questions) and scan the header, patter, card title / subtitle, closer, emojis, and altText for it — including paraphrases and the underlying entity it refers to, not just the literal text. If it appears ANYWHERE outside the card \`body\` statement, rewrite that block before posting.
 
-   Compose a \`blocks\` array (Clack's curated subset: divider, header, section, context, image, markdown, card, carousel) — you'll hand it to \`post_questions\` in step 10. Do NOT include the answer affordance (buttons) in the blocks; \`post_questions\` appends an \`actions\` block for ALL formats automatically — boolean gets \`[👍 TRUE, 👎 FALSE]\`, choice gets \`[1️⃣, 2️⃣, …]\` sized to \`choices.length\`, freeform gets a single \`Answer\` button that opens the modal. The tool inserts that actions block between your card (#3) and your closer context (#4) at post-time. Use this FOUR-BLOCK layout — the structure stays fixed; the wording is where your persona lives:
+   Compose a \`blocks\` array (Clack's curated subset: divider, header, section, context, image, markdown, card, carousel) — you'll hand it to \`post_questions\` in step 10. Do NOT include the answer affordance (buttons) in the blocks; \`post_questions\` appends an \`actions\` block for ALL formats automatically — boolean gets \`[👍 TRUE, 👎 FALSE]\`, choice gets \`[1️⃣, 2️⃣, …]\` sized to \`choices.length\` (or the record's stamped \`choiceEmojis\` prefixes when themed), freeform gets a single \`Answer\` button that opens the modal. The tool inserts that actions block between your card (#3) and your closer context (#4) at post-time. Use this FOUR-BLOCK layout — the structure stays fixed; the wording is where your persona lives:
 
    1. \`header\` block — \`text: { type: "plain_text", text: "..." }\`. plain_text only — no \`*bold*\`.
       - SINGLE-QUESTION FLOW, **and** every question after the first in MULTI-SLOT FLOW (slots 1..N-1): the show banner (e.g. "🎯 TRIVIA TIME!"). Vary the wording daily ("📣 STEP RIGHT UP!", "🎲 DAILY BRAIN TEASER", "🎯 TRIVIA TIME!", etc.).
@@ -647,7 +651,7 @@ General emoji rule (re-emphasized): the opener's header MUST use Unicode emoji (
    ANSWER BUTTONS (appended automatically by post_questions, NOT by you):
    - \`post_questions\` reads each question's stored \`answersFormat\` and appends one \`actions\` block per item between your card (#3) and your closer (#4):
      - **boolean** → two buttons labeled \`👍 TRUE\` and \`👎 FALSE\` (TRUE first, FALSE second — order matches the boolean's \`isTrue\` mapping).
-     - **choice** → \`choices.length\` buttons labeled \`1️⃣ <choice0>\`, \`2️⃣ <choice1>\`, … in the stored \`choices\` array order. The button's index IS the vote — keep the array order stable.
+     - **choice** → \`choices.length\` buttons labeled \`1️⃣ <choice0>\`, \`2️⃣ <choice1>\`, … in the stored \`choices\` array order — or, when the record carries stamped \`choiceEmojis\` (themed style), each button is prefixed by its stamped emoji instead of the number. The button's index IS the vote — keep the array order stable.
      - **freeform** → one \`Answer\` button that opens a Slack modal for the user to type their guess.
    - **Choice-label length cap.** \`save_question\` rejects any choice longer than 40 characters (after trim). Keep each choice label short and self-contained — if the option needs more prose to be intelligible, put the disambiguating context in the card \`body\` (e.g. "Which of these is the largest ocean?") and let the button label render just the option (1️⃣ Pacific, 2️⃣ Atlantic, …). The button label is the option text — disambiguation belongs in the body, not in the button.
    - You do NOT add a button block, an "answer options" section, or any inline "TRUE • FALSE" / "1️⃣ … • 2️⃣ …" text — the buttons ARE the affordance. Adding them yourself duplicates what the tool appends.

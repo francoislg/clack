@@ -64,6 +64,7 @@ BOOLEAN (\`answersFormat: "boolean"\`):
 
 CHOICE (\`answersFormat: "choice"\`):
 - Required: \`category\`, \`statement\`, \`questionType\`, \`emojis\`, \`choices\` (string[], length within active [min, max]), \`correctIndex\` (0-based).
+- Optional: \`choiceEmojis\` (string[], parallel to \`choices\`) — ONLY when \`get_ideas\` returned \`suggestedChoiceEmojiStyle: "themed"\`. One unique Unicode emoji per option; stamped on the record to prefix the vote buttons and live-roster labels. Rejected when the resolved style is \`"numbers"\`. Omit to fall back to numbered prefixes.
 - The stored record carries \`answersFormat: "choice"\`, \`choices\`, and \`correctIndex\`; no \`isTrue\`/\`expectedAnswer\`.
 - Exactly ONE correct answer per question — validated at this tool's boundary.
 
@@ -332,6 +333,7 @@ export function createSaveQuestionTool(
       // handler's call — save_question doesn't branch on the format string.
       const resolvedJudgeLeniency = resolveCascade("judgeLeniency", cascadeCtx).value;
       const resolvedChoiceBounds = resolveCascade("choices", cascadeCtx).value;
+      const resolvedChoiceEmojiStyle = resolveCascade("choiceEmojiStyle", cascadeCtx).value;
 
       const currentSeasonSlug = currentSeasonEntry?.slug ?? null;
       const slotStamp =
@@ -367,7 +369,12 @@ export function createSaveQuestionTool(
       // keyed save; prediction defers (no key — `settle_question` stamps it later, and
       // `resolved: false` rode in on the questionType handler's recordExtras above).
       // save_question never branches on the type itself.
-      const saveCtx = { config: getConfigFn(), resolvedJudgeLeniency, resolvedChoiceBounds };
+      const saveCtx = {
+        config: getConfigFn(),
+        resolvedJudgeLeniency,
+        resolvedChoiceBounds,
+        resolvedChoiceEmojiStyle,
+      };
       const outcome = questionTypeHandler.composeSavedQuestion(handler, base, args, saveCtx);
       if (!outcome.ok) {
         return errorResult(outcome.error);

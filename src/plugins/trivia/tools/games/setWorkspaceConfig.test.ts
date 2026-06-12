@@ -27,6 +27,7 @@ const emptyArgs = {
   difficulty: undefined,
   difficultyRatio: undefined,
   choices: undefined,
+  choiceEmojiStyle: undefined,
   offDays: undefined,
   seasons: undefined,
   liveAnswersVisible: undefined,

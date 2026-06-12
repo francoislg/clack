@@ -32,6 +32,7 @@ import {
   triviaFinalRevealSummaryZod,
   triviaIncludeRevealInQuestionsZod,
   triviaDifficultyRatioZod,
+  triviaChoiceEmojiStyleZod,
   triviaChoicesZod,
   triviaHintZod,
   triviaJudgeLeniencyZod,
@@ -192,6 +193,12 @@ const structuralFieldsSchema = {
     .optional()
     .describe(
       'Per-game tier of the reveal-judge leniency axis for freeform answers. One of `"strict"` | `"strict-with-typos"` | `"lenient"`. `"strict"` forgives only case, numeral↔word substitution, decade-form, and singular/plural; `"strict-with-typos"` (the workspace default) adds typo + loose-writing tolerance; `"lenient"` accepts any rendering that unmistakably shows the player knew the answer. Resolved at save time and stamped on each freeform question. Cascade: `slot → season → game → workspace → "strict-with-typos"`. Whole-value replace per tier. On UPDATE: explicit null clears the field.',
+    ),
+  choiceEmojiStyle: triviaChoiceEmojiStyleZod
+    .nullable()
+    .optional()
+    .describe(
+      'Per-game tier of the choice-button emoji-style axis. One of `"numbers"` | `"themed"`. `"numbers"` (the built-in default) prefixes choice vote buttons with 1️⃣ 2️⃣ 3️⃣ 4️⃣; `"themed"` lets Claude pick one topic-matching Unicode emoji per option at generation time (stamped on the record, shown on buttons and the live answer roster). Purely cosmetic — never affects scoring. Cascade: `slot → season → game → workspace → "numbers"`. Whole-value replace per tier. On UPDATE: explicit null clears the field.',
     ),
   tellMeMore: triviaTellMeMoreZod
     .nullable()
@@ -522,6 +529,9 @@ export function createUpsertGameTool(
           : {}),
         ...(existing?.tellMeMore !== undefined ? { tellMeMore: existing.tellMeMore } : {}),
         ...(existing?.choices !== undefined ? { choices: existing.choices } : {}),
+        ...(existing?.choiceEmojiStyle !== undefined
+          ? { choiceEmojiStyle: existing.choiceEmojiStyle }
+          : {}),
       };
       if (args.format === null) delete mergedStructural.format;
       else if (parsedFormat !== undefined) mergedStructural.format = parsedFormat;
@@ -557,6 +567,9 @@ export function createUpsertGameTool(
         mergedStructural.judgeLeniency = args.judgeLeniency;
       if (args.choices === null) mergedStructural.choices = undefined;
       else if (parsedChoices !== undefined) mergedStructural.choices = parsedChoices;
+      if (args.choiceEmojiStyle === null) mergedStructural.choiceEmojiStyle = undefined;
+      else if (args.choiceEmojiStyle !== undefined)
+        mergedStructural.choiceEmojiStyle = args.choiceEmojiStyle;
 
       const enabled = args.enabled ?? existing?.enabled ?? true;
 
@@ -595,6 +608,7 @@ export function createUpsertGameTool(
       if (wrote(args.hint)) writtenFields.push("hint");
       if (wrote(args.judgeLeniency)) writtenFields.push("judgeLeniency");
       if (wrote(args.choices)) writtenFields.push("choices");
+      if (wrote(args.choiceEmojiStyle)) writtenFields.push("choiceEmojiStyle");
       if (wrote(args.instructions)) writtenFields.push("instructions");
       if (wrote(args.additionalInstructions)) writtenFields.push("additionalInstructions");
       if (wrote(args.liveAnswersVisible)) writtenFields.push("liveAnswersVisible");
@@ -627,6 +641,7 @@ export function createUpsertGameTool(
         hasHint: mergedStructural.hint !== undefined,
         hasJudgeLeniency: mergedStructural.judgeLeniency !== undefined,
         hasChoices: mergedStructural.choices !== undefined,
+        hasChoiceEmojiStyle: mergedStructural.choiceEmojiStyle !== undefined,
         hasAllTimeRow: mergedStructural.allTimeRow !== undefined,
         hasTagPlayers: mergedStructural.tagPlayers !== undefined,
         hasIncludeRevealInQuestions: mergedStructural.includeRevealInQuestions !== undefined,

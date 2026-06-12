@@ -29,6 +29,7 @@ const BASE_ARGS = {
   difficulty: undefined,
   slot: undefined,
   emojis: ["💧"],
+  choiceEmojis: undefined,
 };
 
 describe("save_question — hint persistence", () => {
