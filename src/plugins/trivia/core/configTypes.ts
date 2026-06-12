@@ -279,6 +279,24 @@ export const JUDGE_LENIENCY_KEYS = ["strict", "strict-with-typos", "lenient"] as
 export const DEFAULT_JUDGE_LENIENCY: JudgeLeniency = "strict-with-typos";
 
 /**
+ * Choice-button emoji-style axis. Cascades `slot → season → game → workspace →
+ * "numbers"` with whole-value replace per tier. Purely cosmetic — the vote is
+ * always carried by the button's index, never the emoji.
+ *   - `"numbers"` — the legacy 1️⃣ 2️⃣ 3️⃣ 4️⃣ prefixes (the default).
+ *   - `"themed"` — Claude picks one topic-matching Unicode emoji per option at
+ *     generation time and passes them to `save_question` as `choiceEmojis`;
+ *     the stamped emojis prefix the vote buttons AND label the live-roster
+ *     groups. When Claude omits `choiceEmojis`, buttons fall back to numbers.
+ */
+export type ChoiceEmojiStyle = "numbers" | "themed";
+
+/** The accepted `choiceEmojiStyle` values, for zod/validator reuse. */
+export const CHOICE_EMOJI_STYLE_KEYS = ["numbers", "themed"] as const;
+
+/** Built-in fallback when no `choiceEmojiStyle` is set at any cascade tier. */
+export const DEFAULT_CHOICE_EMOJI_STYLE: ChoiceEmojiStyle = "numbers";
+
+/**
  * One trivia game declared in plugin config. The trivia plugin reconciles its cron jobs
  * from this list on every load: each entry produces two plugin-managed cron jobs
  * (`<name>:question` and `<name>:reveal`).

@@ -98,6 +98,7 @@ function makeSaveArgs(overrides: Partial<SaveArgs>): SaveArgs {
     promptMedium: undefined,
     media: undefined,
     emojis: ["💧"],
+    choiceEmojis: undefined,
     ...overrides,
   };
 }

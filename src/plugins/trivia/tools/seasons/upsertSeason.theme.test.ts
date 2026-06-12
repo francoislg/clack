@@ -33,6 +33,7 @@ function baseArgs(slug: string, future: number) {
     hint: undefined,
     judgeLeniency: undefined,
     choices: undefined,
+    choiceEmojiStyle: undefined,
   };
 }
 

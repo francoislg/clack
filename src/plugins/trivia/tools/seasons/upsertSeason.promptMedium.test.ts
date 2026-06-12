@@ -38,6 +38,7 @@ function makeArgs(overrides: Partial<UpsertArgs>): UpsertArgs {
     hint: undefined,
     judgeLeniency: undefined,
     choices: undefined,
+    choiceEmojiStyle: undefined,
     ...overrides,
   };
 }

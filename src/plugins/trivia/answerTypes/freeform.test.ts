@@ -423,6 +423,7 @@ describe("freeformAnswerHandler", () => {
           config: null,
           resolvedChoiceBounds: { min: 4, max: 4 },
           resolvedJudgeLeniency: "strict-with-typos",
+          resolvedChoiceEmojiStyle: "numbers",
         },
       );
       assert.equal(out.ok, true);
@@ -449,6 +450,7 @@ describe("freeformAnswerHandler", () => {
           config: null,
           resolvedChoiceBounds: { min: 4, max: 4 },
           resolvedJudgeLeniency: "strict-with-typos",
+          resolvedChoiceEmojiStyle: "numbers",
         },
       );
       assert.equal(out.ok, false);
@@ -473,6 +475,7 @@ describe("freeformAnswerHandler", () => {
           config: null,
           resolvedChoiceBounds: { min: 4, max: 4 },
           resolvedJudgeLeniency: "strict-with-typos",
+          resolvedChoiceEmojiStyle: "numbers",
         },
       );
       assert.equal(out.ok, false);
@@ -495,6 +498,7 @@ describe("freeformAnswerHandler", () => {
           config: null,
           resolvedChoiceBounds: { min: 4, max: 4 },
           resolvedJudgeLeniency: "strict-with-typos",
+          resolvedChoiceEmojiStyle: "numbers",
         },
       );
       assert.equal(out.ok, false);
@@ -523,6 +527,7 @@ describe("freeformAnswerHandler", () => {
           config: null,
           resolvedChoiceBounds: { min: 4, max: 4 },
           resolvedJudgeLeniency: "strict-with-typos",
+          resolvedChoiceEmojiStyle: "numbers",
         },
       );
       assert.equal(out.ok, true);

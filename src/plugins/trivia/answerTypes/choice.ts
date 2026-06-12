@@ -44,10 +44,25 @@ export const CHOICE_SAVE_FIELDS = {
     .describe(
       'REQUIRED for choice questions (0-based, in [0, choices.length)). MUST NOT be set when answersFormat is "boolean" or "freeform".',
     ),
+  choiceEmojis: z
+    .array(z.string())
+    .optional()
+    .describe(
+      'OPTIONAL, choice questions only, and ONLY when get_ideas returned `suggestedChoiceEmojiStyle: "themed"`: one Unicode emoji per option (parallel to `choices`, same length, unique, actual emoji characters — never :shortcodes:). Each emoji prefixes its option\'s vote button and labels its group in the live answer roster. Omit to fall back to numbered prefixes.',
+    ),
 } as const;
 
 /** Numbered-emoji prefixes for choice buttons + roster labels, in index order (0..3). */
 const CHOICE_NUMBER_EMOJI = ["1️⃣", "2️⃣", "3️⃣", "4️⃣"] as const;
+
+/**
+ * The emoji prefix for option `idx`: the stamped themed emoji when the record
+ * carries one, else the numbered fallback. Single source for buttons + roster
+ * labels so the two surfaces can never disagree.
+ */
+function choicePrefixEmoji(question: TriviaQuestion, idx: number): string | undefined {
+  return question.choiceEmojis?.[idx] ?? CHOICE_NUMBER_EMOJI[idx];
+}
 
 /**
  * Value pattern for choice votes: action_ids must end with `:<integer>`.
@@ -88,9 +103,35 @@ function validateChoiceList(
   return null;
 }
 
+/**
+ * Validate a themed `choiceEmojis` list against its `choices`: same length, each
+ * entry a short non-empty string containing at least one non-ASCII character (a
+ * Unicode emoji — `:shortcode:` text fails this), unique after trim. Returns the
+ * Claude-readable error string, or null when valid.
+ */
+function validateChoiceEmojiList(choiceEmojis: string[], choicesLength: number): string | null {
+  if (choiceEmojis.length !== choicesLength) {
+    return `choiceEmojis must have exactly one emoji per option (got ${choiceEmojis.length} for ${choicesLength} choices).`;
+  }
+  for (let i = 0; i < choiceEmojis.length; i++) {
+    const trimmed = choiceEmojis[i].trim();
+    if (trimmed.length < 1 || trimmed.length > 16) {
+      return `choiceEmojis[${i}] must be a single emoji (1-16 chars after trim, got ${trimmed.length}).`;
+    }
+    if (!/[^\x20-\x7E]/.test(trimmed)) {
+      return `choiceEmojis[${i}] ("${trimmed}") must be a Unicode emoji character, not text or a :shortcode:.`;
+    }
+  }
+  const normalized = choiceEmojis.map((e) => e.trim());
+  if (new Set(normalized).size !== normalized.length) {
+    return "choiceEmojis must be unique — two options sharing an emoji makes the roster ambiguous.";
+  }
+  return null;
+}
+
 export const choiceAnswerHandler: ClickableAnswerHandler = {
   actionAffordanceDescription:
-    'answersFormat "choice" → one vote button per choice option (1️⃣ 2️⃣ 3️⃣ 4️⃣ prefixes) appended below the question card.',
+    'answersFormat "choice" → one vote button per choice option appended below the question card, prefixed by the record\'s stamped `choiceEmojis` when present (themed choiceEmojiStyle), else by 1️⃣ 2️⃣ 3️⃣ 4️⃣.',
   revealAnswerShapeDescription: '`{ type: "choice", choices, correctIndex }` for choice questions.',
   reprocessReStampAxes: ["revealResponses"],
   historyResultShapeDescription:
@@ -112,7 +153,7 @@ export const choiceAnswerHandler: ClickableAnswerHandler = {
           action_id: actionId(`vote:${question.id}:${i}`),
           text: {
             type: "plain_text",
-            text: `${CHOICE_NUMBER_EMOJI[i] ?? ""} ${choice}`,
+            text: `${choicePrefixEmoji(question, i) ?? ""} ${choice}`,
             emoji: true,
           },
         })),
@@ -155,9 +196,9 @@ export const choiceAnswerHandler: ClickableAnswerHandler = {
     return String(answer.answerIndex);
   },
 
-  rosterGroupLabel(group): string {
+  rosterGroupLabel(group, question): string {
     const idx = Number.parseInt(group.groupKey, 10);
-    return CHOICE_NUMBER_EMOJI[idx] ?? `#${group.groupKey}`;
+    return choicePrefixEmoji(question, idx) ?? `#${group.groupKey}`;
   },
 
   buildRevealAnswer(question: TriviaQuestion) {
@@ -252,7 +293,29 @@ export const choiceAnswerHandler: ClickableAnswerHandler = {
     if (listError !== null) {
       return { ok: false, error: listError };
     }
-    return { ok: true, question: { ...base, choices: args.choices } };
+    if (args.choiceEmojis !== undefined) {
+      if (ctx.resolvedChoiceEmojiStyle !== "themed") {
+        return {
+          ok: false,
+          error:
+            'choiceEmojis is only permitted when the resolved choiceEmojiStyle is "themed" (it is "numbers" for this slot/season/game/workspace). Omit choiceEmojis — buttons get numbered prefixes.',
+        };
+      }
+      const emojiError = validateChoiceEmojiList(args.choiceEmojis, args.choices.length);
+      if (emojiError !== null) {
+        return { ok: false, error: emojiError };
+      }
+    }
+    return {
+      ok: true,
+      question: {
+        ...base,
+        choices: args.choices,
+        ...(args.choiceEmojis !== undefined
+          ? { choiceEmojis: args.choiceEmojis.map((e) => e.trim()) }
+          : {}),
+      },
+    };
   },
 
   settleInputFromSaveArgs(args: SaveQuestionArgs): SettleOutcomeInput {
@@ -293,7 +356,18 @@ export const choiceAnswerHandler: ClickableAnswerHandler = {
     const bounds = resolveCascade("choices", deps.cascadeCtx).value;
     const suggestedChoiceCount = randomIntInclusive(bounds.min, bounds.max);
     const suggestedCorrectIndex = randomIntInclusive(0, suggestedChoiceCount - 1);
-    return { suggestedChoiceCount, suggestedCorrectIndex };
+    const suggestedChoiceEmojiStyle = resolveCascade("choiceEmojiStyle", deps.cascadeCtx).value;
+    return {
+      suggestedChoiceCount,
+      suggestedCorrectIndex,
+      suggestedChoiceEmojiStyle,
+      ...(suggestedChoiceEmojiStyle === "themed"
+        ? {
+            choiceEmojiGuidance:
+              "Pick ONE Unicode emoji per option (actual emoji characters, never :shortcodes:), each visually evoking ITS OWN option's subject — all options get an equally fitting emoji, so the set must not hint at which is correct. Emojis must be unique within the question. Pass them to save_question as `choiceEmojis` (parallel to `choices`, same order). If no fitting set exists, OMIT choiceEmojis — buttons fall back to numbered prefixes.",
+          }
+        : {}),
+    };
   },
 
   buildHistoryResult(

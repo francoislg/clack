@@ -32,6 +32,7 @@ function baseArgs(slug: string, startedAt: number) {
     hint: undefined,
     judgeLeniency: undefined,
     choices: undefined,
+    choiceEmojiStyle: undefined,
   };
 }
 

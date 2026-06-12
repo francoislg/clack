@@ -9,13 +9,16 @@
  * is what lets `resolveCascade` read any axis off any tier by key, and what makes
  * `AXIS_REGISTRY` compile-time exhaustive.
  *
- * Membership (14), per the rule above:
- *   - Uniform first-wins (11): answersFormat, questionType, promptMedium,
- *     freeformAnswerShape, contexts, hint, judgeLeniency, choices, instructions,
- *     liveAnswersVisible, revealResponses. (The last two resolve at POST time,
- *     not generation time, but are 4-tier first-wins cascades all the same.
- *     `choices` is the `{ min, max }` option-count bound for choice questions,
- *     consumed by the get_ideas roll and save_question length validation.)
+ * Membership (15), per the rule above:
+ *   - Uniform first-wins (12): answersFormat, questionType, promptMedium,
+ *     freeformAnswerShape, contexts, hint, judgeLeniency, choices,
+ *     choiceEmojiStyle, instructions, liveAnswersVisible, revealResponses.
+ *     (liveAnswersVisible/revealResponses resolve at POST time, not generation
+ *     time, but are 4-tier first-wins cascades all the same. `choices` is the
+ *     `{ min, max }` option-count bound for choice questions, consumed by the
+ *     get_ideas roll and save_question length validation. `choiceEmojiStyle`
+ *     gates whether choice buttons get numbered or Claude-themed emoji
+ *     prefixes — cosmetic only.)
  *   - Custom (3): difficulty (per-field merge), difficultyRatio (answersFormat-
  *     keyed), additionalInstructions (CUMULATIVE concat across tiers).
  *
@@ -38,6 +41,7 @@ import type {
   TriviaHintConfig,
   JudgeLeniency,
   TriviaChoicesConfig,
+  ChoiceEmojiStyle,
   RevealResponsesMode,
   SeasonFormatSlot,
   TriviaGame,
@@ -58,6 +62,7 @@ export interface CascadeAxes {
   hint?: TriviaHintConfig;
   judgeLeniency?: JudgeLeniency;
   choices?: TriviaChoicesConfig;
+  choiceEmojiStyle?: ChoiceEmojiStyle;
   instructions?: string;
   liveAnswersVisible?: boolean;
   revealResponses?: RevealResponsesMode;

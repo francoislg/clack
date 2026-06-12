@@ -55,6 +55,7 @@ const BASE_ARGS = {
   difficulty: undefined,
   hint: undefined,
   emojis: ["💧"],
+  choiceEmojis: undefined,
 };
 
 describe("save_question — slot binding", () => {

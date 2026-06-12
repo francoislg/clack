@@ -63,6 +63,7 @@ describe("get_ideas + upsert_season cross-tool flow", () => {
           hint: undefined,
           judgeLeniency: undefined,
           choices: undefined,
+          choiceEmojiStyle: undefined,
         },
         SESSION,
       ),

@@ -15,6 +15,7 @@ import {
   isRevealResponsesMode,
   parseTriviaAxisBag,
   validateAllTimeRowMode,
+  validateChoiceEmojiStyle,
   validateHintConfig,
   validateFinalRevealSummary,
   validateIncludeRevealInQuestions,
@@ -205,6 +206,12 @@ function parseTriviaConfigObject(raw: JsonObject, logger: PluginLogger): TriviaC
     const r = validateJudgeLeniency(raw.judgeLeniency, "trivia.judgeLeniency");
     if (r.ok) out.judgeLeniency = r.value;
     else allIssues.push({ field: "trivia.judgeLeniency", error: r.error });
+  }
+
+  if (raw.choiceEmojiStyle !== undefined && raw.choiceEmojiStyle !== null) {
+    const r = validateChoiceEmojiStyle(raw.choiceEmojiStyle, "trivia.choiceEmojiStyle");
+    if (r.ok) out.choiceEmojiStyle = r.value;
+    else allIssues.push({ field: "trivia.choiceEmojiStyle", error: r.error });
   }
 
   if (raw.instructions !== undefined && raw.instructions !== null) {

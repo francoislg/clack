@@ -13,6 +13,7 @@
 
 import { z } from "zod";
 import type {
+  ChoiceEmojiStyle,
   DifficultyBucketWeights,
   DifficultyRangesInput,
   HintMode,
@@ -36,6 +37,7 @@ import type {
 } from "../configTypes.js";
 import {
   ALL_TIME_ROW_KEYS,
+  CHOICE_EMOJI_STYLE_KEYS,
   DEFAULT_TRIVIA_CHOICES,
   FINAL_REVEAL_SUMMARY_KEYS,
   INCLUDE_REVEAL_IN_QUESTIONS_KEYS,
@@ -311,6 +313,18 @@ export function validateJudgeLeniency(raw: unknown, fieldLabel: string): Result<
   return safeParseToResult(judgeLeniencySchema, raw, fieldLabel);
 }
 
+const choiceEmojiStyleSchema: z.ZodType<ChoiceEmojiStyle> = schemaFromChecker(
+  (raw) => enumCheck(raw, CHOICE_EMOJI_STYLE_KEYS),
+  (raw) => raw as ChoiceEmojiStyle,
+);
+
+export function validateChoiceEmojiStyle(
+  raw: unknown,
+  fieldLabel: string,
+): Result<ChoiceEmojiStyle> {
+  return safeParseToResult(choiceEmojiStyleSchema, raw, fieldLabel);
+}
+
 function normalizeChoices(raw: unknown): TriviaChoicesConfig {
   const obj = isJsonObject(raw) ? raw : {};
   const min = obj.min ?? DEFAULT_TRIVIA_CHOICES.min;
@@ -517,6 +531,11 @@ export const triviaTellMeMoreZod = z.object({ enabled: z.boolean() }).strict();
 /** Shared zod schema for the `judgeLeniency` axis (structural; semantics in `validateJudgeLeniency`). */
 export const triviaJudgeLeniencyZod = z.enum(
   JUDGE_LENIENCY_KEYS as readonly [JudgeLeniency, ...JudgeLeniency[]],
+);
+
+/** Shared zod schema for the `choiceEmojiStyle` axis (structural; semantics in `validateChoiceEmojiStyle`). */
+export const triviaChoiceEmojiStyleZod = z.enum(
+  CHOICE_EMOJI_STYLE_KEYS as readonly [ChoiceEmojiStyle, ...ChoiceEmojiStyle[]],
 );
 
 /** Shared zod schema for the `choices` axis (structural; `2 ≤ min ≤ max ≤ 4` in `validateTriviaChoicesConfig`). */

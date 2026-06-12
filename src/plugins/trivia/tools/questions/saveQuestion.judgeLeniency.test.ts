@@ -31,6 +31,7 @@ const FREEFORM_ARGS = {
   slot: undefined,
   hint: undefined,
   emojis: ["🪐"],
+  choiceEmojis: undefined,
 };
 
 const BOOLEAN_ARGS = {

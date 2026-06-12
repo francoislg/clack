@@ -266,11 +266,12 @@ describe("AXIS_REGISTRY", () => {
     ).toEqual({ easy: 7, medium: 2, hard: 1 });
   });
 
-  it("has exactly the 14 cascade-axis keys", () => {
+  it("has exactly the 15 cascade-axis keys", () => {
     expect(Object.keys(AXIS_REGISTRY).sort()).toEqual(
       [
         "additionalInstructions",
         "answersFormat",
+        "choiceEmojiStyle",
         "choices",
         "contexts",
         "difficulty",

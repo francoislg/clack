@@ -84,6 +84,7 @@ function args(overrides: Partial<UpsertGameArgs> & Pick<UpsertGameArgs, "name">)
     includeRevealInQuestions: undefined,
     finalRevealSummary: undefined,
     judgeLeniency: undefined,
+    choiceEmojiStyle: undefined,
     tellMeMore: undefined,
     choices: undefined,
     initialSeason: undefined,

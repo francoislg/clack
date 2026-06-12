@@ -42,6 +42,7 @@ import {
   questionTypeZod,
   promptMediumZod,
   triviaDifficultyRatioZod,
+  triviaChoiceEmojiStyleZod,
   triviaChoicesZod,
   triviaHintZod,
   triviaJudgeLeniencyZod,
@@ -49,6 +50,7 @@ import {
   validateTriviaChoicesConfig,
 } from "../../core/configParsers/axes.js";
 import type {
+  ChoiceEmojiStyle,
   JudgeLeniency,
   RevealResponsesMode,
   SeasonFormat,
@@ -218,6 +220,12 @@ export function createUpsertSeasonTool(
         .describe(
           "Per-season tier of the choice option-count bounds axis. Object shape `{ min, max }` with `2 ≤ min ≤ max ≤ 4`. Bounds how many options a `choice` question gets (get_ideas rolls a count in `[min, max]`; save_question validates against it). Cascade: `slot → season → game → workspace → { min: 4, max: 4 }`. Whole-object replace per tier. On UPDATE: passing `null` clears the field. Mid-season mutation permitted.",
         ),
+      choiceEmojiStyle: triviaChoiceEmojiStyleZod
+        .nullable()
+        .optional()
+        .describe(
+          'Per-season tier of the choice-button emoji-style axis. One of `"numbers"` | `"themed"`. `"numbers"` (the built-in default) prefixes choice vote buttons with 1️⃣ 2️⃣ 3️⃣ 4️⃣; `"themed"` lets Claude pick one topic-matching Unicode emoji per option at generation time (stamped on the record, shown on buttons and the live answer roster). Purely cosmetic — never affects scoring. Cascade: `slot → season → game → workspace → "numbers"`. Whole-value replace per tier. On UPDATE: passing `null` clears the field. Mid-season mutation permitted.',
+        ),
     },
     async (args) => {
       try {
@@ -368,6 +376,11 @@ export function createUpsertSeasonTool(
           choices = validated.value;
         }
 
+        const choiceEmojiStyle: ChoiceEmojiStyle | undefined =
+          args.choiceEmojiStyle === undefined || args.choiceEmojiStyle === null
+            ? undefined
+            : args.choiceEmojiStyle;
+
         const liveAnswersVisible: boolean | undefined =
           args.liveAnswersVisible === undefined || args.liveAnswersVisible === null
             ? undefined
@@ -403,6 +416,7 @@ export function createUpsertSeasonTool(
           ...(hint !== undefined ? { hint } : {}),
           ...(judgeLeniency !== undefined ? { judgeLeniency } : {}),
           ...(choices !== undefined ? { choices } : {}),
+          ...(choiceEmojiStyle !== undefined ? { choiceEmojiStyle } : {}),
         };
 
         try {
@@ -441,6 +455,7 @@ export function createUpsertSeasonTool(
           hasHint: entry.hint !== undefined,
           hasJudgeLeniency: entry.judgeLeniency !== undefined,
           hasChoices: entry.choices !== undefined,
+          hasChoiceEmojiStyle: entry.choiceEmojiStyle !== undefined,
         });
       }
 
@@ -625,6 +640,13 @@ export function createUpsertSeasonTool(
         updatedChoices = validated.value;
       }
 
+      let updatedChoiceEmojiStyle: ChoiceEmojiStyle | undefined = existing.choiceEmojiStyle;
+      if (args.choiceEmojiStyle === null) {
+        updatedChoiceEmojiStyle = undefined;
+      } else if (args.choiceEmojiStyle !== undefined) {
+        updatedChoiceEmojiStyle = args.choiceEmojiStyle;
+      }
+
       const updated: SeasonEntry = {
         slug: existing.slug,
         startedAt: args.startedAt ?? existing.startedAt,
@@ -662,6 +684,9 @@ export function createUpsertSeasonTool(
         ...(updatedHint !== undefined ? { hint: updatedHint } : {}),
         ...(updatedJudgeLeniency !== undefined ? { judgeLeniency: updatedJudgeLeniency } : {}),
         ...(updatedChoices !== undefined ? { choices: updatedChoices } : {}),
+        ...(updatedChoiceEmojiStyle !== undefined
+          ? { choiceEmojiStyle: updatedChoiceEmojiStyle }
+          : {}),
       };
 
       const effectiveEnd = updated.endedAt ?? updated.expectedEndAt;
@@ -707,6 +732,7 @@ export function createUpsertSeasonTool(
         hasHint: updated.hint !== undefined,
         hasJudgeLeniency: updated.judgeLeniency !== undefined,
         hasChoices: updated.choices !== undefined,
+        hasChoiceEmojiStyle: updated.choiceEmojiStyle !== undefined,
       });
     },
   );

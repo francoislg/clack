@@ -62,6 +62,8 @@ When suggestedAnswersFormat is \`"boolean"\`, also returns:
 When suggestedAnswersFormat is \`"choice"\`, also returns:
 - \`suggestedChoiceCount\` (integer in active [min, max]): the number of options
 - \`suggestedCorrectIndex\` (integer in [0, suggestedChoiceCount)): the 0-based index of the correct option
+- \`suggestedChoiceEmojiStyle\`: \`"numbers"\` or \`"themed"\` — resolved from the cascade \`slot.choiceEmojiStyle → season → game → workspace → "numbers"\`. \`"numbers"\` = the standard 1️⃣ 2️⃣ 3️⃣ 4️⃣ button prefixes (do NOT pass \`choiceEmojis\` to save_question). \`"themed"\` = pick one topic-matching Unicode emoji per option and pass them as \`choiceEmojis\` (see \`choiceEmojiGuidance\`). Cosmetic only — never affects scoring.
+- \`choiceEmojiGuidance\` (optional string): present only when \`suggestedChoiceEmojiStyle\` is \`"themed"\`. Carries the emoji-picking instructions Claude must honor.
 
 When suggestedAnswersFormat is \`"freeform"\`, also returns:
 - \`suggestedFreeformAnswerShape\`: one of \`"name" | "place" | "phrase" | "title" | "date" | "countable" | "other"\` — picked from active freeformAnswerShape weights (slot.freeformAnswerShape → season.freeformAnswerShape → config.trivia.freeformAnswerShape → uniform default). The question MUST be answered by a value of that shape; this exists to break Claude's strong default bias toward numeric answers. \`"other"\` is a wildcard where Claude reaches for an unconventional answer shape.

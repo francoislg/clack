@@ -36,6 +36,7 @@ const CHOICE_ARGS = {
   slot: undefined,
   hint: undefined,
   emojis: ["🪐"],
+  choiceEmojis: undefined,
 };
 
 const gamesWithChoices = (choices: { min: number; max: number }) => {
