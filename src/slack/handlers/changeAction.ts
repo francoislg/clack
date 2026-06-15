@@ -20,6 +20,7 @@ import type { StagedChangeIntent } from "../../tools/types.js";
 import type { ChangeRequest, ChangePlan, ChangeResult, TriggerType } from "../../changes/types.js";
 import { startChangeWorkflow, type WorkflowDeps } from "../../changes/workflow.js";
 import { maybeOfferRecovery } from "./changeThreadActions.js";
+import { provisionSpinoffSiblings } from "./spinoffSiblings.js";
 import { SlackStreamer, finalizeStreamedWorkflow } from "../../streaming/slackStreamer.js";
 import type { StreamEvent } from "../../streaming/types.js";
 import type { UserRole } from "../../roles.js";
@@ -62,6 +63,7 @@ export interface ChangeActionDeps {
     result: ChangeResult,
     context: string,
   ) => Promise<void>;
+  provisionSpinoffSiblings: typeof provisionSpinoffSiblings;
 }
 
 export const defaultChangeActionDeps: ChangeActionDeps = {
@@ -75,7 +77,9 @@ export const defaultChangeActionDeps: ChangeActionDeps = {
   errorMessage,
   setAttentionLevel,
   createStreamer: (opts) => new SlackStreamer(opts),
-  finalizeStreamedWorkflow: finalizeStreamedWorkflow as never,
+  finalizeStreamedWorkflow: (streamer, client, channel, threadTs, result, context) =>
+    finalizeStreamedWorkflow(streamer as SlackStreamer, client, channel, threadTs, result, context),
+  provisionSpinoffSiblings,
 };
 
 /** Slack delivery context shared by change workflow triggers. */
@@ -184,6 +188,20 @@ export async function triggerChangeWorkflow(
     );
 
     await maybeOfferRecovery(session.sessionId, client, streamChannel, streamThreadTs);
+
+    // Spin off any slices the worker carved out into their own standalone sibling threads.
+    if (result.success && result.spinoffs && result.spinoffs.length > 0) {
+      await deps.provisionSpinoffSiblings({
+        spinoffs: result.spinoffs,
+        repo: intent.repo,
+        channel: channelId,
+        userId,
+        ...(userDisplayName && { userDisplayName }),
+        triggerType: slack.triggerType ?? "reactions",
+        parentThreadTs: threadTs,
+        client,
+      });
+    }
   } catch (error) {
     logger.error("Change workflow failed:", error);
     await streamer.stop();

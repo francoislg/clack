@@ -488,6 +488,15 @@ export function getStateDir(): string {
   return resolve(getDataDir(), "state");
 }
 
+/**
+ * Host-shared location for spinoff slice patches. A patch captured by one worktree's
+ * `propose_spinoff` is applied by the sibling's worktree; both live on the same host
+ * filesystem under `data/`, so a shared dir here is reachable by both.
+ */
+export function getSpinoffPatchesDir(): string {
+  return resolve(getDataDir(), "spinoff-patches");
+}
+
 export function findRepoByName(name: string, config: Config): RepositoryConfig | undefined {
   return config.repositories.find((r) => r.name.toLowerCase() === name.toLowerCase());
 }

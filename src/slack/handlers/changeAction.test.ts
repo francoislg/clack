@@ -56,6 +56,9 @@ const mockCreateStreamer = vi.fn(() => ({
 const mockFinalizeStreamedWorkflow = vi.fn<ChangeActionDeps["finalizeStreamedWorkflow"]>(
   async () => {},
 );
+const mockProvisionSpinoffSiblings = vi.fn<ChangeActionDeps["provisionSpinoffSiblings"]>(
+  async () => {},
+);
 const mockSetAttentionLevel = vi.fn<ChangeActionDeps["setAttentionLevel"]>(async () => {});
 const mockPostEphemeralFn = vi.fn<
   (args: { channel: string; user: string; text: string }) => Promise<{ ok: boolean }>
@@ -77,6 +80,7 @@ function makeDeps(): ChangeActionDeps {
     createStreamer: mockCreateStreamer,
     finalizeStreamedWorkflow: mockFinalizeStreamedWorkflow,
     setAttentionLevel: mockSetAttentionLevel,
+    provisionSpinoffSiblings: mockProvisionSpinoffSiblings,
   };
 }
 
@@ -204,6 +208,7 @@ beforeEach(() => {
   mockStreamerHandleEvent.mockClear();
   mockCreateStreamer.mockClear();
   mockFinalizeStreamedWorkflow.mockClear();
+  mockProvisionSpinoffSiblings.mockClear();
   mockPostEphemeralFn.mockClear();
   mockPostMessageFn.mockClear();
 
@@ -525,6 +530,63 @@ describe("triggerChangeWorkflow", () => {
     assert.equal(mockStreamerStart.mock.calls.length, 1);
     assert.equal(mockStartChangeWorkflow.mock.calls.length, 1);
     assert.equal(mockFinalizeStreamedWorkflow.mock.calls.length, 1);
+  });
+
+  it("does NOT provision spinoff siblings when the result carries none", async () => {
+    mockFindSessionByThread.mockImplementation(async () => makeSession());
+    mockStartChangeWorkflow.mockImplementation(async () => ({ success: true }));
+
+    const client = makeClient();
+    const intent: StagedChangeIntent = {
+      type: "change",
+      branch: "feat/no-spin",
+      description: "No spinoff",
+      repo: "org/repo",
+    };
+
+    await triggerChangeWorkflow(
+      intent,
+      { channelId: "C001", threadTs: "1700000000.000001", userId: "U001", client },
+      makeDeps(),
+    );
+
+    assert.equal(mockProvisionSpinoffSiblings.mock.calls.length, 0);
+  });
+
+  it("provisions spinoff siblings when the result carries them", async () => {
+    mockFindSessionByThread.mockImplementation(async () => makeSession());
+    mockStartChangeWorkflow.mockImplementation(async () => ({
+      success: true,
+      spinoffs: [
+        {
+          paths: ["src/util.ts"],
+          description: "Extract util",
+          proposedBranch: "clack/refactor/extract",
+          patchPath: "/data/spinoff-patches/p.0.patch",
+        },
+      ],
+    }));
+
+    const client = makeClient();
+    const intent: StagedChangeIntent = {
+      type: "change",
+      branch: "feat/with-spin",
+      description: "Has spinoff",
+      repo: "org/repo",
+    };
+
+    await triggerChangeWorkflow(
+      intent,
+      { channelId: "C001", threadTs: "1700000000.000001", userId: "U001", client },
+      makeDeps(),
+    );
+
+    assert.equal(mockProvisionSpinoffSiblings.mock.calls.length, 1);
+    const arg = mockProvisionSpinoffSiblings.mock.calls[0]![0];
+    assert.equal(arg.repo, "org/repo");
+    assert.equal(arg.channel, "C001");
+    assert.equal(arg.parentThreadTs, "1700000000.000001");
+    assert.equal(arg.spinoffs.length, 1);
   });
 
   it("uses stream channel and threadTs when provided", async () => {

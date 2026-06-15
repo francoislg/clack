@@ -283,6 +283,15 @@ export const fr: Partial<Record<StringKey, string>> = {
     ":hourglass_flowing_sand: En file (position {position}) pour un worker sur `{repo}`.",
   "changes.create_workspace_failed": "Échec de création du workspace : {error}",
 
+  // ─── Spinoff (split a slice into a separate sibling PR) ─────────────
+  "changes.spinoff.patch_apply_failed":
+    "Impossible d'appliquer les modifications détachées depuis `{path}` : {error}. Le correctif y a été conservé pour récupération.",
+  "changes.spinoff.sibling_thread_intro":
+    ":scissors: Détachement d'un changement distinct : *{description}* (`{branch}`)",
+  "changes.spinoff.posted_in_parent":
+    ":scissors: *{description}* a été détaché vers un changement distinct → {link}",
+  "changes.spinoff.spun_off_from": "Détaché depuis {link}",
+
   // ─── Failed-change recovery ────────────────────────────────────────
   "changes.recovery.prompt":
     "Vous pouvez reprendre ce changement là où il s'est arrêté, le recommencer à zéro (le travail en cours sera jeté), ou l'abandonner et libérer le workspace.",

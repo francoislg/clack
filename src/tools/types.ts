@@ -14,6 +14,7 @@ import type { Config } from "../config.js";
 import type { McpServerManager } from "../claude/mcpServerManager.js";
 import type { SkillsManager } from "../claude/skillsManager.js";
 import type { SlackImageFile, SlackFile } from "../slack/slackFileBase.js";
+import type { SpinoffIntentData } from "../changes/spinoff.js";
 
 // ============================================================================
 // Query handle — shared mutable ref for the SDK Query object
@@ -265,6 +266,7 @@ export type StagedIntentType =
   | "review"
   | "merge"
   | "close"
+  | "spinoff"
   | "skill_create"
   | "skill_update"
   | "skill_disable"
@@ -322,6 +324,13 @@ export interface StagedReviewIntent {
   instructions: string;
 }
 
+/**
+ * A slice of the worker's current changes to carve into a separate PR. Staged by the
+ * `propose_spinoff` worker tool; drained by the orchestrator after the worker run to
+ * provision a standalone sibling change session. Carries the captured-patch location.
+ */
+export type StagedSpinoffIntent = { type: "spinoff" } & SpinoffIntentData;
+
 export interface StagedMergeIntent {
   type: "merge";
   sessionId: string;
@@ -367,6 +376,7 @@ export type StagedIntent =
   | StagedReviewIntent
   | StagedMergeIntent
   | StagedCloseIntent
+  | StagedSpinoffIntent
   | StagedSkillCreateIntent
   | StagedSkillUpdateIntent
   | StagedSkillDisableIntent

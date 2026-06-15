@@ -1,4 +1,5 @@
 import type { WorktreeInfo } from "../worktrees.js";
+import type { SpinoffIntentData } from "./spinoff.js";
 
 // ============================================================================
 // Core Types
@@ -39,6 +40,13 @@ export interface ChangePlan {
    * change is a continuation (e.g. the idler advancing one of Clack's own open PRs). Default false.
    */
   resumeRemoteBranch?: boolean;
+  /**
+   * Absolute path to a spinoff slice patch to apply onto the fresh worktree before the worker
+   * runs. Set only for a sibling change provisioned from a `propose_spinoff` intent — the slice's
+   * exact code is applied here rather than regenerated. If the patch fails to apply, the change
+   * fails and the patch is retained at this path for recovery.
+   */
+  applySpinoffPatch?: string;
 }
 
 export interface ChangeSession {
@@ -74,6 +82,13 @@ export interface ChangeResult {
   summary?: string;
   cancelled?: boolean;
   cancelledBy?: { userId: string; reason?: string };
+  /**
+   * Spinoff slices the worker staged during this run. Surfaced here (not provisioned
+   * inside the workflow) because provisioning a sibling needs the Slack client, session,
+   * and streamer machinery that only the handler layer owns. The handler reads this and
+   * provisions one standalone sibling change per entry.
+   */
+  spinoffs?: SpinoffIntentData[];
 }
 
 export type FollowUpCommand =
@@ -153,4 +168,6 @@ export interface ExecutionResult {
   error?: string;
   /** SDK session ID captured during execution (for resuming follow-ups) */
   sdkSessionId?: string;
+  /** Spinoff slices the worker staged via `propose_spinoff` during this run. */
+  stagedSpinoffs?: SpinoffIntentData[];
 }

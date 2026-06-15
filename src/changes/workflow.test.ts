@@ -140,6 +140,9 @@ const mockFetchPRReviewContext =
 const mockGetSession = vi.fn<(sessionId: string) => Promise<SessionContext | null>>();
 const mockForceResetBranch =
   vi.fn<(worker: Worker, repo: RepositoryConfig, branch: string) => Promise<void>>();
+const mockApplySlicePatch = vi.fn<(worktreePath: string, patchPath: string) => Promise<void>>(
+  async () => {},
+);
 
 // Types for test assertions
 type ExecuteChangeCallArg = Omit<ExecuteChangeOptions, "plan"> & {
@@ -178,6 +181,7 @@ function makeDeps(): WorkflowDeps {
     fetchPRReviewContext: mockFetchPRReviewContext,
     getSession: mockGetSession,
     forceResetBranch: mockForceResetBranch,
+    applySlicePatch: mockApplySlicePatch,
   };
 }
 

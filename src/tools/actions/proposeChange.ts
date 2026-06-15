@@ -9,9 +9,7 @@ import type { PersistedSessionState } from "../../changes/types.js";
 import { canWriteRepo, getWritableRepos } from "../../repoAccess.js";
 import type { RepositoryConfig } from "../../config.js";
 import type { UserRole } from "../../roles.js";
-
-const BRANCH_PATTERN = /^clack\/(fix|feat|refactor|docs|chore)\/.+$/;
-const BRANCH_TYPES = ["fix", "feat", "refactor", "docs", "chore"];
+import { BRANCH_PATTERN, BRANCH_TYPES } from "../../changes/branchNaming.js";
 
 export interface ProposeChangeDeps {
   getExistingWorktree: (repo: RepositoryConfig, branchName: string) => WorktreeInfo | null;
