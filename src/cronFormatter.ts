@@ -112,15 +112,62 @@ function parseHourField(hour: string): { step: number; range?: [number, number] 
   if (hour === "*") return { step: 1 };
   const stepMatch = /^\*\/(\d+)$/.exec(hour);
   if (stepMatch) return { step: Number(stepMatch[1]) };
-  const rangeMatch = /^(\d+)-(\d+)$/.exec(hour);
-  if (rangeMatch) {
-    const start = Number(rangeMatch[1]);
-    const end = Number(rangeMatch[2]);
-    if (start >= 0 && end <= 23 && start <= end) {
-      return { step: 1, range: [start, end] };
+
+  // A single literal hour ("6") stays out of sub-daily form — it humanizes as "Every day at TIME".
+  // Ranges ("9-17") and comma lists ("0-8,18-23", the idler's off-hours complement) describe a window.
+  if (!hour.includes("-") && !hour.includes(",")) return null;
+
+  const hours = expandHourList(hour);
+  if (!hours) return null;
+  const segments = circularRuns(hours);
+  if (segments.length === 1) return { step: 1, range: segments[0] };
+  return null;
+}
+
+// Expand "0-8,18-23" / "9-17" / "1,3,5" into a sorted unique hour list [0..23]; null on any bad token.
+function expandHourList(field: string): number[] | null {
+  const hours = new Set<number>();
+  for (const token of field.split(",")) {
+    const range = /^(\d+)-(\d+)$/.exec(token);
+    if (range) {
+      const start = Number(range[1]);
+      const end = Number(range[2]);
+      if (start < 0 || end > 23 || start > end) return null;
+      for (let h = start; h <= end; h++) hours.add(h);
+    } else if (/^\d+$/.test(token)) {
+      const h = Number(token);
+      if (h < 0 || h > 23) return null;
+      hours.add(h);
+    } else {
+      return null;
     }
   }
-  return null;
+  return [...hours].sort((a, b) => a - b);
+}
+
+// Contiguous inclusive runs on the 24-hour circle. A run touching both midnight and 23:00 is merged
+// into one wrap-around window ([18,8] for the off-hours complement) so it reads "6 PM to 8 AM".
+function circularRuns(hours: number[]): Array<[number, number]> {
+  if (hours.length === 0) return [];
+  const runs: Array<[number, number]> = [];
+  let start = hours[0];
+  let prev = hours[0];
+  for (let i = 1; i < hours.length; i++) {
+    if (hours[i] === prev + 1) {
+      prev = hours[i];
+      continue;
+    }
+    runs.push([start, prev]);
+    start = hours[i];
+    prev = hours[i];
+  }
+  runs.push([start, prev]);
+
+  if (runs.length > 1 && runs[0][0] === 0 && runs[runs.length - 1][1] === 23) {
+    const wrap: [number, number] = [runs[runs.length - 1][0], runs[0][1]];
+    return [wrap, ...runs.slice(1, -1)];
+  }
+  return runs;
 }
 
 function formatHour(h: number): string {
