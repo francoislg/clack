@@ -41,6 +41,7 @@ export const idlerConfigSchema = z.object({
   activeHours: activeHoursSchema,
   repoAllowlist: z.array(z.string().min(1)).default([]),
   reportingChannel: z.string().regex(SLACK_CHANNEL_ID, "channel ID must be C…/G…/D…").optional(),
+  summaryHour: z.number().int().min(0).max(23).optional(),
   maxActionsPerFire: z.number().int().min(1).max(20).default(1),
   maxActionsPerNight: z.number().int().min(1).max(100).default(5),
   sources: sourcesSchema.default({ channels: [], tracker: false, ownPrs: true }),

@@ -113,6 +113,7 @@ function cfgArgs(o: Partial<CfgArgs>): CfgArgs {
   return {
     enabled: o.enabled,
     reportingChannel: o.reportingChannel,
+    summaryHour: o.summaryHour,
     maxActionsPerFire: o.maxActionsPerFire,
     maxActionsPerNight: o.maxActionsPerNight,
     trackerSource: o.trackerSource,

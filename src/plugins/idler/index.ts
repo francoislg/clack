@@ -136,7 +136,10 @@ export const idlerPlugin: ClackPlugin = async (sdk: ClackSdk) => {
 
     specs.push({
       specKey: "summary",
-      cronExpression: buildSummaryCron(config.activeHours),
+      cronExpression: buildSummaryCron(
+        config.activeHours,
+        config.summaryHour ?? config.activeHours.start,
+      ),
       channel: config.reportingChannel,
       prompt: buildSummaryPrompt(),
       timezone: tz,

@@ -61,7 +61,7 @@ export function buildOffHoursCron(
   };
 }
 
-/** Summary fires once at the active-window start on active days — a morning digest before work. */
-export function buildSummaryCron(active: IdlerActiveHours): string {
-  return `0 ${active.start} * * ${active.days.join(",")}`;
+/** Summary fires once on active days — a morning digest. `hour` defaults to the active-window start. */
+export function buildSummaryCron(active: IdlerActiveHours, hour: number): string {
+  return `0 ${hour} * * ${active.days.join(",")}`;
 }
