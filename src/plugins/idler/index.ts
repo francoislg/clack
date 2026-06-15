@@ -27,11 +27,15 @@ import {
   createSetConfigTool,
   createViewIdeasTool,
 } from "./tools/management.js";
+import {
+  createReadFetchInstructionsTool,
+  createUpdateFetchInstructionsTool,
+} from "./tools/instructionsAdmin.js";
 
 const TOPIC = "idler";
 
 const MANAGEMENT_DESCRIPTION =
-  "Manage the idler plugin: enable/disable, active hours, reporting channel, repo allowlist, action caps, discovery channels, and the work-unit ledger. Edits hot-reload on the next fire.";
+  "Manage the idler plugin: enable/disable, active hours, reporting channel, repo allowlist, action caps, discovery channels, the work-unit ledger, and the admin-editable sourcing guidance (fetch-instructions.md). Edits hot-reload on the next fire.";
 
 /** Emit one cron spec per non-null off-hours field (active-days + non-active-days), sharing a prompt. */
 function pushOffHours(
@@ -88,6 +92,16 @@ export const idlerPlugin: ClackPlugin = async (sdk: ClackSdk) => {
   management.registerTool("admin", createRemoveChannelTool(sdk), "Removing idler channel — {id}");
   management.registerTool("admin", createViewIdeasTool(sdk), "Viewing idler ledger");
   management.registerTool("admin", createClearIdeaTool(sdk), "Clearing idler idea — {key}");
+  management.registerTool(
+    "admin",
+    createReadFetchInstructionsTool(sdk),
+    "Reading idler fetch instructions",
+  );
+  management.registerTool(
+    "admin",
+    createUpdateFetchInstructionsTool(sdk),
+    "Updating idler fetch instructions",
+  );
 
   const reconcile = async (): Promise<void> => {
     let config;

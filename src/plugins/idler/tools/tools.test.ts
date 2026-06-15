@@ -13,6 +13,11 @@ import {
   createRecordActivityTool,
 } from "./activity.js";
 import { createAddRepoTool, createClearIdeaTool, createSetConfigTool } from "./management.js";
+import {
+  createReadFetchInstructionsTool,
+  createUpdateFetchInstructionsTool,
+} from "./instructionsAdmin.js";
+import { DEFAULT_FETCH_INSTRUCTIONS } from "../fetchInstructions.js";
 
 async function* emptyClackQuery(): AsyncGenerator<SDKMessage, void, void> {}
 
@@ -36,6 +41,7 @@ interface ParsedTool {
   error?: string;
   ideas?: IdeaLite[];
   entryCount?: number;
+  content?: string;
 }
 
 function parseTool(text: string): ParsedTool {
@@ -48,12 +54,14 @@ function parseTool(text: string): ParsedTool {
     error?: unknown;
     ideas?: unknown;
     entries?: unknown;
+    content?: unknown;
   };
   const out: ParsedTool = {};
   if (typeof c.ok === "boolean") out.ok = c.ok;
   if (typeof c.key === "string") out.key = c.key;
   if (typeof c.priority === "number") out.priority = c.priority;
   if (typeof c.error === "string") out.error = c.error;
+  if (typeof c.content === "string") out.content = c.content;
   if (Array.isArray(c.ideas)) {
     out.ideas = c.ideas.map((i) => {
       const e = i as { key?: unknown; priority?: unknown };
@@ -232,5 +240,32 @@ describe("idler management tools", () => {
     const sdk = buildSdk(tempDir);
     const payload = await invoke(createClearIdeaTool(sdk), { key: "missing" });
     assert.ok(payload.error);
+  });
+});
+
+describe("idler fetch-instructions tools", () => {
+  let tempDir: string;
+  beforeEach(async () => {
+    tempDir = await mkdtemp(join(tmpdir(), "idler-fetch-"));
+  });
+  afterEach(async () => {
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
+  it("read returns the shipped default when never edited", async () => {
+    const sdk = buildSdk(tempDir);
+    const payload = await invoke(createReadFetchInstructionsTool(sdk), {});
+    assert.equal(payload.content, DEFAULT_FETCH_INSTRUCTIONS);
+  });
+
+  it("update overwrites the file; read returns the new content", async () => {
+    const sdk = buildSdk(tempDir);
+    const updated = await invoke(createUpdateFetchInstructionsTool(sdk), {
+      content: "# Custom sourcing\nLook at #bugs only.",
+    });
+    assert.equal(updated.ok, true);
+
+    const payload = await invoke(createReadFetchInstructionsTool(sdk), {});
+    assert.equal(payload.content, "# Custom sourcing\nLook at #bugs only.");
   });
 });
