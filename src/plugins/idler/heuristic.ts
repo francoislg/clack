@@ -18,12 +18,6 @@ export function activeHours(active: IdlerActiveHours): number[] {
   return hours;
 }
 
-/** Days [0..6] NOT in the active set — whole-day idler-eligible. */
-export function offDays(active: IdlerActiveHours): number[] {
-  const set = new Set(active.days);
-  return [0, 1, 2, 3, 4, 5, 6].filter((d) => !set.has(d));
-}
-
 /** Compress a sorted unique number list into a cron field ("0,1,2,18,19" → "0-2,18-19"). */
 export function compressToCronField(values: number[]): string {
   if (values.length === 0) return "";
@@ -44,30 +38,12 @@ export function compressToCronField(values: number[]): string {
   return parts.join(",");
 }
 
-export interface IdlerCronExpressions {
-  /** Off-hours on active days (hour complement, active day set). */
-  offHoursActiveDays: string;
-  /** All hours on non-active days. `null` when the active window covers every day. */
-  offHoursNonActiveDays: string | null;
-}
-
 /**
- * Build the off-hours cron expression(s) for a given minute field. Off-hours work splits in two:
- * the hour-complement on active days, and (if any) every hour on non-active days. Callers emit
- * one spec per non-null field, sharing the task prompt.
+ * Build the off-hours work cron: the hour-complement of the active window, on active days only.
+ * Non-active days (e.g. weekends) stay idle so review work doesn't pile up unbounded.
  */
-export function buildOffHoursCron(
-  active: IdlerActiveHours,
-  minuteField: string,
-): IdlerCronExpressions {
-  const hourField = compressToCronField(offHours(active));
-  const activeDayField = active.days.join(",");
-  const nonActive = offDays(active);
-  return {
-    offHoursActiveDays: `${minuteField} ${hourField} * * ${activeDayField}`,
-    offHoursNonActiveDays:
-      nonActive.length > 0 ? `${minuteField} * * * ${nonActive.join(",")}` : null,
-  };
+export function buildOffHoursCron(active: IdlerActiveHours, minuteField: string): string {
+  return `${minuteField} ${compressToCronField(offHours(active))} * * ${active.days.join(",")}`;
 }
 
 /**

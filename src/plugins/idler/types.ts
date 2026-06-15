@@ -5,7 +5,7 @@ export interface IdlerActiveHours {
   /** Exclusive end hour [1..24]. */
   end: number;
   tz: string;
-  /** Days [0..6] (0 = Sunday) the active window applies; off-days are fully idler-eligible. */
+  /** Days [0..6] (0 = Sunday) the active window applies. The idler is idle on all other days. */
   days: number[];
 }
 
