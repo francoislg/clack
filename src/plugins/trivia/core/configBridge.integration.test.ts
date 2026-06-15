@@ -65,6 +65,12 @@ function makeSdkOverRealDir(pluginDataDir: string): ClackSdk {
       if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
       writeFileSync(full, content, "utf-8");
     },
+    readFileOrSeed: async function (path, defaultContent) {
+      const existing = await this.readFile(path);
+      if (existing !== null) return existing;
+      await this.writeFile(path, defaultContent);
+      return defaultContent;
+    },
     watchFile: (path): FSWatcher => {
       // Watch the real file in the temp dir. The bridge passes a relative
       // path; the SDK resolves it under the plugin's data dir.

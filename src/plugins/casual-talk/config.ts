@@ -62,16 +62,12 @@ export const DEFAULT_CONFIG: CasualTalkConfig = {
 };
 
 /**
- * Load the plugin's config. On first boot (file absent), seeds the file with `DEFAULT_CONFIG`
- * and returns it. On Zod parse failure, throws — the caller (plugin init) catches and records
- * via `sdk.error`.
+ * Load the plugin's config. On first boot (file absent), best-effort seeds the file with
+ * `DEFAULT_CONFIG` and returns it (running on defaults if the seed write fails). On Zod parse
+ * failure, throws — the caller (plugin init) catches and records via `sdk.error`.
  */
 export async function loadConfig(sdk: ClackSdk): Promise<CasualTalkConfig> {
-  const raw = await sdk.readFile(CONFIG_PATH);
-  if (raw === null) {
-    await sdk.writeFile(CONFIG_PATH, JSON.stringify(DEFAULT_CONFIG, null, 2));
-    return DEFAULT_CONFIG;
-  }
+  const raw = await sdk.readFileOrSeed(CONFIG_PATH, JSON.stringify(DEFAULT_CONFIG, null, 2));
   const parsed: unknown = JSON.parse(raw);
   return casualTalkConfigSchema.parse(parsed);
 }

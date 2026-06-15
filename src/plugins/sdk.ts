@@ -366,6 +366,14 @@ export interface ClackSdk {
   readFile(path: string): Promise<string | null>;
   writeFile(path: string, content: string): Promise<void>;
   /**
+   * Read `path`; if it does not exist, seed it with `defaultContent` and return that. The seed
+   * write is best-effort: if it fails (e.g. `EACCES` on a data dir not owned by the bot user),
+   * the failure is logged as a warning and `defaultContent` is returned anyway, so the plugin
+   * runs read-only on its defaults instead of dying during init. Use this for the
+   * "materialize a default so admins can edit it" pattern — never let seeding be fatal.
+   */
+  readFileOrSeed(path: string, defaultContent: string): Promise<string>;
+  /**
    * Watch a file under this plugin's data directory. The callback fires (debounced 500ms)
    * whenever the file changes. The returned watcher is tracked on the plugin's load result
    * and closed automatically when the plugin is reloaded by `restartAll`.
@@ -893,6 +901,19 @@ export function createClackSdk(
         await mkdir(parentDir, { recursive: true });
       }
       await writeFile(fullPath, content, "utf-8");
+    },
+
+    async readFileOrSeed(path: string, defaultContent: string): Promise<string> {
+      const existing = await this.readFile(path);
+      if (existing !== null) return existing;
+      try {
+        await this.writeFile(path, defaultContent);
+      } catch (err) {
+        pluginLogger.warn(
+          `could not seed "${path}" (running on defaults): ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+      return defaultContent;
     },
 
     watchFile(path: string, callback: () => void): FSWatcher {

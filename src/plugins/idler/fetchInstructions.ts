@@ -1,6 +1,6 @@
 import type { ClackSdk } from "../sdk.js";
 
-const FETCH_INSTRUCTIONS_PATH = "fetch-instructions.md";
+export const FETCH_INSTRUCTIONS_PATH = "fetch-instructions.md";
 
 /**
  * Admin-editable sourcing guidance, seeded on first boot. Tells the idler WHICH work to find and
@@ -46,10 +46,5 @@ Inspect them for continue work (new review comments) and self-review opportuniti
   than guessing.`;
 
 export async function loadFetchInstructions(sdk: ClackSdk): Promise<string> {
-  const raw = await sdk.readFile(FETCH_INSTRUCTIONS_PATH);
-  if (raw === null) {
-    await sdk.writeFile(FETCH_INSTRUCTIONS_PATH, DEFAULT_FETCH_INSTRUCTIONS);
-    return DEFAULT_FETCH_INSTRUCTIONS;
-  }
-  return raw;
+  return sdk.readFileOrSeed(FETCH_INSTRUCTIONS_PATH, DEFAULT_FETCH_INSTRUCTIONS);
 }
