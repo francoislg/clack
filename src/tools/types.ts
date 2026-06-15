@@ -282,6 +282,8 @@ export interface StagedChangeIntent {
    * non-trivial plan detail (file list, strategy, edge cases).
    */
   plan?: string;
+  /** Continue an existing PR on this branch (resume from its remote head, preserving commits). */
+  resumeRemoteBranch?: boolean;
   existingWorktree?: {
     status: string;
     lastActivity: string;

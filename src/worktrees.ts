@@ -10,6 +10,7 @@ import {
 import { logger } from "./logger.js";
 import { errorMessage } from "./errors.js";
 import { getGitInstance, setAuthenticatedRemote } from "./repositories.js";
+import { RemoteBranchNotFound } from "./workers/errors.js";
 
 /**
  * Find the repository config by name to get its URL for token auth.
@@ -60,6 +61,7 @@ export function getExistingWorktree(
 export async function createWorktree(
   repo: RepositoryConfig,
   branchName: string,
+  resumeRemoteBranch = false,
 ): Promise<WorktreeInfo> {
   const reposDir = getRepositoriesDir();
   const worktreesDir = getWorktreesDir();
@@ -109,11 +111,19 @@ export async function createWorktree(
     // Continue anyway - the worktree add will fail if there's a real issue
   }
 
-  // Get the default branch
+  // Base on the branch's own remote head when resuming an existing PR (preserve its commits),
+  // otherwise branch fresh from the default branch.
   const defaultBranch = repo.branch || "main";
+  let base = `origin/${defaultBranch}`;
+  if (resumeRemoteBranch) {
+    const remotes = await git.branch(["-r"]);
+    if (!remotes.all.includes(`origin/${branchName}`)) {
+      throw new RemoteBranchNotFound(repo.name, branchName);
+    }
+    base = `origin/${branchName}`;
+  }
 
-  // Create new branch and worktree from default branch
-  await git.raw(["worktree", "add", "-b", branchName, worktreePath, `origin/${defaultBranch}`]);
+  await git.raw(["worktree", "add", "-b", branchName, worktreePath, base]);
 
   // Set authenticated remote in the worktree as well (for push)
   await setAuthenticatedRemote(worktreePath, repo.url);

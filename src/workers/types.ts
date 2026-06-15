@@ -59,6 +59,12 @@ export interface AcquireOptions {
    * waits for a release. Never called in disposable mode.
    */
   onQueued?: (position: number) => void;
+  /**
+   * Continue an existing PR: check the branch out from its own remote head (`origin/<branch>`)
+   * instead of re-branching from the default branch, preserving the PR's commits. Throws
+   * `RemoteBranchNotFound` if the remote branch is gone (never clobbers). Default `false`.
+   */
+  resumeRemoteBranch?: boolean;
 }
 
 export interface WorkerPool {

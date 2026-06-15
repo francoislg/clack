@@ -291,6 +291,7 @@ export async function startChangeWorkflow(
 
   try {
     worker = await deps.pool.acquire(repo, plan.branchName, sessionId, {
+      resumeRemoteBranch: plan.resumeRemoteBranch,
       onQueued: (position) => {
         deps.appendExecutionLog(
           plan.branchName,

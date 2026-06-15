@@ -17,6 +17,7 @@ import { casualTalkPlugin } from "./casual-talk/index.js";
 import { commonsImageSearchPlugin } from "./commons-image-search/index.js";
 import { braveImageSearchPlugin } from "./brave-image-search/index.js";
 import { geminiImagePlugin } from "./gemini-image/index.js";
+import { idlerPlugin } from "./idler/index.js";
 import { setLoadedPlugins } from "./state.js";
 import {
   registerAction as registerPluginAction,
@@ -35,6 +36,7 @@ const BUILTIN_PLUGINS: { [key: string]: ClackPlugin } = {
   "commons-image-search": commonsImageSearchPlugin,
   "brave-image-search": braveImageSearchPlugin,
   "gemini-image": geminiImagePlugin,
+  idler: idlerPlugin,
 };
 
 // ============================================================================

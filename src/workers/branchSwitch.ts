@@ -3,7 +3,7 @@ import { logger } from "../logger.js";
 import { errorMessage } from "../errors.js";
 import { getGitInstance, setAuthenticatedRemote } from "../repositories.js";
 import type { Worker } from "./types.js";
-import { DirtyWorkerQuarantined } from "./errors.js";
+import { DirtyWorkerQuarantined, RemoteBranchNotFound } from "./errors.js";
 import { getDirtyTrackedFiles, writeQuarantineRecord } from "./quarantine.js";
 
 /**
@@ -13,11 +13,17 @@ import { getDirtyTrackedFiles, writeQuarantineRecord } from "./quarantine.js";
  *
  * Untracked files (build outputs, node_modules, .env.local) are preserved
  * across the switch — that warmth is the whole point of the pool.
+ *
+ * When `resumeRemoteBranch` is true, the branch is checked out from its OWN remote head
+ * (`origin/<newBranch>`) instead of the default branch, so an existing PR's commits are
+ * preserved (continuation). If that remote branch is gone, `RemoteBranchNotFound` is thrown
+ * rather than silently resetting to the default branch.
  */
 export async function switchBranch(
   worker: Worker,
   repo: RepositoryConfig,
   newBranch: string,
+  resumeRemoteBranch = false,
 ): Promise<void> {
   if (worker.currentBranch === newBranch) {
     // Same branch: skip both fetch and dirty-check; keep in-progress state.
@@ -51,8 +57,28 @@ export async function switchBranch(
     logger.debug(`branch -D ${newBranch} skipped: ${errorMessage(err)}`);
   }
 
-  await git.raw(["checkout", "-B", newBranch, `origin/${defaultBranch}`]);
+  const base = resumeRemoteBranch
+    ? await resolveRemoteBase(git, repo.name, newBranch)
+    : `origin/${defaultBranch}`;
+  await git.raw(["checkout", "-B", newBranch, base]);
   worker.currentBranch = newBranch;
+}
+
+/** Resolve `origin/<branch>` for a resume, asserting it exists rather than clobbering from default. */
+async function resolveRemoteBase(
+  git: ReturnType<typeof getGitInstance>,
+  repoName: string,
+  branch: string,
+): Promise<string> {
+  try {
+    const remotes = await git.branch(["-r"]);
+    if (remotes.all.includes(`origin/${branch}`)) {
+      return `origin/${branch}`;
+    }
+  } catch (err) {
+    logger.warn(`remote branch lookup failed for ${branch}: ${errorMessage(err)}`);
+  }
+  throw new RemoteBranchNotFound(repoName, branch);
 }
 
 /**

@@ -49,6 +49,12 @@ export function createProposeChangeTool(
         .describe(
           "Detailed implementation plan from the conversation — file list, approach, edge cases, anything you've worked out with the user. Include this whenever the discussion produced more detail than fits in `description`. The worker sees only what you stage here; it does NOT see the Slack thread, so any nuance you omit will be re-derived (or lost) by the worker.",
         ),
+      continue_existing_pr: z
+        .boolean()
+        .optional()
+        .describe(
+          "Set true ONLY when `branch` is an EXISTING open pull request you are continuing (e.g. addressing review comments), not starting fresh. The worker is acquired from the branch's own remote head so its commits are preserved instead of being reset to the default branch.",
+        ),
     },
     async (args) => {
       // Validate branch convention
@@ -91,6 +97,7 @@ export function createProposeChangeTool(
         description: args.description,
         repo: args.repo,
         ...(args.plan && { plan: args.plan }),
+        ...(args.continue_existing_pr && { resumeRemoteBranch: true }),
         existingWorktree: existingWorktreeInfo,
       });
 

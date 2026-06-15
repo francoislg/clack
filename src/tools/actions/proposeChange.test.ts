@@ -94,6 +94,7 @@ describe("proposeChange tool", () => {
         description: "fix a bug",
         repo: "my-repo",
         plan: undefined,
+        continue_existing_pr: undefined,
       },
       { sessionId: "test" },
     );
@@ -115,6 +116,7 @@ describe("proposeChange tool", () => {
         description: "fix a bug",
         repo: "my-repo",
         plan: undefined,
+        continue_existing_pr: undefined,
       },
       { sessionId: "test" },
     );
@@ -135,6 +137,7 @@ describe("proposeChange tool", () => {
         description: "fix something",
         repo: "nonexistent-repo",
         plan: undefined,
+        continue_existing_pr: undefined,
       },
       { sessionId: "test" },
     );
@@ -161,6 +164,7 @@ describe("proposeChange tool", () => {
         description: "fix something",
         repo: "my-repo",
         plan: undefined,
+        continue_existing_pr: undefined,
       },
       { sessionId: "test" },
     );
@@ -187,6 +191,7 @@ describe("proposeChange tool", () => {
         description: "fix something",
         repo: "my-repo",
         plan: undefined,
+        continue_existing_pr: undefined,
       },
       { sessionId: "test" },
     );
@@ -206,6 +211,7 @@ describe("proposeChange tool", () => {
         description: "Add login feature",
         repo: "my-repo",
         plan: undefined,
+        continue_existing_pr: undefined,
       },
       { sessionId: "test" },
     );
@@ -236,6 +242,7 @@ describe("proposeChange tool", () => {
         description: "Add login feature",
         repo: "my-repo",
         plan: detailedPlan,
+        continue_existing_pr: undefined,
       },
       { sessionId: "test" },
     );
@@ -245,6 +252,48 @@ describe("proposeChange tool", () => {
 
     const staged = store.resolve(parsed.ref) as { plan?: string };
     assert.equal(staged.plan, detailedPlan);
+  });
+
+  it("stages resumeRemoteBranch when continue_existing_pr is set", async () => {
+    const ctx = makeCtx();
+    const store = makeIntentStore();
+    const toolDef = createProposeChangeTool(ctx, store, deps);
+
+    const result = await toolDef.handler(
+      {
+        branch: "clack/fix/pr-88",
+        description: "Address review comments",
+        repo: "my-repo",
+        plan: undefined,
+        continue_existing_pr: true,
+      },
+      { sessionId: "test" },
+    );
+
+    const parsed = parseToolResult(result);
+    const staged = store.resolve(parsed.ref) as { resumeRemoteBranch?: boolean };
+    assert.equal(staged.resumeRemoteBranch, true);
+  });
+
+  it("omits resumeRemoteBranch when continue_existing_pr is not set", async () => {
+    const ctx = makeCtx();
+    const store = makeIntentStore();
+    const toolDef = createProposeChangeTool(ctx, store, deps);
+
+    const result = await toolDef.handler(
+      {
+        branch: "clack/feat/new",
+        description: "Fresh change",
+        repo: "my-repo",
+        plan: undefined,
+        continue_existing_pr: undefined,
+      },
+      { sessionId: "test" },
+    );
+
+    const parsed = parseToolResult(result);
+    const staged = store.resolve(parsed.ref) as { resumeRemoteBranch?: boolean };
+    assert.equal(staged.resumeRemoteBranch, undefined);
   });
 
   it("omits plan from the staged intent when not provided", async () => {
@@ -258,6 +307,7 @@ describe("proposeChange tool", () => {
         description: "Add login feature",
         repo: "my-repo",
         plan: undefined,
+        continue_existing_pr: undefined,
       },
       { sessionId: "test" },
     );
@@ -296,6 +346,7 @@ describe("proposeChange tool", () => {
         description: "Fix something",
         repo: "my-repo",
         plan: undefined,
+        continue_existing_pr: undefined,
       },
       { sessionId: "test" },
     );
@@ -328,6 +379,7 @@ describe("proposeChange tool", () => {
         description: "Old fix",
         repo: "my-repo",
         plan: undefined,
+        continue_existing_pr: undefined,
       },
       { sessionId: "test" },
     );
@@ -349,6 +401,7 @@ describe("proposeChange tool", () => {
         description: "Update readme",
         repo: "my-repo",
         plan: undefined,
+        continue_existing_pr: undefined,
       },
       { sessionId: "test" },
     );
@@ -372,6 +425,7 @@ describe("proposeChange tool", () => {
           description: `A ${type} change`,
           repo: "my-repo",
           plan: undefined,
+          continue_existing_pr: undefined,
         },
         { sessionId: "test" },
       );

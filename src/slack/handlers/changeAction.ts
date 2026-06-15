@@ -151,6 +151,7 @@ export async function triggerChangeWorkflow(
       description: intent.description,
       targetRepo: intent.repo,
       ...(intent.plan && { plan: intent.plan }),
+      ...(intent.resumeRemoteBranch && { resumeRemoteBranch: true }),
     };
 
     // Slack-side ack for queue-position events. The workflow fires this when
