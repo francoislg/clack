@@ -9,7 +9,7 @@ Plugin code MUST NOT import from `src/config.ts`, `src/logger.ts`, `src/slack/..
 The only exceptions are:
 
 - **The plugin SDK**: `import type { ClackSdk, ClackPlugin, CronJobSpec, ... } from "../sdk.js"` (or `"../../sdk.js"` from nested files).
-- **Shared SDK-layer leaf utilities**: small dependency-free modules that live in `src/plugins/` alongside `sdk.ts` and import only third-party packages (e.g. `src/plugins/zodResult.ts` — `Result<T>` + `zodErrorToResult`). They are part of the SDK surface and are shared by both plugins and bot core. They MUST stay leaves (import nothing from bot core or other plugins) so they cannot form an import cycle — this is why they live beside `sdk.ts` rather than *inside* it (a value import of the heavy `sdk.ts` barrel from a plugin's config core cycles through the plugin registry).
+- **Shared SDK-layer leaf utilities**: small dependency-free modules that live in `src/plugins/` alongside `sdk.ts` and import only third-party packages (e.g. `src/plugins/zodResult.ts` — `Result<T>` + `zodErrorToResult`). They are part of the SDK surface and are shared by both plugins and bot core. They MUST stay leaves (import nothing from bot core or other plugins) so they cannot form an import cycle — this is why they live beside `sdk.ts` rather than _inside_ it (a value import of the heavy `sdk.ts` barrel from a plugin's config core cycles through the plugin registry).
 - **Third-party packages**: `zod`, `@anthropic-ai/claude-agent-sdk`, `cron-parser`, `simple-git`, etc. — anything from `node_modules`.
 - **Node built-ins**: `node:fs`, `node:path`, etc. — but prefer the SDK's `readFile`/`writeFile`/`watchFile` for plugin-data I/O so paths stay scoped.
 
@@ -46,7 +46,7 @@ Decide by what the changed value feeds:
 - **Baked into a cron prompt** (e.g. casual-talk embeds its channel list / die / topics into the cron job's prompt at `reconcileCronJobs` time) → **hot-reload by re-reconciling.** The `watchFile` callback rebuilds the prompt and calls `sdk.reconcileCronJobs(...)` again. `reconcileCronJobs` is idempotent and callable after init, so this updates the spec in place — still no restart.
 - **Wired only at init** — tool registration/gating (`registerTool` behind a config gate, like trivia's seasons-gated tools), `registerMcpServer`, or `addInstruction`/`addTopicInstruction` content → **soft restart is required**, because the SDK only exposes those during plugin load. Pair it with a cache reload (`watchFile` → update cache **and** `requestSoftRestart`) so tool calls in the debounce+restart gap still observe the new state. This is what `trivia/core/configBridge.ts` does, and why it can't fully escape the restart.
 
-The rule of thumb: a config field that only affects *runtime behavior* (prompts, thresholds, lists) is hot-reloadable; a field that affects the plugin's *surface area* (which tools/servers/instructions exist) needs a restart. If you find yourself soft-restarting for a runtime-only field, switch to `watchFile` + re-reconcile.
+The rule of thumb: a config field that only affects _runtime behavior_ (prompts, thresholds, lists) is hot-reloadable; a field that affects the plugin's _surface area_ (which tools/servers/instructions exist) needs a restart. If you find yourself soft-restarting for a runtime-only field, switch to `watchFile` + re-reconcile.
 
 ## Topics vs MCP Servers — two related-but-distinct concepts
 
