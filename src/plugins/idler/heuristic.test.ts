@@ -1,6 +1,8 @@
 import { describe, it } from "vitest";
 import assert from "node:assert/strict";
 import {
+  activeHours,
+  buildActiveHoursCron,
   buildOffHoursCron,
   buildSummaryCron,
   compressToCronField,
@@ -23,6 +25,10 @@ describe("offHours / offDays", () => {
 
   it("returns the days not in the active set", () => {
     assert.deepEqual(offDays(active), [0, 6]);
+  });
+
+  it("activeHours is the exact complement of offHours", () => {
+    assert.deepEqual(activeHours(active), [9, 10, 11, 12, 13, 14, 15, 16, 17]);
   });
 
   it("has no off-days when every day is active", () => {
@@ -56,6 +62,28 @@ describe("buildOffHoursCron", () => {
   it("yields null non-active-days when the active window covers every day", () => {
     const everyDay = { ...active, days: [0, 1, 2, 3, 4, 5, 6] };
     assert.equal(buildOffHoursCron(everyDay, "0").offHoursNonActiveDays, null);
+  });
+});
+
+describe("buildActiveHoursCron", () => {
+  it("fires hourly over the active window on active days, at the given minute", () => {
+    assert.equal(buildActiveHoursCron(active, "45"), "45 9-17 * * 1,2,3,4,5");
+  });
+
+  it("is exclusive of the off-hours work window (no shared hour)", () => {
+    const sync = buildActiveHoursCron(active, "45");
+    const { offHoursActiveDays } = buildOffHoursCron(active, "*/15");
+    // sync hours 9-17, work hours 0-8,18-23 — disjoint.
+    assert.equal(sync, "45 9-17 * * 1,2,3,4,5");
+    assert.equal(offHoursActiveDays, "*/15 0-8,18-23 * * 1,2,3,4,5");
+  });
+
+  it("returns null when the active window leaves no active hours", () => {
+    assert.equal(buildActiveHoursCron({ ...active, start: 0, end: 0 }, "45"), null);
+  });
+
+  it("returns null when no days are active", () => {
+    assert.equal(buildActiveHoursCron({ ...active, days: [] }, "45"), null);
   });
 });
 

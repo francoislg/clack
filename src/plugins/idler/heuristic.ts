@@ -9,6 +9,15 @@ export function offHours(active: IdlerActiveHours): number[] {
   return hours;
 }
 
+/** Hours [0..23] INSIDE the active window — the complement of `offHours`. */
+export function activeHours(active: IdlerActiveHours): number[] {
+  const hours: number[] = [];
+  for (let h = 0; h < 24; h++) {
+    if (h >= active.start && h < active.end) hours.push(h);
+  }
+  return hours;
+}
+
 /** Days [0..6] NOT in the active set — whole-day idler-eligible. */
 export function offDays(active: IdlerActiveHours): number[] {
   const set = new Set(active.days);
@@ -59,6 +68,17 @@ export function buildOffHoursCron(
     offHoursNonActiveDays:
       nonActive.length > 0 ? `${minuteField} * * * ${nonActive.join(",")}` : null,
   };
+}
+
+/**
+ * Build the sync cron: hourly during the active window on active days, exclusive of the off-hours
+ * work window. The minute is offset (e.g. "45") so the last active-hour fire primes the ledger just
+ * before work opens. Returns `null` when there are no active hours or no active days to schedule.
+ */
+export function buildActiveHoursCron(active: IdlerActiveHours, minuteField: string): string | null {
+  const hours = activeHours(active);
+  if (hours.length === 0 || active.days.length === 0) return null;
+  return `${minuteField} ${compressToCronField(hours)} * * ${active.days.join(",")}`;
 }
 
 /** Summary fires once on active days — a morning digest. `hour` defaults to the active-window start. */

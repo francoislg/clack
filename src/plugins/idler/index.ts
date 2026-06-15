@@ -1,6 +1,11 @@
 import type { ClackSdk, ClackPlugin, CronJobSpec } from "../sdk.js";
 import { isOperational, loadConfig } from "./config.js";
-import { buildOffHoursCron, buildSummaryCron, type IdlerCronExpressions } from "./heuristic.js";
+import {
+  buildActiveHoursCron,
+  buildOffHoursCron,
+  buildSummaryCron,
+  type IdlerCronExpressions,
+} from "./heuristic.js";
 import { loadFetchInstructions } from "./fetchInstructions.js";
 import { BEHAVIOR_INSTRUCTION } from "./instructions.js";
 import { buildSyncPrompt } from "./prompts/sync.js";
@@ -121,18 +126,18 @@ export const idlerPlugin: ClackPlugin = async (sdk: ClackSdk) => {
     const tz = config.activeHours.tz;
     const specs: CronJobSpec[] = [];
 
-    pushOffHours(
-      specs,
-      {
+    const syncCron = buildActiveHoursCron(config.activeHours, "45");
+    if (syncCron) {
+      specs.push({
+        specKey: "sync",
+        cronExpression: syncCron,
         prompt: buildSyncPrompt(config, fetchInstructions),
         timezone: tz,
         name: "Idler sync",
         submitResponseMode: "skipped",
         attachedTopics: [TOPIC],
-      },
-      "sync",
-      buildOffHoursCron(config.activeHours, "0"),
-    );
+      });
+    }
 
     pushOffHours(
       specs,
