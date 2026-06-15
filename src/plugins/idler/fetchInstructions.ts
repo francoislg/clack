@@ -18,31 +18,31 @@ sync/work fire. (The safety/behavior contract is shipped separately and is not e
 
 ## Sources
 
+Edit this section to list YOUR sources. For each one, describe what to pick up and — per unit — a
+\`howToRead\` and \`howToComment\` recipe. The patterns below are source-agnostic; fill them in for
+whatever you actually use (an alerting tool, an issue tracker, Slack channels, your own PRs, …).
+
+### Key every unit by a STABLE source-entity id
+Use the most durable identifier the source offers (an issue/ticket id, a PR number) — NOT a Slack
+message timestamp, which changes on re-post. A re-emitted entity must update its existing unit, never
+create a duplicate. Only fall back to channel+ts when no stabler id exists.
+
 ### Slack channels
-List the channels in the plugin config. For each candidate message, create a unit keyed by the
-channel+ts ONLY when there is no stabler entity id available.
+List the channels in the plugin config. When a bot posts detail in message attachments,
+\`fetch_channel_messages\` strips attachment blocks — open the permalink with \`fetch_slack_message\`
+to read the full content.
 
-### Sentry alerts (#sentry-alerts)
-Sentry posts alerts as a bot, with the issue detail in message attachments. \`fetch_channel_messages\`
-strips attachment blocks, so when the overview is insufficient, open the message permalink with
-\`fetch_slack_message\` to read the full alert.
-- **Key the unit by the Sentry issue short-id** (e.g. \`PROJ-1Q2W\`) extracted from the alert link —
-  NOT the Slack message ts. A re-alerting issue must update the existing unit, never duplicate it.
-- howToRead: if a Sentry MCP is installed, \`mcp__sentry__get_issue { issueId }\`; otherwise read the
-  Slack message + the linked Sentry URL.
-- howToComment: a Sentry MCP comment tool if available, else reply in the alert's Slack thread.
-- When you open a PR for the issue, link it back to the Sentry issue in the PR body.
-
-### External tracker (Asana, etc.)
-Filter to the bugs/tasks you want the idler to pick up (label, project, assignee). Key units by the
-tracker's stable id (Asana gid). howToRead/howToComment use the tracker's MCP tools.
+### Issue / alert trackers
+Filter to the items you want (by label, project, assignee, severity). Prefer the tracker's own MCP
+tools for \`howToRead\`/\`howToComment\` when installed; otherwise read the linked URL and reply in the
+originating Slack thread. When you open a PR, link it back to the source item in the PR body.
 
 ### Clack's own open PRs
 Inspect them for continue work (new review comments) and self-review opportunities.
 
 ## Prioritization hints
 - Prefer continuing in-flight PRs over starting new work.
-- Bugs with reproduction steps are more actionable than vague reports — ask for missing info rather
+- Items with reproduction steps are more actionable than vague reports — ask for missing info rather
   than guessing.`;
 
 export async function loadFetchInstructions(sdk: ClackSdk): Promise<string> {
