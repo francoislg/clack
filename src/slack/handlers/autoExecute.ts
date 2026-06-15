@@ -14,12 +14,14 @@ import {
   canCreateUserSkill,
   canEditUserSkillContent,
   canManageUserSkill,
+  canDeleteUserSkill,
 } from "../../permissions.js";
 import {
   writeUserSkill,
   updateUserSkill,
   disableUserSkill,
   restoreUserSkill,
+  deleteUserSkill,
   readUserSkill,
 } from "../../userSkills.js";
 import { triggerChangeWorkflow } from "./changeAction.js";
@@ -54,10 +56,12 @@ export interface AutoExecuteDeps {
     editableByAnyone: boolean,
   ) => boolean;
   canManageUserSkill: (role: UserRole, ownerId: string, callerId: string) => boolean;
+  canDeleteUserSkill: (role: UserRole) => boolean;
   writeUserSkill: typeof writeUserSkill;
   updateUserSkill: typeof updateUserSkill;
   disableUserSkill: typeof disableUserSkill;
   restoreUserSkill: typeof restoreUserSkill;
+  deleteUserSkill: typeof deleteUserSkill;
   readUserSkill: typeof readUserSkill;
   triggerChangeWorkflow: (intent: StagedChangeIntent, slack: SlackDeliveryContext) => Promise<void>;
   triggerFollowUp: (
@@ -98,10 +102,12 @@ export const defaultAutoExecuteDeps: AutoExecuteDeps = {
   canCreateUserSkill,
   canEditUserSkillContent,
   canManageUserSkill,
+  canDeleteUserSkill,
   writeUserSkill,
   updateUserSkill,
   disableUserSkill,
   restoreUserSkill,
+  deleteUserSkill,
   readUserSkill,
   triggerChangeWorkflow,
   triggerFollowUp: triggerFollowUp as never,
@@ -453,6 +459,39 @@ export async function handleAutoExecuteActions(
                 channel: channelId,
                 thread_ts: threadTs,
                 text: t("userSkills.restore_failed", {
+                  slug: intent.slug,
+                  error: errorMessage(err),
+                }),
+              })
+              .catch(() => {});
+          }
+          break;
+        }
+
+        case "skill_delete": {
+          const existing = deps.readUserSkill(intent.slug);
+          if (!existing) {
+            logger.warn(`Auto-execute skill_delete: skill '${intent.slug}' not found`);
+            break;
+          }
+          if (!deps.canDeleteUserSkill(role)) {
+            logger.warn(`Auto-execute skill_delete blocked for role "${role}" on '${intent.slug}'`);
+            break;
+          }
+          try {
+            deps.deleteUserSkill(intent.slug);
+            await client.chat.postMessage({
+              channel: channelId,
+              thread_ts: threadTs,
+              text: t("userSkills.deleted", { slug: intent.slug }),
+            });
+          } catch (err) {
+            logger.error("Auto-execute skill_delete error:", err);
+            await client.chat
+              .postMessage({
+                channel: channelId,
+                thread_ts: threadTs,
+                text: t("userSkills.delete_failed", {
                   slug: intent.slug,
                   error: errorMessage(err),
                 }),

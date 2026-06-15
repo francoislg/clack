@@ -334,6 +334,8 @@ export const fr: Partial<Record<StringKey, string>> = {
   "userSkills.disable_failed": "Échec de désactivation de la compétence `{slug}` : {error}",
   "userSkills.restored": "La compétence `{slug}` a été restaurée.",
   "userSkills.restore_failed": "Échec de restauration de la compétence `{slug}` : {error}",
+  "userSkills.deleted": "La compétence `{slug}` a été supprimée définitivement.",
+  "userSkills.delete_failed": "Échec de suppression de la compétence `{slug}` : {error}",
   "userSkills.permission_denied":
     "Vous n'avez pas la permission de modifier la compétence `{slug}`. Seul le propriétaire ou un administrateur peut la modifier.",
   "userSkills.expired": "Désolé, cette demande de compétence a expiré. Veuillez réessayer.",
@@ -346,6 +348,11 @@ export const fr: Partial<Record<StringKey, string>> = {
   "userSkills.edit_button": "Modifier",
   "userSkills.disable_button": "Désactiver",
   "userSkills.restore_button": "Restaurer",
+  "userSkills.disable_confirm_text": "Désactiver `{slug}` ?",
+  "userSkills.delete_button": "Supprimer",
+  "userSkills.delete_confirm_title": "Supprimer la compétence ?",
+  "userSkills.delete_confirm_text":
+    "Supprimer définitivement `{slug}` ? Ses fichiers seront effacés et l'action est irréversible.",
   "userSkills.disabled_badge": "(désactivée)",
   "userSkills.editable_badge": "(modifiable par tous)",
   "userSkills.owner_label": "Propriétaire",

@@ -41,6 +41,14 @@ export function canManageUserSkill(
   return ownerUserId === callerUserId;
 }
 
+/**
+ * Gates permanent removal of a skill. Stricter than `canManageUserSkill` (which also
+ * allows the owner) — removal is irreversible, so admin+ only, regardless of ownership.
+ */
+export function canDeleteUserSkill(role: UserRole): boolean {
+  return meetsMinimumRole(role, "admin");
+}
+
 export function canRequestChanges(role: UserRole): boolean {
   return meetsMinimumRole(role, "dev");
 }

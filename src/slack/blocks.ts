@@ -45,6 +45,8 @@ function defaultActionLabel(actionType: Action["type"]): string {
       return t("userSkills.disable_button");
     case "skill_restore":
       return t("userSkills.restore_button");
+    case "skill_delete":
+      return t("userSkills.delete_button");
   }
 }
 
@@ -52,6 +54,7 @@ function defaultActionLabel(actionType: Action["type"]): string {
 const ACTION_STYLES: Record<string, "primary" | "danger" | undefined> = {
   post_to: "primary",
   change: "primary",
+  skill_delete: "danger",
 };
 
 /** Map action type to Slack action_id */
@@ -59,13 +62,14 @@ function getActionId(action: Action): string {
   // Avoid collision with existing clack_update (Q&A context refresh)
   if (action.type === "update") return "clack_update_change";
   if (action.type === "post_to") return "clack_post_to";
-  // All four skill operations share a single handler — their intent type discriminator
+  // All skill operations share a single handler — their intent type discriminator
   // (carried in the staged intent itself) decides the branch.
   if (
     action.type === "skill_create" ||
     action.type === "skill_update" ||
     action.type === "skill_disable" ||
-    action.type === "skill_restore"
+    action.type === "skill_restore" ||
+    action.type === "skill_delete"
   ) {
     return "clack_skill_action";
   }
@@ -93,6 +97,7 @@ function encodeActionValue(sessionId: string, action: Action): string {
     case "skill_update":
     case "skill_disable":
     case "skill_restore":
+    case "skill_delete":
       return JSON.stringify({ s: sessionId, r: action.ref });
   }
 }

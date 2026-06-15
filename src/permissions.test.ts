@@ -9,6 +9,7 @@ import {
   canManageRoles,
   canTransferOwnership,
   canCreateUserSkill,
+  canDeleteUserSkill,
   canEditUserSkillContent,
   canManageUserSkill,
   meetsMinimumRole,
@@ -131,6 +132,18 @@ describe("canManageUserSkill", () => {
   it("denies a non-owner member or dev", () => {
     assert.equal(canManageUserSkill("member", "U_ALICE", "U_BOB"), false);
     assert.equal(canManageUserSkill("dev", "U_ALICE", "U_BOB"), false);
+  });
+});
+
+describe("canDeleteUserSkill", () => {
+  it("allows admin and owner", () => {
+    assert.equal(canDeleteUserSkill("admin"), true);
+    assert.equal(canDeleteUserSkill("owner"), true);
+  });
+
+  it("denies member and dev (even though they may own a skill)", () => {
+    assert.equal(canDeleteUserSkill("member"), false);
+    assert.equal(canDeleteUserSkill("dev"), false);
   });
 });
 

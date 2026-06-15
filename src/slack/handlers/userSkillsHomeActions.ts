@@ -7,6 +7,7 @@ import {
   canCreateUserSkill,
   canEditUserSkillContent,
   canManageUserSkill,
+  canDeleteUserSkill,
 } from "../../permissions.js";
 import {
   readUserSkill,
@@ -14,6 +15,7 @@ import {
   updateUserSkill,
   disableUserSkill,
   restoreUserSkill,
+  deleteUserSkill,
   validateSlug,
   validateDescription,
   userSkillExists,
@@ -25,6 +27,7 @@ import {
   ACTION_EDIT_OPEN_PREFIX,
   ACTION_DISABLE_PREFIX,
   ACTION_RESTORE_PREFIX,
+  ACTION_DELETE_PREFIX,
   CALLBACK_CREATE_SUBMIT,
   CALLBACK_EDIT_SUBMIT,
   BLOCK_NAME,
@@ -53,6 +56,7 @@ export function registerUserSkillsHomeActions(app: App): void {
   registerOpenEditModal(app);
   registerDisable(app);
   registerRestore(app);
+  registerDelete(app);
   registerCreateSubmit(app);
   registerEditSubmit(app);
 }
@@ -94,7 +98,11 @@ function registerOpenEditModal(app: App): void {
       if (!trigger) return;
       await client.views.open({
         trigger_id: trigger,
-        view: buildEditSkillModal(skill, canManageUserSkill(role, skill.ownerUserId, userId)),
+        view: buildEditSkillModal(
+          skill,
+          canManageUserSkill(role, skill.ownerUserId, userId),
+          canDeleteUserSkill(role),
+        ),
       });
     },
   );
@@ -146,6 +154,29 @@ function registerRestore(app: App): void {
   );
 }
 
+function registerDelete(app: App): void {
+  app.action<BlockAction>(
+    new RegExp(`^${ACTION_DELETE_PREFIX}:[a-z0-9][a-z0-9-]*$`),
+    async ({ ack, body, client }) => {
+      await ack();
+      const slug = extractSlug(body, ACTION_DELETE_PREFIX);
+      if (!slug) return;
+      const userId = body.user.id;
+      const role = await getRole(userId);
+      const skill = readUserSkill(slug);
+      if (!skill) return;
+      if (!canDeleteUserSkill(role)) return;
+      try {
+        deleteUserSkill(slug);
+      } catch (err) {
+        logger.error("Home Tab skill removal error:", err);
+      }
+      await closeModalIfOpen(client, body, "userSkills.deleted", slug);
+      await refreshHomeView(client, userId);
+    },
+  );
+}
+
 function extractViewId(body: BlockAction): string | null {
   if (!("view" in body)) return null;
   const view = body.view;
@@ -158,7 +189,7 @@ function extractViewId(body: BlockAction): string | null {
 async function closeModalIfOpen(
   client: App["client"],
   body: BlockAction,
-  messageKey: "userSkills.disabled" | "userSkills.restored",
+  messageKey: "userSkills.disabled" | "userSkills.restored" | "userSkills.deleted",
   slug: string,
 ): Promise<void> {
   const viewId = extractViewId(body);
@@ -179,7 +210,7 @@ async function closeModalIfOpen(
       },
     });
   } catch (err) {
-    logger.warn("Failed to update modal after disable/restore:", err);
+    logger.warn("Failed to update modal after skill lifecycle action:", err);
   }
 }
 

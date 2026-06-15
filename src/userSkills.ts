@@ -4,6 +4,7 @@ import {
   readdirSync,
   readFileSync,
   renameSync,
+  rmSync,
   statSync,
   writeFileSync,
 } from "node:fs";
@@ -174,6 +175,7 @@ export interface UserSkillsDeps {
   statSync: (path: string) => { isDirectory: () => boolean; mtimeMs: number };
   mkdirSync: (path: string, options?: { recursive: boolean }) => string | undefined;
   renameSync: (from: string, to: string) => void;
+  rmSync: (path: string, options?: { recursive: boolean; force: boolean }) => void;
   getDataDir: () => string;
   now: () => Date;
 }
@@ -186,6 +188,7 @@ export const defaultUserSkillsDeps: UserSkillsDeps = {
   statSync,
   mkdirSync,
   renameSync,
+  rmSync,
   getDataDir,
   now: () => new Date(),
 };
@@ -493,4 +496,14 @@ export function restoreUserSkill(slug: string): UserSkill {
   writeAtomic(getMetaPath(slug), JSON.stringify(meta, null, 2));
 
   return { ...existing, updatedAt: now, disabledAt: undefined };
+}
+
+/**
+ * Permanently removes the entire `data/user-skills/<slug>/` directory. Irreversible —
+ * unlike `disableUserSkill`, there is no restore. Works on enabled and disabled skills.
+ */
+export function deleteUserSkill(slug: string): void {
+  if (!validateSlug(slug).ok) throw new Error(`Invalid skill name: '${slug}'`);
+  if (!userSkillExists(slug)) throw new Error(`Skill '${slug}' not found`);
+  deps.rmSync(getSkillDir(slug), { recursive: true, force: true });
 }

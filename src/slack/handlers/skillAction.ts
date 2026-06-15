@@ -7,6 +7,7 @@ import {
   canCreateUserSkill,
   canEditUserSkillContent,
   canManageUserSkill,
+  canDeleteUserSkill,
 } from "../../permissions.js";
 import { decodeActionValue } from "../blocks.js";
 import { stripClickedButton } from "../stripClickedButton.js";
@@ -16,6 +17,7 @@ import {
   updateUserSkill,
   disableUserSkill,
   restoreUserSkill,
+  deleteUserSkill,
   readUserSkill,
   userSkillExists,
 } from "../../userSkills.js";
@@ -39,6 +41,7 @@ export interface SkillActionDeps {
   updateUserSkill: typeof updateUserSkill;
   disableUserSkill: typeof disableUserSkill;
   restoreUserSkill: typeof restoreUserSkill;
+  deleteUserSkill: typeof deleteUserSkill;
   readUserSkill: typeof readUserSkill;
   userSkillExists: typeof userSkillExists;
   errorMessage: (err: unknown) => string;
@@ -53,6 +56,7 @@ export const defaultSkillActionDeps: SkillActionDeps = {
   updateUserSkill,
   disableUserSkill,
   restoreUserSkill,
+  deleteUserSkill,
   readUserSkill,
   userSkillExists,
   errorMessage,
@@ -110,6 +114,9 @@ export function registerSkillActionHandler(
           break;
         case "skill_restore":
           await applyRestore(intent, role, userId, sessionInfo, client, deps);
+          break;
+        case "skill_delete":
+          await applyDelete(intent, role, userId, sessionInfo, client, deps);
           break;
         default:
           logger.error(
@@ -311,6 +318,49 @@ async function applyRestore(
       user: userId,
       thread_ts: sessionInfo.threadTs,
       text: t("userSkills.restore_failed", {
+        slug: intent.slug,
+        error: deps.errorMessage(error),
+      }),
+    });
+  }
+}
+
+async function applyDelete(
+  intent: Extract<StagedIntent, { type: "skill_delete" }>,
+  role: UserRole,
+  userId: string,
+  sessionInfo: SessionInfo,
+  client: App["client"],
+  deps: SkillActionDeps,
+): Promise<void> {
+  const existing = deps.readUserSkill(intent.slug);
+  if (!existing) {
+    await client.chat.postEphemeral({
+      channel: sessionInfo.channelId,
+      user: userId,
+      thread_ts: sessionInfo.threadTs,
+      text: t("userSkills.delete_failed", { slug: intent.slug, error: "not found" }),
+    });
+    return;
+  }
+  if (!canDeleteUserSkill(role)) {
+    await postEphemeralPermissionDenied(client, sessionInfo, userId, intent.slug);
+    return;
+  }
+  try {
+    deps.deleteUserSkill(intent.slug);
+    await client.chat.postMessage({
+      channel: sessionInfo.channelId,
+      thread_ts: sessionInfo.threadTs,
+      text: t("userSkills.deleted", { slug: intent.slug }),
+    });
+  } catch (error) {
+    logger.error("skill_delete apply error:", error);
+    await client.chat.postEphemeral({
+      channel: sessionInfo.channelId,
+      user: userId,
+      thread_ts: sessionInfo.threadTs,
+      text: t("userSkills.delete_failed", {
         slug: intent.slug,
         error: deps.errorMessage(error),
       }),

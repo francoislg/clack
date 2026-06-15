@@ -292,6 +292,13 @@ const skillRestoreActionSchema = refActionSchema({
   autoDescription: "If true, restore immediately.",
 });
 
+const skillDeleteActionSchema = refActionSchema({
+  type: "skill_delete",
+  refDescription: "Ref ID from propose_skill_disable when staging a permanent removal",
+  defaultLabel: "Delete",
+  autoDescription: "If true, apply immediately. Permanent and irreversible.",
+});
+
 const ALLOWED_ACTION_TYPES = [
   "followup",
   "choice",
@@ -303,6 +310,7 @@ const ALLOWED_ACTION_TYPES = [
   "skill_update",
   "skill_disable",
   "skill_restore",
+  "skill_delete",
 ] as const;
 
 type ActionInput =
@@ -340,6 +348,7 @@ export const actionSchema = z.discriminatedUnion(
     skillUpdateActionSchema,
     skillDisableActionSchema,
     skillRestoreActionSchema,
+    skillDeleteActionSchema,
   ],
   {
     error: (issue) => {

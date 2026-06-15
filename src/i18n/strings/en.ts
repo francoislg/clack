@@ -325,6 +325,8 @@ export const en = {
   "userSkills.disable_failed": "Failed to disable skill `{slug}`: {error}",
   "userSkills.restored": "Skill `{slug}` has been restored.",
   "userSkills.restore_failed": "Failed to restore skill `{slug}`: {error}",
+  "userSkills.deleted": "Skill `{slug}` has been permanently removed.",
+  "userSkills.delete_failed": "Failed to remove skill `{slug}`: {error}",
   "userSkills.permission_denied":
     "You don't have permission to edit skill `{slug}`. Only the owner or an admin can edit.",
   "userSkills.expired": "Sorry, this skill request has expired. Please try again.",
@@ -335,6 +337,11 @@ export const en = {
   "userSkills.edit_button": "Edit",
   "userSkills.disable_button": "Disable",
   "userSkills.restore_button": "Restore",
+  "userSkills.disable_confirm_text": "Disable `{slug}`?",
+  "userSkills.delete_button": "Delete",
+  "userSkills.delete_confirm_title": "Delete skill?",
+  "userSkills.delete_confirm_text":
+    "Permanently remove `{slug}`? This erases its files and cannot be undone.",
   "userSkills.disabled_badge": "(disabled)",
   "userSkills.editable_badge": "(editable by everyone)",
   "userSkills.owner_label": "Owner",

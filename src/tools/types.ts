@@ -270,7 +270,8 @@ export type StagedIntentType =
   | "skill_create"
   | "skill_update"
   | "skill_disable"
-  | "skill_restore";
+  | "skill_restore"
+  | "skill_delete";
 
 export interface StagedChangeIntent {
   type: "change";
@@ -369,6 +370,11 @@ export interface StagedSkillRestoreIntent {
   slug: string;
 }
 
+export interface StagedSkillDeleteIntent {
+  type: "skill_delete";
+  slug: string;
+}
+
 export type StagedIntent =
   | StagedChangeIntent
   | StagedConfigUpdateIntent
@@ -380,7 +386,8 @@ export type StagedIntent =
   | StagedSkillCreateIntent
   | StagedSkillUpdateIntent
   | StagedSkillDisableIntent
-  | StagedSkillRestoreIntent;
+  | StagedSkillRestoreIntent
+  | StagedSkillDeleteIntent;
 
 // ============================================================================
 // submit_response Payload
@@ -556,6 +563,13 @@ export interface SkillRestoreAction {
   auto?: boolean;
 }
 
+export interface SkillDeleteAction {
+  type: "skill_delete";
+  ref: string;
+  label?: string;
+  auto?: boolean;
+}
+
 export type Action =
   | FollowupAction
   | ChoiceAction
@@ -566,7 +580,8 @@ export type Action =
   | SkillCreateAction
   | SkillUpdateAction
   | SkillDisableAction
-  | SkillRestoreAction;
+  | SkillRestoreAction
+  | SkillDeleteAction;
 
 export type ActionType = Action["type"];
 

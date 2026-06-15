@@ -99,7 +99,7 @@ describe("buildUserSkillsSection", () => {
 
 describe("buildEditSkillModal", () => {
   it("includes a Disable action for an enabled skill when the viewer can manage", () => {
-    const view = buildEditSkillModal(skillByAlice, true);
+    const view = buildEditSkillModal(skillByAlice, true, false);
     const json = JSON.stringify(view);
     assert.ok(/clack_user_skill_disable:copy-improver/.test(json));
     assert.equal(/clack_user_skill_restore:copy-improver/.test(json), false);
@@ -107,14 +107,14 @@ describe("buildEditSkillModal", () => {
 
   it("includes a Restore action for a disabled skill when the viewer can manage", () => {
     const disabled = { ...skillByAlice, disabledAt: "t2" };
-    const view = buildEditSkillModal(disabled, true);
+    const view = buildEditSkillModal(disabled, true, false);
     const json = JSON.stringify(view);
     assert.ok(/clack_user_skill_restore:copy-improver/.test(json));
     assert.equal(/clack_user_skill_disable:copy-improver/.test(json), false);
   });
 
   it("renders an editable body input for normal-sized bodies", () => {
-    const view = buildEditSkillModal(skillByAlice, true);
+    const view = buildEditSkillModal(skillByAlice, true, false);
     const blocks = (view as { blocks: Array<{ block_id?: string; type: string }> }).blocks;
     const bodyBlock = blocks.find((b) => b.block_id === BLOCK_BODY);
     assert.ok(bodyBlock, "body input block should be present");
@@ -126,7 +126,7 @@ describe("buildEditSkillModal", () => {
       ...skillByAlice,
       body: "x".repeat(BODY_EDIT_MAX_CHARS + 1),
     };
-    const view = buildEditSkillModal(oversized, true);
+    const view = buildEditSkillModal(oversized, true, false);
     const blocks = (view as { blocks: Array<{ block_id?: string; type: string }> }).blocks;
     const bodyInput = blocks.find((b) => b.block_id === BLOCK_BODY);
     assert.equal(bodyInput, undefined, "body input block should be omitted");
@@ -136,7 +136,7 @@ describe("buildEditSkillModal", () => {
   });
 
   it("shows the editable-by-everyone checkbox and Disable for a manager", () => {
-    const view = buildEditSkillModal(skillByAlice, true);
+    const view = buildEditSkillModal(skillByAlice, true, false);
     const json = JSON.stringify(view);
     assert.ok(/skill_editable/.test(json), "checkbox block should be present");
     assert.ok(/clack_user_skill_disable:copy-improver/.test(json));
@@ -144,14 +144,14 @@ describe("buildEditSkillModal", () => {
 
   it("pre-checks the checkbox when the skill is already everyone-editable", () => {
     const open = { ...skillByAlice, editableByAnyone: true };
-    const view = buildEditSkillModal(open, true);
+    const view = buildEditSkillModal(open, true, false);
     const json = JSON.stringify(view);
     assert.ok(/initial_options/.test(json), "checkbox should be pre-selected");
   });
 
   it("hides the checkbox and Disable for a non-manager (content-only modal)", () => {
     const open = { ...skillByAlice, editableByAnyone: true };
-    const view = buildEditSkillModal(open, false);
+    const view = buildEditSkillModal(open, false, false);
     const blocks = (view as { blocks: Array<{ block_id?: string }> }).blocks;
     assert.ok(
       blocks.find((b) => b.block_id === BLOCK_BODY),
@@ -160,5 +160,26 @@ describe("buildEditSkillModal", () => {
     const json = JSON.stringify(view);
     assert.equal(/skill_editable/.test(json), false, "no checkbox for non-manager");
     assert.equal(/clack_user_skill_disable/.test(json), false, "no disable for non-manager");
+  });
+
+  it("includes a Delete action with a confirm dialog when canDelete is true", () => {
+    const view = buildEditSkillModal(skillByAlice, true, true);
+    const json = JSON.stringify(view);
+    assert.ok(/clack_user_skill_delete:copy-improver/.test(json), "removal action present");
+    assert.ok(/"confirm":/.test(json), "removal carries a confirmation dialog");
+  });
+
+  it("shows Delete on a disabled skill too when canDelete is true", () => {
+    const disabled = { ...skillByAlice, disabledAt: "t2" };
+    const view = buildEditSkillModal(disabled, true, true);
+    const json = JSON.stringify(view);
+    assert.ok(/clack_user_skill_delete:copy-improver/.test(json));
+    assert.ok(/clack_user_skill_restore:copy-improver/.test(json), "restore still present");
+  });
+
+  it("hides Delete when canDelete is false (manager but not admin+)", () => {
+    const view = buildEditSkillModal(skillByAlice, true, false);
+    const json = JSON.stringify(view);
+    assert.equal(/clack_user_skill_delete/.test(json), false, "removal hidden without canDelete");
   });
 });
