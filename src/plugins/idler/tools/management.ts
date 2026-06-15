@@ -4,6 +4,7 @@ import type { ClackSdk } from "../../sdk.js";
 import { errorResult, textResult } from "../helpers.js";
 import { idlerConfigSchema, loadConfig, saveConfig } from "../config.js";
 import { loadLedger, saveLedger } from "../ledger.js";
+import type { IdlerConfig } from "../types.js";
 
 const SLACK_CHANNEL_ID = /^[CGD][A-Z0-9]+$/;
 
@@ -57,22 +58,67 @@ export function createSetConfigTool(sdk: ClackSdk) {
   );
 }
 
-export function createSetActiveHoursTool(sdk: ClackSdk) {
+export function createSetWorkHoursTool(sdk: ClackSdk) {
   return tool(
-    "set_idler_active_hours",
-    "Set Clack's active (work) hours. The idler runs only OUTSIDE this window. start < end (no wrap); end is exclusive.",
+    "set_idler_work_hours",
+    "Set the idler's work window — when it makes autonomous progress. It fires INSIDE this window. Use start > end for an overnight window (e.g. start 18, end 9 = 6 PM–9 AM); end is exclusive. Sync runs hourly outside this window unless an explicit sync window is set.",
     {
       start: z.number().int().min(0).max(23),
       end: z.number().int().min(1).max(24),
       tz: z.string().describe("IANA timezone, e.g. America/Montreal"),
-      days: z.array(z.number().int().min(0).max(6)).min(1).describe("Active weekdays (0=Sun)"),
+      days: z.array(z.number().int().min(0).max(6)).min(1).describe("Work days (0=Sun)"),
     },
     async (args) => {
       const config = await loadConfig(sdk);
       const next = {
         ...config,
-        activeHours: { start: args.start, end: args.end, tz: args.tz, days: args.days },
+        workHours: { start: args.start, end: args.end, tz: args.tz, days: args.days },
       };
+      const parsed = idlerConfigSchema.safeParse(next);
+      if (!parsed.success) {
+        return errorResult(sdk.t("validation_failed", { message: String(parsed.error) }));
+      }
+      await saveConfig(sdk, next);
+      return textResult({ ok: true, message: sdk.t("config_updated") });
+    },
+  );
+}
+
+export function createSetSyncHoursTool(sdk: ClackSdk) {
+  return tool(
+    "set_idler_sync_hours",
+    "Set the idler's sync (ledger-priming) window — read-only discovery fires INSIDE it. Pass clear: true to remove it, so sync is derived automatically as the complement of the work window. tz/days default to the work window's when omitted.",
+    {
+      start: z.number().int().min(0).max(23).optional(),
+      end: z.number().int().min(1).max(24).optional(),
+      tz: z.string().optional().describe("IANA timezone; defaults to the work window's tz"),
+      days: z
+        .array(z.number().int().min(0).max(6))
+        .min(1)
+        .optional()
+        .describe("Sync days (0=Sun); defaults to the work window's days"),
+      clear: z.boolean().optional().describe("Remove syncHours so it's derived from workHours"),
+    },
+    async (args) => {
+      const config = await loadConfig(sdk);
+      let next: IdlerConfig;
+      if (args.clear) {
+        const { syncHours: _omit, ...rest } = config;
+        next = rest;
+      } else {
+        if (args.start === undefined || args.end === undefined) {
+          return errorResult("Provide both start and end, or pass clear: true.");
+        }
+        next = {
+          ...config,
+          syncHours: {
+            start: args.start,
+            end: args.end,
+            tz: args.tz ?? config.workHours.tz,
+            days: args.days ?? config.workHours.days,
+          },
+        };
+      }
       const parsed = idlerConfigSchema.safeParse(next);
       if (!parsed.success) {
         return errorResult(sdk.t("validation_failed", { message: String(parsed.error) }));

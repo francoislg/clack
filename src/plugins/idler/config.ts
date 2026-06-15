@@ -16,7 +16,7 @@ function isValidTimezone(tz: string): boolean {
   }
 }
 
-const activeHoursSchema = z
+const windowSchema = z
   .object({
     start: z.number().int().min(0).max(23),
     end: z.number().int().min(1).max(24),
@@ -26,8 +26,8 @@ const activeHoursSchema = z
       .refine(isValidTimezone, "tz must be a valid IANA timezone (e.g. 'America/Montreal')"),
     days: z.array(z.number().int().min(0).max(6)).min(1, "days must be non-empty"),
   })
-  .refine((wh) => wh.start < wh.end, {
-    message: "activeHours.start must be strictly less than activeHours.end (no wrap-around)",
+  .refine((w) => w.start !== w.end, {
+    message: "start and end must differ (use start > end for an overnight window)",
   });
 
 const sourcesSchema = z.object({
@@ -38,7 +38,8 @@ const sourcesSchema = z.object({
 
 export const idlerConfigSchema = z.object({
   enabled: z.boolean(),
-  activeHours: activeHoursSchema,
+  workHours: windowSchema,
+  syncHours: windowSchema.optional(),
   repoAllowlist: z.array(z.string().min(1)).default([]),
   reportingChannel: z.string().regex(SLACK_CHANNEL_ID, "channel ID must be C…/G…/D…").optional(),
   summaryHour: z.number().int().min(0).max(23).optional(),
@@ -49,7 +50,7 @@ export const idlerConfigSchema = z.object({
 
 export const DEFAULT_CONFIG: IdlerConfig = {
   enabled: false,
-  activeHours: { start: 9, end: 18, tz: "UTC", days: [1, 2, 3, 4, 5] },
+  workHours: { start: 18, end: 9, tz: "UTC", days: [1, 2, 3, 4, 5] },
   repoAllowlist: [],
   maxActionsPerFire: 1,
   maxActionsPerNight: 5,

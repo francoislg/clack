@@ -15,7 +15,7 @@ describe("idlerConfigSchema", () => {
   it("defaults optional fields (caps, sources, allowlist)", () => {
     const parsed = idlerConfigSchema.parse({
       enabled: true,
-      activeHours: { start: 9, end: 18, tz: "UTC", days: [1] },
+      workHours: { start: 18, end: 9, tz: "UTC", days: [1] },
     });
     assert.equal(parsed.maxActionsPerFire, 1);
     assert.equal(parsed.maxActionsPerNight, 5);
@@ -23,10 +23,27 @@ describe("idlerConfigSchema", () => {
     assert.equal(parsed.sources.ownPrs, true);
   });
 
-  it("rejects a wrap-around active window (start >= end)", () => {
+  it("accepts an overnight (wrapping) work window", () => {
+    const ok = idlerConfigSchema.safeParse({
+      enabled: true,
+      workHours: { start: 18, end: 9, tz: "UTC", days: [1] },
+    });
+    assert.equal(ok.success, true);
+  });
+
+  it("accepts an explicit syncHours window", () => {
+    const ok = idlerConfigSchema.safeParse({
+      enabled: true,
+      workHours: { start: 19, end: 20, tz: "UTC", days: [1, 2, 3, 4, 5] },
+      syncHours: { start: 9, end: 18, tz: "UTC", days: [1, 2, 3, 4, 5] },
+    });
+    assert.equal(ok.success, true);
+  });
+
+  it("rejects a window whose start equals its end", () => {
     const bad = idlerConfigSchema.safeParse({
       enabled: true,
-      activeHours: { start: 18, end: 9, tz: "UTC", days: [1] },
+      workHours: { start: 9, end: 9, tz: "UTC", days: [1] },
     });
     assert.equal(bad.success, false);
   });
@@ -34,7 +51,7 @@ describe("idlerConfigSchema", () => {
   it("rejects an invalid timezone", () => {
     const bad = idlerConfigSchema.safeParse({
       enabled: true,
-      activeHours: { start: 9, end: 18, tz: "Not/AZone", days: [1] },
+      workHours: { start: 18, end: 9, tz: "Not/AZone", days: [1] },
     });
     assert.equal(bad.success, false);
   });
@@ -42,7 +59,7 @@ describe("idlerConfigSchema", () => {
   it("rejects an out-of-range summaryHour", () => {
     const bad = idlerConfigSchema.safeParse({
       enabled: true,
-      activeHours: { start: 9, end: 18, tz: "UTC", days: [1] },
+      workHours: { start: 18, end: 9, tz: "UTC", days: [1] },
       summaryHour: 24,
     });
     assert.equal(bad.success, false);
@@ -51,7 +68,7 @@ describe("idlerConfigSchema", () => {
   it("rejects a malformed channel id", () => {
     const bad = idlerConfigSchema.safeParse({
       enabled: true,
-      activeHours: { start: 9, end: 18, tz: "UTC", days: [1] },
+      workHours: { start: 18, end: 9, tz: "UTC", days: [1] },
       reportingChannel: "not-a-channel",
     });
     assert.equal(bad.success, false);

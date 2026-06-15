@@ -1,19 +1,21 @@
-import type { IdlerActiveHours } from "./types.js";
+import type { IdlerWindow } from "./types.js";
 
-/** Hours [0..23] that fall OUTSIDE the active window (its complement). */
-export function offHours(active: IdlerActiveHours): number[] {
+/** Hours [0..23] INSIDE the window. Wraps past midnight when start >= end. */
+export function windowHours(w: IdlerWindow): number[] {
   const hours: number[] = [];
   for (let h = 0; h < 24; h++) {
-    if (h < active.start || h >= active.end) hours.push(h);
+    const inWindow = w.start < w.end ? h >= w.start && h < w.end : h >= w.start || h < w.end;
+    if (inWindow) hours.push(h);
   }
   return hours;
 }
 
-/** Hours [0..23] INSIDE the active window — the complement of `offHours`. */
-export function activeHours(active: IdlerActiveHours): number[] {
+/** Hours [0..23] OUTSIDE the window — its complement. */
+export function complementHours(w: IdlerWindow): number[] {
+  const inside = new Set(windowHours(w));
   const hours: number[] = [];
   for (let h = 0; h < 24; h++) {
-    if (h >= active.start && h < active.end) hours.push(h);
+    if (!inside.has(h)) hours.push(h);
   }
   return hours;
 }
@@ -39,25 +41,26 @@ export function compressToCronField(values: number[]): string {
 }
 
 /**
- * Build the off-hours work cron: the hour-complement of the active window, on active days only.
- * Non-active days (e.g. weekends) stay idle so review work doesn't pile up unbounded.
+ * Cron firing at `minuteField` during the hours INSIDE the window, on its days. Used for the work
+ * window (fire every 15 min while working) and for an explicitly-configured sync window.
  */
-export function buildOffHoursCron(active: IdlerActiveHours, minuteField: string): string {
-  return `${minuteField} ${compressToCronField(offHours(active))} * * ${active.days.join(",")}`;
+export function buildWindowCron(w: IdlerWindow, minuteField: string): string {
+  return `${minuteField} ${compressToCronField(windowHours(w))} * * ${w.days.join(",")}`;
 }
 
 /**
- * Build the sync cron: hourly during the active window on active days, exclusive of the off-hours
- * work window. The minute is offset (e.g. "45") so the last active-hour fire primes the ledger just
- * before work opens. Returns `null` when there are no active hours or no active days to schedule.
+ * Cron firing at `minuteField` during the hours OUTSIDE the window, on its days. Drives sync when no
+ * explicit sync window is set: it primes the ledger throughout the non-work hours, and the last fire
+ * before the work window opens hands off to the first work fire. `null` when the window covers every
+ * hour (nothing left to sync) or no days are set.
  */
-export function buildActiveHoursCron(active: IdlerActiveHours, minuteField: string): string | null {
-  const hours = activeHours(active);
-  if (hours.length === 0 || active.days.length === 0) return null;
-  return `${minuteField} ${compressToCronField(hours)} * * ${active.days.join(",")}`;
+export function buildComplementCron(w: IdlerWindow, minuteField: string): string | null {
+  const hours = complementHours(w);
+  if (hours.length === 0 || w.days.length === 0) return null;
+  return `${minuteField} ${compressToCronField(hours)} * * ${w.days.join(",")}`;
 }
 
-/** Summary fires once on active days — a morning digest. `hour` defaults to the active-window start. */
-export function buildSummaryCron(active: IdlerActiveHours, hour: number): string {
-  return `0 ${hour} * * ${active.days.join(",")}`;
+/** Summary fires once on the window's days — a morning digest. */
+export function buildSummaryCron(w: IdlerWindow, hour: number): string {
+  return `0 ${hour} * * ${w.days.join(",")}`;
 }
