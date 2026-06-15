@@ -65,6 +65,20 @@ function makeDeps(overrides: Partial<GitLogDeps> = {}): GitLogDeps {
   };
 }
 
+type GitLogInput = Parameters<ReturnType<typeof createGitLogTool>["handler"]>[0];
+
+function gitInput(overrides: Partial<GitLogInput> = {}): GitLogInput {
+  return {
+    repo: "my-repo",
+    path: undefined,
+    limit: undefined,
+    since: undefined,
+    args: undefined,
+    branch: undefined,
+    ...overrides,
+  };
+}
+
 function defaultGitRaw(args: unknown): Promise<string> {
   const cmdArgs = args as string[];
   if (cmdArgs.includes("--is-shallow-repository")) return Promise.resolve("false\n");
@@ -87,10 +101,7 @@ describe("gitLog tool", () => {
     const ctx = makeCtx();
     const toolDef = createGitLogTool(ctx, deps);
 
-    const result = await toolDef.handler(
-      { repo: "nonexistent", args: undefined, branch: undefined },
-      { sessionId: "test" },
-    );
+    const result = await toolDef.handler(gitInput({ repo: "nonexistent" }), { sessionId: "test" });
 
     const parsed = parseToolResult(result);
     assert.ok(parsed.error);
@@ -107,10 +118,7 @@ describe("gitLog tool", () => {
     const ctx = makeCtx();
     const toolDef = createGitLogTool(ctx, deps);
 
-    const result = await toolDef.handler(
-      { repo: "my-repo", args: undefined, branch: undefined },
-      { sessionId: "test" },
-    );
+    const result = await toolDef.handler(gitInput(), { sessionId: "test" });
 
     const parsed = parseToolResult(result);
     assert.ok(parsed.error);
@@ -131,16 +139,15 @@ describe("gitLog tool", () => {
     const ctx = makeCtx();
     const toolDef = createGitLogTool(ctx, deps);
 
-    const result = await toolDef.handler(
-      { repo: "my-repo", args: ["--oneline", "-n", "5"], branch: undefined },
-      { sessionId: "test" },
-    );
+    const result = await toolDef.handler(gitInput({ args: ["--oneline", "-n", "5"] }), {
+      sessionId: "test",
+    });
 
     const parsed = parseToolResult(result);
     assert.ok(parsed.output.includes("commit abc123"));
     assert.equal(parsed.shallow, true);
     assert.equal(parsed.availableCommits, 50);
-    assert.equal(parsed.truncated, false);
+    assert.equal(parsed.truncated, undefined);
     assert.equal(result.isError, undefined);
   });
 
@@ -158,10 +165,9 @@ describe("gitLog tool", () => {
     const ctx = makeCtx();
     const toolDef = createGitLogTool(ctx, deps);
 
-    await toolDef.handler(
-      { repo: "my-repo", args: ["--oneline", "--author=John", "-n", "20"], branch: undefined },
-      { sessionId: "test" },
-    );
+    await toolDef.handler(gitInput({ args: ["--oneline", "--author=John", "-n", "20"] }), {
+      sessionId: "test",
+    });
 
     const logCall = rawCalls.find((c) => c[0] === "log");
     assert.ok(logCall);
@@ -185,18 +191,15 @@ describe("gitLog tool", () => {
     const ctx = makeCtx();
     const toolDef = createGitLogTool(ctx, deps);
 
-    await toolDef.handler(
-      { repo: "my-repo", args: undefined, branch: undefined },
-      { sessionId: "test" },
-    );
+    await toolDef.handler(gitInput(), { sessionId: "test" });
 
     const logCall = rawCalls.find((c) => c[0] === "log");
     assert.ok(logCall);
     assert.deepEqual(logCall, ["log"]);
   });
 
-  it("truncates output exceeding 100K characters", async () => {
-    const longOutput = "x".repeat(150_000);
+  it("refuses output exceeding the budget with narrowing suggestions", async () => {
+    const longOutput = "x".repeat(50_000);
     mockGitRaw.mockImplementation(async (args: unknown) => {
       const cmdArgs = args as string[];
       if (cmdArgs.includes("--is-shallow-repository")) return "false\n";
@@ -208,15 +211,104 @@ describe("gitLog tool", () => {
     const ctx = makeCtx();
     const toolDef = createGitLogTool(ctx, deps);
 
-    const result = await toolDef.handler(
-      { repo: "my-repo", args: undefined, branch: undefined },
-      { sessionId: "test" },
-    );
+    const result = await toolDef.handler(gitInput(), { sessionId: "test" });
 
     const parsed = parseToolResult(result);
-    assert.equal(parsed.truncated, true);
-    assert.ok(parsed.output.includes("TRUNCATED"));
-    assert.ok(parsed.output.length < 150_000);
+    assert.equal(result.isError, true);
+    assert.ok(parsed.error);
+    assert.ok(parsed.error.includes("too large"));
+    assert.ok(parsed.error.includes("limit"));
+    assert.ok(parsed.error.includes("path"));
+    assert.equal(parsed.output, undefined);
+  });
+
+  it("returns output sized exactly at the budget (boundary, not refused)", async () => {
+    const atBudget = "x".repeat(40_000);
+    mockGitRaw.mockImplementation(async (args: unknown) => {
+      const cmdArgs = args as string[];
+      if (cmdArgs.includes("--is-shallow-repository")) return "false\n";
+      if (cmdArgs.includes("--count")) return "100\n";
+      return atBudget;
+    });
+
+    const deps = makeDeps();
+    const ctx = makeCtx();
+    const toolDef = createGitLogTool(ctx, deps);
+
+    const result = await toolDef.handler(gitInput(), { sessionId: "test" });
+
+    const parsed = parseToolResult(result);
+    assert.equal(result.isError, undefined);
+    assert.equal(parsed.output, atBudget);
+  });
+
+  it("maps limit, since, and path to git flags (paths last, after --)", async () => {
+    const rawCalls: string[][] = [];
+    mockGitRaw.mockImplementation(async (args: unknown) => {
+      const cmdArgs = args as string[];
+      rawCalls.push(cmdArgs);
+      if (cmdArgs.includes("--is-shallow-repository")) return "false\n";
+      if (cmdArgs.includes("--count")) return "100\n";
+      return "log output";
+    });
+
+    const deps = makeDeps();
+    const ctx = makeCtx();
+    const toolDef = createGitLogTool(ctx, deps);
+
+    await toolDef.handler(gitInput({ limit: 5, since: "2026-04-17", path: "src/a.ts" }), {
+      sessionId: "test",
+    });
+
+    const logCall = rawCalls.find((c) => c[0] === "log");
+    assert.ok(logCall);
+    assert.deepEqual(logCall, ["log", "-n", "5", "--since=2026-04-17", "--", "src/a.ts"]);
+  });
+
+  it("supports an array of paths and composes with raw args", async () => {
+    const rawCalls: string[][] = [];
+    mockGitRaw.mockImplementation(async (args: unknown) => {
+      const cmdArgs = args as string[];
+      rawCalls.push(cmdArgs);
+      if (cmdArgs.includes("--is-shallow-repository")) return "false\n";
+      if (cmdArgs.includes("--count")) return "100\n";
+      return "log output";
+    });
+
+    const deps = makeDeps();
+    const ctx = makeCtx();
+    const toolDef = createGitLogTool(ctx, deps);
+
+    await toolDef.handler(gitInput({ limit: 3, args: ["--oneline"], path: ["a.ts", "b.ts"] }), {
+      sessionId: "test",
+    });
+
+    const logCall = rawCalls.find((c) => c[0] === "log");
+    assert.deepEqual(logCall, ["log", "-n", "3", "--oneline", "--", "a.ts", "b.ts"]);
+  });
+
+  it("maps each first-class param in isolation", async () => {
+    const rawCalls: string[][] = [];
+    mockGitRaw.mockImplementation(async (args: unknown) => {
+      const cmdArgs = args as string[];
+      rawCalls.push(cmdArgs);
+      if (cmdArgs.includes("--is-shallow-repository")) return "false\n";
+      if (cmdArgs.includes("--count")) return "100\n";
+      return "log output";
+    });
+
+    const deps = makeDeps();
+    const ctx = makeCtx();
+    const toolDef = createGitLogTool(ctx, deps);
+
+    await toolDef.handler(gitInput({ limit: 5 }), { sessionId: "test" });
+    await toolDef.handler(gitInput({ since: "2026-04-17" }), { sessionId: "test" });
+    await toolDef.handler(gitInput({ path: "src/a.ts" }), { sessionId: "test" });
+
+    const logCalls = rawCalls.filter((c) => c[0] === "log");
+    assert.deepEqual(logCalls[0], ["log", "-n", "5"]);
+    assert.deepEqual(logCalls[1], ["log", "--since=2026-04-17"]);
+    assert.deepEqual(logCalls[2], ["log", "--", "src/a.ts"]);
   });
 
   it("reports shallow=false for non-shallow repos", async () => {
@@ -231,10 +323,7 @@ describe("gitLog tool", () => {
     const ctx = makeCtx();
     const toolDef = createGitLogTool(ctx, deps);
 
-    const result = await toolDef.handler(
-      { repo: "my-repo", args: undefined, branch: undefined },
-      { sessionId: "test" },
-    );
+    const result = await toolDef.handler(gitInput(), { sessionId: "test" });
 
     const parsed = parseToolResult(result);
     assert.equal(parsed.shallow, false);
@@ -250,10 +339,7 @@ describe("gitLog tool", () => {
     const ctx = makeCtx();
     const toolDef = createGitLogTool(ctx, deps);
 
-    const result = await toolDef.handler(
-      { repo: "my-repo", args: undefined, branch: undefined },
-      { sessionId: "test" },
-    );
+    const result = await toolDef.handler(gitInput(), { sessionId: "test" });
 
     const parsed = parseToolResult(result);
     assert.ok(parsed.error);
@@ -273,10 +359,7 @@ describe("gitLog tool", () => {
     const ctx = makeCtx();
     const toolDef = createGitLogTool(ctx, deps);
 
-    const result = await toolDef.handler(
-      { repo: "my-repo", args: undefined, branch: undefined },
-      { sessionId: "test" },
-    );
+    const result = await toolDef.handler(gitInput(), { sessionId: "test" });
 
     const parsed = parseToolResult(result);
     assert.equal(parsed.availableCommits, 0);
@@ -291,10 +374,7 @@ describe("gitLog tool", () => {
     const ctx = makeCtx();
     const toolDef = createGitLogTool(ctx, deps);
 
-    const result = await toolDef.handler(
-      { repo: "my-repo", args: undefined, branch: undefined },
-      { sessionId: "test" },
-    );
+    const result = await toolDef.handler(gitInput(), { sessionId: "test" });
 
     const parsed = parseToolResult(result);
     assert.ok(parsed.error);
@@ -320,10 +400,7 @@ describe("gitLog tool", () => {
     const ctx = makeCtx();
     const toolDef = createGitLogTool(ctx, deps);
 
-    await toolDef.handler(
-      { repo: "my-repo", args: undefined, branch: "feat/x" },
-      { sessionId: "test" },
-    );
+    await toolDef.handler(gitInput({ branch: "feat/x" }), { sessionId: "test" });
 
     assert.deepEqual(baseDirs, ["/data/worktrees/my-repo/worker-1"]);
   });
@@ -341,10 +418,7 @@ describe("gitLog tool", () => {
     const ctx = makeCtx();
     const toolDef = createGitLogTool(ctx, deps);
 
-    await toolDef.handler(
-      { repo: "my-repo", args: undefined, branch: "feat/x" },
-      { sessionId: "test" },
-    );
+    await toolDef.handler(gitInput({ branch: "feat/x" }), { sessionId: "test" });
 
     assert.deepEqual(baseDirs, [resolve("/data/repositories", "my-repo")]);
   });
@@ -366,10 +440,7 @@ describe("gitLog tool", () => {
     const ctx = makeCtx();
     const toolDef = createGitLogTool(ctx, deps);
 
-    await toolDef.handler(
-      { repo: "my-repo", args: undefined, branch: undefined },
-      { sessionId: "test" },
-    );
+    await toolDef.handler(gitInput(), { sessionId: "test" });
 
     // No branch → no shortcut lookup, uses main clone
     assert.equal(findCalls.length, 0);

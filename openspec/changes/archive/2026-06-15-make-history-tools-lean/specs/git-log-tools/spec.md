@@ -1,9 +1,5 @@
-# git-log-tools Specification
+## MODIFIED Requirements
 
-## Purpose
-Git history query tools (`git_log` and `deepen_history`) for accessing commit history on local repository clones in query mode.
-
-## Requirements
 ### Requirement: git_log Query Tool
 
 The system SHALL provide a `git_log` query tool that executes `git log` on local repository clones. The tool SHALL accept an arbitrary `args` array (power path) and SHALL ALSO accept first-class `path`, `limit`, and `since` parameters that map to `git log` flags. When the resulting output exceeds the shared output budget, the tool SHALL refuse with an error suggesting how to narrow, rather than truncating.
@@ -73,50 +69,3 @@ The system SHALL provide a `git_log` query tool that executes `git log` on local
 
 - **WHEN** `git.raw()` throws an error (e.g., invalid arguments)
 - **THEN** the tool returns an error with the git error message
-
-### Requirement: deepen_history Query Tool
-
-The system SHALL provide a `deepen_history` query tool that fetches additional commit history for shallow-cloned repositories.
-
-#### Scenario: Deepen by N commits
-
-- **WHEN** Claude calls `deepen_history` with a `repo` name and a `commits` count
-- **THEN** the tool refreshes the authenticated remote URL
-- **AND** executes `git.raw(["fetch", "--deepen=N"])` where N is the commits count
-- **AND** returns the updated shallow status and available commit count
-
-#### Scenario: Full unshallow
-
-- **WHEN** Claude calls `deepen_history` with a `repo` name and `full` set to `true`
-- **THEN** the tool refreshes the authenticated remote URL
-- **AND** executes `git.raw(["fetch", "--unshallow"])`
-- **AND** returns the updated shallow status and available commit count
-
-#### Scenario: Default deepen amount
-
-- **WHEN** Claude calls `deepen_history` with neither `commits` nor `full` specified
-- **THEN** the tool defaults to deepening by 100 commits
-
-#### Scenario: Repository not shallow
-
-- **WHEN** Claude calls `deepen_history` on a repository that is not a shallow clone
-- **THEN** the tool returns a success response indicating the repo already has full history
-- **AND** does NOT execute any fetch operation
-
-#### Scenario: Repository access validation
-
-- **WHEN** Claude calls `deepen_history` with a repo name
-- **THEN** the tool validates the repo exists in `getVisibleRepos()` for the current user's role
-- **AND** returns an error listing available repos if the repo is not found or not accessible
-
-#### Scenario: Authenticated remote refresh
-
-- **WHEN** `deepen_history` prepares to fetch
-- **THEN** it refreshes the remote URL with a fresh GitHub App installation token before fetching
-- **AND** uses the same `setAuthenticatedRemote()` pattern as `syncRepository()`
-
-#### Scenario: Fetch error handling
-
-- **WHEN** the fetch operation fails (network, auth, etc.)
-- **THEN** the tool returns an error with the failure message
-- **AND** the repository state is unchanged

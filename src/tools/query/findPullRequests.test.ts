@@ -90,9 +90,35 @@ function makeDeps(overrides: Partial<FindPullRequestsDeps> = {}): FindPullReques
   };
 }
 
+type FindPRInput = Parameters<ReturnType<typeof createFindPullRequestsTool>["handler"]>[0];
+
+function prInput(overrides: Partial<FindPRInput> = {}): FindPRInput {
+  return {
+    repo: "my-repo",
+    state: "open",
+    branch: undefined,
+    since: undefined,
+    offset: undefined,
+    limit: undefined,
+    ...overrides,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
+
+type ListPullsFn = FindPullRequestsDeps["listPulls"];
+
+function returning(data: FakePR[]): ListPullsFn {
+  return vi.fn<ListPullsFn>(async () => ({ data }));
+}
+
+function throwing(message: string): ListPullsFn {
+  return vi.fn<ListPullsFn>(async () => {
+    throw new Error(message);
+  });
+}
 
 describe("findPullRequests tool", () => {
   it("returns error when repo is not found or not accessible", async () => {
@@ -101,10 +127,7 @@ describe("findPullRequests tool", () => {
     const ctx = makeCtx();
     const toolDef = createFindPullRequestsTool(ctx, deps);
 
-    const result = await toolDef.handler(
-      { repo: "nonexistent", state: "open", branch: undefined, since: undefined },
-      { sessionId: "test" },
-    );
+    const result = await toolDef.handler(prInput({ repo: "nonexistent" }), { sessionId: "test" });
 
     const parsed = parseToolResult(result);
     assert.ok(parsed.error);
@@ -126,25 +149,21 @@ describe("findPullRequests tool", () => {
       head: { ref: "fix/b" },
     });
 
-    const deps = makeDeps({
-      listPulls: vi.fn(async () => ({ data: [pr1, pr2] })) as FindPullRequestsDeps["listPulls"],
-    });
+    const deps = makeDeps({ listPulls: returning([pr1, pr2]) });
 
     const ctx = makeCtx();
     const toolDef = createFindPullRequestsTool(ctx, deps);
 
-    const result = await toolDef.handler(
-      { repo: "my-repo", state: "open", branch: undefined, since: undefined },
-      { sessionId: "test" },
-    );
+    const result = await toolDef.handler(prInput(), { sessionId: "test" });
 
     const parsed = parseToolResult(result);
-    assert.equal(parsed.length, 2);
-    assert.equal(parsed[0].url, "https://github.com/org/my-repo/pull/1");
-    assert.equal(parsed[0].title, "PR 1");
-    assert.equal(parsed[0].branch, "feat/a");
-    assert.equal(parsed[0].state, "open");
-    assert.equal(parsed[1].branch, "fix/b");
+    assert.equal(parsed.total, 2);
+    assert.equal(parsed.pullRequests.length, 2);
+    assert.equal(parsed.pullRequests[0].url, "https://github.com/org/my-repo/pull/1");
+    assert.equal(parsed.pullRequests[0].title, "PR 1");
+    assert.equal(parsed.pullRequests[0].branch, "feat/a");
+    assert.equal(parsed.pullRequests[0].state, "open");
+    assert.equal(parsed.pullRequests[1].branch, "fix/b");
   });
 
   it("filters PRs by branch name (partial match)", async () => {
@@ -152,75 +171,54 @@ describe("findPullRequests tool", () => {
     const pr2 = makePR({ title: "Feature B", head: { ref: "feat/signup-page" } });
     const pr3 = makePR({ title: "Fix C", head: { ref: "fix/login-bug" } });
 
-    const deps = makeDeps({
-      listPulls: vi.fn(async () => ({
-        data: [pr1, pr2, pr3],
-      })) as FindPullRequestsDeps["listPulls"],
-    });
+    const deps = makeDeps({ listPulls: returning([pr1, pr2, pr3]) });
 
     const ctx = makeCtx();
     const toolDef = createFindPullRequestsTool(ctx, deps);
 
-    const result = await toolDef.handler(
-      { repo: "my-repo", state: "open", branch: "login", since: undefined },
-      { sessionId: "test" },
-    );
+    const result = await toolDef.handler(prInput({ branch: "login" }), { sessionId: "test" });
 
     const parsed = parseToolResult(result);
-    assert.equal(parsed.length, 2);
-    assert.ok(parsed.every((pr: { branch: string }) => pr.branch.includes("login")));
+    assert.equal(parsed.total, 2);
+    assert.equal(parsed.pullRequests.length, 2);
+    assert.ok(parsed.pullRequests.every((pr: { branch: string }) => pr.branch.includes("login")));
   });
 
-  it("returns empty array when no PRs exist", async () => {
-    const deps = makeDeps({
-      listPulls: vi.fn(async () => ({ data: [] })) as FindPullRequestsDeps["listPulls"],
-    });
+  it("returns empty list when no PRs exist", async () => {
+    const deps = makeDeps({ listPulls: returning([]) });
 
     const ctx = makeCtx();
     const toolDef = createFindPullRequestsTool(ctx, deps);
 
-    const result = await toolDef.handler(
-      { repo: "my-repo", state: "open", branch: undefined, since: undefined },
-      { sessionId: "test" },
-    );
+    const result = await toolDef.handler(prInput(), { sessionId: "test" });
 
     const parsed = parseToolResult(result);
-    assert.deepEqual(parsed, []);
+    assert.deepEqual(parsed.pullRequests, []);
+    assert.equal(parsed.total, 0);
   });
 
-  it("returns empty array when branch filter matches no PRs", async () => {
+  it("returns empty list when branch filter matches no PRs", async () => {
     const pr = makePR({ head: { ref: "feat/dashboard" } });
 
-    const deps = makeDeps({
-      listPulls: vi.fn(async () => ({ data: [pr] })) as FindPullRequestsDeps["listPulls"],
-    });
+    const deps = makeDeps({ listPulls: returning([pr]) });
 
     const ctx = makeCtx();
     const toolDef = createFindPullRequestsTool(ctx, deps);
 
-    const result = await toolDef.handler(
-      { repo: "my-repo", state: "open", branch: "nonexistent", since: undefined },
-      { sessionId: "test" },
-    );
+    const result = await toolDef.handler(prInput({ branch: "nonexistent" }), { sessionId: "test" });
 
     const parsed = parseToolResult(result);
-    assert.deepEqual(parsed, []);
+    assert.deepEqual(parsed.pullRequests, []);
+    assert.equal(parsed.total, 0);
   });
 
   it("returns error when listPulls throws", async () => {
-    const deps = makeDeps({
-      listPulls: vi.fn(async () => {
-        throw new Error("GitHub API rate limit exceeded");
-      }) as FindPullRequestsDeps["listPulls"],
-    });
+    const deps = makeDeps({ listPulls: throwing("GitHub API rate limit exceeded") });
 
     const ctx = makeCtx();
     const toolDef = createFindPullRequestsTool(ctx, deps);
 
-    const result = await toolDef.handler(
-      { repo: "my-repo", state: "open", branch: undefined, since: undefined },
-      { sessionId: "test" },
-    );
+    const result = await toolDef.handler(prInput(), { sessionId: "test" });
 
     const parsed = parseToolResult(result);
     assert.ok(parsed.error);
@@ -230,19 +228,12 @@ describe("findPullRequests tool", () => {
   });
 
   it("returns error when listPulls throws Not found", async () => {
-    const deps = makeDeps({
-      listPulls: vi.fn(async () => {
-        throw new Error("Not found");
-      }) as FindPullRequestsDeps["listPulls"],
-    });
+    const deps = makeDeps({ listPulls: throwing("Not found") });
 
     const ctx = makeCtx();
     const toolDef = createFindPullRequestsTool(ctx, deps);
 
-    const result = await toolDef.handler(
-      { repo: "my-repo", state: "open", branch: undefined, since: undefined },
-      { sessionId: "test" },
-    );
+    const result = await toolDef.handler(prInput(), { sessionId: "test" });
 
     const parsed = parseToolResult(result);
     assert.ok(parsed.error);
@@ -255,20 +246,17 @@ describe("findPullRequests tool", () => {
       async () => ({ data: [] }),
     );
     const deps = makeDeps({
-      parseRepoUrl: vi.fn(() => ({
+      parseRepoUrl: vi.fn<FindPullRequestsDeps["parseRepoUrl"]>(() => ({
         owner: "my-org",
         repo: "cool-project",
-      })) as FindPullRequestsDeps["parseRepoUrl"],
+      })),
       listPulls: listPullsMock as FindPullRequestsDeps["listPulls"],
     });
 
     const ctx = makeCtx();
     const toolDef = createFindPullRequestsTool(ctx, deps);
 
-    await toolDef.handler(
-      { repo: "my-repo", state: "open", branch: undefined, since: undefined },
-      { sessionId: "test" },
-    );
+    await toolDef.handler(prInput(), { sessionId: "test" });
 
     assert.equal(listPullsMock.mock.calls.length, 1);
     const callArgs = listPullsMock.mock.calls[0]![0]!;
@@ -280,7 +268,7 @@ describe("findPullRequests tool", () => {
     assert.equal(callArgs.per_page, 100);
   });
 
-  it("maps PR fields correctly in the result", async () => {
+  it("maps lean PR fields and omits body from the result", async () => {
     const pr = makePR({
       html_url: "https://github.com/org/my-repo/pull/42",
       number: 42,
@@ -293,30 +281,99 @@ describe("findPullRequests tool", () => {
       body: "Implements dark mode theme",
     });
 
-    const deps = makeDeps({
-      listPulls: vi.fn(async () => ({ data: [pr] })) as FindPullRequestsDeps["listPulls"],
-    });
+    const deps = makeDeps({ listPulls: returning([pr]) });
 
     const ctx = makeCtx();
     const toolDef = createFindPullRequestsTool(ctx, deps);
 
-    const result = await toolDef.handler(
-      { repo: "my-repo", state: "open", branch: undefined, since: undefined },
-      { sessionId: "test" },
-    );
+    const result = await toolDef.handler(prInput(), { sessionId: "test" });
 
     const parsed = parseToolResult(result);
-    assert.equal(parsed.length, 1);
-    assert.equal(parsed[0].url, "https://github.com/org/my-repo/pull/42");
-    assert.equal(parsed[0].number, 42);
-    assert.equal(parsed[0].title, "Add dark mode");
-    assert.equal(parsed[0].branch, "feat/dark-mode");
-    assert.equal(parsed[0].state, "open");
-    assert.equal(parsed[0].author, "alice");
-    assert.equal(parsed[0].createdAt, "2025-12-25T08:00:00Z");
-    assert.equal(parsed[0].updatedAt, "2025-12-25T12:00:00Z");
-    assert.equal(parsed[0].mergedAt, undefined); // not merged
-    assert.equal(parsed[0].body, "Implements dark mode theme");
+    assert.equal(parsed.pullRequests.length, 1);
+    const pr0 = parsed.pullRequests[0];
+    assert.equal(pr0.url, "https://github.com/org/my-repo/pull/42");
+    assert.equal(pr0.number, 42);
+    assert.equal(pr0.title, "Add dark mode");
+    assert.equal(pr0.branch, "feat/dark-mode");
+    assert.equal(pr0.state, "open");
+    assert.equal(pr0.author, "alice");
+    assert.equal(pr0.createdAt, "2025-12-25T08:00:00Z");
+    assert.equal(pr0.updatedAt, "2025-12-25T12:00:00Z");
+    assert.equal(pr0.mergedAt, undefined); // not merged
+    assert.equal(pr0.body, undefined); // body is never included
+    assert.ok(!("body" in pr0));
+  });
+
+  it("paginates with offset/limit and reports the filtered total", async () => {
+    const prs = Array.from({ length: 5 }, (_, i) =>
+      makePR({ number: i + 1, title: `PR ${i + 1}`, head: { ref: `feat/${i + 1}` } }),
+    );
+
+    const deps = makeDeps({ listPulls: returning(prs) });
+
+    const ctx = makeCtx();
+    const toolDef = createFindPullRequestsTool(ctx, deps);
+
+    const result = await toolDef.handler(prInput({ offset: 1, limit: 2 }), { sessionId: "test" });
+
+    const parsed = parseToolResult(result);
+    assert.equal(parsed.total, 5);
+    assert.equal(parsed.offset, 1);
+    assert.equal(parsed.limit, 2);
+    assert.equal(parsed.pullRequests.length, 2);
+    assert.equal(parsed.pullRequests[0].number, 2);
+    assert.equal(parsed.pullRequests[1].number, 3);
+  });
+
+  it("defaults to offset 0 and the default page limit", async () => {
+    const prs = Array.from({ length: 25 }, (_, i) => makePR({ number: i + 1 }));
+
+    const deps = makeDeps({ listPulls: returning(prs) });
+
+    const ctx = makeCtx();
+    const toolDef = createFindPullRequestsTool(ctx, deps);
+
+    const result = await toolDef.handler(prInput(), { sessionId: "test" });
+
+    const parsed = parseToolResult(result);
+    assert.equal(parsed.total, 25);
+    assert.equal(parsed.offset, 0);
+    assert.equal(parsed.limit, 20);
+    assert.equal(parsed.pullRequests.length, 20);
+  });
+
+  it("returns an empty page when offset is beyond the total", async () => {
+    const prs = Array.from({ length: 5 }, (_, i) => makePR({ number: i + 1 }));
+
+    const deps = makeDeps({ listPulls: returning(prs) });
+
+    const ctx = makeCtx();
+    const toolDef = createFindPullRequestsTool(ctx, deps);
+
+    const result = await toolDef.handler(prInput({ offset: 10, limit: 20 }), { sessionId: "test" });
+
+    const parsed = parseToolResult(result);
+    assert.deepEqual(parsed.pullRequests, []);
+    assert.equal(parsed.total, 5);
+    assert.equal(parsed.offset, 10);
+  });
+
+  it("surfaces fetchCapped only when the GitHub page is full", async () => {
+    const ctx = makeCtx();
+
+    const fullPage = Array.from({ length: 100 }, (_, i) => makePR({ number: i + 1 }));
+    const cappedResult = await createFindPullRequestsTool(
+      ctx,
+      makeDeps({ listPulls: returning(fullPage) }),
+    ).handler(prInput({ limit: 50 }), { sessionId: "test" });
+    assert.equal(parseToolResult(cappedResult).fetchCapped, true);
+
+    const partialPage = Array.from({ length: 3 }, (_, i) => makePR({ number: i + 1 }));
+    const uncappedResult = await createFindPullRequestsTool(
+      ctx,
+      makeDeps({ listPulls: returning(partialPage) }),
+    ).handler(prInput(), { sessionId: "test" });
+    assert.equal(parseToolResult(uncappedResult).fetchCapped, undefined);
   });
 
   it("returns only merged PRs when state is 'merged'", async () => {
@@ -341,20 +398,18 @@ describe("findPullRequests tool", () => {
     const ctx = makeCtx();
     const toolDef = createFindPullRequestsTool(ctx, deps);
 
-    const result = await toolDef.handler(
-      { repo: "my-repo", state: "merged", branch: undefined, since: undefined },
-      { sessionId: "test" },
-    );
+    const result = await toolDef.handler(prInput({ state: "merged" }), { sessionId: "test" });
 
     // Should call API with state "closed" (merged is a subset of closed)
     const callArgs = listPullsMock.mock.calls[0]![0]!;
     assert.equal(callArgs.state, "closed");
 
     const parsed = parseToolResult(result);
-    assert.equal(parsed.length, 1);
-    assert.equal(parsed[0].title, "Merged PR");
-    assert.equal(parsed[0].state, "merged");
-    assert.equal(parsed[0].mergedAt, "2025-06-01T09:00:00Z");
+    assert.equal(parsed.total, 1);
+    assert.equal(parsed.pullRequests.length, 1);
+    assert.equal(parsed.pullRequests[0].title, "Merged PR");
+    assert.equal(parsed.pullRequests[0].state, "merged");
+    assert.equal(parsed.pullRequests[0].mergedAt, "2025-06-01T09:00:00Z");
   });
 
   it("filters merged PRs by since date", async () => {
@@ -371,92 +426,55 @@ describe("findPullRequests tool", () => {
       merged_at: "2025-05-01T10:00:00Z",
     });
 
-    const deps = makeDeps({
-      listPulls: vi.fn(async () => ({
-        data: [recentMerge, oldMerge],
-      })) as FindPullRequestsDeps["listPulls"],
-    });
+    const deps = makeDeps({ listPulls: returning([recentMerge, oldMerge]) });
 
     const ctx = makeCtx();
     const toolDef = createFindPullRequestsTool(ctx, deps);
 
-    const result = await toolDef.handler(
-      { repo: "my-repo", state: "merged", branch: undefined, since: "2025-06-01" },
-      { sessionId: "test" },
-    );
+    const result = await toolDef.handler(prInput({ state: "merged", since: "2025-06-01" }), {
+      sessionId: "test",
+    });
 
     const parsed = parseToolResult(result);
-    assert.equal(parsed.length, 1);
-    assert.equal(parsed[0].title, "Recent");
+    assert.equal(parsed.pullRequests.length, 1);
+    assert.equal(parsed.pullRequests[0].title, "Recent");
   });
 
   it("filters open PRs by since date using updated_at", async () => {
     const recent = makePR({ number: 1, title: "Recent", updated_at: "2025-06-02T10:00:00Z" });
     const old = makePR({ number: 2, title: "Old", updated_at: "2025-05-01T10:00:00Z" });
 
-    const deps = makeDeps({
-      listPulls: vi.fn(async () => ({
-        data: [recent, old],
-      })) as FindPullRequestsDeps["listPulls"],
-    });
+    const deps = makeDeps({ listPulls: returning([recent, old]) });
 
     const ctx = makeCtx();
     const toolDef = createFindPullRequestsTool(ctx, deps);
 
-    const result = await toolDef.handler(
-      { repo: "my-repo", state: "open", branch: undefined, since: "2025-06-01" },
-      { sessionId: "test" },
-    );
+    const result = await toolDef.handler(prInput({ since: "2025-06-01" }), { sessionId: "test" });
 
     const parsed = parseToolResult(result);
-    assert.equal(parsed.length, 1);
-    assert.equal(parsed[0].title, "Recent");
+    assert.equal(parsed.pullRequests.length, 1);
+    assert.equal(parsed.pullRequests[0].title, "Recent");
   });
 
   it("shows 'merged' as state for merged PRs in any state filter", async () => {
     const mergedPR = makePR({ state: "closed", merged_at: "2025-06-01T09:00:00Z" });
 
-    const deps = makeDeps({
-      listPulls: vi.fn(async () => ({ data: [mergedPR] })) as FindPullRequestsDeps["listPulls"],
-    });
+    const deps = makeDeps({ listPulls: returning([mergedPR]) });
 
     const ctx = makeCtx();
     const toolDef = createFindPullRequestsTool(ctx, deps);
 
-    const result = await toolDef.handler(
-      { repo: "my-repo", state: "all", branch: undefined, since: undefined },
-      { sessionId: "test" },
-    );
+    const result = await toolDef.handler(prInput({ state: "all" }), { sessionId: "test" });
 
     const parsed = parseToolResult(result);
-    assert.equal(parsed[0].state, "merged");
-  });
-
-  it("includes body truncated to 500 chars", async () => {
-    const longBody = "x".repeat(600);
-    const pr = makePR({ body: longBody });
-
-    const deps = makeDeps({
-      listPulls: vi.fn(async () => ({ data: [pr] })) as FindPullRequestsDeps["listPulls"],
-    });
-
-    const ctx = makeCtx();
-    const toolDef = createFindPullRequestsTool(ctx, deps);
-
-    const result = await toolDef.handler(
-      { repo: "my-repo", state: "open", branch: undefined, since: undefined },
-      { sessionId: "test" },
-    );
-
-    const parsed = parseToolResult(result);
-    assert.equal(parsed[0].body.length, 500);
+    assert.equal(parsed.pullRequests[0].state, "merged");
   });
 
   it("lists available repos in the error message", async () => {
     const repoA = makeRepo({ name: "repo-a" });
     const repoB = makeRepo({ name: "repo-b" });
     const deps = makeDeps({
-      getVisibleRepos: vi.fn(() => [repoA, repoB]) as FindPullRequestsDeps["getVisibleRepos"],
+      getVisibleRepos: vi.fn<FindPullRequestsDeps["getVisibleRepos"]>(() => [repoA, repoB]),
     });
 
     const ctx = makeCtx({
@@ -466,10 +484,7 @@ describe("findPullRequests tool", () => {
     });
     const toolDef = createFindPullRequestsTool(ctx, deps);
 
-    const result = await toolDef.handler(
-      { repo: "unknown", state: "open", branch: undefined, since: undefined },
-      { sessionId: "test" },
-    );
+    const result = await toolDef.handler(prInput({ repo: "unknown" }), { sessionId: "test" });
 
     const parsed = parseToolResult(result);
     assert.ok(parsed.error.includes("repo-a"));
