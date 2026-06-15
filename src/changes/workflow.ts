@@ -39,6 +39,7 @@ import {
 import { buildWorkerContext } from "../tools/context.js";
 import { buildClackTools } from "../tools/server.js";
 import { fetchPRReviewContext } from "./pr.js";
+import { defaultSpinoffGitOps } from "./spinoff.js";
 import type { StreamEvent } from "../streaming/types.js";
 import { errorMessage } from "../errors.js";
 import type { Config as AppConfig, RepositoryConfig } from "../config.js";
@@ -105,6 +106,7 @@ export interface WorkflowDeps {
   ) => Promise<{ ok: true; context: string } | { ok: false; error: string }>;
   getSession: (sessionId: string) => Promise<SessionContext | null>;
   forceResetBranch: (worker: Worker, repo: RepositoryConfig, branch: string) => Promise<void>;
+  applySlicePatch: (worktreePath: string, patchPath: string) => Promise<void>;
 }
 
 export const defaultWorkflowDeps: WorkflowDeps = {
@@ -128,6 +130,7 @@ export const defaultWorkflowDeps: WorkflowDeps = {
   fetchPRReviewContext,
   getSession,
   forceResetBranch,
+  applySlicePatch: defaultSpinoffGitOps.applySlicePatch,
 };
 
 // ============================================================================
@@ -220,13 +223,21 @@ export async function startChangeWorkflow(
   onEvent?: (event: StreamEvent) => void | Promise<void>,
   deps: WorkflowDeps = defaultWorkflowDeps,
   onAck?: (text: string) => Promise<void>,
+  options?: {
+    /**
+     * Skip the per-user active-change cap. Set for orchestrator-initiated spinoff siblings:
+     * a sibling is a continuation of already-approved work, not a new user request, so it
+     * should not be blocked by the cap (pool capacity still applies). See design D5.
+     */
+    bypassUserCap?: boolean;
+  },
 ): Promise<ChangeResult> {
   const config = deps.getConfig();
 
   // Per-user concurrent-change cap. Default 1 preserves legacy behavior;
   // 0 disables the cap and relies on the worker pool's queue for backpressure.
   const userCap = config.changesWorkflow?.maxActiveChangesPerUser ?? 1;
-  if (userCap > 0) {
+  if (userCap > 0 && !options?.bypassUserCap) {
     const activeCount = deps.countActiveChangesForUser(request.userId);
     if (activeCount >= userCap) {
       const error =
@@ -329,6 +340,25 @@ export async function startChangeWorkflow(
   // Now that the worktree exists, attach it to the active change
   activeChange.worktree = worktree;
 
+  // Spinoff sibling: apply the captured slice patch onto the fresh worktree before the worker
+  // runs, so it works from the slice's exact code rather than regenerating it. A failure here
+  // fails the sibling but retains the patch on disk for recovery; the parent already shed the slice.
+  if (plan.applySpinoffPatch) {
+    try {
+      await deps.applySlicePatch(worktree.worktreePath, plan.applySpinoffPatch);
+      deps.appendExecutionLog(plan.branchName, `Applied spinoff patch ${plan.applySpinoffPatch}`);
+    } catch (err) {
+      deps.updateActiveChangeStatus(sessionId, "failed");
+      return {
+        success: false,
+        error: t("changes.spinoff.patch_apply_failed", {
+          path: plan.applySpinoffPatch,
+          error: errorMessage(err),
+        }),
+      };
+    }
+  }
+
   // Phase 2: Execution
   const abortController = new AbortController();
 
@@ -385,6 +415,8 @@ export async function startChangeWorkflow(
       success: true,
       prUrl: updatedSession.activeChange.prUrl,
       summary: execResult.summary,
+      ...(execResult.stagedSpinoffs &&
+        execResult.stagedSpinoffs.length > 0 && { spinoffs: execResult.stagedSpinoffs }),
     };
   }
 
@@ -626,6 +658,8 @@ The instructions above were generated from the user's full Slack thread context 
           success: true,
           prUrl: activeChange.prUrl,
           summary: updateResult.summary ?? "Additional changes pushed",
+          ...(updateResult.stagedSpinoffs &&
+            updateResult.stagedSpinoffs.length > 0 && { spinoffs: updateResult.stagedSpinoffs }),
         };
       }
 

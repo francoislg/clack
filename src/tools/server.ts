@@ -110,6 +110,7 @@ import { createEnsurePRTool } from "./worker/ensurePR.js";
 import { createMergePRTool } from "./worker/mergePR.js";
 import { createClosePRTool } from "./worker/closePR.js";
 import { createReportStatusTool } from "./worker/reportStatus.js";
+import { createProposeSpinoffTool } from "./worker/proposeSpinoff.js";
 import { isChannellessChannelId } from "../channelless.js";
 
 // ============================================================================
@@ -719,6 +720,10 @@ function buildQueryTools(ctx: QueryToolContext): ClackQueryToolsResult {
 }
 
 function buildWorkerTools(ctx: WorkerToolContext): ClackWorkerToolsResult {
+  // Worker-side intent store — mirrors query mode (a fresh store per build, drained via
+  // getStagedIntents after the run). Today only propose_spinoff stages into it.
+  const intentStore = createIntentStore();
+
   // Tool factories return different SdkMcpToolDefinition<T> generics; `any` required for the heterogeneous array
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const tools: SdkMcpToolDefinition<any>[] = [];
@@ -731,6 +736,7 @@ function buildWorkerTools(ctx: WorkerToolContext): ClackWorkerToolsResult {
   tools.push(createMergePRTool(ctx));
   tools.push(createClosePRTool(ctx));
   tools.push(createResolveReviewThreadTool(ctx));
+  tools.push(createProposeSpinoffTool(ctx, intentStore));
 
   const toolNames = tools.map((t) => t.name);
 
@@ -745,7 +751,7 @@ function buildWorkerTools(ctx: WorkerToolContext): ClackWorkerToolsResult {
     toolNames,
     getResult: () => null,
     getRenderedBlocks: () => null,
-    getStagedIntents: () => new Map(),
+    getStagedIntents: () => intentStore.getAll(),
     getToolCallHistory: () => [],
     isSkipped: () => false,
     getAttentionLevel: () => null,

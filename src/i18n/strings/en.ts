@@ -276,6 +276,15 @@ export const en = {
     ":hourglass_flowing_sand: Queued at position {position} for a worker on `{repo}`.",
   "changes.create_workspace_failed": "Failed to create workspace: {error}",
 
+  // ─── Spinoff (split a slice into a separate sibling PR) ─────────────
+  "changes.spinoff.patch_apply_failed":
+    "Couldn't apply the spun-off changes from `{path}`: {error}. The patch was kept there for recovery.",
+  "changes.spinoff.sibling_thread_intro":
+    ":scissors: Spinning off a separate change: *{description}* (`{branch}`)",
+  "changes.spinoff.posted_in_parent":
+    ":scissors: Spun off *{description}* into a separate change → {link}",
+  "changes.spinoff.spun_off_from": "Spun off from {link}",
+
   // ─── Failed-change recovery ────────────────────────────────────────
   "changes.recovery.prompt":
     "You can resume this change where it left off, start it over from scratch (discards the current work), or discard it and free the workspace.",

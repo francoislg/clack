@@ -9,6 +9,7 @@ import { logger } from "../logger.js";
 import { setAuthenticatedRemote } from "../repositories.js";
 import type { WorktreeInfo } from "../worktrees.js";
 import type { ChangePlan, ChangeRequest, ExecutionResult } from "./types.js";
+import type { SpinoffIntentData } from "./spinoff.js";
 import { appendExecutionLog } from "./persistence.js";
 import { getActiveChange } from "./activeState.js";
 import { detectPlatformError } from "../claude/messageParser.js";
@@ -318,6 +319,7 @@ Important:
 - Make minimal, focused changes
 - Follow existing code patterns and conventions
 - Do not make changes outside the scope of the request
+- If a self-contained slice of your work clearly belongs in its OWN pull request — e.g. an unrelated refactor surfaced while you worked, or a reviewer asked you to split it out — use the propose_spinoff tool to carve just that slice into a separate sibling change. Never spin off the whole change (that is just this PR), and keep the remaining work in this PR as normal.
 - If you encounter issues, report them via report_status
 - If git_push fails, report the error via report_status — do not retry unless you can fix the issue
 - For the PR title, use a concise description (max 72 chars) — do NOT put "Requested by" or the requester's name in the title
@@ -476,11 +478,29 @@ Follow the workflow steps in the system prompt. Report your final status using t
     };
   }
 
+  const stagedSpinoffs = drainStagedSpinoffs(workerTools);
+
   return {
     success: true,
     summary: "Changes implemented",
     sdkSessionId: capturedSdkSessionId,
+    ...(stagedSpinoffs.length > 0 && { stagedSpinoffs }),
   };
+}
+
+/**
+ * Pull the spinoff slices a worker staged via `propose_spinoff` out of the worker tool
+ * result, dropping the staging `type` tag so the orchestrator gets plain slice data.
+ */
+function drainStagedSpinoffs(workerTools: ReturnType<typeof buildClackTools>): SpinoffIntentData[] {
+  const spinoffs: SpinoffIntentData[] = [];
+  for (const intent of workerTools.getStagedIntents().values()) {
+    if (intent.type === "spinoff") {
+      const { type: _type, ...data } = intent;
+      spinoffs.push(data);
+    }
+  }
+  return spinoffs;
 }
 
 async function readBranchHead(worktreePath: string): Promise<string | undefined> {

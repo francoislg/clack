@@ -464,7 +464,8 @@ export async function handleAutoExecuteActions(
 
         case "review":
         case "merge":
-        case "close": {
+        case "close":
+        case "spinoff": {
           logger.warn(
             `Auto-execute: intent type "${intent.type}" is not supported for auto-execution`,
           );
