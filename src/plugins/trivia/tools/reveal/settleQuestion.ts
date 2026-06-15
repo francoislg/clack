@@ -4,7 +4,19 @@ import { textResult, errorResult } from "../../../../tools/helpers.js";
 import { defaultGetGames, type GetGamesFn } from "../../core/configBridge.js";
 import { requireWritableGame } from "../../core/gamesRegistry.js";
 import { getAnswerTypeHandler } from "../../answerTypes/registry.js";
-import type { TriviaDataLayer } from "../../core/types.js";
+import type { ScopedTriviaDataLayer, TriviaDataLayer } from "../../core/types.js";
+
+// Drops `correct` verdicts so the next compute_answers rescores from scratch; raw picks kept.
+async function clearVerdicts(scoped: ScopedTriviaDataLayer, questionId: string): Promise<number> {
+  const rows = (await scoped.loadAnswers()).filter((a) => a.questionId === questionId);
+  let cleared = 0;
+  for (const row of rows) {
+    if (row.correct === undefined) continue;
+    await scoped.updateAnswer(row.userId, questionId, { correct: undefined });
+    cleared++;
+  }
+  return cleared;
+}
 
 const DESCRIPTION = `Decide a question's fate: ANSWER a pending prediction with its now-known result, OR SKIP a question — marking it INVALIDATED (worth 0 points, shown as "invalidated, no result"). Use at reveal time for predictions whose outcome is known (answer) or unknowable (skip); skipping also works any time, before OR after a reveal, to drop a bad question.
 
@@ -15,7 +27,9 @@ ANSWER (pass \`outcome\`): stamps the answer key + \`resolved: true\` + \`resolv
 
 SKIP (pass \`skip: true\` + \`skippedReason\`): marks the question INVALIDATED — sets \`skipped: true\` + the reason — and clears any verdicts on its answers so it scores 0 for everyone. Works for ANY format/type, even an already-answered or already-revealed question. A skipped prediction counts as decided for the reveal gate. After skipping a revealed question, re-run update_answers_block to repaint its card.
 
-Pass EXACTLY ONE of \`outcome\` or \`skip\`. Errors when: the question is missing; \`outcome\` targets a question that already has an answer key; or the outcome does not match the answer format. On error, makes NO change.`;
+RE-SETTLE (pass \`outcome\` + \`override: true\`): fixes a question already answered with the WRONG outcome. Re-stamps the answer key and clears stale verdicts so the next compute_answers rescores everyone against the corrected result. Without \`override\`, answering an already-keyed question errors.
+
+Pass EXACTLY ONE of \`outcome\` or \`skip\`. Errors when: the question is missing; \`outcome\` targets a question that already has an answer key (unless \`override: true\`); or the outcome does not match the answer format. On error, makes NO change.`;
 
 export function createSettleQuestionTool(
   data: TriviaDataLayer,
@@ -34,6 +48,12 @@ export function createSettleQuestionTool(
         .optional()
         .describe(
           "ANSWER mode (mutually exclusive with `skip`). The real-world result. boolean → true/false. choice → the winning option's 0-based index or exact text. freeform → the canonical answer text.",
+        ),
+      override: z
+        .boolean()
+        .optional()
+        .describe(
+          "ANSWER mode only. Pass `true` to RE-SETTLE a question that was already answered (e.g. settled with the wrong outcome). Re-stamps the answer key and clears stale verdicts so the next compute_answers rescores everyone. Ignored when the question has no key yet.",
         ),
       invalidate: z
         .boolean()
@@ -93,14 +113,8 @@ export function createSettleQuestionTool(
           resolvedAt,
         });
         // An invalidated question scores 0 for everyone — drop any verdict already on its
-        // answers so no leaderboard surface counts them. Raw picks are preserved.
-        const rows = (await scoped.loadAnswers()).filter((a) => a.questionId === question.id);
-        let cleared = 0;
-        for (const row of rows) {
-          if (row.correct === undefined) continue;
-          await scoped.updateAnswer(row.userId, question.id, { correct: undefined });
-          cleared++;
-        }
+        // answers so no leaderboard surface counts them.
+        const cleared = await clearVerdicts(scoped, question.id);
         return textResult({
           invalidated: true,
           questionId: question.id,
@@ -110,10 +124,12 @@ export function createSettleQuestionTool(
       }
 
       const handler = getAnswerTypeHandler(question.answersFormat);
-      // Answering applies only to a question still awaiting its key (a pending prediction).
-      if (handler.hasAnswerKey(question)) {
+      // Answering normally applies only to a question still awaiting its key (a pending
+      // prediction). `override` re-settles one that was already answered wrong.
+      const alreadyKeyed = handler.hasAnswerKey(question);
+      if (alreadyKeyed && args.override !== true) {
         return errorResult(
-          `Question "${args.questionId}" already has an answer key — nothing to answer (skip it instead to drop it).`,
+          `Question "${args.questionId}" already has an answer key — pass override:true to re-settle it with a corrected outcome, or invalidate to drop it.`,
         );
       }
       const settled = handler.settleOutcome(question, {
@@ -130,10 +146,14 @@ export function createSettleQuestionTool(
         resolvedAt,
         resolvedOutcome: settled.resolvedOutcome,
       });
+      // Re-settling leaves stale verdicts from the wrong key; clear them so the next
+      // compute_answers rescores everyone against the corrected outcome.
+      const rescored = alreadyKeyed ? await clearVerdicts(scoped, question.id) : 0;
       return textResult({
         settled: true,
         questionId: question.id,
         resolvedOutcome: settled.resolvedOutcome,
+        ...(alreadyKeyed ? { reSettled: true, rescored } : {}),
       });
     },
   );

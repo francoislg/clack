@@ -28,6 +28,7 @@ function args(o: Partial<Args> & { questionId: string }): Args {
   return {
     game: FIXTURE_GAME_NAME,
     outcome: undefined,
+    override: undefined,
     invalidate: undefined,
     invalidatedReason: undefined,
     acceptableAnswers: undefined,
@@ -64,6 +65,40 @@ describe("settle_question — answer a prediction", () => {
       await tool.handler(args({ questionId: "p1", outcome: false }), SESSION),
     );
     assert.match(res.error, /already has an answer key/);
+  });
+
+  it("re-settles an already-keyed question with override and rescores", async () => {
+    const scoped = data.forGame(FIXTURE_GAME_NAME);
+    await scoped.saveQuestion(makePrediction({ isTrue: true, resolved: true }));
+    await scoped.saveAnswer({
+      userId: "U1",
+      questionId: "p1",
+      answer: true,
+      correct: true,
+      timestamp: 1,
+    });
+    await scoped.saveAnswer({
+      userId: "U2",
+      questionId: "p1",
+      answer: false,
+      correct: false,
+      timestamp: 2,
+    });
+    const tool = createSettleQuestionTool(data, fixtureGetGames);
+    const res = parseToolResult(
+      await tool.handler(args({ questionId: "p1", outcome: false, override: true }), SESSION),
+    );
+    assert.equal(res.settled, true);
+    assert.equal(res.reSettled, true);
+    assert.equal(res.rescored, 2);
+    const after = (await scoped.loadQuestions()).find((q) => q.id === "p1");
+    assert.equal(after?.isTrue, false);
+    assert.equal(after?.resolvedOutcome, false);
+    const answers = await scoped.loadAnswers();
+    assert.ok(
+      answers.every((a) => a.correct === undefined),
+      "verdicts cleared for rescore",
+    );
   });
 
   it("settles a freeform prediction with the full judge spec", async () => {
