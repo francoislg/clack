@@ -29,7 +29,7 @@ When the same `<slug>` resolves in both scopes for a given run, the **per-repo**
 
 ### Requirement: Worker-Skill Discovery
 
-The system SHALL discover worker skills for a run by enumerating both the global and per-repo scopes, deriving each skill's `<slug>` from its directory name, and parsing the leading frontmatter for a `description`. Discovery SHALL reuse the shared `parseFrontmatter` / `extractBody` / `validateSlug` helpers. A directory whose slug is invalid, or whose `SKILL.md` is missing or has no non-empty `description`, SHALL be skipped with a debug log — discovery SHALL NOT throw. Frontmatter keys other than `description` SHALL be ignored.
+The system SHALL discover worker skills for a run by enumerating both the global and per-repo scopes, deriving each skill's `<slug>` from its directory name, and parsing the leading frontmatter for a `description`. Discovery SHALL reuse the shared `parseFrontmatter` / `extractBody` / `validateSlug` helpers. A directory SHALL be skipped (with a debug log, never throwing) when its slug is invalid, its `SKILL.md` is missing or unreadable, or its frontmatter `description` is absent or empty after trimming. Frontmatter keys other than `description` SHALL be ignored.
 
 #### Scenario: Valid skill discovered with trigger and body
 
@@ -43,6 +43,12 @@ The system SHALL discover worker skills for a run by enumerating both the global
 - **WHEN** discovery runs
 - **THEN** `broken` is not included in the result
 - **AND** discovery completes without throwing
+
+#### Scenario: Whitespace-only description is skipped
+
+- **GIVEN** `skills/blank/SKILL.md` has frontmatter `description: "   "`
+- **WHEN** discovery runs
+- **THEN** `blank` is not included in the result (the description is empty after trimming)
 
 #### Scenario: Extra frontmatter keys are ignored
 
@@ -81,13 +87,13 @@ When at least one worker skill resolves for a change's repository, the worker ex
 
 ### Requirement: load_skill Tool in Worker Mode
 
-The worker tool set SHALL include a `load_skill({ skill })` tool that returns the resolved worker skill's body as the tool's text result, prefixed with a short preamble identifying the skill. The tool SHALL resolve the skill using the per-repo-masks-global and `configuration`-masks-`default_configuration` precedence for the run's repository, reading bodies through a process-level mtime-keyed cache so on-disk edits propagate within the same run without a restart. An unknown skill name SHALL return a clear error that points Claude back to the `WORKER SKILLS` catalog. The query-mode `pack`-based `load_skill` semantics SHALL NOT apply here; this tool takes no `pack` argument.
+The worker tool set SHALL include a `load_skill({ skill })` tool that returns the resolved worker skill's body as the tool's text result, prefixed with a short preamble identifying the skill (the form `Loaded skill '<slug>'.`, mirroring the query-mode tool). The tool SHALL resolve the skill using the per-repo-masks-global and `configuration`-masks-`default_configuration` precedence for the run's repository, reading bodies through a process-level mtime-keyed cache so on-disk edits propagate within the same run without a restart. An unknown skill name SHALL return a clear error that names the skill and points Claude back to the `WORKER SKILLS` catalog. The query-mode `pack`-based `load_skill` semantics SHALL NOT apply here; this tool takes no `pack` argument.
 
 #### Scenario: Loads the resolved skill body
 
 - **GIVEN** the `rebase` skill resolves for the run's repository
 - **WHEN** Claude calls `load_skill({ skill: "rebase" })`
-- **THEN** the tool returns text beginning with a preamble naming `rebase`
+- **THEN** the tool returns text beginning with `Loaded skill 'rebase'.`
 - **AND** the text contains the skill's body
 
 #### Scenario: Edited body hot-reloads within the run
@@ -102,6 +108,13 @@ The worker tool set SHALL include a `load_skill({ skill })` tool that returns th
 - **GIVEN** a per-repo `{repo}/skills/rebase/SKILL.md` masks the global `rebase`
 - **WHEN** Claude calls `load_skill({ skill: "rebase" })` during a run for `{repo}`
 - **THEN** the per-repo body is returned
+
+#### Scenario: Runtime override is reflected on the next load
+
+- **GIVEN** `load_skill({ skill: "rebase" })` returned the body from `default_configuration/skills/rebase/SKILL.md`
+- **AND** an override `configuration/skills/rebase/SKILL.md` is then written
+- **WHEN** `load_skill({ skill: "rebase" })` is called again in the same run
+- **THEN** the override body is returned (precedence is re-evaluated, not pinned by the cache)
 
 #### Scenario: Unknown skill rejected
 
