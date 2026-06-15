@@ -13,6 +13,7 @@ import {
 import type { StagedIntent } from "../../tools/types.js";
 import { getRole } from "../../roles.js";
 import { canRequestChanges } from "../../permissions.js";
+import { stripClickedButton } from "../stripClickedButton.js";
 import { decodeActionValue } from "../blocks.js";
 import { activeSessions, type SessionInfo } from "../activeSessions.js";
 import type { StagedChangeIntent } from "../../tools/types.js";
@@ -220,8 +221,10 @@ export function registerChangeActionHandler(
       return;
     }
 
-    // Remove the button message
-    await respond({ delete_original: true });
+    const stripped = stripClickedButton(body.message, body.actions[0]?.action_id);
+    if (stripped) {
+      await respond({ replace_original: true, ...stripped });
+    }
 
     const sessionInfo = await deps.restoreSession(sessionId);
     if (!sessionInfo) {

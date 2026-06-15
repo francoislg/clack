@@ -83,23 +83,59 @@ function captureHandler() {
   assert.equal(actionFn.mock.calls.length, 1, "should register exactly one action handler");
   const handler = actionFn.mock.calls[0]![1] as (args: {
     ack: () => Promise<void>;
-    body: { user: { id: string }; channel?: { id: string }; actions: Array<{ value: string }> };
+    body: {
+      user: { id: string };
+      channel?: { id: string };
+      actions: Array<{ value: string; action_id?: string }>;
+      message?: { text?: string; blocks?: unknown[] };
+    };
     client: App["client"];
     respond: (...a: unknown[]) => Promise<void>;
   }) => Promise<void>;
   return handler;
 }
 
+const CONFIG_SECTION = { type: "section", text: { type: "mrkdwn", text: "Config diff" } };
+
+function makeConfigMessage() {
+  return {
+    text: "Apply this config update?",
+    blocks: [
+      CONFIG_SECTION,
+      { type: "divider" },
+      {
+        type: "actions",
+        elements: [
+          {
+            type: "button",
+            action_id: "clack_config_update_0",
+            text: { type: "plain_text", text: "Apply" },
+          },
+        ],
+      },
+    ],
+  };
+}
+
+interface TestBody {
+  user: { id: string };
+  channel?: { id: string };
+  actions: Array<{ value: string; action_id?: string }>;
+  message?: { text?: string; blocks?: unknown[] };
+}
+
 function makeHandlerArgs() {
   const clientBundle = makeClient();
-  const respondFn = vi.fn(async () => {});
+  const respondFn = vi.fn(async (..._args: unknown[]) => {});
+  const body: TestBody = {
+    user: { id: "U001" },
+    channel: { id: "C001" },
+    actions: [{ value: "encoded-value", action_id: "clack_config_update_0" }],
+    message: makeConfigMessage(),
+  };
   return {
     ack: vi.fn(async () => {}),
-    body: {
-      user: { id: "U001" },
-      channel: { id: "C001" },
-      actions: [{ value: "encoded-value" }],
-    },
+    body,
     client: clientBundle.obj,
     postEphemeral: clientBundle.postEphemeral,
     postMessage: clientBundle.postMessage,
@@ -320,9 +356,15 @@ describe("registerConfigUpdateActionHandler — success", () => {
 
     await handler(args);
 
-    // Should ack, respond (delete original), and write the file
+    // Should ack, replace the message (clicked button removed), and write the file
     assert.equal(args.ack.mock.calls.length, 1);
     assert.equal(args.respond.mock.calls.length, 1);
+    const respondArg = args.respond.mock.calls[0]![0] as {
+      replace_original?: boolean;
+      blocks?: unknown[];
+    };
+    assert.equal(respondArg.replace_original, true);
+    assert.deepEqual(respondArg.blocks, [CONFIG_SECTION]);
     assert.equal(mockWriteInstructionFile.mock.calls.length, 1);
     const writeArgs = mockWriteInstructionFile.mock.calls[0]!;
     assert.equal(writeArgs[0], "instructions.md");
@@ -340,6 +382,24 @@ describe("registerConfigUpdateActionHandler — success", () => {
     assert.ok(msgArgs.text.includes("updated"));
     assert.equal(msgArgs.channel, "C001");
     assert.equal(msgArgs.thread_ts, "1700000000.000001");
+  });
+
+  it("leaves the message untouched (never deletes) when the payload has no blocks", async () => {
+    const handler = captureHandler();
+    const configIntent: StagedConfigUpdateIntent = {
+      type: "config_update",
+      operation: "write",
+      file: "instructions.md",
+      content: "new content",
+    };
+    mockGetStagedIntent.mockImplementation(async () => configIntent);
+    const args = makeHandlerArgs();
+    args.body.message = undefined;
+
+    await handler(args);
+
+    assert.equal(args.respond.mock.calls.length, 0);
+    assert.equal(mockWriteInstructionFile.mock.calls.length, 1);
   });
 
   it("writes a topic-scoped intent path through to writeInstructionFile unchanged", async () => {

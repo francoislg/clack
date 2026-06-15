@@ -14,6 +14,7 @@ import type { StagedIntent } from "../../tools/types.js";
 import { getRole } from "../../roles.js";
 import { canRequestChanges } from "../../permissions.js";
 import { decodeActionValue, getChangeRecoveryBlocks } from "../blocks.js";
+import { stripClickedButton } from "../stripClickedButton.js";
 import { activeSessions, type SessionInfo } from "../activeSessions.js";
 import { handleFollowUp } from "../../changes/workflow.js";
 import { getActiveChange, type ActiveChangeState } from "../../changes/activeState.js";
@@ -198,7 +199,10 @@ function registerFollowUpActionHandler(
         return;
       }
 
-      await respond({ delete_original: true });
+      const stripped = stripClickedButton(body.message, body.actions[0]?.action_id);
+      if (stripped) {
+        await respond({ replace_original: true, ...stripped });
+      }
 
       const sessionInfo = await deps.restoreSession(sessionId);
       if (!sessionInfo) {
@@ -299,7 +303,10 @@ function registerRecoveryActionHandler(
         return;
       }
 
-      await respond({ delete_original: true });
+      const stripped = stripClickedButton(body.message, body.actions[0]?.action_id);
+      if (stripped) {
+        await respond({ replace_original: true, ...stripped });
+      }
 
       await triggerFollowUp(
         session,

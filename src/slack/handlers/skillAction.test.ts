@@ -11,14 +11,27 @@ import type { SessionInfo } from "../activeSessions.js";
 // Test scaffolding
 // ---------------------------------------------------------------------------
 
+interface RespondArg {
+  replace_original?: boolean;
+  delete_original?: boolean;
+  text?: string;
+  blocks?: unknown[];
+}
+
 interface CapturedHandler {
   handler: (args: {
     ack: () => Promise<void>;
     body: BlockAction;
     client: App["client"];
-    respond: (args: { delete_original: true }) => Promise<void>;
+    respond: (args: RespondArg) => Promise<void>;
   }) => Promise<void>;
 }
+
+function button(actionId: string, text: string) {
+  return { type: "button", action_id: actionId, text: { type: "plain_text", text } };
+}
+
+const SKILL_SECTION = { type: "section", text: { type: "mrkdwn", text: "Skill proposal" } };
 
 function makeMockApp(): { app: App; captured: CapturedHandler } {
   const captured: CapturedHandler = {
@@ -71,6 +84,14 @@ function makeBody(): BlockAction {
   return {
     user: { id: "U_OWNER" },
     actions: [{ value: JSON.stringify({ s: "S1", r: "REF1" }), action_id: "clack_skill_action_0" }],
+    message: {
+      text: "Skill proposal",
+      blocks: [
+        SKILL_SECTION,
+        { type: "divider" },
+        { type: "actions", elements: [button("clack_skill_action_0", "Create")] },
+      ],
+    },
   } as object as BlockAction;
 }
 
@@ -112,17 +133,18 @@ function makeDeps(
   return { deps, writeUserSkill, updateUserSkill, disableUserSkill, restoreUserSkill };
 }
 
-async function invoke(bundle: MockBundle) {
+async function invoke(bundle: MockBundle, body: BlockAction = makeBody()) {
   const { app, captured } = makeMockApp();
   registerSkillActionHandler(app, bundle.deps);
   const { client, postMessage, postEphemeral } = makeClient();
+  const respond = vi.fn(async (_args: RespondArg) => {});
   await captured.handler({
     ack: async () => {},
-    body: makeBody(),
+    body,
     client,
-    respond: async () => {},
+    respond,
   });
-  return { postMessage, postEphemeral };
+  return { postMessage, postEphemeral, respond };
 }
 
 // ---------------------------------------------------------------------------
@@ -156,6 +178,38 @@ describe("skillAction handler — create", () => {
     const { postEphemeral } = await invoke(bundle);
     assert.equal(bundle.writeUserSkill.mock.calls.length, 0);
     assert.equal(postEphemeral.mock.calls.length, 1);
+  });
+
+  it("preserves the message and removes the clicked button on apply", async () => {
+    const intent: StagedIntent = {
+      type: "skill_create",
+      slug: "foo",
+      description: "d",
+      body: "b",
+      ownerUserId: "U_OWNER",
+    };
+    const bundle = makeDeps({ intent, role: "member", userSkillExists: false });
+    const { respond } = await invoke(bundle);
+    assert.equal(respond.mock.calls.length, 1);
+    const arg = respond.mock.calls[0][0];
+    assert.equal(arg.replace_original, true);
+    assert.deepEqual(arg.blocks, [SKILL_SECTION]);
+  });
+
+  it("leaves the message untouched (never deletes) when the payload has no blocks", async () => {
+    const intent: StagedIntent = {
+      type: "skill_create",
+      slug: "foo",
+      description: "d",
+      body: "b",
+      ownerUserId: "U_OWNER",
+    };
+    const bundle = makeDeps({ intent, role: "member", userSkillExists: false });
+    const body = makeBody();
+    body.message = undefined;
+    const { respond, postMessage } = await invoke(bundle, body);
+    assert.equal(respond.mock.calls.length, 0);
+    assert.equal(postMessage.mock.calls.length, 1);
   });
 });
 

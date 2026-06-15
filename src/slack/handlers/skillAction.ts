@@ -9,6 +9,7 @@ import {
   canManageUserSkill,
 } from "../../permissions.js";
 import { decodeActionValue } from "../blocks.js";
+import { stripClickedButton } from "../stripClickedButton.js";
 import { activeSessions, type SessionInfo } from "../activeSessions.js";
 import {
   writeUserSkill,
@@ -74,7 +75,10 @@ export function registerSkillActionHandler(
       return;
     }
 
-    await respond({ delete_original: true });
+    const stripped = stripClickedButton(body.message, body.actions[0]?.action_id);
+    if (stripped) {
+      await respond({ replace_original: true, ...stripped });
+    }
 
     const sessionInfo = await deps.restoreSession(sessionId);
     if (!sessionInfo) {
