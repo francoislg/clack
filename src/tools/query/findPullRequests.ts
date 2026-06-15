@@ -53,6 +53,12 @@ export const defaultFindPullRequestsDeps: FindPullRequestsDeps = {
   listPulls: defaultListPulls,
 };
 
+const DEFAULT_PR_LIMIT = 20;
+const MAX_PR_LIMIT = 50;
+// GitHub is queried for a single page; results past this are not fetched, so
+// `total`/pagination only cover the most-recently-updated PRs within it.
+const GITHUB_PAGE_SIZE = 100;
+
 const STATE_ENUM = z
   .enum(["open", "closed", "merged", "all"])
   .describe(
@@ -65,7 +71,7 @@ export function createFindPullRequestsTool(
 ) {
   return tool(
     "find_pull_requests",
-    "Find pull requests on a repository via GitHub. Supports filtering by state (open, closed, merged, all), branch, and date.",
+    "Find pull requests on a repository via GitHub, filtered by state (open, closed, merged, all), branch, and date. Returns a lean, paginated list (no PR bodies) — number, title, state, branch, author, createdAt, mergedAt, url. Only the 100 most-recently-updated PRs are fetched; when the response has `fetchCapped: true`, older matching PRs exist beyond the fetched page — narrow with `since`/`branch`/`state` to reach them rather than paging past it. To read a single PR's full body, diff, or reviews, attach the `github` integration and fetch it by number.",
     {
       repo: z
         .string()
@@ -80,6 +86,21 @@ export function createFindPullRequestsTool(
         .describe(
           "ISO 8601 date or datetime. Only return PRs updated/merged on or after this date (e.g. '2026-03-30' or '2026-03-30T00:00:00Z').",
         ),
+      offset: z
+        .number()
+        .int()
+        .min(0)
+        .optional()
+        .describe(
+          "Number of matching PRs to skip before returning results (default 0). Use with `limit` to page.",
+        ),
+      limit: z
+        .number()
+        .int()
+        .min(1)
+        .max(MAX_PR_LIMIT)
+        .optional()
+        .describe(`Max PRs to return per page (default ${DEFAULT_PR_LIMIT}, max ${MAX_PR_LIMIT}).`),
     },
     async (args) => {
       const visibleRepos = deps.getVisibleRepos(ctx.role, ctx.config.repositories);
@@ -106,8 +127,12 @@ export function createFindPullRequestsTool(
           state: apiState,
           sort: "updated",
           direction: "desc",
-          per_page: 100,
+          per_page: GITHUB_PAGE_SIZE,
         });
+
+        // The fetch is a single page; a full page means older matching PRs may
+        // exist beyond it, so `total` and offset/limit are bounded to this page.
+        const fetchCapped = pulls.length >= GITHUB_PAGE_SIZE;
 
         let filtered = pulls;
 
@@ -129,7 +154,11 @@ export function createFindPullRequestsTool(
           });
         }
 
-        const result = filtered.map((pr) => ({
+        const total = filtered.length;
+        const offset = args.offset ?? 0;
+        const limit = args.limit ?? DEFAULT_PR_LIMIT;
+
+        const pullRequests = filtered.slice(offset, offset + limit).map((pr) => ({
           url: pr.html_url,
           number: pr.number,
           title: pr.title,
@@ -139,10 +168,15 @@ export function createFindPullRequestsTool(
           createdAt: pr.created_at,
           updatedAt: pr.updated_at,
           ...(pr.merged_at && { mergedAt: pr.merged_at }),
-          ...(pr.body && { body: pr.body.substring(0, 500) }),
         }));
 
-        return textResult(result);
+        return textResult({
+          pullRequests,
+          total,
+          offset,
+          limit,
+          ...(fetchCapped && { fetchCapped: true }),
+        });
       } catch (error) {
         logger.debug(`Failed to fetch PRs for ${args.repo}: ${errorMessage(error)}`);
         return errorResult(`Failed to fetch pull requests: ${errorMessage(error)}`);

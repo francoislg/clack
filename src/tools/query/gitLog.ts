@@ -4,7 +4,7 @@ import { resolve } from "node:path";
 import { existsSync } from "node:fs";
 import { simpleGit } from "simple-git";
 import type { QueryToolContext } from "../types.js";
-import { textResult, errorResult } from "../helpers.js";
+import { textResult, errorResult, MAX_TOOL_OUTPUT_CHARS } from "../helpers.js";
 import { getVisibleRepos } from "../../repoAccess.js";
 import type { RepositoryConfig } from "../../config.js";
 import { getRepositoriesDir } from "../../config.js";
@@ -37,18 +37,38 @@ export const defaultDeps: GitLogDeps = {
   findLocalBranchSource,
 };
 
-const MAX_OUTPUT_CHARS = 100_000;
-
 export function createGitLogTool(ctx: QueryToolContext, deps: GitLogDeps = defaultDeps) {
   return tool(
     "git_log",
-    "Run git log on a local repository clone with any supported git log arguments. Returns raw output plus shallow-clone metadata. When `branch` is provided and the branch is currently checked out in a reusable-pool worker, reads from that worker — useful when the worker has commits not yet pulled by the main clone.",
+    "Run git log on a local repository clone. Prefer the lean path: pass `limit` and `path` to scope to a few commits on specific files (e.g. answering 'when was X last changed'). `since` windows by date. For anything else (author, --grep, -S pickaxe, custom --pretty), use `args`. Returns raw output plus shallow-clone metadata. If the result would be too large it is REFUSED with suggestions — narrow it rather than expecting truncated output. When `branch` is currently checked out in a reusable-pool worker, reads from that worker.",
     {
       repo: z.string().describe("Repository name"),
+      path: z
+        .union([z.string(), z.array(z.string())])
+        .optional()
+        .describe(
+          "Scope the log to one or more file/directory paths (mapped to `git log -- <path>`).",
+        ),
+      limit: z
+        .number()
+        .int()
+        .positive()
+        .optional()
+        .describe(
+          "Max number of commits to return (mapped to `-n <limit>`). Use this to stay lean.",
+        ),
+      since: z
+        .string()
+        .optional()
+        .describe(
+          'Only commits after this date (mapped to `--since=<since>`, e.g. "2026-04-17" or "2 weeks ago").',
+        ),
       args: z
         .array(z.string())
         .optional()
-        .describe('Git log arguments (e.g., ["--oneline", "-n", "10", "--author=John"])'),
+        .describe(
+          'Additional raw git log arguments (e.g., ["--oneline", "--author=John", "-Semployee"]).',
+        ),
       branch: z
         .string()
         .optional()
@@ -88,19 +108,25 @@ export function createGitLogTool(ctx: QueryToolContext, deps: GitLogDeps = defau
         const commitCountRaw = await git.raw(["rev-list", "--count", "HEAD"]);
         const availableCommits = parseInt(commitCountRaw.trim(), 10) || 0;
 
-        // Run git log with user-provided args
-        const logArgs = ["log", ...(input.args ?? [])];
-        let output = await git.raw(logArgs);
+        // First-class params map to git flags and compose with raw `args`;
+        // duplicates are left to git's last-flag-wins semantics. Paths go last
+        // (after `--`) so they aren't parsed as revisions.
+        const limitArgs = input.limit !== undefined ? ["-n", String(input.limit)] : [];
+        const sinceArgs = input.since !== undefined ? [`--since=${input.since}`] : [];
+        const paths =
+          input.path === undefined ? [] : Array.isArray(input.path) ? input.path : [input.path];
+        const pathArgs = paths.length > 0 ? ["--", ...paths] : [];
 
-        let truncated = false;
-        if (output.length > MAX_OUTPUT_CHARS) {
-          output =
-            output.slice(0, MAX_OUTPUT_CHARS) +
-            "\n\n--- OUTPUT TRUNCATED (exceeded 100K characters) ---";
-          truncated = true;
+        const logArgs = ["log", ...limitArgs, ...sinceArgs, ...(input.args ?? []), ...pathArgs];
+        const output = await git.raw(logArgs);
+
+        if (output.length > MAX_TOOL_OUTPUT_CHARS) {
+          return errorResult(
+            `git log result too large (${output.length} characters). Narrow it: add \`limit\` to cap commits, scope with \`path\`, window with \`since\` (or \`--since\`), compact with \`--oneline\`, or search content with \`-S<string>\`/\`--grep\` in \`args\`.`,
+          );
         }
 
-        return textResult({ output, shallow, availableCommits, truncated });
+        return textResult({ output, shallow, availableCommits });
       } catch (error) {
         logger.debug(`git_log failed for ${repo.name}: ${error}`);
         return errorResult(`git log failed: ${errorMessage(error)}`);
