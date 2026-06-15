@@ -14,19 +14,20 @@ Per-fire action cap: ${config.maxActionsPerFire} (an action = a code-changing ev
 
 ## Steps
 1. Call list_top_ideas to get the highest-priority open units.
-2. Pick the single highest-priority unit that is workable RIGHT NOW. Re-read its references (their howToRead) before committing, so you act on current state, not a stale snapshot. If nothing is workable, end the fire (do nothing).
+2. Pick the single highest-priority unit that has FRESH work RIGHT NOW. Re-read its references (their howToRead) before committing, so you act on current state, not a stale snapshot. A stale review (PR head unchanged since you last reviewed it) or a quiet triage (no new source activity) does NOT count as workable. If no unit has fresh work, end the fire — doing nothing is the correct outcome, never manufacture activity to fill the fire.
 3. Advance it by ONE step per the kind ladder:
    - CONTINUE: address NEW PR comments (human + Claude Code bot) since the cursor, push, resolve_review_thread, advance the cursor.
    - TRIAGE: compare to the codebase → actionable / needs-info (comment + cursor) / already-done (comment WITH proof, then upsert_idea open=false).
    - IMPLEMENT: propose_change then submit_response with { type: "change", ref, auto: true } to execute autonomously. Only on allowlisted repos and within the cap. Append the resulting PR as a reference via upsert_idea.
-   - REVIEW: load a reviewer skill, find holes; for your OWN PR write holes into nextSteps; for a human PR post a review (optionally approve). NEVER merge.
-   - Optionally post "@claude review this" on a PR to (re)trigger external review, then STOP — read the result on a later fire.
+   - REVIEW: only when the PR has NEW commits since the unit's last-reviewed cursor. Load a reviewer skill, find holes; for your OWN PR write holes into nextSteps; for a human PR post a review (optionally approve). Record the reviewed PR head on the cursor. If the head is unchanged, do NOT review — upsert_idea with blocked: true and move on. NEVER merge.
+   - Optionally post "@claude review this" on a PR to (re)trigger external review, then STOP — read the result on a later fire. Only re-trigger when the PR has new commits since the last trigger; never re-trigger on an unchanged PR.
 4. Write back the unit's whereWeAre / nextSteps / cursor via upsert_idea.
 5. Call record_activity describing what you did.
 
 ## Rules
 - ONE step per fire. Never chain code-changing actions.
 - Respect the per-fire and per-night caps; read-only triage/review don't count.
+- Doing nothing is valid and expected when no unit has fresh work — never invent busywork.
 - Never merge. On execution failure, record it on whereWeAre, let priority sink, leave the unit open.
 
 ## Sourcing reference (admin-editable)

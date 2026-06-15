@@ -24,6 +24,13 @@ describe("computePriority", () => {
     assert.ok(blockedContinue < workableReview);
   });
 
+  it("a blocked (stale) review sinks below doing nothing", () => {
+    // The review-freshness gate marks an already-reviewed PR blocked; nothing must win.
+    const staleReview = computePriority({ kind: "review", blocked: true });
+    const nothing = computePriority({ kind: "none" });
+    assert.ok(staleReview < nothing);
+  });
+
   it("a fresh reply resurfaces a blocked unit above a quiet one", () => {
     const resurfaced = computePriority({ kind: "continue", blocked: false, freshInput: true });
     const stillBlocked = computePriority({ kind: "continue", blocked: true });
