@@ -1,11 +1,14 @@
-/** The window during which Clack is "at work". The idler fires only OUTSIDE this window. */
-export interface IdlerActiveHours {
+/**
+ * An hours window on a set of days. Used for both the work and sync schedules. The schedule fires
+ * INSIDE the window; set start > end for an overnight window (e.g. start 18, end 9 = 6 PM–9 AM).
+ */
+export interface IdlerWindow {
   /** Inclusive start hour [0..23]. */
   start: number;
   /** Exclusive end hour [1..24]. */
   end: number;
   tz: string;
-  /** Days [0..6] (0 = Sunday) the active window applies. The idler is idle on all other days. */
+  /** Days [0..6] (0 = Sunday) the schedule runs. It is idle on all other days. */
   days: number[];
 }
 
@@ -21,16 +24,19 @@ export interface IdlerSources {
 
 export interface IdlerConfig {
   enabled: boolean;
-  activeHours: IdlerActiveHours;
+  /** When the idler works — it fires INSIDE this window. */
+  workHours: IdlerWindow;
+  /** When sync (ledger priming) runs. Absent ⇒ the complement of `workHours`. */
+  syncHours?: IdlerWindow;
   /** Repos the idler may act on. Empty ⇒ the plugin does nothing (safety default). */
   repoAllowlist: string[];
   /** Absent ⇒ no summary task is reconciled. */
   reportingChannel?: string;
-  /** Hour [0..23] the morning digest fires. Absent ⇒ the active-window start. */
+  /** Hour [0..23] the morning digest fires. Absent ⇒ 9 (AM). */
   summaryHour?: number;
   /** Cap on code-changing actions per single work fire. */
   maxActionsPerFire: number;
-  /** Cap on code-changing actions across one off-hours window. */
+  /** Cap on code-changing actions across one work window. */
   maxActionsPerNight: number;
   sources: IdlerSources;
 }

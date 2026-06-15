@@ -1,6 +1,6 @@
 import type { ClackSdk, ClackPlugin, CronJobSpec } from "../sdk.js";
 import { isOperational, loadConfig } from "./config.js";
-import { buildActiveHoursCron, buildOffHoursCron, buildSummaryCron } from "./heuristic.js";
+import { buildComplementCron, buildWindowCron, buildSummaryCron } from "./heuristic.js";
 import { loadFetchInstructions } from "./fetchInstructions.js";
 import { BEHAVIOR_INSTRUCTION } from "./instructions.js";
 import { buildSyncPrompt } from "./prompts/sync.js";
@@ -23,7 +23,8 @@ import {
   createClearIdeaTool,
   createRemoveChannelTool,
   createRemoveRepoTool,
-  createSetActiveHoursTool,
+  createSetWorkHoursTool,
+  createSetSyncHoursTool,
   createSetConfigTool,
   createViewIdeasTool,
 } from "./tools/management.js";
@@ -35,7 +36,7 @@ import {
 const TOPIC = "idler";
 
 const MANAGEMENT_DESCRIPTION =
-  "Manage the idler plugin: enable/disable, active hours, reporting channel, repo allowlist, action caps, discovery channels, the work-unit ledger, and the admin-editable sourcing guidance (fetch-instructions.md). Edits hot-reload on the next fire.";
+  "Manage the idler plugin: enable/disable, work hours, sync hours, reporting channel, repo allowlist, action caps, discovery channels, the work-unit ledger, and the admin-editable sourcing guidance (fetch-instructions.md). Edits hot-reload on the next fire.";
 
 export const idlerPlugin: ClackPlugin = async (sdk: ClackSdk) => {
   if (!sdk.capabilities.crons) {
@@ -64,7 +65,8 @@ export const idlerPlugin: ClackPlugin = async (sdk: ClackSdk) => {
   });
   management.addTopicInstruction("admin", "manage", MANAGEMENT_DESCRIPTION);
   management.registerTool("admin", createSetConfigTool(sdk), "Updating idler config");
-  management.registerTool("admin", createSetActiveHoursTool(sdk), "Setting idler active hours");
+  management.registerTool("admin", createSetWorkHoursTool(sdk), "Setting idler work hours");
+  management.registerTool("admin", createSetSyncHoursTool(sdk), "Setting idler sync hours");
   management.registerTool("admin", createAddRepoTool(sdk), "Adding idler repo — {repo}");
   management.registerTool("admin", createRemoveRepoTool(sdk), "Removing idler repo — {repo}");
   management.registerTool("admin", createAddChannelTool(sdk), "Adding idler channel — {id}");
@@ -97,16 +99,18 @@ export const idlerPlugin: ClackPlugin = async (sdk: ClackSdk) => {
     }
 
     const fetchInstructions = await loadFetchInstructions(sdk);
-    const tz = config.activeHours.tz;
+    const tz = config.workHours.tz;
     const specs: CronJobSpec[] = [];
 
-    const syncCron = buildActiveHoursCron(config.activeHours, "45");
+    const syncCron = config.syncHours
+      ? buildWindowCron(config.syncHours, "45")
+      : buildComplementCron(config.workHours, "45");
     if (syncCron) {
       specs.push({
         specKey: "sync",
         cronExpression: syncCron,
         prompt: buildSyncPrompt(config, fetchInstructions),
-        timezone: tz,
+        timezone: config.syncHours?.tz ?? tz,
         name: "Idler sync",
         submitResponseMode: "skipped",
         attachedTopics: [TOPIC],
@@ -115,7 +119,7 @@ export const idlerPlugin: ClackPlugin = async (sdk: ClackSdk) => {
 
     specs.push({
       specKey: "work",
-      cronExpression: buildOffHoursCron(config.activeHours, "*/15"),
+      cronExpression: buildWindowCron(config.workHours, "*/15"),
       channel: config.reportingChannel,
       prompt: buildWorkPrompt(config, fetchInstructions),
       timezone: tz,
@@ -126,10 +130,7 @@ export const idlerPlugin: ClackPlugin = async (sdk: ClackSdk) => {
 
     specs.push({
       specKey: "summary",
-      cronExpression: buildSummaryCron(
-        config.activeHours,
-        config.summaryHour ?? config.activeHours.start,
-      ),
+      cronExpression: buildSummaryCron(config.workHours, config.summaryHour ?? 9),
       channel: config.reportingChannel,
       prompt: buildSummaryPrompt(),
       timezone: tz,
