@@ -91,6 +91,16 @@ describe("humanReadableSchedule", () => {
     assert.equal(result, "Every hour from 12 AM to 6 AM");
   });
 
+  it("merges a comma-listed off-hours complement into one wrap-around window", () => {
+    const result = humanReadableSchedule("0 0-8,18-23 * * 1-5", "UTC");
+    assert.equal(result, "Every hour from 6 PM to 8 AM on weekdays");
+  });
+
+  it("describes the off-hours work cron with its minute step", () => {
+    const result = humanReadableSchedule("*/15 0-8,18-23 * * 1-5", "UTC");
+    assert.equal(result, "Every 15 minutes from 6 PM to 8 AM on weekdays");
+  });
+
   it("treats 0-6 dayOfWeek as every day in sub-daily form", () => {
     const result = humanReadableSchedule("*/15 * * * 0-6", "UTC");
     assert.equal(result, "Every 15 minutes");
