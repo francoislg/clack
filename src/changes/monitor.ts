@@ -12,6 +12,7 @@ import {
 } from "./activeState.js";
 import { getPool, lazyDefaultPool } from "../workers/index.js";
 import { ReusablePool } from "../workers/reusablePool.js";
+import { poolWorkerForChange } from "./poolWorker.js";
 import type { ReleaseReason, Worker, WorkerPool } from "../workers/types.js";
 
 /**
@@ -21,7 +22,7 @@ import type { ReleaseReason, Worker, WorkerPool } from "../workers/types.js";
  */
 export interface IdleSweepPool {
   idleSweepCandidates(now?: Date): Promise<Worker[]>;
-  detachIfClean(worker: Worker): Promise<boolean>;
+  detachIfClean(worker: Worker, options?: { treatUnpushedAsDirty?: boolean }): Promise<boolean>;
 }
 
 // ============================================================================
@@ -73,33 +74,6 @@ export function setMonitorDeps(d: MonitorDeps): void {
 
 export function resetMonitorDeps(): void {
   deps = defaultMonitorDeps;
-}
-
-/**
- * Look up the pool's `Worker` record corresponding to an `ActiveChangeState.worktree`.
- * Returns null if the pool no longer tracks it (e.g., quarantined out of band, or
- * disposable-mode where the path-derived match is the whole story).
- */
-function poolWorkerForChange(activeChange: ActiveChangeState, pool: WorkerPool): Worker | null {
-  if (!activeChange.worktree) return null;
-  const byBranch = pool.findByBranch(
-    activeChange.worktree.repoName,
-    activeChange.worktree.branchName,
-  );
-  if (byBranch) return byBranch;
-  // Disposable-mode fallback: synthesize a Worker from the worktree info so release works.
-  return {
-    id: activeChange.worktree.branchName.replace(/\//g, "-"),
-    repo: activeChange.worktree.repoName,
-    worktreePath: activeChange.worktree.worktreePath,
-    currentBranch: activeChange.worktree.branchName,
-    status: "busy",
-    setupComplete: true,
-    setupVersionHash: null,
-    claimedBy: null,
-    lastUsedAt: new Date(),
-    createdAt: activeChange.worktree.createdAt,
-  };
 }
 
 // ============================================================================
@@ -182,8 +156,8 @@ async function cleanupSession(
 
 /**
  * Idle-release sweep — runs alongside the completion check. Detaches workers
- * that have been holding a `pr_created` session's branch past `idleReleaseHours`
- * with no live Claude run, so the slot can serve other branches.
+ * that have been holding a `pr_created` or `failed` session's branch past
+ * `idleReleaseHours` with no live Claude run, so the slot can serve other branches.
  *
  * Only meaningful in reusable mode (the disposable pool's release is destructive
  * and is already triggered by PR completion, not idle time). The session keeps
@@ -222,8 +196,9 @@ export async function runIdleSweep(): Promise<void> {
       continue;
     }
 
-    // Only detach pr_created sessions — others are still actively executing
-    if (activeChange.status !== "pr_created") {
+    // Only detach idle sessions: pr_created (work is on the PR) or failed
+    // (recovery window expired) — others are still actively executing.
+    if (activeChange.status !== "pr_created" && activeChange.status !== "failed") {
       skipped++;
       continue;
     }
@@ -235,7 +210,12 @@ export async function runIdleSweep(): Promise<void> {
     }
 
     try {
-      const ok = await pool.detachIfClean(worker);
+      // A failed session may hold committed-but-unpushed work (a pr_created one
+      // cannot — the PR implies a pushed branch); quarantine instead of releasing
+      // so a later `checkout -B` from origin can't destroy it.
+      const ok = await pool.detachIfClean(worker, {
+        treatUnpushedAsDirty: activeChange.status === "failed",
+      });
       if (ok) {
         deps.detachActiveChangeWorktree(sessionId);
         detached++;

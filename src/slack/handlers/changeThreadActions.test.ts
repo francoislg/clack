@@ -5,8 +5,9 @@ import type { UserRole } from "../../roles.js";
 import type { StagedIntent, StagedUpdateIntent } from "../../tools/types.js";
 import type { SessionInfo } from "../activeSessions.js";
 import type { SessionContext } from "../../sessions.js";
-import type { ChangeResult, FollowUpCommand } from "../../changes/types.js";
+import type { ActiveChangeState } from "../../changes/activeState.js";
 import {
+  maybeOfferRecovery,
   registerChangeThreadActionHandlers,
   triggerFollowUp,
   type ChangeThreadActionsDeps,
@@ -58,6 +59,7 @@ const mockFinalizeStreamedWorkflow = vi.fn<ChangeThreadActionsDeps["finalizeStre
   async () => {},
 );
 const mockSetAttentionLevel = vi.fn<ChangeThreadActionsDeps["setAttentionLevel"]>(async () => {});
+const mockGetActiveChange = vi.fn<ChangeThreadActionsDeps["getActiveChange"]>(() => undefined);
 
 const mockPostEphemeralFn = vi.fn<
   (args: {
@@ -68,7 +70,12 @@ const mockPostEphemeralFn = vi.fn<
   }) => Promise<{ ok: boolean }>
 >(async () => ({ ok: true }));
 const mockPostMessageFn = vi.fn<
-  (args: { channel: string; thread_ts: string; text: string }) => Promise<{ ok: boolean }>
+  (args: {
+    channel: string;
+    thread_ts: string;
+    text: string;
+    blocks?: Array<{ type: string }>;
+  }) => Promise<{ ok: boolean }>
 >(async () => ({ ok: true }));
 
 function makeDeps(): ChangeThreadActionsDeps {
@@ -84,6 +91,7 @@ function makeDeps(): ChangeThreadActionsDeps {
     createStreamer: mockCreateStreamer,
     finalizeStreamedWorkflow: mockFinalizeStreamedWorkflow,
     setAttentionLevel: mockSetAttentionLevel,
+    getActiveChange: mockGetActiveChange,
   };
 }
 
@@ -192,6 +200,8 @@ beforeEach(() => {
   mockPostEphemeralFn.mockClear();
   mockPostMessageFn.mockClear();
   mockSetAttentionLevel.mockClear();
+  mockGetActiveChange.mockClear();
+  mockGetActiveChange.mockImplementation(() => undefined);
 
   // Reset to defaults
   mockGetRole.mockImplementation(async () => "dev");
@@ -226,8 +236,8 @@ beforeEach(() => {
 // ============================================================================
 
 describe("registerChangeThreadActionHandlers — registration", () => {
-  it("registers four action handlers", () => {
-    assert.equal(registeredHandlers.size, 4, "should register exactly four action handlers");
+  it("registers seven action handlers", () => {
+    assert.equal(registeredHandlers.size, 7, "should register exactly seven action handlers");
   });
 
   it("registers handlers for review, merge, update, and close", () => {
@@ -236,6 +246,13 @@ describe("registerChangeThreadActionHandlers — registration", () => {
     assert.ok(patterns.some((p) => p.includes("clack_merge")));
     assert.ok(patterns.some((p) => p.includes("clack_update_change")));
     assert.ok(patterns.some((p) => p.includes("clack_close")));
+  });
+
+  it("registers handlers for the recovery actions", () => {
+    const patterns = Array.from(registeredHandlers.keys());
+    assert.ok(patterns.some((p) => p.includes("clack_continue_change")));
+    assert.ok(patterns.some((p) => p.includes("clack_restart_change")));
+    assert.ok(patterns.some((p) => p.includes("clack_discard_change")));
   });
 });
 
@@ -765,5 +782,200 @@ describe("triggerFollowUp", () => {
       assert.equal(msgArg.channel, "D_DM");
       assert.equal(msgArg.thread_ts, "1700000099.000001");
     }
+  });
+
+  it("offers the recovery actions when the change ends up failed", async () => {
+    mockGetActiveChange.mockImplementation(() => makeActiveChangeForRecovery("failed"));
+    const session = makeSession();
+    const client = makeClient();
+
+    await triggerFollowUp(
+      session,
+      "continue",
+      undefined,
+      {
+        channelId: "C001",
+        threadTs: "1700000000.000001",
+        userId: "U001",
+        client,
+      },
+      makeDeps(),
+    );
+
+    assert.equal(mockPostMessageFn.mock.calls.length, 1);
+    const msgArg = mockPostMessageFn.mock.calls[0][0];
+    assert.ok(Array.isArray(msgArg.blocks) && msgArg.blocks.length === 2);
+  });
+
+  it("does not offer recovery actions when the change is not failed", async () => {
+    mockGetActiveChange.mockImplementation(() => makeActiveChangeForRecovery("pr_created"));
+    const session = makeSession();
+    const client = makeClient();
+
+    await triggerFollowUp(
+      session,
+      "review",
+      undefined,
+      {
+        channelId: "C001",
+        threadTs: "1700000000.000001",
+        userId: "U001",
+        client,
+      },
+      makeDeps(),
+    );
+
+    assert.equal(mockPostMessageFn.mock.calls.length, 0);
+  });
+});
+
+// ============================================================================
+// Recovery button handlers
+// ============================================================================
+
+function makeActiveChangeForRecovery(status: ActiveChangeState["status"]): ActiveChangeState {
+  return {
+    branch: "feat/x",
+    repo: "org/repo",
+    description: "d",
+    status,
+    startedAt: new Date(),
+    lastActivityAt: new Date(),
+  };
+}
+
+describe("registerChangeThreadActionHandlers — recovery buttons", () => {
+  it("continue button triggers the continue follow-up without a staged intent", async () => {
+    const handler = getHandler("clack_continue_change");
+    const session = makeSession();
+    mockFindSessionByThread.mockImplementation(async () => session);
+
+    const args = makeHandlerArgs();
+    await handler(args);
+
+    assert.equal(mockGetStagedIntent.mock.calls.length, 0, "no intent resolution");
+    assert.equal(mockHandleFollowUp.mock.calls.length, 1);
+    const followUpArgs = mockHandleFollowUp.mock.calls[0];
+    assert.equal(followUpArgs[0], session);
+    assert.equal(followUpArgs[1], "continue");
+    assert.equal(followUpArgs[2], undefined);
+  });
+
+  it("restart and discard buttons map to their commands", async () => {
+    for (const [prefix, command] of [
+      ["clack_restart_change", "restart"],
+      ["clack_discard_change", "discard"],
+    ] as const) {
+      mockHandleFollowUp.mockClear();
+      const handler = getHandler(prefix);
+
+      await handler(makeHandlerArgs());
+
+      assert.equal(mockHandleFollowUp.mock.calls.length, 1);
+      assert.equal(mockHandleFollowUp.mock.calls[0][1], command);
+    }
+  });
+
+  it("deletes the buttons message after validation", async () => {
+    const handler = getHandler("clack_continue_change");
+    const args = makeHandlerArgs();
+
+    await handler(args);
+
+    assert.equal(args.respond.mock.calls.length, 1);
+    const respondArg = args.respond.mock.calls[0][0];
+    assert.ok(
+      respondArg &&
+        typeof respondArg === "object" &&
+        "delete_original" in respondArg &&
+        respondArg.delete_original === true,
+    );
+  });
+
+  it("blocks member role with an ephemeral message and keeps the buttons", async () => {
+    const handler = getHandler("clack_restart_change");
+    mockGetRole.mockImplementation(async () => "member");
+    const args = makeHandlerArgs();
+
+    await handler(args);
+
+    assert.equal(mockHandleFollowUp.mock.calls.length, 0);
+    assert.equal(args.respond.mock.calls.length, 0, "buttons stay for an authorized dev");
+    assert.equal(mockPostEphemeralFn.mock.calls.length, 1);
+    const msgArg = mockPostEphemeralFn.mock.calls[0][0];
+    assert.ok(typeof msgArg.text === "string" && msgArg.text.includes("permission"));
+  });
+
+  it("any dev can recover another dev's change (no requester gate)", async () => {
+    const handler = getHandler("clack_continue_change");
+    const session = makeSession({ userId: "U_ORIGINAL_REQUESTER" });
+    mockFindSessionByThread.mockImplementation(async () => session);
+
+    const args = makeHandlerArgs({
+      body: {
+        user: { id: "U_ANOTHER_DEV" },
+        channel: { id: "C001" },
+        actions: [{ value: "encoded-value" }],
+      },
+    });
+    await handler(args);
+
+    assert.equal(mockHandleFollowUp.mock.calls.length, 1);
+  });
+
+  it("posts ephemeral when the thread has no active change", async () => {
+    const handler = getHandler("clack_discard_change");
+    mockFindSessionByThread.mockImplementation(async () =>
+      makeSession({ activeChange: undefined }),
+    );
+    const args = makeHandlerArgs();
+
+    await handler(args);
+
+    assert.equal(mockHandleFollowUp.mock.calls.length, 0);
+    assert.equal(mockPostEphemeralFn.mock.calls.length, 1);
+    const msgArg = mockPostEphemeralFn.mock.calls[0][0];
+    assert.ok(typeof msgArg.text === "string" && msgArg.text.includes("No active change"));
+  });
+
+  it("re-engages a disengaged thread on recovery click", async () => {
+    const handler = getHandler("clack_continue_change");
+    mockFindSessionByThread.mockImplementation(async () => makeSession({ attentionLevel: "off" }));
+    const args = makeHandlerArgs();
+
+    await handler(args);
+
+    assert.equal(mockSetAttentionLevel.mock.calls.length, 1);
+    assert.equal(mockSetAttentionLevel.mock.calls[0][1], "medium");
+  });
+});
+
+// ============================================================================
+// maybeOfferRecovery
+// ============================================================================
+
+describe("maybeOfferRecovery", () => {
+  it("posts the recovery buttons when the change is failed", async () => {
+    mockGetActiveChange.mockImplementation(() => makeActiveChangeForRecovery("failed"));
+    const client = makeClient();
+
+    await maybeOfferRecovery("session-1", client, "C001", "1700000000.000001", makeDeps());
+
+    assert.equal(mockPostMessageFn.mock.calls.length, 1);
+    const msgArg = mockPostMessageFn.mock.calls[0][0];
+    assert.equal(msgArg.channel, "C001");
+    assert.equal(msgArg.thread_ts, "1700000000.000001");
+    assert.equal(msgArg.blocks?.[1]?.type, "actions");
+  });
+
+  it("does nothing when the change is missing or not failed", async () => {
+    const client = makeClient();
+
+    await maybeOfferRecovery("session-1", client, "C001", "1700000000.000001", makeDeps());
+
+    mockGetActiveChange.mockImplementation(() => makeActiveChangeForRecovery("cancelled"));
+    await maybeOfferRecovery("session-1", client, "C001", "1700000000.000001", makeDeps());
+
+    assert.equal(mockPostMessageFn.mock.calls.length, 0);
   });
 });

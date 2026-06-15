@@ -56,6 +56,33 @@ export async function switchBranch(
 }
 
 /**
+ * Hard-reset a worker's worktree and re-create the branch from `origin/<default>`.
+ * Used by the Start-over recovery action: the dev explicitly chose to scrap the
+ * in-progress work, so uncommitted edits, untracked files, and local commits are
+ * all discarded WITHOUT the dirty-quarantine protection.
+ */
+export async function forceResetBranch(
+  worker: Worker,
+  repo: RepositoryConfig,
+  branch: string,
+): Promise<void> {
+  await setAuthenticatedRemote(worker.worktreePath, repo.url);
+  const git = getGitInstance(worker.worktreePath);
+  const defaultBranch = repo.branch || "main";
+
+  try {
+    await git.fetch(["--all"]);
+  } catch (err) {
+    logger.warn(`fetch failed in ${worker.worktreePath}: ${errorMessage(err)}`);
+  }
+
+  await git.raw(["reset", "--hard", "HEAD"]);
+  await git.raw(["clean", "-fd"]);
+  await git.raw(["checkout", "-B", branch, `origin/${defaultBranch}`]);
+  worker.currentBranch = branch;
+}
+
+/**
  * Switch a worker back to the default branch (used during idle release / detach).
  * Quarantines if dirty.
  */

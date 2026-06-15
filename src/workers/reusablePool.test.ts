@@ -1,10 +1,15 @@
 import { describe, it, beforeEach, afterEach, vi } from "vitest";
 import assert from "node:assert/strict";
-import { mkdirSync, rmSync, existsSync, realpathSync } from "node:fs";
+import { mkdirSync, rmSync, existsSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { resolve, join } from "node:path";
 import { ReusablePool } from "./reusablePool.js";
+import type { SetupRunner } from "./reusablePool.js";
 import type { RepositoryConfig } from "../config.js";
+
+// Per-test knobs for the fake git boundary: what `diff` (dirty-check) and
+// `rev-list` (unpushed-check) report.
+const gitState = vi.hoisted(() => ({ dirtyFiles: "", revListCount: "0" }));
 
 // Mock the git boundary (no real git/subprocess per test conventions). The fake
 // `worktree add` creates the target folder on disk so re-provisioning mirrors
@@ -20,12 +25,24 @@ vi.mock("../repositories.js", () => {
         return "";
       }
       if (args[0] === "rev-parse") return "main";
+      if (args[0] === "diff") return gitState.dirtyFiles;
+      if (args[0] === "rev-list") return gitState.revListCount;
       return "";
     },
   });
   return {
     getGitInstance: () => makeFakeGit(),
     setAuthenticatedRemote: async () => {},
+  };
+});
+
+vi.mock("../config.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../config.js")>();
+  const repo = { name: "test-repo", url: "https://github.com/org/test-repo.git" };
+  return {
+    ...actual,
+    getConfig: () => ({ repositories: [repo] }),
+    findRepoByName: (name: string) => (name === "test-repo" ? repo : undefined),
   };
 });
 
@@ -95,5 +112,189 @@ describe("ReusablePool.acquire self-heal on missing worker folder", () => {
 
     assert.equal(worker.currentBranch, "clack/fix/x");
     assert.equal(worker.claimedBy, "session-1");
+  });
+});
+
+describe("ReusablePool setup healing", () => {
+  const originalCwd = process.cwd();
+
+  beforeEach(() => {
+    rmSync(tmpBase, { recursive: true, force: true });
+    mkdirSync(join(tmpDataDir, "repositories", "test-repo"), { recursive: true });
+    mkdirSync(tmpWorktreesDir, { recursive: true });
+    process.chdir(tmpBase);
+    gitState.dirtyFiles = "";
+    gitState.revListCount = "0";
+  });
+
+  afterEach(() => {
+    process.chdir(originalCwd);
+    rmSync(tmpBase, { recursive: true, force: true });
+  });
+
+  function makeSetupRunner() {
+    const runSetup = vi.fn<SetupRunner["runSetup"]>(async () => {});
+    const runInstall = vi.fn<NonNullable<SetupRunner["runInstall"]>>(async () => {});
+    return { runner: { runSetup, runInstall } satisfies SetupRunner, runSetup, runInstall };
+  }
+
+  function writeSetupInstructions(content: string): void {
+    const dir = join(tmpDataDir, "configuration", "test-repo");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "worktree_setup_instructions.md"), content);
+  }
+
+  async function poolWithReleasedWorkerOnBranch(branch: string) {
+    const pool = makePool();
+    const { runner, runSetup, runInstall } = makeSetupRunner();
+    pool.setSetupRunner(runner);
+    const worker = await pool.acquire(makeRepo(), branch, "session-1");
+    await pool.release(worker, "pr_merged");
+    assert.equal(worker.status, "idle");
+    assert.equal(worker.currentBranch, branch, "release keeps the branch checked out");
+    runSetup.mockClear();
+    runInstall.mockClear();
+    return { pool, worker, runSetup, runInstall };
+  }
+
+  it("branch-sticky acquire skips setup when the hash matches", async () => {
+    const { pool, runSetup, runInstall } = await poolWithReleasedWorkerOnBranch("feat/x");
+
+    await pool.acquire(makeRepo(), "feat/x", "session-2");
+
+    assert.equal(runSetup.mock.calls.length, 0);
+    assert.equal(runInstall.mock.calls.length, 1, "install step still runs on claim");
+  });
+
+  it("branch-sticky acquire re-runs setup when the instructions changed", async () => {
+    const { pool, worker, runSetup, runInstall } = await poolWithReleasedWorkerOnBranch("feat/x");
+    writeSetupInstructions("npm run new-build-step");
+
+    const claimed = await pool.acquire(makeRepo(), "feat/x", "session-2");
+
+    assert.equal(claimed.id, worker.id);
+    assert.equal(runSetup.mock.calls.length, 1);
+    assert.equal(runInstall.mock.calls.length, 1);
+    assert.equal(claimed.status, "busy");
+  });
+
+  it("refreshSetup re-runs setup on a busy worker and keeps it busy", async () => {
+    const pool = makePool();
+    const { runner, runSetup, runInstall } = makeSetupRunner();
+    pool.setSetupRunner(runner);
+    const worker = await pool.acquire(makeRepo(), "feat/x", "session-1");
+    runSetup.mockClear();
+    runInstall.mockClear();
+    writeSetupInstructions("npm run new-build-step");
+
+    await pool.refreshSetup(worker, makeRepo());
+
+    assert.equal(runSetup.mock.calls.length, 1);
+    assert.equal(runInstall.mock.calls.length, 1);
+    assert.equal(worker.status, "busy");
+    assert.equal(worker.claimedBy, "session-1");
+  });
+
+  it("refreshSetup skips setup when the hash matches", async () => {
+    const pool = makePool();
+    const { runner, runSetup } = makeSetupRunner();
+    pool.setSetupRunner(runner);
+    const worker = await pool.acquire(makeRepo(), "feat/x", "session-1");
+    runSetup.mockClear();
+
+    await pool.refreshSetup(worker, makeRepo());
+
+    assert.equal(runSetup.mock.calls.length, 0);
+  });
+});
+
+describe("ReusablePool.detachIfClean unpushed-commit protection", () => {
+  const originalCwd = process.cwd();
+
+  beforeEach(() => {
+    rmSync(tmpBase, { recursive: true, force: true });
+    mkdirSync(join(tmpDataDir, "repositories", "test-repo"), { recursive: true });
+    mkdirSync(tmpWorktreesDir, { recursive: true });
+    process.chdir(tmpBase);
+    gitState.dirtyFiles = "";
+    gitState.revListCount = "0";
+  });
+
+  afterEach(() => {
+    process.chdir(originalCwd);
+    rmSync(tmpBase, { recursive: true, force: true });
+  });
+
+  it("quarantines instead of detaching when unpushed commits exist", async () => {
+    const pool = makePool();
+    const worker = await pool.acquire(makeRepo(), "feat/x", "session-1");
+    gitState.revListCount = "2";
+
+    const detached = await pool.detachIfClean(worker, { treatUnpushedAsDirty: true });
+
+    assert.equal(detached, false);
+    assert.equal(worker.status, "quarantined");
+    assert.ok(existsSync(join(worker.worktreePath, ".clack-quarantine.json")));
+  });
+
+  it("detaches a clean, fully-pushed worker", async () => {
+    const pool = makePool();
+    const worker = await pool.acquire(makeRepo(), "feat/x", "session-1");
+
+    const detached = await pool.detachIfClean(worker, { treatUnpushedAsDirty: true });
+
+    assert.equal(detached, true);
+    assert.equal(worker.status, "idle");
+    assert.equal(worker.claimedBy, null);
+  });
+
+  it("ignores unpushed commits when the option is off (pr_created semantics)", async () => {
+    const pool = makePool();
+    const worker = await pool.acquire(makeRepo(), "feat/x", "session-1");
+    gitState.revListCount = "2";
+
+    const detached = await pool.detachIfClean(worker);
+
+    assert.equal(detached, true);
+    assert.equal(worker.status, "idle");
+  });
+});
+
+describe("ReusablePool.release with 'discarded'", () => {
+  const originalCwd = process.cwd();
+
+  beforeEach(() => {
+    rmSync(tmpBase, { recursive: true, force: true });
+    mkdirSync(join(tmpDataDir, "repositories", "test-repo"), { recursive: true });
+    mkdirSync(tmpWorktreesDir, { recursive: true });
+    process.chdir(tmpBase);
+    gitState.dirtyFiles = "";
+    gitState.revListCount = "0";
+  });
+
+  afterEach(() => {
+    process.chdir(originalCwd);
+    rmSync(tmpBase, { recursive: true, force: true });
+  });
+
+  it("returns a clean worker to the pool as idle", async () => {
+    const pool = makePool();
+    const worker = await pool.acquire(makeRepo(), "feat/x", "session-1");
+
+    await pool.release(worker, "discarded");
+
+    assert.equal(worker.status, "idle");
+    assert.equal(worker.claimedBy, null);
+  });
+
+  it("quarantines a worker with dirty tracked files", async () => {
+    const pool = makePool();
+    const worker = await pool.acquire(makeRepo(), "feat/x", "session-1");
+    gitState.dirtyFiles = "src/a.ts\n";
+
+    await pool.release(worker, "discarded");
+
+    assert.equal(worker.status, "quarantined");
+    assert.ok(existsSync(join(worker.worktreePath, ".clack-quarantine.json")));
   });
 });

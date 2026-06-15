@@ -13,9 +13,10 @@ import {
 import type { StagedIntent } from "../../tools/types.js";
 import { getRole } from "../../roles.js";
 import { canRequestChanges } from "../../permissions.js";
-import { decodeActionValue } from "../blocks.js";
+import { decodeActionValue, getChangeRecoveryBlocks } from "../blocks.js";
 import { activeSessions, type SessionInfo } from "../activeSessions.js";
 import { handleFollowUp } from "../../changes/workflow.js";
+import { getActiveChange, type ActiveChangeState } from "../../changes/activeState.js";
 import type { ChangeResult, FollowUpCommand } from "../../changes/types.js";
 import type { SlackDeliveryContext } from "./changeAction.js";
 import { SlackStreamer, finalizeStreamedWorkflow } from "../../streaming/slackStreamer.js";
@@ -59,6 +60,7 @@ export interface ChangeThreadActionsDeps {
     result: ChangeResult,
     command: FollowUpCommand,
   ) => Promise<void>;
+  getActiveChange: (sessionId: string) => ActiveChangeState | undefined;
 }
 
 export const defaultChangeThreadActionsDeps: ChangeThreadActionsDeps = {
@@ -71,9 +73,30 @@ export const defaultChangeThreadActionsDeps: ChangeThreadActionsDeps = {
   handleFollowUp,
   errorMessage,
   setAttentionLevel,
+  getActiveChange,
   createStreamer: (opts) => new SlackStreamer(opts),
   finalizeStreamedWorkflow: finalizeStreamedWorkflow as never,
 };
+
+/**
+ * Offer the recovery actions (Continue / Start over / Discard) under the failure
+ * message when the thread's change ended up `failed`. No-op for any other status.
+ */
+export async function maybeOfferRecovery(
+  sessionId: string,
+  client: App["client"],
+  channel: string,
+  threadTs: string,
+  deps: Pick<ChangeThreadActionsDeps, "getActiveChange"> = defaultChangeThreadActionsDeps,
+): Promise<void> {
+  if (deps.getActiveChange(sessionId)?.status !== "failed") return;
+  await client.chat.postMessage({
+    channel,
+    thread_ts: threadTs,
+    text: t("changes.recovery.prompt"),
+    blocks: getChangeRecoveryBlocks(sessionId),
+  });
+}
 
 /**
  * Shared logic for triggering a follow-up action on an existing change.
@@ -130,6 +153,8 @@ export async function triggerFollowUp(
       result,
       command,
     );
+
+    await maybeOfferRecovery(session.sessionId, client, streamChannel, streamThreadTs, deps);
   } catch (error) {
     logger.error("Follow-up action failed:", error);
     await streamer.stop();
@@ -226,6 +251,72 @@ function registerFollowUpActionHandler(
   );
 }
 
+/**
+ * Recovery buttons (Continue / Start over / Discard) are not backed by a staged
+ * intent — the command is implied by the action_id and the value carries only the
+ * session ID, so this handler skips the intent-resolution step of the follow-up
+ * handler above.
+ */
+function registerRecoveryActionHandler(
+  app: App,
+  actionId: string,
+  command: FollowUpCommand,
+  deps: ChangeThreadActionsDeps,
+) {
+  app.action<BlockAction>(
+    new RegExp(`^${actionId}_\\d+$`),
+    async ({ ack, body, client, respond }) => {
+      await ack();
+
+      const rawValue = (body.actions[0] as { value: string }).value;
+      const { sessionId } = deps.decodeActionValue(rawValue);
+      const userId = body.user.id;
+
+      const role = await deps.getRole(userId);
+      if (!deps.canRequestChanges(role)) {
+        await client.chat.postEphemeral({
+          channel: body.channel?.id ?? "",
+          user: userId,
+          text: t("errors.change_action_permission_denied"),
+        });
+        return;
+      }
+
+      const sessionInfo = await deps.restoreSession(sessionId);
+      if (!sessionInfo) {
+        logger.error(`${actionId} handler: could not restore session ${sessionId}`);
+        return;
+      }
+
+      const session = await deps.findSessionByThread(sessionInfo.channelId, sessionInfo.threadTs);
+      if (!session?.activeChange) {
+        await client.chat.postEphemeral({
+          channel: sessionInfo.channelId,
+          user: userId,
+          thread_ts: sessionInfo.threadTs,
+          text: t("errors.no_active_change_thread"),
+        });
+        return;
+      }
+
+      await respond({ delete_original: true });
+
+      await triggerFollowUp(
+        session,
+        command,
+        undefined,
+        {
+          channelId: sessionInfo.channelId,
+          threadTs: sessionInfo.threadTs,
+          userId,
+          client,
+        },
+        deps,
+      );
+    },
+  );
+}
+
 export function registerChangeThreadActionHandlers(
   app: App,
   deps: ChangeThreadActionsDeps = defaultChangeThreadActionsDeps,
@@ -234,4 +325,7 @@ export function registerChangeThreadActionHandlers(
   registerFollowUpActionHandler(app, "clack_merge", "merge", "merge", deps);
   registerFollowUpActionHandler(app, "clack_update_change", "update", "update", deps);
   registerFollowUpActionHandler(app, "clack_close", "close", "close", deps);
+  registerRecoveryActionHandler(app, "clack_continue_change", "continue", deps);
+  registerRecoveryActionHandler(app, "clack_restart_change", "restart", deps);
+  registerRecoveryActionHandler(app, "clack_discard_change", "discard", deps);
 }

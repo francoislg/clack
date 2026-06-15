@@ -283,6 +283,13 @@ export const fr: Partial<Record<StringKey, string>> = {
     ":hourglass_flowing_sand: En file (position {position}) pour un worker sur `{repo}`.",
   "changes.create_workspace_failed": "Échec de création du workspace : {error}",
 
+  // ─── Failed-change recovery ────────────────────────────────────────
+  "changes.recovery.prompt":
+    "Vous pouvez reprendre ce changement là où il s'est arrêté, le recommencer à zéro (le travail en cours sera jeté), ou l'abandonner et libérer le workspace.",
+  "changes.recovery.continue_button": "♻️ Reprendre",
+  "changes.recovery.start_over_button": "🔄 Recommencer (jette le travail)",
+  "changes.recovery.discard_button": "🗑️ Abandonner",
+
   // ─── Migration-failure admin DM ────────────────────────────────────
   "migrations.admin_dm":
     ":warning: *Migration échouée : {name}* (v{version})\n\n{error}\n\nConsultez les logs pour les détails et redémarrez Clack après avoir résolu le problème.",

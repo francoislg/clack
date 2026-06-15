@@ -1,13 +1,14 @@
 import { getConfig, findRepoByName } from "../config.js";
 import { t } from "../i18n/t.js";
 import type { WorktreeInfo } from "../worktrees.js";
-import type {
-  ChangeRequest,
-  ChangePlan,
-  ChangeResult,
-  ChangeStatus,
-  FollowUpCommand,
-  ExecutionResult,
+import {
+  isRecoveryCommand,
+  type ChangeRequest,
+  type ChangePlan,
+  type ChangeResult,
+  type ChangeStatus,
+  type FollowUpCommand,
+  type ExecutionResult,
 } from "./types.js";
 import type { ExecuteChangeOptions } from "./execution.js";
 import type { WorkerToolContext, ClackWorkerToolsResult } from "../tools/types.js";
@@ -17,6 +18,8 @@ import { firstUserMessage } from "../sessions/selectors.js";
 import type { ActiveChangeState } from "./activeState.js";
 import type { ClaudeRunHandle } from "../claude/runHandle.js";
 import { lazyDefaultPool } from "../workers/index.js";
+import { forceResetBranch } from "../workers/branchSwitch.js";
+import { poolWorkerForChange } from "./poolWorker.js";
 import { workerToWorktreeInfo, type Worker, type WorkerPool } from "../workers/types.js";
 import {
   getActiveChange,
@@ -77,7 +80,7 @@ export interface WorkflowDeps {
     userId: string,
   ) => { sessionId: string; change: ActiveChangeState } | undefined;
   countActiveChangesForUser: (userId: string) => number;
-  updateActiveChangeStatus: (sessionId: string, status: ChangeStatus) => void;
+  updateActiveChangeStatus: (sessionId: string, status: ChangeStatus, lastMessage?: string) => void;
   appendExecutionLog: (branch: string, message: string) => void;
   readSessionState: (
     branch: string,
@@ -101,6 +104,7 @@ export interface WorkflowDeps {
     prUrl: string,
   ) => Promise<{ ok: true; context: string } | { ok: false; error: string }>;
   getSession: (sessionId: string) => Promise<SessionContext | null>;
+  forceResetBranch: (worker: Worker, repo: RepositoryConfig, branch: string) => Promise<void>;
 }
 
 export const defaultWorkflowDeps: WorkflowDeps = {
@@ -123,6 +127,7 @@ export const defaultWorkflowDeps: WorkflowDeps = {
   buildClackTools,
   fetchPRReviewContext,
   getSession,
+  forceResetBranch,
 };
 
 // ============================================================================
@@ -149,6 +154,50 @@ function buildCancelledResult(
     cancelled: true,
     cancelledBy: activeChange.cancelledBy,
     error: sourceError ?? fallback,
+  };
+}
+
+/**
+ * Settle a recovery execution (continue / restart): mirror the start-workflow
+ * outcome handling — PR created means success, anything else returns the change
+ * to `failed` so the recovery actions are offered again.
+ */
+async function settleRecoveryResult(
+  deps: WorkflowDeps,
+  sessionId: string,
+  activeChange: ActiveChangeState,
+  result: ExecutionResult,
+): Promise<ChangeResult> {
+  if (result.sdkSessionId) {
+    activeChange.sdkSessionId = result.sdkSessionId;
+  }
+  if (!result.success) {
+    const cancelled = buildCancelledResult(
+      activeChange,
+      deps,
+      sessionId,
+      result.error,
+      "Recovery cancelled",
+    );
+    if (cancelled) return cancelled;
+    deps.updateActiveChangeStatus(sessionId, "failed");
+    return { success: false, error: result.error ?? "Recovery failed" };
+  }
+
+  const updatedSession = await deps.getSession(sessionId);
+  if (updatedSession?.activeChange?.prUrl) {
+    return {
+      success: true,
+      prUrl: updatedSession.activeChange.prUrl,
+      summary: result.summary,
+    };
+  }
+
+  deps.updateActiveChangeStatus(sessionId, "failed");
+  return {
+    success: false,
+    summary: result.summary,
+    error: "Changes committed but PR was not created. Check the thread for details.",
   };
 }
 
@@ -368,7 +417,8 @@ export async function handleFollowUp(
 
   // Reusable mode: a detached session has no `worktree` until we re-acquire it.
   // Disposable mode: a missing worktree is a real failure — surface the error.
-  if (!activeChange.worktree) {
+  // Discard skips re-acquire: claiming a worker only to release it is pointless.
+  if (!activeChange.worktree && command !== "discard") {
     const reusableMode = config.changesWorkflow?.reusableFolders?.enabled === true;
     if (!reusableMode || !repo) {
       return { success: false, error: "No worktree exists for this change." };
@@ -384,8 +434,9 @@ export async function handleFollowUp(
     }
   }
 
-  // Guard: only allow follow-ups when the change is idle (PR exists, no work in progress)
-  const terminalStatuses: ChangeStatus[] = ["completed", "failed", "cancelled"];
+  // Guard: PR follow-ups need an idle change (PR exists, no work in progress);
+  // recovery commands need a failed change. completed/cancelled are terminal for all.
+  const terminalStatuses: ChangeStatus[] = ["completed", "cancelled"];
   const busyStatuses: ChangeStatus[] = ["executing", "reviewing", "merging"];
   if (terminalStatuses.includes(activeChange.status)) {
     return {
@@ -399,8 +450,45 @@ export async function handleFollowUp(
       error: `This change is currently ${activeChange.status}. Please wait for it to finish before requesting another action.`,
     };
   }
+  if (activeChange.status === "failed" && !isRecoveryCommand(command)) {
+    return {
+      success: false,
+      error: [
+        "This change failed. Use the recovery actions to resume it (Continue),",
+        "redo it from scratch (Start over), or abandon it (Discard).",
+      ].join(" "),
+    };
+  }
+  if (isRecoveryCommand(command) && activeChange.status !== "failed") {
+    return {
+      success: false,
+      error: "Recovery actions only apply to a failed change.",
+    };
+  }
 
   activeChange.lastActivityAt = new Date();
+
+  // Discard needs no worker context or Claude run — release the workspace and stop.
+  if (command === "discard") {
+    const worker = poolWorkerForChange(activeChange, deps.pool);
+    if (worker) {
+      try {
+        await deps.pool.release(worker, "discarded");
+      } catch (err) {
+        return {
+          success: false,
+          error: `Failed to release the workspace: ${errorMessage(err)}`,
+        };
+      }
+    }
+    activeChange.worktree = undefined;
+    deps.updateActiveChangeStatus(session.sessionId, "cancelled", "Discarded by user");
+    return { success: true, summary: "Change discarded. The workspace was released." };
+  }
+  if (!activeChange.worktree) {
+    return { success: false, error: "No worktree exists for this change." };
+  }
+  const worktree = activeChange.worktree;
 
   // Create an AbortController for cancellation support. The live `ClaudeRunHandle` is
   // captured into `activeChange.handle` via the `onHandle` callback on each inner call so
@@ -412,7 +500,7 @@ export async function handleFollowUp(
 
   // Build worker context for this command
   const workerCtx = deps.buildWorkerContext({
-    worktreePath: activeChange.worktree.worktreePath,
+    worktreePath: worktree.worktreePath,
     branchName: activeChange.branch,
     repoName: activeChange.repo,
     repoUrl: repo?.url ?? "",
@@ -442,7 +530,7 @@ export async function handleFollowUp(
 
         const result = await deps.runClaudeInWorktree(activeChange.repo, {
           prompt,
-          cwd: activeChange.worktree.worktreePath,
+          cwd: worktree.worktreePath,
           systemPrompt,
           allowedTools: ["Read", "Glob", "Grep", "Write", "Edit", "Bash"],
           disallowedTools: ["Task"],
@@ -502,7 +590,7 @@ The instructions above were generated from the user's full Slack thread context 
 
         const updateResult = await deps.executeChange({
           plan,
-          worktree: activeChange.worktree,
+          worktree,
           request: updateRequest,
           sessionId: session.sessionId,
           onEvent,
@@ -545,7 +633,7 @@ The instructions above were generated from the user's full Slack thread context 
 
         const result = await deps.runClaudeInWorktree(activeChange.repo, {
           prompt: `Merge the pull request at ${activeChange.prUrl} using the merge_pr tool. Report the result using report_status.`,
-          cwd: activeChange.worktree.worktreePath,
+          cwd: worktree.worktreePath,
           allowedTools: [],
           disallowedTools: ["Read", "Write", "Edit", "Bash", "Glob", "Grep", "Task"],
           timeout: 2,
@@ -587,7 +675,7 @@ The instructions above were generated from the user's full Slack thread context 
 
         const result = await deps.runClaudeInWorktree(activeChange.repo, {
           prompt: `Close the pull request at ${activeChange.prUrl} using the close_pr tool${deleteBranchRequested ? " with delete_branch: true" : ""}. Report the result using report_status.`,
-          cwd: activeChange.worktree.worktreePath,
+          cwd: worktree.worktreePath,
           allowedTools: [],
           disallowedTools: ["Read", "Write", "Edit", "Bash", "Glob", "Grep", "Task"],
           timeout: 2,
@@ -619,6 +707,107 @@ The instructions above were generated from the user's full Slack thread context 
           success: false,
           error: result.error ?? "Close failed",
         };
+      }
+
+      case "continue": {
+        if (!repo) {
+          return { success: false, error: `Repository ${activeChange.repo} not found` };
+        }
+
+        // Read the persisted state BEFORE the status transition — flipping to
+        // `executing` overwrites the phase/lastMessage the resume context needs.
+        const prevState = await deps.readSessionState(activeChange.branch);
+        const resumeContext = prevState
+          ? [
+              `A previous session on this change failed in "${prevState.phase}" phase.`,
+              `Last message: "${prevState.lastMessage}".`,
+              "Continue the work from where it left off.",
+            ].join(" ")
+          : [
+              "A previous session on this change failed and left no state.",
+              "The workspace may have partial changes. Continue the work.",
+            ].join(" ");
+
+        deps.updateActiveChangeStatus(session.sessionId, "executing", "Continuing after failure");
+
+        const worker = poolWorkerForChange(activeChange, deps.pool);
+        if (worker && deps.pool.refreshSetup) {
+          try {
+            await deps.pool.refreshSetup(worker, repo);
+          } catch (err) {
+            deps.updateActiveChangeStatus(session.sessionId, "failed");
+            return { success: false, error: `Workspace setup failed: ${errorMessage(err)}` };
+          }
+        }
+
+        const result = await deps.executeChange({
+          plan: {
+            branchName: activeChange.branch,
+            description: activeChange.description,
+            targetRepo: activeChange.repo,
+          },
+          worktree,
+          request: {
+            userId: session.userId,
+            message: firstUserMessage(session).text,
+            triggerType: session.triggerType ?? "reactions",
+            channel: session.channelId,
+            messageTs: session.threadTs,
+          },
+          sessionId: session.sessionId,
+          onEvent,
+          sdkSessionId: activeChange.sdkSessionId,
+          abortController,
+          onHandle: captureHandle,
+          resumeContext,
+        });
+        return settleRecoveryResult(deps, session.sessionId, activeChange, result);
+      }
+
+      case "restart": {
+        if (!repo) {
+          return { success: false, error: `Repository ${activeChange.repo} not found` };
+        }
+        const worker = poolWorkerForChange(activeChange, deps.pool);
+        if (!worker) {
+          return { success: false, error: "No workspace is bound to this change to reset." };
+        }
+
+        deps.updateActiveChangeStatus(session.sessionId, "executing", "Starting over from scratch");
+
+        try {
+          await deps.forceResetBranch(worker, repo, activeChange.branch);
+          if (deps.pool.refreshSetup) {
+            await deps.pool.refreshSetup(worker, repo);
+          }
+        } catch (err) {
+          deps.updateActiveChangeStatus(session.sessionId, "failed");
+          return { success: false, error: `Failed to reset workspace: ${errorMessage(err)}` };
+        }
+
+        // Fresh run: the prior SDK session's context describes the scrapped attempt.
+        activeChange.sdkSessionId = undefined;
+
+        const result = await deps.executeChange({
+          plan: {
+            branchName: activeChange.branch,
+            description: activeChange.description,
+            targetRepo: activeChange.repo,
+          },
+          worktree,
+          request: {
+            userId: session.userId,
+            message: firstUserMessage(session).text,
+            triggerType: session.triggerType ?? "reactions",
+            channel: session.channelId,
+            messageTs: session.threadTs,
+          },
+          sessionId: session.sessionId,
+          onEvent,
+          abortController,
+          onHandle: captureHandle,
+        });
+        return settleRecoveryResult(deps, session.sessionId, activeChange, result);
       }
     }
   } finally {

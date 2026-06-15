@@ -70,7 +70,25 @@ export interface ChangeResult {
   cancelledBy?: { userId: string; reason?: string };
 }
 
-export type FollowUpCommand = "review" | "merge" | "update" | "close";
+export type FollowUpCommand =
+  | "review"
+  | "merge"
+  | "update"
+  | "close"
+  | "continue"
+  | "restart"
+  | "discard";
+
+/** Commands that act on a `failed` change instead of a live PR. */
+export const RECOVERY_COMMANDS: ReadonlySet<FollowUpCommand> = new Set([
+  "continue",
+  "restart",
+  "discard",
+]);
+
+export function isRecoveryCommand(command: FollowUpCommand): boolean {
+  return RECOVERY_COMMANDS.has(command);
+}
 
 export interface FollowUpInfo {
   command: FollowUpCommand;

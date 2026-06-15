@@ -19,6 +19,7 @@ import { switchBranch, switchToDefault } from "./branchSwitch.js";
 import {
   clearQuarantineRecord,
   getDirtyTrackedFiles,
+  hasUnpushedCommits,
   writeQuarantineRecord,
 } from "./quarantine.js";
 import { computeSetupVersionHash } from "./setupVersion.js";
@@ -142,6 +143,8 @@ export class ReusablePool implements WorkerPool {
         if (this.dropIfFolderMissing(existing)) {
           return this.acquire(repo, branch, sessionId, options);
         }
+        await this.maybeRerunSetup(existing, repo);
+        await this.runInstallStep(existing, repo);
         return this.claim(existing, sessionId);
       }
       if (existing.status === "busy") {
@@ -274,6 +277,11 @@ export class ReusablePool implements WorkerPool {
     }
   }
 
+  async refreshSetup(worker: Worker, repo: RepositoryConfig): Promise<void> {
+    await this.maybeRerunSetup(worker, repo);
+    await this.runInstallStep(worker, repo);
+  }
+
   private claim(worker: Worker, sessionId: string): Worker {
     worker.status = "busy";
     worker.claimedBy = sessionId;
@@ -289,13 +297,16 @@ export class ReusablePool implements WorkerPool {
       worker.setupVersionHash = currentHash;
       return;
     }
+    // Restore the entry status afterwards: acquire paths arrive here with an idle
+    // worker, but refreshSetup() runs on a busy (claimed) worker mid-recovery.
+    const priorStatus = worker.status;
     worker.status = "initializing";
     this.persist();
     try {
       await this.setupRunner.runSetup(repo.name, worker.worktreePath, worker.currentBranch ?? "");
       worker.setupVersionHash = currentHash;
       worker.setupComplete = true;
-      worker.status = "idle";
+      worker.status = priorStatus;
     } catch (err) {
       worker.status = "failed";
       logger.warn(`Setup re-run failed for ${worker.id}: ${errorMessage(err)}`);
@@ -441,9 +452,15 @@ export class ReusablePool implements WorkerPool {
 
   /**
    * Detach a busy worker if clean; quarantine if dirty.
+   * `treatUnpushedAsDirty` additionally quarantines a worker whose branch has
+   * committed-but-unpushed work — used when releasing failed sessions, where a
+   * later `checkout -B` from origin would silently destroy local-only commits.
    * Returns true if the worker was successfully detached.
    */
-  async detachIfClean(worker: Worker): Promise<boolean> {
+  async detachIfClean(
+    worker: Worker,
+    options?: { treatUnpushedAsDirty?: boolean },
+  ): Promise<boolean> {
     const dirtyFiles = await getDirtyTrackedFiles(worker);
     if (dirtyFiles.length > 0) {
       writeQuarantineRecord(worker, dirtyFiles);
@@ -455,6 +472,18 @@ export class ReusablePool implements WorkerPool {
     }
     const repo = findRepoByName(worker.repo, getConfig());
     if (!repo) return false;
+    if (options?.treatUnpushedAsDirty) {
+      const unpushed = await hasUnpushedCommits(worker, repo.branch || "main");
+      if (unpushed) {
+        const marker = [`(unpushed commits on ${worker.currentBranch ?? "detached HEAD"})`];
+        writeQuarantineRecord(worker, marker);
+        worker.status = "quarantined";
+        worker.lastUsedAt = new Date();
+        this.persist();
+        this.notifyQuarantine(worker, marker, "idle_release");
+        return false;
+      }
+    }
     try {
       await switchToDefault(worker, repo);
     } catch (err) {

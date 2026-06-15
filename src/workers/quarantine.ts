@@ -77,6 +77,32 @@ export async function getDirtyTrackedFiles(worker: Worker): Promise<string[]> {
   return files.filter((file) => !globs.some((g) => matchGlob(g, file)));
 }
 
+/**
+ * True when the worker's checked-out branch has commits that exist nowhere on the
+ * remote: ahead of its upstream, or — when no upstream is set — ahead of
+ * `origin/<fallbackBaseRef>`. Errors resolve to `true` (conservative: a branch whose
+ * push state cannot be read must not be silently reset).
+ */
+export async function hasUnpushedCommits(
+  worker: Worker,
+  fallbackBaseBranch: string,
+): Promise<boolean> {
+  const git = getGitInstance(worker.worktreePath);
+  try {
+    const ahead = await git.raw(["rev-list", "--count", "@{upstream}..HEAD"]);
+    return parseInt(ahead.trim(), 10) > 0;
+  } catch {
+    // No upstream — fall through to comparing against the repo's default branch.
+  }
+  try {
+    const ahead = await git.raw(["rev-list", "--count", `origin/${fallbackBaseBranch}..HEAD`]);
+    return parseInt(ahead.trim(), 10) > 0;
+  } catch (err) {
+    logger.warn(`unpushed-commit check failed in ${worker.worktreePath}: ${errorMessage(err)}`);
+    return true;
+  }
+}
+
 export function isQuarantined(worker: Worker): boolean {
   return existsSync(join(worker.worktreePath, QUARANTINE_SIDECAR));
 }
