@@ -16,6 +16,8 @@ import {
   setUserSkillsDeps,
   resetUserSkillsDeps,
   defaultUserSkillsDeps,
+  parseFrontmatter,
+  extractBody,
 } from "./userSkills.js";
 
 const tmpBase = resolve(tmpdir(), `userskills-test-${process.pid}`);
@@ -439,5 +441,34 @@ describe("on-disk format", () => {
     assert.equal(m.ownerUserId, "U_ALICE");
     assert.ok(typeof m.createdAt === "string");
     assert.ok(typeof m.updatedAt === "string");
+  });
+});
+
+describe("parseFrontmatter / extractBody (shared parsers)", () => {
+  const md = [
+    "---",
+    "name: rebase",
+    'description: "Rebase the branch"',
+    "argument-hint: target branch",
+    "allowed-tools: Bash(git:*)",
+    "---",
+    "",
+    "Body line one.",
+    "Body line two.",
+    "",
+  ].join("\n");
+
+  it("extracts only name and description, ignoring extra frontmatter keys", () => {
+    const fm = parseFrontmatter(md);
+    assert.equal(fm.name, "rebase");
+    assert.equal(fm.description, "Rebase the branch");
+    assert.deepEqual(Object.keys(fm).sort(), ["description", "name"]);
+  });
+
+  it("strips the frontmatter block from the body", () => {
+    const body = extractBody(md);
+    assert.ok(body.startsWith("Body line one."));
+    assert.ok(!body.includes("argument-hint"));
+    assert.ok(!body.includes("---"));
   });
 });

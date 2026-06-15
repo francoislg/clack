@@ -96,7 +96,7 @@ export function validateDescription(desc: string): ValidationResult {
 // ---------------------------------------------------------------------------
 
 /** Parse the leading `---`-fenced YAML block. Only `name` and `description` are read. */
-function parseFrontmatter(body: string): { name?: string; description?: string } {
+export function parseFrontmatter(body: string): { name?: string; description?: string } {
   const match = body.match(/^---\s*\n([\s\S]*?)\n---/);
   if (!match) return {};
   const lines = match[1].split("\n");
@@ -113,7 +113,7 @@ function parseFrontmatter(body: string): { name?: string; description?: string }
   };
 
   for (const rawLine of lines) {
-    const kv = rawLine.match(/^([a-zA-Z_][a-zA-Z_0-9]*):\s*(.*)$/);
+    const kv = rawLine.match(/^([a-zA-Z_][a-zA-Z0-9_-]*):\s*(.*)$/);
     if (kv) {
       flush();
       const [, key, val] = kv;
@@ -141,7 +141,7 @@ function stripYamlScalar(v: string): string {
   return trimmed;
 }
 
-function extractBody(skillMd: string): string {
+export function extractBody(skillMd: string): string {
   const match = skillMd.match(/^---\s*\n[\s\S]*?\n---\s*\n?/);
   if (!match) return skillMd;
   return skillMd.slice(match[0].length);

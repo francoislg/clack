@@ -11,6 +11,7 @@ import type { WorktreeInfo } from "../worktrees.js";
 import type { ChangePlan, ChangeRequest, ExecutionResult } from "./types.js";
 import type { SpinoffIntentData } from "./spinoff.js";
 import { appendExecutionLog } from "./persistence.js";
+import { appendWorkerSkillsCatalog } from "./workerSkillsCatalog.js";
 import { getActiveChange } from "./activeState.js";
 import { detectPlatformError } from "../claude/messageParser.js";
 import { ClaudeMessageParser } from "../claude/messageParser.js";
@@ -384,6 +385,10 @@ export async function executeChange(opts: ExecuteChangeOptions): Promise<Executi
       logger.warn(`Failed to read changes instructions at ${changesInstructionsFile}`);
     }
   }
+
+  // Append the WORKER SKILLS catalog when any worker skill resolves for this repo. Absent
+  // skills leave the prompt unchanged.
+  systemPrompt = appendWorkerSkillsCatalog(systemPrompt, worktree.repoName);
 
   const requester = request.userDisplayName?.trim() || `Slack user ${request.userId}`;
 

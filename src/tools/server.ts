@@ -111,6 +111,7 @@ import { createMergePRTool } from "./worker/mergePR.js";
 import { createClosePRTool } from "./worker/closePR.js";
 import { createReportStatusTool } from "./worker/reportStatus.js";
 import { createProposeSpinoffTool } from "./worker/proposeSpinoff.js";
+import { createLoadSkillTool as createWorkerLoadSkillTool } from "./worker/loadSkill.js";
 import { isChannellessChannelId } from "../channelless.js";
 
 // ============================================================================
@@ -737,6 +738,7 @@ function buildWorkerTools(ctx: WorkerToolContext): ClackWorkerToolsResult {
   tools.push(createClosePRTool(ctx));
   tools.push(createResolveReviewThreadTool(ctx));
   tools.push(createProposeSpinoffTool(ctx, intentStore));
+  tools.push(createWorkerLoadSkillTool(ctx));
 
   const toolNames = tools.map((t) => t.name);
 
