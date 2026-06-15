@@ -319,6 +319,38 @@ export function getErrorBlocksWithRetry(sessionId: string): SlackBlocks {
   return [section, actions];
 }
 
+/**
+ * Recovery actions offered under a failed change's failure message.
+ * Buttons carry only the session ID — no staged intent backs them, the
+ * command is implied by the action_id.
+ */
+export function getChangeRecoveryBlocks(sessionId: string): SlackBlocks {
+  const value = JSON.stringify({ s: sessionId });
+  const section: SectionBlock = {
+    type: "section",
+    text: {
+      type: "mrkdwn",
+      text: t("changes.recovery.prompt"),
+    },
+  };
+  const button = (actionId: string, label: string, style?: "primary" | "danger"): Button => ({
+    type: "button",
+    text: { type: "plain_text", text: label, emoji: true },
+    action_id: actionId,
+    value,
+    ...(style && { style }),
+  });
+  const actions: ActionsBlock = {
+    type: "actions",
+    elements: [
+      button("clack_continue_change_0", t("changes.recovery.continue_button"), "primary"),
+      button("clack_restart_change_0", t("changes.recovery.start_over_button")),
+      button("clack_discard_change_0", t("changes.recovery.discard_button"), "danger"),
+    ],
+  };
+  return [section, actions];
+}
+
 // ============================================================================
 // Button-label validation (kept here since action-button rendering lives here)
 // ============================================================================

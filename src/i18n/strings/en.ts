@@ -276,6 +276,13 @@ export const en = {
     ":hourglass_flowing_sand: Queued at position {position} for a worker on `{repo}`.",
   "changes.create_workspace_failed": "Failed to create workspace: {error}",
 
+  // ─── Failed-change recovery ────────────────────────────────────────
+  "changes.recovery.prompt":
+    "You can resume this change where it left off, start it over from scratch (discards the current work), or discard it and free the workspace.",
+  "changes.recovery.continue_button": "♻️ Continue",
+  "changes.recovery.start_over_button": "🔄 Start over (discards work)",
+  "changes.recovery.discard_button": "🗑️ Discard",
+
   // ─── Migration-failure admin DM ────────────────────────────────────
   "migrations.admin_dm":
     ":warning: *Migration failed: {name}* (v{version})\n\n{error}\n\nCheck the logs for details and restart Clack after resolving the issue.",

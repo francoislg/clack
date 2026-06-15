@@ -18,6 +18,7 @@ import { activeSessions, type SessionInfo } from "../activeSessions.js";
 import type { StagedChangeIntent } from "../../tools/types.js";
 import type { ChangeRequest, ChangePlan, ChangeResult, TriggerType } from "../../changes/types.js";
 import { startChangeWorkflow, type WorkflowDeps } from "../../changes/workflow.js";
+import { maybeOfferRecovery } from "./changeThreadActions.js";
 import { SlackStreamer, finalizeStreamedWorkflow } from "../../streaming/slackStreamer.js";
 import type { StreamEvent } from "../../streaming/types.js";
 import type { UserRole } from "../../roles.js";
@@ -179,6 +180,8 @@ export async function triggerChangeWorkflow(
       result,
       "Change request",
     );
+
+    await maybeOfferRecovery(session.sessionId, client, streamChannel, streamThreadTs);
   } catch (error) {
     logger.error("Change workflow failed:", error);
     await streamer.stop();

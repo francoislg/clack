@@ -3,7 +3,13 @@ import type { WorktreeInfo } from "../worktrees.js";
 
 export type WorkerStatus = "idle" | "busy" | "initializing" | "quarantined" | "failed";
 
-export type ReleaseReason = "pr_merged" | "pr_closed" | "idle_timeout" | "cancelled" | "failed";
+export type ReleaseReason =
+  | "pr_merged"
+  | "pr_closed"
+  | "idle_timeout"
+  | "cancelled"
+  | "failed"
+  | "discarded";
 
 export interface Worker {
   id: string;
@@ -71,4 +77,12 @@ export interface WorkerPool {
   list(repo?: string): Worker[];
   /** Boot warm-up: ensure at least `minimumProvisioned` workers exist for the repo. */
   ensureMinimum(repo: RepositoryConfig): Promise<void>;
+  /**
+   * Re-run the setup-version check (and the idempotent install step) on a worker that
+   * is already claimed. Acquire paths heal stale setup only when they hand a worker
+   * out; recovery flows on a failed change keep their claim, so they call this
+   * explicitly before re-entering execution. Optional: the disposable pool has no
+   * setup versioning and omits it.
+   */
+  refreshSetup?(worker: Worker, repo: RepositoryConfig): Promise<void>;
 }

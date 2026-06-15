@@ -592,7 +592,7 @@ function makeWorkerRecord(over: Partial<Worker> = {}): Worker {
 
 function makeSweepPool(over: {
   candidates?: Worker[];
-  detachIfClean?: (w: Worker) => Promise<boolean>;
+  detachIfClean?: (w: Worker, o?: { treatUnpushedAsDirty?: boolean }) => Promise<boolean>;
 }): IdleSweepPool {
   return {
     idleSweepCandidates: async () => over.candidates ?? [],
@@ -844,6 +844,105 @@ describe("runIdleSweep", () => {
             },
           }),
         getSession: sessionReturning(undefined),
+      }),
+    );
+
+    await runIdleSweep();
+    assert.equal(detachCalled, false);
+  });
+
+  it("releases a clean, fully-pushed worker bound to a failed session", async () => {
+    const worker = makeWorkerRecord({ claimedBy: "session-1" });
+    const detached: string[] = [];
+    const detachStub: DetachFn = (s) => {
+      detached.push(s);
+    };
+    let detachOptions: { treatUnpushedAsDirty?: boolean } | undefined;
+
+    setMonitorDeps(
+      makeDeps({
+        getReusablePool: () =>
+          makeSweepPool({
+            candidates: [worker],
+            detachIfClean: async (_w, o) => {
+              detachOptions = o;
+              return true;
+            },
+          }),
+        getSession: sessionReturning(makeActiveChange({ status: "failed", handle: undefined })),
+        detachActiveChangeWorktree: detachStub,
+      }),
+    );
+
+    await runIdleSweep();
+
+    assert.deepEqual(detached, ["session-1"]);
+    assert.deepEqual(detachOptions, { treatUnpushedAsDirty: true });
+  });
+
+  it("does not apply unpushed-commit protection to pr_created sessions", async () => {
+    const worker = makeWorkerRecord({ claimedBy: "session-1" });
+    let detachOptions: { treatUnpushedAsDirty?: boolean } | undefined;
+
+    setMonitorDeps(
+      makeDeps({
+        getReusablePool: () =>
+          makeSweepPool({
+            candidates: [worker],
+            detachIfClean: async (_w, o) => {
+              detachOptions = o;
+              return true;
+            },
+          }),
+        getSession: sessionReturning(makeActiveChange({ status: "pr_created", handle: undefined })),
+      }),
+    );
+
+    await runIdleSweep();
+
+    assert.deepEqual(detachOptions, { treatUnpushedAsDirty: false });
+  });
+
+  it("keeps the session bound when a failed worker is quarantined (dirty or unpushed)", async () => {
+    const worker = makeWorkerRecord({ claimedBy: "session-1" });
+    const detached: string[] = [];
+    const detachStub: DetachFn = (s) => {
+      detached.push(s);
+    };
+
+    setMonitorDeps(
+      makeDeps({
+        getReusablePool: () =>
+          makeSweepPool({
+            candidates: [worker],
+            detachIfClean: async () => false,
+          }),
+        getSession: sessionReturning(makeActiveChange({ status: "failed", handle: undefined })),
+        detachActiveChangeWorktree: detachStub,
+      }),
+    );
+
+    await runIdleSweep();
+    assert.equal(detached.length, 0);
+  });
+
+  it("never releases a failed session with a live Claude run handle", async () => {
+    const worker = makeWorkerRecord({ claimedBy: "session-1" });
+    let detachCalled = false;
+
+    setMonitorDeps(
+      makeDeps({
+        getReusablePool: () =>
+          makeSweepPool({
+            candidates: [worker],
+            detachIfClean: async () => {
+              detachCalled = true;
+              return true;
+            },
+          }),
+        getSession: sessionReturning(
+          makeActiveChange({ status: "failed", handle: makeFakeHandle() }),
+        ),
       }),
     );
 

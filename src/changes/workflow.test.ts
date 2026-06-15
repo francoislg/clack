@@ -9,7 +9,6 @@ import type { StreamEvent } from "../streaming/types.js";
 import type { WorkerToolContext, ClackWorkerToolsResult } from "../tools/types.js";
 import type { ExecuteChangeOptions } from "./execution.js";
 import { createSdkMcpServer } from "@anthropic-ai/claude-agent-sdk";
-import type { McpSdkServerConfigWithInstance } from "@anthropic-ai/claude-agent-sdk";
 import { startChangeWorkflow, handleFollowUp, type WorkflowDeps } from "./workflow.js";
 import type { ReleaseReason, Worker, WorkerPool } from "../workers/types.js";
 
@@ -139,6 +138,8 @@ const mockBuildClackTools = vi.fn<(context: WorkerToolContext) => ClackWorkerToo
 const mockFetchPRReviewContext =
   vi.fn<(prUrl: string) => Promise<{ ok: true; context: string } | { ok: false; error: string }>>();
 const mockGetSession = vi.fn<(sessionId: string) => Promise<SessionContext | null>>();
+const mockForceResetBranch =
+  vi.fn<(worker: Worker, repo: RepositoryConfig, branch: string) => Promise<void>>();
 
 // Types for test assertions
 type ExecuteChangeCallArg = Omit<ExecuteChangeOptions, "plan"> & {
@@ -176,6 +177,7 @@ function makeDeps(): WorkflowDeps {
     buildClackTools: mockBuildClackTools,
     fetchPRReviewContext: mockFetchPRReviewContext,
     getSession: mockGetSession,
+    forceResetBranch: mockForceResetBranch,
   };
 }
 
@@ -287,8 +289,10 @@ function resetMocks(): void {
   mockBuildClackTools.mockClear();
   mockFetchPRReviewContext.mockClear();
   mockGetSession.mockClear();
+  mockForceResetBranch.mockClear();
 
   // Reset default implementations
+  mockForceResetBranch.mockImplementation(async () => {});
   mockGetConfig.mockImplementation(() => testConfig);
   mockGetActiveChangeForUser.mockImplementation(() => undefined);
   mockCountActiveChangesForUser.mockImplementation(() => 0);
@@ -717,7 +721,7 @@ describe("handleFollowUp", () => {
       assert.ok(result.error?.includes("already completed"));
     });
 
-    it("rejects follow-up when status is failed", async () => {
+    it("rejects non-recovery follow-up when status is failed, naming the recovery options", async () => {
       const session = makeSessionContext({
         activeChange: makeActiveChangeState({ status: "failed" }),
       });
@@ -725,7 +729,47 @@ describe("handleFollowUp", () => {
       const result = await handleFollowUp(session, "review", undefined, undefined, makeDeps());
 
       assert.equal(result.success, false);
-      assert.ok(result.error?.includes("already failed"));
+      assert.ok(result.error?.includes("This change failed"));
+      assert.ok(result.error?.includes("Continue"));
+      assert.ok(result.error?.includes("Start over"));
+      assert.ok(result.error?.includes("Discard"));
+    });
+
+    it("rejects recovery commands when status is completed or cancelled", async () => {
+      for (const status of ["completed", "cancelled"] as const) {
+        for (const command of ["continue", "restart", "discard"] as const) {
+          const session = makeSessionContext({
+            activeChange: makeActiveChangeState({ status }),
+          });
+
+          const result = await handleFollowUp(session, command, undefined, undefined, makeDeps());
+
+          assert.equal(result.success, false);
+          assert.ok(result.error?.includes(`already ${status}`));
+        }
+      }
+    });
+
+    it("rejects recovery commands while a run is in flight", async () => {
+      const session = makeSessionContext({
+        activeChange: makeActiveChangeState({ status: "executing" }),
+      });
+
+      const result = await handleFollowUp(session, "restart", undefined, undefined, makeDeps());
+
+      assert.equal(result.success, false);
+      assert.ok(result.error?.includes("currently executing"));
+    });
+
+    it("rejects recovery commands when the change has not failed", async () => {
+      const session = makeSessionContext({
+        activeChange: makeActiveChangeState({ status: "pr_created" }),
+      });
+
+      const result = await handleFollowUp(session, "continue", undefined, undefined, makeDeps());
+
+      assert.equal(result.success, false);
+      assert.ok(result.error?.includes("only apply to a failed change"));
     });
 
     it("rejects follow-up when status is executing", async () => {
@@ -1173,6 +1217,226 @@ describe("handleFollowUp", () => {
 
       const [, options] = mockRunClaudeInWorktree.mock.calls[0];
       assert.ok(!options.prompt.includes("delete_branch: true"));
+    });
+  });
+
+  describe("recovery commands", () => {
+    function failedSession(overrides: Partial<ActiveChangeState> = {}): SessionContext {
+      return makeSessionContext({
+        activeChange: makeActiveChangeState({ status: "failed", prUrl: undefined, ...overrides }),
+      });
+    }
+
+    function depsWithPool(poolOverrides: Partial<WorkerPool>): WorkflowDeps {
+      const deps = makeDeps();
+      deps.pool = { ...buildMockPool(), ...poolOverrides };
+      return deps;
+    }
+
+    describe("continue", () => {
+      it("re-enters executing with a resume context built from the persisted state", async () => {
+        mockReadSessionState.mockImplementation(async () => ({
+          status: "failed",
+          phase: "Implementing",
+          lastMessage: "npm install exploded",
+        }));
+        const session = failedSession({ sdkSessionId: "sdk-1" });
+
+        await handleFollowUp(session, "continue", undefined, undefined, makeDeps());
+
+        assert.deepEqual(mockUpdateActiveChangeStatus.mock.calls[0].slice(0, 2), [
+          "session-123",
+          "executing",
+        ]);
+        assert.equal(mockExecuteChange.mock.calls.length, 1);
+        const opts = mockExecuteChange.mock.calls[0][0];
+        assert.ok(opts.resumeContext?.includes("Implementing"));
+        assert.ok(opts.resumeContext?.includes("npm install exploded"));
+        assert.equal(opts.sdkSessionId, "sdk-1");
+      });
+
+      it("reads the persisted state before flipping the status", async () => {
+        const session = failedSession();
+
+        await handleFollowUp(session, "continue", undefined, undefined, makeDeps());
+
+        assert.ok(
+          mockReadSessionState.mock.invocationCallOrder[0] <
+            mockUpdateActiveChangeStatus.mock.invocationCallOrder[0],
+        );
+      });
+
+      it("refreshes worker setup before executing", async () => {
+        const refreshSetup = vi.fn<NonNullable<WorkerPool["refreshSetup"]>>(async () => {});
+        const session = failedSession();
+
+        await handleFollowUp(
+          session,
+          "continue",
+          undefined,
+          undefined,
+          depsWithPool({ refreshSetup }),
+        );
+
+        assert.equal(refreshSetup.mock.calls.length, 1);
+        assert.ok(
+          refreshSetup.mock.invocationCallOrder[0] < mockExecuteChange.mock.invocationCallOrder[0],
+        );
+      });
+
+      it("returns to failed without executing when setup refresh throws", async () => {
+        const refreshSetup = vi.fn<NonNullable<WorkerPool["refreshSetup"]>>(async () => {
+          throw new Error("setup script exited 1");
+        });
+        const session = failedSession();
+
+        const result = await handleFollowUp(
+          session,
+          "continue",
+          undefined,
+          undefined,
+          depsWithPool({ refreshSetup }),
+        );
+
+        assert.equal(result.success, false);
+        assert.ok(result.error?.includes("setup script exited 1"));
+        assert.equal(mockExecuteChange.mock.calls.length, 0);
+        const lastStatus = mockUpdateActiveChangeStatus.mock.calls.at(-1);
+        assert.equal(lastStatus?.[1], "failed");
+      });
+
+      it("returns to failed when execution fails again", async () => {
+        mockExecuteChange.mockImplementation(async () => ({
+          success: false,
+          error: "tests are red",
+        }));
+        const session = failedSession();
+
+        const result = await handleFollowUp(session, "continue", undefined, undefined, makeDeps());
+
+        assert.equal(result.success, false);
+        assert.equal(result.error, "tests are red");
+        const lastStatus = mockUpdateActiveChangeStatus.mock.calls.at(-1);
+        assert.equal(lastStatus?.[1], "failed");
+      });
+
+      it("succeeds when the recovered execution creates a PR", async () => {
+        mockGetSession.mockImplementation(async () =>
+          makeSessionContext({
+            activeChange: makeActiveChangeState({
+              status: "pr_created",
+              prUrl: "https://github.com/org/my-repo/pull/77",
+            }),
+          }),
+        );
+        const session = failedSession();
+
+        const result = await handleFollowUp(session, "continue", undefined, undefined, makeDeps());
+
+        assert.equal(result.success, true);
+        assert.equal(result.prUrl, "https://github.com/org/my-repo/pull/77");
+      });
+
+      it("returns to failed when execution succeeds without creating a PR", async () => {
+        const session = failedSession();
+
+        const result = await handleFollowUp(session, "continue", undefined, undefined, makeDeps());
+
+        assert.equal(result.success, false);
+        assert.ok(result.error?.includes("PR was not created"));
+        const lastStatus = mockUpdateActiveChangeStatus.mock.calls.at(-1);
+        assert.equal(lastStatus?.[1], "failed");
+      });
+    });
+
+    describe("restart", () => {
+      it("force-resets the worktree and starts a fresh run", async () => {
+        const session = failedSession({ sdkSessionId: "sdk-1" });
+
+        await handleFollowUp(session, "restart", undefined, undefined, makeDeps());
+
+        assert.equal(mockForceResetBranch.mock.calls.length, 1);
+        assert.equal(mockForceResetBranch.mock.calls[0][2], "feat/test-branch");
+        assert.equal(mockExecuteChange.mock.calls.length, 1);
+        const opts = mockExecuteChange.mock.calls[0][0];
+        assert.equal(opts.resumeContext, undefined);
+        assert.equal(opts.sdkSessionId, undefined);
+        assert.equal(session.activeChange?.sdkSessionId, undefined);
+      });
+
+      it("returns to failed without executing when the reset throws", async () => {
+        mockForceResetBranch.mockImplementation(async () => {
+          throw new Error("git checkout failed");
+        });
+        const session = failedSession();
+
+        const result = await handleFollowUp(session, "restart", undefined, undefined, makeDeps());
+
+        assert.equal(result.success, false);
+        assert.ok(result.error?.includes("git checkout failed"));
+        assert.equal(mockExecuteChange.mock.calls.length, 0);
+        const lastStatus = mockUpdateActiveChangeStatus.mock.calls.at(-1);
+        assert.equal(lastStatus?.[1], "failed");
+      });
+    });
+
+    describe("discard", () => {
+      it("releases the worker as discarded and cancels the change", async () => {
+        const release = vi.fn<WorkerPool["release"]>(async () => {});
+        const session = failedSession();
+
+        const result = await handleFollowUp(
+          session,
+          "discard",
+          undefined,
+          undefined,
+          depsWithPool({ release }),
+        );
+
+        assert.equal(result.success, true);
+        assert.equal(release.mock.calls.length, 1);
+        assert.equal(release.mock.calls[0][1], "discarded");
+        const lastStatus = mockUpdateActiveChangeStatus.mock.calls.at(-1);
+        assert.equal(lastStatus?.[1], "cancelled");
+        assert.equal(session.activeChange?.worktree, undefined);
+      });
+
+      it("cancels without releasing when no worktree is bound", async () => {
+        const release = vi.fn<WorkerPool["release"]>(async () => {});
+        const session = failedSession({ worktree: undefined });
+
+        const result = await handleFollowUp(
+          session,
+          "discard",
+          undefined,
+          undefined,
+          depsWithPool({ release }),
+        );
+
+        assert.equal(result.success, true);
+        assert.equal(release.mock.calls.length, 0);
+        const lastStatus = mockUpdateActiveChangeStatus.mock.calls.at(-1);
+        assert.equal(lastStatus?.[1], "cancelled");
+      });
+
+      it("surfaces a release failure and keeps the change failed", async () => {
+        const release = vi.fn<WorkerPool["release"]>(async () => {
+          throw new Error("git is wedged");
+        });
+        const session = failedSession();
+
+        const result = await handleFollowUp(
+          session,
+          "discard",
+          undefined,
+          undefined,
+          depsWithPool({ release }),
+        );
+
+        assert.equal(result.success, false);
+        assert.ok(result.error?.includes("git is wedged"));
+        assert.equal(mockUpdateActiveChangeStatus.mock.calls.length, 0);
+      });
     });
   });
 
