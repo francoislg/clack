@@ -14,6 +14,13 @@ export function createSetConfigTool(sdk: ClackSdk) {
     {
       enabled: z.boolean().optional(),
       reportingChannel: z.string().optional().describe("Channel ID for the summary digest"),
+      summaryHour: z
+        .number()
+        .int()
+        .min(0)
+        .max(23)
+        .optional()
+        .describe("Hour [0..23] the morning digest fires; defaults to the active-window start"),
       maxActionsPerFire: z.number().int().min(1).max(20).optional(),
       maxActionsPerNight: z.number().int().min(1).max(100).optional(),
       trackerSource: z.boolean().optional().describe("Enable/disable the external-tracker source"),
@@ -25,6 +32,7 @@ export function createSetConfigTool(sdk: ClackSdk) {
         ...config,
         enabled: args.enabled ?? config.enabled,
         reportingChannel: args.reportingChannel ?? config.reportingChannel,
+        summaryHour: args.summaryHour ?? config.summaryHour,
         maxActionsPerFire: args.maxActionsPerFire ?? config.maxActionsPerFire,
         maxActionsPerNight: args.maxActionsPerNight ?? config.maxActionsPerNight,
         sources: {

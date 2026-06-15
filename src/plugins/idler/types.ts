@@ -26,6 +26,8 @@ export interface IdlerConfig {
   repoAllowlist: string[];
   /** Absent ⇒ no summary task is reconciled. */
   reportingChannel?: string;
+  /** Hour [0..23] the morning digest fires. Absent ⇒ the active-window start. */
+  summaryHour?: number;
   /** Cap on code-changing actions per single work fire. */
   maxActionsPerFire: number;
   /** Cap on code-changing actions across one off-hours window. */

@@ -39,6 +39,15 @@ describe("idlerConfigSchema", () => {
     assert.equal(bad.success, false);
   });
 
+  it("rejects an out-of-range summaryHour", () => {
+    const bad = idlerConfigSchema.safeParse({
+      enabled: true,
+      activeHours: { start: 9, end: 18, tz: "UTC", days: [1] },
+      summaryHour: 24,
+    });
+    assert.equal(bad.success, false);
+  });
+
   it("rejects a malformed channel id", () => {
     const bad = idlerConfigSchema.safeParse({
       enabled: true,

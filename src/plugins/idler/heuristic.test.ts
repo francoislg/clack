@@ -61,6 +61,10 @@ describe("buildOffHoursCron", () => {
 
 describe("buildSummaryCron", () => {
   it("fires at the active-window start on active days", () => {
-    assert.equal(buildSummaryCron(active), "0 9 * * 1,2,3,4,5");
+    assert.equal(buildSummaryCron(active, active.start), "0 9 * * 1,2,3,4,5");
+  });
+
+  it("fires at an explicit summary hour decoupled from the window start", () => {
+    assert.equal(buildSummaryCron(active, 8), "0 8 * * 1,2,3,4,5");
   });
 });
