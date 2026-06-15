@@ -86,9 +86,43 @@ function makeDeps(): ChangeActionDeps {
 
 interface HandlerArgs {
   ack: Mock<() => Promise<void>>;
-  body: { actions: Array<{ value: string }>; user: { id: string }; channel?: { id: string } };
+  body: {
+    actions: Array<{ value: string; action_id?: string }>;
+    user: { id: string };
+    channel?: { id: string };
+    message?: { text?: string; blocks?: unknown[] };
+  };
   client: App["client"];
   respond: Mock<(args: object) => Promise<void>>;
+}
+
+interface RespondArg {
+  replace_original?: boolean;
+  delete_original?: boolean;
+  text?: string;
+  blocks?: unknown[];
+}
+
+const PROPOSAL_SECTION = { type: "section", text: { type: "mrkdwn", text: "Proposal body" } };
+
+function makeProposalMessage() {
+  return {
+    text: "Proposal",
+    blocks: [
+      PROPOSAL_SECTION,
+      { type: "divider" },
+      {
+        type: "actions",
+        elements: [
+          {
+            type: "button",
+            action_id: "clack_change_0",
+            text: { type: "plain_text", text: "Accept" },
+          },
+        ],
+      },
+    ],
+  };
 }
 
 type ActionHandler = (args: HandlerArgs) => Promise<void>;
@@ -126,7 +160,8 @@ function makeHandlerArgs(overrides: Partial<HandlerArgs> = {}): HandlerArgs {
   const body = {
     user: { id: "U001" },
     channel: { id: "C001" },
-    actions: [{ value: "encoded-value" }],
+    actions: [{ value: "encoded-value", action_id: "clack_change_0" }],
+    message: makeProposalMessage(),
     ...overrides.body,
   };
   return {
@@ -351,7 +386,7 @@ describe("registerChangeActionHandler — intent resolution", () => {
 // ============================================================================
 
 describe("registerChangeActionHandler — success", () => {
-  it("deletes original message, resolves intent, and triggers workflow", async () => {
+  it("preserves the message, removes the clicked button, resolves intent, and triggers workflow", async () => {
     const changeIntent: StagedChangeIntent = {
       type: "change",
       branch: "feat/new-thing",
@@ -363,17 +398,14 @@ describe("registerChangeActionHandler — success", () => {
     const args = makeHandlerArgs();
     await capturedHandler(args);
 
-    // Should ack and delete original
+    // Should ack and replace the original message with the clicked button removed
     assert.equal(args.ack.mock.calls.length, 1);
     assert.equal(args.respond.mock.calls.length, 1);
-    const respondCall = args.respond.mock.calls[0];
-    const respondArg = respondCall[0];
-    assert.ok(
-      respondArg &&
-        typeof respondArg === "object" &&
-        "delete_original" in respondArg &&
-        respondArg.delete_original === true,
-    );
+    const respondArg = args.respond.mock.calls[0][0] as RespondArg;
+    assert.equal(respondArg.replace_original, true);
+    // Single-button proposal: the actions block and its divider are gone, the body survives.
+    assert.deepEqual(respondArg.blocks, [PROPOSAL_SECTION]);
+    assert.equal(respondArg.text, "Proposal");
 
     // Should start the streamer and call startChangeWorkflow
     assert.equal(mockStreamerStart.mock.calls.length, 1);
@@ -402,6 +434,29 @@ describe("registerChangeActionHandler — success", () => {
     assert.ok(
       plan && typeof plan === "object" && "targetRepo" in plan && plan.targetRepo === "org/repo",
     );
+  });
+
+  it("leaves the message untouched (never deletes) when the payload has no blocks", async () => {
+    const changeIntent: StagedChangeIntent = {
+      type: "change",
+      branch: "feat/new-thing",
+      description: "Add new thing",
+      repo: "org/repo",
+    };
+    mockGetStagedIntent.mockImplementation(async () => changeIntent);
+
+    const args = makeHandlerArgs({
+      body: {
+        user: { id: "U001" },
+        channel: { id: "C001" },
+        actions: [{ value: "encoded-value", action_id: "clack_change_0" }],
+      },
+    });
+    await capturedHandler(args);
+
+    // No blocks to rewrite → respond is not called, and the workflow still runs.
+    assert.equal(args.respond.mock.calls.length, 0);
+    assert.equal(mockStartChangeWorkflow.mock.calls.length, 1);
   });
 });
 

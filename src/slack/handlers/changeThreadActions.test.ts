@@ -101,9 +101,46 @@ function makeDeps(): ChangeThreadActionsDeps {
 
 interface HandlerArgs {
   ack: Mock<() => Promise<void>>;
-  body: { actions: Array<{ value: string }>; user: { id: string }; channel?: { id: string } };
+  body: {
+    actions: Array<{ value: string; action_id?: string }>;
+    user: { id: string };
+    channel?: { id: string };
+    message?: { text?: string; blocks?: unknown[] };
+  };
   client: App["client"];
   respond: Mock<(args: object) => Promise<void>>;
+}
+
+interface RespondArg {
+  replace_original?: boolean;
+  delete_original?: boolean;
+  text?: string;
+  blocks?: unknown[];
+}
+
+function button(actionId: string, text: string) {
+  return { type: "button", action_id: actionId, text: { type: "plain_text", text } };
+}
+
+const NARRATIVE_SECTION = { type: "section", text: { type: "mrkdwn", text: "What next?" } };
+
+function makeFollowUpMessage() {
+  return {
+    text: "Change ready",
+    blocks: [
+      NARRATIVE_SECTION,
+      { type: "divider" },
+      {
+        type: "actions",
+        elements: [
+          button("clack_review_0", "Review"),
+          button("clack_merge_1", "Merge"),
+          button("clack_update_change_2", "Update"),
+          button("clack_close_3", "Close"),
+        ],
+      },
+    ],
+  };
 }
 
 type ActionHandler = (args: HandlerArgs) => Promise<void>;
@@ -146,7 +183,8 @@ function makeHandlerArgs(overrides: Partial<HandlerArgs> = {}): HandlerArgs {
   const body = {
     user: { id: "U001" },
     channel: { id: "C001" },
-    actions: [{ value: "encoded-value" }],
+    actions: [{ value: "encoded-value", action_id: "clack_review_0" }],
+    message: makeFollowUpMessage(),
     ...overrides.body,
   };
   return {
@@ -456,7 +494,7 @@ describe("registerChangeThreadActionHandlers — no active change", () => {
 // ============================================================================
 
 describe("registerChangeThreadActionHandlers — successful review", () => {
-  it("deletes original message, calls handleFollowUp with review command", async () => {
+  it("removes the clicked button (keeping siblings), calls handleFollowUp with review command", async () => {
     const handler = getHandler("clack_review");
     const session = makeSession();
 
@@ -473,14 +511,21 @@ describe("registerChangeThreadActionHandlers — successful review", () => {
 
     assert.equal(args.ack.mock.calls.length, 1);
     assert.equal(args.respond.mock.calls.length, 1);
-    const respondCall = args.respond.mock.calls[0];
-    const respondArg = respondCall[0];
-    assert.ok(
-      respondArg &&
-        typeof respondArg === "object" &&
-        "delete_original" in respondArg &&
-        respondArg.delete_original === true,
-    );
+    const respondArg = args.respond.mock.calls[0][0] as RespondArg;
+    assert.equal(respondArg.replace_original, true);
+    // Only the clicked Review button is gone; the narrative, divider, and siblings remain.
+    assert.deepEqual(respondArg.blocks, [
+      NARRATIVE_SECTION,
+      { type: "divider" },
+      {
+        type: "actions",
+        elements: [
+          button("clack_merge_1", "Merge"),
+          button("clack_update_change_2", "Update"),
+          button("clack_close_3", "Close"),
+        ],
+      },
+    ]);
 
     assert.equal(mockHandleFollowUp.mock.calls.length, 1);
     const followUpArgs = mockHandleFollowUp.mock.calls[0];
@@ -876,20 +921,63 @@ describe("registerChangeThreadActionHandlers — recovery buttons", () => {
     }
   });
 
-  it("deletes the buttons message after validation", async () => {
+  it("replaces the buttons message (removing only the clicked button) after validation", async () => {
     const handler = getHandler("clack_continue_change");
-    const args = makeHandlerArgs();
+    const args = makeHandlerArgs({
+      body: {
+        user: { id: "U001" },
+        channel: { id: "C001" },
+        actions: [{ value: "encoded-value", action_id: "clack_continue_change_0" }],
+        message: {
+          text: "Recover?",
+          blocks: [
+            { type: "section", text: { type: "mrkdwn", text: "The change failed." } },
+            { type: "divider" },
+            {
+              type: "actions",
+              elements: [
+                button("clack_continue_change_0", "Continue"),
+                button("clack_restart_change_1", "Start over"),
+                button("clack_discard_change_2", "Discard"),
+              ],
+            },
+          ],
+        },
+      },
+    });
 
     await handler(args);
 
     assert.equal(args.respond.mock.calls.length, 1);
-    const respondArg = args.respond.mock.calls[0][0];
-    assert.ok(
-      respondArg &&
-        typeof respondArg === "object" &&
-        "delete_original" in respondArg &&
-        respondArg.delete_original === true,
-    );
+    const respondArg = args.respond.mock.calls[0][0] as RespondArg;
+    assert.equal(respondArg.replace_original, true);
+    assert.deepEqual(respondArg.blocks, [
+      { type: "section", text: { type: "mrkdwn", text: "The change failed." } },
+      { type: "divider" },
+      {
+        type: "actions",
+        elements: [
+          button("clack_restart_change_1", "Start over"),
+          button("clack_discard_change_2", "Discard"),
+        ],
+      },
+    ]);
+  });
+
+  it("leaves the recovery message untouched (never deletes) when the payload has no blocks", async () => {
+    const handler = getHandler("clack_continue_change");
+    const args = makeHandlerArgs({
+      body: {
+        user: { id: "U001" },
+        channel: { id: "C001" },
+        actions: [{ value: "encoded-value", action_id: "clack_continue_change_0" }],
+      },
+    });
+
+    await handler(args);
+
+    assert.equal(args.respond.mock.calls.length, 0);
+    assert.equal(mockHandleFollowUp.mock.calls.length, 1);
   });
 
   it("blocks member role with an ephemeral message and keeps the buttons", async () => {
