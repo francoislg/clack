@@ -1,4 +1,4 @@
-import type { KnownBlock, View } from "@slack/types";
+import type { Button, KnownBlock, View } from "@slack/types";
 import { t } from "../i18n/t.js";
 import type { UserRole } from "../roles.js";
 import { canCreateUserSkill, canEditUserSkillContent } from "../permissions.js";
@@ -14,12 +14,14 @@ import type { UserSkill } from "../userSkills.js";
  *   - Edit visible per-row when `canEditUserSkillContent(role, owner, viewer, editableByAnyone)`.
  *   - The editable-by-everyone checkbox and Disable/Restore inside the modal are gated by
  *     `canManageUserSkill` (owner/admin only) via the `canManage` arg to `buildEditSkillModal`.
+ *   - Delete (permanent) is gated by `canDeleteUserSkill` (admin+ only) via the `canDelete` arg.
  *
  * Action IDs:
  *   `clack_user_skill_create_open`              — open create modal
  *   `clack_user_skill_edit_open:<slug>`         — open edit modal for slug
  *   `clack_user_skill_disable:<slug>`           — direct disable (with native button confirm)
  *   `clack_user_skill_restore:<slug>`           — direct restore (no confirm)
+ *   `clack_user_skill_delete:<slug>`            — permanent removal (admin+, with native button confirm)
  *   `clack_user_skill_create_submit`            — modal submission (create)
  *   `clack_user_skill_edit_submit`              — modal submission (edit, slug carried in private_metadata)
  */
@@ -28,6 +30,7 @@ export const ACTION_CREATE_OPEN = "clack_user_skill_create_open";
 export const ACTION_EDIT_OPEN_PREFIX = "clack_user_skill_edit_open";
 export const ACTION_DISABLE_PREFIX = "clack_user_skill_disable";
 export const ACTION_RESTORE_PREFIX = "clack_user_skill_restore";
+export const ACTION_DELETE_PREFIX = "clack_user_skill_delete";
 export const CALLBACK_CREATE_SUBMIT = "clack_user_skill_create_submit";
 export const CALLBACK_EDIT_SUBMIT = "clack_user_skill_edit_submit";
 
@@ -172,7 +175,11 @@ export function buildCreateSkillModal(): View {
   };
 }
 
-export function buildEditSkillModal(skill: UserSkill, canManage: boolean): View {
+export function buildEditSkillModal(
+  skill: UserSkill,
+  canManage: boolean,
+  canDelete: boolean,
+): View {
   const editableOption = {
     text: { type: "plain_text" as const, text: t("userSkills.modal_editable_option") },
     value: EDITABLE_OPTION_VALUE,
@@ -238,33 +245,52 @@ export function buildEditSkillModal(skill: UserSkill, canManage: boolean): View 
       hint: { type: "plain_text", text: t("userSkills.modal_editable_hint") },
     });
     blocks.push({ type: "divider" });
-    blocks.push({
-      type: "actions",
-      elements: skill.disabledAt
-        ? [
-            {
-              type: "button",
-              text: { type: "plain_text", text: t("userSkills.restore_button"), emoji: true },
-              action_id: `${ACTION_RESTORE_PREFIX}:${skill.slug}`,
-              value: skill.slug,
+
+    const lifecycleButton: Button = skill.disabledAt
+      ? {
+          type: "button",
+          text: { type: "plain_text", text: t("userSkills.restore_button"), emoji: true },
+          action_id: `${ACTION_RESTORE_PREFIX}:${skill.slug}`,
+          value: skill.slug,
+        }
+      : {
+          type: "button",
+          style: "danger",
+          text: { type: "plain_text", text: t("userSkills.disable_button"), emoji: true },
+          action_id: `${ACTION_DISABLE_PREFIX}:${skill.slug}`,
+          value: skill.slug,
+          confirm: {
+            title: { type: "plain_text", text: t("userSkills.disable_button") },
+            text: {
+              type: "mrkdwn",
+              text: t("userSkills.disable_confirm_text", { slug: skill.slug }),
             },
-          ]
-        : [
-            {
-              type: "button",
-              style: "danger",
-              text: { type: "plain_text", text: t("userSkills.disable_button"), emoji: true },
-              action_id: `${ACTION_DISABLE_PREFIX}:${skill.slug}`,
-              value: skill.slug,
-              confirm: {
-                title: { type: "plain_text", text: t("userSkills.disable_button") },
-                text: { type: "mrkdwn", text: `Disable \`${skill.slug}\`?` },
-                confirm: { type: "plain_text", text: t("userSkills.disable_button") },
-                deny: { type: "plain_text", text: t("common.cancel") },
-              },
-            },
-          ],
-    });
+            confirm: { type: "plain_text", text: t("userSkills.disable_button") },
+            deny: { type: "plain_text", text: t("common.cancel") },
+          },
+        };
+
+    const lifecycleElements: Button[] = [lifecycleButton];
+    if (canDelete) {
+      lifecycleElements.push({
+        type: "button",
+        style: "danger",
+        text: { type: "plain_text", text: t("userSkills.delete_button"), emoji: true },
+        action_id: `${ACTION_DELETE_PREFIX}:${skill.slug}`,
+        value: skill.slug,
+        confirm: {
+          title: { type: "plain_text", text: t("userSkills.delete_confirm_title") },
+          text: {
+            type: "mrkdwn",
+            text: t("userSkills.delete_confirm_text", { slug: skill.slug }),
+          },
+          confirm: { type: "plain_text", text: t("userSkills.delete_button") },
+          deny: { type: "plain_text", text: t("common.cancel") },
+        },
+      });
+    }
+
+    blocks.push({ type: "actions", elements: lifecycleElements });
   }
 
   return {

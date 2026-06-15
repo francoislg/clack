@@ -12,6 +12,7 @@ import {
   updateUserSkill,
   disableUserSkill,
   restoreUserSkill,
+  deleteUserSkill,
   setUserSkillsDeps,
   resetUserSkillsDeps,
   defaultUserSkillsDeps,
@@ -202,6 +203,41 @@ describe("disable + restore", () => {
 
   it("restore rejects unknown", () => {
     assert.throws(() => restoreUserSkill("ghost"), /not found/);
+  });
+});
+
+describe("deleteUserSkill", () => {
+  beforeEach(() => {
+    setupTempDataDir();
+    withFixedTime();
+  });
+  afterEach(() => {
+    resetUserSkillsDeps();
+    if (existsSync(tmpBase)) rmSync(tmpBase, { recursive: true });
+  });
+
+  it("removes the skill directory", () => {
+    writeUserSkill({ slug: "foo", description: "d", body: "b", ownerUserId: "U" });
+    assert.equal(userSkillExists("foo"), true);
+    deleteUserSkill("foo");
+    assert.equal(userSkillExists("foo"), false);
+    assert.equal(readUserSkill("foo"), null);
+    assert.equal(existsSync(join(dataDir, "user-skills", "foo")), false);
+  });
+
+  it("works on a disabled skill", () => {
+    writeUserSkill({ slug: "foo", description: "d", body: "b", ownerUserId: "U" });
+    disableUserSkill("foo");
+    deleteUserSkill("foo");
+    assert.equal(userSkillExists("foo"), false);
+  });
+
+  it("rejects unknown slug", () => {
+    assert.throws(() => deleteUserSkill("ghost"), /not found/);
+  });
+
+  it("rejects invalid slug without touching anything", () => {
+    assert.throws(() => deleteUserSkill("../escape"), /Invalid skill name/);
   });
 });
 

@@ -12,6 +12,7 @@ import type {
   Action,
 } from "../../tools/types.js";
 import type { UserRole } from "../../roles.js";
+import type { UserSkill } from "../../userSkills.js";
 import type { SessionContext, AttentionLevel, DeliveryMode } from "../../sessions.js";
 import type { SessionInfo } from "../activeSessions.js";
 import type { SlackDeliveryContext } from "./changeAction.js";
@@ -118,6 +119,7 @@ function makeDeps(): AutoExecuteDeps {
     canCreateUserSkill: () => true,
     canEditUserSkillContent: () => true,
     canManageUserSkill: () => true,
+    canDeleteUserSkill: () => true,
     writeUserSkill: () => {
       throw new Error("not used in test");
     },
@@ -128,6 +130,9 @@ function makeDeps(): AutoExecuteDeps {
       throw new Error("not used in test");
     },
     restoreUserSkill: () => {
+      throw new Error("not used in test");
+    },
+    deleteUserSkill: () => {
       throw new Error("not used in test");
     },
     readUserSkill: () => null,
@@ -1655,5 +1660,62 @@ describe("handleAutoExecuteActions — channelless context", () => {
 
     assert.equal(mockPostAnswerToChannel.mock.calls.length, 1);
     assert.equal(mockPostAnswerToChannel.mock.calls[0][2], "C999");
+  });
+});
+
+describe("handleAutoExecuteActions — skill_delete auto-execute", () => {
+  const skillFixture: UserSkill = {
+    slug: "foo",
+    description: "d",
+    body: "b",
+    ownerUserId: "U_OWNER",
+    createdAt: "t",
+    updatedAt: "t",
+  };
+
+  function makeDeleteDeps(opts: { canDelete: boolean }): {
+    deps: AutoExecuteDeps;
+    deleteUserSkill: ReturnType<typeof vi.fn>;
+  } {
+    const deleteUserSkill = vi.fn();
+    const deps: AutoExecuteDeps = {
+      ...makeDeps(),
+      readUserSkill: () => skillFixture,
+      canDeleteUserSkill: () => opts.canDelete,
+      deleteUserSkill,
+    };
+    return { deps, deleteUserSkill };
+  }
+
+  it("removes the skill and posts a success message when the caller is admin", async () => {
+    const { deps, deleteUserSkill } = makeDeleteDeps({ canDelete: true });
+    const params = makeBaseParams({
+      role: "admin",
+      response: makeResponseWithActions(
+        { blocks: [], actions: [{ type: "skill_delete", ref: "d1", auto: true }] },
+        { d1: { type: "skill_delete", slug: "foo" } },
+      ),
+    });
+
+    await handleAutoExecuteActions(params, deps);
+
+    assert.equal(deleteUserSkill.mock.calls.length, 1);
+    assert.equal(deleteUserSkill.mock.calls[0][0], "foo");
+    assert.equal(mockPostMessageFn.mock.calls.length, 1);
+  });
+
+  it("is a no-op when the caller lacks the admin gate", async () => {
+    const { deps, deleteUserSkill } = makeDeleteDeps({ canDelete: false });
+    const params = makeBaseParams({
+      role: "member",
+      response: makeResponseWithActions(
+        { blocks: [], actions: [{ type: "skill_delete", ref: "d1", auto: true }] },
+        { d1: { type: "skill_delete", slug: "foo" } },
+      ),
+    });
+
+    await handleAutoExecuteActions(params, deps);
+
+    assert.equal(deleteUserSkill.mock.calls.length, 0);
   });
 });

@@ -101,6 +101,7 @@ interface MockBundle {
   updateUserSkill: ReturnType<typeof vi.fn<SkillActionDeps["updateUserSkill"]>>;
   disableUserSkill: ReturnType<typeof vi.fn<SkillActionDeps["disableUserSkill"]>>;
   restoreUserSkill: ReturnType<typeof vi.fn<SkillActionDeps["restoreUserSkill"]>>;
+  deleteUserSkill: ReturnType<typeof vi.fn<SkillActionDeps["deleteUserSkill"]>>;
 }
 
 function makeDeps(
@@ -115,6 +116,7 @@ function makeDeps(
   const updateUserSkill = vi.fn<SkillActionDeps["updateUserSkill"]>(() => baseSkill);
   const disableUserSkill = vi.fn<SkillActionDeps["disableUserSkill"]>(() => baseSkill);
   const restoreUserSkill = vi.fn<SkillActionDeps["restoreUserSkill"]>(() => baseSkill);
+  const deleteUserSkill = vi.fn<SkillActionDeps["deleteUserSkill"]>(() => {});
 
   const deps: SkillActionDeps = {
     getRole: async () => overrides.role ?? "member",
@@ -125,12 +127,20 @@ function makeDeps(
     updateUserSkill,
     disableUserSkill,
     restoreUserSkill,
+    deleteUserSkill,
     readUserSkill: () => overrides.existing ?? null,
     userSkillExists: () => overrides.userSkillExists ?? false,
     errorMessage: (e) => (e instanceof Error ? e.message : String(e)),
   };
 
-  return { deps, writeUserSkill, updateUserSkill, disableUserSkill, restoreUserSkill };
+  return {
+    deps,
+    writeUserSkill,
+    updateUserSkill,
+    disableUserSkill,
+    restoreUserSkill,
+    deleteUserSkill,
+  };
 }
 
 async function invoke(bundle: MockBundle, body: BlockAction = makeBody()) {
@@ -313,6 +323,22 @@ describe("skillAction handler — disable/restore", () => {
     });
     await invoke(bundle);
     assert.equal(bundle.restoreUserSkill.mock.calls.length, 1);
+  });
+});
+
+describe("skillAction handler — delete", () => {
+  it("applies skill_delete for an admin", async () => {
+    const intent: StagedIntent = { type: "skill_delete", slug: "foo" };
+    const bundle = makeDeps({ intent, role: "admin", existing: baseSkill });
+    await invoke(bundle);
+    assert.equal(bundle.deleteUserSkill.mock.calls.length, 1);
+  });
+
+  it("rejects skill_delete when the clicker is no longer admin (defense-in-depth)", async () => {
+    const intent: StagedIntent = { type: "skill_delete", slug: "foo" };
+    const bundle = makeDeps({ intent, role: "member", existing: baseSkill });
+    await invoke(bundle);
+    assert.equal(bundle.deleteUserSkill.mock.calls.length, 0);
   });
 });
 

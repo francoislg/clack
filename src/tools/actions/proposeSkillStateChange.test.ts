@@ -38,11 +38,18 @@ function makeCtx(role: QueryToolContext["role"], userId = "U_OWNER"): QueryToolC
 
 // --- disable -----------------------------------------------------------------
 
-function callDisable(ctx: QueryToolContext, deps: ProposeSkillDisableDeps, args: { name: string }) {
+function callDisable(
+  ctx: QueryToolContext,
+  deps: ProposeSkillDisableDeps,
+  args: { name: string; delete?: boolean },
+) {
   const intentStore = createIntentStore();
   const tool = createProposeSkillDisableTool(ctx, intentStore, deps);
   return tool
-    .handler(args, { signal: new AbortController().signal, requestId: "r" })
+    .handler(
+      { name: args.name, delete: args.delete },
+      { signal: new AbortController().signal, requestId: "r" },
+    )
     .then((result) => ({ result, intentStore }));
 }
 
@@ -94,6 +101,46 @@ describe("propose_skill_disable", () => {
     const deps: ProposeSkillDisableDeps = { readUserSkill: vi.fn(() => makeSkill()) };
     const { result } = await callDisable(ctxOff, deps, { name: "foo" });
     assert.match(toolResultText(result), /not enabled/);
+  });
+});
+
+describe("propose_skill_disable — permanent-removal flag", () => {
+  it("admin staging delete:true stages a skill_delete intent", async () => {
+    const deps: ProposeSkillDisableDeps = { readUserSkill: vi.fn(() => makeSkill()) };
+    const { result, intentStore } = await callDisable(makeCtx("admin", "U_ADMIN"), deps, {
+      name: "foo",
+      delete: true,
+    });
+    const json = parseToolResult(result as { content: readonly { type: string }[] });
+    const intent = intentStore.resolve(json.ref);
+    assert.equal(intent?.type, "skill_delete");
+  });
+
+  it("non-admin owner is rejected on delete:true", async () => {
+    const deps: ProposeSkillDisableDeps = { readUserSkill: vi.fn(() => makeSkill()) };
+    const { result } = await callDisable(makeCtx("member", "U_OWNER"), deps, {
+      name: "foo",
+      delete: true,
+    });
+    assert.match(toolResultText(result), /do not have permission/);
+  });
+
+  it("rejects unknown slug on delete:true", async () => {
+    const deps: ProposeSkillDisableDeps = { readUserSkill: vi.fn(() => null) };
+    const { result } = await callDisable(makeCtx("admin"), deps, { name: "ghost", delete: true });
+    assert.match(toolResultText(result), /not found/);
+  });
+
+  it("allows delete:true on an already-disabled skill", async () => {
+    const deps: ProposeSkillDisableDeps = {
+      readUserSkill: vi.fn(() => makeSkill({ disabledAt: "x" })),
+    };
+    const { result, intentStore } = await callDisable(makeCtx("admin"), deps, {
+      name: "foo",
+      delete: true,
+    });
+    const json = parseToolResult(result as { content: readonly { type: string }[] });
+    assert.equal(intentStore.resolve(json.ref)?.type, "skill_delete");
   });
 });
 

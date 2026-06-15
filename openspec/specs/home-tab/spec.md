@@ -376,8 +376,10 @@ When `userSkills.enabled === true`, the Home Tab SHALL render a "Skills" section
   - an "Owner: @userId" badge (rendered as a Slack mention)
   - a "(disabled)" badge for disabled skills
   - an "Edit" button visible to viewers permitted by `canEditUserSkill(role, ownerUserId, callerUserId)`
-  - a "Disable" button on enabled rows (same permission gate as Edit)
-  - a "Restore" button on disabled rows (same permission gate)
+
+The Edit modal SHALL host the lifecycle controls, gated by role:
+- a "Disable" button (on enabled skills) and a "Restore" button (on disabled skills), visible when `canManageUserSkill(role, ownerUserId, callerUserId)` (owner or admin+).
+- a "Delete" button visible ONLY when `canDeleteUserSkill(role)` (admin or owner), shown for both enabled and disabled skills. The button SHALL carry a native Slack confirmation dialog warning that deletion is permanent and irreversible. On confirm, the skill directory is removed permanently and the Home view is refreshed.
 
 When `userSkills.enabled === false`, the Skills section SHALL NOT render.
 
@@ -401,30 +403,45 @@ When `userSkills.enabled === false`, the Skills section SHALL NOT render.
 - **WHEN** the Home Tab is rendered
 - **THEN** the "+ Create skill" button is present
 
-#### Scenario: Owner sees Edit and Disable on their own skill
+#### Scenario: Owner sees Edit on their own skill row, Disable in the modal
 
 - **GIVEN** `copy-improver` is owned by U123 and is enabled
-- **WHEN** U123 opens the Home Tab
-- **THEN** the `copy-improver` row shows both "Edit" and "Disable" buttons
+- **WHEN** U123 opens the Home Tab and opens the `copy-improver` Edit modal
+- **THEN** the row shows an "Edit" button
+- **AND** the Edit modal shows a "Disable" button
 
-#### Scenario: Non-owner non-admin does not see Edit/Disable on someone else's skill
+#### Scenario: Non-admin owner does not see a Delete button in the modal
+
+- **GIVEN** `copy-improver` is owned by U123 (role `member`) and the viewer is U123
+- **WHEN** U123 opens the `copy-improver` Edit modal
+- **THEN** the modal shows "Disable" but NOT "Delete"
+
+#### Scenario: Admin sees a Delete button with confirmation in the modal
+
+- **GIVEN** the viewer has role `admin`
+- **WHEN** the admin opens the Edit modal for any skill
+- **THEN** the modal shows a "Delete" button
+- **AND** clicking it presents a native confirmation dialog before the delete is applied
+
+#### Scenario: Non-owner non-admin does not see the Edit button on someone else's skill
 
 - **GIVEN** `copy-improver` is owned by U123 and the viewer is U999 (member, non-owner)
 - **WHEN** U999 opens the Home Tab
-- **THEN** the `copy-improver` row shows neither "Edit" nor "Disable" buttons
+- **THEN** the `copy-improver` row shows no "Edit" button
 
-#### Scenario: Admin sees Edit and Disable on every skill
-
-- **GIVEN** the viewer has role `admin`
-- **WHEN** the Home Tab is rendered with three skills owned by different users
-- **THEN** every row shows "Edit" and "Disable" (or "Restore" if disabled) buttons
-
-#### Scenario: Disabled skill shows Restore instead of Disable
+#### Scenario: Disabled skill shows Restore instead of Disable in the modal
 
 - **GIVEN** `meeting-notes` has `disabledAt` set
-- **WHEN** the Home Tab is rendered for a user with edit permission on it
+- **WHEN** a user with manage permission opens its Edit modal
 - **THEN** the row shows a "(disabled)" badge
-- **AND** the row shows a "Restore" button (not "Disable")
+- **AND** the modal shows a "Restore" button (not "Disable")
+
+#### Scenario: Delete confirmed removes the skill and refreshes the view
+
+- **GIVEN** an admin opens the `copy-improver` Edit modal, clicks "Delete", and confirms the dialog
+- **WHEN** the action is handled
+- **THEN** `data/user-skills/copy-improver/` is permanently removed
+- **AND** the refreshed Home view no longer shows a `copy-improver` row
 
 #### Scenario: Skills section is alphabetized
 

@@ -258,6 +258,7 @@ const ACTION_TYPES_WITH_DEFAULT_LABELS: Action["type"][] = [
   "skill_update",
   "skill_disable",
   "skill_restore",
+  "skill_delete",
 ];
 
 // Builder for a minimal `Action` per type that elides the explicit label so the renderer
@@ -279,6 +280,7 @@ function actionWithDefaultLabel(type: Action["type"]): Action {
     case "skill_update":
     case "skill_disable":
     case "skill_restore":
+    case "skill_delete":
       return { type, ref: "ref-1" };
   }
 }
