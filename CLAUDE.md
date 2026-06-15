@@ -130,6 +130,14 @@ Reusable pool config block (under `changesWorkflow.reusableFolders`):
 
 The pool implementation lives in `src/workers/`. `DisposablePool` and `ReusablePool` both implement `WorkerPool` from `src/workers/types.ts`; the factory in `src/workers/index.ts` picks based on the config flag. `src/changes/workflow.ts`, `src/changes/monitor.ts`, and `src/changes/restore.ts` depend on the abstract interface.
 
+#### Cold-PR resume acquire mode
+
+`AcquireOptions.resumeRemoteBranch` (default `false`) makes `acquire` check a branch out from its **own** remote head (`origin/<branch>`) instead of re-branching from `origin/<default>`, preserving an existing PR's commits when continuing it; a missing remote branch throws `RemoteBranchNotFound` rather than clobbering. It threads `propose_change`'s `continue_existing_pr` → `StagedChangeIntent.resumeRemoteBranch` → `ChangePlan.resumeRemoteBranch` → `switchBranch`/`createWorktree`. The default fresh-branch path is unchanged. Used by the idler plugin to continue cold (worktree-reclaimed) PRs.
+
+### Idler plugin: off-hours autonomy
+
+Optional plugin (`src/plugins/idler/`, gated by its own `config.json` `enabled` + a non-empty `repoAllowlist` + a `reportingChannel`). A channelless, cron-driven plugin modeled on `casual-talk` that runs only **outside** Clack's configured active hours and turns idle time into reviewed, mergeable progress. Three cooperating cron tasks: **sync** (hourly, read-only — discovers/refreshes a work-unit ledger and recomputes priority), **work** (~15 min — advances one unit per fire along the `continue > triage > implement > review` ladder via `propose_change`+`auto`, query-mode triage/review, never merges), and **summary** (morning digest to `reportingChannel`). The `data/plugins/idler/ideas.json` ledger holds minimal state (`open` + `priority` + `source` + free-text + growing self-describing `references[]` with read/comment recipes and idempotency cursors), keyed by stable source entity (e.g. Sentry issue short-id) for dedup. Behavior/contract instructions ship as a topic; sourcing lives in admin-editable `data/plugins/idler/fetch-instructions.md`. Safety rails: repo allowlist, per-fire/per-night action caps, never-auto-merge.
+
 ### Trivia plugin: optional Seasons
 
 The trivia plugin ships an optional **seasons** feature, gated by `config.trivia.seasons = { enabled, prompt }`. When enabled:

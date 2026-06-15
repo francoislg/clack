@@ -14,10 +14,10 @@ export class DisposablePool implements WorkerPool {
     repo: RepositoryConfig,
     branch: string,
     sessionId: string,
-    _options?: AcquireOptions,
+    options?: AcquireOptions,
   ): Promise<Worker> {
     const existing = getExistingWorktree(repo, branch);
-    const info = existing ?? (await createWorktree(repo, branch));
+    const info = existing ?? (await createWorktree(repo, branch, options?.resumeRemoteBranch));
     return {
       id: branchToWorkerId(branch),
       repo: repo.name,

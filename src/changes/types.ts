@@ -33,6 +33,12 @@ export interface ChangePlan {
    * doesn't have to re-derive the strategy from `description` alone.
    */
   plan?: string;
+  /**
+   * Continue an existing PR on this branch: acquire from the branch's own remote head
+   * (preserving its commits) instead of re-branching from the default branch. Set when the
+   * change is a continuation (e.g. the idler advancing one of Clack's own open PRs). Default false.
+   */
+  resumeRemoteBranch?: boolean;
 }
 
 export interface ChangeSession {

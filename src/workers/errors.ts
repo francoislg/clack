@@ -30,6 +30,18 @@ export class AlreadyInFlight extends Error {
   }
 }
 
+export class RemoteBranchNotFound extends Error {
+  readonly branch: string;
+
+  constructor(repo: string, branch: string) {
+    super(
+      `Remote branch 'origin/${branch}' for repo '${repo}' was not found — cannot resume it (refusing to fall back to the default branch, which would discard the PR's commits).`,
+    );
+    this.name = "RemoteBranchNotFound";
+    this.branch = branch;
+  }
+}
+
 export class Cancelled extends Error {
   readonly reason: string | undefined;
 

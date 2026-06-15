@@ -162,7 +162,7 @@ export class ReusablePool implements WorkerPool {
         return this.acquire(repo, branch, sessionId, options);
       }
       try {
-        await switchBranch(idle, repo, branch);
+        await switchBranch(idle, repo, branch, options?.resumeRemoteBranch);
       } catch (err) {
         if (err instanceof DirtyWorkerQuarantined) {
           this.persist();
