@@ -1,11 +1,6 @@
 import type { ClackSdk, ClackPlugin, CronJobSpec } from "../sdk.js";
 import { isOperational, loadConfig } from "./config.js";
-import {
-  buildActiveHoursCron,
-  buildOffHoursCron,
-  buildSummaryCron,
-  type IdlerCronExpressions,
-} from "./heuristic.js";
+import { buildActiveHoursCron, buildOffHoursCron, buildSummaryCron } from "./heuristic.js";
 import { loadFetchInstructions } from "./fetchInstructions.js";
 import { BEHAVIOR_INSTRUCTION } from "./instructions.js";
 import { buildSyncPrompt } from "./prompts/sync.js";
@@ -41,27 +36,6 @@ const TOPIC = "idler";
 
 const MANAGEMENT_DESCRIPTION =
   "Manage the idler plugin: enable/disable, active hours, reporting channel, repo allowlist, action caps, discovery channels, the work-unit ledger, and the admin-editable sourcing guidance (fetch-instructions.md). Edits hot-reload on the next fire.";
-
-/** Emit one cron spec per non-null off-hours field (active-days + non-active-days), sharing a prompt. */
-function pushOffHours(
-  specs: CronJobSpec[],
-  base: Omit<CronJobSpec, "specKey" | "cronExpression">,
-  keyPrefix: string,
-  crons: IdlerCronExpressions,
-): void {
-  specs.push({
-    ...base,
-    specKey: `${keyPrefix}-active-days`,
-    cronExpression: crons.offHoursActiveDays,
-  });
-  if (crons.offHoursNonActiveDays !== null) {
-    specs.push({
-      ...base,
-      specKey: `${keyPrefix}-off-days`,
-      cronExpression: crons.offHoursNonActiveDays,
-    });
-  }
-}
 
 export const idlerPlugin: ClackPlugin = async (sdk: ClackSdk) => {
   if (!sdk.capabilities.crons) {
@@ -139,19 +113,16 @@ export const idlerPlugin: ClackPlugin = async (sdk: ClackSdk) => {
       });
     }
 
-    pushOffHours(
-      specs,
-      {
-        channel: config.reportingChannel,
-        prompt: buildWorkPrompt(config, fetchInstructions),
-        timezone: tz,
-        name: "Idler work",
-        submitResponseMode: "optional",
-        attachedTopics: [TOPIC],
-      },
-      "work",
-      buildOffHoursCron(config.activeHours, "*/15"),
-    );
+    specs.push({
+      specKey: "work",
+      cronExpression: buildOffHoursCron(config.activeHours, "*/15"),
+      channel: config.reportingChannel,
+      prompt: buildWorkPrompt(config, fetchInstructions),
+      timezone: tz,
+      name: "Idler work",
+      submitResponseMode: "optional",
+      attachedTopics: [TOPIC],
+    });
 
     specs.push({
       specKey: "summary",
