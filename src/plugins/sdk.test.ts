@@ -113,6 +113,31 @@ describe("ClackSdk", () => {
     });
   });
 
+  describe("readFileOrSeed", () => {
+    it("returns existing content without overwriting", async () => {
+      const { sdk } = makeSdk();
+      await sdk.writeFile("config.json", '{"existing":true}');
+      const result = await sdk.readFileOrSeed("config.json", '{"default":true}');
+      assert.equal(result, '{"existing":true}');
+    });
+
+    it("seeds the default when the file is missing", async () => {
+      const { sdk } = makeSdk();
+      const result = await sdk.readFileOrSeed("config.json", '{"default":true}');
+      assert.equal(result, '{"default":true}');
+      assert.equal(await sdk.readFile("config.json"), '{"default":true}');
+    });
+
+    it("returns the default and does not throw when the seed write fails", async () => {
+      const { sdk } = makeSdk();
+      const writeErr = new Error("EACCES: permission denied");
+      const spy = vi.spyOn(sdk, "writeFile").mockRejectedValue(writeErr);
+      const result = await sdk.readFileOrSeed("config.json", '{"default":true}');
+      assert.equal(result, '{"default":true}');
+      spy.mockRestore();
+    });
+  });
+
   describe("instruction registration", () => {
     it("auto-prefixes instruction filenames", () => {
       const { sdk, harvest } = makeSdk("trivia");

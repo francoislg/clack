@@ -68,6 +68,12 @@ export function createFakeSdk(overrides: Partial<ClackSdk> = {}): ClackSdk {
     }),
     readFile: async () => null,
     writeFile: async () => {},
+    readFileOrSeed: async function (path, defaultContent) {
+      const existing = await this.readFile(path);
+      if (existing !== null) return existing;
+      await this.writeFile(path, defaultContent);
+      return defaultContent;
+    },
     watchFile: () => {
       throw new Error("watchFile not stubbed in this fake sdk");
     },

@@ -57,16 +57,13 @@ export const DEFAULT_CONFIG: IdlerConfig = {
 };
 
 /**
- * Fail-fast loader: seeds `DEFAULT_CONFIG` on first boot, throws on Zod failure so the
- * caller (plugin init) records it via `sdk.error`. Boot config follows the fail-fast
- * philosophy (src/plugins/CLAUDE.md / project conventions), unlike the graceful ledger reader.
+ * Fail-fast loader: best-effort seeds `DEFAULT_CONFIG` on first boot (running on defaults if the
+ * seed write fails), throws on Zod failure so the caller (plugin init) records it via `sdk.error`.
+ * Boot config follows the fail-fast philosophy (src/plugins/CLAUDE.md / project conventions),
+ * unlike the graceful ledger reader.
  */
 export async function loadConfig(sdk: ClackSdk): Promise<IdlerConfig> {
-  const raw = await sdk.readFile(CONFIG_PATH);
-  if (raw === null) {
-    await sdk.writeFile(CONFIG_PATH, JSON.stringify(DEFAULT_CONFIG, null, 2));
-    return DEFAULT_CONFIG;
-  }
+  const raw = await sdk.readFileOrSeed(CONFIG_PATH, JSON.stringify(DEFAULT_CONFIG, null, 2));
   const parsed: unknown = JSON.parse(raw);
   return idlerConfigSchema.parse(parsed);
 }
