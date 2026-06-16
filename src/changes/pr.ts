@@ -87,6 +87,99 @@ export async function fetchPRReviewContext(
   }
 }
 
+// ============================================================================
+// CI Check Runs
+// ============================================================================
+
+export interface CheckRunSummary {
+  name: string;
+  conclusion: string | null;
+  detailsUrl: string | null;
+}
+
+export type CIChecksStatus = "all_passed" | "some_failed" | "in_progress" | "no_checks";
+
+export interface CIChecksSnapshot {
+  status: CIChecksStatus;
+  /** Check runs that completed with a non-passing conclusion. */
+  failedChecks: CheckRunSummary[];
+  /** Names of check runs that are still queued or in progress. */
+  pendingChecks: string[];
+}
+
+/** Conclusions that count as a pass (the run completed without failing). */
+const PASSING_CONCLUSIONS = new Set(["success", "neutral", "skipped"]);
+
+export interface CheckRunInput {
+  name: string;
+  status: string;
+  conclusion: string | null;
+  details_url?: string | null;
+  html_url?: string | null;
+}
+
+/** Classify a set of GitHub check-runs into a single CI snapshot. */
+export function classifyCheckRuns(runs: CheckRunInput[]): CIChecksSnapshot {
+  const failedChecks: CheckRunSummary[] = [];
+  const pendingChecks: string[] = [];
+  for (const run of runs) {
+    if (run.status !== "completed") {
+      pendingChecks.push(run.name);
+      continue;
+    }
+    if (run.conclusion && PASSING_CONCLUSIONS.has(run.conclusion)) {
+      continue;
+    }
+    failedChecks.push({
+      name: run.name,
+      conclusion: run.conclusion,
+      detailsUrl: run.details_url ?? run.html_url ?? null,
+    });
+  }
+
+  let status: CIChecksStatus;
+  if (failedChecks.length > 0) {
+    status = "some_failed";
+  } else if (pendingChecks.length > 0) {
+    status = "in_progress";
+  } else if (runs.length === 0) {
+    status = "no_checks";
+  } else {
+    status = "all_passed";
+  }
+
+  return { status, failedChecks, pendingChecks };
+}
+
+/**
+ * Fetch a one-shot snapshot of CI check-runs for a PR's head commit.
+ * Resolves the PR head SHA, lists its check runs, and classifies them.
+ * Returns null on error (caller decides how to treat an unreadable snapshot).
+ */
+export async function getPRChecks(
+  prUrl: string,
+  deps: PrDeps = defaultPrDeps,
+): Promise<CIChecksSnapshot | null> {
+  try {
+    const parsed = parsePrUrl(prUrl);
+    if (!parsed) {
+      logger.debug(`Invalid PR URL: ${prUrl}`);
+      return null;
+    }
+    const { owner, repo, pullNumber: pull_number } = parsed;
+    const octokit = await deps.getOctokit();
+
+    const { data: pr } = await octokit.pulls.get({ owner, repo, pull_number });
+    const ref = pr.head.sha;
+
+    const { data } = await octokit.checks.listForRef({ owner, repo, ref, per_page: 100 });
+    return classifyCheckRuns(data.check_runs);
+  } catch (error) {
+    logger.debug(`Failed to get PR checks for ${prUrl}: ${errorMessage(error)}`);
+    return null;
+  }
+}
+
 /**
  * Get the current status of a PR using the GitHub API.
  * Returns null on error.

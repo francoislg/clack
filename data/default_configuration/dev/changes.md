@@ -11,26 +11,11 @@ When the user wants to resume a previous session, use `find_sessions` to look it
 
 When uncertain whether the user is asking a question or requesting a change, default to answering the question. However, when your answer identifies a bug or issue, offer a `choice` action (e.g. "Fix this bug") with `workMode: true` so the user can quickly request a fix.
 
-### Verification gate (per-repo)
+### Pushing and CI verification
 
-Repositories can opt in to a pre-push verification gate by adding `data/configuration/<repo-name>/verification_checks.json`. When present, every `git_push` call runs the listed shell commands against the worktree first; only if all exit 0 does the push proceed. Failures are handed back to the worker as a structured error so it can fix them and retry, up to a bounded retry budget.
+`git_push` pushes the worktree branch through the bot's GitHub App. It refuses to push to a protected branch (the repo's default branch, plus `main`/`master`) and supports `force: true` for a force-push-with-lease — use that only when a rebase made the branch diverge and a normal push is rejected as non-fast-forward. Raw `git push` via the shell is blocked in worker mode; always push through `git_push`.
 
-Schema:
-```json
-{
-  "checks": [
-    { "name": "typecheck", "command": "npx tsc --noEmit", "timeoutSeconds": 300 },
-    { "name": "test",       "command": "npm test",          "timeoutSeconds": 600 }
-  ],
-  "retryBudget": 3
-}
-```
-
-- `checks` runs in declared order; the first failure stops the run.
-- `timeoutSeconds` defaults to 300s per check. Exceeding it kills the process and counts as a failure.
-- `retryBudget` defaults to 3. After that many consecutive failures, `git_push` returns a terminal error telling the worker to stop retrying and call `report_status`.
-
-If the file is absent, the gate is off and `git_push` behaves as it did before the gate was introduced.
+There is no local pre-push test gate. Verification happens against real CI: after `ensure_pr`, call `await_ci` to wait for the pull request's GitHub checks to resolve, and only report the change as successful when it returns `"passed"`. On `"failed"`, fix the failing checks (then push and `await_ci` again); on `"timed_out"`/`"pending"`, report that CI did not conclusively pass rather than claiming success. Run the repo's tests before committing regardless.
 
 ### Auto-execute (`auto: true`)
 

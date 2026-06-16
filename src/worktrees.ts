@@ -11,6 +11,7 @@ import { logger } from "./logger.js";
 import { errorMessage } from "./errors.js";
 import { getGitInstance, setAuthenticatedRemote } from "./repositories.js";
 import { resolveRemoteBase } from "./workers/branchSwitch.js";
+import { isValidBranchName } from "./changes/branchNaming.js";
 
 /**
  * Find the repository config by name to get its URL for token auth.
@@ -63,6 +64,13 @@ export async function createWorktree(
   branchName: string,
   resumeRemoteBranch = false,
 ): Promise<WorktreeInfo> {
+  // Backstop to propose_change's BRANCH_PATTERN guard: a worker branch must be clack/<type>/<name>.
+  if (!isValidBranchName(branchName)) {
+    throw new Error(
+      `Refusing to create a worktree on branch "${branchName}": worker branches must follow clack/<type>/<name>.`,
+    );
+  }
+
   const reposDir = getRepositoriesDir();
   const worktreesDir = getWorktreesDir();
   const mainRepoPath = resolve(reposDir, repo.name);
