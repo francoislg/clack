@@ -2,6 +2,7 @@ import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import { truncate } from "../text.js";
 import type { StreamEvent } from "../streaming/types.js";
 import type { ToolCallRecord } from "../tools/types.js";
+import { readResultUsage, type SessionUsage } from "./usage.js";
 
 export interface ToolUseInfo {
   id: string;
@@ -24,6 +25,8 @@ export interface ParsedResult {
   success: boolean;
   text: string;
   error?: string;
+  /** Token + cost usage for the run, from the `result` message. Absent when the SDK reported none. */
+  usage?: SessionUsage;
 }
 
 /**
@@ -235,6 +238,8 @@ export class ClaudeMessageParser {
         const errorMsg = message.errors.join(", ") || "Unknown error";
         this._result = { success: false, text: "", error: errorMsg };
       }
+      const usage = readResultUsage(message);
+      if (usage) this._result.usage = usage;
     }
 
     return parsed;

@@ -13,7 +13,7 @@ import { errorMessage } from "../errors.js";
 import { logger } from "../logger.js";
 import type { UserRole } from "../roles.js";
 import type { SessionContext, AttentionLevel, DeliveryMode } from "../sessions.js";
-import { updateSession } from "../sessions.js";
+import { updateSession, addSessionUsage } from "../sessions.js";
 import type {
   SubmitResponsePayload,
   ToolCallRecord,
@@ -582,6 +582,13 @@ export async function askClaude(
         if (parser.result) {
           if (parser.result.success) {
             answer = parser.result.text || parser.lastAssistantText;
+            if (parser.result.usage) {
+              // Fire-and-forget — don't block SDK stream teardown. addSessionUsage takes its own
+              // per-session lock, so it serializes safely against the turn's finalization write.
+              addSessionUsage(session.sessionId, parser.result.usage).catch((err) =>
+                logger.warn(`Failed to persist session usage: ${errorMessage(err)}`),
+              );
+            }
             break;
           }
           // Defensive: if a "No conversation found" error ever reaches here, the

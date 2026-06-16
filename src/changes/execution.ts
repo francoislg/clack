@@ -15,6 +15,8 @@ import { appendWorkerSkillsCatalog } from "./workerSkillsCatalog.js";
 import { getActiveChange } from "./activeState.js";
 import { detectPlatformError } from "../claude/messageParser.js";
 import { ClaudeMessageParser } from "../claude/messageParser.js";
+import type { SessionUsage } from "../claude/usage.js";
+import { addSessionUsage } from "../sessions.js";
 import { detectRuntime } from "../claude/utilities.js";
 import { buildWorkerContext } from "../tools/context.js";
 import { buildClackTools } from "../tools/server.js";
@@ -59,7 +61,13 @@ export async function runClaude(options: {
   onHandle?: (handle: ClaudeRunHandle) => void;
   /** Dependencies for testing — leave unset in production. */
   _deps?: RunClaudeDeps;
-}): Promise<{ success: boolean; text: string; error?: string; lastMessage?: string }> {
+}): Promise<{
+  success: boolean;
+  text: string;
+  error?: string;
+  lastMessage?: string;
+  usage?: SessionUsage;
+}> {
   // Validate prompt early - catch empty prompts with a clear error
   if (!options.prompt || options.prompt.trim().length === 0) {
     return {
@@ -267,6 +275,7 @@ export async function runClaude(options: {
       text: finalText.trim(),
       error: platformError,
       lastMessage: lastProgressMessage,
+      usage: parser.result?.usage,
     };
   }
 
@@ -277,6 +286,7 @@ export async function runClaude(options: {
     text: finalText.trim(),
     error: resultError,
     lastMessage: lastProgressMessage,
+    usage: parser.result?.usage,
   };
 }
 
@@ -458,6 +468,13 @@ Follow the workflow steps in the system prompt. Report your final status using t
       capturedSdkSessionId = id;
     },
   });
+
+  // Fold this worker run's usage back onto the originating session so the durable session
+  // record holds the session's TOTAL spend even after this worktree's PR closes and its
+  // resumable record is cleaned up. Runs for success, failure, and no-op alike.
+  if (result.usage) {
+    await addSessionUsage(sessionId, result.usage);
+  }
 
   if (!result.success) {
     return {

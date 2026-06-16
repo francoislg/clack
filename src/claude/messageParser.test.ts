@@ -518,6 +518,31 @@ describe("ClaudeMessageParser", () => {
     it("result starts as null", () => {
       assert.equal(parser.result, null);
     });
+
+    it("threads usage onto the result when the message carries it", async () => {
+      const msg = resultSuccess("done");
+      msg.total_cost_usd = 0.5;
+      msg.usage = {
+        input_tokens: 100,
+        output_tokens: 20,
+        cache_read_input_tokens: 5,
+        cache_creation_input_tokens: 0,
+      } as SDKResultSuccess["usage"];
+      await parser.process(msg);
+      assert.deepEqual(parser.result?.usage, {
+        inputTokens: 100,
+        outputTokens: 20,
+        cacheReadTokens: 5,
+        cacheCreationTokens: 0,
+        costUsd: 0.5,
+      });
+    });
+
+    it("omits usage when the message carries none", async () => {
+      await parser.process(resultSuccess("done"));
+      assert.equal(parser.result?.usage, undefined);
+      assert.equal("usage" in (parser.result ?? {}), false);
+    });
   });
 
   // ---- return value shape ----

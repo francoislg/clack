@@ -1,6 +1,7 @@
 import { describe, it, vi } from "vitest";
 import assert from "node:assert/strict";
-import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
+import type { SDKMessage, SDKResultSuccess } from "@anthropic-ai/claude-agent-sdk";
+import type { UUID } from "node:crypto";
 import { runClaude, type RunClaudeDeps } from "./execution.js";
 import type { Config } from "../config.js";
 import type { ClackSessionRun, ClackSessionParams } from "../claude/query.js";
@@ -114,5 +115,64 @@ describe("runClaude — timeout abort", () => {
     assert.equal(result.success, false);
     assert.ok(result.error?.includes("empty prompt"));
     assert.equal(sessionCallCount, 0);
+  });
+});
+
+// ============================================================================
+// runClaude — usage capture
+// ============================================================================
+
+function makeRunFromMessages(messages: SDKMessage[]): ClackSessionRun {
+  const driver = createRunHandle({ push: () => {}, closeInput: () => {} });
+  const iterable: AsyncIterable<SDKMessage> = {
+    async *[Symbol.asyncIterator](): AsyncGenerator<SDKMessage> {
+      for (const m of messages) yield m;
+    },
+  };
+  return Object.assign(driver, { messages: iterable });
+}
+
+function resultSuccessWithUsage(text: string, usage: SDKResultSuccess["usage"]): SDKResultSuccess {
+  return {
+    type: "result",
+    subtype: "success",
+    result: text,
+    duration_ms: 0,
+    duration_api_ms: 0,
+    is_error: false,
+    num_turns: 1,
+    stop_reason: null,
+    total_cost_usd: 0.75,
+    usage,
+    modelUsage: {},
+    permission_denials: [],
+    uuid: "00000000-0000-0000-0000-000000000000" as UUID,
+    session_id: "test",
+  };
+}
+
+describe("runClaude — usage capture", () => {
+  it("surfaces usage from the result message", async () => {
+    const resultMsg = resultSuccessWithUsage("done", {
+      input_tokens: 50,
+      output_tokens: 12,
+      cache_read_input_tokens: 200,
+      cache_creation_input_tokens: 8,
+    } as SDKResultSuccess["usage"]);
+    const deps: RunClaudeDeps = {
+      getConfig: vi.fn(() => makeConfig()),
+      clackSession: vi.fn(() => makeRunFromMessages([resultMsg])),
+    };
+
+    const result = await runClaude({ prompt: "do something", cwd: "/tmp", _deps: deps });
+
+    assert.equal(result.success, true);
+    assert.deepEqual(result.usage, {
+      inputTokens: 50,
+      outputTokens: 12,
+      cacheReadTokens: 200,
+      cacheCreationTokens: 8,
+      costUsd: 0.75,
+    });
   });
 });
