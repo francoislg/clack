@@ -3,7 +3,7 @@ import { logger } from "../logger.js";
 import { errorMessage } from "../errors.js";
 import { getGitInstance, setAuthenticatedRemote } from "../repositories.js";
 import type { Worker } from "./types.js";
-import { DirtyWorkerQuarantined, RemoteBranchNotFound } from "./errors.js";
+import { DirtyWorkerQuarantined, RemoteBranchNotFound, RemoteBranchUnreachable } from "./errors.js";
 import { getDirtyTrackedFiles, writeQuarantineRecord } from "./quarantine.js";
 
 /**
@@ -64,12 +64,27 @@ export async function switchBranch(
   worker.currentBranch = newBranch;
 }
 
-/** Resolve `origin/<branch>` for a resume, asserting it exists rather than clobbering from default. */
-async function resolveRemoteBase(
+/**
+ * Resolve `origin/<branch>` for a resume, asserting it exists rather than clobbering from default.
+ *
+ * Shallow clones imply `--single-branch`, so a blanket `fetch --all` never refreshes other
+ * branches' remote-tracking refs — the branch can be alive on the remote yet invisible here.
+ * Fetch the target branch by name to populate `origin/<branch>` before resolving it, and
+ * distinguish a genuinely deleted branch (`RemoteBranchNotFound`) from an unreachable remote
+ * (`RemoteBranchUnreachable`) so the user gets an accurate message.
+ */
+export async function resolveRemoteBase(
   git: ReturnType<typeof getGitInstance>,
   repoName: string,
   branch: string,
 ): Promise<string> {
+  let fetchError: unknown;
+  try {
+    await git.fetch("origin", `${branch}:refs/remotes/origin/${branch}`);
+  } catch (err) {
+    fetchError = err;
+  }
+
   try {
     const remotes = await git.branch(["-r"]);
     if (remotes.all.includes(`origin/${branch}`)) {
@@ -78,7 +93,18 @@ async function resolveRemoteBase(
   } catch (err) {
     logger.warn(`remote branch lookup failed for ${branch}: ${errorMessage(err)}`);
   }
+
+  // The branch isn't present locally. If the targeted fetch failed for a reason OTHER than
+  // a missing ref (auth, network), surface that instead of the misleading "branch deleted".
+  if (fetchError && !isMissingRemoteRef(fetchError)) {
+    throw new RemoteBranchUnreachable(repoName, branch, errorMessage(fetchError));
+  }
   throw new RemoteBranchNotFound(repoName, branch);
+}
+
+/** Git's error text when a fetched ref simply doesn't exist on the remote. */
+function isMissingRemoteRef(err: unknown): boolean {
+  return /couldn't find remote ref|no such ref|not found in upstream/i.test(errorMessage(err));
 }
 
 /**

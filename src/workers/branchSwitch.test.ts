@@ -2,16 +2,26 @@ import { describe, it, beforeEach, vi } from "vitest";
 import assert from "node:assert/strict";
 import type { RepositoryConfig } from "../config.js";
 import type { Worker } from "./types.js";
-import { RemoteBranchNotFound } from "./errors.js";
+import { RemoteBranchNotFound, RemoteBranchUnreachable } from "./errors.js";
 import { switchBranch } from "./branchSwitch.js";
 
-// Per-test knobs for the fake git boundary: which remote branches exist, and the captured
-// `checkout -B <branch> <base>` base so we can assert what the new branch was based on.
-const gitState = vi.hoisted(() => ({ remotes: [] as string[], checkoutBase: "" }));
+// Per-test knobs for the fake git boundary: which remote branches exist, the captured
+// `checkout -B <branch> <base>` base, and an optional error the targeted fetch throws.
+const gitState = vi.hoisted(() => ({
+  remotes: [] as string[],
+  checkoutBase: "",
+  fetchError: null as Error | null,
+}));
 
 vi.mock("../repositories.js", () => {
   const makeFakeGit = () => ({
-    fetch: async () => "",
+    fetch: async (remote?: unknown, ref?: unknown) => {
+      // Only the targeted resume fetch (origin <branch>:...) honors the error knob.
+      if (gitState.fetchError && remote === "origin" && typeof ref === "string") {
+        throw gitState.fetchError;
+      }
+      return "";
+    },
     branchLocal: async () => ({ all: [] as string[] }),
     branch: async (args: string[]) => {
       if (args.includes("-r")) return { all: gitState.remotes };
@@ -63,6 +73,7 @@ describe("switchBranch resume-from-remote-branch", () => {
   beforeEach(() => {
     gitState.remotes = [];
     gitState.checkoutBase = "";
+    gitState.fetchError = null;
   });
 
   it("default (no resume) bases the branch on origin/<default>", async () => {
@@ -83,5 +94,25 @@ describe("switchBranch resume-from-remote-branch", () => {
       RemoteBranchNotFound,
     );
     assert.equal(gitState.checkoutBase, "", "must not have checked anything out");
+  });
+
+  it("resume throws RemoteBranchNotFound when the targeted fetch reports a missing ref", async () => {
+    gitState.remotes = ["origin/main"];
+    gitState.fetchError = new Error("fatal: couldn't find remote ref clack/fix/deleted");
+    await assert.rejects(
+      () => switchBranch(makeWorker(), repo, "clack/fix/deleted", true),
+      RemoteBranchNotFound,
+    );
+    assert.equal(gitState.checkoutBase, "");
+  });
+
+  it("resume throws RemoteBranchUnreachable when the fetch fails for another reason", async () => {
+    gitState.remotes = ["origin/main"];
+    gitState.fetchError = new Error("fatal: unable to access remote: Connection timed out");
+    await assert.rejects(
+      () => switchBranch(makeWorker(), repo, "clack/fix/pr-88", true),
+      RemoteBranchUnreachable,
+    );
+    assert.equal(gitState.checkoutBase, "");
   });
 });
