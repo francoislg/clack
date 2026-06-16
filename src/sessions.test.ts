@@ -14,8 +14,10 @@ import {
   getStagedIntent,
   getSession,
   getSessionPath,
+  addSessionUsage,
 } from "./sessions.js";
 import type { SessionContext, SessionAssistantMessage } from "./sessions.js";
+import type { SessionUsage } from "./claude/usage.js";
 import type { StagedIntent } from "./tools/types.js";
 
 describe("parseSessionId", () => {
@@ -607,5 +609,107 @@ describe("appendStagedIntents", () => {
 
     const got = await getStagedIntent(session.sessionId, "ref-x");
     assert.deepEqual(got, v2);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Token usage accumulation (addSessionUsage)
+// ---------------------------------------------------------------------------
+
+describe("addSessionUsage", () => {
+  const tmpBase = resolve(tmpdir(), `sessions-usage-${process.pid}`);
+  const sessionsDir = join(tmpBase, "data", "sessions");
+  const originalCwd = process.cwd();
+
+  beforeEach(() => {
+    if (existsSync(tmpBase)) rmSync(tmpBase, { recursive: true });
+    mkdirSync(sessionsDir, { recursive: true });
+    process.chdir(tmpBase);
+  });
+
+  afterEach(() => {
+    process.chdir(originalCwd);
+    if (existsSync(tmpBase)) rmSync(tmpBase, { recursive: true });
+  });
+
+  const usage = (over: Partial<SessionUsage> = {}): SessionUsage => ({
+    inputTokens: 0,
+    outputTokens: 0,
+    cacheReadTokens: 0,
+    cacheCreationTokens: 0,
+    costUsd: 0,
+    ...over,
+  });
+
+  async function freshSession() {
+    return createSession({
+      channelId: "CUSE",
+      messageTs: "6000.0001",
+      threadTs: "6000.0001",
+      userId: "UUSE",
+      trigger: {
+        type: "scheduled",
+        prompt: "idler work",
+      },
+    });
+  }
+
+  it("initializes usage on a session that has none", async () => {
+    const session = await freshSession();
+    await addSessionUsage(session.sessionId, usage({ inputTokens: 10, costUsd: 0.5 }));
+
+    const got = await getSession(session.sessionId);
+    assert.deepEqual(got?.usage, usage({ inputTokens: 10, costUsd: 0.5 }));
+  });
+
+  it("accumulates every component independently across multiple folds", async () => {
+    const session = await freshSession();
+    // Each fold touches a different field so a per-field accumulation typo would surface.
+    await addSessionUsage(session.sessionId, usage({ inputTokens: 10 }));
+    await addSessionUsage(session.sessionId, usage({ outputTokens: 2 }));
+    await addSessionUsage(session.sessionId, usage({ cacheReadTokens: 100 }));
+    await addSessionUsage(session.sessionId, usage({ cacheCreationTokens: 7 }));
+    await addSessionUsage(session.sessionId, usage({ costUsd: 1.5 }));
+    // A final fold overlapping existing fields proves addition, not replacement.
+    await addSessionUsage(session.sessionId, usage({ inputTokens: 5, costUsd: 0.5 }));
+
+    const got = await getSession(session.sessionId);
+    assert.deepEqual(
+      got?.usage,
+      usage({
+        inputTokens: 15,
+        outputTokens: 2,
+        cacheReadTokens: 100,
+        cacheCreationTokens: 7,
+        costUsd: 2,
+      }),
+    );
+  });
+
+  it("survives across getSession reads (persisted, not just cached)", async () => {
+    const session = await freshSession();
+    await addSessionUsage(session.sessionId, usage({ inputTokens: 7 }));
+
+    const contextPath = join(getSessionPath(session.sessionId), "context.json");
+    const parsed = JSON.parse(readFileSync(contextPath, "utf-8")) as { usage?: SessionUsage };
+    assert.equal(parsed.usage?.inputTokens, 7);
+  });
+
+  it("serializes concurrent folds without losing updates", async () => {
+    const session = await freshSession();
+    const N = 20;
+    await Promise.all(
+      Array.from({ length: N }, () =>
+        addSessionUsage(session.sessionId, usage({ inputTokens: 1 })),
+      ),
+    );
+
+    const got = await getSession(session.sessionId);
+    assert.equal(got?.usage?.inputTokens, N);
+  });
+
+  it("returns null for a missing session without throwing", async () => {
+    const result = await addSessionUsage("C000-0-0-U000-0", usage({ inputTokens: 1 }));
+    assert.equal(result, null);
   });
 });

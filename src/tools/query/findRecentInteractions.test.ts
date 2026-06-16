@@ -3,11 +3,30 @@ import assert from "node:assert/strict";
 import { normalizePath } from "../../testUtils.js";
 import {
   searchRecentInteractions,
+  createFindRecentInteractionsTool,
   type FindRecentInteractionsDeps,
   type InteractionResult,
   type SearchArgs,
+  type SearchResult,
 } from "./findRecentInteractions.js";
 import type { QueryToolContext } from "../types.js";
+import type { SessionUsage } from "../../claude/usage.js";
+import { parseToolResult } from "../testHelpers.js";
+
+/** Full tool-handler args (the SDK passes a fully-parsed object — supply every schema key). */
+function toolArgs(over: { include_usage?: boolean } = {}) {
+  return {
+    keywords: undefined,
+    type: "all" as const,
+    channel: undefined,
+    trigger_type: undefined,
+    include_auto_respond: false,
+    limit: 10,
+    offset: 0,
+    since: undefined,
+    include_usage: over.include_usage ?? false,
+  };
+}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -24,6 +43,7 @@ interface SessionFileFields {
   originalQuestion?: string;
   refinements?: string[];
   lastAnswer?: string;
+  usage?: SessionUsage;
 }
 
 function makeSessionFile(overrides: SessionFileFields = {}): string {
@@ -105,6 +125,14 @@ async function search(
   ctx: QueryToolContext,
   args: SearchArgs = {},
 ): Promise<InteractionResult[]> {
+  return (await searchRecentInteractions(ctx, args, deps)).results;
+}
+
+async function searchFull(
+  deps: FindRecentInteractionsDeps,
+  ctx: QueryToolContext,
+  args: SearchArgs = {},
+): Promise<SearchResult> {
   return searchRecentInteractions(ctx, args, deps);
 }
 
@@ -566,5 +594,147 @@ describe("searchRecentInteractions", () => {
       assert.equal(results[0].assistantTurnCount, 2);
       assert.equal(results[0].messageCount, 3);
     });
+  });
+
+  describe("since filter", () => {
+    it("excludes sessions created before `since`", async () => {
+      const deps = makeDeps({
+        old: makeSessionFile({ sessionId: "old", createdAt: 1000 }),
+        new: makeSessionFile({ sessionId: "new", createdAt: 5000 }),
+      });
+      const results = await search(deps, makeCtx(), { since: 3000 });
+      assert.equal(results.length, 1);
+      assert.equal(results[0].sessionId, "new");
+    });
+
+    it("includes sessions created exactly at `since` (inclusive lower bound)", async () => {
+      const deps = makeDeps({
+        boundary: makeSessionFile({ sessionId: "boundary", createdAt: 3000 }),
+      });
+      const results = await search(deps, makeCtx(), { since: 3000 });
+      assert.equal(results.length, 1);
+      assert.equal(results[0].sessionId, "boundary");
+    });
+
+    it("no `since` is not bounded below by creation time", async () => {
+      const deps = makeDeps({
+        old: makeSessionFile({ sessionId: "old", createdAt: 1 }),
+        new: makeSessionFile({ sessionId: "new", createdAt: 9000 }),
+      });
+      const results = await search(deps, makeCtx());
+      assert.equal(results.length, 2);
+    });
+  });
+
+  describe("include_usage aggregate", () => {
+    const usage = (over: Partial<SessionUsage> = {}): SessionUsage => ({
+      inputTokens: 0,
+      outputTokens: 0,
+      cacheReadTokens: 0,
+      cacheCreationTokens: 0,
+      costUsd: 0,
+      ...over,
+    });
+
+    it("sums usage component-wise across the matched set", async () => {
+      const deps = makeDeps({
+        a: makeSessionFile({
+          sessionId: "a",
+          createdAt: 1000,
+          usage: usage({ inputTokens: 10, outputTokens: 2, costUsd: 0.5 }),
+        }),
+        b: makeSessionFile({
+          sessionId: "b",
+          createdAt: 2000,
+          usage: usage({ inputTokens: 5, cacheReadTokens: 100, costUsd: 0.25 }),
+        }),
+      });
+      const { totalUsage } = await searchFull(deps, makeCtx());
+      assert.equal(totalUsage.inputTokens, 15);
+      assert.equal(totalUsage.outputTokens, 2);
+      assert.equal(totalUsage.cacheReadTokens, 100);
+      assert.equal(totalUsage.costUsd, 0.75);
+    });
+
+    it("treats sessions without a usage field as zero", async () => {
+      const deps = makeDeps({
+        a: makeSessionFile({ sessionId: "a", createdAt: 1000, usage: usage({ inputTokens: 7 }) }),
+        b: makeSessionFile({ sessionId: "b", createdAt: 2000 }),
+      });
+      const { totalUsage } = await searchFull(deps, makeCtx());
+      assert.equal(totalUsage.inputTokens, 7);
+      assert.equal(totalUsage.outputTokens, 0);
+    });
+
+    it("aggregates over the full matched set, independent of limit/offset", async () => {
+      const deps = makeDeps({
+        a: makeSessionFile({ sessionId: "a", createdAt: 1000, usage: usage({ inputTokens: 10 }) }),
+        b: makeSessionFile({ sessionId: "b", createdAt: 2000, usage: usage({ inputTokens: 20 }) }),
+        c: makeSessionFile({ sessionId: "c", createdAt: 3000, usage: usage({ inputTokens: 30 }) }),
+      });
+      const { results, totalUsage } = await searchFull(deps, makeCtx(), { limit: 1 });
+      assert.equal(results.length, 1);
+      assert.equal(totalUsage.inputTokens, 60);
+    });
+
+    it("returns a zero aggregate when no sessions match", async () => {
+      const deps = makeDeps({
+        a: makeSessionFile({ sessionId: "a", createdAt: 1000, usage: usage({ inputTokens: 9 }) }),
+      });
+      const { results, totalUsage } = await searchFull(deps, makeCtx(), { since: 99999 });
+      assert.equal(results.length, 0);
+      assert.deepEqual(totalUsage, usage());
+    });
+
+    it("respects since when aggregating (in-window total only)", async () => {
+      const deps = makeDeps({
+        old: makeSessionFile({
+          sessionId: "old",
+          createdAt: 1000,
+          usage: usage({ inputTokens: 1000 }),
+        }),
+        recent: makeSessionFile({
+          sessionId: "recent",
+          createdAt: 5000,
+          usage: usage({ inputTokens: 7 }),
+        }),
+      });
+      const { totalUsage } = await searchFull(deps, makeCtx(), { since: 3000 });
+      assert.equal(totalUsage.inputTokens, 7);
+    });
+  });
+});
+
+describe("find_recent_interactions tool — include_usage result shape", () => {
+  function toolWith(usageVal: SessionUsage) {
+    const deps = makeDeps({
+      a: makeSessionFile({ sessionId: "a", channelId: "C001", userId: "U001", usage: usageVal }),
+    });
+    return createFindRecentInteractionsTool(makeCtx("U001"), deps);
+  }
+
+  const usage: SessionUsage = {
+    inputTokens: 10,
+    outputTokens: 2,
+    cacheReadTokens: 0,
+    cacheCreationTokens: 0,
+    costUsd: 0.3,
+  };
+
+  it("returns { entries, totalUsage } when include_usage is true", async () => {
+    const toolDef = toolWith(usage);
+    const parsed = parseToolResult(
+      await toolDef.handler(toolArgs({ include_usage: true }), { sessionId: "t" }),
+    );
+    assert.ok(!Array.isArray(parsed));
+    assert.equal(parsed.entries.length, 1);
+    assert.deepEqual(parsed.totalUsage, usage);
+  });
+
+  it("returns a bare entries array (shape unchanged) when include_usage is false", async () => {
+    const toolDef = toolWith(usage);
+    const parsed = parseToolResult(await toolDef.handler(toolArgs(), { sessionId: "t" }));
+    assert.ok(Array.isArray(parsed));
+    assert.equal(parsed.length, 1);
   });
 });

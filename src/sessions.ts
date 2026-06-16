@@ -4,6 +4,7 @@ import { getConfig, getSessionsDir } from "./config.js";
 import { logger } from "./logger.js";
 import { fileExists } from "./fs.js";
 import type { ErrorRecord, ConversationMessage } from "./claude/index.js";
+import { addUsage, type SessionUsage } from "./claude/usage.js";
 import type {
   SubmitResponsePayload,
   ToolCallRecord,
@@ -270,6 +271,12 @@ export interface SessionContext {
    * skill. Absent/empty means no lazy skills have been loaded yet.
    */
   loadedSkills?: Array<{ pack: string; skill: string }>;
+  /**
+   * Cumulative token + cost usage for this session, accumulated across every Claude run
+   * attributed to it (each query turn, plus any auto-executed worker run folded back via
+   * {@link addSessionUsage}). Absent on sessions persisted before usage tracking existed.
+   */
+  usage?: SessionUsage;
 }
 
 function generateSessionId(channelId: string, messageTs: string, userId: string): string {
@@ -872,6 +879,23 @@ export function updateSession(
   updates: Partial<SessionContext>,
 ): Promise<SessionContext | null> {
   return withSessionLock(sessionId, () => updateSessionUnlocked(sessionId, updates));
+}
+
+/**
+ * Add a run's usage component-wise onto a session's persisted `usage`, treating a missing
+ * record on either side as zero. Read-modify-write inside the session lock so concurrent
+ * folds (e.g. a query turn and an async worker run completing close together) don't clobber.
+ * Returns null if the session no longer exists (evicted) — never throws.
+ */
+export function addSessionUsage(
+  sessionId: string,
+  delta: SessionUsage,
+): Promise<SessionContext | null> {
+  return withSessionLock(sessionId, async () => {
+    const session = await getSession(sessionId);
+    if (!session) return null;
+    return updateSessionUnlocked(sessionId, { usage: addUsage(session.usage, delta) });
+  });
 }
 
 export async function setAttentionLevel(sessionId: string, level: AttentionLevel): Promise<void> {

@@ -10,6 +10,7 @@ import { getChannelInfo } from "../../slack/channelCache.js";
 import { extractDisplayText } from "../../slack/blockText.js";
 import type { SessionMessage, SessionTrigger } from "../../sessions.js";
 import { synthesizeMessagesFromLegacy } from "../../sessions.js";
+import { addUsage, ZERO_USAGE, type SessionUsage } from "../../claude/usage.js";
 import type { TriggerType } from "../../changes/types.js";
 
 /** Cap on how many session directories are loaded per query.
@@ -59,6 +60,8 @@ interface PersistedSession {
   originalQuestion?: string;
   refinements?: string[];
   lastAnswer?: string;
+  /** Cumulative token + cost usage, absent on sessions persisted before usage tracking. */
+  usage?: SessionUsage;
 }
 
 export interface InteractionResult {
@@ -240,17 +243,26 @@ export interface SearchArgs {
   channel?: string;
   /** Filter by trigger type (reactions, directMessages, mentions, autoRespond, etc.). */
   triggerType?: string;
+  /** Epoch-ms lower bound on `createdAt`. Only sessions created at or after this are returned. */
+  since?: number;
+}
+
+/** Result of a search: the paginated entries plus a usage aggregate over the FULL matched set. */
+export interface SearchResult {
+  results: InteractionResult[];
+  /** Component-wise sum of `usage` across every matched session (pre-pagination). */
+  totalUsage: SessionUsage;
 }
 
 export async function searchRecentInteractions(
   ctx: QueryToolContext,
   args: SearchArgs,
   deps: FindRecentInteractionsDeps,
-): Promise<InteractionResult[]> {
+): Promise<SearchResult> {
   const sessionsDir = deps.getSessionsDir();
 
   if (!(await deps.fileExists(sessionsDir))) {
-    return [];
+    return { results: [], totalUsage: { ...ZERO_USAGE } };
   }
 
   const sessionIds = await deps.readdir(sessionsDir);
@@ -312,9 +324,20 @@ export async function searchRecentInteractions(
     filtered = filtered.filter((s) => matchesKeywords(s, args.keywords!));
   }
 
+  if (args.since !== undefined) {
+    const since = args.since;
+    filtered = filtered.filter((s) => s.createdAt >= since);
+  }
+
+  // Aggregate over the FULL matched set, before pagination, so a window-scoped query reports
+  // the window's true total regardless of limit/offset.
+  const totalUsage = filtered.reduce<SessionUsage>((acc, s) => addUsage(acc, s.usage), {
+    ...ZERO_USAGE,
+  });
+
   const paginated = filtered.slice(args.offset ?? 0, (args.offset ?? 0) + (args.limit ?? 10));
 
-  return paginated.map((s) => {
+  const results = paginated.map((s) => {
     const summary = summarize(s);
     return {
       sessionId: s.sessionId,
@@ -332,6 +355,8 @@ export async function searchRecentInteractions(
       skippedTurnCount: summary.skippedTurnCount,
     };
   });
+
+  return { results, totalUsage };
 }
 
 export function createFindRecentInteractionsTool(
@@ -408,13 +433,31 @@ export function createFindRecentInteractionsTool(
         .optional()
         .default(0)
         .describe("Number of results to skip (for paginating further back in history)."),
+      since: z
+        .number()
+        .int()
+        .positive()
+        .optional()
+        .describe(
+          "Epoch-millisecond lower bound on session creation time. Only sessions created at or after this are returned. Use to scope to a time window (e.g. since the start of a reporting window).",
+        ),
+      include_usage: z
+        .boolean()
+        .optional()
+        .default(false)
+        .describe(
+          "When true, also returns `totalUsage` — the summed token + cost usage across ALL matched sessions (the full set, independent of limit/offset). Use to report how many tokens a set of sessions consumed.",
+        ),
     },
-    async ({ include_auto_respond, trigger_type, ...rest }) => {
-      const results = await searchRecentInteractions(
+    async ({ include_auto_respond, trigger_type, include_usage, ...rest }) => {
+      const { results, totalUsage } = await searchRecentInteractions(
         ctx,
         { ...rest, includeAutoRespond: include_auto_respond, triggerType: trigger_type },
         deps,
       );
+      if (include_usage) {
+        return textResult({ entries: results, totalUsage });
+      }
       return textResult(results);
     },
   );
