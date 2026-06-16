@@ -70,6 +70,8 @@ function makeWorker(overrides: Partial<ActiveWorker> = {}): ActiveWorker {
     channel: "C001",
     threadTs: "1700000000.000001",
     startedAt: new Date(),
+    waiting: false,
+    lastActivityAt: new Date(),
     ...overrides,
   };
 }

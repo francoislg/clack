@@ -304,6 +304,7 @@ export async function startChangeWorkflow(
     worker = await deps.pool.acquire(repo, plan.branchName, sessionId, {
       resumeRemoteBranch: plan.resumeRemoteBranch,
       onQueued: (position) => {
+        activeChange.waiting = { since: new Date() };
         deps.appendExecutionLog(
           plan.branchName,
           `Queued for worker (position ${position}) — waiting for a slot to free up`,
@@ -321,6 +322,7 @@ export async function startChangeWorkflow(
         }
       },
     });
+    activeChange.waiting = undefined;
     worktree = workerToWorktreeInfo(worker);
     // For fresh worker without setup yet, run worktree setup. The pool's reusable
     // implementation runs setup internally (via injected setup runner); the disposable

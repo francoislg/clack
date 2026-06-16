@@ -959,6 +959,8 @@ describe("buildWorkersSection (disposable mode)", () => {
         channel: "C123",
         threadTs: "1700000000.000001",
         startedAt: new Date(),
+        waiting: false,
+        lastActivityAt: new Date(),
       },
     ]);
     const blocks = buildWorkersSection(deps);
@@ -984,6 +986,8 @@ describe("buildWorkersSection (disposable mode)", () => {
         channel: "C123",
         threadTs: "1700000000.000001",
         startedAt: new Date(),
+        waiting: false,
+        lastActivityAt: new Date(),
       },
     ]);
     const blocks = buildWorkersSection(deps);

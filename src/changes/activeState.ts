@@ -65,6 +65,13 @@ export interface ActiveChangeState {
   /** Runtime-only: set by cancel tool before abort, checked by workflow after execution returns */
   cancelledBy?: { userId: string; reason?: string };
   /**
+   * Runtime-only: set while the change is parked in the pool's acquire queue (driven by the
+   * pool's `onQueued` seam) and cleared the moment a worker is handed out. Lets query tools
+   * distinguish a change waiting for execution capacity from one actively running, without
+   * consulting pool internals. The disposable pool never enqueues, so this stays unset there.
+   */
+  waiting?: { since: Date };
+  /**
    * Number of times the verification gate has failed for this change.
    * Persisted so the counter survives process restarts within a single change
    * session. Bounded by the configured `retryBudget`.
@@ -83,6 +90,9 @@ export interface ActiveWorker {
   channel: string;
   threadTs: string;
   startedAt: Date;
+  /** True while the change is parked in the pool's acquire queue. */
+  waiting: boolean;
+  lastActivityAt: Date;
 }
 
 /** Minimal session fields needed by active change operations for persistence */
@@ -273,6 +283,8 @@ export function getActiveWorkers(): ActiveWorker[] {
           channel: ref.channelId,
           threadTs: ref.threadTs,
           startedAt: change.startedAt,
+          waiting: change.waiting != null,
+          lastActivityAt: change.lastActivityAt,
         });
       }
     }
