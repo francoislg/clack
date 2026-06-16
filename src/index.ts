@@ -1,6 +1,7 @@
 import { config as dotenvConfig } from "dotenv";
 import { join } from "path";
 import { testMCP } from "./claude/testMcp.js";
+import { reconcileMemoryReviewCron } from "./memory/dailyReview.js";
 import { loadConfig, getConfig } from "./config.js";
 import { loadGitHubCredentials, validateGitHubApp, gitHubCredentialsExist } from "./github.js";
 import { logger } from "./logger.js";
@@ -252,6 +253,13 @@ async function main(): Promise<void> {
   void runBaselineSmoke(config).catch((error) => {
     logger.warn("baseline.tokens.failed stage=unexpected error=", error);
   });
+
+  // Step 3.9: Register the daily memory-review cron (idempotent).
+  try {
+    await reconcileMemoryReviewCron();
+  } catch (error) {
+    logger.warn("Failed to register memory-review cron:", error);
+  }
 
   // Step 4: Create and start Slack app
   logger.info("Starting Slack app...");

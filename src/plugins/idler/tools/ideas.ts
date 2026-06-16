@@ -2,15 +2,8 @@ import { z } from "zod";
 import { tool } from "@anthropic-ai/claude-agent-sdk";
 import type { ClackSdk } from "../../sdk.js";
 import { errorResult, textResult } from "../helpers.js";
-import {
-  loadLedger,
-  saveLedger,
-  topUnits,
-  upsertUnit,
-  type IdlerReference,
-  type IdlerUnit,
-} from "../ledger.js";
 import { computePriority, type WorkKind } from "../priority.js";
+import { idlerSlotSchema, parseSlot, type IdlerSlot } from "../slice.js";
 
 const WORK_KINDS = ["continue", "triage", "implement", "review", "none"] as const;
 
@@ -19,20 +12,33 @@ const referenceArg = z.object({
   id: z.string().describe("Surface id (PR number, gid, Sentry short-id, channel/ts)"),
   howToRead: z.string().describe("Exact recipe to read this surface's status (tool + args)"),
   howToComment: z.string().describe("Exact recipe to comment back on this surface (tool + args)"),
-  cursor: z.string().optional().describe("Idempotency marker (last comment/event processed)"),
 });
 
 export function createListTopIdeasTool(sdk: ClackSdk) {
   return tool(
     "list_top_ideas",
-    "List the highest-priority OPEN work units from the idler ledger, most important first. Use this at the start of a work fire to pick the single unit to advance. Returns at most `limit` units.",
+    "List the highest-priority OPEN idler work units, most important first. Use this at the start of a work fire to pick the single unit to advance. Returns at most `limit` units (default 5), each merging the entry's core knowledge with the idler work-state.",
     {
       limit: z.number().int().min(1).max(50).optional().describe("Max units to return (default 5)"),
     },
     async (args) => {
-      const ledger = await loadLedger(sdk);
-      const units = topUnits(ledger, args.limit ?? 5);
-      return textResult({ count: units.length, ideas: units });
+      const entries = await sdk.memory.list();
+      const open: Array<{ entry: (typeof entries)[number]; slot: IdlerSlot }> = [];
+      for (const entry of entries) {
+        const slot = parseSlot(entry.plugins?.idler);
+        if (slot && slot.open) open.push({ entry, slot });
+      }
+      open.sort((a, b) => b.slot.priority - a.slot.priority);
+      const ideas = open.slice(0, args.limit ?? 5).map(({ entry, slot }) => ({
+        id: entry.id,
+        what: entry.what,
+        whereWeAre: slot.whereWeAre,
+        nextSteps: entry.nextSteps ?? "",
+        priority: slot.priority,
+        references: entry.references,
+        cursorsByRefId: slot.cursorsByRefId,
+      }));
+      return textResult({ count: ideas.length, ideas });
     },
   );
 }
@@ -40,16 +46,20 @@ export function createListTopIdeasTool(sdk: ClackSdk) {
 export function createUpsertIdeaTool(sdk: ClackSdk) {
   return tool(
     "upsert_idea",
-    "Create or update a work unit in the idler ledger, keyed by its stable source-entity `key` (Sentry short-id / Asana gid / PR number). Re-emitting the same key updates the existing unit (no duplicate). Priority is computed from `kind`/`freshInput`/`blocked`. Provide `references` to append/update surfaces (with their read/comment recipes). Set `open:false` to close (e.g. done-verified or merged), `open:true` to re-open a previously closed unit.",
+    "Create or update an idler work unit, keyed by its stable source-entity `id` (e.g. 'sentry:1234', 'asana:567'). Writes durable knowledge (`what`/`why`/`references`/`staleAfter`) to core memory and the idler work-state (priority from `kind`/`freshInput`/`blocked`, `open`, `whereWeAre`, cursors) to its namespace. Set `open:false` to close (done/merged); `open:true` re-opens.",
     {
-      key: z.string().describe("Stable source-entity id — the dedup identity"),
-      source: z
-        .string()
-        .optional()
-        .describe("Provenance: 'sentry' | 'asana' | 'slack' | 'clack-pr' | …"),
+      id: z.string().describe("Stable source-entity id — the dedup identity"),
       what: z.string().optional().describe("One-line statement of the work"),
-      whereWeAre: z.string().optional().describe("Free-text current state"),
+      why: z.string().optional().describe("Why this matters / why it is tracked"),
       nextSteps: z.string().optional().describe("Free-text next action"),
+      whereWeAre: z.string().optional().describe("Free-text current execution state"),
+      staleAfter: z
+        .object({
+          date: z.string().optional().describe("ISO date when this stops mattering"),
+          reason: z.string().optional().describe("Advisory condition for when it stops mattering"),
+        })
+        .optional()
+        .describe("Best-guess relevance horizon (lets the daily review prune it)"),
       open: z
         .boolean()
         .optional()
@@ -68,40 +78,37 @@ export function createUpsertIdeaTool(sdk: ClackSdk) {
       references: z
         .array(referenceArg)
         .optional()
-        .describe("Surfaces to append/update on the unit"),
+        .describe("Surfaces to attach to the core entry (with their read/comment recipes)"),
+      cursors: z
+        .record(z.string(), z.string())
+        .optional()
+        .describe("Per-reference cursor advances to merge, keyed by reference id"),
     },
     async (args) => {
-      const ledger = await loadLedger(sdk);
-      const existing = ledger.ideas.find((u) => u.key === args.key);
-      const references: IdlerReference[] = (args.references ?? []).map((r) => ({
-        kind: r.kind,
-        id: r.id,
-        howToRead: r.howToRead,
-        howToComment: r.howToComment,
-        cursor: r.cursor,
-      }));
-      const incoming: IdlerUnit = {
-        key: args.key,
-        source: args.source ?? existing?.source ?? "unknown",
-        what: args.what ?? existing?.what ?? "",
-        whereWeAre: args.whereWeAre ?? existing?.whereWeAre ?? "",
-        nextSteps: args.nextSteps ?? existing?.nextSteps ?? "",
-        open: args.open ?? existing?.open ?? true,
-        priority: computePriority({
-          kind: args.kind as WorkKind,
-          freshInput: args.freshInput,
-          blocked: args.blocked,
-        }),
-        references,
-      };
-      const next = upsertUnit(ledger, incoming);
-      await saveLedger(sdk, next);
-      const saved = next.ideas.find((u) => u.key === args.key);
-      return textResult({
-        ok: true,
-        key: args.key,
-        priority: saved?.priority ?? incoming.priority,
+      await sdk.memory.remember({
+        id: args.id,
+        what: args.what,
+        why: args.why,
+        nextSteps: args.nextSteps,
+        staleAfter: args.staleAfter,
+        references: args.references,
       });
+
+      const slot = sdk.memory.data(idlerSlotSchema);
+      const existing = await slot.get(args.id);
+      const priority = computePriority({
+        kind: args.kind as WorkKind,
+        freshInput: args.freshInput,
+        blocked: args.blocked,
+      });
+      const next: IdlerSlot = {
+        priority,
+        open: args.open ?? existing?.open ?? true,
+        whereWeAre: args.whereWeAre ?? existing?.whereWeAre ?? "",
+        cursorsByRefId: { ...existing?.cursorsByRefId, ...args.cursors },
+      };
+      await slot.merge(args.id, next);
+      return textResult({ ok: true, id: args.id, priority });
     },
   );
 }
@@ -109,19 +116,17 @@ export function createUpsertIdeaTool(sdk: ClackSdk) {
 export function createReprioritizeTool(sdk: ClackSdk) {
   return tool(
     "reprioritize_idea",
-    "Override a work unit's computed priority by its `key`. Use to manually bump or bury a unit against the automatic score.",
+    "Override an idler work unit's computed priority by its `id`. Use to manually bump or bury a unit against the automatic score.",
     {
-      key: z.string().describe("Unit key to reprioritize"),
+      id: z.string().describe("Unit id to reprioritize"),
       priority: z.number().describe("New absolute priority (higher = picked sooner)"),
     },
     async (args) => {
-      const ledger = await loadLedger(sdk);
-      const idx = ledger.ideas.findIndex((u) => u.key === args.key);
-      if (idx < 0) return errorResult(`No work unit with key "${args.key}"`);
-      const ideas = [...ledger.ideas];
-      ideas[idx] = { ...ideas[idx], priority: args.priority };
-      await saveLedger(sdk, { ...ledger, ideas });
-      return textResult({ ok: true, key: args.key, priority: args.priority });
+      const slot = sdk.memory.data(idlerSlotSchema);
+      const existing = await slot.get(args.id);
+      if (!existing) return errorResult(`No idler work unit with id "${args.id}"`);
+      await slot.merge(args.id, { priority: args.priority });
+      return textResult({ ok: true, id: args.id, priority: args.priority });
     },
   );
 }

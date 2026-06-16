@@ -29,6 +29,7 @@ Per-fire action cap: ${config.maxActionsPerFire} (an action = a code-changing ev
 5. Call record_activity describing what you did.
 
 ## Rules
+- When you CLOSE a unit (upsert_idea open:false — done/merged/already-done), also set staleAfter.date about 2 days out. The unit is not removed now; the daily memory review prunes it after that grace window, so it survives briefly in case work must resume. Never prune a unit yourself.
 - ONE step per fire. Never chain code-changing actions.
 - Respect the per-fire and per-night caps; read-only triage/review don't count.
 - Doing nothing is valid and expected when no unit has fresh work — never invent busywork.

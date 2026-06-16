@@ -26,7 +26,10 @@ import { asSlackBlocks } from "../slack/blocks.js";
 import type { SlackBlocks } from "../slack/blocks.js";
 import { updateSession, getSession, registerThreadSession } from "../sessions.js";
 import type { SessionContext, AttentionLevel, DeliveryMode } from "../sessions.js";
-import { canRequestChanges, canEditConfig } from "../permissions.js";
+import { canRequestChanges, canEditConfig, canAccessMemory } from "../permissions.js";
+import { createRememberTool } from "./query/remember.js";
+import { createRecallTool } from "./query/recall.js";
+import { createForgetTool } from "./query/forget.js";
 
 // Query tools
 import { createListRepositoriesTool } from "./query/listRepositories.js";
@@ -417,6 +420,14 @@ function buildQueryTools(ctx: QueryToolContext): ClackQueryToolsResult {
     tools.push(createGetSessionTraceTool(ctx));
   }
 
+  // Memory faculty — dev+ (the "system" cron role passes meetsMinimumRole, so the daily
+  // review and plugin crons reach these without a special case).
+  if (canAccessMemory(ctx.role)) {
+    tools.push(createRememberTool());
+    tools.push(createRecallTool());
+    tools.push(createForgetTool());
+  }
+
   // Always register when images exist OR Slack client is available (fetch tools can discover images mid-query)
   if (ctx.availableImages?.size || ctx.slackClient) {
     tools.push(createViewSlackImageTool(ctx));
@@ -741,6 +752,9 @@ function buildWorkerTools(ctx: WorkerToolContext): ClackWorkerToolsResult {
   tools.push(createResolveReviewThreadTool(ctx));
   tools.push(createProposeSpinoffTool(ctx, intentStore));
   tools.push(createWorkerLoadSkillTool(ctx));
+
+  // Memory faculty — workers tag their task so in-flight work is visible in memory.
+  tools.push(createRememberTool());
 
   const toolNames = tools.map((t) => t.name);
 

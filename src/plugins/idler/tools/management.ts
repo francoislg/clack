@@ -3,7 +3,7 @@ import { tool } from "@anthropic-ai/claude-agent-sdk";
 import type { ClackSdk } from "../../sdk.js";
 import { errorResult, textResult } from "../helpers.js";
 import { idlerConfigSchema, loadConfig, saveConfig } from "../config.js";
-import { loadLedger, saveLedger } from "../ledger.js";
+import { idlerSlotSchema, parseSlot } from "../slice.js";
 import type { IdlerConfig } from "../types.js";
 
 const SLACK_CHANNEL_ID = /^[CGD][A-Z0-9]+$/;
@@ -211,11 +211,21 @@ export function createRemoveChannelTool(sdk: ClackSdk) {
 export function createViewIdeasTool(sdk: ClackSdk) {
   return tool(
     "view_idler_ideas",
-    "View the full idler ledger (all work units, open and done) for inspection.",
+    "View all idler work units (memory entries carrying an idler work-state slice) for inspection.",
     {},
     async () => {
-      const ledger = await loadLedger(sdk);
-      return textResult({ count: ledger.ideas.length, ideas: ledger.ideas });
+      const entries = await sdk.memory.list();
+      const ideas = entries
+        .map((entry) => ({ entry, slot: parseSlot(entry.plugins?.idler) }))
+        .filter((e) => e.slot !== null)
+        .map(({ entry, slot }) => ({
+          id: entry.id,
+          what: entry.what,
+          open: slot!.open,
+          priority: slot!.priority,
+          whereWeAre: slot!.whereWeAre,
+        }));
+      return textResult({ count: ideas.length, ideas });
     },
   );
 }
@@ -223,15 +233,18 @@ export function createViewIdeasTool(sdk: ClackSdk) {
 export function createClearIdeaTool(sdk: ClackSdk) {
   return tool(
     "clear_idler_idea",
-    "Remove a single work unit from the ledger by its key.",
+    "Mark an idler work unit for cleanup by its memory id: closes it and sets its relevance horizon to now, so the next daily memory review prunes it. Deletion is owned by the review, not done inline — this keeps a brief window to resurrect the unit if work resumes.",
     { key: z.string() },
     async (args) => {
-      const ledger = await loadLedger(sdk);
-      if (!ledger.ideas.some((u) => u.key === args.key)) {
+      const existing = await sdk.memory.get(args.key);
+      if (!existing) {
         return errorResult(sdk.t("idea_not_found", { key: args.key }));
       }
-      const ideas = ledger.ideas.filter((u) => u.key !== args.key);
-      await saveLedger(sdk, { ...ledger, ideas });
+      await sdk.memory.remember({
+        id: args.key,
+        staleAfter: { date: new Date().toISOString(), reason: "cleared by admin" },
+      });
+      await sdk.memory.data(idlerSlotSchema).merge(args.key, { open: false });
       return textResult({ ok: true, message: sdk.t("idea_cleared", { key: args.key }) });
     },
   );

@@ -40,6 +40,10 @@ export const CLACK_CORE_TOOL_NAMES: readonly string[] = [
   "list_config_files",
   "read_config_file",
   "get_session_trace",
+  // Memory faculty (dev+; system cron passes)
+  "remember",
+  "recall",
+  "forget",
   // Action tools
   "propose_change",
   "request_update",

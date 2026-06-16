@@ -329,6 +329,8 @@ Instructions:
 7. Verify CI using the await_ci tool. Only sign off as successful when it returns "passed". On "failed", surface the failing checks and fix them (then push and await_ci again) or report the failure via report_status. On "timed_out" or "pending", report via report_status that CI did not conclusively pass — do NOT claim success
 8. Report your final status using the report_status tool
 
+On starting this task, call the remember tool to tag your work in Clack's memory: id "worker:<branch>" (re-key to "pr:<number>" once a PR exists), what = a one-line description of the change, why = the requesting context, and staleAfter.date roughly 30 days out. This makes in-flight work visible in memory; do it once at the start.
+
 Important:
 - Make minimal, focused changes
 - Follow existing code patterns and conventions

@@ -53,6 +53,10 @@ export function canRequestChanges(role: UserRole): boolean {
   return meetsMinimumRole(role, "dev");
 }
 
+export function canAccessMemory(role: UserRole): boolean {
+  return meetsMinimumRole(role, "dev");
+}
+
 export function canManageRoles(role: UserRole): boolean {
   return meetsMinimumRole(role, "admin");
 }
