@@ -14,6 +14,25 @@ import { CronExpressionParser } from "cron-parser";
 import { z } from "zod";
 import { loadRoles, type UserRole } from "../roles.js";
 import { createUsersSurface } from "./sdkUsers.js";
+import { createMemorySurface } from "./sdkMemory.js";
+import type {
+  MemoryEntry,
+  MemorySearchResult,
+  SearchMemoryArgs,
+  RememberInput,
+  BeforeExpireHook,
+} from "../memoryRegistry.js";
+
+export type {
+  MemoryEntry,
+  MemoryReference,
+  StaleAfter,
+  RememberInput,
+  SearchMemoryArgs,
+  MemorySearchResult,
+  BeforeExpireResult,
+  BeforeExpireHook,
+} from "../memoryRegistry.js";
 import type { RoleDir } from "../cascadingConfigResolver.js";
 import type { ToolEntryObject } from "../streaming/toolMappingLoader.js";
 import { openDmChannel, isChannelId } from "../slack/channelResolver.js";
@@ -304,6 +323,39 @@ export interface ClackSdkUsers {
   data<T>(schema: z.ZodType<T>): ClackSdkUserData<T>;
 }
 
+/**
+ * Read/merge access to the calling plugin's own namespace slice on a memory entry, validated by
+ * the plugin-supplied zod schema. Auto-scoped to the plugin. `merge` rejects when no core entry
+ * exists for `id` (memory is core-first — remember the entry before attaching a slice). The
+ * namespace is persisted as JSON, so `T` MUST be JSON-serializable.
+ */
+export interface ClackSdkMemoryData<T> {
+  get(id: string): Promise<T | null>;
+  merge(id: string, partial: Partial<T>): Promise<void>;
+}
+
+/**
+ * Core memory faculty surface — Clack's plugin-agnostic notebook. `get`/`list`/`recall` expose
+ * whole entries (incl. every plugin's namespace data); `data(schema)` reaches the plugin's own
+ * slice; `onBeforeExpire` registers a pre-expire hook so the daily review won't prune an entry
+ * whose slice the plugin still has live work on.
+ */
+export interface ClackSdkMemory {
+  get(id: string): Promise<MemoryEntry | null>;
+  list(): Promise<MemoryEntry[]>;
+  recall(args: SearchMemoryArgs): Promise<MemorySearchResult>;
+  /**
+   * Create or update a core entry. Preserves existing plugin namespaces and `createdAt`. This is
+   * also how a plugin signals "this can go soon" — set a short `staleAfter.date` (a grace window)
+   * rather than deleting, so the entry survives long enough to be resurrected if work resumes.
+   * Plugins intentionally CANNOT delete; only the core daily review prunes (after the grace
+   * passes, honoring the pre-expire hook).
+   */
+  remember(input: RememberInput): Promise<MemoryEntry>;
+  data<T>(schema: z.ZodType<T>): ClackSdkMemoryData<T>;
+  onBeforeExpire(fn: BeforeExpireHook): void;
+}
+
 export interface ClackSdk {
   /**
    * Plugin-scoped logger. Prefixes every line with `[<pluginName>]` for filterability.
@@ -453,6 +505,12 @@ export interface ClackSdk {
    * and merges the plugin's own per-user namespace. See {@link ClackSdkUsers}.
    */
   users: ClackSdkUsers;
+  /**
+   * Core memory faculty — Clack's notebook for any worth-remembering information. `get`/`list`/
+   * `recall` read whole entries; `data(schema)` reaches the plugin's own namespace slice;
+   * `onBeforeExpire` registers a pre-expire veto hook. See {@link ClackSdkMemory}.
+   */
+  memory: ClackSdkMemory;
   /**
    * Register a Slack action handler scoped to this plugin. The `key` is the
    * suffix the plugin owns; the SDK prefixes it as `plugin:<pluginName>:<key>`
@@ -1087,6 +1145,8 @@ export function createClackSdk(
     },
 
     users: createUsersSurface(deps, pluginName, (message) => logger.warn(message)),
+
+    memory: createMemorySurface({}, pluginName, (message) => logger.warn(message)),
 
     registerAction(key: string | RegExp, handler: PluginActionHandler): void {
       const fullKey = buildFullKey(key);

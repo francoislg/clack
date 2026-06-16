@@ -4,10 +4,7 @@
  * to satisfy the Anthropic SDK's structural `tool()` handler signature.
  */
 
-type JsonPrimitive = string | number | boolean | null;
-type JsonValue = JsonPrimitive | JsonValue[] | { [key: string]: JsonValue };
-
-export function textResult(payload: JsonValue) {
+export function textResult(payload: unknown) {
   return {
     content: [{ type: "text" as const, text: JSON.stringify(payload) }],
   };

@@ -4,7 +4,8 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
-import { createClackSdk } from "../../sdk.js";
+import { createClackSdk, type ClackSdk, type ClackSdkMemory, type MemoryEntry } from "../../sdk.js";
+import { createMemorySurface } from "../../sdkMemory.js";
 import { en as idlerEn, fr as idlerFr } from "../i18n/strings.js";
 import { createListTopIdeasTool, createReprioritizeTool, createUpsertIdeaTool } from "./ideas.js";
 import {
@@ -32,12 +33,12 @@ function isToolCallResult(value: object): value is ToolCallResult {
 }
 
 interface IdeaLite {
-  key: string;
+  id: string;
   priority: number;
 }
 interface ParsedTool {
   ok?: boolean;
-  key?: string;
+  id?: string;
   priority?: number;
   error?: string;
   ideas?: IdeaLite[];
@@ -50,7 +51,7 @@ function parseTool(text: string): ParsedTool {
   if (typeof obj !== "object" || obj === null) return {};
   const c = obj as {
     ok?: unknown;
-    key?: unknown;
+    id?: unknown;
     priority?: unknown;
     error?: unknown;
     ideas?: unknown;
@@ -59,15 +60,15 @@ function parseTool(text: string): ParsedTool {
   };
   const out: ParsedTool = {};
   if (typeof c.ok === "boolean") out.ok = c.ok;
-  if (typeof c.key === "string") out.key = c.key;
+  if (typeof c.id === "string") out.id = c.id;
   if (typeof c.priority === "number") out.priority = c.priority;
   if (typeof c.error === "string") out.error = c.error;
   if (typeof c.content === "string") out.content = c.content;
   if (Array.isArray(c.ideas)) {
     out.ideas = c.ideas.map((i) => {
-      const e = i as { key?: unknown; priority?: unknown };
+      const e = i as { id?: unknown; priority?: unknown };
       return {
-        key: typeof e.key === "string" ? e.key : "",
+        id: typeof e.id === "string" ? e.id : "",
         priority: typeof e.priority === "number" ? e.priority : 0,
       };
     });
@@ -76,7 +77,63 @@ function parseTool(text: string): ParsedTool {
   return out;
 }
 
-function buildSdk(tempDir: string): ReturnType<typeof createClackSdk>["sdk"] {
+/**
+ * A stateful in-memory `sdk.memory`, built from the real surface over a Map so the idler tools are
+ * exercised end-to-end (incl. the `data(schema)` namespace path) without the global registry.
+ */
+function statefulMemory(): ClackSdkMemory {
+  const store = new Map<string, MemoryEntry>();
+  const ts = "2026-01-01T00:00:00.000Z";
+  return createMemorySurface(
+    {
+      async getMemory(id) {
+        return store.get(id) ?? null;
+      },
+      async listMemory() {
+        return [...store.values()];
+      },
+      async searchMemory(args) {
+        const all = [...store.values()];
+        const limit = args.limit ?? 20;
+        const offset = args.offset ?? 0;
+        return { total: all.length, limit, offset, entries: all };
+      },
+      async rememberCore(input) {
+        const ex = store.get(input.id);
+        const entry: MemoryEntry = {
+          id: input.id,
+          what: input.what ?? ex?.what ?? "",
+          why: input.why ?? ex?.why ?? "",
+          staleAfter: input.staleAfter ?? ex?.staleAfter,
+          nextSteps: input.nextSteps ?? ex?.nextSteps,
+          references: input.references ?? ex?.references ?? [],
+          createdAt: ex?.createdAt ?? ts,
+          updatedAt: ts,
+          ...(ex?.plugins ? { plugins: ex.plugins } : {}),
+        };
+        store.set(input.id, entry);
+        return entry;
+      },
+      async getMemoryNamespace(plugin, id) {
+        return store.get(id)?.plugins?.[plugin] ?? null;
+      },
+      async mergeMemoryNamespace(plugin, id, partial) {
+        const base = store.get(id);
+        if (!base) throw new Error(`no memory entry for id "${id}"`);
+        const prev = base.plugins?.[plugin] ?? {};
+        store.set(id, {
+          ...base,
+          plugins: { ...base.plugins, [plugin]: { ...prev, ...partial } },
+        });
+      },
+      registerBeforeExpire() {},
+    },
+    "idler",
+    () => {},
+  );
+}
+
+function buildSdk(tempDir: string, memory?: ClackSdkMemory): ClackSdk {
   const { sdk } = createClackSdk("idler", tempDir, {
     getSlackClient: () => null,
     loadRoles: async () => ({ owner: null, admins: [], devs: [] }),
@@ -85,6 +142,7 @@ function buildSdk(tempDir: string): ReturnType<typeof createClackSdk>["sdk"] {
     requestSoftRestart: () => {},
   });
   sdk.registerDictionary({ en: idlerEn, fr: idlerFr });
+  if (memory) (sdk as { memory: ClackSdkMemory }).memory = memory;
   return sdk;
 }
 
@@ -103,18 +161,20 @@ type UpsertArgs = Parameters<ReturnType<typeof createUpsertIdeaTool>["handler"]>
 type CfgArgs = Parameters<ReturnType<typeof createSetConfigTool>["handler"]>[0];
 
 /** Fill the zod-optional keys with undefined so the handler's exact arg type is satisfied. */
-function ideaArgs(o: Partial<UpsertArgs> & { key: string; kind: UpsertArgs["kind"] }): UpsertArgs {
+function ideaArgs(o: Partial<UpsertArgs> & { id: string; kind: UpsertArgs["kind"] }): UpsertArgs {
   return {
-    key: o.key,
+    id: o.id,
     kind: o.kind,
-    source: o.source,
     what: o.what,
+    why: o.why,
     whereWeAre: o.whereWeAre,
     nextSteps: o.nextSteps,
+    staleAfter: o.staleAfter,
     open: o.open,
     freshInput: o.freshInput,
     blocked: o.blocked,
     references: o.references,
+    cursors: o.cursors,
   };
 }
 
@@ -132,62 +192,65 @@ function cfgArgs(o: Partial<CfgArgs>): CfgArgs {
   };
 }
 
-describe("idler ledger tools", () => {
+describe("idler memory tools", () => {
   let tempDir: string;
+  let sdk: ClackSdk;
   beforeEach(async () => {
     tempDir = await mkdtemp(join(tmpdir(), "idler-tools-"));
+    sdk = buildSdk(tempDir, statefulMemory());
   });
   afterEach(async () => {
     await rm(tempDir, { recursive: true, force: true });
   });
 
   it("upsert_idea creates a unit and computes priority from kind", async () => {
-    const sdk = buildSdk(tempDir);
     const payload = await invoke(
       createUpsertIdeaTool(sdk),
-      ideaArgs({
-        key: "PROJ-1",
-        kind: "continue",
-        source: "sentry",
-        what: "Fix NPE",
-      }),
+      ideaArgs({ id: "sentry:PROJ-1", kind: "continue", what: "Fix NPE" }),
     );
     assert.equal(payload.ok, true);
-    assert.equal(payload.key, "PROJ-1");
+    assert.equal(payload.id, "sentry:PROJ-1");
     assert.equal(typeof payload.priority, "number");
   });
 
-  it("upsert_idea dedups by key and list_top_ideas returns it once, sorted", async () => {
-    const sdk = buildSdk(tempDir);
-    await invoke(createUpsertIdeaTool(sdk), ideaArgs({ key: "A", kind: "review" }));
-    await invoke(createUpsertIdeaTool(sdk), ideaArgs({ key: "A", kind: "continue" }));
-    await invoke(createUpsertIdeaTool(sdk), ideaArgs({ key: "B", kind: "triage" }));
+  it("upsert_idea dedups by id and list_top_ideas returns it once, sorted", async () => {
+    await invoke(createUpsertIdeaTool(sdk), ideaArgs({ id: "A", kind: "review" }));
+    await invoke(createUpsertIdeaTool(sdk), ideaArgs({ id: "A", kind: "continue" }));
+    await invoke(createUpsertIdeaTool(sdk), ideaArgs({ id: "B", kind: "triage" }));
 
     const payload = await invoke(createListTopIdeasTool(sdk), { limit: 5 });
     assert.equal(payload.ideas?.length, 2, "A deduped");
-    assert.equal(payload.ideas?.[0].key, "A", "continue (highest) sorts first");
+    assert.equal(payload.ideas?.[0].id, "A", "continue (highest) sorts first");
   });
 
   it("upsert_idea open:false closes; list_top_ideas excludes it", async () => {
-    const sdk = buildSdk(tempDir);
-    await invoke(createUpsertIdeaTool(sdk), ideaArgs({ key: "A", kind: "implement" }));
-    await invoke(createUpsertIdeaTool(sdk), ideaArgs({ key: "A", kind: "none", open: false }));
+    await invoke(createUpsertIdeaTool(sdk), ideaArgs({ id: "A", kind: "implement" }));
+    await invoke(createUpsertIdeaTool(sdk), ideaArgs({ id: "A", kind: "none", open: false }));
     const payload = await invoke(createListTopIdeasTool(sdk), { limit: undefined });
     assert.equal(payload.ideas?.length, 0);
   });
 
   it("reprioritize_idea overrides the computed score", async () => {
-    const sdk = buildSdk(tempDir);
-    await invoke(createUpsertIdeaTool(sdk), ideaArgs({ key: "A", kind: "review" }));
-    await invoke(createReprioritizeTool(sdk), { key: "A", priority: 9999 });
+    await invoke(createUpsertIdeaTool(sdk), ideaArgs({ id: "A", kind: "review" }));
+    await invoke(createReprioritizeTool(sdk), { id: "A", priority: 9999 });
     const payload = await invoke(createListTopIdeasTool(sdk), { limit: undefined });
     assert.equal(payload.ideas?.[0].priority, 9999);
   });
 
-  it("reprioritize_idea errors on unknown key", async () => {
-    const sdk = buildSdk(tempDir);
-    const payload = await invoke(createReprioritizeTool(sdk), { key: "nope", priority: 1 });
+  it("reprioritize_idea errors on unknown id", async () => {
+    const payload = await invoke(createReprioritizeTool(sdk), { id: "nope", priority: 1 });
     assert.ok(payload.error);
+  });
+
+  it("clear_idler_idea closes the unit and errors on unknown id", async () => {
+    await invoke(createUpsertIdeaTool(sdk), ideaArgs({ id: "A", kind: "review" }));
+    const cleared = await invoke(createClearIdeaTool(sdk), { key: "A" });
+    assert.equal(cleared.ok, true);
+    const top = await invoke(createListTopIdeasTool(sdk), { limit: undefined });
+    assert.equal(top.ideas?.length, 0, "cleared unit is closed");
+
+    const missing = await invoke(createClearIdeaTool(sdk), { key: "missing" });
+    assert.ok(missing.error);
   });
 });
 
@@ -253,19 +316,12 @@ describe("idler management tools", () => {
     assert.equal(config.reporting.tickUpdates, "optional");
     assert.equal(config.reporting.summary, false);
 
-    // A later patch that only sets summaryHour leaves the other reporting fields intact.
     await invoke(createSetConfigTool(sdk), cfgArgs({ summaryHour: 6 }));
     config = await loadConfig(sdk);
     assert.equal(config.reporting.summaryHour, 6);
     assert.equal(config.reporting.channel, "C777");
     assert.equal(config.reporting.tickUpdates, "optional");
     assert.equal(config.reporting.summary, false);
-  });
-
-  it("clear_idler_idea errors on unknown key", async () => {
-    const sdk = buildSdk(tempDir);
-    const payload = await invoke(createClearIdeaTool(sdk), { key: "missing" });
-    assert.ok(payload.error);
   });
 });
 

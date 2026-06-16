@@ -24,7 +24,7 @@ import {
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { relocateTriviaConfig } from "../../../migrations/022-trivia-config-to-plugin.js";
-import { fakeSdkUsers } from "../testHelpers.js";
+import { fakeSdkUsers, fakeSdkMemory } from "../testHelpers.js";
 import {
   _resetTriviaConfigBridge,
   defaultGetGames,
@@ -98,6 +98,7 @@ function makeSdkOverRealDir(pluginDataDir: string): ClackSdk {
     registerDictionary: () => {},
     t: (key: string) => key,
     users: fakeSdkUsers(),
+    memory: fakeSdkMemory(),
   };
 }
 

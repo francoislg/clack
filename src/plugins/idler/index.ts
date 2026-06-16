@@ -7,6 +7,7 @@ import { buildSyncPrompt } from "./prompts/sync.js";
 import { buildWorkPrompt } from "./prompts/work.js";
 import { buildSummaryPrompt } from "./prompts/summary.js";
 import { en as idlerEn, fr as idlerFr } from "./i18n/strings.js";
+import { parseSlot } from "./slice.js";
 import {
   createListTopIdeasTool,
   createReprioritizeTool,
@@ -45,6 +46,13 @@ export const idlerPlugin: ClackPlugin = async (sdk: ClackSdk) => {
   }
 
   sdk.registerDictionary({ en: idlerEn, fr: idlerFr });
+
+  // Protect in-flight work: the daily memory review must not prune an entry the idler still
+  // considers open (e.g. an open PR). Closed units (open:false) are eligible for expiry.
+  sdk.memory.onBeforeExpire((entry) => {
+    const slot = parseSlot(entry.plugins?.idler);
+    return slot?.open === true ? { vetoed: true } : { vetoed: false };
+  });
 
   // Behavior/contract — pre-attached to every idler fire via attachedTopics: [TOPIC].
   sdk.addTopicInstruction("dev", TOPIC, "behavior", BEHAVIOR_INSTRUCTION);

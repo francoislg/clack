@@ -1,4 +1,4 @@
-import type { ClackSdk, ClackSdkUsers } from "../sdk.js";
+import type { ClackSdk, ClackSdkUsers, ClackSdkMemory } from "../sdk.js";
 import type { TriviaGame } from "./core/configTypes.js";
 import type {
   TriviaQuestion,
@@ -36,6 +36,47 @@ export function fakeSdkUsers(identities: Record<string, string> = {}): ClackSdkU
     async list() {
       return Object.entries(identities).map(([userId, displayName]) => ({ userId, displayName }));
     },
+    data() {
+      return {
+        async get() {
+          return null;
+        },
+        async merge() {},
+      };
+    },
+  };
+}
+
+/**
+ * Stub for `sdk.memory` in tests that build a fake `ClackSdk` but don't exercise the registry.
+ * Reads resolve empty; `data(schema)` is an inert get→null / merge→no-op pair; `onBeforeExpire`
+ * is a no-op.
+ */
+export function fakeSdkMemory(): ClackSdkMemory {
+  return {
+    async get() {
+      return null;
+    },
+    async list() {
+      return [];
+    },
+    async recall(args) {
+      return { total: 0, limit: args.limit ?? 20, offset: args.offset ?? 0, entries: [] };
+    },
+    async remember(input) {
+      const ts = "1970-01-01T00:00:00.000Z";
+      return {
+        id: input.id,
+        what: input.what ?? "",
+        why: input.why ?? "",
+        staleAfter: input.staleAfter,
+        nextSteps: input.nextSteps,
+        references: input.references ?? [],
+        createdAt: ts,
+        updatedAt: ts,
+      };
+    },
+    onBeforeExpire() {},
     data() {
       return {
         async get() {
@@ -97,6 +138,7 @@ export function createFakeSdk(overrides: Partial<ClackSdk> = {}): ClackSdk {
     registerDictionary: () => {},
     t: (key: string) => key,
     users: fakeSdkUsers(),
+    memory: fakeSdkMemory(),
     ...overrides,
   };
 }
