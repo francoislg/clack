@@ -14,14 +14,21 @@ export function createSetConfigTool(sdk: ClackSdk) {
     "Patch idler runtime settings. Only the fields you pass change; others are kept. Validated before saving; hot-reloads on the next fire.",
     {
       enabled: z.boolean().optional(),
-      reportingChannel: z.string().optional().describe("Channel ID for the summary digest"),
+      reportingChannel: z.string().optional().describe("Channel ID for any idler Slack output"),
+      tickUpdates: z
+        .enum(["none", "optional"])
+        .optional()
+        .describe(
+          "Per-tick work-fire output. 'none' (default): silent per fire — still implements, just posts nothing. 'optional': posts progress when it acts.",
+        ),
+      summary: z.boolean().optional().describe("Whether the morning digest fires. Default true."),
       summaryHour: z
         .number()
         .int()
         .min(0)
         .max(23)
         .optional()
-        .describe("Hour [0..23] the morning digest fires; defaults to the active-window start"),
+        .describe("Hour [0..23] the morning digest fires; defaults to 9 (AM)"),
       maxActionsPerFire: z.number().int().min(1).max(20).optional(),
       maxActionsPerNight: z.number().int().min(1).max(100).optional(),
       trackerSource: z.boolean().optional().describe("Enable/disable the external-tracker source"),
@@ -32,8 +39,13 @@ export function createSetConfigTool(sdk: ClackSdk) {
       const next = {
         ...config,
         enabled: args.enabled ?? config.enabled,
-        reportingChannel: args.reportingChannel ?? config.reportingChannel,
-        summaryHour: args.summaryHour ?? config.summaryHour,
+        reporting: {
+          ...config.reporting,
+          channel: args.reportingChannel ?? config.reporting.channel,
+          tickUpdates: args.tickUpdates ?? config.reporting.tickUpdates,
+          summary: args.summary ?? config.reporting.summary,
+          summaryHour: args.summaryHour ?? config.reporting.summaryHour,
+        },
         maxActionsPerFire: args.maxActionsPerFire ?? config.maxActionsPerFire,
         maxActionsPerNight: args.maxActionsPerNight ?? config.maxActionsPerNight,
         sources: {

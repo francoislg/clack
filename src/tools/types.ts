@@ -248,6 +248,8 @@ export interface WorkerToolContext {
   threadTs: string;
   /** Change session ID (for state updates) */
   sessionId: string;
+  /** When true, `report_status` suppresses its Slack post (silent change run). */
+  silent?: boolean;
   /** Full app configuration */
   config: Config;
 }

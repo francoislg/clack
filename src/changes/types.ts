@@ -22,6 +22,11 @@ export interface ChangeRequest {
   channel: string;
   threadTs?: string;
   messageTs: string;
+  /**
+   * When true, the worker suppresses its `report_status` Slack posts (the change still runs and
+   * opens a PR). Set for silent cron runs. See the `silent-change-execution` capability.
+   */
+  silent?: boolean;
 }
 
 export interface ChangePlan {

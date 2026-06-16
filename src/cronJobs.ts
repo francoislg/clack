@@ -116,6 +116,15 @@ export interface CronJob {
    */
   submitResponseMode?: "always" | "optional" | "optional-post-to" | "skipped";
   /**
+   * When true, the fire suppresses ALL Slack output — the primary `submit_response` delivery, the
+   * worker `report_status` posts, and change-lifecycle status posts. The job still runs against
+   * its real {@link channel} so change auto-execution proceeds (it is not treated as a channelless
+   * dispatch), and GitHub-side effects are unaffected. Forwarded by the scheduler into
+   * `processMessage`. Plugins set it via `CronJobSpec.silent`. See the `silent-change-execution`
+   * capability.
+   */
+  silent?: boolean;
+  /**
    * Structured date-based skip list. Evaluated by the scheduler before opening a Claude session
    * (and before {@link skipConditions}). When today (in {@link timezone}) matches any entry, the
    * run is recorded as `status: "skipped"` and `processMessage` is never invoked.
@@ -213,6 +222,7 @@ const cronJobZod = z.object({
     .enum(["always", "optional", "optional-post-to", "skipped"])
     .optional()
     .catch(undefined),
+  silent: z.boolean().optional().catch(undefined),
   skipDates: z.array(skipDateZod).optional(),
   pluginManaged: z.boolean().optional(),
   specKey: z.string().optional(),
@@ -334,6 +344,8 @@ export interface CreateCronJobParams {
   plugin?: string;
   skipConditions?: string;
   submitResponseMode?: "always" | "optional" | "optional-post-to" | "skipped";
+  /** When true, the fire suppresses all Slack output. See `CronJob.silent`. */
+  silent?: boolean;
   skipDates?: SkipDate[];
   pluginManaged?: boolean;
   specKey?: string;
@@ -400,6 +412,7 @@ export async function createJob(params: CreateCronJobParams): Promise<CronJob> {
     ...(params.plugin ? { plugin: params.plugin } : {}),
     ...(params.skipConditions ? { skipConditions: params.skipConditions } : {}),
     ...(params.submitResponseMode ? { submitResponseMode: params.submitResponseMode } : {}),
+    ...(params.silent ? { silent: true } : {}),
     ...(params.skipDates && params.skipDates.length > 0 ? { skipDates: params.skipDates } : {}),
     ...(params.pluginManaged ? { pluginManaged: true } : {}),
     ...(params.specKey ? { specKey: params.specKey } : {}),
@@ -458,6 +471,8 @@ export interface UpdateCronJobParams {
    * to clear; leaving undefined keeps the existing value.
    */
   submitResponseMode?: "always" | "optional" | "optional-post-to" | "skipped" | null;
+  /** Pass a boolean to set; `null` to clear; undefined leaves the field unchanged. */
+  silent?: boolean | null;
   /** Pass an empty array to clear; undefined leaves the field unchanged. */
   skipDates?: SkipDate[];
   /**
@@ -502,6 +517,9 @@ export async function updateJob(
   if (params.submitResponseMode !== undefined) {
     job.submitResponseMode =
       params.submitResponseMode === null ? undefined : params.submitResponseMode;
+  }
+  if (params.silent !== undefined) {
+    job.silent = params.silent ? true : undefined;
   }
   if (params.skipDates !== undefined) {
     job.skipDates = params.skipDates.length > 0 ? params.skipDates : undefined;

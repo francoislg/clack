@@ -36,22 +36,45 @@ const sourcesSchema = z.object({
   ownPrs: z.boolean().default(true),
 });
 
-export const idlerConfigSchema = z.object({
+const reportingSchema = z.object({
+  channel: z.string().regex(SLACK_CHANNEL_ID, "channel ID must be C…/G…/D…").optional(),
+  tickUpdates: z.enum(["none", "optional"]).default("none"),
+  summary: z.boolean().default(true),
+  summaryHour: z.number().int().min(0).max(23).optional(),
+});
+
+const baseConfigSchema = z.object({
   enabled: z.boolean(),
   workHours: windowSchema,
   syncHours: windowSchema.optional(),
   repoAllowlist: z.array(z.string().min(1)).default([]),
-  reportingChannel: z.string().regex(SLACK_CHANNEL_ID, "channel ID must be C…/G…/D…").optional(),
-  summaryHour: z.number().int().min(0).max(23).optional(),
+  reporting: reportingSchema.default({ tickUpdates: "none", summary: true }),
   maxActionsPerFire: z.number().int().min(1).max(20).default(1),
   maxActionsPerNight: z.number().int().min(1).max(100).default(5),
   sources: sourcesSchema.default({ channels: [], tracker: false, ownPrs: true }),
 });
 
+/**
+ * Lifts legacy top-level `reportingChannel`/`summaryHour` into the `reporting` block when no
+ * block is present, so config files written before the block was introduced keep working. An
+ * explicit `reporting` block always wins — the legacy fields are ignored when it is present.
+ */
+export const idlerConfigSchema = z.preprocess((raw) => {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw) || "reporting" in raw) {
+    return raw;
+  }
+  const legacy = raw as { reportingChannel?: unknown; summaryHour?: unknown };
+  const reporting: { channel?: string; summaryHour?: number } = {};
+  if (typeof legacy.reportingChannel === "string") reporting.channel = legacy.reportingChannel;
+  if (typeof legacy.summaryHour === "number") reporting.summaryHour = legacy.summaryHour;
+  return { ...raw, reporting };
+}, baseConfigSchema);
+
 export const DEFAULT_CONFIG: IdlerConfig = {
   enabled: false,
   workHours: { start: 18, end: 9, tz: "UTC", days: [1, 2, 3, 4, 5] },
   repoAllowlist: [],
+  reporting: { tickUpdates: "none", summary: true },
   maxActionsPerFire: 1,
   maxActionsPerNight: 5,
   sources: { channels: [], tracker: false, ownPrs: true },
@@ -79,5 +102,5 @@ export async function saveConfig(sdk: ClackSdk, config: IdlerConfig): Promise<vo
  * a reporting channel (the work/summary tasks post change progress + the digest there).
  */
 export function isOperational(config: IdlerConfig): boolean {
-  return config.enabled && config.repoAllowlist.length > 0 && Boolean(config.reportingChannel);
+  return config.enabled && config.repoAllowlist.length > 0 && Boolean(config.reporting.channel);
 }
