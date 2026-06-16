@@ -1,6 +1,12 @@
-import { describe, it, beforeEach, vi } from "vitest";
+import { describe, it, vi } from "vitest";
 import assert from "node:assert/strict";
-import { fetchPRReviewContext, getPRStatus, parsePrUrl, type PrDeps } from "./pr.js";
+import {
+  classifyCheckRuns,
+  fetchPRReviewContext,
+  getPRStatus,
+  type CheckRunInput,
+  type PrDeps,
+} from "./pr.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -409,5 +415,60 @@ describe("getPRStatus", () => {
 
     const result = await getPRStatus("https://github.com/myorg/myrepo/pull/42/files", deps);
     assert.deepEqual(result, { state: "OPEN" });
+  });
+});
+
+// ============================================================================
+// classifyCheckRuns
+// ============================================================================
+
+describe("classifyCheckRuns", () => {
+  const run = (over: Partial<CheckRunInput>): CheckRunInput => ({
+    name: "check",
+    status: "completed",
+    conclusion: "success",
+    ...over,
+  });
+
+  it("returns all_passed when every run completed successfully (incl. neutral/skipped)", () => {
+    const snap = classifyCheckRuns([
+      run({ name: "a", conclusion: "success" }),
+      run({ name: "b", conclusion: "neutral" }),
+      run({ name: "c", conclusion: "skipped" }),
+    ]);
+    assert.equal(snap.status, "all_passed");
+    assert.deepEqual(snap.failedChecks, []);
+  });
+
+  it("returns some_failed with failing check details", () => {
+    const snap = classifyCheckRuns([
+      run({ name: "ok", conclusion: "success" }),
+      run({ name: "lint", conclusion: "failure", details_url: "https://ci/lint" }),
+    ]);
+    assert.equal(snap.status, "some_failed");
+    assert.deepEqual(snap.failedChecks, [
+      { name: "lint", conclusion: "failure", detailsUrl: "https://ci/lint" },
+    ]);
+  });
+
+  it("returns in_progress with pending names when a run is not completed", () => {
+    const snap = classifyCheckRuns([
+      run({ name: "ok", conclusion: "success" }),
+      run({ name: "build", status: "in_progress", conclusion: null }),
+    ]);
+    assert.equal(snap.status, "in_progress");
+    assert.deepEqual(snap.pendingChecks, ["build"]);
+  });
+
+  it("returns no_checks for an empty run list", () => {
+    assert.equal(classifyCheckRuns([]).status, "no_checks");
+  });
+
+  it("prefers a failure over pending runs", () => {
+    const snap = classifyCheckRuns([
+      run({ name: "build", status: "in_progress", conclusion: null }),
+      run({ name: "lint", conclusion: "failure" }),
+    ]);
+    assert.equal(snap.status, "some_failed");
   });
 });

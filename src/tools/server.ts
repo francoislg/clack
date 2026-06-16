@@ -106,6 +106,7 @@ import { createSwitchDeliveryContextTool } from "./query/switchDeliveryContext.j
 
 // Worker tools
 import { createGitPushTool } from "./worker/gitPush.js";
+import { createAwaitCiTool } from "./worker/awaitCi.js";
 import { createEnsurePRTool } from "./worker/ensurePR.js";
 import { createMergePRTool } from "./worker/mergePR.js";
 import { createClosePRTool } from "./worker/closePR.js";
@@ -733,6 +734,7 @@ function buildWorkerTools(ctx: WorkerToolContext): ClackWorkerToolsResult {
   tools.push(createReportStatusTool(ctx));
 
   tools.push(createGitPushTool(ctx));
+  tools.push(createAwaitCiTool(ctx));
   tools.push(createEnsurePRTool(ctx));
   tools.push(createMergePRTool(ctx));
   tools.push(createClosePRTool(ctx));

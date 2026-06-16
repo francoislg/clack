@@ -12,6 +12,7 @@ import type { ChangePlan, ChangeRequest, ExecutionResult } from "./types.js";
 import type { SpinoffIntentData } from "./spinoff.js";
 import { appendExecutionLog } from "./persistence.js";
 import { appendWorkerSkillsCatalog } from "./workerSkillsCatalog.js";
+import { buildWorkerBashGuardHook } from "./workerBashGuard.js";
 import { getActiveChange } from "./activeState.js";
 import { detectPlatformError } from "../claude/messageParser.js";
 import { ClaudeMessageParser } from "../claude/messageParser.js";
@@ -128,6 +129,7 @@ export async function runClaude(options: {
       disallowedTools: options.disallowedTools,
       permissionMode: "bypassPermissions",
       allowDangerouslySkipPermissions: true,
+      hooks: { PreToolUse: [buildWorkerBashGuardHook()] },
       plugins: discoverEagerSkillPlugins(),
       ...(options.mcpServers && {
         mcpServers: options.mcpServers as Record<string, McpServerConfig>,
@@ -322,9 +324,10 @@ Instructions:
    - Run any available formatter (e.g. npm run format, yarn format)
    - If tests fail, fix the failures before proceeding — do not commit broken code
 4. Commit your changes with a descriptive commit message
-5. Push the branch using the git_push tool
+5. Push the branch using the git_push tool (after a rebase that diverged from the remote, call git_push with force=true to force-push with lease)
 6. Create or update the pull request using the ensure_pr tool
-7. Report your final status using the report_status tool
+7. Verify CI using the await_ci tool. Only sign off as successful when it returns "passed". On "failed", surface the failing checks and fix them (then push and await_ci again) or report the failure via report_status. On "timed_out" or "pending", report via report_status that CI did not conclusively pass — do NOT claim success
+8. Report your final status using the report_status tool
 
 Important:
 - Make minimal, focused changes
@@ -332,6 +335,7 @@ Important:
 - Do not make changes outside the scope of the request
 - If a self-contained slice of your work clearly belongs in its OWN pull request — e.g. an unrelated refactor surfaced while you worked, or a reviewer asked you to split it out — use the propose_spinoff tool to carve just that slice into a separate sibling change. Never spin off the whole change (that is just this PR), and keep the remaining work in this PR as normal.
 - If you encounter issues, report them via report_status
+- Never run \`git push\` directly via Bash — it is blocked in worker mode. Always push with the git_push tool, which enforces the protected-branch and force-with-lease rules
 - If git_push fails, report the error via report_status — do not retry unless you can fix the issue
 - For the PR title, use a concise description (max 72 chars) — do NOT put "Requested by" or the requester's name in the title
 - For the PR summary, describe what was changed and why. If the prompt provides a "Requested by:" line, include it verbatim at the top of the PR body (never in the title)`;

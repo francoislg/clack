@@ -15,6 +15,7 @@ import {
   computeAllowSkip,
 } from "./server.js";
 import type { QueryToolContext } from "./types.js";
+import { makeWorkerCtx } from "./worker/testCtx.js";
 import type { Config } from "../config.js";
 import type { SessionContext } from "../sessions.js";
 import { setLoadedPlugins } from "../plugins/state.js";
@@ -653,5 +654,14 @@ describe("shouldAllowPostTopLevel", () => {
 
   it("denies for undefined triggerType", () => {
     assert.equal(shouldAllowPostTopLevel(undefined), false);
+  });
+});
+
+describe("buildClackTools — worker mode", () => {
+  it("registers git_push and await_ci alongside the other worker tools", () => {
+    const result = buildClackTools(makeWorkerCtx());
+    for (const name of ["git_push", "await_ci", "ensure_pr", "merge_pr", "report_status"]) {
+      assert.ok(result.toolNames.includes(name), `expected worker tool ${name}`);
+    }
   });
 });

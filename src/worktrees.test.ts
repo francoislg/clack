@@ -3,7 +3,12 @@ import assert from "node:assert/strict";
 import { mkdirSync, rmSync, writeFileSync, realpathSync, utimesSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { resolve, join } from "node:path";
-import { getExistingWorktree, cleanupStaleWorktrees, type WorktreeInfo } from "./worktrees.js";
+import {
+  getExistingWorktree,
+  cleanupStaleWorktrees,
+  createWorktree,
+  type WorktreeInfo,
+} from "./worktrees.js";
 import type { RepositoryConfig } from "./config.js";
 
 // Mock only `getConfig` so `cleanupStaleWorktrees` can be steered between
@@ -205,6 +210,23 @@ describe("branch name to directory mapping", () => {
 // ---------------------------------------------------------------------------
 // WorktreeInfo type shape
 // ---------------------------------------------------------------------------
+
+describe("createWorktree branch invariant", () => {
+  it("refuses a default/protected/non-clack branch name before touching the filesystem", async () => {
+    const repo = makeRepo();
+    for (const branch of [
+      "main",
+      "master",
+      "develop",
+      "random-branch",
+      "clack/fix",
+      "clack//x",
+      "clack/badtype/x",
+    ]) {
+      await assert.rejects(createWorktree(repo, branch), /clack\/<type>\/<name>/);
+    }
+  });
+});
 
 describe("WorktreeInfo", () => {
   it("has the expected fields", () => {
