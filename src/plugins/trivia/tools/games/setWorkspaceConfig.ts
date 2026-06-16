@@ -129,6 +129,13 @@ export function createSetWorkspaceConfigTool() {
         .describe(
           "Workspace tier of the `tagPlayers` knob. `true` (the built-in default) names players with real `<@USERID>` Slack mentions everywhere — reveal post, in-thread narrative, finale podium, live answer roster, and reveal footer — which pings them. `false` renders every player as plain-text `@displayName` instead, so no trivia surface pings the room. Cascade: `game → workspace → true`. null clears.",
         ),
+      scrollToTop: z
+        .boolean()
+        .nullable()
+        .optional()
+        .describe(
+          "Workspace tier of the `scrollToTop` knob. `true` makes post_questions append one trailing 'scroll to the first question' navigation message after a multi-question batch (a single link to the batch's first question, no unfurl). `false` (the built-in default) posts nothing after the questions. Cascade: `game → workspace → false`. null clears.",
+        ),
       includeRevealInQuestions: triviaIncludeRevealInQuestionsZod
         .nullable()
         .optional()
@@ -324,6 +331,15 @@ export function createSetWorkspaceConfigTool() {
       } else if (args.tagPlayers !== undefined) {
         next.tagPlayers = args.tagPlayers;
         updatedFields.push("tagPlayers");
+      }
+
+      // scrollToTop: apply or clear (clear via `= undefined`; the key drops on JSON save).
+      if (args.scrollToTop === null) {
+        next.scrollToTop = undefined;
+        updatedFields.push("scrollToTop (cleared)");
+      } else if (args.scrollToTop !== undefined) {
+        next.scrollToTop = args.scrollToTop;
+        updatedFields.push("scrollToTop");
       }
 
       // includeRevealInQuestions: apply or clear.

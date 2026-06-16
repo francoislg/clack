@@ -124,6 +124,22 @@ describe("parseTriviaGames — per-game format / categories / theme", () => {
     });
   });
 
+  describe("scrollToTop", () => {
+    it("accepts a boolean and stores it on the game", () => {
+      const { games, issues } = parseTriviaGames([{ ...validBase, scrollToTop: true }]);
+      assert.equal(issues.length, 0);
+      assert.equal(games?.[0].scrollToTop, true);
+    });
+
+    it("drops the field with an issue when the value is not a boolean", () => {
+      const { games, issues } = parseTriviaGames([{ ...validBase, scrollToTop: "yes" }]);
+      assert.equal(games?.length, 1);
+      assert.equal(games?.[0].scrollToTop, undefined);
+      assert.equal(issues[0].field, "trivia.games[0].scrollToTop");
+      assert.match(issues[0].error, /must be a boolean/);
+    });
+  });
+
   describe("instructions", () => {
     it("accepts a trimmed non-empty string", () => {
       const { games, issues } = parseTriviaGames([{ ...validBase, instructions: "  Be dry.  " }]);

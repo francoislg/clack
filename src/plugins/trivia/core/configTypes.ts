@@ -205,6 +205,14 @@ export const DEFAULT_ALL_TIME_ROW: TriviaAllTimeRowMode = "end-of-season-only";
 export const DEFAULT_TAG_PLAYERS = true;
 
 /**
+ * Built-in fallback for the `scrollToTop` knob. `false` preserves the legacy
+ * behavior: a question batch posts nothing after its last question. `true`
+ * makes `post_questions` append one trailing "scroll to the first question"
+ * navigation message after a multi-question batch. See `resolveScrollToTop`.
+ */
+export const DEFAULT_SCROLL_TO_TOP = false;
+
+/**
  * Whether each revealed question's card carries the authored reveal narrative
  * (`"yes"`) or only the deterministic facts footer (`"no"`). Game+workspace
  * tiers only (cascade `game → workspace → "no"`); NOT a CascadeAxes member.
@@ -372,6 +380,13 @@ export interface TriviaGame extends CascadeAxes {
    */
   tagPlayers?: boolean;
   /**
+   * Per-game tier of the `scrollToTop` knob. Cascade:
+   *   `game → workspace → false`. NOT a CascadeAxes member — game+workspace only.
+   *   `true` appends a trailing "scroll to the first question" navigation message
+   *   after a multi-question batch. See `resolveScrollToTop`.
+   */
+  scrollToTop?: boolean;
+  /**
    * Per-game tier of the "narrative in cards" axis. Cascade:
    *   `game → workspace → "no"`. NOT a CascadeAxes member.
    *   See `TriviaIncludeRevealInQuestions` and `resolveIncludeRevealInQuestions`.
@@ -455,6 +470,13 @@ export interface TriviaConfig extends CascadeAxes {
    *   See `resolveTagPlayers`.
    */
   tagPlayers?: boolean;
+  /**
+   * Workspace tier of the `scrollToTop` knob. Cascade:
+   *   `game → workspace → false`. NOT a CascadeAxes member.
+   *   `true` appends a trailing "scroll to the first question" navigation message
+   *   after a multi-question batch. See `resolveScrollToTop`.
+   */
+  scrollToTop?: boolean;
   /**
    * Workspace tier of the "narrative in cards" axis. Cascade:
    *   `game → workspace → "no"`. NOT a CascadeAxes member.

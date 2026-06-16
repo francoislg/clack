@@ -516,3 +516,174 @@ describe("post_questions is medium-agnostic for images", () => {
     assert.equal(findImageBlock(calls.postBlocksCalls[0].blocks), undefined);
   });
 });
+
+/** Read the mrkdwn text of the first block, asserting it is a section block. */
+function sectionText(blocks: SlackBlocks): string {
+  const b = blocks[0];
+  if (b === undefined || b.type !== "section" || !("text" in b) || b.text === undefined) {
+    throw new Error(`expected a section block with text, got ${b?.type ?? "nothing"}`);
+  }
+  return b.text.text;
+}
+
+const scrollEnabledGames = () => fixtureGetGames().map((g) => ({ ...g, scrollToTop: true }));
+
+describe("post_questions scroll-to-top trailing message", () => {
+  it("posts a trailing link to the first question for a multi-question batch", async () => {
+    const data = createInMemoryDataLayer();
+    await seedQuestion(data, { id: "Q1" });
+    await seedQuestion(data, { id: "Q2" });
+
+    const { deps, calls } = fakeSlackDeps();
+    const tool = createPostQuestionsTool(data, fakeSdk(), scrollEnabledGames, deps);
+
+    await tool.handler(
+      {
+        game: FIXTURE_GAME_NAME,
+        items: [
+          { questionId: "Q1", blocks: SAMPLE_BLOCKS },
+          { questionId: "Q2", blocks: SAMPLE_BLOCKS },
+        ],
+        appendToPreviousBatch: undefined,
+        suppress_unfurls: undefined,
+      },
+      SESSION,
+    );
+
+    // Two question posts + one trailing navigation message.
+    assert.equal(calls.postBlocksCalls.length, 3);
+    const trailing = calls.postBlocksCalls[2];
+    assert.equal(trailing.channel, FIXTURE_CHANNEL);
+    assert.equal(trailing.suppressUnfurls, true);
+
+    const firstLink = (await data.forGame(FIXTURE_GAME_NAME).loadQuestions()).find(
+      (q) => q.id === "Q1",
+    )?.messageLink;
+    assert.ok(firstLink !== undefined && firstLink.length > 0);
+    assert.equal(sectionText(trailing.blocks), `<${firstLink}|scroll_to_top.label>`);
+  });
+
+  it("posts no trailing message for a single-question batch", async () => {
+    const data = createInMemoryDataLayer();
+    await seedQuestion(data, { id: "Q1" });
+
+    const { deps, calls } = fakeSlackDeps();
+    const tool = createPostQuestionsTool(data, fakeSdk(), scrollEnabledGames, deps);
+
+    await tool.handler(
+      {
+        game: FIXTURE_GAME_NAME,
+        items: [{ questionId: "Q1", blocks: SAMPLE_BLOCKS }],
+        appendToPreviousBatch: undefined,
+        suppress_unfurls: undefined,
+      },
+      SESSION,
+    );
+
+    assert.equal(calls.postBlocksCalls.length, 1);
+  });
+
+  it("posts no trailing message when scrollToTop is disabled (default)", async () => {
+    const data = createInMemoryDataLayer();
+    await seedQuestion(data, { id: "Q1" });
+    await seedQuestion(data, { id: "Q2" });
+
+    const { deps, calls } = fakeSlackDeps();
+    const tool = createPostQuestionsTool(data, fakeSdk(), fixtureGetGames, deps);
+
+    await tool.handler(
+      {
+        game: FIXTURE_GAME_NAME,
+        items: [
+          { questionId: "Q1", blocks: SAMPLE_BLOCKS },
+          { questionId: "Q2", blocks: SAMPLE_BLOCKS },
+        ],
+        appendToPreviousBatch: undefined,
+        suppress_unfurls: undefined,
+      },
+      SESSION,
+    );
+
+    assert.equal(calls.postBlocksCalls.length, 2);
+  });
+
+  it("does not post a trailing message when fewer than 2 posts succeed", async () => {
+    const data = createInMemoryDataLayer();
+    await seedQuestion(data, { id: "Q1" });
+    await seedQuestion(data, { id: "Q2" });
+
+    // Q1 lands a link; Q2's post throws — only one question carries a messageLink.
+    const { deps, calls } = fakeSlackDeps({
+      postResults: [
+        { ts: "1700000000.000001", permalink: "https://x.slack.com/p1" },
+        { error: "Slack rate-limited" },
+      ],
+    });
+    const tool = createPostQuestionsTool(data, fakeSdk(), scrollEnabledGames, deps);
+
+    const result = await tool.handler(
+      {
+        game: FIXTURE_GAME_NAME,
+        items: [
+          { questionId: "Q1", blocks: SAMPLE_BLOCKS },
+          { questionId: "Q2", blocks: SAMPLE_BLOCKS },
+        ],
+        appendToPreviousBatch: undefined,
+        suppress_unfurls: undefined,
+      },
+      SESSION,
+    );
+
+    const body = parseToolResult(result);
+    assert.equal(body.results[0].ok, true);
+    assert.equal(body.results[1].ok, false);
+    // Two question attempts (Q1 + the failed Q2) and NO trailing third message:
+    // only one question landed a messageLink, so the 2+ gate isn't met.
+    assert.equal(calls.postBlocksCalls.length, 2);
+  });
+
+  it("on append, the trailing link targets the batch's earliest message, not this fire's first", async () => {
+    const data = createInMemoryDataLayer();
+    await seedQuestion(data, { id: "Q1" });
+    await seedQuestion(data, { id: "Q2" });
+    await seedQuestion(data, { id: "Q3" });
+
+    const { deps, calls } = fakeSlackDeps();
+    const tool = createPostQuestionsTool(data, fakeSdk(), scrollEnabledGames, deps);
+
+    // Fresh batch: Q1, Q2.
+    await tool.handler(
+      {
+        game: FIXTURE_GAME_NAME,
+        items: [
+          { questionId: "Q1", blocks: SAMPLE_BLOCKS },
+          { questionId: "Q2", blocks: SAMPLE_BLOCKS },
+        ],
+        appendToPreviousBatch: undefined,
+        suppress_unfurls: undefined,
+      },
+      SESSION,
+    );
+
+    // Append Q3 to the same batch.
+    await tool.handler(
+      {
+        game: FIXTURE_GAME_NAME,
+        items: [{ questionId: "Q3", blocks: SAMPLE_BLOCKS }],
+        appendToPreviousBatch: true,
+        suppress_unfurls: undefined,
+      },
+      SESSION,
+    );
+
+    const stored = await data.forGame(FIXTURE_GAME_NAME).loadQuestions();
+    const q1Link = stored.find((q) => q.id === "Q1")?.messageLink;
+    const q3Link = stored.find((q) => q.id === "Q3")?.messageLink;
+    assert.ok(q1Link !== undefined && q3Link !== undefined);
+
+    // Last post is the append fire's trailing message; it links to Q1 (batch top), not Q3.
+    const lastTrailing = calls.postBlocksCalls[calls.postBlocksCalls.length - 1];
+    assert.equal(sectionText(lastTrailing.blocks), `<${q1Link}|scroll_to_top.label>`);
+    assert.ok(!sectionText(lastTrailing.blocks).includes(q3Link));
+  });
+});

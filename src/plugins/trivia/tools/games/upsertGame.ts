@@ -176,6 +176,13 @@ const structuralFieldsSchema = {
     .describe(
       "Per-game tier of the `tagPlayers` knob. `true` (the default) names players with real `<@USERID>` Slack mentions everywhere — reveal post, in-thread narrative, finale podium, live answer roster, and reveal footer — which pings them. `false` renders every player as plain-text `@displayName` instead, so no trivia surface pings the room. Cascade: `game → workspace → true`. On UPDATE: explicit null clears the field.",
     ),
+  scrollToTop: z
+    .boolean()
+    .nullable()
+    .optional()
+    .describe(
+      "Per-game tier of the `scrollToTop` knob. `true` makes post_questions append one trailing 'scroll to the first question' navigation message after a multi-question batch (a single link to the batch's first question, no unfurl). `false` (the default) posts nothing after the questions. Cascade: `game → workspace → false`. On UPDATE: explicit null clears the field.",
+    ),
   includeRevealInQuestions: triviaIncludeRevealInQuestionsZod
     .nullable()
     .optional()
@@ -503,6 +510,13 @@ export function createUpsertGameTool(
             ? args.tagPlayers
             : existing?.tagPlayers;
 
+      const nextScrollToTop: boolean | undefined =
+        args.scrollToTop === null
+          ? undefined
+          : args.scrollToTop !== undefined
+            ? args.scrollToTop
+            : existing?.scrollToTop;
+
       const mergedStructural: Partial<TriviaGame> = {
         ...(existing?.format !== undefined ? { format: existing.format } : {}),
         ...(existing?.categories !== undefined ? { categories: existing.categories } : {}),
@@ -521,6 +535,7 @@ export function createUpsertGameTool(
         ...(existing?.judgeLeniency !== undefined ? { judgeLeniency: existing.judgeLeniency } : {}),
         ...(existing?.allTimeRow !== undefined ? { allTimeRow: existing.allTimeRow } : {}),
         ...(nextTagPlayers !== undefined ? { tagPlayers: nextTagPlayers } : {}),
+        ...(nextScrollToTop !== undefined ? { scrollToTop: nextScrollToTop } : {}),
         ...(existing?.includeRevealInQuestions !== undefined
           ? { includeRevealInQuestions: existing.includeRevealInQuestions }
           : {}),
@@ -644,6 +659,7 @@ export function createUpsertGameTool(
         hasChoiceEmojiStyle: mergedStructural.choiceEmojiStyle !== undefined,
         hasAllTimeRow: mergedStructural.allTimeRow !== undefined,
         hasTagPlayers: mergedStructural.tagPlayers !== undefined,
+        hasScrollToTop: mergedStructural.scrollToTop !== undefined,
         hasIncludeRevealInQuestions: mergedStructural.includeRevealInQuestions !== undefined,
         hasFinalRevealSummary: mergedStructural.finalRevealSummary !== undefined,
         hasTellMeMore: mergedStructural.tellMeMore !== undefined,
