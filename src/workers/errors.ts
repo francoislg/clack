@@ -42,6 +42,18 @@ export class RemoteBranchNotFound extends Error {
   }
 }
 
+export class RemoteBranchUnreachable extends Error {
+  readonly branch: string;
+
+  constructor(repo: string, branch: string, reason: string) {
+    super(
+      `Could not reach origin to resume branch '${branch}' on repo '${repo}' (${reason}). The branch may still exist — retry shortly.`,
+    );
+    this.name = "RemoteBranchUnreachable";
+    this.branch = branch;
+  }
+}
+
 export class Cancelled extends Error {
   readonly reason: string | undefined;
 

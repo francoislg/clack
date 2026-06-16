@@ -10,7 +10,7 @@ import {
 import { logger } from "./logger.js";
 import { errorMessage } from "./errors.js";
 import { getGitInstance, setAuthenticatedRemote } from "./repositories.js";
-import { RemoteBranchNotFound } from "./workers/errors.js";
+import { resolveRemoteBase } from "./workers/branchSwitch.js";
 
 /**
  * Find the repository config by name to get its URL for token auth.
@@ -114,14 +114,9 @@ export async function createWorktree(
   // Base on the branch's own remote head when resuming an existing PR (preserve its commits),
   // otherwise branch fresh from the default branch.
   const defaultBranch = repo.branch || "main";
-  let base = `origin/${defaultBranch}`;
-  if (resumeRemoteBranch) {
-    const remotes = await git.branch(["-r"]);
-    if (!remotes.all.includes(`origin/${branchName}`)) {
-      throw new RemoteBranchNotFound(repo.name, branchName);
-    }
-    base = `origin/${branchName}`;
-  }
+  const base = resumeRemoteBranch
+    ? await resolveRemoteBase(git, repo.name, branchName)
+    : `origin/${defaultBranch}`;
 
   await git.raw(["worktree", "add", "-b", branchName, worktreePath, base]);
 
