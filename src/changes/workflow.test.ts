@@ -686,6 +686,80 @@ describe("startChangeWorkflow", () => {
     const passedOnEvent = mockRunWorktreeSetup.mock.calls[0][3];
     assert.equal(passedOnEvent, onEvent);
   });
+
+  function makeWorkerFor(branch: string, sessionId: string, worktree: WorktreeInfo): Worker {
+    return {
+      id: branch.replace(/\//g, "-"),
+      repo: "my-repo",
+      worktreePath: worktree.worktreePath,
+      currentBranch: branch,
+      status: "busy",
+      setupComplete: false,
+      setupVersionHash: null,
+      claimedBy: sessionId,
+      lastUsedAt: new Date(),
+      createdAt: worktree.createdAt,
+    };
+  }
+
+  it("marks the change as waiting while queued, then clears it once acquired", async () => {
+    const deps = makeDeps();
+    let waitingWhileQueued: boolean | undefined;
+    deps.pool = {
+      ...deps.pool,
+      acquire: async (repo, branch, sessionId, options) => {
+        options?.onQueued?.(1);
+        const registered = mockSetActiveChange.mock.calls.at(-1)?.[1];
+        waitingWhileQueued = registered?.waiting != null;
+        return makeWorkerFor(branch, sessionId, await mockCreateWorktree(repo, branch));
+      },
+    };
+
+    await startChangeWorkflow(makeRequest(), makePlan(), "session-123", undefined, deps);
+
+    assert.equal(waitingWhileQueued, true);
+    const registered = mockSetActiveChange.mock.calls.at(-1)?.[1];
+    assert.equal(registered?.waiting, undefined);
+  });
+
+  it("never marks waiting when a worker is handed out immediately (no onQueued)", async () => {
+    const deps = makeDeps();
+    let waitingDuringAcquire: boolean | undefined;
+    deps.pool = {
+      ...deps.pool,
+      acquire: async (repo, branch, sessionId) => {
+        const registered = mockSetActiveChange.mock.calls.at(-1)?.[1];
+        waitingDuringAcquire = registered?.waiting != null;
+        return makeWorkerFor(branch, sessionId, await mockCreateWorktree(repo, branch));
+      },
+    };
+
+    await startChangeWorkflow(makeRequest(), makePlan(), "session-123", undefined, deps);
+
+    assert.equal(waitingDuringAcquire, false);
+  });
+
+  it("clears the change (and its waiting marker) when acquire rejects", async () => {
+    const deps = makeDeps();
+    deps.pool = {
+      ...deps.pool,
+      acquire: async (_repo, _branch, _sessionId, options) => {
+        options?.onQueued?.(1);
+        throw new Error("pool boom");
+      },
+    };
+
+    const result = await startChangeWorkflow(
+      makeRequest(),
+      makePlan(),
+      "session-123",
+      undefined,
+      deps,
+    );
+
+    assert.equal(result.success, false);
+    assert.ok(mockClearActiveChange.mock.calls.some((c) => c[0] === "session-123"));
+  });
 });
 
 // ============================================================================

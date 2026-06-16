@@ -4,6 +4,8 @@ import { createFindChangesTool, type FindChangesDeps } from "./findChanges.js";
 import type { QueryToolContext } from "../types.js";
 import { parseToolResult } from "../testHelpers.js";
 import type { RepositoryConfig } from "../../config.js";
+import type { ActiveWorker } from "../../changes/activeState.js";
+import type { ChangeStatus } from "../../changes/types.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -12,7 +14,7 @@ import type { RepositoryConfig } from "../../config.js";
 interface WorkerOverrides {
   id?: string;
   userId?: string;
-  status?: string;
+  status?: ChangeStatus;
   description?: string;
   branch?: string;
   repo?: string;
@@ -20,6 +22,8 @@ interface WorkerOverrides {
   channel?: string;
   threadTs?: string;
   startedAt?: Date;
+  waiting?: boolean;
+  lastActivityAt?: Date;
 }
 
 function makeRepo(overrides?: Partial<RepositoryConfig>): RepositoryConfig {
@@ -66,7 +70,7 @@ function makeCtx(overrides?: Partial<QueryToolContext>): QueryToolContext {
   };
 }
 
-function makeWorker(overrides?: WorkerOverrides) {
+function makeWorker(overrides?: WorkerOverrides): ActiveWorker {
   return {
     id: "w1",
     userId: "U123",
@@ -78,6 +82,8 @@ function makeWorker(overrides?: WorkerOverrides) {
     channel: "C1",
     threadTs: "1.0",
     startedAt: new Date("2025-06-01T10:00:00Z"),
+    waiting: false,
+    lastActivityAt: new Date("2025-06-01T10:00:00Z"),
     ...overrides,
   };
 }
@@ -282,5 +288,88 @@ describe("findChanges tool", () => {
 
     const parsed = parseToolResult(result);
     assert.equal(parsed[0].startedAt, "2025-12-25T00:00:00.000Z");
+  });
+
+  it("flags a change parked in the pool queue as waiting", async () => {
+    const worker = makeWorker({ waiting: true });
+    const getActiveWorkers: FindChangesDeps["getActiveWorkers"] = () => [worker];
+    const deps = makeDeps({ getActiveWorkers });
+
+    const toolDef = createFindChangesTool(makeCtx(), deps);
+    const result = await toolDef.handler(
+      { repo: undefined, status: undefined },
+      { sessionId: "test" },
+    );
+
+    const parsed = parseToolResult(result);
+    assert.equal(parsed[0].waiting, true);
+  });
+
+  it("reports waiting false for an actively-running change", async () => {
+    const worker = makeWorker({ waiting: false });
+    const getActiveWorkers: FindChangesDeps["getActiveWorkers"] = () => [worker];
+    const deps = makeDeps({ getActiveWorkers });
+
+    const toolDef = createFindChangesTool(makeCtx(), deps);
+    const result = await toolDef.handler(
+      { repo: undefined, status: undefined },
+      { sessionId: "test" },
+    );
+
+    const parsed = parseToolResult(result);
+    assert.equal(parsed[0].waiting, false);
+  });
+
+  it("reports freshness fields (lastActivityAt ISO + derived ageMs)", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date("2025-06-01T10:05:00Z"));
+      const worker = makeWorker({
+        startedAt: new Date("2025-06-01T10:00:00Z"),
+        lastActivityAt: new Date("2025-06-01T10:04:30Z"),
+      });
+      const getActiveWorkers: FindChangesDeps["getActiveWorkers"] = () => [worker];
+      const deps = makeDeps({ getActiveWorkers });
+
+      const toolDef = createFindChangesTool(makeCtx(), deps);
+      const result = await toolDef.handler(
+        { repo: undefined, status: undefined },
+        { sessionId: "test" },
+      );
+
+      const parsed = parseToolResult(result);
+      assert.equal(parsed[0].lastActivityAt, "2025-06-01T10:04:30.000Z");
+      assert.equal(parsed[0].ageMs, 5 * 60 * 1000);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not leak pool-internal fields", async () => {
+    const worker = makeWorker({ waiting: true });
+    const getActiveWorkers: FindChangesDeps["getActiveWorkers"] = () => [worker];
+    const deps = makeDeps({ getActiveWorkers });
+
+    const toolDef = createFindChangesTool(makeCtx(), deps);
+    const result = await toolDef.handler(
+      { repo: undefined, status: undefined },
+      { sessionId: "test" },
+    );
+
+    const parsed = parseToolResult(result);
+    const keys = Object.keys(parsed[0]);
+    for (const leaked of [
+      "queueDepth",
+      "queuePosition",
+      "position",
+      "worker",
+      "workerId",
+      "slot",
+      "quarantine",
+      "quarantined",
+      "setupVersionHash",
+    ]) {
+      assert.ok(!keys.includes(leaked), `expected no pool-internal field "${leaked}"`);
+    }
   });
 });

@@ -372,6 +372,28 @@ describe("getActiveWorkers", () => {
     assert.equal(w.threadTs, "170.999");
     assert.deepEqual(w.startedAt, new Date("2026-02-15T12:00:00Z"));
   });
+
+  it("projects waiting=false and lastActivityAt for a running change", () => {
+    setActiveChange(
+      "session-1",
+      makeChange({ status: "executing", lastActivityAt: new Date("2026-02-15T12:30:00Z") }),
+      makeRef(),
+    );
+
+    const w = getActiveWorkers()[0];
+    assert.equal(w.waiting, false);
+    assert.deepEqual(w.lastActivityAt, new Date("2026-02-15T12:30:00Z"));
+  });
+
+  it("projects waiting=true when the change is parked in the queue", () => {
+    setActiveChange(
+      "session-1",
+      makeChange({ status: "executing", waiting: { since: new Date("2026-02-15T12:00:00Z") } }),
+      makeRef(),
+    );
+
+    assert.equal(getActiveWorkers()[0].waiting, true);
+  });
 });
 
 // ============================================================================

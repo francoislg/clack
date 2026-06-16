@@ -20,7 +20,7 @@ export const defaultDeps: FindChangesDeps = {
 export function createFindChangesTool(ctx: QueryToolContext, deps: FindChangesDeps = defaultDeps) {
   return tool(
     "find_changes",
-    "Find active change sessions (currently in-progress). These are changes being executed, reviewed, or merged right now.",
+    "Find active change sessions (currently in-progress). These are changes being executed, reviewed, or merged right now. Each entry reports `waiting` (true when the change is parked waiting for execution capacity rather than actively running), `lastActivityAt`, and `ageMs` (elapsed time since the change started).",
     {
       repo: z.string().optional().describe("Filter by repository name"),
       status: z
@@ -50,6 +50,7 @@ export function createFindChangesTool(ctx: QueryToolContext, deps: FindChangesDe
         workers = workers.filter((w) => w.status === args.status);
       }
 
+      const now = Date.now();
       const result = workers.map((w) => ({
         id: w.id,
         branch: w.branch,
@@ -58,6 +59,9 @@ export function createFindChangesTool(ctx: QueryToolContext, deps: FindChangesDe
         status: w.status,
         prUrl: w.prUrl,
         startedAt: w.startedAt.toISOString(),
+        waiting: w.waiting,
+        lastActivityAt: w.lastActivityAt.toISOString(),
+        ageMs: now - w.startedAt.getTime(),
       }));
 
       return textResult(result);
