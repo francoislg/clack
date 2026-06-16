@@ -84,8 +84,67 @@ describe("isOperational", () => {
     assert.equal(isOperational(base({ enabled: true })), false);
     assert.equal(isOperational(base({ enabled: true, repoAllowlist: ["r"] })), false);
     assert.equal(
-      isOperational(base({ enabled: true, repoAllowlist: ["r"], reportingChannel: "C123" })),
+      isOperational(
+        base({
+          enabled: true,
+          repoAllowlist: ["r"],
+          reporting: { tickUpdates: "none", summary: true, channel: "C123" },
+        }),
+      ),
       true,
     );
+  });
+});
+
+describe("idlerConfigSchema — reporting block", () => {
+  const minimal = { enabled: true, workHours: { start: 18, end: 9, tz: "UTC", days: [1] } };
+
+  it("defaults reporting to { tickUpdates: 'none', summary: true }", () => {
+    const parsed = idlerConfigSchema.parse(minimal);
+    assert.equal(parsed.reporting.tickUpdates, "none");
+    assert.equal(parsed.reporting.summary, true);
+    assert.equal(parsed.reporting.channel, undefined);
+  });
+
+  it("accepts an explicit reporting block", () => {
+    const parsed = idlerConfigSchema.parse({
+      ...minimal,
+      reporting: { channel: "C123", tickUpdates: "optional", summary: false, summaryHour: 7 },
+    });
+    assert.equal(parsed.reporting.channel, "C123");
+    assert.equal(parsed.reporting.tickUpdates, "optional");
+    assert.equal(parsed.reporting.summary, false);
+    assert.equal(parsed.reporting.summaryHour, 7);
+  });
+
+  it("lifts legacy top-level reportingChannel/summaryHour into reporting", () => {
+    const parsed = idlerConfigSchema.parse({
+      ...minimal,
+      reportingChannel: "C999",
+      summaryHour: 8,
+    });
+    assert.equal(parsed.reporting.channel, "C999");
+    assert.equal(parsed.reporting.summaryHour, 8);
+    assert.equal(parsed.reporting.tickUpdates, "none");
+    assert.equal(parsed.reporting.summary, true);
+  });
+
+  it("ignores legacy top-level fields when a reporting block is present", () => {
+    const parsed = idlerConfigSchema.parse({
+      ...minimal,
+      reportingChannel: "C111",
+      summaryHour: 5,
+      reporting: { channel: "C222", tickUpdates: "optional", summary: true },
+    });
+    assert.equal(parsed.reporting.channel, "C222");
+    assert.equal(parsed.reporting.summaryHour, undefined);
+  });
+
+  it("rejects an invalid tickUpdates value", () => {
+    const bad = idlerConfigSchema.safeParse({
+      ...minimal,
+      reporting: { tickUpdates: "loud", summary: true },
+    });
+    assert.equal(bad.success, false);
   });
 });

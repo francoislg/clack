@@ -165,4 +165,22 @@ describe("reportStatus tool", () => {
     assert.equal(callArgs.unfurl_links, false);
     assert.equal(callArgs.unfurl_media, false);
   });
+
+  it("no-ops without posting when the context is silent", async () => {
+    const { deps, mockPostMessage, mockGetSlackClient } = makeDeps();
+
+    const toolDef = createReportStatusTool(makeCtx({ silent: true }), deps);
+    const result = await toolDef.handler(
+      { message: "PR opened", suppress_unfurls: undefined },
+      { sessionId: "test" },
+    );
+
+    const parsed = parseToolResult(result);
+    assert.equal(parsed.success, true);
+    assert.equal(parsed.posted, false);
+    assert.equal(result.isError, undefined);
+    // Suppressed entirely — no client lookup, no post.
+    assert.equal(mockGetSlackClient.mock.calls.length, 0);
+    assert.equal(mockPostMessage.mock.calls.length, 0);
+  });
 });

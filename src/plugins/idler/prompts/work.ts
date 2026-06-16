@@ -7,7 +7,11 @@ import type { IdlerConfig } from "../types.js";
  */
 export function buildWorkPrompt(config: IdlerConfig, fetchInstructions: string): string {
   const repos = config.repoAllowlist.join(", ") || "(none — do nothing)";
-  return `IDLER WORK FIRE — advance at most ONE work unit by ONE step, then stop. Follow the idler behavior contract (attached).
+  const silentNote =
+    config.reporting.tickUpdates === "none"
+      ? `\n\nPER-TICK REPORTING IS OFF: this fire produces NO Slack output — any message you submit is suppressed, and change execution runs silently. Do the work and record it via record_activity; the morning summary is where progress surfaces. Do not craft a user-facing narration message.`
+      : "";
+  return `IDLER WORK FIRE — advance at most ONE work unit by ONE step, then stop. Follow the idler behavior contract (attached).${silentNote}
 
 Allowlisted repos: ${repos}
 Per-fire action cap: ${config.maxActionsPerFire} (an action = a code-changing event)

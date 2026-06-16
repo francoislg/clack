@@ -13,6 +13,7 @@ import {
   createRecordActivityTool,
 } from "./activity.js";
 import { createAddRepoTool, createClearIdeaTool, createSetConfigTool } from "./management.js";
+import { loadConfig } from "../config.js";
 import {
   createReadFetchInstructionsTool,
   createUpdateFetchInstructionsTool,
@@ -121,6 +122,8 @@ function cfgArgs(o: Partial<CfgArgs>): CfgArgs {
   return {
     enabled: o.enabled,
     reportingChannel: o.reportingChannel,
+    tickUpdates: o.tickUpdates,
+    summary: o.summary,
     summaryHour: o.summaryHour,
     maxActionsPerFire: o.maxActionsPerFire,
     maxActionsPerNight: o.maxActionsPerNight,
@@ -234,6 +237,29 @@ describe("idler management tools", () => {
     assert.equal(enabled.ok, true);
     const repo = await invoke(createAddRepoTool(sdk), { repo: "my-repo" });
     assert.equal(repo.ok, true);
+  });
+
+  it("set_idler_config patches the reporting block with omit-to-keep semantics", async () => {
+    const sdk = buildSdk(tempDir);
+
+    const first = await invoke(
+      createSetConfigTool(sdk),
+      cfgArgs({ reportingChannel: "C777", tickUpdates: "optional", summary: false }),
+    );
+    assert.equal(first.ok, true);
+
+    let config = await loadConfig(sdk);
+    assert.equal(config.reporting.channel, "C777");
+    assert.equal(config.reporting.tickUpdates, "optional");
+    assert.equal(config.reporting.summary, false);
+
+    // A later patch that only sets summaryHour leaves the other reporting fields intact.
+    await invoke(createSetConfigTool(sdk), cfgArgs({ summaryHour: 6 }));
+    config = await loadConfig(sdk);
+    assert.equal(config.reporting.summaryHour, 6);
+    assert.equal(config.reporting.channel, "C777");
+    assert.equal(config.reporting.tickUpdates, "optional");
+    assert.equal(config.reporting.summary, false);
   });
 
   it("clear_idler_idea errors on unknown key", async () => {

@@ -429,6 +429,7 @@ Follow the workflow steps in the system prompt. Report your final status using t
     channelId: request.channel,
     threadTs: request.threadTs ?? request.messageTs,
     sessionId,
+    ...(request.silent && { silent: true }),
     config,
   });
   const workerTools = buildClackTools(workerCtx);

@@ -213,6 +213,14 @@ export interface CronJobSpec {
    */
   submitResponseMode?: "always" | "optional" | "optional-post-to" | "skipped";
   /**
+   * When true, the fire produces NO Slack output: the primary `submit_response` delivery, the
+   * worker `report_status` posts, and change-lifecycle status posts are all suppressed. The job
+   * still runs against its real `channel` (so change auto-execution is not treated as a
+   * channelless dispatch) and GitHub-side effects (commits, PRs, PR/review comments) are
+   * unaffected — "silent" means Slack-silent only. Propagated to the resulting `CronJob.silent`.
+   */
+  silent?: boolean;
+  /**
    * Structured calendar-date skip list. Propagated as-is into the resulting `CronJob.skipDates`.
    * Omit (or pass an empty array) to leave the job's `skipDates` unset.
    */
@@ -1003,6 +1011,9 @@ export function createClackSdk(
             // updateJob treats `null` as "clear" — dropping submitResponseMode from a spec
             // clears it from the persisted job.
             submitResponseMode: spec.submitResponseMode ?? null,
+            // updateJob treats `null` as "clear" — a spec dropping silent reverts the job to
+            // posting normally.
+            silent: spec.silent ?? null,
             // updateJob treats an empty array as "clear" — same shape as requiredTools.
             skipDates: spec.skipDates ?? [],
             // attachedTopics: spec absent → clear the persisted field. The spec for
@@ -1038,6 +1049,7 @@ export function createClackSdk(
               : {}),
             ...(spec.skipConditions ? { skipConditions: spec.skipConditions } : {}),
             ...(spec.submitResponseMode ? { submitResponseMode: spec.submitResponseMode } : {}),
+            ...(spec.silent ? { silent: spec.silent } : {}),
             ...(spec.skipDates && spec.skipDates.length > 0 ? { skipDates: spec.skipDates } : {}),
             ...(spec.attachedTopics && spec.attachedTopics.length > 0
               ? { attachedTopics: spec.attachedTopics }

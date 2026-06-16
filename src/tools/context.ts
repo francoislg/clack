@@ -84,6 +84,7 @@ export interface BuildWorkerContextParams {
   channelId: string;
   threadTs: string;
   sessionId: string;
+  silent?: boolean;
   config: Config;
 }
 

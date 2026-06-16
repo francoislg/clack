@@ -91,6 +91,12 @@ export interface SlackDeliveryContext {
   streamChannel?: string;
   streamThreadTs?: string;
   triggerType?: TriggerType;
+  /**
+   * When true, suppress all Slack output for the change run: the live progress streamer, queue
+   * acks, the finalize message, the recovery offer, and the worker `report_status` posts. The
+   * change still executes and opens a PR. See the `silent-change-execution` capability.
+   */
+  silent?: boolean;
 }
 
 /**
@@ -124,16 +130,20 @@ export async function triggerChangeWorkflow(
     await deps.setAttentionLevel(session.sessionId, "medium");
   }
 
-  // Create streamer for live progress (target DM thread if provided)
+  // Create streamer for live progress (target DM thread if provided). A silent run posts nothing,
+  // so use a no-op streamer and skip the queue-ack / finalize / recovery posts below.
+  const silent = slack.silent ?? false;
   const streamChannel = slack.streamChannel ?? channelId;
   const streamThreadTs = slack.streamThreadTs ?? threadTs;
-  const streamer = deps.createStreamer({
-    client,
-    channel: streamChannel,
-    threadTs: streamThreadTs,
-    userId,
-    thinkingTitle: t("streamer.working_on", { branch: intent.branch }),
-  });
+  const streamer = silent
+    ? createNoopChangeStreamer()
+    : deps.createStreamer({
+        client,
+        channel: streamChannel,
+        threadTs: streamThreadTs,
+        userId,
+        thinkingTitle: t("streamer.working_on", { branch: intent.branch }),
+      });
   await streamer.start();
 
   try {
@@ -148,6 +158,7 @@ export async function triggerChangeWorkflow(
       triggerType: slack.triggerType ?? "reactions",
       channel: channelId,
       messageTs: threadTs,
+      ...(silent && { silent: true }),
     };
 
     const plan: ChangePlan = {
@@ -161,13 +172,16 @@ export async function triggerChangeWorkflow(
     // Slack-side ack for queue-position events. The workflow fires this when
     // `pool.acquire` enqueues (reusable mode at maxConcurrent). Posted on the
     // same thread the streamer is using so the user sees it without scrolling.
-    const onAck = async (text: string): Promise<void> => {
-      await client.chat.postMessage({
-        channel: streamChannel,
-        thread_ts: streamThreadTs,
-        text,
-      });
-    };
+    // A silent run posts nothing, so it gets no ack.
+    const onAck = silent
+      ? undefined
+      : async (text: string): Promise<void> => {
+          await client.chat.postMessage({
+            channel: streamChannel,
+            thread_ts: streamThreadTs,
+            text,
+          });
+        };
 
     const result = await deps.startChangeWorkflow(
       request,
@@ -178,16 +192,18 @@ export async function triggerChangeWorkflow(
       onAck,
     );
 
-    await deps.finalizeStreamedWorkflow(
-      streamer,
-      client,
-      streamChannel,
-      streamThreadTs,
-      result,
-      "Change request",
-    );
+    if (!silent) {
+      await deps.finalizeStreamedWorkflow(
+        streamer,
+        client,
+        streamChannel,
+        streamThreadTs,
+        result,
+        "Change request",
+      );
 
-    await maybeOfferRecovery(session.sessionId, client, streamChannel, streamThreadTs);
+      await maybeOfferRecovery(session.sessionId, client, streamChannel, streamThreadTs);
+    }
 
     // Spin off any slices the worker carved out into their own standalone sibling threads.
     if (result.success && result.spinoffs && result.spinoffs.length > 0) {
@@ -205,12 +221,24 @@ export async function triggerChangeWorkflow(
   } catch (error) {
     logger.error("Change workflow failed:", error);
     await streamer.stop();
-    await client.chat.postMessage({
-      channel: streamChannel,
-      thread_ts: streamThreadTs,
-      text: t("errors.change_failed_unexpectedly", { error: deps.errorMessage(error) }),
-    });
+    if (!silent) {
+      await client.chat.postMessage({
+        channel: streamChannel,
+        thread_ts: streamThreadTs,
+        text: t("errors.change_failed_unexpectedly", { error: deps.errorMessage(error) }),
+      });
+    }
   }
+}
+
+/** No-op streamer for silent change runs — satisfies the streamer interface, posts nothing. */
+function createNoopChangeStreamer(): ReturnType<ChangeActionDeps["createStreamer"]> {
+  return {
+    start: async () => true,
+    stop: async () => {},
+    handleEvent: () => {},
+    hasFailed: false,
+  };
 }
 
 export function registerChangeActionHandler(

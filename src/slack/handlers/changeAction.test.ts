@@ -688,6 +688,65 @@ describe("triggerChangeWorkflow", () => {
     );
   });
 
+  it("silent run: executes the change but posts nothing (no streamer, no finalize)", async () => {
+    mockFindSessionByThread.mockImplementation(async () => makeSession());
+    mockStartChangeWorkflow.mockImplementation(async () => ({ success: true }));
+
+    const client = makeClient();
+    const intent: StagedChangeIntent = {
+      type: "change",
+      branch: "feat/silent",
+      description: "Silent feature",
+      repo: "org/repo",
+    };
+
+    await triggerChangeWorkflow(
+      intent,
+      {
+        channelId: "C001",
+        threadTs: "1700000000.000001",
+        userId: "U001",
+        client,
+        silent: true,
+      },
+      makeDeps(),
+    );
+
+    // The change still runs, with silent stamped on the request for the worker.
+    assert.equal(mockStartChangeWorkflow.mock.calls.length, 1);
+    const request = mockStartChangeWorkflow.mock.calls[0][0];
+    assert.ok(
+      request && typeof request === "object" && "silent" in request && request.silent === true,
+    );
+    // No Slack output: real streamer never created, finalize/recovery skipped, nothing posted.
+    assert.equal(mockCreateStreamer.mock.calls.length, 0);
+    assert.equal(mockFinalizeStreamedWorkflow.mock.calls.length, 0);
+    assert.equal(mockPostMessageFn.mock.calls.length, 0);
+  });
+
+  it("silent run: workflow failure stays silent (no error post)", async () => {
+    mockFindSessionByThread.mockImplementation(async () => makeSession());
+    mockStartChangeWorkflow.mockImplementation(async () => {
+      throw new Error("boom");
+    });
+
+    const client = makeClient();
+    const intent: StagedChangeIntent = {
+      type: "change",
+      branch: "feat/silent-fail",
+      description: "desc",
+      repo: "org/repo",
+    };
+
+    await triggerChangeWorkflow(
+      intent,
+      { channelId: "C001", threadTs: "1700000000.000001", userId: "U001", client, silent: true },
+      makeDeps(),
+    );
+
+    assert.equal(mockPostMessageFn.mock.calls.length, 0);
+  });
+
   it("handles workflow failure by stopping streamer and posting error", async () => {
     mockFindSessionByThread.mockImplementation(async () => makeSession());
     mockStartChangeWorkflow.mockImplementation(async () => {

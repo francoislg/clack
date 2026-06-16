@@ -149,6 +149,14 @@ export interface ProcessMessageParams {
    * the contract. Only meaningful for `triggerType: "scheduled"`.
    */
   submitResponseMode?: "always" | "optional" | "optional-post-to" | "skipped";
+  /**
+   * When true, suppress ALL Slack output for this run — the primary `submit_response` delivery,
+   * the worker `report_status` posts, and change-lifecycle status posts. Change auto-execution
+   * still runs against the real channel and GitHub-side effects are unaffected. Threaded from the
+   * cron scheduler when the originating job declares `silent`. See the `silent-change-execution`
+   * capability. Only meaningful for `triggerType: "scheduled"`.
+   */
+  silent?: boolean;
   /** Pre-analysis verdict from the autoRespond gate. Forwarded onto the session trigger at
    *  creation (autoRespond only) AND onto each assistant message appended during this run. */
   preAnalysis?: string;
@@ -201,6 +209,8 @@ interface ProcessingContext {
   readonly skipConditions?: string;
   /** Declarative submit_response mode override from the originating cron job. */
   readonly submitResponseMode?: "always" | "optional" | "optional-post-to" | "skipped";
+  /** When true, suppress all Slack output for this run. See `ProcessMessageParams.silent`. */
+  readonly silent?: boolean;
   /** Effective "now" for time-sensitive tools (replay support). Threaded into Claude options. */
   readonly asOf?: Date;
   /** Image files from the triggering Slack message (stored on the trigger). */
@@ -563,6 +573,7 @@ export async function processMessage(
       requiredTools: params.requiredTools,
       skipConditions: params.skipConditions,
       submitResponseMode: params.submitResponseMode,
+      silent: params.silent,
       asOf: params.asOf,
       imageFiles: params.imageFiles,
       preAnalysis: params.preAnalysis,
@@ -659,6 +670,7 @@ export async function processMessage(
       // `silentThinking` (cron) stays silent regardless. This is the single place the
       // per-thread mode reaches delivery, so every engaged-session reuse honors it.
       silentThinking: silentThinking || session.deliveryMode === "invisible",
+      silent: ctx.silent,
       preAnalysis: ctx.preAnalysis,
     });
   });

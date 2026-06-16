@@ -12,6 +12,25 @@ export interface IdlerWindow {
   days: number[];
 }
 
+/**
+ * What and where the idler reports. Two orthogonal knobs gate Slack output:
+ * `tickUpdates` (per-fire chatter) and `summary` (the morning digest). The activity ledger is
+ * written regardless of either, so the summary always has material when enabled.
+ */
+export interface IdlerReporting {
+  /** Destination for any Slack output (per-tick posts and the digest). Absent ⇒ idler dormant. */
+  channel?: string;
+  /**
+   * Per-tick work-fire output. `"none"` (default): no Slack output per fire — the work fire still
+   * triages/reviews/implements, but stays silent. `"optional"`: posts progress when it acts.
+   */
+  tickUpdates: "none" | "optional";
+  /** Whether the morning digest fires. Default true. */
+  summary: boolean;
+  /** Hour [0..23] the digest fires; default 9. Only relevant when `summary` is true. */
+  summaryHour?: number;
+}
+
 /** Discovery sources the idler sweeps. Each is gracefully skipped when its MCP is absent. */
 export interface IdlerSources {
   /** Slack channel IDs to scan (incl. bot-alert channels like #sentry-alerts). */
@@ -30,10 +49,8 @@ export interface IdlerConfig {
   syncHours?: IdlerWindow;
   /** Repos the idler may act on. Empty ⇒ the plugin does nothing (safety default). */
   repoAllowlist: string[];
-  /** Absent ⇒ no summary task is reconciled. */
-  reportingChannel?: string;
-  /** Hour [0..23] the morning digest fires. Absent ⇒ 9 (AM). */
-  summaryHour?: number;
+  /** What and where the idler reports. Absent `channel` ⇒ idler dormant. */
+  reporting: IdlerReporting;
   /** Cap on code-changing actions per single work fire. */
   maxActionsPerFire: number;
   /** Cap on code-changing actions across one work window. */

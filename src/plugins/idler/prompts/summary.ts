@@ -1,6 +1,6 @@
 /**
  * The summary fire: post a morning digest of the window's activity to the reporting channel, then
- * clear the log. Channel'd to `reportingChannel`, so it delivers via the normal submit_response path.
+ * clear the log. Channel'd to `reporting.channel`, so it delivers via the normal submit_response path.
  */
 export function buildSummaryPrompt(): string {
   return `IDLER SUMMARY FIRE — post the morning digest of what the idler did overnight, then clear the log.

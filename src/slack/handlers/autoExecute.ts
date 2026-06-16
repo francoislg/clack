@@ -138,6 +138,8 @@ export interface AutoExecuteParams {
   dmThreadTs?: string;
   /** Original trigger type, propagated to change workflow. */
   triggerType?: TriggerType;
+  /** When true, auto-executed changes/follow-ups run silently (no Slack output). */
+  silent?: boolean;
 }
 
 /**
@@ -160,6 +162,7 @@ export async function handleAutoExecuteActions(
     dmChannel,
     dmThreadTs,
     triggerType,
+    silent,
   } = params;
 
   if (!response.response?.actions) return;
@@ -274,6 +277,7 @@ export async function handleAutoExecuteActions(
               ? { streamChannel: dmChannel, streamThreadTs: dmThreadTs }
               : {}),
             triggerType,
+            ...(silent && { silent: true }),
           });
           break;
         }

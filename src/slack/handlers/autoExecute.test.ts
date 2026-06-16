@@ -463,6 +463,49 @@ describe("handleAutoExecuteActions — permission checks", () => {
     assert.equal(mockTriggerChangeWorkflow.mock.calls.length, 1);
   });
 
+  it("threads silent: true into triggerChangeWorkflow when the run is silent", async () => {
+    const changeIntent: StagedChangeIntent = {
+      type: "change",
+      branch: "feat/x",
+      description: "desc",
+      repo: "org/repo",
+    };
+    const params = makeBaseParams({
+      role: "dev",
+      silent: true,
+      response: makeResponseWithActions(
+        { blocks: [], actions: [{ type: "change", ref: "r1", auto: true }] },
+        { r1: changeIntent },
+      ),
+    });
+
+    await handleAutoExecuteActions(params, makeDeps());
+    assert.equal(mockTriggerChangeWorkflow.mock.calls.length, 1);
+    const slack = mockTriggerChangeWorkflow.mock.calls[0]![1];
+    assert.equal(slack.silent, true);
+  });
+
+  it("does not set silent on triggerChangeWorkflow for a normal run", async () => {
+    const changeIntent: StagedChangeIntent = {
+      type: "change",
+      branch: "feat/x",
+      description: "desc",
+      repo: "org/repo",
+    };
+    const params = makeBaseParams({
+      role: "dev",
+      response: makeResponseWithActions(
+        { blocks: [], actions: [{ type: "change", ref: "r1", auto: true }] },
+        { r1: changeIntent },
+      ),
+    });
+
+    await handleAutoExecuteActions(params, makeDeps());
+    assert.equal(mockTriggerChangeWorkflow.mock.calls.length, 1);
+    const slack = mockTriggerChangeWorkflow.mock.calls[0]![1];
+    assert.equal(slack.silent, undefined);
+  });
+
   it("allows auto-execute for admin role", async () => {
     const changeIntent: StagedChangeIntent = {
       type: "change",

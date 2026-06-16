@@ -34,6 +34,12 @@ export function createReportStatusTool(
     },
     async (args) => {
       try {
+        // Silent change runs (e.g. the idler's "none" tick mode) suppress all Slack output. The
+        // status is still useful to Claude, so acknowledge success without posting.
+        if (ctx.silent) {
+          return textResult({ success: true, posted: false });
+        }
+
         const client = deps.getSlackClient();
 
         if (!client) {

@@ -14,6 +14,7 @@ import type { DeliverFn, DeliveryControl, ToolCallRecord } from "../../tools/typ
 import type { DeliveryHandler } from "./delivery/types.js";
 import { StreamingDelivery } from "./delivery/streamingDelivery.js";
 import { SilentDelivery } from "./delivery/silentDelivery.js";
+import { NullDelivery } from "./delivery/nullDelivery.js";
 import { getErrorBlocksWithRetry, asSlackBlocks, type SlackBlocks } from "../blocks.js";
 import { t } from "../../i18n/t.js";
 import {
@@ -108,6 +109,12 @@ export interface ExecuteAndDeliverParams {
   abortController?: AbortController;
   /** When true, skip SlackStreamer and post the final result directly (no thinking indicators) */
   silentThinking?: boolean;
+  /**
+   * When true, suppress ALL Slack output for this turn — the primary delivery posts nothing
+   * (NullDelivery) and auto-executed changes run with `report_status`/status posts suppressed.
+   * GitHub-side effects still happen. See the `silent-change-execution` capability.
+   */
+  silent?: boolean;
   /** Pre-analysis verdict from the autoRespond gate for THIS turn. Stamped onto the appended
    *  `SessionAssistantMessage` so the per-turn decision trail is preserved on disk. */
   preAnalysis?: string;
@@ -128,6 +135,8 @@ interface DeliveryContext {
   alreadyDelivered: boolean;
   startTime: number;
   silentThinking: boolean;
+  /** When true, suppress all Slack output (primary delivery + auto-executed change posts). */
+  silent: boolean;
   preAnalysis?: string;
   deps: HandlerResponseDeps;
 }
@@ -145,6 +154,7 @@ export async function executeAndDeliver(params: ExecuteAndDeliverParams): Promis
     claudeOptions,
     abortController,
     silentThinking = false,
+    silent = false,
     preAnalysis,
     deps = defaultHandlerResponseDeps,
   } = params;
@@ -173,17 +183,21 @@ export async function executeAndDeliver(params: ExecuteAndDeliverParams): Promis
     });
   };
 
-  const handlerFor = (silent: boolean): DeliveryHandler =>
+  // A `silent` run posts nothing at all (NullDelivery). Otherwise `silentThinking` picks the
+  // no-progress-card SilentDelivery, and the default is the live StreamingDelivery.
+  const handlerFor = (thinkingSilent: boolean): DeliveryHandler =>
     silent
-      ? new SilentDelivery({
-          client,
-          targetChannel,
-          targetThread,
-          recordResponseTs: async (ts) => {
-            await deps.updateSession(session.sessionId, { responseTs: ts });
-          },
-        })
-      : new StreamingDelivery({ client, targetChannel, targetThread, makeStreamer });
+      ? new NullDelivery()
+      : thinkingSilent
+        ? new SilentDelivery({
+            client,
+            targetChannel,
+            targetThread,
+            recordResponseTs: async (ts) => {
+              await deps.updateSession(session.sessionId, { responseTs: ts });
+            },
+          })
+        : new StreamingDelivery({ client, targetChannel, targetThread, makeStreamer });
 
   const ctx: DeliveryContext = {
     client,
@@ -196,6 +210,7 @@ export async function executeAndDeliver(params: ExecuteAndDeliverParams): Promis
     alreadyDelivered: false,
     startTime: Date.now(),
     silentThinking,
+    silent,
     preAnalysis,
     deps,
   };
@@ -308,6 +323,14 @@ function applyDeliveryReactions(
  */
 function buildDeliverFn(ctx: DeliveryContext): DeliverFn {
   return async (opts) => {
+    // A silent run posts nothing — every branch below (primary, follower, top-level) would
+    // hit Slack directly, so short-circuit here. The submit_response call still "succeeds",
+    // so any staged change action proceeds to auto-execute (silently).
+    if (ctx.silent) {
+      ctx.alreadyDelivered = true;
+      return { ok: true as const, ts: undefined };
+    }
+
     // Follower delivery (multi-message batch): bypass the `alreadyDelivered` guard for thread
     // replies (`threadTs`) and extra top-level messages (`postTopLevel`). A plain post — the
     // primary already consumed the surface. Mode-agnostic.
@@ -528,6 +551,7 @@ async function handleSuccess(ctx: DeliveryContext, response: ClaudeResponse): Pr
     dmChannel: ctx.sessionInfo.dmChannel,
     dmThreadTs: ctx.sessionInfo.dmThreadTs,
     triggerType: ctx.sessionInfo.triggerType,
+    silent: ctx.silent,
   });
 }
 

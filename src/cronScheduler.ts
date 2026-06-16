@@ -416,6 +416,7 @@ export async function executeDynamicJob(
     requiredTools: job.requiredTools,
     skipConditions: job.skipConditions,
     submitResponseMode: job.submitResponseMode,
+    silent: job.silent,
     jobId: job.id,
     roleOverride: actor.kind === "system" ? "system" : undefined,
     asOf,

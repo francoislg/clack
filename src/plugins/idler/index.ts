@@ -93,7 +93,8 @@ export const idlerPlugin: ClackPlugin = async (sdk: ClackSdk) => {
       return;
     }
 
-    if (!isOperational(config) || !config.reportingChannel) {
+    const channel = config.reporting.channel;
+    if (!isOperational(config) || !channel) {
       await sdk.reconcileCronJobs(TOPIC, []);
       return;
     }
@@ -120,23 +121,26 @@ export const idlerPlugin: ClackPlugin = async (sdk: ClackSdk) => {
     specs.push({
       specKey: "work",
       cronExpression: buildWindowCron(config.workHours, "*/15"),
-      channel: config.reportingChannel,
+      channel,
       prompt: buildWorkPrompt(config, fetchInstructions),
       timezone: tz,
       name: "Idler work",
       submitResponseMode: "optional",
+      silent: config.reporting.tickUpdates === "none",
       attachedTopics: [TOPIC],
     });
 
-    specs.push({
-      specKey: "summary",
-      cronExpression: buildSummaryCron(config.workHours, config.summaryHour ?? 9),
-      channel: config.reportingChannel,
-      prompt: buildSummaryPrompt(),
-      timezone: tz,
-      name: "Idler summary",
-      attachedTopics: [TOPIC],
-    });
+    if (config.reporting.summary) {
+      specs.push({
+        specKey: "summary",
+        cronExpression: buildSummaryCron(config.workHours, config.reporting.summaryHour ?? 9),
+        channel,
+        prompt: buildSummaryPrompt(),
+        timezone: tz,
+        name: "Idler summary",
+        attachedTopics: [TOPIC],
+      });
+    }
 
     await sdk.reconcileCronJobs(TOPIC, specs);
     sdk.logger.info(`reconciled ${specs.length} idler cron specs`);
