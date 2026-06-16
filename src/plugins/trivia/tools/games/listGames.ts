@@ -73,6 +73,7 @@ interface ListGamesEntry {
   judgeLeniency?: JudgeLeniency;
   allTimeRow?: TriviaAllTimeRowMode;
   tagPlayers?: boolean;
+  scrollToTop?: boolean;
   includeRevealInQuestions?: TriviaIncludeRevealInQuestions;
   finalRevealSummary?: TriviaFinalRevealSummary;
   tellMeMore?: TriviaTellMeMoreConfig;
@@ -88,6 +89,7 @@ type WorkspaceDefaults = Partial<CascadeAxes> & {
   offDays?: OffDay[];
   allTimeRow?: TriviaAllTimeRowMode;
   tagPlayers?: boolean;
+  scrollToTop?: boolean;
   includeRevealInQuestions?: TriviaIncludeRevealInQuestions;
   finalRevealSummary?: TriviaFinalRevealSummary;
   tellMeMore?: TriviaTellMeMoreConfig;
@@ -99,7 +101,7 @@ By default, disabled games are excluded; pass \`includeDisabled: true\` to surfa
 
 Each entry also surfaces the underlying cron job UUIDs — \`questionJobId\`, \`revealJobId\`, (when \`prepCron\` is set) \`prepJobId\`, and (when \`lockCron\` is set) \`lockJobId\` — when the trivia plugin's reconcile has registered the corresponding jobs. Pass these to \`run_scheduled_message_now({id})\` to fire a slot on-demand without a separate \`list_scheduled_messages\` lookup.
 
-\`workspaceDefaults\` carries the workspace-level values for every cascading axis (registry-driven, including \`choices\`) plus the non-axis workspace fields (\`seasons\`, \`offDays\`, \`allTimeRow\`, \`tagPlayers\`, …). Same present-iff-set rule.
+\`workspaceDefaults\` carries the workspace-level values for every cascading axis (registry-driven, including \`choices\`) plus the non-axis workspace fields (\`seasons\`, \`offDays\`, \`allTimeRow\`, \`tagPlayers\`, \`scrollToTop\`, …). Same present-iff-set rule.
 
 The cascade tier order is: \`slot → season → game → workspace → built-in default\`. To audit the slot and season tiers, call \`list_seasons\` (its per-entry fields surface season-tier overrides, and \`format.questions[i]\` surface slot-tier overrides). To mutate either game-tier or workspace-tier values, attach the \`trivia:management\` integration and use \`upsert_game\` / \`set_workspace_config\`.
 
@@ -178,6 +180,7 @@ export function createListGamesTool(
           ...(g.hint !== undefined ? { hint: g.hint } : {}),
           ...(g.allTimeRow !== undefined ? { allTimeRow: g.allTimeRow } : {}),
           ...(g.tagPlayers !== undefined ? { tagPlayers: g.tagPlayers } : {}),
+          ...(g.scrollToTop !== undefined ? { scrollToTop: g.scrollToTop } : {}),
           ...(g.includeRevealInQuestions !== undefined
             ? { includeRevealInQuestions: g.includeRevealInQuestions }
             : {}),
@@ -198,6 +201,8 @@ export function createListGamesTool(
         if (triviaCfg.offDays !== undefined) workspaceDefaults.offDays = triviaCfg.offDays;
         if (triviaCfg.allTimeRow !== undefined) workspaceDefaults.allTimeRow = triviaCfg.allTimeRow;
         if (triviaCfg.tagPlayers !== undefined) workspaceDefaults.tagPlayers = triviaCfg.tagPlayers;
+        if (triviaCfg.scrollToTop !== undefined)
+          workspaceDefaults.scrollToTop = triviaCfg.scrollToTop;
         if (triviaCfg.includeRevealInQuestions !== undefined)
           workspaceDefaults.includeRevealInQuestions = triviaCfg.includeRevealInQuestions;
         if (triviaCfg.finalRevealSummary !== undefined)

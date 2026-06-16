@@ -81,6 +81,7 @@ function args(overrides: Partial<UpsertGameArgs> & Pick<UpsertGameArgs, "name">)
     hint: undefined,
     allTimeRow: undefined,
     tagPlayers: undefined,
+    scrollToTop: undefined,
     includeRevealInQuestions: undefined,
     finalRevealSummary: undefined,
     judgeLeniency: undefined,

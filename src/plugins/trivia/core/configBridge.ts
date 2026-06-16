@@ -181,6 +181,17 @@ function parseTriviaConfigObject(raw: JsonObject, logger: PluginLogger): TriviaC
     }
   }
 
+  if (raw.scrollToTop !== undefined && raw.scrollToTop !== null) {
+    if (typeof raw.scrollToTop !== "boolean") {
+      allIssues.push({
+        field: "trivia.scrollToTop",
+        error: `must be a boolean (got ${typeof raw.scrollToTop})`,
+      });
+    } else {
+      out.scrollToTop = raw.scrollToTop;
+    }
+  }
+
   if (raw.includeRevealInQuestions !== undefined && raw.includeRevealInQuestions !== null) {
     const r = validateIncludeRevealInQuestions(
       raw.includeRevealInQuestions,

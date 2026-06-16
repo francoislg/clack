@@ -37,6 +37,7 @@ const emptyArgs = {
   hint: undefined,
   allTimeRow: undefined,
   tagPlayers: undefined,
+  scrollToTop: undefined,
   includeRevealInQuestions: undefined,
   finalRevealSummary: undefined,
   judgeLeniency: undefined,

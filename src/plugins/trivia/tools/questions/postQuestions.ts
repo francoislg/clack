@@ -19,9 +19,11 @@ import { requireWritableGame } from "../../core/gamesRegistry.js";
 import { resolveCascade } from "../../domain/resolveCascade.js";
 import { buildCascadeContext } from "../../domain/cascadeContext.js";
 import { resolveTagPlayers } from "../../domain/tagPlayers.js";
+import { resolveScrollToTop } from "../../domain/scrollToTop.js";
 import { findSeasonBySlug } from "../../core/seasonTimeline.js";
 import { getAllAnswerTypeHandlers, getAnswerTypeHandler } from "../../answerTypes/registry.js";
 import type { TriviaDataLayer, TriviaQuestion } from "../../core/types.js";
+import type { TriviaGame } from "../../core/configTypes.js";
 import { applyHintRendering } from "./renderHint.js";
 
 const PER_FORMAT_AFFORDANCES = getAllAnswerTypeHandlers()
@@ -54,7 +56,9 @@ Idempotency: a question whose postedAt is already set is skipped (returned with 
 
 Block validation is performed up-front for EVERY item against Slack's per-block runtime limits (header length, section length, table shape, etc.). If ANY item's blocks fail validation, the WHOLE call is refused atomically — no Slack posts, no record mutations — and the error lists every offending field across every item. Fix all of them and retry the entire batch together; do NOT retry partial items, which would post questions out of order.
 
-Per-item failures AFTER pre-flight validation (missing question, Slack runtime errors, etc.) are isolated: the call returns a results array with per-item { ok, ts?, permalink?, error? } so other items still process.`;
+Per-item failures AFTER pre-flight validation (missing question, Slack runtime errors, etc.) are isolated: the call returns a results array with per-item { ok, ts?, permalink?, error? } so other items still process.
+
+Trailing scroll-to-top message: when the game's (or workspace's) \`scrollToTop\` knob is enabled AND the batch has 2+ posted question messages, the tool appends ONE extra top-level message after the questions — a single link back to the batch's first question (unfurls suppressed). This is automatic and deterministic; you do not author or trigger it, and it is absent when the knob is off or only one question posted.`;
 
 /**
  * Convert a Slack ts string like "1779214298.489159" into epoch milliseconds.
@@ -161,6 +165,33 @@ export function defaultPostQuestionsSlackDeps(
   };
 }
 
+/**
+ * Post the trailing "scroll to the first question" navigation message for a
+ * batch. Targets the batch's earliest posted message (so an append-mode call
+ * links to the original top, not this fire's first question) and suppresses
+ * unfurls. No-op when fewer than 2 messages carry a link — there is nothing to
+ * scroll past. Best-effort: callers swallow failures so the batch still succeeds.
+ */
+async function postScrollToTopMessage(
+  scoped: ReturnType<TriviaDataLayer["forGame"]>,
+  batchId: string,
+  channel: string,
+  label: string,
+  slackDeps: PostQuestionsSlackDeps,
+): Promise<void> {
+  const questions = await scoped.loadQuestions();
+  const batchLinks = questions
+    .filter((q) => q.batchId === batchId && q.messageLink)
+    .sort((a, b) => (a.postedAt ?? 0) - (b.postedAt ?? 0));
+  if (batchLinks.length < 2) return;
+  const firstLink = batchLinks[0].messageLink;
+  if (firstLink === undefined || firstLink === "") return;
+  const blocks: SlackBlocks = [
+    { type: "section", text: { type: "mrkdwn", text: `<${firstLink}|${label}>` } },
+  ];
+  await slackDeps.postBlocks({ channel, blocks, suppressUnfurls: true });
+}
+
 export function createPostQuestionsTool(
   data: TriviaDataLayer,
   sdk: Pick<ClackSdk, "getSlackClient" | "actionId" | "t" | "engageThread">,
@@ -209,7 +240,7 @@ export function createPostQuestionsTool(
         ),
     },
     async (args) => {
-      let game;
+      let game: TriviaGame;
       try {
         game = requireWritableGame(getGamesFn(), args.game);
       } catch (err) {
@@ -365,6 +396,22 @@ export function createPostQuestionsTool(
             ok: false,
             error: message,
           });
+        }
+      }
+
+      if (resolveScrollToTop(game, triviaConfig ?? null)) {
+        try {
+          await postScrollToTopMessage(
+            scoped,
+            batchId,
+            game.channel,
+            sdk.t("scroll_to_top.label"),
+            slackDeps,
+          );
+        } catch (err) {
+          logger.warn(
+            `[post_questions] failed to post scroll-to-top message for game "${args.game}": ${err instanceof Error ? err.message : String(err)}`,
+          );
         }
       }
 

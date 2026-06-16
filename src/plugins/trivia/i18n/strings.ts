@@ -22,6 +22,9 @@ export const en = {
   "button.true": "👍 TRUE",
   "button.false": "👎 FALSE",
 
+  // Trailing "scroll to the first question" navigation message (scrollToTop knob).
+  "scroll_to_top.label": "📜 Scroll to the first question",
+
   // Freeform "open modal" button.
   "button.answer": "Answer",
 
@@ -135,6 +138,8 @@ export const fr: Partial<Record<keyof typeof en, string>> = {
 
   "button.true": "👍 VRAI",
   "button.false": "👎 FAUX",
+
+  "scroll_to_top.label": "📜 Aller à la première question",
 
   "button.answer": "Répondre",
 
