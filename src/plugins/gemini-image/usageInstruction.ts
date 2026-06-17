@@ -22,8 +22,13 @@ Use it when someone explicitly wants an image MADE: an illustration, a concept, 
 ## Delivery — how the user actually sees it
 
 - \`deliver: "upload"\` (default) posts the image into Slack. You MUST pass \`channel\` — use the Channel ID from your context. The result gives you \`{ fileId, permalink }\`.
+- When the delivery context says the conversation is in a thread and gives a \`thread_ts\`, ALSO pass that \`thread_ts\` so the image posts in the thread instead of at the top of the channel.
 - \`deliver: "data"\` returns the image inline so YOU can inspect it, but does NOT show it to the user. Use this only when you need to look at the result yourself (e.g. before editing again).
 - \`deliver: "both"\` posts AND returns inline.
+
+## One image per request
+
+A single request from the user should result in exactly ONE image posted to Slack — not a series of variations. Do not call \`generate_image\` repeatedly with \`deliver: "upload"\`/\`"both"\` to post several attempts. If you want to inspect or refine a result before showing it, do that with \`deliver: "data"\` (which does NOT post), and only \`upload\` the single final pick. Generate multiple posted images only when the user explicitly asks for more than one.
 
 In a DM or any context where you don't have a Channel ID, \`upload\` won't work — there is no channel to post to. Tell the user you can't post images there, or use \`deliver: "data"\` to inspect.
 
