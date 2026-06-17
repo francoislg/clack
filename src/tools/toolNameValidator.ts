@@ -44,6 +44,9 @@ export const CLACK_CORE_TOOL_NAMES: readonly string[] = [
   "remember",
   "recall",
   "forget",
+  "archive",
+  "get_archived",
+  "prune_archive",
   // Action tools
   "propose_change",
   "request_update",

@@ -93,6 +93,26 @@ export interface RememberInput {
   references?: MemoryReference[];
 }
 
+/**
+ * A terminal "what happened" note in the archive (`data/state/memory-archive.json`). Lean by design:
+ * it sheds the active entry's live-work machinery (reference recipes, `plugins` namespaces) because an
+ * archived entity is done and never re-polled. Retrievable only by exact `id` — never keyword-searched.
+ */
+export interface ArchivedMemory {
+  id: string;
+  summary: string;
+  outcome: string;
+  link?: string;
+  archivedAt: string;
+}
+
+/** Caller-supplied fields when archiving; `id` is the key and `archivedAt` is stamped by the registry. */
+export interface ArchiveLeanNote {
+  summary: string;
+  outcome: string;
+  link?: string;
+}
+
 const jsonValueZod: z.ZodType<JsonValue> = z.lazy(() =>
   z.union([
     z.string(),
@@ -140,6 +160,25 @@ interface MemoryStore {
   [id: string]: MemoryEntry;
 }
 
+// Graceful (permissive) reader, like the active store: a shape mismatch logs + reads as empty rather
+// than throwing or wiping. Fields tolerate missing values so one legacy record can't fail the map.
+const archivedMemoryZod = z.object({
+  id: z.string(),
+  summary: z.string().default(""),
+  outcome: z.string().default(""),
+  link: z.string().optional(),
+  archivedAt: z.string().default(""),
+});
+
+const archiveStoreZod = z.record(z.string(), archivedMemoryZod);
+
+interface ArchiveStore {
+  [id: string]: ArchivedMemory;
+}
+
+/** Default age horizon for archive pruning. A module constant, matching `DEFAULT_REVIEW_TIMEZONE`. */
+export const DEFAULT_ARCHIVE_RETENTION_DAYS = 365;
+
 // ============================================================================
 // Pre-expire hook registry
 // ============================================================================
@@ -171,9 +210,12 @@ export function clearBeforeExpireHooks(): void {
 // ============================================================================
 
 let cached: MemoryStore | null = null;
+let archiveCached: ArchiveStore | null = null;
 
 // All mutations funnel through this promise chain so concurrent read-modify-write from core
-// (remember/recall tools) and plugins (namespace merges) can't lose updates.
+// (remember/recall tools) and plugins (namespace merges) can't lose updates. The archive store
+// shares this chain (it lives in this module) so an `archive` op's active-removal and
+// archive-write happen in one serialized closure — that is what makes the cross-store move atomic.
 let writeChain: Promise<void> = Promise.resolve();
 
 function getStateDir(): string {
@@ -182,6 +224,10 @@ function getStateDir(): string {
 
 function getStorePath(): string {
   return resolve(getStateDir(), "memory.json");
+}
+
+function getArchivePath(): string {
+  return resolve(getStateDir(), "memory-archive.json");
 }
 
 export async function loadMemoryStore(): Promise<MemoryStore> {
@@ -224,6 +270,46 @@ async function persist(store: MemoryStore): Promise<void> {
   cached = store;
 }
 
+export async function loadArchiveStore(): Promise<ArchiveStore> {
+  if (archiveCached) {
+    return archiveCached;
+  }
+
+  const path = getArchivePath();
+
+  if (!(await deps.fileExists(path))) {
+    archiveCached = {};
+    return archiveCached;
+  }
+
+  try {
+    const content = await deps.readFile(path, "utf-8");
+    const result = archiveStoreZod.safeParse(JSON.parse(content));
+    if (!result.success) {
+      logger.warn(
+        `memory-archive.json has unexpected shape; using empty: ${zodErrorToResult(result.error, "memory-archive").error}`,
+      );
+      archiveCached = {};
+      return archiveCached;
+    }
+    archiveCached = result.data;
+    return archiveCached;
+  } catch (error) {
+    logger.error("Failed to load memory archive:", error);
+    archiveCached = {};
+    return archiveCached;
+  }
+}
+
+async function persistArchive(store: ArchiveStore): Promise<void> {
+  const stateDir = getStateDir();
+  if (!(await deps.fileExists(stateDir))) {
+    await deps.mkdir(stateDir, { recursive: true });
+  }
+  await deps.writeFile(getArchivePath(), JSON.stringify(store, null, 2));
+  archiveCached = store;
+}
+
 function serialize<T>(fn: () => Promise<T>): Promise<T> {
   const run = writeChain.then(fn, fn);
   writeChain = run.then(
@@ -254,6 +340,13 @@ export async function listMemory(): Promise<MemoryEntry[]> {
 export async function getMemoryNamespace(plugin: string, id: string): Promise<JsonObject | null> {
   const store = await loadMemoryStore();
   return store[id]?.plugins?.[plugin] ?? null;
+}
+
+/** Exact-id point lookup against the archive. The archive is never keyword-searched — this is the
+ * only way back in, for a caller that already holds the stable key (idler sync on re-discovery). */
+export async function getArchived(id: string): Promise<ArchivedMemory | null> {
+  const store = await loadArchiveStore();
+  return store[id] ?? null;
 }
 
 export interface SearchMemoryArgs {
@@ -371,6 +464,42 @@ export function mergeMemoryNamespace(
  * (an `extendUntil` updates `staleAfter.date`), and a throwing hook is treated as a veto
  * (fail-safe). Returns whether the entry was deleted.
  */
+async function runBeforeExpireHooks(
+  entry: MemoryEntry,
+): Promise<{ vetoed: boolean; extendUntil?: string }> {
+  let vetoed = false;
+  let extendUntil: string | undefined;
+  for (const hook of beforeExpireHooks) {
+    if (!entry.plugins?.[hook.plugin]) continue;
+    try {
+      const result = await hook.fn(entry);
+      if (result.vetoed) vetoed = true;
+      if (result.extendUntil) extendUntil = result.extendUntil;
+    } catch (error) {
+      logger.warn(`memory pre-expire hook for "${hook.plugin}" threw; treating as veto:`, error);
+      vetoed = true;
+    }
+  }
+  return { vetoed, extendUntil };
+}
+
+/** On a veto, persist the entry with its staleAfter.date pushed to `extendUntil` (no-op without one). */
+async function persistVetoExtension(
+  store: MemoryStore,
+  entry: MemoryEntry,
+  extendUntil: string | undefined,
+): Promise<void> {
+  if (!extendUntil) {
+    return;
+  }
+  const retained: MemoryEntry = {
+    ...entry,
+    staleAfter: { ...entry.staleAfter, date: extendUntil },
+    updatedAt: nowIso(),
+  };
+  await persist({ ...store, [entry.id]: retained });
+}
+
 export function forgetMemory(id: string): Promise<{ deleted: boolean }> {
   return serialize(async () => {
     const store = await loadMemoryStore();
@@ -379,35 +508,80 @@ export function forgetMemory(id: string): Promise<{ deleted: boolean }> {
       return { deleted: false };
     }
 
-    let vetoed = false;
-    let extendUntil: string | undefined;
-    for (const hook of beforeExpireHooks) {
-      if (!entry.plugins?.[hook.plugin]) continue;
-      try {
-        const result = await hook.fn(entry);
-        if (result.vetoed) vetoed = true;
-        if (result.extendUntil) extendUntil = result.extendUntil;
-      } catch (error) {
-        logger.warn(`memory pre-expire hook for "${hook.plugin}" threw; treating as veto:`, error);
-        vetoed = true;
-      }
-    }
-
+    const { vetoed, extendUntil } = await runBeforeExpireHooks(entry);
     if (vetoed) {
-      if (extendUntil) {
-        const retained: MemoryEntry = {
-          ...entry,
-          staleAfter: { ...entry.staleAfter, date: extendUntil },
-          updatedAt: nowIso(),
-        };
-        await persist({ ...store, [id]: retained });
-      }
+      await persistVetoExtension(store, entry, extendUntil);
       return { deleted: false };
     }
 
     const { [id]: _omit, ...rest } = store;
     await persist(rest);
     return { deleted: true };
+  });
+}
+
+/**
+ * Atomically distill an active entry into a lean archive record and remove it from the active store.
+ * Runs in ONE serialized closure on the shared write chain, so a throw in either persist can't
+ * interleave with other writers. Honors the same pre-expire veto as {@link forgetMemory}: a veto (or a
+ * throwing hook) retains the active entry and writes NO archive record — state is never destroyed
+ * against a plugin's veto. The archive record is written BEFORE the active removal so a failure leaves
+ * the entry recoverable in the active store (in-both is safe; in-neither would lose it).
+ */
+export function archive(id: string, note: ArchiveLeanNote): Promise<{ archived: boolean }> {
+  return serialize(async () => {
+    const store = await loadMemoryStore();
+    const entry = store[id];
+    if (!entry) {
+      return { archived: false };
+    }
+
+    const { vetoed, extendUntil } = await runBeforeExpireHooks(entry);
+    if (vetoed) {
+      await persistVetoExtension(store, entry, extendUntil);
+      return { archived: false };
+    }
+
+    const archiveStore = await loadArchiveStore();
+    const record: ArchivedMemory = {
+      id,
+      summary: note.summary,
+      outcome: note.outcome,
+      ...(note.link ? { link: note.link } : {}),
+      archivedAt: nowIso(),
+    };
+    await persistArchive({ ...archiveStore, [id]: record });
+
+    const { [id]: _omit, ...rest } = store;
+    await persist(rest);
+    return { archived: true };
+  });
+}
+
+/**
+ * Drop archived records whose `archivedAt` is older than `retentionDays`. Purely mechanical — no fetch,
+ * no veto (the record is already terminal). Records with no `archivedAt` are never pruned (age unknown).
+ * Returns the ids removed.
+ */
+export function pruneArchive(
+  now: Date = deps.now(),
+  retentionDays = DEFAULT_ARCHIVE_RETENTION_DAYS,
+): Promise<string[]> {
+  return serialize(async () => {
+    const store = await loadArchiveStore();
+    const cutoff = new Date(now.getTime() - retentionDays * 24 * 60 * 60 * 1000).toISOString();
+    const expired = Object.values(store)
+      .filter((r) => r.archivedAt !== "" && r.archivedAt <= cutoff)
+      .map((r) => r.id);
+    if (expired.length === 0) {
+      return [];
+    }
+    const expiredSet = new Set(expired);
+    const next = Object.fromEntries(
+      Object.entries(store).filter(([recordId]) => !expiredSet.has(recordId)),
+    );
+    await persistArchive(next);
+    return expired;
   });
 }
 
@@ -431,8 +605,9 @@ export async function pruneExpired(now: Date = deps.now()): Promise<string[]> {
   return deleted;
 }
 
-// Clear cache (useful for testing).
+// Clear caches (useful for testing). Resets both stores' caches and the shared write chain.
 export function clearMemoryCache(): void {
   cached = null;
+  archiveCached = null;
   writeChain = Promise.resolve();
 }
