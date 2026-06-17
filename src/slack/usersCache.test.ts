@@ -10,7 +10,12 @@ import { createUsersCache } from "./usersCache.js";
 interface FakeMember {
   id: string;
   name: string;
-  profile: { display_name?: string; real_name?: string };
+  profile: {
+    display_name?: string;
+    real_name?: string;
+    image_original?: string;
+    image_512?: string;
+  };
   deleted?: boolean;
   is_bot?: boolean;
 }
@@ -28,8 +33,20 @@ function makeClient(members: FakeMember[]): App["client"] {
 }
 
 const MEMBERS: FakeMember[] = [
-  { id: "U001", name: "alice", profile: { display_name: "Alice Anderson" } },
-  { id: "U002", name: "bob", profile: { display_name: "Bob Baker" } },
+  {
+    id: "U001",
+    name: "alice",
+    profile: {
+      display_name: "Alice Anderson",
+      image_original: "https://cdn.example.com/alice-orig.png",
+      image_512: "https://cdn.example.com/alice-512.png",
+    },
+  },
+  {
+    id: "U002",
+    name: "bob",
+    profile: { display_name: "Bob Baker", image_512: "https://cdn.example.com/bob-512.png" },
+  },
   { id: "U003", name: "charlie", profile: { display_name: "", real_name: "Charlie Chen" } },
   { id: "U004", name: "diana.prince", profile: { display_name: "Diana Prince" } },
   { id: "U005", name: "eve_online", profile: { display_name: "Eve Online" } },
@@ -130,6 +147,24 @@ describe("UsersCache.search", () => {
     const results = await cache.search(["charlie"]);
     assert.equal(results.length, 1);
     assert.equal(results[0].displayName, "Charlie Chen");
+  });
+
+  it("prefers image_original for avatarUrl when present", async () => {
+    const cache = createUsersCache(makeClient(MEMBERS));
+    const results = await cache.search(["alice"]);
+    assert.equal(results[0].avatarUrl, "https://cdn.example.com/alice-orig.png");
+  });
+
+  it("falls back to image_512 when image_original is absent", async () => {
+    const cache = createUsersCache(makeClient(MEMBERS));
+    const results = await cache.search(["bob"]);
+    assert.equal(results[0].avatarUrl, "https://cdn.example.com/bob-512.png");
+  });
+
+  it("uses empty string for avatarUrl when no image fields are present", async () => {
+    const cache = createUsersCache(makeClient(MEMBERS));
+    const results = await cache.search(["charlie"]);
+    assert.equal(results[0].avatarUrl, "");
   });
 
   it("returns empty array when no matches", async () => {
