@@ -163,6 +163,10 @@ export function registerAssistant(app: App, deps: AssistantDeps = defaultAssista
         }
         prompts.push(
           {
+            title: t("assistant.prompt_capabilities_title"),
+            message: t("assistant.prompt_capabilities_message"),
+          },
+          {
             title: t("assistant.prompt_debug_title"),
             message: t("assistant.prompt_debug_message"),
           },

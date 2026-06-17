@@ -388,10 +388,14 @@ export const fr: Partial<Record<StringKey, string>> = {
   "assistant.prompt_check_recent_title": "Vérifier les messages récents",
   "assistant.prompt_check_recent_message":
     "Vérifie les messages récents du canal et résume ce qui se discute",
-  "assistant.prompt_debug_title": "Déboguer un truc",
-  "assistant.prompt_debug_message": "Aide-moi à déboguer un truc dans le code",
-  "assistant.prompt_funny_title": "Raconte quelque chose de drôle",
-  "assistant.prompt_funny_message": "Raconte-moi quelque chose de drôle sur le code",
+  "assistant.prompt_capabilities_title": "Que peux-tu faire...?",
+  "assistant.prompt_capabilities_message":
+    "Que peux-tu faire ? Regarde les outils dont tu disposes et donne-moi un résumé concis et global des principales choses pour lesquelles tu peux m'aider.",
+  "assistant.prompt_debug_title": "Aide-moi à déboguer un problème",
+  "assistant.prompt_debug_message":
+    "Aide-moi à déboguer un problème. Pose-moi des questions générales pour comprendre ce qui ne va pas avant de creuser.",
+  "assistant.prompt_funny_title": "Écris-moi une blague",
+  "assistant.prompt_funny_message": "Écris-moi une blague.",
   "assistant.fallback_image_only": "Réponds à partir de l'image (ou des images) jointe(s).",
 
   // ─── Streaming task card ───────────────────────────────────────────

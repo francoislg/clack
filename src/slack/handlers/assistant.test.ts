@@ -192,7 +192,7 @@ describe("assistant threadStarted", () => {
       prompts: Array<{ title: string; message: string }>;
     };
     // Only the standard prompts (no channel-specific one)
-    assert.equal(promptsArg.prompts.length, 2);
+    assert.equal(promptsArg.prompts.length, 3);
     assert.ok(!promptsArg.prompts.some((p) => p.title.includes("recent messages")));
   });
 
