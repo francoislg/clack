@@ -376,10 +376,14 @@ export const en = {
   "assistant.prompt_check_recent_title": "Check recent messages",
   "assistant.prompt_check_recent_message":
     "Check the recent messages in the channel and summarize what's being discussed",
-  "assistant.prompt_debug_title": "Debug something",
-  "assistant.prompt_debug_message": "Help me debug something in the codebase",
-  "assistant.prompt_funny_title": "Tell me something funny",
-  "assistant.prompt_funny_message": "Tell me something funny about the codebase",
+  "assistant.prompt_capabilities_title": "What can you do...?",
+  "assistant.prompt_capabilities_message":
+    "What can you do? Look at the tools you have available and give me a short, big-picture summary of the main things you can help with.",
+  "assistant.prompt_debug_title": "Help me debug an issue",
+  "assistant.prompt_debug_message":
+    "Help me debug an issue. Ask me general questions to understand what's going wrong before digging in.",
+  "assistant.prompt_funny_title": "Write me a joke",
+  "assistant.prompt_funny_message": "Write me a joke.",
   "assistant.fallback_image_only": "Answer based on the attached image(s).",
 
   // ─── Streaming task card ───────────────────────────────────────────
