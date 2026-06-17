@@ -104,6 +104,7 @@ import { createListScheduledMessagesTool } from "./query/listScheduledMessages.j
 import { createGetScheduledMessageTool } from "./query/getScheduledMessage.js";
 import { createGetScheduledMessageRunsTool } from "./query/getScheduledMessageRuns.js";
 import { createFindRecentInteractionsTool } from "./query/findRecentInteractions.js";
+import { createGetConversationStatsTool } from "./query/getConversationStats.js";
 import { createFindSessionTranscriptTool } from "./query/findSessionTranscript.js";
 
 // Presentation tool
@@ -411,6 +412,7 @@ function buildQueryTools(ctx: QueryToolContext): ClackQueryToolsResult {
 
   // Read-only query tools — available to all roles
   tools.push(createFindRecentInteractionsTool(ctx));
+  tools.push(createGetConversationStatsTool(ctx));
   tools.push(createFindSessionTranscriptTool(ctx));
   tools.push(createFindSessionsTool(ctx));
   tools.push(createFindChangesTool(ctx));

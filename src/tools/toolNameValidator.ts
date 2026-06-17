@@ -27,6 +27,7 @@ export const CLACK_CORE_TOOL_NAMES: readonly string[] = [
   "view_slack_file",
   // Read-only query tools
   "find_recent_interactions",
+  "get_conversation_stats",
   "find_session_transcript",
   "find_sessions",
   "find_changes",
