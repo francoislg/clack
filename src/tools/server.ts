@@ -30,6 +30,9 @@ import { canRequestChanges, canEditConfig, canAccessMemory } from "../permission
 import { createRememberTool } from "./query/remember.js";
 import { createRecallTool } from "./query/recall.js";
 import { createForgetTool } from "./query/forget.js";
+import { createArchiveTool } from "./query/archive.js";
+import { createGetArchivedTool } from "./query/getArchived.js";
+import { createPruneArchiveTool } from "./query/pruneArchive.js";
 
 // Query tools
 import { createListRepositoriesTool } from "./query/listRepositories.js";
@@ -426,6 +429,9 @@ function buildQueryTools(ctx: QueryToolContext): ClackQueryToolsResult {
     tools.push(createRememberTool());
     tools.push(createRecallTool());
     tools.push(createForgetTool());
+    tools.push(createArchiveTool());
+    tools.push(createGetArchivedTool());
+    tools.push(createPruneArchiveTool());
   }
 
   // Always register when images exist OR Slack client is available (fetch tools can discover images mid-query)
