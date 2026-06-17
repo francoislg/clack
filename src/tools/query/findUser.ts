@@ -7,7 +7,7 @@ import type { UsersCache } from "../../slack/usersCache.js";
 export function createFindUserTool(ctx: QueryToolContext, usersCache: UsersCache) {
   return tool(
     "find_user",
-    "Search for Slack workspace members by user ID, username, or display name. Supports multiple search terms (results are unioned). Matching is case-insensitive substring by default. Use * as a wildcard (e.g., 'Mi*' matches 'Mike', 'Michael'; '*sen' matches 'Jensen').",
+    "Search for Slack workspace members by user ID, username, or display name. Supports multiple search terms (results are unioned). Matching is case-insensitive substring by default. Use * as a wildcard (e.g., 'Mi*' matches 'Mike', 'Michael'; '*sen' matches 'Jensen'). Each result includes the member's public profile picture URL (avatarUrl), which can be passed to an image tool (e.g. generate_image's input_image_url) as a source/edit image.",
     {
       query: z
         .array(z.string())

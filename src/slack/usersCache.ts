@@ -6,6 +6,7 @@ export interface SlackUserEntry {
   userId: string;
   username: string;
   displayName: string;
+  avatarUrl: string;
 }
 
 export interface UsersCache {
@@ -19,12 +20,19 @@ function isRealUser(member: { deleted?: boolean; is_bot?: boolean; id?: string }
 function toUserEntry(member: {
   id?: string;
   name?: string;
-  profile?: { display_name?: string; real_name?: string };
+  profile?: {
+    display_name?: string;
+    real_name?: string;
+    image_original?: string;
+    image_512?: string;
+  };
 }): SlackUserEntry {
   return {
     userId: member.id ?? "",
     username: member.name ?? "",
     displayName: member.profile?.display_name || member.profile?.real_name || "",
+    // image_512 is always synthesized by Slack; image_original exists only for custom uploads.
+    avatarUrl: member.profile?.image_original || member.profile?.image_512 || "",
   };
 }
 

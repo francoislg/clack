@@ -57,8 +57,13 @@ describe("findUser tool", () => {
 
   it("returns users from cache search", async () => {
     const users = [
-      { userId: "U100", username: "alice", displayName: "Alice A" },
-      { userId: "U200", username: "bob", displayName: "Bob B" },
+      {
+        userId: "U100",
+        username: "alice",
+        displayName: "Alice A",
+        avatarUrl: "https://x/alice.png",
+      },
+      { userId: "U200", username: "bob", displayName: "Bob B", avatarUrl: "https://x/bob.png" },
     ];
     mockSearch.mockImplementation(async () => users);
 
@@ -76,6 +81,7 @@ describe("findUser tool", () => {
     assert.equal(parsed.truncated, false);
     assert.equal(parsed.users[0].userId, "U100");
     assert.equal(parsed.users[1].username, "bob");
+    assert.equal(parsed.users[0].avatarUrl, "https://x/alice.png");
   });
 
   it("passes query and default limit to cache", async () => {
@@ -109,6 +115,7 @@ describe("findUser tool", () => {
       userId: `U${i}`,
       username: `user${i}`,
       displayName: `User ${i}`,
+      avatarUrl: `https://x/user${i}.png`,
     }));
     mockSearch.mockImplementation(async () => users);
 
@@ -127,9 +134,9 @@ describe("findUser tool", () => {
 
   it("sets truncated=true when results match custom limit", async () => {
     const users = [
-      { userId: "U1", username: "a", displayName: "A" },
-      { userId: "U2", username: "b", displayName: "B" },
-      { userId: "U3", username: "c", displayName: "C" },
+      { userId: "U1", username: "a", displayName: "A", avatarUrl: "" },
+      { userId: "U2", username: "b", displayName: "B", avatarUrl: "" },
+      { userId: "U3", username: "c", displayName: "C", avatarUrl: "" },
     ];
     mockSearch.mockImplementation(async () => users);
 
@@ -143,7 +150,7 @@ describe("findUser tool", () => {
   });
 
   it("sets truncated=false when results are below the limit", async () => {
-    const users = [{ userId: "U1", username: "solo", displayName: "Solo" }];
+    const users = [{ userId: "U1", username: "solo", displayName: "Solo", avatarUrl: "" }];
     mockSearch.mockImplementation(async () => users);
 
     const ctx = makeCtx();

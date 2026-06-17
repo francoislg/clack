@@ -1,9 +1,5 @@
-# find-user-tool Specification
+## MODIFIED Requirements
 
-## Purpose
-MCP query tool and supporting cache abstraction for searching Slack workspace members by name, username, or user ID with multi-term substring and wildcard matching.
-
-## Requirements
 ### Requirement: UsersCache Abstraction
 
 The system SHALL provide a `UsersCache` abstraction that fetches and caches the Slack workspace user list for search operations.
