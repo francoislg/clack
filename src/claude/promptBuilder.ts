@@ -372,9 +372,11 @@ function buildDeliveryContext(session: SessionContext): string | null {
       );
     } else {
       lines.push("- Mode: Thread reply (you are continuing a conversation in a thread)");
-      if (session.threadTs && !isChannellessChannelId(session.channelId)) {
-        lines.push(directPostThreadHint(session.threadTs));
-      }
+    }
+    // Both auto-respond and thread-reply turns post into a thread by default, so a
+    // direct-posting tool's output should thread too.
+    if (session.threadTs && !isChannellessChannelId(session.channelId)) {
+      lines.push(directPostThreadHint(session.threadTs));
     }
     lines.push("- Do NOT include `accept` or `reject` actions — they have no meaning here.");
     lines.push(

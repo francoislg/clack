@@ -315,7 +315,7 @@ describe("buildPrompt", () => {
   // ---- direct-post thread hint (so generate_image and friends thread their uploads) ----
   const THREAD_TS = "1781710715.483449";
 
-  for (const triggerType of ["reactions", "mentions", "threadReply"] as const) {
+  for (const triggerType of ["reactions", "mentions", "threadReply", "autoRespond"] as const) {
     it(`surfaces the thread_ts value for ${triggerType} so direct-posting tools can thread`, () => {
       const session = makeSession({
         triggerType,
