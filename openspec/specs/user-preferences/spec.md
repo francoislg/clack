@@ -29,7 +29,7 @@ The system SHALL persist per-user preferences in `data/state/user-preferences.js
 - **AND** the change is immediately effective for subsequent reactions
 
 ### Requirement: Reaction Delivery Preference
-Allow users to choose how reaction-triggered answers are delivered: via DM or directly in the channel thread.
+The system SHALL allow users to choose how reaction-triggered answers are delivered: via DM or directly in the channel thread.
 
 #### Scenario: Preference values
 - **WHEN** a user sets their reaction delivery preference
