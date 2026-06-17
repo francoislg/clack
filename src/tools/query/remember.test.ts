@@ -20,6 +20,7 @@ describe("remember tool", () => {
       what: "a",
       why: "b",
       references: [],
+      linkedMemories: [],
       createdAt: "t0",
       updatedAt: "t1",
     };
@@ -31,6 +32,7 @@ describe("remember tool", () => {
       staleAfter: undefined,
       nextSteps: undefined,
       references: undefined,
+      linkedMemories: undefined,
     });
     expect(rememberCore).toHaveBeenCalledWith(
       expect.objectContaining({ id: "note:a", what: "a", why: "b" }),
@@ -40,5 +42,32 @@ describe("remember tool", () => {
       id: "note:a",
       updatedAt: "t1",
     });
+  });
+
+  it("forwards linkedMemories to rememberCore", async () => {
+    const entry: MemoryEntry = {
+      id: "note:a",
+      what: "a",
+      why: "b",
+      references: [],
+      linkedMemories: [{ id: "sentry:1", reason: "root cause of" }],
+      createdAt: "t0",
+      updatedAt: "t1",
+    };
+    const rememberCore = vi.fn(async () => entry);
+    await invoke(createRememberTool({ rememberCore }), {
+      id: "note:a",
+      what: "a",
+      why: "b",
+      staleAfter: undefined,
+      nextSteps: undefined,
+      references: undefined,
+      linkedMemories: [{ id: "sentry:1", reason: "root cause of" }],
+    });
+    expect(rememberCore).toHaveBeenCalledWith(
+      expect.objectContaining({
+        linkedMemories: [{ id: "sentry:1", reason: "root cause of" }],
+      }),
+    );
   });
 });

@@ -29,4 +29,35 @@ describe("recall tool", () => {
     );
     expect(JSON.parse(out.content[0].text ?? "{}")).toEqual(result);
   });
+
+  it("surfaces the archive enrichment on linked memories in the tool output", async () => {
+    const result: MemorySearchResult = {
+      total: 1,
+      limit: 20,
+      offset: 0,
+      entries: [
+        {
+          id: "note:a",
+          what: "a",
+          why: "b",
+          references: [],
+          linkedMemories: [
+            { id: "sentry:1", reason: "tracked", archived: { summary: "crash", outcome: "done" } },
+          ],
+          createdAt: "t0",
+          updatedAt: "t1",
+        },
+      ],
+    };
+    const searchMemory = vi.fn(async () => result);
+    const out = await invoke(createRecallTool({ searchMemory }), {
+      query: "tracked",
+      from: undefined,
+      to: undefined,
+      limit: undefined,
+      offset: undefined,
+    });
+    // The tool serializes searchMemory's result unchanged, so the archive enrichment round-trips.
+    expect(JSON.parse(out.content[0].text ?? "{}")).toEqual(result);
+  });
 });

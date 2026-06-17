@@ -16,10 +16,19 @@ const referenceArg = z.object({
   howToComment: z.string().describe("Recipe to comment back on this surface (tool + args)"),
 });
 
+const linkArg = z.object({
+  id: z.string().describe("The id of the related memory entry this links to"),
+  reason: z
+    .string()
+    .describe(
+      "How the two relate — a semantic relationship search can't infer, e.g. 'supersedes', 'root cause of', 'blocks', 'duplicate of'",
+    ),
+});
+
 export function createRememberTool(deps: RememberDeps = defaultDeps) {
   return tool(
     "remember",
-    "Save or update something worth remembering in Clack's memory — a useful fact, a decision, a reminder, or context about an entity. Keyed by a stable, namespaced `id` (e.g. 'sentry:1234', 'asana:567', 'note:deploy-needs-node-22'). Re-using an `id` updates the existing entry. Set `staleAfter.date` (ISO) when you can estimate when this stops mattering, so the daily review can prune it; `staleAfter.reason` captures the condition in words.",
+    "Save or update something worth remembering in Clack's memory — a useful fact, a decision, a reminder, or context about an entity. Keyed by a stable, namespaced `id` (e.g. 'sentry:1234', 'asana:567', 'note:deploy-needs-node-22'). Re-using an `id` updates the existing entry. Set `staleAfter.date` (ISO) when you can estimate when this stops mattering, so the daily review can prune it; `staleAfter.reason` captures the condition in words. Use `linkedMemories` to relate this entry to another when the relationship is semantic (supersession, causation, blocking, duplication) — something keyword search would not connect — not a generic 'see also'.",
     {
       id: z.string().describe("Stable namespaced id — the dedup identity (e.g. 'sentry:1234')"),
       what: z.string().optional().describe("What this is — a one-line statement"),
@@ -39,6 +48,12 @@ export function createRememberTool(deps: RememberDeps = defaultDeps) {
         .array(referenceArg)
         .optional()
         .describe("Surfaces this spans, each with its read/comment recipe"),
+      linkedMemories: z
+        .array(linkArg)
+        .optional()
+        .describe(
+          "Edges to other memory entries, each `{ id, reason }` — for semantic relationships",
+        ),
     },
     async (args) => {
       const input: RememberInput = {
@@ -48,6 +63,7 @@ export function createRememberTool(deps: RememberDeps = defaultDeps) {
         staleAfter: args.staleAfter,
         nextSteps: args.nextSteps,
         references: args.references,
+        linkedMemories: args.linkedMemories,
       };
       const saved = await deps.rememberCore(input);
       return textResult({ ok: true, id: saved.id, updatedAt: saved.updatedAt });

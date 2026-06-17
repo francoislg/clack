@@ -107,6 +107,7 @@ function statefulMemory(): ClackSdkMemory {
           staleAfter: input.staleAfter ?? ex?.staleAfter,
           nextSteps: input.nextSteps ?? ex?.nextSteps,
           references: input.references ?? ex?.references ?? [],
+          linkedMemories: input.linkedMemories ?? ex?.linkedMemories ?? [],
           createdAt: ex?.createdAt ?? ts,
           updatedAt: ts,
           ...(ex?.plugins ? { plugins: ex.plugins } : {}),

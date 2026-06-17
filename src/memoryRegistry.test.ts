@@ -13,6 +13,7 @@ import {
   forgetMemory,
   pruneExpired,
   searchMemory,
+  archive,
   MemoryEntryNotFoundError,
   type MemoryRegistryDeps,
 } from "./memoryRegistry.js";
@@ -141,6 +142,151 @@ describe("memoryRegistry search", () => {
     const result = await searchMemory({ from: "2026-06-16T12:30:00.000Z" });
     expect(result.total).toBe(1);
     expect(result.entries[0].id).toBe("note:export");
+  });
+});
+
+describe("memoryRegistry linkedMemories", () => {
+  it("passes links through and reads them back", async () => {
+    await rememberCore({
+      id: "note:a",
+      linkedMemories: [{ id: "sentry:1", reason: "root cause of" }],
+    });
+    const entry = await getMemory("note:a");
+    expect(entry?.linkedMemories).toEqual([{ id: "sentry:1", reason: "root cause of" }]);
+  });
+
+  it("keeps existing links when a later update omits the field (omit-to-keep)", async () => {
+    await rememberCore({ id: "x", linkedMemories: [{ id: "y", reason: "blocks" }] });
+    await rememberCore({ id: "x", what: "updated" });
+    const entry = await getMemory("x");
+    expect(entry?.what).toBe("updated");
+    expect(entry?.linkedMemories).toEqual([{ id: "y", reason: "blocks" }]);
+  });
+
+  it("preserves references and plugin namespaces across a link-only update", async () => {
+    await rememberCore({
+      id: "x",
+      references: [{ kind: "github-pr", id: "1", howToRead: "r", howToComment: "c" }],
+    });
+    await mergeMemoryNamespace("idler", "x", { priority: 7 });
+    await rememberCore({ id: "x", linkedMemories: [{ id: "z", reason: "duplicate of" }] });
+    const entry = await getMemory("x");
+    expect(entry?.references).toHaveLength(1);
+    expect(entry?.plugins?.idler).toEqual({ priority: 7 });
+    expect(entry?.linkedMemories).toEqual([{ id: "z", reason: "duplicate of" }]);
+  });
+
+  it("accepts a link to an id that does not exist (dangling-tolerant)", async () => {
+    const entry = await rememberCore({
+      id: "x",
+      linkedMemories: [{ id: "note:absent", reason: "supersedes" }],
+    });
+    expect(entry.linkedMemories).toEqual([{ id: "note:absent", reason: "supersedes" }]);
+  });
+
+  it("reads a legacy record (no linkedMemories field) back as an empty array, otherwise unchanged", async () => {
+    const { deps, files } = inMemoryDeps(() => fixedNow);
+    files.set(
+      `${process.cwd()}/data/state/memory.json`,
+      JSON.stringify({
+        "note:legacy": {
+          id: "note:legacy",
+          what: "old",
+          why: "still here",
+          references: [],
+          createdAt: "t0",
+          updatedAt: "t1",
+        },
+      }),
+    );
+    clearMemoryCache();
+    setMemoryRegistryDeps(deps);
+    const entry = await getMemory("note:legacy");
+    expect(entry?.linkedMemories).toEqual([]);
+    expect(entry?.what).toBe("old");
+    expect(entry?.why).toBe("still here");
+  });
+
+  it("preserves links when a plugin merges its namespace", async () => {
+    await rememberCore({ id: "x", linkedMemories: [{ id: "y", reason: "blocks" }] });
+    await mergeMemoryNamespace("idler", "x", { priority: 3 });
+    const entry = await getMemory("x");
+    expect(entry?.linkedMemories).toEqual([{ id: "y", reason: "blocks" }]);
+    expect(entry?.plugins?.idler).toEqual({ priority: 3 });
+  });
+
+  it("forgets an entry that carries links cleanly", async () => {
+    await rememberCore({ id: "x", linkedMemories: [{ id: "y", reason: "supersedes" }] });
+    const { deleted } = await forgetMemory("x");
+    expect(deleted).toBe(true);
+    expect(await getMemory("x")).toBeNull();
+  });
+
+  it("archives an entry that carries links, removing it from the active store", async () => {
+    await rememberCore({ id: "x", what: "done", linkedMemories: [{ id: "y", reason: "tracks" }] });
+    const { archived } = await archive("x", { summary: "x", outcome: "shipped" });
+    expect(archived).toBe(true);
+    expect(await getMemory("x")).toBeNull();
+  });
+});
+
+describe("memoryRegistry search — link enrichment", () => {
+  it("matches a keyword found only in a link's reason", async () => {
+    await rememberCore({
+      id: "note:a",
+      what: "unrelated text",
+      linkedMemories: [{ id: "b", reason: "performance regression follow-up" }],
+    });
+    const result = await searchMemory({ query: "regression" });
+    expect(result.total).toBe(1);
+    expect(result.entries[0].id).toBe("note:a");
+  });
+
+  it("does not make a link's target id searchable on the linking entry", async () => {
+    await rememberCore({ id: "note:a", linkedMemories: [{ id: "secret-target", reason: "x" }] });
+    // The link id is not in the haystack, so searching it surfaces nothing — one entry never
+    // leaks into a search for another's id.
+    const result = await searchMemory({ query: "secret-target" });
+    expect(result.total).toBe(0);
+  });
+
+  it("annotates a link to an archived target with the archived summary/outcome", async () => {
+    await rememberCore({ id: "sentry:1", what: "login crash" });
+    await archive("sentry:1", { summary: "login crash", outcome: "fixed in #123" });
+    await rememberCore({ id: "note:a", linkedMemories: [{ id: "sentry:1", reason: "tracked" }] });
+
+    const result = await searchMemory({ query: "tracked" });
+    expect(result.entries[0].linkedMemories[0]).toEqual({
+      id: "sentry:1",
+      reason: "tracked",
+      archived: { summary: "login crash", outcome: "fixed in #123" },
+    });
+  });
+
+  it("leaves active and truly-unknown links unannotated", async () => {
+    await rememberCore({ id: "active-target", what: "still here" });
+    await rememberCore({
+      id: "note:a",
+      linkedMemories: [
+        { id: "active-target", reason: "relates to" },
+        { id: "ghost", reason: "vanished" },
+      ],
+    });
+    const result = await searchMemory({ query: "relates" });
+    expect(result.entries[0].linkedMemories).toEqual([
+      { id: "active-target", reason: "relates to" },
+      { id: "ghost", reason: "vanished" },
+    ]);
+  });
+
+  it("does not persist the archive annotation back onto the stored entry", async () => {
+    await rememberCore({ id: "sentry:1", what: "crash" });
+    await archive("sentry:1", { summary: "crash", outcome: "done" });
+    await rememberCore({ id: "note:a", linkedMemories: [{ id: "sentry:1", reason: "tracked" }] });
+
+    await searchMemory({ query: "tracked" });
+    const stored = await getMemory("note:a");
+    expect(stored?.linkedMemories).toEqual([{ id: "sentry:1", reason: "tracked" }]);
   });
 });
 
