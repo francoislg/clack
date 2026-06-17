@@ -8,6 +8,7 @@ import { createClackSdk, type ClackSdk, type ClackSdkMemory, type MemoryEntry } 
 import { createMemorySurface } from "../../sdkMemory.js";
 import { en as idlerEn, fr as idlerFr } from "../i18n/strings.js";
 import { createListTopIdeasTool, createReprioritizeTool, createUpsertIdeaTool } from "./ideas.js";
+import { idlerSlotSchema } from "../slice.js";
 import {
   createClearActivityTool,
   createReadActivityTool,
@@ -166,6 +167,7 @@ function ideaArgs(o: Partial<UpsertArgs> & { id: string; kind: UpsertArgs["kind"
   return {
     id: o.id,
     kind: o.kind,
+    ignore: o.ignore,
     what: o.what,
     why: o.why,
     whereWeAre: o.whereWeAre,
@@ -241,6 +243,57 @@ describe("idler memory tools", () => {
   it("reprioritize_idea errors on unknown id", async () => {
     const payload = await invoke(createReprioritizeTool(sdk), { id: "nope", priority: 1 });
     assert.ok(payload.error);
+  });
+
+  it("upsert_idea ignore snapshots ignoredAt and excludes the entry from list_top_ideas", async () => {
+    await sdk.memory.remember({ id: "note:x", what: "a user preference" });
+    const before = await sdk.memory.get("note:x");
+
+    const payload = await invoke(
+      createUpsertIdeaTool(sdk),
+      ideaArgs({ id: "note:x", kind: undefined, ignore: true }),
+    );
+    assert.equal(payload.ok, true);
+
+    const slot = await sdk.memory.data(idlerSlotSchema).get("note:x");
+    assert.equal(slot?.ignoredAt, before?.updatedAt, "ignoredAt snapshots updatedAt");
+    assert.equal(slot?.open, false);
+
+    const top = await invoke(createListTopIdeasTool(sdk), { limit: undefined });
+    assert.equal(top.ideas?.length, 0, "ignored entry is not an open unit");
+  });
+
+  it("upsert_idea ignore errors when no memory entry exists", async () => {
+    const payload = await invoke(
+      createUpsertIdeaTool(sdk),
+      ideaArgs({ id: "ghost", kind: undefined, ignore: true }),
+    );
+    assert.ok(payload.error);
+  });
+
+  it("upsert_idea requires kind unless ignoring", async () => {
+    await sdk.memory.remember({ id: "note:y", what: "note" });
+    const payload = await invoke(
+      createUpsertIdeaTool(sdk),
+      ideaArgs({ id: "note:y", kind: undefined }),
+    );
+    assert.ok(payload.error);
+  });
+
+  it("adopting a previously-ignored entry clears ignoredAt and opens the unit", async () => {
+    await sdk.memory.remember({ id: "note:z", what: "actionable after all" });
+    await invoke(
+      createUpsertIdeaTool(sdk),
+      ideaArgs({ id: "note:z", kind: undefined, ignore: true }),
+    );
+    await invoke(createUpsertIdeaTool(sdk), ideaArgs({ id: "note:z", kind: "triage" }));
+
+    const slot = await sdk.memory.data(idlerSlotSchema).get("note:z");
+    assert.equal(slot?.ignoredAt, undefined, "adopt clears the ignore marker");
+
+    const top = await invoke(createListTopIdeasTool(sdk), { limit: undefined });
+    assert.equal(top.ideas?.length, 1);
+    assert.equal(top.ideas?.[0].id, "note:z");
   });
 
   it("clear_idler_idea closes the unit and errors on unknown id", async () => {

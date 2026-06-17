@@ -11,6 +11,12 @@ export const idlerSlotSchema = z.object({
   whereWeAre: z.string().default(""),
   /** Per-reference idempotency cursors, keyed by reference id. */
   cursorsByRefId: z.record(z.string(), z.string()).default({}),
+  /**
+   * Snapshot of the entry's `updatedAt` taken when the memory scan triaged it as not-idler-work.
+   * The entry re-qualifies for the scan once a content write advances `updatedAt` past this value
+   * (so it stays ignored while they remain equal). Absent on tracked work units.
+   */
+  ignoredAt: z.string().optional(),
 });
 
 export type IdlerSlot = z.infer<typeof idlerSlotSchema>;

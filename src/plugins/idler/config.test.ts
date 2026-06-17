@@ -21,6 +21,16 @@ describe("idlerConfigSchema", () => {
     assert.equal(parsed.maxActionsPerNight, 5);
     assert.deepEqual(parsed.repoAllowlist, []);
     assert.equal(parsed.sources.ownPrs, true);
+    assert.equal(parsed.sources.scanMemory, true);
+  });
+
+  it("reads scanMemory as true for a legacy sources object lacking it", () => {
+    const parsed = idlerConfigSchema.parse({
+      enabled: true,
+      workHours: { start: 18, end: 9, tz: "UTC", days: [1] },
+      sources: { channels: [], tracker: false, ownPrs: true },
+    });
+    assert.equal(parsed.sources.scanMemory, true);
   });
 
   it("accepts an overnight (wrapping) work window", () => {

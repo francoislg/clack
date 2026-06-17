@@ -66,7 +66,16 @@ export function createUpsertIdeaTool(sdk: ClackSdk) {
         .describe(
           "true = open/eligible, false = done. Defaults to keeping existing (true for new).",
         ),
-      kind: z.enum(WORK_KINDS).describe("Pending-work kind, drives priority weight"),
+      ignore: z
+        .boolean()
+        .optional()
+        .describe(
+          "Mark a memory entry as not-idler-work: snapshots ignoredAt so the memory scan skips it until its content changes. Skips work-unit creation; kind is not required.",
+        ),
+      kind: z
+        .enum(WORK_KINDS)
+        .optional()
+        .describe("Pending-work kind, drives priority weight. Required unless `ignore` is set."),
       freshInput: z
         .boolean()
         .optional()
@@ -85,6 +94,25 @@ export function createUpsertIdeaTool(sdk: ClackSdk) {
         .describe("Per-reference cursor advances to merge, keyed by reference id"),
     },
     async (args) => {
+      const slot = sdk.memory.data(idlerSlotSchema);
+
+      if (args.ignore) {
+        const entry = await sdk.memory.get(args.id);
+        if (!entry) {
+          return errorResult(`No memory entry with id "${args.id}" to ignore`);
+        }
+        await slot.merge(
+          args.id,
+          { ignoredAt: entry.updatedAt, open: false, priority: 0 },
+          { touch: false },
+        );
+        return textResult({ ok: true, id: args.id, ignored: true });
+      }
+
+      if (!args.kind) {
+        return errorResult("kind is required unless `ignore` is set");
+      }
+
       await sdk.memory.remember({
         id: args.id,
         what: args.what,
@@ -94,8 +122,8 @@ export function createUpsertIdeaTool(sdk: ClackSdk) {
         references: args.references,
       });
 
-      const slot = sdk.memory.data(idlerSlotSchema);
       const existing = await slot.get(args.id);
+      const wasIgnored = existing?.ignoredAt != null;
       const priority = computePriority({
         kind: args.kind as WorkKind,
         freshInput: args.freshInput,
@@ -103,9 +131,10 @@ export function createUpsertIdeaTool(sdk: ClackSdk) {
       });
       const next: IdlerSlot = {
         priority,
-        open: args.open ?? existing?.open ?? true,
+        open: args.open ?? (wasIgnored ? true : (existing?.open ?? true)),
         whereWeAre: args.whereWeAre ?? existing?.whereWeAre ?? "",
         cursorsByRefId: { ...existing?.cursorsByRefId, ...args.cursors },
+        ignoredAt: undefined,
       };
       await slot.merge(args.id, next);
       return textResult({ ok: true, id: args.id, priority });

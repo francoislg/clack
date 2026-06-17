@@ -71,11 +71,12 @@ export function createMemorySurface(
           }
           return parsed.data;
         },
-        async merge(id: string, partial: Partial<T>): Promise<void> {
+        async merge(id: string, partial: Partial<T>, opts?: { touch?: boolean }): Promise<void> {
           await (deps.mergeMemoryNamespace ?? mergeMemoryNamespace)(
             pluginName,
             id,
             partial as JsonObject,
+            opts,
           );
         },
       };

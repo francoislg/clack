@@ -39,6 +39,8 @@ export interface IdlerSources {
   tracker: boolean;
   /** Inspect Clack's own open PRs for continue/self-review work. */
   ownPrs: boolean;
+  /** Scan recently-updated core memory entries for untriaged work during sync. */
+  scanMemory: boolean;
 }
 
 export interface IdlerConfig {

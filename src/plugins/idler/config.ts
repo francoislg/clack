@@ -34,6 +34,7 @@ const sourcesSchema = z.object({
   channels: z.array(z.string().regex(SLACK_CHANNEL_ID, "channel ID must be C…/G…/D…")).default([]),
   tracker: z.boolean().default(false),
   ownPrs: z.boolean().default(true),
+  scanMemory: z.boolean().default(true),
 });
 
 const reportingSchema = z.object({
@@ -51,7 +52,12 @@ const baseConfigSchema = z.object({
   reporting: reportingSchema.default({ tickUpdates: "none", summary: true }),
   maxActionsPerFire: z.number().int().min(1).max(20).default(1),
   maxActionsPerNight: z.number().int().min(1).max(100).default(5),
-  sources: sourcesSchema.default({ channels: [], tracker: false, ownPrs: true }),
+  sources: sourcesSchema.default({
+    channels: [],
+    tracker: false,
+    ownPrs: true,
+    scanMemory: true,
+  }),
 });
 
 /**
@@ -77,7 +83,7 @@ export const DEFAULT_CONFIG: IdlerConfig = {
   reporting: { tickUpdates: "none", summary: true },
   maxActionsPerFire: 1,
   maxActionsPerNight: 5,
-  sources: { channels: [], tracker: false, ownPrs: true },
+  sources: { channels: [], tracker: false, ownPrs: true, scanMemory: true },
 };
 
 /**

@@ -331,7 +331,12 @@ export interface ClackSdkUsers {
  */
 export interface ClackSdkMemoryData<T> {
   get(id: string): Promise<T | null>;
-  merge(id: string, partial: Partial<T>): Promise<void>;
+  /**
+   * Merge `partial` into the slice. Defaults to bumping the entry's `updatedAt`; pass
+   * `{ touch: false }` for a bookkeeping write that preserves it (so the plugin can snapshot
+   * `updatedAt` in the slice and detect later content changes against the snapshot).
+   */
+  merge(id: string, partial: Partial<T>, opts?: { touch?: boolean }): Promise<void>;
 }
 
 /**

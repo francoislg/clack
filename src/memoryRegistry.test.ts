@@ -115,6 +115,27 @@ describe("memoryRegistry namespace", () => {
     expect(entry?.plugins?.idler).toEqual({ a: 1 });
     expect(entry?.plugins?.trivia).toEqual({ b: 2 });
   });
+
+  it("bumps updatedAt by default but preserves it with touch:false", async () => {
+    const original = fixedNow;
+    try {
+      await rememberCore({ id: "x", what: "v1" });
+      const created = (await getMemory("x"))?.createdAt;
+
+      fixedNow = new Date("2026-06-16T13:00:00.000Z");
+      await mergeMemoryNamespace("idler", "x", { priority: 1 });
+      expect((await getMemory("x"))?.updatedAt).toBe(fixedNow.toISOString());
+
+      fixedNow = new Date("2026-06-16T14:00:00.000Z");
+      await mergeMemoryNamespace("idler", "x", { ignoredAt: "snap" }, { touch: false });
+      const after = await getMemory("x");
+      expect(after?.updatedAt).toBe("2026-06-16T13:00:00.000Z");
+      expect(after?.plugins?.idler).toEqual({ priority: 1, ignoredAt: "snap" });
+      expect(after?.createdAt).toBe(created);
+    } finally {
+      fixedNow = original;
+    }
+  });
 });
 
 describe("memoryRegistry search", () => {
