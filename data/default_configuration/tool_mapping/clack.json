@@ -5,6 +5,36 @@
     "query": { "truncate": 30 }
   },
   "tools": {
+    "remember": {
+      "label": { "en": "Remembering {id}", "fr": "Mémorisation de {id}" },
+      "group": "memory",
+      "itemDetail": { "en": "Remember {id}", "fr": "Mémoriser {id}" }
+    },
+    "recall": {
+      "label": { "en": "Searching memory {query}", "fr": "Recherche en mémoire {query}" },
+      "group": "memory",
+      "itemDetail": { "en": "Search {query}", "fr": "Rechercher {query}" }
+    },
+    "forget": {
+      "label": { "en": "Forgetting {id}", "fr": "Oubli de {id}" },
+      "group": "memory",
+      "itemDetail": { "en": "Forget {id}", "fr": "Oublier {id}" }
+    },
+    "archive": {
+      "label": { "en": "Archiving {id}", "fr": "Archivage de {id}" },
+      "group": "memory",
+      "itemDetail": { "en": "Archive {id}", "fr": "Archiver {id}" }
+    },
+    "get_archived": {
+      "label": { "en": "Checking archive for {id}", "fr": "Vérification de l'archive pour {id}" },
+      "group": "memory",
+      "itemDetail": { "en": "Archive lookup {id}", "fr": "Recherche d'archive {id}" }
+    },
+    "prune_archive": {
+      "label": { "en": "Pruning old memories", "fr": "Élagage des anciennes mémoires" },
+      "group": "memory",
+      "itemDetail": { "en": "Prune old records", "fr": "Élaguer les anciens enregistrements" }
+    },
     "find_recent_interactions": {
       "label": {
         "en": "Recalling recent messages {keywords}",
@@ -27,6 +57,27 @@
     },
     "get_session_trace": {
       "label": { "en": "Reading session trace", "fr": "Lecture de la trace de session" }
+    },
+    "get_conversation_stats": {
+      "label": {
+        "en": "Reading conversation stats",
+        "fr": "Lecture des statistiques de conversation"
+      }
+    },
+    "switch_delivery_context": {
+      "label": {
+        "en": "Switching delivery to {mode}",
+        "fr": "Changement de mode de diffusion vers {mode}"
+      }
+    },
+    "await_ci": {
+      "label": { "en": "Waiting for CI checks", "fr": "Attente des vérifications CI" }
+    },
+    "propose_spinoff": {
+      "label": {
+        "en": "Proposing spinoff {proposed_branch}",
+        "fr": "Proposition de scission {proposed_branch}"
+      }
     },
     "admin_list_error_reports": {
       "label": {
@@ -103,6 +154,14 @@
       "label": { "en": "Reading config {role}/{file}", "fr": "Lecture de la config {role}/{file}" },
       "group": "configuration",
       "itemDetail": "{role}/{file}"
+    },
+    "admin_describe_config_file": {
+      "label": {
+        "en": "Describing config schema {path|config.json}",
+        "fr": "Description du schéma de config {path|config.json}"
+      },
+      "group": "configuration",
+      "itemDetail": "{path|config.json}"
     },
     "fetch_channel_messages": {
       "label": {
@@ -272,6 +331,14 @@
       "group": "scheduled_messages",
       "itemDetail": { "en": "List all", "fr": "Tout lister" }
     },
+    "get_scheduled_message": {
+      "label": {
+        "en": "Reading scheduled message {id}",
+        "fr": "Lecture du message planifié {id}"
+      },
+      "group": "scheduled_messages",
+      "itemDetail": { "en": "Read {id}", "fr": "Lire {id}" }
+    },
     "get_scheduled_message_runs": {
       "label": {
         "en": "Fetching runs for schedule {name|id}",
@@ -385,6 +452,7 @@
     "integrations": {
       "title": { "en": "Attaching integrations", "fr": "Attachement des intégrations" }
     },
+    "memory": { "title": { "en": "Working with memory", "fr": "Gestion de la mémoire" } },
     "messages": { "title": { "en": "Reading messages", "fr": "Lecture des messages" } },
     "files": { "title": { "en": "Working with files", "fr": "Gestion des fichiers" } },
     "reactions": { "title": { "en": "Updating reactions", "fr": "Mise à jour des réactions" } },
