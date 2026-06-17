@@ -11,9 +11,9 @@
       "itemDetail": { "en": "Remember {id}", "fr": "Mémoriser {id}" }
     },
     "recall": {
-      "label": { "en": "Searching memory {query}", "fr": "Recherche en mémoire {query}" },
+      "label": { "en": "Recalling memory {query}", "fr": "Rappel de la mémoire {query}" },
       "group": "memory",
-      "itemDetail": { "en": "Search {query}", "fr": "Rechercher {query}" }
+      "itemDetail": { "en": "{query|all entries}", "fr": "{query|toutes les entrées}" }
     },
     "forget": {
       "label": { "en": "Forgetting {id}", "fr": "Oubli de {id}" },
