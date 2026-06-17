@@ -501,12 +501,18 @@ export class MemoryEntryNotFoundError extends Error {
 /**
  * Field-merge `partial` into `plugins.<plugin>` for `id` (omitted fields keep their prior value).
  * Rejects when the entry does not exist — memory is core-first; a plugin slice with no knowledge
- * record is meaningless and no placeholder is created. Serialized; bumps `updatedAt`.
+ * record is meaningless and no placeholder is created. Serialized.
+ *
+ * By default (`touch: true`) bumps `updatedAt`. Pass `touch: false` for a bookkeeping write that
+ * records a plugin's processing of an entry rather than a change to the remembered knowledge — it
+ * preserves `updatedAt` so a caller can snapshot it and later detect genuine content changes
+ * against that snapshot.
  */
 export function mergeMemoryNamespace(
   plugin: string,
   id: string,
   partial: JsonObject,
+  opts: { touch?: boolean } = {},
 ): Promise<void> {
   return serialize(async () => {
     const store = await loadMemoryStore();
@@ -517,7 +523,7 @@ export function mergeMemoryNamespace(
     const prevNamespace = base.plugins?.[plugin] ?? {};
     const entry: MemoryEntry = {
       ...base,
-      updatedAt: nowIso(),
+      updatedAt: opts.touch === false ? base.updatedAt : nowIso(),
       plugins: { ...base.plugins, [plugin]: { ...prevNamespace, ...partial } },
     };
     await persist({ ...store, [id]: entry });
