@@ -1596,6 +1596,36 @@ describe("buildHomeView — Scheduled Messages skipConditions", () => {
     );
     assert.ok(pluginHeader, "Plugin Scheduled Messages header should still render");
   });
+
+  it("hides core system jobs (createdBy null, not pluginManaged) from both subsections", async () => {
+    setDefaultMocks("admin");
+    mockGetJobs.mockImplementation(async () => [
+      baseJob({
+        id: "memory-review",
+        name: "Memory review",
+        channel: undefined,
+        createdBy: null,
+        systemActor: "memory",
+        specKey: "daily-review",
+      }),
+    ]);
+
+    const deps = makeDeps();
+    const view = await buildHomeView({ userId: "U001" }, deps);
+    const blocks = view.blocks as KnownBlock[];
+
+    const headers = blocks.filter((b) => b.type === "header");
+    assert.ok(
+      !headers.some(
+        (h) =>
+          h.text?.type === "plain_text" &&
+          (h.text.text === "Scheduled Messages" || h.text.text === "Plugin Scheduled Messages"),
+      ),
+      "core system job should surface in neither the user nor plugin subsection",
+    );
+    const rendered = JSON.stringify(blocks);
+    assert.ok(!rendered.includes("Memory review"), "memory review job should not render at all");
+  });
 });
 
 describe("buildCronJobModal — skipConditions input", () => {

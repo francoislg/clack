@@ -1634,7 +1634,11 @@ async function buildScheduledMessagesSection(
   // The user-created subsection is also hidden when `config.cron.userSchedules` is false —
   // those jobs are skipped at tick time, so showing them here would mislead admins.
   const userSchedulesEnabled = deps.getConfig().cron?.userSchedules === true;
-  const userJobs = userSchedulesEnabled ? allJobs.filter((j) => !j.pluginManaged) : [];
+  // `createdBy !== null` excludes core system jobs (e.g. the memory review) — invisible
+  // plumbing with no operator knobs. The createJob invariant makes null ⇔ systemActor set.
+  const userJobs = userSchedulesEnabled
+    ? allJobs.filter((j) => !j.pluginManaged && j.createdBy !== null)
+    : [];
   const pluginJobs = isAdmin ? allJobs.filter((j) => j.pluginManaged) : [];
   const viewerTz = await deps.getUserTimezone(userId);
 
