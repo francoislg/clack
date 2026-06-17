@@ -17,7 +17,9 @@ export function createRecallTool(deps: RecallDeps = defaultDeps) {
       query: z
         .string()
         .optional()
-        .describe("Case-insensitive keyword; matches id/what/why/nextSteps and reference recipes"),
+        .describe(
+          "Case-insensitive keyword; matches id/what/why/nextSteps, reference recipes, and link reasons",
+        ),
       from: z.string().optional().describe("ISO lower bound on updatedAt"),
       to: z.string().optional().describe("ISO upper bound on updatedAt"),
       limit: z.number().int().min(1).max(100).optional().describe("Page size (default 20)"),

@@ -72,6 +72,7 @@ export function fakeSdkMemory(): ClackSdkMemory {
         staleAfter: input.staleAfter,
         nextSteps: input.nextSteps,
         references: input.references ?? [],
+        linkedMemories: input.linkedMemories ?? [],
         createdAt: ts,
         updatedAt: ts,
       };

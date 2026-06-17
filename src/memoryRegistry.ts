@@ -59,6 +59,18 @@ export interface StaleAfter {
 }
 
 /**
+ * One outbound edge from this entry to another memory entry, labeled with a free-text `reason`.
+ * One-directional (the target stores no reverse edge) and dangling-tolerant (the target need not
+ * exist). This is the ONLY field expressing memory-to-memory relationships; `references` stays
+ * reserved for external surfaces. Persisted as exactly `{ id, reason }` — never the recall-time
+ * `archived` enrichment (see {@link RecalledMemoryLink}).
+ */
+export interface MemoryLink {
+  id: string;
+  reason: string;
+}
+
+/**
  * One record in `data/state/memory.json`. Core fields are durable knowledge a human would want
  * on recall; `plugins` is a per-plugin namespace bag — each plugin owns its slice under
  * `plugins.<pluginName>` and validates it with its own zod schema (core treats it as opaque).
@@ -70,17 +82,32 @@ export interface MemoryEntry {
   staleAfter?: StaleAfter;
   nextSteps?: string;
   references: MemoryReference[];
+  linkedMemories: MemoryLink[];
   createdAt: string;
   updatedAt: string;
   plugins?: { [pluginName: string]: JsonObject };
 }
+
+/**
+ * A {@link MemoryLink} as surfaced by `recall`: when the target id is no longer active but exists in
+ * the archive, the edge gains an `archived` snapshot of that archived record. Computed per recall
+ * call and never persisted.
+ */
+export interface RecalledMemoryLink extends MemoryLink {
+  archived?: { summary: string; outcome: string };
+}
+
+/** A {@link MemoryEntry} as surfaced by `recall` — a superset whose links may carry `archived`. */
+export type RecalledMemoryEntry = Omit<MemoryEntry, "linkedMemories"> & {
+  linkedMemories: RecalledMemoryLink[];
+};
 
 /** Paginated search result. `total` is the full match count; `entries` is the requested page. */
 export interface MemorySearchResult {
   total: number;
   limit: number;
   offset: number;
-  entries: MemoryEntry[];
+  entries: RecalledMemoryEntry[];
 }
 
 /** Input to remember a core entry. Timestamps and plugin namespaces are managed by the registry. */
@@ -91,6 +118,7 @@ export interface RememberInput {
   staleAfter?: StaleAfter;
   nextSteps?: string;
   references?: MemoryReference[];
+  linkedMemories?: MemoryLink[];
 }
 
 /**
@@ -138,6 +166,11 @@ const staleAfterZod = z.object({
   reason: z.string().optional(),
 });
 
+const memoryLinkZod = z.object({
+  id: z.string().default(""),
+  reason: z.string().default(""),
+});
+
 // Graceful (permissive) reader: a state file, so on a shape mismatch we log + treat the store
 // as empty rather than throwing — and never narrow so hard that a real record is dropped. Fields
 // tolerate missing values so a single legacy entry can't fail the whole map. `plugins` is opaque
@@ -149,6 +182,7 @@ const memoryEntryZod = z.object({
   staleAfter: staleAfterZod.optional(),
   nextSteps: z.string().optional(),
   references: z.array(referenceZod).default([]),
+  linkedMemories: z.array(memoryLinkZod).default([]),
   createdAt: z.string().default(""),
   updatedAt: z.string().default(""),
   plugins: z.record(z.string(), jsonObjectZod).optional(),
@@ -361,7 +395,36 @@ const DEFAULT_SEARCH_LIMIT = 20;
 
 function entryHaystack(entry: MemoryEntry): string {
   const refText = entry.references.map((r) => `${r.howToRead} ${r.howToComment}`).join(" ");
-  return `${entry.id} ${entry.what} ${entry.why} ${entry.nextSteps ?? ""} ${refText}`.toLowerCase();
+  // Link reasons are searchable; link ids are not, so one entry never surfaces on a search for another's id.
+  const linkText = entry.linkedMemories.map((l) => l.reason).join(" ");
+  const text = `${entry.id} ${entry.what} ${entry.why} ${entry.nextSteps ?? ""} ${refText} ${linkText}`;
+  return text.toLowerCase();
+}
+
+/**
+ * Build the recall view of an entry: for any link whose target is no longer active, attach an
+ * `archived` snapshot when the archive holds it. Builds fresh edge/entry objects so the cached
+ * store is never mutated — the `archived` field is recall-time only and never persisted.
+ */
+function toRecalledEntry(
+  entry: MemoryEntry,
+  active: MemoryStore,
+  archive: ArchiveStore,
+): RecalledMemoryEntry {
+  const linkedMemories: RecalledMemoryLink[] = entry.linkedMemories.map((link) => {
+    if (active[link.id]) {
+      return { id: link.id, reason: link.reason };
+    }
+    const archived = archive[link.id];
+    return archived
+      ? {
+          id: link.id,
+          reason: link.reason,
+          archived: { summary: archived.summary, outcome: archived.outcome },
+        }
+      : { id: link.id, reason: link.reason };
+  });
+  return { ...entry, linkedMemories };
 }
 
 /**
@@ -389,7 +452,9 @@ export async function searchMemory(args: SearchMemoryArgs): Promise<MemorySearch
 
   const total = matches.length;
   const start = Math.max(0, offset);
-  const entries = matches.slice(start, start + Math.max(0, limit));
+  const page = matches.slice(start, start + Math.max(0, limit));
+  const archive = await loadArchiveStore();
+  const entries = page.map((entry) => toRecalledEntry(entry, store, archive));
   return { total, limit, offset, entries };
 }
 
@@ -414,6 +479,7 @@ export function rememberCore(input: RememberInput): Promise<MemoryEntry> {
       staleAfter: input.staleAfter ?? existing?.staleAfter,
       nextSteps: input.nextSteps ?? existing?.nextSteps,
       references: input.references ?? existing?.references ?? [],
+      linkedMemories: input.linkedMemories ?? existing?.linkedMemories ?? [],
       createdAt: existing?.createdAt || ts,
       updatedAt: ts,
       ...(existing?.plugins ? { plugins: existing.plugins } : {}),
