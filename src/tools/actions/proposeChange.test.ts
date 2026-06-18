@@ -275,6 +275,71 @@ describe("proposeChange tool", () => {
     assert.equal(staged.resumeRemoteBranch, true);
   });
 
+  it("accepts an off-convention branch name when continue_existing_pr is set", async () => {
+    const ctx = makeCtx();
+    const store = makeIntentStore();
+    const toolDef = createProposeChangeTool(ctx, store, deps);
+
+    const result = await toolDef.handler(
+      {
+        branch: "feature/human-made-branch",
+        description: "Continue an existing PR",
+        repo: "my-repo",
+        plan: undefined,
+        continue_existing_pr: true,
+      },
+      { sessionId: "test" },
+    );
+
+    const parsed = parseToolResult(result);
+    assert.equal(result.isError, undefined);
+    assert.equal(parsed.branch, "feature/human-made-branch");
+    const staged = store.resolve(parsed.ref) as { resumeRemoteBranch?: boolean };
+    assert.equal(staged.resumeRemoteBranch, true);
+  });
+
+  it("rejects a protected branch even with continue_existing_pr", async () => {
+    const ctx = makeCtx();
+    const store = makeIntentStore();
+    const toolDef = createProposeChangeTool(ctx, store, deps);
+
+    const result = await toolDef.handler(
+      {
+        branch: "main",
+        description: "Continue on main",
+        repo: "my-repo",
+        plan: undefined,
+        continue_existing_pr: true,
+      },
+      { sessionId: "test" },
+    );
+
+    const parsed = parseToolResult(result);
+    assert.ok(parsed.error.includes("protected branch"));
+    assert.equal(result.isError, true);
+  });
+
+  it("still rejects an off-convention branch name without continue_existing_pr", async () => {
+    const ctx = makeCtx();
+    const store = makeIntentStore();
+    const toolDef = createProposeChangeTool(ctx, store, deps);
+
+    const result = await toolDef.handler(
+      {
+        branch: "feature/human-made-branch",
+        description: "Fresh change on a bad name",
+        repo: "my-repo",
+        plan: undefined,
+        continue_existing_pr: false,
+      },
+      { sessionId: "test" },
+    );
+
+    const parsed = parseToolResult(result);
+    assert.ok(parsed.error.includes("Invalid branch name"));
+    assert.equal(result.isError, true);
+  });
+
   it("omits resumeRemoteBranch when continue_existing_pr is not set", async () => {
     const ctx = makeCtx();
     const store = makeIntentStore();
