@@ -153,9 +153,40 @@ The plugin SHALL own up to three distinct cron specs — a **sync** task (hourly
 - **WHEN** the summary task fires
 - **THEN** it reads the activity log and posts a digest to `reporting.channel`
 
+### Requirement: Every-fire memory-maintenance pass
+
+Every sync run SHALL perform an unconditional memory-maintenance pass — independent of the external-discovery round-robin and run on every fire — that keeps the idler's adopted units and recently-changed memory current. The pass SHALL, in order: (a) **close resolved units** — for each tracked unit whose references' `howToRead` shows its surface resolved/merged/closed, close it (`open:false` with a short grace `staleAfter`, ~2 days), the same close move the work fire uses; (b) **triage recently-changed memory** — adopt or ignore candidates from a recency-ordered page (per "Recently-updated memory scan during sync"); and (c) **recompute priority** for open units (per the `idler-ideas-ledger` "Sync-recomputed priority" requirement). Step (b) SHALL be gated by `sources.scanMemory`; steps (a) and (c) SHALL run regardless of `sources.scanMemory`. The pass SHALL NOT introduce new persisted state and SHALL NOT add a new tool. The pass SHALL NOT modify the unit the work fire is actively advancing (the existing work-task authority rule continues to apply).
+
+#### Scenario: Maintenance runs every fire regardless of the round-robin
+
+- **WHEN** any sync fire runs
+- **THEN** the close-resolved, triage-new, and recompute steps all execute that fire
+- **AND** they do not consume or depend on the external-discovery round-robin slot
+
+#### Scenario: Resolved tracked unit is closed during sync
+
+- **GIVEN** a tracked open unit whose `howToRead` now shows its PR merged (or its source issue resolved)
+- **WHEN** the sync fire runs its maintenance pass
+- **THEN** the unit is closed (`open:false`) with a short grace `staleAfter`
+- **AND** it is no longer selectable by the work fire
+
+#### Scenario: Maintenance still runs when discovery is gated off
+
+- **GIVEN** `sources.scanMemory` is `false`
+- **WHEN** the sync fire runs
+- **THEN** resolved tracked units are still closed and open units are still re-prioritized
+- **AND** only the triage/adoption of newly-changed memory entries is skipped
+
+#### Scenario: Close-resolved respects work-task authority
+
+- **GIVEN** the work fire is actively advancing unit `X`
+- **WHEN** the sync maintenance pass runs and `X`'s surface now reads resolved
+- **THEN** the sync pass does NOT close `X` (the work-task authority rule protects the in-flight unit)
+- **AND** a later sync fire (or the work fire itself) closes `X` once it is no longer being advanced
+
 ### Requirement: Layered incremental sync
 
-The sync task SHALL perform a cheap quick-fetch on every run — listing open Clack-authored pull requests (filtered by author login and/or branch prefix) and re-polling each tracked unit's references via their `howToRead` — and SHALL spread deeper discovery (channel scans, tracker polls, memory scans) across runs rather than re-scanning every source every run.
+The sync task SHALL perform a cheap quick-fetch on every run — listing open Clack-authored pull requests (filtered by author login and/or branch prefix) and re-polling each tracked unit's references via their `howToRead` — and SHALL spread deeper **external** discovery (channel scans, tracker polls, own-PR inspection) across runs rather than re-scanning every external source every run. Memory maintenance is NOT part of this rotation: closing resolved units, triaging new memory, and recomputing priority run on every fire (see "Every-fire memory-maintenance pass"), not as a round-robin arm.
 
 #### Scenario: Quick-fetch every run
 
@@ -163,12 +194,18 @@ The sync task SHALL perform a cheap quick-fetch on every run — listing open Cl
 - **THEN** it lists open Clack PRs and refreshes their references' status
 - **AND** advances per-reference cursors for any new activity
 
-#### Scenario: Discovery is incremental
+#### Scenario: External discovery is incremental
 
-- **GIVEN** multiple configured discovery sources
+- **GIVEN** multiple configured external discovery sources (channels, tracker, own PRs)
 - **WHEN** successive sync runs fire through the window
-- **THEN** discovery is rotated across runs (round-robin over the configured sources, including the memory scan when `sources.scanMemory` is enabled) rather than re-scanning all sources on every run
-- **AND** each configured source is discovered at least once per off-hours window
+- **THEN** external discovery is rotated across runs (round-robin over the configured external sources) rather than re-scanning all of them on every run
+- **AND** each configured external source is discovered at least once per off-hours window
+
+#### Scenario: Memory maintenance is not rotated
+
+- **WHEN** successive sync runs fire through the window
+- **THEN** the memory-maintenance pass runs on each fire
+- **AND** it is never deferred to a later fire by the external round-robin
 
 ### Requirement: Graceful degradation when a source MCP is absent
 
@@ -388,34 +425,36 @@ The plugin SHALL support sourcing candidate work from: configured Slack channels
 
 - **GIVEN** `sources.scanMemory` is `false`
 - **WHEN** sync runs
-- **THEN** the memory-scan rotation entry is skipped and no memory entry is adopted from it
-- **AND** all other configured sources are unaffected
+- **THEN** the every-fire memory triage of new entries is skipped and no memory entry is adopted from it
+- **AND** all other configured sources, and the close-resolved/recompute maintenance steps, are unaffected
+- **AND** units already adopted while `scanMemory` was enabled remain open and eligible for work (the gate suppresses new adoptions only, never abandons existing units)
 
 ### Requirement: Recently-updated memory scan during sync
 
-When `sources.scanMemory` is enabled, the sync task SHALL, as one round-robin discovery entry, read a recency-ordered page of core memory entries (newest `updatedAt` first — using the existing `recall` tool with no query and a generous limit), classify each from its idler slice, and act on up to a small number of candidates per fire. A candidate SHALL be adopted as a work unit via `upsert_idea` — keyed by its existing stable id, with the same `getArchived` regression-enrichment as other sources — only when it is clearly actionable AND concerns an allowlisted repo; otherwise the sync SHALL mark it as not-idler-work rather than adopt it. The scan SHALL classify the whole recall page and THEN take its candidates (filter-then-take), so when the physically-newest entries are already triaged the scan still reaches older untriaged entries instead of starving them. The scan SHALL NOT introduce a new tool and SHALL NOT modify the core `recall` or `remember` tools.
+When `sources.scanMemory` is enabled, the sync task's memory-maintenance pass SHALL, on **every fire** (not as one round-robin arm), triage recently-changed memory — reading a generous recency-ordered page via the existing `recall` tool (no query, newest `updatedAt` first), classifying the whole page from each entry's idler slice, and THEN taking up to a small number of candidates (classify-then-take, so it slides past already-triaged newest entries to reach older untriaged ones). A candidate SHALL be adopted as a work unit via `upsert_idea` — keyed by its existing stable id, with the same `getArchived` regression-enrichment as other sources — only when it is clearly actionable AND concerns an allowlisted repo; otherwise the sync SHALL mark it as not-idler-work rather than adopt it. Because `remember` stamps the current time on every content write, newly-remembered or re-remembered entries sort to the top of the page, so an every-fire scan reliably catches new memory without a persisted cursor. The scan SHALL NOT introduce a new tool and SHALL NOT modify the core `recall` or `remember` tools.
 
 #### Scenario: Actionable memory entry is adopted
 
-- **GIVEN** `sources.scanMemory` is enabled and an untriaged memory entry keyed `sentry:1234` describes a fixable error in an allowlisted repo
-- **WHEN** sync's memory-scan rotation runs
+- **GIVEN** `sources.scanMemory` is enabled and a recently-updated untriaged memory entry keyed `sentry:1234` describes a fixable error in an allowlisted repo
+- **WHEN** the sync maintenance pass runs
 - **THEN** a work unit is created (or the existing entry adopted) via `upsert_idea` keyed by `sentry:1234`, enriched with any archived prior outcome
 
 #### Scenario: Non-work memory entry is marked not-idler-work
 
 - **GIVEN** an untriaged memory entry that is a user preference or note, not actionable work
-- **WHEN** sync's memory-scan rotation runs
+- **WHEN** the sync maintenance pass runs
 - **THEN** it is marked as not-idler-work and no work unit is created for it
 
 #### Scenario: Out-of-allowlist entry is not adopted
 
 - **GIVEN** an untriaged memory entry describing work in a repo not on the allowlist
-- **WHEN** sync's memory-scan rotation runs
+- **WHEN** the sync maintenance pass runs
 - **THEN** it is not adopted as an actionable unit
 
-#### Scenario: Classify-then-take slides past triaged entries
+#### Scenario: Unchanged not-work entries are not re-triaged
 
-- **GIVEN** the physically-newest memory entries in the recall page are all already idler-tracked or ignored-and-unchanged
-- **WHEN** sync's memory-scan rotation runs
-- **THEN** those entries are classified as non-candidates and older untriaged entries within the page are considered instead
+- **GIVEN** a memory entry previously marked not-idler-work, whose `ignoredAt` still equals its `updatedAt` (the ignore write did not advance `updatedAt`)
+- **WHEN** the sync maintenance pass scans the page on a later fire
+- **THEN** that entry is classified as a non-candidate and not re-triaged
+- **AND** it re-qualifies only once a genuine content write advances its `updatedAt` past `ignoredAt`
 
