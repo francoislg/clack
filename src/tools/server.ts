@@ -425,8 +425,8 @@ function buildQueryTools(ctx: QueryToolContext): ClackQueryToolsResult {
     tools.push(createGetSessionTraceTool(ctx));
   }
 
-  // Memory faculty — dev+ (the "system" cron role passes meetsMinimumRole, so the daily
-  // review and plugin crons reach these without a special case).
+  // Memory faculty — available to everyone (the "system" cron role passes meetsMinimumRole,
+  // so the daily review and plugin crons reach these without a special case).
   if (canAccessMemory(ctx.role)) {
     tools.push(createRememberTool());
     tools.push(createRecallTool());

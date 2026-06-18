@@ -96,7 +96,7 @@ The system SHALL expose `sdk.memory.data(schema)` returning `{ get(id), merge(id
 
 ### Requirement: remember and recall query tools
 
-The system SHALL provide a `remember` tool that creates or updates a core memory entry (keyed by namespaced `id`) and a `recall` search tool. Both SHALL be available in normal query sessions (DMs, @mentions), gated to dev+ roles, with the system cron actor permitted.
+The system SHALL provide a `remember` tool that creates or updates a core memory entry (keyed by namespaced `id`) and a `recall` search tool. Both SHALL be available in normal query sessions (DMs, @mentions) to all roles (member and above), with the system cron actor permitted.
 
 The `remember` tool SHALL accept an optional `linkedMemories` argument (an array of `{ id; reason }` edges) and SHALL pass it through to the core entry with omit-to-keep semantics (omitting the argument preserves any existing links; supplying it replaces the array), the same way the other core fields are passed through.
 
@@ -106,7 +106,7 @@ For each returned entry, `recall` SHALL enrich any `linkedMemories` edge whose t
 
 #### Scenario: User remembers an observation mid-session
 
-- **GIVEN** a dev-role user in a DM
+- **GIVEN** a member-role user in a DM
 - **WHEN** they ask Clack to remember a fact with an `id`, `what`, and `why`
 - **THEN** a core memory entry is created or updated
 
@@ -148,11 +148,17 @@ For each returned entry, `recall` SHALL enrich any `linkedMemories` edge whose t
 - **WHEN** `recall` is called with `limit` and `offset`
 - **THEN** at most `limit` entries are returned for that page, with `total` reporting the full match count
 
-#### Scenario: Member role cannot write memory
+#### Scenario: Member role can use memory tools
 
 - **GIVEN** a member-role user
-- **WHEN** they attempt to invoke `remember`
-- **THEN** the tool is not available to them
+- **WHEN** they invoke `remember` or `recall`
+- **THEN** the tools are available to them, the memory faculty being open to all roles
+
+#### Scenario: System cron actor can use memory tools
+
+- **GIVEN** the internal `system` cron actor (the daily review or a plugin cron)
+- **WHEN** it invokes a memory tool
+- **THEN** the tool is available, the system actor passing the role gate
 
 ### Requirement: staleAfter expiry with pre-expire veto hook
 

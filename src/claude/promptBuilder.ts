@@ -111,6 +111,12 @@ export interface PromptOptions {
   role?: UserRole;
   changesWorkflowEnabled?: boolean;
   workMode?: boolean;
+  /**
+   * A pre-rendered block naming the kinds of things currently held in memory (from
+   * `buildTrackedMemoryKinds`), appended to the system prompt so Claude knows what to recall.
+   * Computed async at the call site (the store read is async); omit or pass `""` to inject nothing.
+   */
+  trackedMemoryKinds?: string;
   availableImages?: Map<string, SlackImageFile>;
   availableFiles?: Map<string, SlackFile>;
   userTimezone?: string;
@@ -171,7 +177,9 @@ export function buildSystemPrompt(options?: PromptOptions): string {
     topics: options?.preAttachedTopics,
   });
 
-  return renderLanguageDirective(config.language ?? "en") + cascaded;
+  const trackedMemory = options?.trackedMemoryKinds ? `\n\n${options.trackedMemoryKinds}` : "";
+
+  return renderLanguageDirective(config.language ?? "en") + cascaded + trackedMemory;
 }
 
 function formatSpeaker(msg: { userId: string; username?: string; displayName?: string }): string {

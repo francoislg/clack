@@ -136,3 +136,40 @@ describe("buildSystemPrompt — language directive injection", () => {
     assert.ok(directiveIdx >= 0 && identityIdx > directiveIdx);
   });
 });
+
+describe("buildSystemPrompt — tracked-memory-kinds injection", () => {
+  beforeEach(() => {
+    if (existsSync(tmpBase)) rmSync(tmpBase, { recursive: true });
+    mkdirSync(tmpBase, { recursive: true });
+    process.chdir(tmpBase);
+    writeSlackAuth();
+    writeDefaultFile("user/identity.md", "IDENTITY: You are a test bot.");
+    writeConfig();
+    loadConfig(configPath, true);
+  });
+
+  afterEach(() => {
+    process.chdir(originalCwd);
+    if (existsSync(tmpBase)) rmSync(tmpBase, { recursive: true });
+  });
+
+  it("appends the block after the cascaded content when provided", () => {
+    const block = "## Currently tracked in memory\n\nClack is tracking: asana, clack-pr.";
+    const prompt = buildSystemPrompt({ role: "member", trackedMemoryKinds: block });
+    assert.ok(prompt.includes(block));
+    // Block follows the role-cascaded identity content.
+    assert.ok(prompt.indexOf(block) > prompt.indexOf("IDENTITY:"));
+  });
+
+  it("omits the section when trackedMemoryKinds is an empty string", () => {
+    const prompt = buildSystemPrompt({ role: "member", trackedMemoryKinds: "" });
+    assert.ok(!prompt.includes("Currently tracked in memory"));
+    assert.ok(prompt.startsWith("IDENTITY:"));
+  });
+
+  it("omits the section when trackedMemoryKinds is absent", () => {
+    const prompt = buildSystemPrompt({ role: "member" });
+    assert.ok(!prompt.includes("Currently tracked in memory"));
+    assert.ok(prompt.startsWith("IDENTITY:"));
+  });
+});

@@ -53,8 +53,9 @@ export function canRequestChanges(role: UserRole): boolean {
   return meetsMinimumRole(role, "dev");
 }
 
+// Memory is a faculty for everyone — anyone can ask Clack to remember or recall a fact.
 export function canAccessMemory(role: UserRole): boolean {
-  return meetsMinimumRole(role, "dev");
+  return meetsMinimumRole(role, "member");
 }
 
 export function canManageRoles(role: UserRole): boolean {

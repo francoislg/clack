@@ -6,6 +6,7 @@ import { resolve, join } from "node:path";
 import {
   canEditConfig,
   canRequestChanges,
+  canAccessMemory,
   canManageRoles,
   canTransferOwnership,
   canCreateUserSkill,
@@ -195,6 +196,7 @@ describe("permission matrix", () => {
   const expectations: Record<string, Record<UserRole, boolean>> = {
     canEditConfig: { system: true, owner: true, admin: true, dev: false, member: false },
     canRequestChanges: { system: true, owner: true, admin: true, dev: true, member: false },
+    canAccessMemory: { system: true, owner: true, admin: true, dev: true, member: true },
     canManageRoles: { system: true, owner: true, admin: true, dev: false, member: false },
     // canTransferOwnership uses literal `=== "owner"` — system is excluded by design.
     canTransferOwnership: {
@@ -209,6 +211,7 @@ describe("permission matrix", () => {
   const fns: Record<string, (role: UserRole) => boolean> = {
     canEditConfig,
     canRequestChanges,
+    canAccessMemory,
     canManageRoles,
     canTransferOwnership,
   };
