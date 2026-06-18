@@ -22,8 +22,9 @@ export function buildSummaryPrompt(channel: string): string {
    - Units parked (with the reason)
    - **Ready to merge** (approved PRs awaiting a human)
    - Failures (with the error)
+   Render each item as a Slack hyperlink to its artifact whenever the activity entry's \`detail\` carries a link: \`<url|label>\` (e.g. \`Approved <https://github.com/org/repo/pull/123|PR #123>\`, \`Addressed comments on <permalink|the thread>\`). Use the link from \`detail\` as-is — PR URL, Slack thread permalink, or external surface URL. Items without a link render as plain text.
    End the digest with a spend line: \`🧮 Spend: <inputTokens + outputTokens> tokens · ~$<costUsd to 2 decimals>\` from \`totalUsage\`. Omit this line ONLY if the find_recent_interactions call failed.
-4. Deliver the digest to this channel via submit_response.
+4. Deliver the digest to this channel via submit_response with \`suppress_unfurls: true\` so the linked items do not expand into preview cards.
 5. Call clear_activity so the next window starts fresh.
 
 Keep it skimmable — a human reads this with their coffee. Use plain display names, not pinging mentions, for anyone referenced.`;

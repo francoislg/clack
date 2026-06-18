@@ -27,7 +27,9 @@ export function createRecordActivityTool(sdk: ClackSdk) {
       unitKey: z.string().optional().describe("Related work-unit key, if any"),
       detail: z
         .string()
-        .describe("One-line human-readable detail for the digest (PR url, reason, error)"),
+        .describe(
+          "One-line human-readable detail for the digest. MUST include the canonical link to the artifact this action touched — the PR URL, the Slack thread permalink (for internal-conversation sources), or the external surface URL (Sentry/Asana/…). You hold this link right now from the surface you just acted on; capture it here, because the summary cannot recover it later. Also note the reason (parked) or error (failure) when applicable.",
+        ),
     },
     async (args) => {
       const entry: IdlerActivityEntry = {
