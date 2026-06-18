@@ -228,6 +228,45 @@ The system SHALL support follow-up actions in change thread contexts.
 - **THEN** if `auto` is `true`, the system auto-executes the close workflow after posting
 - **AND** if `auto` is not `true`, the Slack UI renders a danger-styled button for user confirmation
 
+### Requirement: Image Block Source — Public URL or Slack File Reference
+
+A curated `image` block SHALL carry a non-empty `alt_text` and **exactly one** image source: either `image_url` (a publicly fetchable URL that Slack's image proxy retrieves) or `slack_file` (a reference to a Slack-owned file, rendered without a public URL). `slack_file` SHALL carry **exactly one** of `id` (the Slack file id) or `url` (the file's `url_private` or `permalink`). Supplying both `image_url` and `slack_file`, or both `id` and `url` inside `slack_file`, SHALL be rejected at the tool boundary with an actionable error; supplying neither source SHALL also be rejected. The `slack_file` source lets Claude render a private/unshared Slack file — for example the handle returned by `generate_image` — inline in `submit_response`, `post_to`, and `deliver_to` messages.
+
+#### Scenario: image block with a public image_url accepted
+
+- **WHEN** an `image` block carries a non-empty `image_url` and `alt_text` and no `slack_file`
+- **THEN** validation passes
+
+#### Scenario: image block with slack_file id accepted
+
+- **WHEN** an `image` block carries `slack_file: { id }` (non-empty) and `alt_text` and no `image_url`
+- **THEN** validation passes
+
+#### Scenario: image block with slack_file url accepted
+
+- **WHEN** an `image` block carries `slack_file: { url }` (a `url_private`/`permalink`) and `alt_text` and no `image_url`
+- **THEN** validation passes
+
+#### Scenario: image block with both image_url and slack_file rejected
+
+- **WHEN** an `image` block carries both `image_url` and `slack_file`
+- **THEN** the tool returns a validation error naming the block index and stating that exactly one of `image_url` or `slack_file` is allowed
+
+#### Scenario: image block with neither image_url nor slack_file rejected
+
+- **WHEN** an `image` block carries neither `image_url` nor `slack_file`
+- **THEN** the tool returns a validation error naming the block index and stating that the block needs either `image_url` or `slack_file`
+
+#### Scenario: slack_file with both id and url rejected
+
+- **WHEN** an `image` block's `slack_file` carries both `id` and `url`
+- **THEN** the tool returns a validation error naming the block index and stating that `slack_file` needs exactly one of `id` or `url`
+
+#### Scenario: slack_file with neither id nor url rejected
+
+- **WHEN** an `image` block's `slack_file` carries neither `id` nor `url`
+- **THEN** the tool returns a validation error naming the block index and stating that `slack_file` needs exactly one of `id` or `url`
+
 ### Requirement: Claude-Authored Block Kit Responses
 
 The `submit_response` tool SHALL accept a `blocks: Block[]` field where `Block` is a curated subset of Slack Block Kit types. Claude authors the response structure directly by selecting block types appropriate to the content. The curated subset is: `divider`, `header`, `section` (with optional `fields`), `context`, `image`, `markdown`, `card`, `carousel`. Blocks outside this subset are rejected at the tool boundary. `actions` blocks SHALL NOT appear in the `blocks` array — action buttons are driven by the structured `actions: Action[]` field on `submit_response` and rendered by Clack into Slack `actions` blocks at delivery time. Tabular content SHALL NOT appear inside `blocks`; tables are authored via the top-level `table` parameter (see *Top-Level Table Parameter*). A `card` block SHALL NOT carry an inline `actions` field in v1 — card-level interactive buttons are deferred; the top-level `actions: Action[]` field is the only path to interactive buttons.
@@ -331,10 +370,11 @@ The `submit_response` tool SHALL validate every block against per-type Slack Blo
 - **WHEN** any element in a `section` block's `fields` exceeds 2000 characters
 - **THEN** the tool returns a validation error naming the block index, field index, current length, and the 2000-char limit
 
-#### Scenario: image block missing alt_text or image_url
+#### Scenario: image block missing alt_text
 
-- **WHEN** an `image` block has an empty or missing `alt_text` or `image_url`
-- **THEN** the tool returns a validation error naming the missing field
+- **WHEN** an `image` block has an empty or missing `alt_text`
+- **THEN** the tool returns a validation error naming the `alt_text` field
+- **AND** image-source validation (`image_url` vs `slack_file`) is governed by the *Image Block Source — Public URL or Slack File Reference* requirement
 
 #### Scenario: card title exceeds 150 chars
 

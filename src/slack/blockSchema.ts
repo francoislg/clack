@@ -4,8 +4,8 @@ import type {
   HeaderBlock,
   SectionBlock,
   ContextBlock,
-  ImageBlock,
   MarkdownBlock,
+  PlainTextElement,
   TableBlock,
   RawTextElement,
   CardBlock,
@@ -69,9 +69,20 @@ const contextBlockSchema = z.looseObject({
   elements: z.array(contextElementSchema),
 });
 
+// Reference to a stored Slack file by `id` or `url` (its `url_private`/`permalink`).
+// Renders a private file inline without a public URL. The exactly-one-of-id/url rule
+// lives in `validateImage` so the error is actionable.
+const slackFileSchema = z.looseObject({
+  id: z.string().optional(),
+  url: z.string().optional(),
+});
+
+// An image is either a public `image_url` or a `slack_file` reference; both optional
+// here so either variant parses, with the one-of rule enforced in `validateImage`.
 const imageBlockSchema = z.looseObject({
   type: z.literal("image"),
-  image_url: z.string(),
+  image_url: z.string().optional(),
+  slack_file: slackFileSchema.optional(),
   alt_text: z.string(),
   title: plainTextSchema.optional(),
 });
@@ -269,6 +280,22 @@ export type AuthoredTableBlock = Omit<TableBlock, "rows"> & {
 };
 
 /**
+ * Image block as Claude may author it: an `image_url` OR a `slack_file`
+ * reference. Slack's own `ImageBlock` models that as a strict url-XOR-slack_file
+ * union, but the curated zod schema keeps both fields optional and defers the
+ * one-of rule to `validateImage`, so we mirror that looser shape here (the same
+ * authored-vs-Slack split as `AuthoredTableBlock`).
+ */
+export interface AuthoredImageBlock {
+  type: "image";
+  image_url?: string;
+  slack_file?: { id?: string; url?: string };
+  alt_text: string;
+  title?: PlainTextElement;
+  block_id?: string;
+}
+
+/**
  * The curated subset of Slack Block Kit blocks Claude may author inside
  * `blocks`. Types are Slack's own — the Zod schema above validates runtime
  * shape. Tables are deliberately NOT members of this union: see
@@ -279,7 +306,7 @@ export type Block =
   | HeaderBlock
   | SectionBlock
   | ContextBlock
-  | ImageBlock
+  | AuthoredImageBlock
   | MarkdownBlock
   | CardBlock
   | CarouselBlock;

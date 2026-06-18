@@ -18,8 +18,8 @@ const DESCRIPTION =
   "The output is SYNTHETIC — invented by an image model. It is NOT a photograph, NOT a real-world document or screenshot, " +
   "and NOT a depiction of any real person, place, logo, or event. Do not use it as factual or source imagery, and never " +
   "present it as real. Returns no license/attribution metadata because the image has no real-world source. " +
-  "Delivery is controlled by `deliver`: `upload` (default) posts the image to a Slack `channel` you supply, `data` returns " +
-  "the image inline for you to inspect, `both` does both.";
+  "The image is STORED in Slack (not posted anywhere) and the call returns `{ fileId, permalink }`. To show it, emit an " +
+  "image block with `slack_file: { id: fileId }` in your submit_response. To edit it again, pass `permalink` as `input_image_url`.";
 
 const PROVENANCE = { generated: true as const, provenance: "ai-generated" as const };
 
@@ -35,7 +35,7 @@ const Args = {
     .string()
     .optional()
     .describe(
-      "Optional. A Slack image's url_private (or any image URL) to EDIT. When set, the call performs image-to-image editing using `prompt` as the instruction.",
+      "Optional. A Slack image's url_private/permalink (or any image URL) to EDIT. When set, the call performs image-to-image editing using `prompt` as the instruction.",
     ),
   quality: z
     .enum(["fast", "best"])
@@ -43,22 +43,6 @@ const Args = {
     .describe(
       "Image model tier. 'fast' (default): quick, cheap, good for most things. 'best': higher fidelity, better at text-in-image and complex prompts.",
     ),
-  deliver: z
-    .enum(["upload", "data", "both"])
-    .optional()
-    .describe(
-      "Where the image lands. 'upload' (default): post it to Slack (requires `channel`). 'data': return the bytes inline for you to inspect only. 'both': post AND return inline.",
-    ),
-  channel: z
-    .string()
-    .optional()
-    .describe(
-      "Slack channel ID to post to (required for 'upload'/'both'). Use the Channel ID from your context. Not available in DMs/channelless runs — there, use deliver:'data'.",
-    ),
-  thread_ts: z
-    .string()
-    .optional()
-    .describe("Optional thread timestamp to post the upload under, instead of top-level."),
 };
 
 export interface UploadResult {
@@ -73,13 +57,8 @@ export interface UploadResult {
 export interface GenerateImageSlackDeps {
   isConnected(): boolean;
   botToken(): string | null;
-  upload(opts: {
-    channel: string;
-    threadTs?: string;
-    filename: string;
-    data: string;
-    mimeType: string;
-  }): Promise<UploadResult>;
+  /** Upload the image to Slack WITHOUT sharing it to any channel, returning its file handle. */
+  store(opts: { filename: string; data: string }): Promise<UploadResult>;
 }
 
 export interface GenerateImageDeps {
@@ -100,17 +79,14 @@ export function defaultGenerateImageSlackDeps(
     botToken() {
       return getSlackClient()?.token ?? null;
     },
-    async upload(opts) {
+    async store(opts) {
       const client = getSlackClient();
       if (!client) throw new Error("Slack client became unavailable mid-call");
-      const uploadArgs = {
-        channel_id: opts.channel,
+      // Omitting channel_id uploads the file unshared — owned by the bot, not posted anywhere.
+      const result = await client.filesUploadV2({
         file: Buffer.from(opts.data, "base64"),
         filename: opts.filename,
-      };
-      const result = await client.filesUploadV2(
-        opts.threadTs ? { ...uploadArgs, thread_ts: opts.threadTs } : uploadArgs,
-      );
+      });
       const file = result.files?.[0]?.files?.[0];
       return { fileId: file?.id ?? null, permalink: file?.permalink ?? null };
     },
@@ -155,13 +131,9 @@ export function createGenerateImageTool(deps: GenerateImageDeps) {
     }
 
     const editing = args.input_image_url !== undefined && args.input_image_url.trim() !== "";
-    const deliver = args.deliver ?? "upload";
-    const needsUpload = deliver === "upload" || deliver === "both";
 
-    if (needsUpload && (args.channel === undefined || args.channel.trim() === "")) {
-      return errorResult(
-        "deliver 'upload'/'both' requires a `channel` to post to. Supply the Channel ID from your context, or use deliver:'data' (e.g. in a DM or channelless run where no channel is available).",
-      );
+    if (!deps.slack.isConnected()) {
+      return errorResult("Slack is not connected, so the image cannot be stored.");
     }
 
     let input: FetchedImage | undefined;
@@ -187,42 +159,24 @@ export function createGenerateImageTool(deps: GenerateImageDeps) {
       );
     }
 
-    let upload: UploadResult | undefined;
-    if (needsUpload) {
-      if (!deps.slack.isConnected()) {
-        return errorResult(
-          "Slack is not connected, so the image cannot be uploaded. Retry with deliver:'data'.",
-        );
-      }
-      try {
-        upload = await deps.slack.upload({
-          channel: args.channel!,
-          ...(args.thread_ts ? { threadTs: args.thread_ts } : {}),
-          filename: neutralFilename(image.mimeType),
-          data: image.data,
-          mimeType: image.mimeType,
-        });
-      } catch (err) {
-        return errorResult(
-          `Image generated but the Slack upload failed: ${err instanceof Error ? err.message : String(err)}`,
-        );
-      }
+    let stored: UploadResult;
+    try {
+      stored = await deps.slack.store({
+        filename: neutralFilename(image.mimeType),
+        data: image.data,
+      });
+    } catch (err) {
+      return errorResult(
+        `Image generated but storing it in Slack failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
     }
 
     const meta = {
       ...PROVENANCE,
       edited: editing,
-      deliver,
-      ...(upload ? { fileId: upload.fileId, permalink: upload.permalink } : {}),
+      fileId: stored.fileId,
+      permalink: stored.permalink,
     };
-
-    const content: Array<
-      { type: "image"; data: string; mimeType: string } | { type: "text"; text: string }
-    > = [];
-    if (deliver === "data" || deliver === "both") {
-      content.push({ type: "image", data: image.data, mimeType: image.mimeType });
-    }
-    content.push({ type: "text", text: JSON.stringify(meta) });
-    return { content };
+    return { content: [{ type: "text" as const, text: JSON.stringify(meta) }] };
   });
 }
