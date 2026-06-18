@@ -24,4 +24,12 @@ describe("buildSummaryPrompt", () => {
     expect(prompt).toContain("read_activity");
     expect(prompt).toContain("clear_activity");
   });
+
+  it("instructs rendering digest items as Slack hyperlinks", () => {
+    expect(prompt).toContain("<url|label>");
+  });
+
+  it("instructs suppressing unfurls on delivery", () => {
+    expect(prompt).toContain("suppress_unfurls: true");
+  });
 });
