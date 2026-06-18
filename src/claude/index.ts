@@ -8,6 +8,7 @@ import {
 import { getConfig, getRepositoriesDir } from "../config.js";
 import { ClaudeMessageParser, detectPlatformError, isResumeMissingError } from "./messageParser.js";
 import { buildSystemPrompt, buildPrompt } from "./promptBuilder.js";
+import { trackedMemoryKindsForRole } from "../memory/trackedKinds.js";
 import { detectRuntime } from "./utilities.js";
 import { errorMessage } from "../errors.js";
 import { logger } from "../logger.js";
@@ -226,7 +227,8 @@ async function buildQuerySetup(
   // plugin servers below.
   const mcpSetup = await prepareMcpSession(session, config);
 
-  const systemPrompt = buildSystemPrompt(options);
+  const trackedMemoryKinds = await trackedMemoryKindsForRole(options?.role);
+  const systemPrompt = buildSystemPrompt({ ...options, trackedMemoryKinds });
   const userPrompt = buildPrompt(session, {
     ...options,
     mcpRegistry: mcpSetup.registry,
