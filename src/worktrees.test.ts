@@ -226,6 +226,33 @@ describe("createWorktree branch invariant", () => {
       await assert.rejects(createWorktree(repo, branch), /clack\/<type>\/<name>/);
     }
   });
+
+  it("refuses a protected branch even when resuming an existing remote branch", async () => {
+    const repo = makeRepo();
+    for (const branch of ["main", "master"]) {
+      await assert.rejects(createWorktree(repo, branch, true), /protected branch/);
+    }
+  });
+
+  it("skips the convention backstop when resuming an existing remote branch", async () => {
+    const originalCwd = process.cwd();
+    rmSync(tmpBase, { recursive: true, force: true });
+    mkdirSync(tmpWorktreesDir, { recursive: true });
+    process.chdir(tmpBase);
+    try {
+      const repo = makeRepo();
+      // resumeRemoteBranch=true bypasses isValidBranchName, so an off-convention name
+      // gets past the guard and fails later on the missing local repo — never with the
+      // clack/<type>/<name> message.
+      await assert.rejects(
+        createWorktree(repo, "feature/human-made-branch", true),
+        (err: Error) => !/clack\/<type>\/<name>/.test(err.message),
+      );
+    } finally {
+      process.chdir(originalCwd);
+      rmSync(tmpBase, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("WorktreeInfo", () => {

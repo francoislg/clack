@@ -11,7 +11,7 @@ import { logger } from "./logger.js";
 import { errorMessage } from "./errors.js";
 import { getGitInstance, setAuthenticatedRemote } from "./repositories.js";
 import { resolveRemoteBase } from "./workers/branchSwitch.js";
-import { isValidBranchName } from "./changes/branchNaming.js";
+import { isValidBranchName, isProtectedBranchName } from "./changes/branchNaming.js";
 
 /**
  * Find the repository config by name to get its URL for token auth.
@@ -64,11 +64,18 @@ export async function createWorktree(
   branchName: string,
   resumeRemoteBranch = false,
 ): Promise<WorktreeInfo> {
-  // Backstop to propose_change's BRANCH_PATTERN guard: a worker branch must be clack/<type>/<name>.
-  if (!isValidBranchName(branchName)) {
+  // Backstop to propose_change's BRANCH_PATTERN guard: a NEW worker branch must be
+  // clack/<type>/<name>. A resume targets an existing remote branch, so its name is a given.
+  if (!resumeRemoteBranch && !isValidBranchName(branchName)) {
     throw new Error(
       `Refusing to create a worktree on branch "${branchName}": worker branches must follow clack/<type>/<name>.`,
     );
+  }
+
+  // The protected-branch refusal survives a resume, so the main clone's default branch is
+  // never reset or clobbered by worktree provisioning.
+  if (isProtectedBranchName(branchName, repo.branch || "main")) {
+    throw new Error(`Refusing to create a worktree on protected branch "${branchName}".`);
   }
 
   const reposDir = getRepositoriesDir();

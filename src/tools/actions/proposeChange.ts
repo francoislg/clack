@@ -9,7 +9,7 @@ import type { PersistedSessionState } from "../../changes/types.js";
 import { canWriteRepo, getWritableRepos } from "../../repoAccess.js";
 import type { RepositoryConfig } from "../../config.js";
 import type { UserRole } from "../../roles.js";
-import { BRANCH_PATTERN, BRANCH_TYPES } from "../../changes/branchNaming.js";
+import { BRANCH_PATTERN, BRANCH_TYPES, isProtectedBranchName } from "../../changes/branchNaming.js";
 
 export interface ProposeChangeDeps {
   getExistingWorktree: (repo: RepositoryConfig, branchName: string) => WorktreeInfo | null;
@@ -51,12 +51,14 @@ export function createProposeChangeTool(
         .boolean()
         .optional()
         .describe(
-          "Set true ONLY when `branch` is an EXISTING open pull request you are continuing (e.g. addressing review comments), not starting fresh. The worker is acquired from the branch's own remote head so its commits are preserved instead of being reset to the default branch.",
+          "Set true ONLY when `branch` is an EXISTING remote branch you are continuing (e.g. addressing review comments on its open PR, or pushing follow-up commits to a branch a human already created), not starting fresh. The worker is acquired from the branch's own remote head so its commits are preserved instead of being reset to the default branch. When true, the `clack/{type}/{name}` naming convention is NOT enforced — the branch already exists, so its name is taken as-is.",
         ),
     },
     async (args) => {
-      // Validate branch convention
-      if (!BRANCH_PATTERN.test(args.branch)) {
+      // The convention only constrains NEW branches. A continuation targets a branch that
+      // already exists, so its name is taken as-is; a name that isn't really on the remote
+      // fails later with RemoteBranchNotFound rather than minting an off-convention branch.
+      if (!args.continue_existing_pr && !BRANCH_PATTERN.test(args.branch)) {
         const errMsg = `Invalid branch name "${args.branch}". Must follow convention: clack/{type}/{name} where type is one of: ${BRANCH_TYPES.join(", ")}`;
         return errorResult(errMsg);
       }
@@ -75,6 +77,14 @@ export function createProposeChangeTool(
           .map((r) => r.name);
         const errMsg = `You do not have write access to "${args.repo}".${writableRepos.length > 0 ? ` Repos you can change: ${writableRepos.join(", ")}` : " No repos have change support for your role."}`;
         return errorResult(errMsg);
+      }
+
+      // Refused even on continuation: relaxing the convention must not let a change target the
+      // default/protected branch, which would never be a valid PR branch to push to.
+      if (isProtectedBranchName(args.branch, repo.branch || "main")) {
+        return errorResult(
+          `Cannot make changes directly on protected branch "${args.branch}". Use a feature branch.`,
+        );
       }
 
       // Check for existing worktree

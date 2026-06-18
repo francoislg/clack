@@ -6,10 +6,8 @@ import { getAuthenticatedCloneUrl } from "../../github.js";
 import { appendExecutionLog } from "../../changes/persistence.js";
 import { findRepoByName, type Config, type RepositoryConfig } from "../../config.js";
 import { errorMessage } from "../../errors.js";
+import { isProtectedBranchName } from "../../changes/branchNaming.js";
 import { simpleGit } from "simple-git";
-
-/** Branch names a worker is never allowed to push to, on top of the repo's own default branch. */
-const PROTECTED_BRANCH_NAMES = ["main", "master"];
 
 /**
  * Minimal subset of `SimpleGit` the push tool needs. The default dep wraps the
@@ -49,15 +47,6 @@ export const defaultGitPushDeps: GitPushDeps = {
   },
 };
 
-/**
- * The branch is protected when it is the repository's configured default branch
- * or one of the always-protected names. This is a local static comparison — it
- * never consults GitHub's branch-protection configuration.
- */
-function isProtectedBranch(branchName: string, defaultBranch: string): boolean {
-  return branchName === defaultBranch || PROTECTED_BRANCH_NAMES.includes(branchName);
-}
-
 export function createGitPushTool(ctx: WorkerToolContext, deps: GitPushDeps = defaultGitPushDeps) {
   return tool(
     "git_push",
@@ -74,7 +63,7 @@ export function createGitPushTool(ctx: WorkerToolContext, deps: GitPushDeps = de
       try {
         const defaultBranch = deps.findRepoByName(ctx.repoName, ctx.config)?.branch || "main";
 
-        if (isProtectedBranch(ctx.branchName, defaultBranch)) {
+        if (isProtectedBranchName(ctx.branchName, defaultBranch)) {
           deps.appendExecutionLog(
             ctx.branchName,
             `git_push: refused — "${ctx.branchName}" is a protected branch`,
