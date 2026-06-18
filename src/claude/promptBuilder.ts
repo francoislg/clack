@@ -244,17 +244,6 @@ function attentionLevelGuidance(session: SessionContext): string[] {
   ];
 }
 
-/**
- * Hint surfaced for thread-bearing triggers so Claude can route tools that post DIRECTLY to
- * Slack (e.g. `generate_image`'s `filesUploadV2` upload) into the conversation's thread. Unlike
- * `submit_response`, whose channel/thread routing is supplied by bot infrastructure, those tools
- * depend on Claude passing `thread_ts` — without the value in the prompt the upload defaults to
- * the channel root.
- */
-function directPostThreadHint(threadTs: string): string {
-  return `- This conversation is in a thread (thread_ts: ${threadTs}). Tools that post DIRECTLY to Slack (e.g. \`generate_image\`) should pass this \`thread_ts\` so their output lands in this thread, not the channel root.`;
-}
-
 function buildDeliveryContext(session: SessionContext): string | null {
   if (!session.triggerType) return null;
 
@@ -373,11 +362,6 @@ function buildDeliveryContext(session: SessionContext): string | null {
     } else {
       lines.push("- Mode: Thread reply (you are continuing a conversation in a thread)");
     }
-    // Both auto-respond and thread-reply turns post into a thread by default, so a
-    // direct-posting tool's output should thread too.
-    if (session.threadTs && !isChannellessChannelId(session.channelId)) {
-      lines.push(directPostThreadHint(session.threadTs));
-    }
     lines.push("- Do NOT include `accept` or `reject` actions — they have no meaning here.");
     lines.push(
       "- If this specific message doesn't need your input but the thread might still be relevant, use `skip_response` to stay silent while remaining engaged (temporary silence, you stay tracked).",
@@ -395,13 +379,6 @@ function buildDeliveryContext(session: SessionContext): string | null {
     lines.push(
       "- The response is already visible to the user. There is no separate destination to send it to.",
     );
-    if (
-      session.triggerType !== "directMessages" &&
-      session.threadTs &&
-      !isChannellessChannelId(session.channelId)
-    ) {
-      lines.push(directPostThreadHint(session.threadTs));
-    }
     lines.push("- Do NOT include `accept` or `reject` actions — they have no meaning here.");
     lines.push(
       "- By default, do NOT include `post_to` — the answer is already visible in the thread.",

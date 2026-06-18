@@ -258,32 +258,63 @@ export function validateTable(
 // Fields Slack accepts on an image block. Anything else triggers
 // `ignored_extra_attributes_for_image_block` warnings server-side, so we reject
 // them here and hand Claude an actionable error instead.
-const ALLOWED_IMAGE_KEYS = new Set(["type", "image_url", "alt_text", "title", "block_id"]);
+const ALLOWED_IMAGE_KEYS = new Set([
+  "type",
+  "image_url",
+  "slack_file",
+  "alt_text",
+  "title",
+  "block_id",
+]);
+
+// An image references its source by a public `image_url` OR a `slack_file`
+// ({ id } or { url }) — exactly one of the two. Slack rejects payloads that
+// supply both or neither, so we surface an actionable error here instead.
+function imageSourceError(field: string, message: string): BlockValidationError[] {
+  return [{ field, message, currentLength: 0, limit: 0 }];
+}
+
+function validateImageSource(
+  block: Extract<Block, { type: "image" }>,
+  i: number,
+): BlockValidationError[] {
+  const { image_url: imageUrl, slack_file: slackFile } = block;
+
+  if (imageUrl !== undefined && slackFile !== undefined) {
+    return imageSourceError(
+      `blocks[${i}]`,
+      `blocks[${i}] (image) has both \`image_url\` and \`slack_file\` — provide exactly one.`,
+    );
+  }
+  if (imageUrl !== undefined) {
+    if (imageUrl.length > 0) return [];
+    return imageSourceError(
+      `blocks[${i}].image_url`,
+      `blocks[${i}] (image) requires a non-empty \`image_url\`.`,
+    );
+  }
+  if (slackFile !== undefined) {
+    const hasId = !!slackFile.id && slackFile.id.length > 0;
+    const hasFileUrl = !!slackFile.url && slackFile.url.length > 0;
+    if (hasId === hasFileUrl) {
+      return imageSourceError(
+        `blocks[${i}].slack_file`,
+        `blocks[${i}] (image) \`slack_file\` needs exactly one of \`id\` or \`url\` (the file's \`url_private\`/\`permalink\`).`,
+      );
+    }
+    return [];
+  }
+  return imageSourceError(
+    `blocks[${i}].image_url`,
+    `blocks[${i}] (image) needs either \`image_url\` (a public URL) or \`slack_file\` (a stored Slack file via \`{ id }\` or \`{ url }\`).`,
+  );
+}
 
 function validateImage(
   block: Extract<Block, { type: "image" }>,
   i: number,
 ): BlockValidationError[] {
-  const errors: BlockValidationError[] = [];
-  // Our curated subset only accepts URL-based images (not slack_file references),
-  // so we narrow to the UrlImageObject variant via `in`.
-  if ("image_url" in block) {
-    if (block.image_url.length === 0) {
-      errors.push({
-        field: `blocks[${i}].image_url`,
-        message: `blocks[${i}] (image) requires a non-empty \`image_url\`.`,
-        currentLength: 0,
-        limit: 0,
-      });
-    }
-  } else {
-    errors.push({
-      field: `blocks[${i}].image_url`,
-      message: `blocks[${i}] (image) is missing \`image_url\`. Our curated subset requires a URL-based image.`,
-      currentLength: 0,
-      limit: 0,
-    });
-  }
+  const errors: BlockValidationError[] = validateImageSource(block, i);
   if (block.alt_text.length === 0) {
     errors.push({
       field: `blocks[${i}].alt_text`,
@@ -297,7 +328,7 @@ function validateImage(
   if (extras.length > 0) {
     errors.push({
       field: `blocks[${i}]`,
-      message: `blocks[${i}] (image) has unsupported field(s): ${extras.map((k) => `\`${k}\``).join(", ")}. Slack logs an \`ignored_extra_attributes_for_image_block\` warning for these — remove them. Allowed fields: \`type\`, \`image_url\`, \`alt_text\`, \`title\`, \`block_id\`.`,
+      message: `blocks[${i}] (image) has unsupported field(s): ${extras.map((k) => `\`${k}\``).join(", ")}. Slack logs an \`ignored_extra_attributes_for_image_block\` warning for these — remove them. Allowed fields: \`type\`, \`image_url\`, \`slack_file\`, \`alt_text\`, \`title\`, \`block_id\`.`,
       currentLength: extras.length,
       limit: 0,
     });

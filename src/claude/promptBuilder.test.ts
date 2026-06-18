@@ -2,7 +2,6 @@ import { describe, it } from "vitest";
 import assert from "node:assert/strict";
 import { buildPrompt, renderAdminClaimContext, messageClaimsAdmin } from "./promptBuilder.js";
 import type { SessionContext } from "../sessions.js";
-import { makeChannellessChannelId } from "../channelless.js";
 
 /**
  * Build a minimal SessionContext for testing. Only the fields
@@ -310,42 +309,6 @@ describe("buildPrompt", () => {
     });
     const prompt = buildPrompt(session);
     assert.ok(prompt.includes("Channel mention"));
-  });
-
-  // ---- direct-post thread hint (so generate_image and friends thread their uploads) ----
-  const THREAD_TS = "1781710715.483449";
-
-  for (const triggerType of ["reactions", "mentions", "threadReply", "autoRespond"] as const) {
-    it(`surfaces the thread_ts value for ${triggerType} so direct-posting tools can thread`, () => {
-      const session = makeSession({
-        triggerType,
-        channelId: "C123",
-        threadTs: THREAD_TS,
-      });
-      const prompt = buildPrompt(session);
-      assert.ok(prompt.includes(`thread_ts: ${THREAD_TS}`));
-      assert.ok(prompt.includes("post DIRECTLY to Slack"));
-    });
-  }
-
-  it("omits the direct-post thread hint for direct messages", () => {
-    const session = makeSession({
-      triggerType: "directMessages",
-      channelId: "D123",
-      threadTs: THREAD_TS,
-    });
-    const prompt = buildPrompt(session);
-    assert.ok(!prompt.includes(`thread_ts: ${THREAD_TS}`));
-  });
-
-  it("omits the direct-post thread hint for channelless scheduled runs", () => {
-    const session = makeSession({
-      triggerType: "threadReply",
-      channelId: makeChannellessChannelId("job1"),
-      threadTs: THREAD_TS,
-    });
-    const prompt = buildPrompt(session);
-    assert.ok(!prompt.includes(`thread_ts: ${THREAD_TS}`));
   });
 
   // ---- attention-level guidance ----

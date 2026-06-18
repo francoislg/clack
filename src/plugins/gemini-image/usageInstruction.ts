@@ -13,24 +13,25 @@ Use it when someone explicitly wants an image MADE: an illustration, a concept, 
 ## Generating vs editing
 
 - **Generate**: pass \`prompt\` describing what to create.
-- **Edit (image-to-image)**: also pass \`input_image_url\` — the \`url_private\` of an image the user uploaded (or any image URL). \`prompt\` becomes the edit instruction (e.g. "make the sky purple").
+- **Edit (image-to-image)**: also pass \`input_image_url\` — the \`url_private\`/\`permalink\` of an image the user uploaded, a \`permalink\` from an earlier \`generate_image\` call, or any image URL. \`prompt\` becomes the edit instruction (e.g. "make the sky purple").
 
 ## Quality
 
 \`quality: "fast"\` (default) is quick and cheap and fine for most things. \`quality: "best"\` is higher fidelity and better at text-inside-the-image and complex prompts.
 
-## Delivery — how the user actually sees it
+## Delivery — store, then show it yourself
 
-- \`deliver: "upload"\` (default) posts the image into Slack. You MUST pass \`channel\` — use the Channel ID from your context. The result gives you \`{ fileId, permalink }\`.
-- When the delivery context says the conversation is in a thread and gives a \`thread_ts\`, ALSO pass that \`thread_ts\` so the image posts in the thread instead of at the top of the channel.
-- \`deliver: "data"\` returns the image inline so YOU can inspect it, but does NOT show it to the user. Use this only when you need to look at the result yourself (e.g. before editing again).
-- \`deliver: "both"\` posts AND returns inline.
+The tool does NOT post the image anywhere. It STORES it in Slack (unshared, owned by the bot) and returns \`{ fileId, permalink }\`. You decide what to do with that handle — it works the same in DMs, channels, and channelless runs (no \`channel\` needed).
 
-## One image per request
+**To show the image to the user**, put an \`image\` block in your \`submit_response\` (or any \`post_to\`/\`deliver_to\` message) referencing the stored file by id:
 
-A single request from the user should result in exactly ONE image posted to Slack — not a series of variations. Do not call \`generate_image\` repeatedly with \`deliver: "upload"\`/\`"both"\` to post several attempts. If you want to inspect or refine a result before showing it, do that with \`deliver: "data"\` (which does NOT post), and only \`upload\` the single final pick. Generate multiple posted images only when the user explicitly asks for more than one.
+\`\`\`json
+{ "type": "image", "slack_file": { "id": "<fileId from the result>" }, "alt_text": "a short description" }
+\`\`\`
 
-In a DM or any context where you don't have a Channel ID, \`upload\` won't work — there is no channel to post to. Tell the user you can't post images there, or use \`deliver: "data"\` to inspect.
+Reference the file via \`slack_file\` (with the \`fileId\`), NOT the \`image_url\` field — \`image_url\` is only for public URLs, and the stored file's \`permalink\` is auth-gated so Slack can't fetch it there. One image block renders one image; include it wherever you want the user to see it.
 
-The uploaded file's \`permalink\` is auth-gated — do NOT paste it into an \`image\` block's \`image_url\` (it won't render). The upload itself already makes the image visible in the channel; you don't need to re-embed it.
+## Refining before you show
+
+Because nothing is posted until you emit the image block, you can generate, then \`generate_image\` again with \`input_image_url\` set to the previous \`permalink\` to refine, and only show the final pick. A single user request should result in ONE image shown unless they ask for several.
 `;

@@ -159,6 +159,13 @@ describe("validateBlocks — section", () => {
 });
 
 describe("validateBlocks — image", () => {
+  // The zod image schema infers a looser shape than @slack/types' ImageBlock (which
+  // requires url XOR slack_file), so parse output needs a cast to land in `Block`.
+  const parseImage = (raw: unknown): Block => {
+    const parsed = BlockSchema.parse(raw);
+    return parsed as Block;
+  };
+
   it("accepts valid image with url + alt_text", () => {
     const block: Block = {
       type: "image",
@@ -197,7 +204,7 @@ describe("validateBlocks — image", () => {
   });
 
   it("rejects unsupported fields (fallback, image_width, etc.) to avoid Slack's ignored_extra_attributes warning", () => {
-    const block = BlockSchema.parse({
+    const block = parseImage({
       type: "image",
       image_url: "https://example.com/x.png",
       alt_text: "ok",
@@ -214,7 +221,7 @@ describe("validateBlocks — image", () => {
   });
 
   it("accepts the allowed optional fields (title, block_id)", () => {
-    const block = BlockSchema.parse({
+    const block = parseImage({
       type: "image",
       image_url: "https://example.com/x.png",
       alt_text: "ok",
@@ -222,6 +229,72 @@ describe("validateBlocks — image", () => {
       block_id: "my-image",
     });
     assert.equal(validateBlocks([block]).length, 0);
+  });
+
+  it("accepts a slack_file image referenced by id", () => {
+    const block = parseImage({
+      type: "image",
+      slack_file: { id: "F0123456" },
+      alt_text: "a stored image",
+    });
+    assert.equal(validateBlocks([block]).length, 0);
+  });
+
+  it("accepts a slack_file image referenced by url", () => {
+    const block = parseImage({
+      type: "image",
+      slack_file: { url: "https://files.slack.com/x/url_private" },
+      alt_text: "a stored image",
+    });
+    assert.equal(validateBlocks([block]).length, 0);
+  });
+
+  it("rejects an image with both image_url and slack_file", () => {
+    const block = parseImage({
+      type: "image",
+      image_url: "https://example.com/x.png",
+      slack_file: { id: "F0123456" },
+      alt_text: "ok",
+    });
+    const errors = validateBlocks([block]);
+    assert.equal(errors.length, 1);
+    assert.equal(errors[0].field, "blocks[0]");
+    assert.match(errors[0].message, /exactly one/);
+  });
+
+  it("rejects an image with neither image_url nor slack_file", () => {
+    const block = parseImage({ type: "image", alt_text: "ok" });
+    const errors = validateBlocks([block]);
+    assert.equal(errors.length, 1);
+    assert.equal(errors[0].field, "blocks[0].image_url");
+    assert.match(errors[0].message, /slack_file/);
+  });
+
+  it("rejects a slack_file with both id and url", () => {
+    const block = parseImage({
+      type: "image",
+      slack_file: { id: "F0123456", url: "https://files.slack.com/x" },
+      alt_text: "ok",
+    });
+    const errors = validateBlocks([block]);
+    assert.equal(errors.length, 1);
+    assert.equal(errors[0].field, "blocks[0].slack_file");
+    assert.match(errors[0].message, /exactly one of `id` or `url`/);
+  });
+
+  it("rejects a slack_file with neither id nor url", () => {
+    const block = parseImage({ type: "image", slack_file: {}, alt_text: "ok" });
+    const errors = validateBlocks([block]);
+    assert.equal(errors.length, 1);
+    assert.equal(errors[0].field, "blocks[0].slack_file");
+  });
+
+  it("rejects a slack_file whose id is an empty string (treated as no source)", () => {
+    const block = parseImage({ type: "image", slack_file: { id: "" }, alt_text: "ok" });
+    const errors = validateBlocks([block]);
+    assert.equal(errors.length, 1);
+    assert.equal(errors[0].field, "blocks[0].slack_file");
+    assert.match(errors[0].message, /exactly one of `id` or `url`/);
   });
 });
 
