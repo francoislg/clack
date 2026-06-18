@@ -21728,7 +21728,7 @@
       "label": "buildSyncPrompt()",
       "file_type": "code",
       "source_file": "src/plugins/idler/prompts/sync.ts",
-      "source_location": "L8",
+      "source_location": "L12",
       "id": "prompts_sync_buildsyncprompt",
       "community": 7,
       "norm_label": "buildsyncprompt()"
@@ -112292,7 +112292,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "src/plugins/idler/prompts/sync.ts",
-      "source_location": "L8",
+      "source_location": "L12",
       "weight": 1.0,
       "_src": "src_plugins_idler_prompts_sync_ts",
       "_tgt": "prompts_sync_buildsyncprompt",

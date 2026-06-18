@@ -7,19 +7,38 @@ function config(scanMemory: boolean): IdlerConfig {
   return { ...DEFAULT_CONFIG, sources: { ...DEFAULT_CONFIG.sources, scanMemory } };
 }
 
-describe("buildSyncPrompt — memory scan", () => {
-  it("includes the memory-scan block and classification rule when scanMemory is true", () => {
+describe("buildSyncPrompt — every-fire memory maintenance", () => {
+  it("runs close-resolved, memory triage, and recompute every fire (not as a round-robin arm)", () => {
     const prompt = buildSyncPrompt(config(true), "fetch");
-    expect(prompt).toContain("Memory scan source enabled: true");
-    expect(prompt).toContain("MEMORY SCAN");
+    expect(prompt).toContain("Memory triage enabled: true");
+    // Close-resolved is part of the every-fire maintenance pass.
+    expect(prompt).toContain("CLOSE RESOLVED");
+    expect(prompt).toContain("open:false");
+    // Triage is an every-fire step, not one of the rotated discovery sources.
+    expect(prompt).toContain("TRIAGE RECENTLY-CHANGED MEMORY (every fire)");
     expect(prompt).toContain("recall");
     expect(prompt).toContain("ignoredAt EQUALS");
     expect(prompt).toContain("ignore: true");
+    // Triage is step 2, so recompute is step 3 when scanMemory is enabled.
+    expect(prompt).toContain("3. RECOMPUTE PRIORITY");
   });
 
-  it("omits the memory-scan block when scanMemory is false", () => {
+  it("keeps memory out of the external round-robin", () => {
+    const prompt = buildSyncPrompt(config(true), "fetch");
+    expect(prompt).toContain("External discovery");
+    expect(prompt).toContain("Memory is NOT a discovery source here");
+  });
+
+  it("still closes resolved units and recomputes priority when scanMemory is false", () => {
     const prompt = buildSyncPrompt(config(false), "fetch");
-    expect(prompt).toContain("Memory scan source enabled: false");
-    expect(prompt).not.toContain("MEMORY SCAN");
+    expect(prompt).toContain("Memory triage enabled: false");
+    expect(prompt).toContain("CLOSE RESOLVED");
+    // With triage omitted, recompute moves up to step 2 — no gap in the numbering.
+    expect(prompt).toContain("2. RECOMPUTE PRIORITY");
+  });
+
+  it("omits the memory-triage block when scanMemory is false", () => {
+    const prompt = buildSyncPrompt(config(false), "fetch");
+    expect(prompt).not.toContain("TRIAGE RECENTLY-CHANGED MEMORY");
   });
 });
