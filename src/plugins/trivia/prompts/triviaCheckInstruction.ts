@@ -146,16 +146,46 @@ When an admin asks **which trivia games exist** or **what's running where**: cal
 
 **The \`game\` slug is internal coordination metadata** — every trivia tool requires it as an argument, but you SHOULD NOT mention the slug to end users in user-facing posts unless an admin explicitly asks for it. In scheduled runs, the slug is baked into the prompt; in reactive (DM / mention / reaction) sessions, resolve it from the session's channel by matching against the channel field returned by \`list_games\`. If no game matches the channel, refuse with "no trivia game is configured for this channel."
 
-## Admin: correcting a verdict or a cheat after the reveal
+## Admin: overriding a result after the reveal
 
-Two always-available admin tools (no integration to attach) fix a reveal that judged or flagged something wrong. Both only make sense AFTER a question has been revealed.
+When an admin judges a result differently than the reveal did ("mark Alice's answer correct", "that should have counted", "override the result for Bob") — follow the EXACT sequence below. The question MUST already be revealed; there is nothing to override before that. The shape depends on WHY the verdict is wrong — first decide whether it's ONE player or EVERYONE.
 
-- \`override_answer(game, questionId, userId, correct, reason)\` — hand-set ONE player's verdict when the freeform judge got it wrong (or to grant a deliberate one-off exception). \`reason\` is required. The original machine verdict is preserved, so a later reprocess won't revert your fix and you can undo it with \`override_answer(game, questionId, userId, restore: true)\`.
-- \`remove_cheat(game, cheaterUserId, questionId)\` — drop a wrongly-recorded cheat and roll back that player's cheat counter.
+**Case 1 — One player, freeform answer the judge got wrong (the usual "override the result" ask):**
 
-For a wrong BOOLEAN / CHOICE verdict, the cause is almost always a wrong answer KEY — fix \`isTrue\` / \`correctIndex\` on the question and reprocess so EVERY player is corrected at once, rather than overriding players one by one. Reserve \`override_answer\` on boolean/choice for a true per-player exception.
+1. \`override_answer(game, questionId, userId, correct: true|false, reason: "<why>")\` — hand-sets THAT one player's verdict. \`reason\` is required and stored on the row. The original machine verdict is captured as a lock, so the reprocess in step 2 won't revert your fix.
+2. \`compute_answers(game, reprocessQuestionIds: [questionId])\` — re-derives every OTHER row from the answer key while leaving your override in place.
+3. \`update_answers_block(game, batchId)\` — repaints the card so the corrected standings show.
 
-After either tool, the already-posted reveal card is stale. To refresh it, run the existing two-step flow: \`compute_answers\` (reprocess that question) → \`update_answers_block\`. Reprocess re-derives every other row but leaves your override in place.
+To UNDO an override later: \`override_answer(game, questionId, userId, restore: true)\` (omit \`correct\`/\`reason\`), then repeat steps 2–3.
+
+**Case 2 — Everyone scored against a wrong BOOLEAN / CHOICE answer KEY:** do NOT override player by player. Fix the key once so every player is corrected together.
+
+1. \`settle_question(game, questionId, outcome: <correct value>, override: true)\` — re-stamps \`isTrue\` / \`correctIndex\` and clears the stale verdicts. \`override: true\` is REQUIRED because the question already has a key.
+2. \`compute_answers(game, reprocessQuestionIds: [questionId])\` — rescores EVERY player against the corrected key at once.
+3. \`update_answers_block(game, batchId)\` — repaints the card.
+
+**Case 3 — A cheat was recorded against a player by mistake:**
+
+1. \`remove_cheat(game, cheaterUserId, questionId)\` — drops the cheat and rolls back that player's cheat counter.
+2. \`compute_answers(game, reprocessQuestionIds: [questionId])\` — rescores the question now that the player is no longer excluded.
+3. \`update_answers_block(game, batchId)\` — repaints the card.
+
+## Admin: replaying a bad question
+
+When an admin asks to **replay / redo / swap out a bad question** (it's ambiguous, the answer key is wrong beyond repair, it's a duplicate, etc.), follow the EXACT sequence below — do NOT improvise. Which sequence depends on whether the question's batch has been REVEALED yet (a question is unrevealed until its reveal fires; check by whether its results are already posted). The replacement ALWAYS lands so the round keeps its question count.
+
+**A — Mid-window (the question is still LIVE, votes open, not yet revealed):**
+
+1. \`settle_question(game, questionId, invalidate: true, invalidatedReason: "<specific reason>")\` — marks it invalidated (0 points) and clears any votes already cast on it.
+2. \`update_answers_block(game, batchId, questionIds: [questionId])\` — repaints ONLY that one card into its "❌ Invalidated" state. The \`questionIds\` filter is REQUIRED here: without it the whole batch repaints and the still-live sibling questions get prematurely revealed. Get the \`batchId\` from the question record (or pass the question's id as \`batchId\` for a legacy undefined-batch row).
+3. Generate a replacement (\`get_ideas\` → \`save_question\`) and post it into the SAME batch: \`post_questions(game, items: [...], appendToPreviousBatch: true)\`. Append mode joins the live batch so the replacement reveals alongside its siblings. It refuses if the batch was already revealed — if that happens, you're in case B, not A.
+4. Nothing else. At reveal, \`compute_answers\` automatically skips the invalidated question (returns it under \`invalidatedQuestions\`, scores 0) and reveals the replacement.
+
+**B — After the reveal (the batch is already scored):** the round is closed — there is NO replacement, just a void. Do NOT generate or post a new question.
+
+1. \`settle_question(game, questionId, invalidate: true, invalidatedReason: "<reason>")\` — clears verdicts.
+2. \`compute_answers(game, reprocessQuestionIds: [questionId])\` — re-scores the batch so the voided question stops counting for everyone.
+3. \`update_answers_block(game, batchId)\` — repaints the cards (the whole batch is already revealed, so no \`questionIds\` filter is needed; the voided one becomes "❌ Invalidated").
 `;
 
 const SEASONS_ADMIN_ADDENDUM = `
