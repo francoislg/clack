@@ -175,7 +175,7 @@ The system SHALL refuse to switch branches on a worker with modified-tracked fil
 
 ### Requirement: Worker Release Lifecycle
 
-The system SHALL release a worker on PR merge, PR close, idle timeout, cancellation, or failure — preserving the folder in all cases.
+The system SHALL release a worker on PR merge, PR close, idle timeout, cancellation, discard, or failure — preserving the folder in all cases. The idle-release sweep SHALL cover workers claimed by sessions whose change status is `pr_created` OR `failed`. For failed-session releases, a branch with committed-but-unpushed work SHALL be treated as dirty and quarantined rather than released.
 
 #### Scenario: Release on PR merged
 - **GIVEN** a worker is busy on a branch whose PR has been merged
@@ -210,6 +210,22 @@ The system SHALL release a worker on PR merge, PR close, idle timeout, cancellat
 - **THEN** the worker is quarantined per the branch-switch quarantine path
 - **AND** the session's claim is retained (NOT detached) until the quarantine is cleared
 
+#### Scenario: Idle release covers failed sessions (clean, fully pushed)
+- **GIVEN** a worker is busy with `claimedBy` set
+- **AND** the claim's session has `activeChange.status === "failed"` and no live `handle`
+- **AND** `lastUsedAt` is older than `idleReleaseHours` ago
+- **AND** the worker passes the dirty-check
+- **AND** the worker's branch has no commits ahead of its upstream
+- **WHEN** the idle-release sweep runs
+- **THEN** the worker is released like a clean `pr_created` idle release (detach, switch to `origin/<defaultBranch>`)
+
+#### Scenario: Failed-session release with unpushed commits quarantines
+- **GIVEN** a worker claimed by a `failed` session that is past the idle window
+- **AND** the worker's branch has committed-but-unpushed work (ahead of upstream, or no upstream)
+- **WHEN** the idle-release sweep runs
+- **THEN** the worker is quarantined instead of released
+- **AND** the unpushed commits are preserved
+
 #### Scenario: Release rejected for in-flight work
 - **GIVEN** a worker's claim has a live `ClaudeRunHandle`
 - **WHEN** the idle-release sweep runs
@@ -243,7 +259,7 @@ The system SHALL provide `pool.findByBranch(repo, branch)` returning a worker th
 
 ### Requirement: Setup-Version Invalidation
 
-The system SHALL re-run worker setup when the per-repo `worktree_setup_instructions.md` content hash differs from the worker's recorded `setupVersionHash`.
+The system SHALL re-run worker setup when the per-repo `worktree_setup_instructions.md` content hash differs from the worker's recorded `setupVersionHash`. The hash check SHALL run on EVERY acquire path that claims a worker — including the branch-sticky path (worker already on the requested branch) — and on the recovery paths (`continue`, `restart`) before re-entering execution.
 
 #### Scenario: Hash matches, setup skipped
 - **GIVEN** a worker with `setupVersionHash === sha256(currentInstructions)`
@@ -256,6 +272,17 @@ The system SHALL re-run worker setup when the per-repo `worktree_setup_instructi
 - **THEN** the worker is marked `initializing`
 - **AND** setup runs to completion
 - **AND** `setupVersionHash` is updated to the current hash
+
+#### Scenario: Branch-sticky acquire heals stale setup
+- **GIVEN** an idle worker already checked out on the requested branch
+- **AND** its `setupVersionHash` does not match the current instructions hash
+- **WHEN** acquire claims it via the branch-sticky path
+- **THEN** setup re-runs and the install step runs before the worker is handed out
+
+#### Scenario: Recovery path heals stale setup
+- **GIVEN** a failed change whose worker has a stale `setupVersionHash`
+- **WHEN** a `continue` or `restart` recovery command runs
+- **THEN** the setup-version check executes (re-running setup on mismatch) before Claude executes
 
 #### Scenario: Missing instructions file
 - **WHEN** the per-repo setup instructions file does not exist

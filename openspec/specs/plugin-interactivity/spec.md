@@ -2,7 +2,7 @@
 
 ## Purpose
 
-TBD
+Define how Clack plugins register interactive Slack surfaces — Bolt action handlers, modals, and view submissions — owned and namespaced per plugin so they coexist without colliding.
 
 ## Requirements
 
