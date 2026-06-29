@@ -25,7 +25,8 @@ require_instance
 # ============================================
 echo -e "${YELLOW}Building and pushing Docker image...${NC}"
 
-gcloud services enable containerregistry.googleapis.com --quiet 2>/dev/null || true
+gcloud services enable artifactregistry.googleapis.com --quiet 2>/dev/null || true
+require_ar_repo
 
 cd "$PROJECT_DIR"
 gcloud builds submit --tag "$IMAGE_NAME" --quiet
@@ -50,9 +51,9 @@ gcloud compute ssh "$INSTANCE_NAME" --zone="$ZONE" --quiet --command="
     # sets this initially, but reapply in case a sync run reverted it).
     sudo chmod 644 $DATA_MOUNT_POINT/data/auth/.env
 
-    # Register GCR credential helper for THIS user (writes to SSH user's \$HOME,
-    # which is writable; /root is read-only on COS so sudo would fail).
-    docker-credential-gcr configure-docker --registries=gcr.io
+    # Register Artifact Registry credential helper for THIS user (writes to SSH
+    # user's \$HOME, which is writable; /root is read-only on COS so sudo would fail).
+    docker-credential-gcr configure-docker --registries=${AR_REGION}-docker.pkg.dev
 
     # Prune dangling/unused images BEFORE pulling so the new image has room.
     # Without this, every deploy adds ~1.4 GB and the 10 GB boot disk fills up

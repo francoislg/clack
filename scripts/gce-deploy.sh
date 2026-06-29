@@ -46,8 +46,9 @@ echo ""
 # ============================================
 echo -e "${YELLOW}Building and pushing Docker image...${NC}"
 
-# Enable Container Registry API if needed
-gcloud services enable containerregistry.googleapis.com --quiet 2>/dev/null || true
+# Enable Artifact Registry API if needed, then ensure the repo exists
+gcloud services enable artifactregistry.googleapis.com --quiet 2>/dev/null || true
+require_ar_repo
 
 # Build and push using Cloud Build
 cd "$PROJECT_DIR"
@@ -160,6 +161,24 @@ else
 
     echo -e "${GREEN}✓ Instance created${NC}"
     INSTANCE_EXISTS=false
+
+    # Grant the VM's default compute service account read access to Artifact
+    # Registry so it can pull the image. AR is strictly IAM-gated (unlike GCR's
+    # backing bucket), so a fresh VM cannot pull without this. Project-level grant.
+    #
+    # For a VM provisioned before this change, grant the role manually:
+    #   PROJECT_NUMBER=$(gcloud projects describe "$PROJECT_ID" --format='value(projectNumber)')
+    #   gcloud projects add-iam-policy-binding "$PROJECT_ID" \
+    #       --member="serviceAccount:${PROJECT_NUMBER}-compute@developer.gserviceaccount.com" \
+    #       --role=roles/artifactregistry.reader
+    echo "Granting Artifact Registry read access to the VM service account..."
+    PROJECT_NUMBER=$(gcloud projects describe "$PROJECT_ID" --format='value(projectNumber)')
+    gcloud projects add-iam-policy-binding "$PROJECT_ID" \
+        --member="serviceAccount:${PROJECT_NUMBER}-compute@developer.gserviceaccount.com" \
+        --role=roles/artifactregistry.reader \
+        --condition=None \
+        --quiet >/dev/null
+    echo -e "${GREEN}✓ Artifact Registry reader role granted${NC}"
 
     # Wait for instance to be ready
     echo "Waiting for instance to be ready..."
@@ -277,10 +296,10 @@ echo -e "${YELLOW}Deploying container...${NC}"
 gcloud compute ssh "$INSTANCE_NAME" --zone="$ZONE" --quiet --command="
     set -e
 
-    # Register the GCR credential helper for THIS user. Running without sudo
-    # so the config writes to the SSH user's writable \$HOME/.docker/config.json
-    # (sudo would target /root/.docker, which is read-only on COS).
-    docker-credential-gcr configure-docker --registries=gcr.io
+    # Register the Artifact Registry credential helper for THIS user. Running
+    # without sudo so the config writes to the SSH user's writable
+    # \$HOME/.docker/config.json (sudo would target /root/.docker, read-only on COS).
+    docker-credential-gcr configure-docker --registries=${AR_REGION}-docker.pkg.dev
 
     # Pull latest image (using the credential helper just configured)
     docker pull $IMAGE_NAME

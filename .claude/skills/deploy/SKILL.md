@@ -34,7 +34,7 @@ Monitor(
   description: "deploy progress",
   timeout_ms: 900000,    # 15 min — safely above the script's 5-min readiness wait
   persistent: false,
-  command: "tail -f <OUTPUT_FILE> | grep -E --line-buffered \"✓|✗|ERROR|error:|failed|denied|no space|Pre-pulling|Draining|Bot idle|Drain timeout|Drain check skipped|Stopping old|Waiting for|Bot is ready|downtime|Step [0-9]+/[0-9]+ : FROM|Successfully built|Successfully tagged|^DONE|New image pulled|Total reclaimed\""
+  command: "tail -f <OUTPUT_FILE> | grep -E --line-buffered \"✓|✗|ERROR|error:|failed|denied|no space|Artifact Registry|Pre-pulling|Draining|Bot idle|Drain timeout|Drain check skipped|Stopping old|Waiting for|Bot is ready|downtime|Step [0-9]+/[0-9]+ : FROM|Successfully built|Successfully tagged|^DONE|New image pulled|Total reclaimed\""
 )
 ```
 
@@ -48,6 +48,7 @@ One sentence per event, matching the marker:
 
 | Event substring | Reply |
 |---|---|
+| `Creating Artifact Registry repo` | `Creating registry repo (first AR deploy).` |
 | `Step 1/32 : FROM ... Step 8/32 : FROM` | `Build phase.` |
 | `Successfully built <sha>` | `Built.` |
 | `^DONE` (after build) | `Pushed.` |
@@ -119,6 +120,13 @@ The script exits non-zero on:
   `/mnt/stateful_partition` usage on the VM.
 - **`denied: Unauthenticated request`** on pull → the configure-docker step
   failed; usually a one-off and resolved by re-running.
+- **`denied: Permission "artifactregistry.repositories.downloadArtifacts" denied`**
+  (or similar `artifactregistry...denied`) on pull → the VM's service account is
+  missing `roles/artifactregistry.reader`. Artifact Registry is strictly IAM-gated,
+  so re-running will NOT fix this. `gce-deploy.sh` grants the role on first-time
+  instance creation; a VM provisioned before the GCR→AR migration needs a manual
+  grant (the exact command is in the comment around the IAM step in
+  `scripts/gce-deploy.sh`). Forward that command to the user.
 
 In every case the script's stderr includes a copy-pasteable diagnostic
 command. Forward it to the user verbatim.
