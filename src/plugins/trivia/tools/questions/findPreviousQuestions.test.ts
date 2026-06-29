@@ -425,6 +425,139 @@ describe("find_previous_questions per-format response shape", () => {
   });
 });
 
+describe("find_previous_questions keyword haystack", () => {
+  function args(overrides: { keywords?: string[]; categories?: string[] }) {
+    return {
+      games: [FIXTURE_GAME_NAME],
+      categories: overrides.categories,
+      seasons: undefined,
+      keywords: overrides.keywords,
+      match: undefined,
+      posted: undefined,
+      recentBatchFromNow: undefined,
+      limit: undefined,
+      includeRevealBlocks: undefined,
+    };
+  }
+
+  it("matches a choice option absent from the statement", async () => {
+    const data = createInMemoryDataLayer();
+    await data.forGame(FIXTURE_GAME_NAME).saveQuestion({
+      id: "qc",
+      answersFormat: "choice",
+      category: "Sports",
+      statement: "Which nation lifted the trophy in 1998?",
+      choices: ["France", "Brazil", "Italy", "Germany"],
+      correctIndex: 0,
+      emojis: ["⚽"],
+      createdAt: 1,
+    });
+    const tool = createFindPreviousQuestionsTool(data, fixtureGetGames);
+    const parsed = parseToolResult(await tool.handler(args({ keywords: ["brazil"] }), SESSION));
+    assert.equal(parsed.questions.length, 1);
+    assert.deepEqual(parsed.questions[0].matchedKeywords, ["brazil"]);
+  });
+
+  it("matches a freeform answer field absent from the statement without leaking it", async () => {
+    const data = createInMemoryDataLayer();
+    await data.forGame(FIXTURE_GAME_NAME).saveQuestion({
+      id: "qf",
+      answersFormat: "freeform",
+      category: "Art",
+      statement: "Name the painter of the Mona Lisa.",
+      expectedAnswer: "Leonardo da Vinci",
+      acceptableAnswers: ["da Vinci"],
+      gradingNotes: "Accept the surname alone.",
+      emojis: ["🎨"],
+      createdAt: 1,
+    });
+    const tool = createFindPreviousQuestionsTool(data, fixtureGetGames);
+    const parsed = parseToolResult(await tool.handler(args({ keywords: ["leonardo"] }), SESSION));
+    assert.equal(parsed.questions.length, 1);
+    const q = parsed.questions[0];
+    assert.deepEqual(q.matchedKeywords, ["leonardo"]);
+    assert.equal(Object.prototype.hasOwnProperty.call(q, "expectedAnswer"), false);
+    assert.equal(Object.prototype.hasOwnProperty.call(q, "acceptableAnswers"), false);
+    assert.equal(Object.prototype.hasOwnProperty.call(q, "gradingNotes"), false);
+  });
+
+  it("matches a boolean row only via its statement", async () => {
+    const data = createInMemoryDataLayer();
+    await data.forGame(FIXTURE_GAME_NAME).saveQuestion({
+      id: "qb",
+      answersFormat: "boolean",
+      category: "Geography",
+      statement: "The Great Wall of China is visible from space.",
+      isTrue: false,
+      emojis: ["🧱"],
+      createdAt: 1,
+    });
+    const tool = createFindPreviousQuestionsTool(data, fixtureGetGames);
+    const hit = parseToolResult(await tool.handler(args({ keywords: ["space"] }), SESSION));
+    assert.equal(hit.questions.length, 1);
+    const miss = parseToolResult(await tool.handler(args({ keywords: ["orbit"] }), SESSION));
+    assert.equal(miss.questions.length, 0);
+  });
+
+  it("matches an image question via its media title/altText (cross-medium dedup)", async () => {
+    const data = createInMemoryDataLayer();
+    await data.forGame(FIXTURE_GAME_NAME).saveQuestion({
+      id: "qi",
+      answersFormat: "choice",
+      promptMedium: "image",
+      category: "Landmarks",
+      statement: "Which landmark is shown?",
+      choices: ["Eiffel Tower", "Big Ben", "Colosseum", "Brandenburg Gate"],
+      correctIndex: 0,
+      media: {
+        kind: "image",
+        url: "https://example.org/eiffel.jpg",
+        altText: "A wrought-iron lattice tower beside the Seine",
+        subjectId: "wikidata:Q243",
+        title: "Eiffel Tower",
+      },
+      emojis: ["🗼"],
+      createdAt: 1,
+    });
+    await data.forGame(FIXTURE_GAME_NAME).saveQuestion({
+      id: "qt",
+      answersFormat: "boolean",
+      category: "Science",
+      statement: "Photosynthesis converts light into chemical energy.",
+      isTrue: true,
+      emojis: ["🌱"],
+      createdAt: 2,
+    });
+    const tool = createFindPreviousQuestionsTool(data, fixtureGetGames);
+    const parsed = parseToolResult(await tool.handler(args({ keywords: ["seine"] }), SESSION));
+    assert.equal(parsed.questions.length, 1);
+    assert.equal(parsed.questions[0].id, "qi");
+    assert.deepEqual(parsed.questions[0].matchedKeywords, ["seine"]);
+  });
+
+  it("does not match a row solely by its category", async () => {
+    const data = createInMemoryDataLayer();
+    await data.forGame(FIXTURE_GAME_NAME).saveQuestion({
+      id: "qcat",
+      answersFormat: "boolean",
+      category: "Geography",
+      statement: "The Nile is the longest river in Africa.",
+      isTrue: true,
+      emojis: ["🌍"],
+      createdAt: 1,
+    });
+    const tool = createFindPreviousQuestionsTool(data, fixtureGetGames);
+    const byKeyword = parseToolResult(
+      await tool.handler(args({ keywords: ["geography"] }), SESSION),
+    );
+    assert.equal(byKeyword.questions.length, 0);
+    const byCriterion = parseToolResult(
+      await tool.handler(args({ categories: ["Geography"] }), SESSION),
+    );
+    assert.equal(byCriterion.questions.length, 1);
+  });
+});
+
 describe("find_previous_questions — revealBlocks opt-in exposure", () => {
   const narrative = [
     {

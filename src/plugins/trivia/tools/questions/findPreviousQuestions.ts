@@ -14,6 +14,22 @@ const CURRENT_SEASON_TOKEN = "current";
 
 type QuestionWithGame = TriviaQuestion & { __game: string };
 
+/**
+ * Lowercased text a keyword is matched against: the `statement`, the image
+ * `media` text when present (orthogonal to `answersFormat`, so assembled here
+ * rather than on the handler), and the row's answer-type-specific text from the
+ * handler (choice options, freeform answer fields). Searched only — these fields
+ * are never surfaced in the response (see `toSearchResult` / `buildSearchResult`).
+ */
+function keywordHaystackFor(q: TriviaQuestion): string[] {
+  const parts = [q.statement];
+  if (q.promptMedium === "image" && q.media !== undefined) {
+    parts.push(q.media.title, q.media.altText);
+  }
+  parts.push(...getAnswerTypeHandler(q.answersFormat).keywordHaystack(q));
+  return parts.map((s) => s.toLowerCase());
+}
+
 function toSearchResult(
   q: QuestionWithGame,
   matchedKeywords: string[] | null,
@@ -93,7 +109,7 @@ export function createFindPreviousQuestionsTool(
         .array(z.string())
         .optional()
         .describe(
-          "Optional array of keywords. Each entry is matched as a lowercased substring against the row's statement. OR-internal. When non-empty, returned rows carry `matchedKeywords` showing which input keywords hit.",
+          "Optional array of keywords. Each entry is matched as a lowercased substring against the row's search haystack: its statement, its image media title/altText (image-medium rows only), its choice option strings (choice rows), and its expected/acceptable/grading answer text (freeform rows). The answer fields are searched but never returned. The row's `category` is NOT part of the haystack — filter on it via `categories`. OR-internal. When non-empty, returned rows carry `matchedKeywords` showing which input keywords hit.",
         ),
       posted: z
         .boolean()
@@ -226,8 +242,8 @@ export function createFindPreviousQuestionsTool(
         }
 
         if (keywordsProvided) {
-          const statementLower = q.statement.toLowerCase();
-          criteria.push(keywordsLower.some((kw) => statementLower.includes(kw)));
+          const haystack = keywordHaystackFor(q);
+          criteria.push(keywordsLower.some((kw) => haystack.some((h) => h.includes(kw))));
         }
 
         if (args.posted !== undefined) {
@@ -241,11 +257,11 @@ export function createFindPreviousQuestionsTool(
 
       function computeMatchedKeywords(q: QuestionWithGame): string[] | null {
         if (!keywordsProvided) return null;
-        const statementLower = q.statement.toLowerCase();
+        const haystack = keywordHaystackFor(q);
         const keywords = args.keywords ?? [];
         const hits: string[] = [];
         for (let i = 0; i < keywords.length; i++) {
-          if (statementLower.includes(keywordsLower[i])) hits.push(keywords[i]);
+          if (haystack.some((h) => h.includes(keywordsLower[i]))) hits.push(keywords[i]);
         }
         return hits;
       }

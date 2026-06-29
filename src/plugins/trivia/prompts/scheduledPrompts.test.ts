@@ -234,6 +234,26 @@ describe("SEND_QUESTIONS_INSTRUCTIONS — format-aware multi-slot loop", () => {
     );
   });
 
+  it("mandates the primary subject AND the answer as dedup keywords", () => {
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /MUST include BOTH/);
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /PRIMARY SUBJECT/);
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /the part that VARIES within its category/);
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /The ANSWER — the correct response as a search term/);
+  });
+
+  it("frames the answer as a recall aid, not a duplication verdict", () => {
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /RECALL AID, NOT a duplication verdict/);
+    assert.match(
+      SEND_QUESTIONS_INSTRUCTIONS,
+      /sharing the same answer in a DIFFERENT context .* is NOT a duplicate/,
+    );
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /Judge duplication by the subject and framing/);
+    assert.doesNotMatch(
+      SEND_QUESTIONS_INSTRUCTIONS,
+      /necessarily shares BOTH the subject and the answer/,
+    );
+  });
+
   it("instructs the slot-0 header to be a date-stamped round opener distinct from the show banner", () => {
     assert.match(SEND_QUESTIONS_INSTRUCTIONS, /FIRST question only \(slot 0\)/);
     assert.match(SEND_QUESTIONS_INSTRUCTIONS, /date-stamped round opener/i);

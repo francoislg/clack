@@ -378,6 +378,14 @@ export const freeformAnswerHandler: AnswerTypeHandler = {
     return {};
   },
 
+  keywordHaystack(question: TriviaQuestion): string[] {
+    return [
+      question.expectedAnswer,
+      ...(question.acceptableAnswers ?? []),
+      question.gradingNotes,
+    ].filter((s): s is string => typeof s === "string" && s.length > 0);
+  },
+
   registerInteractions(sdk: ClackSdk, deps: InteractionRegistrationDeps): void {
     const { data, getGameNames } = deps;
 
