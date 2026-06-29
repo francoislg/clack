@@ -107,7 +107,10 @@ describe("update_answers_block — deterministic card projection", () => {
 
     const { deps, updates } = capturingSlackDeps();
     const res = parseToolResult(
-      await makeTool(data, deps).handler({ game: FIXTURE_GAME_NAME, batchId: "B" }, SESSION),
+      await makeTool(data, deps).handler(
+        { game: FIXTURE_GAME_NAME, batchId: "B", questionIds: undefined },
+        SESSION,
+      ),
     );
 
     assert.equal(updates.length, 1);
@@ -126,7 +129,10 @@ describe("update_answers_block — deterministic card projection", () => {
     );
 
     const { deps, updates } = capturingSlackDeps();
-    await makeTool(data, deps).handler({ game: FIXTURE_GAME_NAME, batchId: "q_legacy" }, SESSION);
+    await makeTool(data, deps).handler(
+      { game: FIXTURE_GAME_NAME, batchId: "q_legacy", questionIds: undefined },
+      SESSION,
+    );
 
     assert.equal(updates.length, 1);
     assert.ok(updates[0].blockIds.includes("reveal-results:q_legacy"));
@@ -149,7 +155,10 @@ describe("update_answers_block — deterministic card projection", () => {
 
     const { deps, updates } = capturingSlackDeps();
     const res = parseToolResult(
-      await makeTool(data, deps).handler({ game: FIXTURE_GAME_NAME, batchId: "B" }, SESSION),
+      await makeTool(data, deps).handler(
+        { game: FIXTURE_GAME_NAME, batchId: "B", questionIds: undefined },
+        SESSION,
+      ),
     );
 
     assert.equal(updates.length, 0);
@@ -165,7 +174,10 @@ describe("update_answers_block — deterministic card projection", () => {
 
     const { deps } = capturingSlackDeps({ throwOnUpdate: true });
     const res = parseToolResult(
-      await makeTool(data, deps).handler({ game: FIXTURE_GAME_NAME, batchId: "B" }, SESSION),
+      await makeTool(data, deps).handler(
+        { game: FIXTURE_GAME_NAME, batchId: "B", questionIds: undefined },
+        SESSION,
+      ),
     );
 
     // editRevealIntoCard swallows the chat.update failure; the tool still returns.
@@ -181,8 +193,8 @@ describe("update_answers_block — deterministic card projection", () => {
 
     const { deps, updates } = capturingSlackDeps();
     const tool = makeTool(data, deps);
-    await tool.handler({ game: FIXTURE_GAME_NAME, batchId: "B" }, SESSION);
-    await tool.handler({ game: FIXTURE_GAME_NAME, batchId: "B" }, SESSION);
+    await tool.handler({ game: FIXTURE_GAME_NAME, batchId: "B", questionIds: undefined }, SESSION);
+    await tool.handler({ game: FIXTURE_GAME_NAME, batchId: "B", questionIds: undefined }, SESSION);
 
     assert.equal(updates.length, 2);
     assert.deepEqual(updates[0].blockIds, updates[1].blockIds);
@@ -210,7 +222,10 @@ describe("update_answers_block — deterministic card projection", () => {
 
     const { deps, updates } = capturingSlackDeps();
     const res = parseToolResult(
-      await makeTool(data, deps).handler({ game: FIXTURE_GAME_NAME, batchId: "B" }, SESSION),
+      await makeTool(data, deps).handler(
+        { game: FIXTURE_GAME_NAME, batchId: "B", questionIds: undefined },
+        SESSION,
+      ),
     );
 
     assert.equal(updates.length, 2);
@@ -249,7 +264,10 @@ describe("update_answers_block — deterministic card projection", () => {
 
     const { deps, updates } = capturingSlackDeps();
     const res = parseToolResult(
-      await makeTool(data, deps).handler({ game: FIXTURE_GAME_NAME, batchId: "B" }, SESSION),
+      await makeTool(data, deps).handler(
+        { game: FIXTURE_GAME_NAME, batchId: "B", questionIds: undefined },
+        SESSION,
+      ),
     );
 
     assert.equal(updates.length, 1);
@@ -257,11 +275,97 @@ describe("update_answers_block — deterministic card projection", () => {
     assert.deepEqual(res.edited, ["f1"]);
   });
 
+  it("repaints only the named invalidated card mid-window, leaving live siblings untouched", async () => {
+    const data = createInMemoryDataLayer();
+    const scoped = data.forGame(FIXTURE_GAME_NAME);
+    // A still-live batch: q_bad just got invalidated; q_live is still taking votes.
+    await scoped.saveQuestion(
+      makeQuestion({
+        id: "q_bad",
+        batchId: "B",
+        postedAt: 1_000,
+        invalidated: true,
+        invalidatedReason: "ambiguous answer",
+        postedBlocks: postedBooleanBlocks("q_bad"),
+      }),
+    );
+    await scoped.saveQuestion(
+      makeQuestion({
+        id: "q_live",
+        batchId: "B",
+        postedAt: 1_001,
+        postedBlocks: postedBooleanBlocks("q_live"),
+      }),
+    );
+
+    const { deps, updates } = capturingSlackDeps();
+    const res = parseToolResult(
+      await makeTool(data, deps).handler(
+        { game: FIXTURE_GAME_NAME, batchId: "B", questionIds: ["q_bad"] },
+        SESSION,
+      ),
+    );
+
+    assert.equal(updates.length, 1);
+    assert.deepEqual(res.edited, ["q_bad"]);
+    // The invalidated card keeps its body, drops its vote buttons, and renders the reason.
+    assert.ok(updates[0].blockIds.includes("card:q_bad"));
+    assert.ok(!updates[0].blockIds.includes("vote-actions:q_bad"));
+    const rendered = JSON.stringify(updates[0].blocks);
+    assert.ok(rendered.includes("Invalidated") && rendered.includes("ambiguous answer"));
+    // The live sibling is never touched.
+    assert.ok(!updates.some((u) => u.blockIds.includes("vote-actions:q_live")));
+  });
+
+  it("repaints a named card whose questionId is one of several requested, ignoring unknown ids", async () => {
+    const data = createInMemoryDataLayer();
+    const scoped = data.forGame(FIXTURE_GAME_NAME);
+    await scoped.saveQuestion(
+      makeQuestion({
+        id: "q_bad",
+        batchId: "B",
+        invalidated: true,
+        invalidatedReason: "dupe",
+        postedBlocks: postedBooleanBlocks("q_bad"),
+      }),
+    );
+
+    const { deps, updates } = capturingSlackDeps();
+    // A partial match (one real id + one unknown) repaints the real one and silently
+    // drops the unknown — only an ALL-miss errors.
+    const res = parseToolResult(
+      await makeTool(data, deps).handler(
+        { game: FIXTURE_GAME_NAME, batchId: "B", questionIds: ["q_bad", "ghost"] },
+        SESSION,
+      ),
+    );
+
+    assert.deepEqual(res.edited, ["q_bad"]);
+    assert.equal(updates.length, 1);
+  });
+
+  it("errors when questionIds match nothing in the batch", async () => {
+    const data = createInMemoryDataLayer();
+    const scoped = data.forGame(FIXTURE_GAME_NAME);
+    await scoped.saveQuestion(
+      makeQuestion({ id: "q1", batchId: "B", postedBlocks: postedBooleanBlocks("q1") }),
+    );
+
+    const { deps } = capturingSlackDeps();
+    const out = await makeTool(data, deps).handler(
+      { game: FIXTURE_GAME_NAME, batchId: "B", questionIds: ["nope"] },
+      SESSION,
+    );
+    assert.ok(out.isError);
+    // The error names the rejected id so the caller can see what didn't match.
+    assert.ok(JSON.stringify(out).includes("nope"));
+  });
+
   it("errors when the batchId matches no questions", async () => {
     const data = createInMemoryDataLayer();
     const { deps } = capturingSlackDeps();
     const out = await makeTool(data, deps).handler(
-      { game: FIXTURE_GAME_NAME, batchId: "nope" },
+      { game: FIXTURE_GAME_NAME, batchId: "nope", questionIds: undefined },
       SESSION,
     );
     assert.ok(out.isError);
@@ -282,7 +386,10 @@ describe("update_answers_block — deterministic card projection", () => {
     );
 
     const { deps, updates } = capturingSlackDeps();
-    await makeTool(data, deps).handler({ game: FIXTURE_GAME_NAME, batchId: "B" }, SESSION);
+    await makeTool(data, deps).handler(
+      { game: FIXTURE_GAME_NAME, batchId: "B", questionIds: undefined },
+      SESSION,
+    );
 
     const ids = updates[0].blockIds;
     const footer = ids.indexOf("reveal-results:q1");
@@ -301,7 +408,10 @@ describe("update_answers_block — deterministic card projection", () => {
     );
 
     const { deps, updates } = capturingSlackDeps();
-    await makeTool(data, deps).handler({ game: FIXTURE_GAME_NAME, batchId: "B" }, SESSION);
+    await makeTool(data, deps).handler(
+      { game: FIXTURE_GAME_NAME, batchId: "B", questionIds: undefined },
+      SESSION,
+    );
 
     const ids = updates[0].blockIds;
     assert.ok(ids.includes("reveal-results:q1"));
@@ -323,7 +433,7 @@ describe("update_answers_block — deterministic card projection", () => {
     );
     const { deps, updates } = capturingSlackDeps();
     const tool = makeTool(data, deps);
-    await tool.handler({ game: FIXTURE_GAME_NAME, batchId: "B" }, SESSION);
+    await tool.handler({ game: FIXTURE_GAME_NAME, batchId: "B", questionIds: undefined }, SESSION);
 
     // Re-author the narrative (as update_question would), then re-project.
     await scoped.updateQuestion("q1", {
@@ -331,7 +441,7 @@ describe("update_answers_block — deterministic card projection", () => {
         { type: "section", block_id: "narrative-v2:q1", text: { type: "mrkdwn", text: "v2" } },
       ],
     });
-    await tool.handler({ game: FIXTURE_GAME_NAME, batchId: "B" }, SESSION);
+    await tool.handler({ game: FIXTURE_GAME_NAME, batchId: "B", questionIds: undefined }, SESSION);
 
     const second = updates[1].blockIds;
     assert.ok(second.includes("narrative-v2:q1"), "shows v2 after re-authoring");
@@ -356,7 +466,7 @@ describe("update_answers_block — deterministic card projection", () => {
     const tool = createUpdateAnswersBlockTool(data, fakeSdk(), fixtureGetGames, deps, () => ({
       tellMeMore: { enabled: true },
     }));
-    await tool.handler({ game: FIXTURE_GAME_NAME, batchId: "B" }, SESSION);
+    await tool.handler({ game: FIXTURE_GAME_NAME, batchId: "B", questionIds: undefined }, SESSION);
 
     const ids = updates[0].blockIds;
     const footer = ids.indexOf("reveal-results:q1");

@@ -24,7 +24,9 @@ const DESCRIPTION = `Deterministically edit the already-posted trivia question c
 
 Call this AFTER \`compute_answers\`, passing the \`batchId\` it returned. It performs NO scoring, NO freeform judging, NO season rollover, and posts NO new message — it only brings each card in line with the scored answers on disk. It is idempotent (safe to re-run) and reconciling (re-run it after a re-score to refresh a card). A per-card \`chat.update\` failure (deleted message, rate limit) is logged and does not abort the rest of the batch.
 
-\`batchId\` accepts either a real shared batchId OR a single question's id (for legacy/undefined-batchId rows).`;
+\`batchId\` accepts either a real shared batchId OR a single question's id (for legacy/undefined-batchId rows).
+
+\`questionIds\` (optional) restricts the repaint to a SUBSET of the batch's cards. Pass it for a MID-WINDOW replay: when you invalidate one question of a still-live (unrevealed) batch, call \`update_answers_block(game, batchId, questionIds: ["<invalidated id>"])\` to repaint ONLY that card into its "❌ Invalidated" state — the live siblings keep their vote buttons untouched. Omit it during a normal reveal to repaint the whole batch.`;
 
 export function createUpdateAnswersBlockTool(
   data: TriviaDataLayer,
@@ -45,6 +47,12 @@ export function createUpdateAnswersBlockTool(
         .describe(
           "The batch handle returned by compute_answers — the shared batchId of the revealed questions, or a single question's id for legacy rows.",
         ),
+      questionIds: z
+        .array(z.string())
+        .optional()
+        .describe(
+          "Optional subset of question ids within the batch to repaint. Use for a mid-window replay: pass the single invalidated question's id so only its card is edited and the still-live siblings keep their vote buttons. Omit to repaint the whole batch (normal reveal).",
+        ),
     },
     async (args) => {
       try {
@@ -58,11 +66,23 @@ export function createUpdateAnswersBlockTool(
 
       const scoped = data.forGame(args.game);
       const allQuestions = await scoped.loadQuestions();
-      const batch = selectBatch(allQuestions, args.batchId);
+      let batch = selectBatch(allQuestions, args.batchId);
       if (batch.length === 0) {
         return errorResult(
           `No questions found for batchId "${args.batchId}" in game "${args.game}".`,
         );
+      }
+
+      // A mid-window replay repaints ONLY the invalidated card(s) it names, leaving
+      // the batch's still-live siblings (vote buttons intact) untouched.
+      if (args.questionIds !== undefined) {
+        const wanted = new Set(args.questionIds);
+        batch = batch.filter((q) => wanted.has(q.id));
+        if (batch.length === 0) {
+          return errorResult(
+            `None of the requested questionIds [${args.questionIds.join(", ")}] belong to batch "${args.batchId}" in game "${args.game}".`,
+          );
+        }
       }
 
       const botUserId = await resolveBotUserId(slackDeps, "update_answers_block");

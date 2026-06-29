@@ -180,7 +180,10 @@ describe("reveal flow integration — compute → update → start_new_season", 
 
     // ── Step 2: update_answers_block (the projector) ──────────────────────
     const edited = parseToolResult(
-      await update.handler({ game: FIXTURE_GAME_NAME, batchId: computed.batchId }, SESSION),
+      await update.handler(
+        { game: FIXTURE_GAME_NAME, batchId: computed.batchId, questionIds: undefined },
+        SESSION,
+      ),
     );
     assert.deepEqual(edited.edited, ["q1"]);
     assert.equal(updates.length, 1);
@@ -229,7 +232,10 @@ describe("reveal flow integration — compute → update → start_new_season", 
       undefined,
     );
 
-    await update.handler({ game: FIXTURE_GAME_NAME, batchId: computed.batchId }, SESSION);
+    await update.handler(
+      { game: FIXTURE_GAME_NAME, batchId: computed.batchId, questionIds: undefined },
+      SESSION,
+    );
     assert.equal(updates.length, 1);
 
     // ── Step 3: start_new_season (the only step that mutates season state) ─
@@ -276,7 +282,10 @@ describe("reveal flow integration — compute → update → start_new_season", 
         SESSION,
       ),
     );
-    await update.handler({ game: FIXTURE_GAME_NAME, batchId: computed.batchId }, SESSION);
+    await update.handler(
+      { game: FIXTURE_GAME_NAME, batchId: computed.batchId, questionIds: undefined },
+      SESSION,
+    );
     await startNewSeason.handler({ game: FIXTURE_GAME_NAME, force: undefined }, SESSION);
 
     const closedAt = (await scoped.loadSeasonsState())?.seasons.find(
@@ -285,7 +294,10 @@ describe("reveal flow integration — compute → update → start_new_season", 
     assert.notEqual(closedAt, undefined);
 
     // Re-run the projector: same card, no duplicate edits beyond the re-render.
-    await update.handler({ game: FIXTURE_GAME_NAME, batchId: computed.batchId }, SESSION);
+    await update.handler(
+      { game: FIXTURE_GAME_NAME, batchId: computed.batchId, questionIds: undefined },
+      SESSION,
+    );
     assert.equal(updates.length, 2);
     assert.deepEqual(updates[0].blockIds, updates[1].blockIds);
 
@@ -336,7 +348,10 @@ describe("reveal flow integration — compute → update → start_new_season", 
       first.reveals.map((r: { questionId: string }) => r.questionId),
       ["q1"],
     );
-    await update.handler({ game: FIXTURE_GAME_NAME, batchId: first.batchId }, SESSION);
+    await update.handler(
+      { game: FIXTURE_GAME_NAME, batchId: first.batchId, questionIds: undefined },
+      SESSION,
+    );
 
     // Fire 2 drains the next batch (B2), leaving the already-revealed B1 alone.
     const second = parseToolResult(
@@ -354,7 +369,10 @@ describe("reveal flow integration — compute → update → start_new_season", 
       second.reveals.map((r: { questionId: string }) => r.questionId),
       ["q2"],
     );
-    await update.handler({ game: FIXTURE_GAME_NAME, batchId: second.batchId }, SESSION);
+    await update.handler(
+      { game: FIXTURE_GAME_NAME, batchId: second.batchId, questionIds: undefined },
+      SESSION,
+    );
 
     assert.deepEqual(
       updates.map((u) => u.blockIds.find((b) => b.startsWith("reveal-results:"))),
