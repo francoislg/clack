@@ -3,6 +3,7 @@ import { tool } from "@anthropic-ai/claude-agent-sdk";
 import { textResult, errorResult } from "../../../../tools/helpers.js";
 import { defaultGetGames, type GetGamesFn } from "../../core/configBridge.js";
 import { requireWritableGame } from "../../core/gamesRegistry.js";
+import { reprocessThenRepaintHint } from "../../core/refreshHint.js";
 import type { TriviaDataLayer } from "../../core/types.js";
 
 const DESCRIPTION = `Hand-correct the verdict on ONE player's answer to a trivia question, or restore a previously-corrected answer to its machine verdict. Admin-only.
@@ -86,8 +87,7 @@ export function createOverrideAnswerTool(
         );
       }
 
-      const refreshHint =
-        "Reveal already posted — run `compute_answers` (reprocess this question) then `update_answers_block` to refresh the card.";
+      const refreshHint = reprocessThenRepaintHint(args.questionId);
 
       if (isRestore) {
         if (row.originalVerdict === undefined) {

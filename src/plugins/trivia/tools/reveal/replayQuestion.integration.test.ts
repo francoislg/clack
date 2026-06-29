@@ -168,7 +168,7 @@ describe("replay a bad question — mid-window invalidate + replace + reveal", (
     // 3. Repaint ONLY the dead card mid-window; the live sibling keeps its buttons.
     const { deps: midDeps, updates: midUpdates } = revealSlackDeps();
     const updateMid = createUpdateAnswersBlockTool(data, fakeSdk(), fixtureGetGames, midDeps);
-    await updateMid.handler({ game: FIXTURE_GAME_NAME, batchId, questionIds: ["q_bad"] }, SESSION);
+    await updateMid.handler({ game: FIXTURE_GAME_NAME, questionIds: ["q_bad"] }, SESSION);
     assert.equal(midUpdates.length, 1, "only the invalidated card is repainted");
     // Invalidated repaint: content WAS sent, with no vote buttons and no reveal-results footer.
     assert.ok(midUpdates[0].blockIds.length > 0, "the dead card was repainted with content");
@@ -214,14 +214,17 @@ describe("replay a bad question — mid-window invalidate + replace + reveal", (
     const u2 = reveal.leaderboard.find((e: { userId: string }) => e.userId === "U2");
     assert.ok(u2 === undefined || u2.score === 0, "invalidated votes do not score");
 
-    // 6. Full card repaint at reveal touches all three (two revealed + one invalidated).
+    // 6. At reveal, repaint the two revealed cards (q_bad was already repainted mid-window).
     const { deps: finalDeps, updates: finalUpdates } = revealSlackDeps();
     const updateFinal = createUpdateAnswersBlockTool(data, fakeSdk(), fixtureGetGames, finalDeps);
     await updateFinal.handler(
-      { game: FIXTURE_GAME_NAME, batchId, questionIds: undefined },
+      {
+        game: FIXTURE_GAME_NAME,
+        questionIds: reveal.reveals.map((r: { questionId: string }) => r.questionId),
+      },
       SESSION,
     );
-    assert.equal(finalUpdates.length, 3);
+    assert.equal(finalUpdates.length, 2);
   });
 
   it("after the reveal, voiding a scored question strips its points and adds no replacement", async () => {
@@ -248,7 +251,6 @@ describe("replay a bad question — mid-window invalidate + replace + reveal", (
       },
       SESSION,
     );
-    const batchId = await batchIdOf(data, "q1");
     await scoped.saveAnswer({
       userId: "U1",
       questionId: "q1",
@@ -306,8 +308,9 @@ describe("replay a bad question — mid-window invalidate + replace + reveal", (
     assert.equal((await scoped.loadQuestions()).length, 2);
 
     const { deps: repaintDeps, updates: repaintUpdates } = revealSlackDeps();
-    const updateFull = createUpdateAnswersBlockTool(data, fakeSdk(), fixtureGetGames, repaintDeps);
-    await updateFull.handler({ game: FIXTURE_GAME_NAME, batchId, questionIds: undefined }, SESSION);
-    assert.equal(repaintUpdates.length, 2);
+    const updateVoid = createUpdateAnswersBlockTool(data, fakeSdk(), fixtureGetGames, repaintDeps);
+    // Case B repaints only the voided card; the sibling's results are unaffected by the void.
+    await updateVoid.handler({ game: FIXTURE_GAME_NAME, questionIds: ["q_void"] }, SESSION);
+    assert.equal(repaintUpdates.length, 1);
   });
 });

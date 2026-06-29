@@ -14,7 +14,7 @@ import type { TriviaQuestion } from "./core/types.js";
  * this wires all three real tools against ONE shared in-memory data layer and ONE
  * shared Slack seam — exactly as the scheduled reveal prompt chains them:
  *
- *   compute_answers → update_answers_block(batchId) → start_new_season (last fire only)
+ *   compute_answers → update_answers_block(questionIds) → start_new_season (last fire only)
  *
  * It is the end-to-end safety net the refactor's design called for: the split must
  * reproduce the old monolith's observable result (cards edited, leaderboard/round
@@ -165,8 +165,8 @@ describe("reveal flow integration — compute → update → start_new_season", 
         SESSION,
       ),
     );
-    assert.equal(computed.batchId, "B");
     assert.equal(computed.reveals.length, 1);
+    assert.equal(computed.reveals[0].questionId, "q1");
     assert.equal(computed.seasonStatus.isLastFireOfSeason, false);
     // Leaderboard reflects the scored answers (U1 correct, U2 wrong).
     const u1 = computed.leaderboard.find((e: { userId: string }) => e.userId === "U1");
@@ -181,7 +181,10 @@ describe("reveal flow integration — compute → update → start_new_season", 
     // ── Step 2: update_answers_block (the projector) ──────────────────────
     const edited = parseToolResult(
       await update.handler(
-        { game: FIXTURE_GAME_NAME, batchId: computed.batchId, questionIds: undefined },
+        {
+          game: FIXTURE_GAME_NAME,
+          questionIds: computed.reveals.map((r: { questionId: string }) => r.questionId),
+        },
         SESSION,
       ),
     );
@@ -233,7 +236,10 @@ describe("reveal flow integration — compute → update → start_new_season", 
     );
 
     await update.handler(
-      { game: FIXTURE_GAME_NAME, batchId: computed.batchId, questionIds: undefined },
+      {
+        game: FIXTURE_GAME_NAME,
+        questionIds: computed.reveals.map((r: { questionId: string }) => r.questionId),
+      },
       SESSION,
     );
     assert.equal(updates.length, 1);
@@ -283,7 +289,10 @@ describe("reveal flow integration — compute → update → start_new_season", 
       ),
     );
     await update.handler(
-      { game: FIXTURE_GAME_NAME, batchId: computed.batchId, questionIds: undefined },
+      {
+        game: FIXTURE_GAME_NAME,
+        questionIds: computed.reveals.map((r: { questionId: string }) => r.questionId),
+      },
       SESSION,
     );
     await startNewSeason.handler({ game: FIXTURE_GAME_NAME, force: undefined }, SESSION);
@@ -295,7 +304,10 @@ describe("reveal flow integration — compute → update → start_new_season", 
 
     // Re-run the projector: same card, no duplicate edits beyond the re-render.
     await update.handler(
-      { game: FIXTURE_GAME_NAME, batchId: computed.batchId, questionIds: undefined },
+      {
+        game: FIXTURE_GAME_NAME,
+        questionIds: computed.reveals.map((r: { questionId: string }) => r.questionId),
+      },
       SESSION,
     );
     assert.equal(updates.length, 2);
@@ -343,13 +355,15 @@ describe("reveal flow integration — compute → update → start_new_season", 
         SESSION,
       ),
     );
-    assert.equal(first.batchId, "B1");
     assert.deepEqual(
       first.reveals.map((r: { questionId: string }) => r.questionId),
       ["q1"],
     );
     await update.handler(
-      { game: FIXTURE_GAME_NAME, batchId: first.batchId, questionIds: undefined },
+      {
+        game: FIXTURE_GAME_NAME,
+        questionIds: first.reveals.map((r: { questionId: string }) => r.questionId),
+      },
       SESSION,
     );
 
@@ -364,13 +378,15 @@ describe("reveal flow integration — compute → update → start_new_season", 
         SESSION,
       ),
     );
-    assert.equal(second.batchId, "B2");
     assert.deepEqual(
       second.reveals.map((r: { questionId: string }) => r.questionId),
       ["q2"],
     );
     await update.handler(
-      { game: FIXTURE_GAME_NAME, batchId: second.batchId, questionIds: undefined },
+      {
+        game: FIXTURE_GAME_NAME,
+        questionIds: second.reveals.map((r: { questionId: string }) => r.questionId),
+      },
       SESSION,
     );
 

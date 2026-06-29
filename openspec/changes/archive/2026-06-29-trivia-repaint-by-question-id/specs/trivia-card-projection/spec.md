@@ -1,10 +1,4 @@
-# trivia-card-projection
-
-## Purpose
-
-The trivia plugin registers an `update_answers_block` MCP tool that projects file state onto already-posted question cards by reading current game data (`questions.json`, `answers.json`) and editing each question's original Slack message into its revealed state. The tool is the sole editor of question cards and owns all Slack `chat.update` calls in the reveal flow. It is deterministic, idempotent, and safe to retry or re-run after answer file changes (e.g., re-scoring).
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: `update_answers_block` MCP tool projects file state onto posted cards
 
@@ -122,6 +116,8 @@ When projecting a question whose record carries `revealBlocks`, `update_answers_
 - **GIVEN** a card already projected with `revealBlocks` v1, then `update_question` overwrites them with v2
 - **WHEN** `update_answers_block` is re-run for the question
 - **THEN** the card shows v2 narrative beneath the re-derived footer
+
+## ADDED Requirements
 
 ### Requirement: Content-mutating tools surface a uniform repaint hint
 

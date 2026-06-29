@@ -91,12 +91,10 @@ function makeTool(data: ReturnType<typeof createInMemoryDataLayer>, deps: Reveal
 }
 
 describe("update_answers_block — deterministic card projection", () => {
-  it("edits each question's card in the batch once", async () => {
+  it("edits the named question's card once", async () => {
     const data = createInMemoryDataLayer();
     const scoped = data.forGame(FIXTURE_GAME_NAME);
-    await scoped.saveQuestion(
-      makeQuestion({ id: "q1", batchId: "B", postedBlocks: postedBooleanBlocks("q1") }),
-    );
+    await scoped.saveQuestion(makeQuestion({ id: "q1", postedBlocks: postedBooleanBlocks("q1") }));
     await scoped.saveAnswer({
       userId: "U1",
       questionId: "q1",
@@ -107,10 +105,7 @@ describe("update_answers_block — deterministic card projection", () => {
 
     const { deps, updates } = capturingSlackDeps();
     const res = parseToolResult(
-      await makeTool(data, deps).handler(
-        { game: FIXTURE_GAME_NAME, batchId: "B", questionIds: undefined },
-        SESSION,
-      ),
+      await makeTool(data, deps).handler({ game: FIXTURE_GAME_NAME, questionIds: ["q1"] }, SESSION),
     );
 
     assert.equal(updates.length, 1);
@@ -121,30 +116,12 @@ describe("update_answers_block — deterministic card projection", () => {
     assert.deepEqual(res.edited, ["q1"]);
   });
 
-  it("accepts a single question id as the batch handle (legacy row)", async () => {
-    const data = createInMemoryDataLayer();
-    const scoped = data.forGame(FIXTURE_GAME_NAME);
-    await scoped.saveQuestion(
-      makeQuestion({ id: "q_legacy", postedBlocks: postedBooleanBlocks("q_legacy") }),
-    );
-
-    const { deps, updates } = capturingSlackDeps();
-    await makeTool(data, deps).handler(
-      { game: FIXTURE_GAME_NAME, batchId: "q_legacy", questionIds: undefined },
-      SESSION,
-    );
-
-    assert.equal(updates.length, 1);
-    assert.ok(updates[0].blockIds.includes("reveal-results:q_legacy"));
-  });
-
   it("records an error and skips a question whose projection failed", async () => {
     const data = createInMemoryDataLayer();
     const scoped = data.forGame(FIXTURE_GAME_NAME);
     await scoped.saveQuestion(
       makeQuestion({
         id: "q1",
-        batchId: "B",
         answersFormat: "choice",
         isTrue: undefined,
         choices: ["A", "B"],
@@ -155,81 +132,85 @@ describe("update_answers_block — deterministic card projection", () => {
 
     const { deps, updates } = capturingSlackDeps();
     const res = parseToolResult(
-      await makeTool(data, deps).handler(
-        { game: FIXTURE_GAME_NAME, batchId: "B", questionIds: undefined },
-        SESSION,
-      ),
+      await makeTool(data, deps).handler({ game: FIXTURE_GAME_NAME, questionIds: ["q1"] }, SESSION),
     );
 
     assert.equal(updates.length, 0);
     assert.ok(res.errors?.some((e: { questionId: string }) => e.questionId === "q1"));
   });
 
-  it("does not abort the batch when one card's chat.update throws", async () => {
+  it("swallows a card's chat.update failure without aborting — call still returns", async () => {
     const data = createInMemoryDataLayer();
     const scoped = data.forGame(FIXTURE_GAME_NAME);
-    await scoped.saveQuestion(
-      makeQuestion({ id: "q1", batchId: "B", postedBlocks: postedBooleanBlocks("q1") }),
-    );
+    await scoped.saveQuestion(makeQuestion({ id: "q1", postedBlocks: postedBooleanBlocks("q1") }));
 
     const { deps } = capturingSlackDeps({ throwOnUpdate: true });
     const res = parseToolResult(
-      await makeTool(data, deps).handler(
-        { game: FIXTURE_GAME_NAME, batchId: "B", questionIds: undefined },
-        SESSION,
-      ),
+      await makeTool(data, deps).handler({ game: FIXTURE_GAME_NAME, questionIds: ["q1"] }, SESSION),
     );
 
-    // editRevealIntoCard swallows the chat.update failure; the tool still returns.
-    assert.equal(res.batchId, "B");
+    // editRevealIntoCard swallows the chat.update failure (logged, not surfaced in
+    // `errors`); the card counts as projected and the tool returns normally.
+    assert.deepEqual(res.edited, ["q1"]);
+    assert.equal(res.errors, undefined);
   });
 
   it("is idempotent — re-running re-projects the same card", async () => {
     const data = createInMemoryDataLayer();
     const scoped = data.forGame(FIXTURE_GAME_NAME);
-    await scoped.saveQuestion(
-      makeQuestion({ id: "q1", batchId: "B", postedBlocks: postedBooleanBlocks("q1") }),
-    );
+    await scoped.saveQuestion(makeQuestion({ id: "q1", postedBlocks: postedBooleanBlocks("q1") }));
 
     const { deps, updates } = capturingSlackDeps();
     const tool = makeTool(data, deps);
-    await tool.handler({ game: FIXTURE_GAME_NAME, batchId: "B", questionIds: undefined }, SESSION);
-    await tool.handler({ game: FIXTURE_GAME_NAME, batchId: "B", questionIds: undefined }, SESSION);
+    await tool.handler({ game: FIXTURE_GAME_NAME, questionIds: ["q1"] }, SESSION);
+    await tool.handler({ game: FIXTURE_GAME_NAME, questionIds: ["q1"] }, SESSION);
 
     assert.equal(updates.length, 2);
     assert.deepEqual(updates[0].blockIds, updates[1].blockIds);
   });
 
-  it("edits every card in a multi-question batch", async () => {
+  it("edits every named card and reports them in postedAt order", async () => {
     const data = createInMemoryDataLayer();
     const scoped = data.forGame(FIXTURE_GAME_NAME);
     await scoped.saveQuestion(
-      makeQuestion({
-        id: "q1",
-        batchId: "B",
-        postedAt: 1_000,
-        postedBlocks: postedBooleanBlocks("q1"),
-      }),
+      makeQuestion({ id: "q1", postedAt: 1_000, postedBlocks: postedBooleanBlocks("q1") }),
     );
     await scoped.saveQuestion(
-      makeQuestion({
-        id: "q2",
-        batchId: "B",
-        postedAt: 1_001,
-        postedBlocks: postedBooleanBlocks("q2"),
-      }),
+      makeQuestion({ id: "q2", postedAt: 1_001, postedBlocks: postedBooleanBlocks("q2") }),
     );
 
     const { deps, updates } = capturingSlackDeps();
     const res = parseToolResult(
       await makeTool(data, deps).handler(
-        { game: FIXTURE_GAME_NAME, batchId: "B", questionIds: undefined },
+        { game: FIXTURE_GAME_NAME, questionIds: ["q2", "q1"] },
         SESSION,
       ),
     );
 
     assert.equal(updates.length, 2);
-    assert.deepEqual(res.edited.sort(), ["q1", "q2"]);
+    assert.deepEqual(res.edited, ["q1", "q2"]);
+  });
+
+  it("de-duplicates repeated ids — each card edited once", async () => {
+    const data = createInMemoryDataLayer();
+    const scoped = data.forGame(FIXTURE_GAME_NAME);
+    await scoped.saveQuestion(
+      makeQuestion({ id: "q1", postedAt: 1_000, postedBlocks: postedBooleanBlocks("q1") }),
+    );
+    await scoped.saveQuestion(
+      makeQuestion({ id: "q2", postedAt: 1_001, postedBlocks: postedBooleanBlocks("q2") }),
+    );
+
+    const { deps, updates } = capturingSlackDeps();
+    const res = parseToolResult(
+      await makeTool(data, deps).handler(
+        { game: FIXTURE_GAME_NAME, questionIds: ["q1", "q1", "q2"] },
+        SESSION,
+      ),
+    );
+
+    assert.equal(updates.length, 2);
+    assert.deepEqual(res.edited, ["q1", "q2"]);
   });
 
   it("re-projects an already-judged freeform question from scored rows", async () => {
@@ -238,7 +219,6 @@ describe("update_answers_block — deterministic card projection", () => {
     await scoped.saveQuestion(
       makeQuestion({
         id: "f1",
-        batchId: "B",
         answersFormat: "freeform",
         isTrue: undefined,
         expectedAnswer: "Paris",
@@ -264,10 +244,7 @@ describe("update_answers_block — deterministic card projection", () => {
 
     const { deps, updates } = capturingSlackDeps();
     const res = parseToolResult(
-      await makeTool(data, deps).handler(
-        { game: FIXTURE_GAME_NAME, batchId: "B", questionIds: undefined },
-        SESSION,
-      ),
+      await makeTool(data, deps).handler({ game: FIXTURE_GAME_NAME, questionIds: ["f1"] }, SESSION),
     );
 
     assert.equal(updates.length, 1);
@@ -275,14 +252,13 @@ describe("update_answers_block — deterministic card projection", () => {
     assert.deepEqual(res.edited, ["f1"]);
   });
 
-  it("repaints only the named invalidated card mid-window, leaving live siblings untouched", async () => {
+  it("repaints only the named invalidated card, leaving live siblings untouched", async () => {
     const data = createInMemoryDataLayer();
     const scoped = data.forGame(FIXTURE_GAME_NAME);
     // A still-live batch: q_bad just got invalidated; q_live is still taking votes.
     await scoped.saveQuestion(
       makeQuestion({
         id: "q_bad",
-        batchId: "B",
         postedAt: 1_000,
         invalidated: true,
         invalidatedReason: "ambiguous answer",
@@ -290,18 +266,13 @@ describe("update_answers_block — deterministic card projection", () => {
       }),
     );
     await scoped.saveQuestion(
-      makeQuestion({
-        id: "q_live",
-        batchId: "B",
-        postedAt: 1_001,
-        postedBlocks: postedBooleanBlocks("q_live"),
-      }),
+      makeQuestion({ id: "q_live", postedAt: 1_001, postedBlocks: postedBooleanBlocks("q_live") }),
     );
 
     const { deps, updates } = capturingSlackDeps();
     const res = parseToolResult(
       await makeTool(data, deps).handler(
-        { game: FIXTURE_GAME_NAME, batchId: "B", questionIds: ["q_bad"] },
+        { game: FIXTURE_GAME_NAME, questionIds: ["q_bad"] },
         SESSION,
       ),
     );
@@ -317,13 +288,12 @@ describe("update_answers_block — deterministic card projection", () => {
     assert.ok(!updates.some((u) => u.blockIds.includes("vote-actions:q_live")));
   });
 
-  it("repaints a named card whose questionId is one of several requested, ignoring unknown ids", async () => {
+  it("repaints the known ids and reports unknown ones in notFound", async () => {
     const data = createInMemoryDataLayer();
     const scoped = data.forGame(FIXTURE_GAME_NAME);
     await scoped.saveQuestion(
       makeQuestion({
         id: "q_bad",
-        batchId: "B",
         invalidated: true,
         invalidatedReason: "dupe",
         postedBlocks: postedBooleanBlocks("q_bad"),
@@ -331,29 +301,28 @@ describe("update_answers_block — deterministic card projection", () => {
     );
 
     const { deps, updates } = capturingSlackDeps();
-    // A partial match (one real id + one unknown) repaints the real one and silently
-    // drops the unknown — only an ALL-miss errors.
+    // A partial match (one real id + one unknown) repaints the real one and reports
+    // the unknown in `notFound` — only an ALL-miss errors.
     const res = parseToolResult(
       await makeTool(data, deps).handler(
-        { game: FIXTURE_GAME_NAME, batchId: "B", questionIds: ["q_bad", "ghost"] },
+        { game: FIXTURE_GAME_NAME, questionIds: ["q_bad", "ghost"] },
         SESSION,
       ),
     );
 
     assert.deepEqual(res.edited, ["q_bad"]);
+    assert.deepEqual(res.notFound, ["ghost"]);
     assert.equal(updates.length, 1);
   });
 
-  it("errors when questionIds match nothing in the batch", async () => {
+  it("errors when no requested id matches a question", async () => {
     const data = createInMemoryDataLayer();
     const scoped = data.forGame(FIXTURE_GAME_NAME);
-    await scoped.saveQuestion(
-      makeQuestion({ id: "q1", batchId: "B", postedBlocks: postedBooleanBlocks("q1") }),
-    );
+    await scoped.saveQuestion(makeQuestion({ id: "q1", postedBlocks: postedBooleanBlocks("q1") }));
 
     const { deps } = capturingSlackDeps();
     const out = await makeTool(data, deps).handler(
-      { game: FIXTURE_GAME_NAME, batchId: "B", questionIds: ["nope"] },
+      { game: FIXTURE_GAME_NAME, questionIds: ["nope"] },
       SESSION,
     );
     assert.ok(out.isError);
@@ -361,14 +330,18 @@ describe("update_answers_block — deterministic card projection", () => {
     assert.ok(JSON.stringify(out).includes("nope"));
   });
 
-  it("errors when the batchId matches no questions", async () => {
+  it("errors on an empty questionIds array", async () => {
     const data = createInMemoryDataLayer();
-    const { deps } = capturingSlackDeps();
+    const scoped = data.forGame(FIXTURE_GAME_NAME);
+    await scoped.saveQuestion(makeQuestion({ id: "q1", postedBlocks: postedBooleanBlocks("q1") }));
+
+    const { deps, updates } = capturingSlackDeps();
     const out = await makeTool(data, deps).handler(
-      { game: FIXTURE_GAME_NAME, batchId: "nope", questionIds: undefined },
+      { game: FIXTURE_GAME_NAME, questionIds: [] },
       SESSION,
     );
     assert.ok(out.isError);
+    assert.equal(updates.length, 0);
   });
 
   it("appends stored revealBlocks between the footer and the See-your-answer button", async () => {
@@ -377,7 +350,6 @@ describe("update_answers_block — deterministic card projection", () => {
     await scoped.saveQuestion(
       makeQuestion({
         id: "q1",
-        batchId: "B",
         postedBlocks: postedBooleanBlocks("q1"),
         revealBlocks: [
           { type: "section", block_id: "narrative:q1", text: { type: "mrkdwn", text: "the why" } },
@@ -386,10 +358,7 @@ describe("update_answers_block — deterministic card projection", () => {
     );
 
     const { deps, updates } = capturingSlackDeps();
-    await makeTool(data, deps).handler(
-      { game: FIXTURE_GAME_NAME, batchId: "B", questionIds: undefined },
-      SESSION,
-    );
+    await makeTool(data, deps).handler({ game: FIXTURE_GAME_NAME, questionIds: ["q1"] }, SESSION);
 
     const ids = updates[0].blockIds;
     const footer = ids.indexOf("reveal-results:q1");
@@ -403,15 +372,10 @@ describe("update_answers_block — deterministic card projection", () => {
   it("is facts-only when the record has no revealBlocks", async () => {
     const data = createInMemoryDataLayer();
     const scoped = data.forGame(FIXTURE_GAME_NAME);
-    await scoped.saveQuestion(
-      makeQuestion({ id: "q1", batchId: "B", postedBlocks: postedBooleanBlocks("q1") }),
-    );
+    await scoped.saveQuestion(makeQuestion({ id: "q1", postedBlocks: postedBooleanBlocks("q1") }));
 
     const { deps, updates } = capturingSlackDeps();
-    await makeTool(data, deps).handler(
-      { game: FIXTURE_GAME_NAME, batchId: "B", questionIds: undefined },
-      SESSION,
-    );
+    await makeTool(data, deps).handler({ game: FIXTURE_GAME_NAME, questionIds: ["q1"] }, SESSION);
 
     const ids = updates[0].blockIds;
     assert.ok(ids.includes("reveal-results:q1"));
@@ -424,7 +388,6 @@ describe("update_answers_block — deterministic card projection", () => {
     await scoped.saveQuestion(
       makeQuestion({
         id: "q1",
-        batchId: "B",
         postedBlocks: postedBooleanBlocks("q1"),
         revealBlocks: [
           { type: "section", block_id: "narrative-v1:q1", text: { type: "mrkdwn", text: "v1" } },
@@ -433,7 +396,7 @@ describe("update_answers_block — deterministic card projection", () => {
     );
     const { deps, updates } = capturingSlackDeps();
     const tool = makeTool(data, deps);
-    await tool.handler({ game: FIXTURE_GAME_NAME, batchId: "B", questionIds: undefined }, SESSION);
+    await tool.handler({ game: FIXTURE_GAME_NAME, questionIds: ["q1"] }, SESSION);
 
     // Re-author the narrative (as update_question would), then re-project.
     await scoped.updateQuestion("q1", {
@@ -441,7 +404,7 @@ describe("update_answers_block — deterministic card projection", () => {
         { type: "section", block_id: "narrative-v2:q1", text: { type: "mrkdwn", text: "v2" } },
       ],
     });
-    await tool.handler({ game: FIXTURE_GAME_NAME, batchId: "B", questionIds: undefined }, SESSION);
+    await tool.handler({ game: FIXTURE_GAME_NAME, questionIds: ["q1"] }, SESSION);
 
     const second = updates[1].blockIds;
     assert.ok(second.includes("narrative-v2:q1"), "shows v2 after re-authoring");
@@ -454,7 +417,6 @@ describe("update_answers_block — deterministic card projection", () => {
     await scoped.saveQuestion(
       makeQuestion({
         id: "q1",
-        batchId: "B",
         postedBlocks: postedBooleanBlocks("q1"),
         revealBlocks: [
           { type: "section", block_id: "narrative:q1", text: { type: "mrkdwn", text: "the why" } },
@@ -466,7 +428,7 @@ describe("update_answers_block — deterministic card projection", () => {
     const tool = createUpdateAnswersBlockTool(data, fakeSdk(), fixtureGetGames, deps, () => ({
       tellMeMore: { enabled: true },
     }));
-    await tool.handler({ game: FIXTURE_GAME_NAME, batchId: "B", questionIds: undefined }, SESSION);
+    await tool.handler({ game: FIXTURE_GAME_NAME, questionIds: ["q1"] }, SESSION);
 
     const ids = updates[0].blockIds;
     const footer = ids.indexOf("reveal-results:q1");

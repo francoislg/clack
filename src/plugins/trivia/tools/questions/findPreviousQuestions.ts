@@ -34,6 +34,7 @@ function toSearchResult(
   q: QuestionWithGame,
   matchedKeywords: string[] | null,
   includeRevealBlocks: boolean,
+  batchFact: { batchPending: boolean; batchIsLatest: boolean } | undefined,
 ): Record<string, JsonValue> {
   const result: Record<string, JsonValue> = {
     id: q.id,
@@ -43,6 +44,11 @@ function toSearchResult(
     emojis: q.emojis,
     createdAt: q.createdAt,
   };
+  // Derived batch facts (posted rows only) — never the raw batchId.
+  if (batchFact !== undefined) {
+    result.batchPending = batchFact.batchPending;
+    result.batchIsLatest = batchFact.batchIsLatest;
+  }
   if (q.answersFormat !== undefined) result.answersFormat = q.answersFormat;
   if (q.questionType !== undefined) result.questionType = q.questionType;
   if (q.promptMedium !== undefined) result.promptMedium = q.promptMedium;
@@ -80,6 +86,8 @@ export function createFindPreviousQuestionsTool(
       'Each non-empty array criterion (`games`, `categories`, `seasons`, `keywords`) is OR-internal — a row matches the criterion if ANY entry hits. The scalar `posted` criterion, when supplied, filters on the question\'s posted state. `match` (default `"all"`) combines criteria across the top level: `"all"` requires every supplied criterion to be true; `"any"` requires at least one. Omitted or empty arrays are ignored.',
       "",
       "When `games` is omitted, the scan spans every registered game; per-row responses carry `game` so you can see provenance. When `keywords` is supplied, per-row responses include `matchedKeywords` (the subset of input keywords that hit each row's statement).",
+      "",
+      "Each POSTED row carries two derived batch facts (the internal batch id itself is never returned): `batchPending` — true when the row's batch is unrevealed (still live, votes open); and `batchIsLatest` — true when the row's batch is its game's most-recently-posted. Use these to reason about replay/top-up eligibility and to find the live round's questions to repaint, without ever handling a batch id.",
       "",
       "Three primary use cases:",
       '- DUPLICATE DETECTION during question generation: prefer `match: "any"` with 3-5 distinctive keywords (names, numbers, rare nouns) and omit `games`.',
@@ -266,6 +274,51 @@ export function createFindPreviousQuestionsTool(
         return hits;
       }
 
+      // Per-game batch facts derived from ALL loaded rows (not the filtered subset):
+      // a row's batch is `pending` when no sibling has been revealed (`processedAt`),
+      // and `latest` when it is the game's most-recently-posted batch. Ties on the
+      // greatest max-postedAt mark every tied batch latest. Posted rows only; the raw
+      // batchId is never surfaced. The key joins game + id with a control char that can't
+      // occur in either, so distinct (game, id) pairs never collide (a space could).
+      const factKey = (q: QuestionWithGame) => `${q.__game}\u0000${q.id}`;
+      const batchFacts = new Map<string, { batchPending: boolean; batchIsLatest: boolean }>();
+      {
+        const perGame = new Map<string, Map<string, { maxPostedAt: number; processed: boolean }>>();
+        for (const q of allQuestions) {
+          if (q.postedAt === undefined || q.batchId === undefined) continue;
+          let batches = perGame.get(q.__game);
+          if (batches === undefined) {
+            batches = new Map();
+            perGame.set(q.__game, batches);
+          }
+          const existing = batches.get(q.batchId);
+          if (existing === undefined) {
+            batches.set(q.batchId, {
+              maxPostedAt: q.postedAt,
+              processed: q.processedAt !== undefined,
+            });
+          } else {
+            existing.maxPostedAt = Math.max(existing.maxPostedAt, q.postedAt);
+            existing.processed = existing.processed || q.processedAt !== undefined;
+          }
+        }
+        const gameLatest = new Map<string, number>();
+        for (const [game, batches] of perGame) {
+          let latest = -Infinity;
+          for (const b of batches.values()) latest = Math.max(latest, b.maxPostedAt);
+          gameLatest.set(game, latest);
+        }
+        for (const q of allQuestions) {
+          if (q.postedAt === undefined || q.batchId === undefined) continue;
+          const batch = perGame.get(q.__game)?.get(q.batchId);
+          if (batch === undefined) continue;
+          batchFacts.set(factKey(q), {
+            batchPending: !batch.processed,
+            batchIsLatest: batch.maxPostedAt === gameLatest.get(q.__game),
+          });
+        }
+      }
+
       if (args.recentBatchFromNow !== undefined) {
         const batched = filtered.filter((q) => q.postedAt !== undefined && q.batchId !== undefined);
         const groups = new Map<string, QuestionWithGame[]>();
@@ -294,7 +347,14 @@ export function createFindPreviousQuestionsTool(
         const batchQuestions = [...selected.items]
           .sort((a, b) => (a.postedAt as number) - (b.postedAt as number))
           .slice(0, limit)
-          .map((q) => toSearchResult(q, computeMatchedKeywords(q), includeRevealBlocks));
+          .map((q) =>
+            toSearchResult(
+              q,
+              computeMatchedKeywords(q),
+              includeRevealBlocks,
+              batchFacts.get(factKey(q)),
+            ),
+          );
 
         return textResult({
           questions: batchQuestions,
@@ -306,7 +366,14 @@ export function createFindPreviousQuestionsTool(
       const sorted = filtered
         .sort((a, b) => b.createdAt - a.createdAt)
         .slice(0, limit)
-        .map((q) => toSearchResult(q, computeMatchedKeywords(q), includeRevealBlocks));
+        .map((q) =>
+          toSearchResult(
+            q,
+            computeMatchedKeywords(q),
+            includeRevealBlocks,
+            batchFacts.get(factKey(q)),
+          ),
+        );
 
       return textResult({ questions: sorted, count: sorted.length, total: filtered.length });
     },

@@ -1,11 +1,33 @@
 import { describe, it, beforeEach } from "vitest";
 import assert from "node:assert/strict";
-import { createInMemoryDataLayer, FIXTURE_GAME_NAME, fixtureGetGames } from "../../testHelpers.js";
+import {
+  createInMemoryDataLayer,
+  FIXTURE_GAME_NAME,
+  fixtureGetGames,
+  multiFixtureGetGames,
+} from "../../testHelpers.js";
 import { createFindPreviousQuestionsTool } from "./findPreviousQuestions.js";
 import { parseToolResult } from "../../../../tools/testHelpers.js";
 import type { TriviaDataLayer } from "../../core/types.js";
 
 const SESSION = { sessionId: "test" };
+
+type FindArgs = Parameters<ReturnType<typeof createFindPreviousQuestionsTool>["handler"]>[0];
+
+function fullArgs(over: Partial<FindArgs>): FindArgs {
+  return {
+    games: undefined,
+    categories: undefined,
+    seasons: undefined,
+    keywords: undefined,
+    match: undefined,
+    posted: undefined,
+    recentBatchFromNow: undefined,
+    limit: undefined,
+    includeRevealBlocks: undefined,
+    ...over,
+  };
+}
 
 describe("find_previous_questions response shape (single game)", () => {
   let data: TriviaDataLayer;
@@ -655,5 +677,95 @@ describe("find_previous_questions — revealBlocks opt-in exposure", () => {
       await tool.handler(args({ includeRevealBlocks: true }), SESSION),
     );
     assert.equal(Object.prototype.hasOwnProperty.call(parsed.questions[0], "revealBlocks"), false);
+  });
+});
+
+interface FactRow {
+  id: string;
+  batchPending?: boolean;
+  batchIsLatest?: boolean;
+}
+
+describe("find_previous_questions batch facts (batchPending / batchIsLatest, never batchId)", () => {
+  function postedQ(over: { id: string; postedAt: number; batchId: string; processedAt?: number }) {
+    return {
+      category: "C",
+      statement: over.id,
+      isTrue: true,
+      emojis: ["🎯"],
+      createdAt: 1,
+      ...over,
+    };
+  }
+
+  it("marks a live latest batch as pending and latest, and never returns batchId", async () => {
+    const data = createInMemoryDataLayer();
+    const scoped = data.forGame(FIXTURE_GAME_NAME);
+    await scoped.saveQuestion(postedQ({ id: "q1", postedAt: 1000, batchId: "B" }));
+    await scoped.saveQuestion(postedQ({ id: "q2", postedAt: 1001, batchId: "B" }));
+
+    const tool = createFindPreviousQuestionsTool(data, fixtureGetGames);
+    const parsed = parseToolResult(
+      await tool.handler(fullArgs({ games: [FIXTURE_GAME_NAME] }), SESSION),
+    );
+    const q1 = parsed.questions.find((q: FactRow) => q.id === "q1");
+    assert.equal(q1.batchPending, true);
+    assert.equal(q1.batchIsLatest, true);
+    assert.equal(Object.prototype.hasOwnProperty.call(q1, "batchId"), false);
+  });
+
+  it("marks an older revealed batch as neither pending nor latest", async () => {
+    const data = createInMemoryDataLayer();
+    const scoped = data.forGame(FIXTURE_GAME_NAME);
+    await scoped.saveQuestion(
+      postedQ({ id: "old", postedAt: 1000, processedAt: 5000, batchId: "A" }),
+    );
+    await scoped.saveQuestion(postedQ({ id: "new", postedAt: 2000, batchId: "B" }));
+
+    const tool = createFindPreviousQuestionsTool(data, fixtureGetGames);
+    const parsed = parseToolResult(
+      await tool.handler(fullArgs({ games: [FIXTURE_GAME_NAME] }), SESSION),
+    );
+    const oldQ = parsed.questions.find((q: FactRow) => q.id === "old");
+    const newQ = parsed.questions.find((q: FactRow) => q.id === "new");
+    assert.equal(oldQ.batchPending, false);
+    assert.equal(oldQ.batchIsLatest, false);
+    assert.equal(newQ.batchPending, true);
+    assert.equal(newQ.batchIsLatest, true);
+  });
+
+  it("computes batchIsLatest per game in a cross-game scan", async () => {
+    const data = createInMemoryDataLayer();
+    // main: M1 @100, M2 @200 → M2 latest. sandbox: S1 @150 → its own game's latest.
+    await data.forGame("main").saveQuestion(postedQ({ id: "M1", postedAt: 100, batchId: "M1" }));
+    await data.forGame("main").saveQuestion(postedQ({ id: "M2", postedAt: 200, batchId: "M2" }));
+    await data.forGame("sandbox").saveQuestion(postedQ({ id: "S1", postedAt: 150, batchId: "S1" }));
+
+    const tool = createFindPreviousQuestionsTool(data, multiFixtureGetGames);
+    const parsed = parseToolResult(await tool.handler(fullArgs({}), SESSION));
+    assert.equal(parsed.questions.find((q: FactRow) => q.id === "M2").batchIsLatest, true);
+    assert.equal(parsed.questions.find((q: FactRow) => q.id === "M1").batchIsLatest, false);
+    assert.equal(parsed.questions.find((q: FactRow) => q.id === "S1").batchIsLatest, true);
+  });
+
+  it("omits batch facts for a staged (unposted) row", async () => {
+    const data = createInMemoryDataLayer();
+    const scoped = data.forGame(FIXTURE_GAME_NAME);
+    await scoped.saveQuestion({
+      id: "staged",
+      category: "C",
+      statement: "not posted",
+      isTrue: true,
+      emojis: ["🎯"],
+      createdAt: 1,
+    });
+
+    const tool = createFindPreviousQuestionsTool(data, fixtureGetGames);
+    const parsed = parseToolResult(
+      await tool.handler(fullArgs({ games: [FIXTURE_GAME_NAME], posted: false }), SESSION),
+    );
+    const staged = parsed.questions.find((q: FactRow) => q.id === "staged");
+    assert.equal(Object.prototype.hasOwnProperty.call(staged, "batchPending"), false);
+    assert.equal(Object.prototype.hasOwnProperty.call(staged, "batchIsLatest"), false);
   });
 });

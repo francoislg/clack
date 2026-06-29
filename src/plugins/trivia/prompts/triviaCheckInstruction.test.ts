@@ -56,7 +56,7 @@ describe("TRIVIA_MANAGEMENT_INSTRUCTION — correcting an already-posted batch",
   const REQUIRED = [
     "Correcting an already-posted batch",
     "compute_answers",
-    "reprocessBatchId",
+    "reprocessQuestionIds",
     "update_answers_block",
     "run_scheduled_message_now",
   ];
