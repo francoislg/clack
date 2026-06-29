@@ -160,6 +160,31 @@ describe("freeformAnswerHandler", () => {
     });
   });
 
+  describe("keywordHaystack", () => {
+    it("returns the expected answer plus acceptable answers and grading notes", () => {
+      assert.deepEqual(
+        freeformAnswerHandler.keywordHaystack(
+          makeQuestion({
+            acceptableAnswers: ["paris", "Paris, France"],
+            gradingNotes: "lower-case is fine",
+          }),
+        ),
+        ["Paris", "paris", "Paris, France", "lower-case is fine"],
+      );
+    });
+
+    it("omits absent optional answer fields", () => {
+      assert.deepEqual(freeformAnswerHandler.keywordHaystack(makeQuestion()), ["Paris"]);
+    });
+
+    it("drops an empty expectedAnswer rather than emitting a blank string", () => {
+      assert.deepEqual(
+        freeformAnswerHandler.keywordHaystack(makeQuestion({ expectedAnswer: "" })),
+        [],
+      );
+    });
+  });
+
   describe("processReveal", () => {
     // The judge now runs ONE call per submission. `judge` maps a typed answer to
     // the raw judge text; the default treats "Paris" as correct, anything else

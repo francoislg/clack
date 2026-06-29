@@ -401,6 +401,10 @@ export const choiceAnswerHandler: ClickableAnswerHandler = {
     return question.choices !== undefined ? { choices: question.choices } : {};
   },
 
+  keywordHaystack(question: TriviaQuestion): string[] {
+    return [...(question.choices ?? [])];
+  },
+
   registerInteractions(sdk: ClackSdk, deps: InteractionRegistrationDeps): void {
     installClickableVoteHandler(sdk, choiceAnswerHandler, deps, CHOICE_VOTE_PATTERN);
   },

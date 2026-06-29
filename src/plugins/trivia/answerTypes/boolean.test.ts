@@ -152,6 +152,12 @@ describe("booleanAnswerHandler", () => {
     });
   });
 
+  describe("keywordHaystack", () => {
+    it("contributes no answer-bearing text (subject lives in the statement)", () => {
+      assert.deepEqual(booleanAnswerHandler.keywordHaystack(makeQuestion({ isTrue: true })), []);
+    });
+  });
+
   describe("processReveal", () => {
     function makeDeps(
       reactions: SlackReactionLike[] = [],

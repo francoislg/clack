@@ -61,9 +61,12 @@ ADMIN GUIDANCE — when get_ideas returns \`instructions\` and/or \`additionalIn
  * restating the body. Done to shrink the rendered prompt without losing nuance.
  */
 const DUPLICATE_CHECK_GATE = `DUPLICATE CHECK GATE (shared across all paths — invoke whenever a path step says "apply the DUPLICATE CHECK GATE"):
-   - Call \`find_previous_questions({ keywords: [3-5 distinctive terms from your statement], match: "any" })\`. Pick names, numbers, or rare nouns — words a duplicate of this fact would also have to contain in some framing. OMIT the \`games\` argument so the scan spans every game (a duplicate fact in a sibling game still counts).
+   - Call \`find_previous_questions({ keywords: [...], match: "any" })\`. The keyword set is NOT optional and MUST include BOTH of these two terms, plus 1-3 more distinctive words (names, numbers, rare nouns):
+     1. The PRIMARY SUBJECT — the specific entity the question HINGES on, i.e. the part that VARIES within its category, NOT the template words the whole category shares. For the category "country that is a primary producer of X", the subject is \`X\` itself (e.g. \`coffee\`) — NOT "country", "primary", or "producer", which every question in that category contains and which therefore can never discriminate a repeat. For "is Mount Everest the tallest mountain?", the subject is \`Everest\`.
+     2. The ANSWER — the correct response as a search term (the country/person/place/thing for choice & freeform; the claim's subject for boolean). Include it to WIDEN the candidate net: the search matches choice options, freeform answer text, and image subject titles too, so the answer term surfaces prior questions the statement words alone would miss. But the answer is a RECALL AID, NOT a duplication verdict — a prior row sharing the same answer in a DIFFERENT context (a different subject or framing) is NOT a duplicate. Judge duplication by the subject and framing, never by the answer alone.
+   - OMIT the \`games\` argument so the scan spans every game (a duplicate fact in a sibling game still counts).
    - For each returned row, inspect \`matchedKeywords\` and the row's \`statement\` to decide whether it covers the SAME underlying fact in any framing or polarity (a TRUE statement and a FALSE statement about the same fact are still duplicates).
-   - If the result set is uninformatively wide (many rows hitting only a common word), re-call with sharper keywords.
+   - If the result set is uninformatively wide (many rows hitting only a common word), re-call with sharper keywords while always keeping the PRIMARY SUBJECT in the set.
    - If any candidate is a duplicate, go back to the statement-writing step and write a different question. Iterate until unique.`;
 
 const DIFFICULTY_GATE = `DIFFICULTY GATE (REQUIRED — STRICT MEMBERSHIP — shared across all paths — invoke whenever a path step says "apply the DIFFICULTY GATE"):

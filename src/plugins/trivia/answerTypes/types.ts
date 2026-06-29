@@ -416,6 +416,18 @@ export interface AnswerTypeHandler {
   buildSearchResult(question: TriviaQuestion): Record<string, JsonValue>;
 
   /**
+   * Answer-type-specific text folded into `find_previous_questions` keyword
+   * matching, to widen duplicate-detection recall beyond the `statement`. Choice
+   * returns its option strings; freeform returns its expected/acceptable/grading
+   * answer text; boolean returns nothing (its subject lives in the statement).
+   * MUST NOT include the `statement` (the tool prepends it) nor the image `media`
+   * text (orthogonal to `answersFormat` — the tool assembles that). The returned
+   * strings are searched ONLY; they are never surfaced in tool responses (the
+   * response projection stays governed by `buildSearchResult`).
+   */
+  keywordHaystack(question: TriviaQuestion): string[];
+
+  /**
    * Register the handler's interaction action_id patterns with the SDK. Called
    * once at plugin boot per handler. Boolean and choice register `^vote:...$`
    * via a shared helper; freeform registers `^freeform-answer:...$` for its

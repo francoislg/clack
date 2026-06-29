@@ -150,6 +150,24 @@ describe("choiceAnswerHandler", () => {
     });
   });
 
+  describe("keywordHaystack", () => {
+    it("returns the choice option strings", () => {
+      assert.deepEqual(choiceAnswerHandler.keywordHaystack(makeQuestion()), [
+        "The Beatles",
+        "Led Zeppelin",
+        "Cream",
+        "The Who",
+      ]);
+    });
+
+    it("returns an empty array when choices are absent", () => {
+      assert.deepEqual(
+        choiceAnswerHandler.keywordHaystack(makeQuestion({ choices: undefined })),
+        [],
+      );
+    });
+  });
+
   describe("processReveal", () => {
     function makeDeps(overrides: Partial<ProcessRevealDeps> = {}): ProcessRevealDeps {
       const data = createInMemoryDataLayer();

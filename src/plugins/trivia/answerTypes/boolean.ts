@@ -235,6 +235,10 @@ export const booleanAnswerHandler: ClickableAnswerHandler = {
     return {};
   },
 
+  keywordHaystack(_question: TriviaQuestion): string[] {
+    return [];
+  },
+
   registerInteractions(sdk: ClackSdk, deps: InteractionRegistrationDeps): void {
     installClickableVoteHandler(sdk, booleanAnswerHandler, deps, BOOLEAN_VOTE_PATTERN);
   },

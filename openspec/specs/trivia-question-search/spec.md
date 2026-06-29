@@ -15,7 +15,7 @@ The tool SHALL accept the following array-shaped filter criteria. Within any sin
 - `games?: string[]` — each entry SHALL be validated against `config.trivia.games[]` per the `trivia-games` capability. Unknown entry → structured "unknown game" error citing the offending name. Disabled entries are permitted (read tool — frozen-archive semantics). When `games` is omitted or empty, the tool SHALL read `questions.json` from every game registered in `config.trivia.games[]`, skipping any whose file is absent on disk.
 - `categories?: string[]` — case-insensitive exact match against the row's `category`. Row matches if its `category` equals any entry (case-insensitive).
 - `seasons?: string[]` — each entry is either a season slug or the literal `"current"`. Row matches if its `season` equals any resolved entry. `"current"` SHALL be resolved per-game via `findCurrentSeason` against that game's `seasons.json`; if a game's `findCurrentSeason` returns `null`, `"current"` contributes no match for rows in that game. When `trivia.seasons.enabled` is `false`, the `seasons` argument SHALL be silently ignored and SHALL NOT participate in the combinator.
-- `keywords?: string[]` — each entry is lowercased; the row matches if its lowercased `statement` includes any entry as a substring.
+- `keywords?: string[]` — each entry is lowercased; the row matches if any entry is a substring of any element of the row's **search haystack**. The haystack is the row's lowercased `statement`; plus, when `promptMedium === "image"` and `media` is present, the `media.title` and `media.altText`; plus its answer-type-specific text: for `choice` rows the `choices[]` option strings; for `freeform` rows the `expectedAnswer`, each `acceptableAnswers[]` entry, and `gradingNotes`; `boolean` rows contribute no answer-type-specific text. The answer-type-specific text SHALL be produced by the row's answer-type handler (`keywordHaystack`) rather than by inline `answersFormat` branching in the tool; the format-agnostic base (`statement` and the image `media` text) SHALL be assembled by the tool itself (image `media` text is orthogonal to `answersFormat`). The answer-bearing fields are searched only; they remain governed by the `Find previous questions response excludes the answer key` requirement (a freeform row's answer fields are never returned; a choice row's `choices` continue to be returned because they are not the answer key).
 - `posted?: boolean` — a row matches this criterion iff the condition on `postedAt` is satisfied. `posted: true` matches rows with `postedAt !== undefined`; `posted: false` matches rows with `postedAt === undefined`. When omitted, the criterion is not supplied and SHALL NOT participate in the combinator.
 
 #### Top-level combinator
@@ -32,7 +32,7 @@ When NO criteria are supplied (every array criterion is omitted or empty), the t
 Each returned question SHALL carry, in addition to the safety-preserved fields enumerated in the `Find previous questions response excludes the answer key` requirement, the following:
 
 - `game: string` — the game the row came from. Present on every row regardless of whether the call was cross-game or single-game.
-- `matchedKeywords?: string[]` — present iff the call supplied a non-empty `keywords` array. Each entry SHALL be a member of the input `keywords` whose lowercased form is a substring of the row's lowercased `statement`. Order SHALL preserve the input `keywords` order. The field SHALL be absent when `keywords` was omitted or empty.
+- `matchedKeywords?: string[]` — present iff the call supplied a non-empty `keywords` array. Each entry SHALL be a member of the input `keywords` whose lowercased form is a substring of ANY element of the row's search haystack (statement plus answer-type-specific text, as defined for the `keywords` criterion). Order SHALL preserve the input `keywords` order. The field SHALL be absent when `keywords` was omitted or empty.
 
 The tool SHALL accept an optional `recentBatchFromNow: number` parameter (positive integer, 1-indexed) that selects a single batch of posted questions, ranked by recency anchored to the current moment. `1` SHALL mean the batch with the most recent `postedAt` as of now; `2` SHALL mean the batch before that; and so on. The argument name and the tool's description SHALL both make the "as of now" framing explicit so that callers do not interpret it as an absolute index or a season-relative position.
 
@@ -82,7 +82,7 @@ When `recentBatchFromNow <= 0` or is not a positive integer, the tool SHALL retu
 #### Scenario: Keywords OR-internal — any keyword hits
 
 - **WHEN** `find_previous_questions` is called with `keywords: ["mozart", "beethoven"]`
-- **THEN** rows whose `statement` contains either "mozart" OR "beethoven" (case-insensitive) are returned
+- **THEN** rows whose haystack contains either "mozart" OR "beethoven" (case-insensitive) are returned
 - **AND** rows containing both are returned once, not twice
 
 #### Scenario: matchedKeywords reflects which keywords hit each row
@@ -99,19 +99,19 @@ When `recentBatchFromNow <= 0` or is not a positive integer, the tool SHALL retu
 #### Scenario: Default match is "all" — every supplied criterion must hit
 
 - **WHEN** `find_previous_questions` is called with `keywords: ["mozart"], categories: ["Music"]` and `match` is omitted
-- **THEN** only rows whose `statement` contains "mozart" AND whose `category` equals "Music" (case-insensitive) are returned
+- **THEN** only rows whose haystack contains "mozart" AND whose `category` equals "Music" (case-insensitive) are returned
 
 #### Scenario: match: "any" — at least one supplied criterion must hit
 
 - **WHEN** `find_previous_questions` is called with `keywords: ["mozart"], categories: ["Music"], match: "any"`
-- **THEN** the returned set is the union of (rows mentioning "mozart") and (rows in "Music")
+- **THEN** the returned set is the union of (rows whose haystack mentions "mozart") and (rows in "Music")
 - **AND** rows matching both are returned once, not twice
 
 #### Scenario: match: "all" with only one criterion supplied
 
 - **WHEN** `find_previous_questions` is called with `keywords: ["mozart"], match: "all"` (no other criteria)
 - **THEN** the result is identical to calling with `keywords: ["mozart"], match: "any"`
-- **AND** the result contains rows whose `statement` contains "mozart"
+- **AND** the result contains rows whose haystack contains "mozart"
 
 #### Scenario: No criteria supplied returns everything in scope
 
@@ -200,6 +200,47 @@ When `recentBatchFromNow <= 0` or is not a positive integer, the tool SHALL retu
 
 - **WHEN** `find_previous_questions` is called with `game: "main", recentBatchFromNow: -1`
 - **THEN** the tool returns a validation error
+
+#### Scenario: Keyword hits a choice option absent from the statement
+
+- **GIVEN** a `choice` question with `statement: "Which country won the 1998 FIFA World Cup?"` and `choices: ["France", "Brazil", "Italy", "Germany"]`
+- **WHEN** `find_previous_questions` is called with `keywords: ["brazil"]`
+- **THEN** the row is returned even though "brazil" is absent from its `statement` (it matched a choice option)
+- **AND** the row carries `matchedKeywords: ["brazil"]`
+
+#### Scenario: Keyword hits a freeform answer field absent from the statement
+
+- **GIVEN** a `freeform` question with `statement: "Name the painter of the Mona Lisa."` and `expectedAnswer: "Leonardo da Vinci"`
+- **WHEN** `find_previous_questions` is called with `keywords: ["leonardo"]`
+- **THEN** the row is returned even though "leonardo" is absent from its `statement` (it matched the `expectedAnswer`)
+- **AND** the row carries `matchedKeywords: ["leonardo"]`
+- **AND** the returned row does NOT carry `expectedAnswer`, `acceptableAnswers`, or `gradingNotes` (the answer fields are searched, never returned)
+
+#### Scenario: Boolean rows match only on their statement
+
+- **GIVEN** a `boolean` question with `statement: "The Great Wall of China is visible from space."`
+- **WHEN** `find_previous_questions` is called with `keywords: ["space"]`
+- **THEN** the row is returned, matched via its `statement`
+- **AND** the boolean handler contributes no answer-bearing text to the haystack (only `statement`)
+
+#### Scenario: Keyword hits an image question's media title (cross-medium dedup)
+
+- **GIVEN** an image-medium question with `promptMedium: "image"`, a templated `statement: "Which landmark is shown?"`, and `media: { title: "Eiffel Tower", altText: "A wrought-iron lattice tower in Paris", ... }`
+- **WHEN** `find_previous_questions` is called with `keywords: ["eiffel"]`
+- **THEN** the row is returned even though "eiffel" is absent from its `statement` (it matched `media.title`)
+- **AND** the row carries `matchedKeywords: ["eiffel"]`
+
+#### Scenario: Text rows contribute no media text to the haystack
+
+- **GIVEN** a text-medium question (`promptMedium` absent or `"text"`) with no `media`
+- **WHEN** `find_previous_questions` is called with any `keywords`
+- **THEN** matching considers only the `statement` and the row's answer-type-specific text (no media fields are read)
+
+#### Scenario: category is not part of the keyword haystack
+
+- **GIVEN** a question with `category: "Geography"` whose `statement`, `choices`, and freeform answer fields do not contain the word "geography"
+- **WHEN** `find_previous_questions` is called with `keywords: ["geography"]` and no `categories` argument
+- **THEN** the row is NOT matched by the keyword (the `category` field is reachable only via the `categories` criterion)
 
 ### Requirement: find_previous_questions supports filtering by posted state
 
