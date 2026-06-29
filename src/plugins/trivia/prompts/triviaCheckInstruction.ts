@@ -154,7 +154,7 @@ When an admin judges a result differently than the reveal did ("mark Alice's ans
 
 1. \`override_answer(game, questionId, userId, correct: true|false, reason: "<why>")\` — hand-sets THAT one player's verdict. \`reason\` is required and stored on the row. The original machine verdict is captured as a lock, so the reprocess in step 2 won't revert your fix.
 2. \`compute_answers(game, reprocessQuestionIds: [questionId])\` — re-derives every OTHER row from the answer key while leaving your override in place.
-3. \`update_answers_block(game, batchId)\` — repaints the card so the corrected standings show.
+3. \`update_answers_block(game, questionIds: [questionId])\` — repaints the card so the corrected standings show (the reprocess result's \`refreshHint\` is this exact call).
 
 To UNDO an override later: \`override_answer(game, questionId, userId, restore: true)\` (omit \`correct\`/\`reason\`), then repeat steps 2–3.
 
@@ -162,13 +162,13 @@ To UNDO an override later: \`override_answer(game, questionId, userId, restore: 
 
 1. \`settle_question(game, questionId, outcome: <correct value>, override: true)\` — re-stamps \`isTrue\` / \`correctIndex\` and clears the stale verdicts. \`override: true\` is REQUIRED because the question already has a key.
 2. \`compute_answers(game, reprocessQuestionIds: [questionId])\` — rescores EVERY player against the corrected key at once.
-3. \`update_answers_block(game, batchId)\` — repaints the card.
+3. \`update_answers_block(game, questionIds: [questionId])\` — repaints the card (the reprocess result's \`refreshHint\` is this exact call).
 
 **Case 3 — A cheat was recorded against a player by mistake:**
 
 1. \`remove_cheat(game, cheaterUserId, questionId)\` — drops the cheat and rolls back that player's cheat counter.
 2. \`compute_answers(game, reprocessQuestionIds: [questionId])\` — rescores the question now that the player is no longer excluded.
-3. \`update_answers_block(game, batchId)\` — repaints the card.
+3. \`update_answers_block(game, questionIds: [questionId])\` — repaints the card (the reprocess result's \`refreshHint\` is this exact call).
 
 ## Admin: replaying a bad question
 
@@ -177,7 +177,7 @@ When an admin asks to **replay / redo / swap out a bad question** (it's ambiguou
 **A — Mid-window (the question is still LIVE, votes open, not yet revealed):**
 
 1. \`settle_question(game, questionId, invalidate: true, invalidatedReason: "<specific reason>")\` — marks it invalidated (0 points) and clears any votes already cast on it.
-2. \`update_answers_block(game, batchId, questionIds: [questionId])\` — repaints ONLY that one card into its "❌ Invalidated" state. The \`questionIds\` filter is REQUIRED here: without it the whole batch repaints and the still-live sibling questions get prematurely revealed. Get the \`batchId\` from the question record (or pass the question's id as \`batchId\` for a legacy undefined-batch row).
+2. \`update_answers_block(game, questionIds: [questionId])\` — repaints ONLY that one card into its "❌ Invalidated" state, leaving the still-live sibling questions' vote buttons untouched. (\`settle_question\`'s result hands you this exact call as its \`refreshHint\`.)
 3. Generate a replacement (\`get_ideas\` → \`save_question\`) and post it into the SAME batch: \`post_questions(game, items: [...], appendToPreviousBatch: true)\`. Append mode joins the live batch so the replacement reveals alongside its siblings. It refuses if the batch was already revealed — if that happens, you're in case B, not A.
 4. Nothing else. At reveal, \`compute_answers\` automatically skips the invalidated question (returns it under \`invalidatedQuestions\`, scores 0) and reveals the replacement.
 
@@ -185,7 +185,7 @@ When an admin asks to **replay / redo / swap out a bad question** (it's ambiguou
 
 1. \`settle_question(game, questionId, invalidate: true, invalidatedReason: "<reason>")\` — clears verdicts.
 2. \`compute_answers(game, reprocessQuestionIds: [questionId])\` — re-scores the batch so the voided question stops counting for everyone.
-3. \`update_answers_block(game, batchId)\` — repaints the cards (the whole batch is already revealed, so no \`questionIds\` filter is needed; the voided one becomes "❌ Invalidated").
+3. \`update_answers_block(game, questionIds: [questionId])\` — repaints the voided card into its "❌ Invalidated" state (the sibling cards' results are unaffected by the void). \`settle_question\`'s \`refreshHint\` is this exact call.
 `;
 
 const SEASONS_ADMIN_ADDENDUM = `
@@ -352,11 +352,11 @@ Reprocessing an already-posted batch is a SEPARATE, EXPLICIT, admin-initiated ac
 When the admin DOES explicitly ask to update an already-posted batch:
 
 1. Make the config edit at the right tier first (usually \`upsert_game\`), if it isn't already set.
-2. Call \`compute_answers({ game, reprocessBatchId: "<the batch handle>" })\` (or \`reprocessQuestionIds: [...]\` for specific questions). Reprocess re-resolves the current \`revealResponses\` / \`judgeLeniency\` from the cascade, re-stamps them on the batch, re-derives boolean/choice verdicts from the current key, and RE-JUDGES freeform answers under the new leniency. Find the batch handle via \`get_question_history\` if you don't already have it.
+2. Call \`compute_answers({ game, reprocessQuestionIds: [...] })\` with the ids of the questions to re-apply it to. Reprocess re-resolves the current \`revealResponses\` / \`judgeLeniency\` from the cascade, re-stamps them on those questions, re-derives boolean/choice verdicts from the current key, and RE-JUDGES freeform answers under the new leniency. Find the ids via \`find_previous_questions\` (e.g. \`recentBatchFromNow: 1\` for the last batch, which returns each question's \`id\`) if you don't already have them.
 3. RE-AUTHOR THE PER-CARD NARRATIVE — branch on the payload's \`includeRevealInQuestions\` (do this AFTER step 2, BEFORE step 4), exactly as the reveal flow does:
    - \`"yes"\`: for EACH reprocessed question in \`reveals\`, call \`update_question({ game, questionId, revealBlocks: [...] })\` with freshly authored narrative. You MUST re-author rather than leave the old blocks: reprocess can have changed what the card shows — a new \`revealResponses\` mode may now hide a typed answer the old narrative quoted, and a re-judge may have flipped a verdict the old narrative asserted. Conform the new narrative to that question's CURRENT \`voters.revealResponses\` (never quote a typed answer a non-\`"yes"\` mode hides) and to the re-derived verdicts. Author every reprocessed card's narrative BEFORE step 4.
    - \`"no"\`: do NOT call \`update_question\` — cards stay facts-only.
-4. Call \`update_answers_block({ game, batchId })\` with the returned \`batchId\` to re-render the cards.
+4. Call \`update_answers_block({ game, questionIds })\` passing \`reveals.map(r => r.questionId)\` to re-render the cards.
 
 NEVER use \`run_scheduled_message_now\` on the reveal job to apply a config change to a posted batch — that re-fires the whole reveal cron and is not the right tool. And never tell the admin a posted batch changed unless you actually reprocessed it: editing the config alone leaves the existing cards exactly as they were.
 

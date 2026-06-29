@@ -48,15 +48,14 @@ const PER_FORMAT_ANSWER_SHAPES = getAllAnswerTypeHandlers()
 
 const DESCRIPTION = `Score the trivia reveal for a game in one call and return the render payload — WITHOUT touching Slack and WITHOUT rolling over the season. Fetches the question's Slack message reactions (commentary only), excludes the bot + flagged cheaters, scores the stored button clicks (boolean/choice) and modal submissions (freeform, via the per-answer judge), persists scored answers, stamps \`processedAt\`, and returns the leaderboard, round summary, and (when seasons are enabled) the season status.
 
-This tool does NOT edit any Slack card and does NOT mutate season state. After calling it, the renderer SHALL: (a) call \`update_answers_block({ game, batchId })\` with the returned \`batchId\` to edit each revealed question's card into its final state; (b) on the season's last fire (\`seasonStatus.isLastFireOfSeason === true\`), call \`start_new_season({ game })\` to perform the (idempotent) rollover; (c) render the payload via \`submit_response\`.
+This tool does NOT edit any Slack card and does NOT mutate season state. After calling it, the renderer SHALL: (a) call \`update_answers_block({ game, questionIds })\` passing \`reveals.map(r => r.questionId)\` to edit each revealed question's card into its final state; (b) on the season's last fire (\`seasonStatus.isLastFireOfSeason === true\`), call \`start_new_season({ game })\` to perform the (idempotent) rollover; (c) render the payload via \`submit_response\`.
 
 DEFAULT BEHAVIOR (\`reprocessQuestionIds\` absent/empty AND \`reprocessBatchId\` absent): processes EVERY question in the OLDEST pending BATCH, where batches are groups of questions sharing the same \`batchId\` (stamped by \`post_questions\` per call; one cron-fire batch = one shared id). Questions with an undefined \`batchId\` (legacy rows) are each treated as their own singleton batch. The oldest batch is the one whose smallest \`postedAt\` is earliest; ties broken by lexicographic comparison of the group key. Stamps \`processedAt\` on each processed question before returning. Other pending batches stay pending — they drain one batch per fire on subsequent reveal runs. If no question is pending, returns \`reveals: []\` and a current leaderboard.
 
 REPROCESS MODE (entered when \`reprocessQuestionIds\` is non-empty OR \`reprocessBatchId\` is set; the targeted set is their UNION; targets sorted \`postedAt\`-ascending — NON-DESTRUCTIVE). Reprocess brings each targeted question fully in line with the CURRENT key AND CURRENT config: (1) re-resolves the question's frozen config axes from the live cascade (rebuilt from the question's own stamped slot/season) and re-stamps them — \`revealResponses\` for every format, \`judgeLeniency\` for freeform; (2) re-derives verdicts on RETAINED rows — boolean/choice from the current \`isTrue\`/\`correctIndex\` + cheats, freeform by re-judging every retained \`answerText\` row under the re-stamped \`judgeLeniency\` (overwriting prior verdicts in place). Raw submissions (clicks / \`answerText\`) are the canonical record and are NEVER deleted. Use after correcting a key OR after a \`revealResponses\`/\`judgeLeniency\` config change to apply it to an already-posted batch (then call \`update_answers_block\` to re-render). Stamps \`processedAt\` (overwriting prior values). Does NOT pick up unrelated pending questions.
 
 PAYLOAD SHAPE (renderer contract):
-- \`batchId\` (string, present when \`reveals\` is non-empty): the handle for the processed batch — pass it verbatim to \`update_answers_block\`. Equals the shared \`batchId\` of the processed questions, or the single question's id for legacy/undefined-batchId rows.
-- \`reveals: Array<{ questionId, statement, category, emojis, messageLink, wasReprocessed, answer, voters, media? }>\` — \`media\` is present ONLY on image-medium questions and carries \`{ title, attribution?, license? }\` for the reveal attribution line (no url/subjectId).
+- \`reveals: Array<{ questionId, statement, category, emojis, messageLink, wasReprocessed, answer, voters, media? }>\` — pass \`reveals.map(r => r.questionId)\` to \`update_answers_block\` to repaint the cards. \`media\` is present ONLY on image-medium questions and carries \`{ title, attribution?, license? }\` for the reveal attribution line (no url/subjectId).
   - \`answer\` (dispatched on \`type\`):
 ${PER_FORMAT_ANSWER_SHAPES}
   - \`voters\` is a DISCRIMINATED UNION keyed on the question's stamped \`revealResponses\` mode (one of four variants):
@@ -349,13 +348,6 @@ export function createComputeAnswersTool(
         if (entry !== undefined) reveals.push(entry);
       }
 
-      // The batch handle for `update_answers_block`: the shared batchId of the
-      // processed questions, or the first question's id for legacy/singleton rows.
-      // Keyed on `reveals` (not `targets`) so a batch that produced only deferred
-      // predictions — nothing scored — returns no handle to re-render.
-      const processedBatchId =
-        reveals.length > 0 ? (targets[0].batchId ?? targets[0].id) : undefined;
-
       // ── Leaderboard ─────────────────────────────────────────────────────
       const refreshedAnswers = await scoped.loadAnswers();
       const refreshedUsers = await data.loadUsers();
@@ -430,7 +422,6 @@ export function createComputeAnswersTool(
       const result: ProcessRevealResult = {
         game: args.game,
         reveals,
-        ...(processedBatchId !== undefined ? { batchId: processedBatchId } : {}),
         leaderboard,
         roundSummary,
         includeRevealInQuestions: resolveIncludeRevealInQuestions(gameEntry, triviaConfig),

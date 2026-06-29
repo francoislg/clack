@@ -1222,7 +1222,8 @@ describe("compute_answers — does not edit cards (projection moved to update_an
 
     assert.equal(updates.length, 0);
     assert.equal(res.reveals.length, 1);
-    assert.equal(res.batchId, "B");
+    // The renderer repaints via the revealed question ids (no batch handle is surfaced).
+    assert.equal(res.reveals[0].questionId, "q1");
   });
 });
 

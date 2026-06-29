@@ -113,5 +113,38 @@ describe("remove_cheat tool", () => {
       ),
     );
     assert.match(body.refreshHint, /compute_answers/);
+    // Standardized repaint call names questionIds with the affected id, never a batchId.
+    assert.match(body.refreshHint, /update_answers_block\(game, questionIds: \["q1"\]\)/);
+    assert.doesNotMatch(body.refreshHint, /batchId/);
+  });
+
+  it("omits the refreshHint when the question has not been revealed yet", async () => {
+    const data = createInMemoryDataLayer();
+    const scoped = data.forGame(FIXTURE_GAME_NAME);
+    // A still-live question (posted, no processedAt) — no posted result to refresh.
+    await scoped.saveQuestion({
+      id: "q1",
+      category: "C",
+      statement: "s",
+      answersFormat: "boolean",
+      questionType: "fact",
+      isTrue: true,
+      emojis: ["🎯"],
+      createdAt: 0,
+      postedAt: 1_000,
+      messageLink: "https://x.slack.com/archives/C1/p1700000000000000",
+      revealResponses: "yes",
+    });
+    await scoped.saveCheat({ cheaterUserId: "U1", questionId: "q1", reason: "a", detectedAt: "t" });
+    const tool = createRemoveCheatTool(data, fixtureGetGames);
+
+    const body = parseToolResult(
+      await tool.handler(
+        { game: FIXTURE_GAME_NAME, cheaterUserId: "U1", questionId: "q1" },
+        SESSION,
+      ),
+    );
+    assert.equal(body.removed, 1);
+    assert.equal(Object.prototype.hasOwnProperty.call(body, "refreshHint"), false);
   });
 });

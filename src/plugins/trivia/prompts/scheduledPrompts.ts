@@ -817,7 +817,7 @@ Deliver today's trivia reveal. The deterministic SCORING is done for you by \`co
 
    The tool fetches the pending question's Slack message, excludes the bot + every flagged cheater, scores answers from the stored button clicks (boolean/choice) and modal submissions (freeform), persists them, stamps \`processedAt\`, and computes the leaderboard. It does NOT edit any Slack card and does NOT roll over the season — those are steps 2 and 3 below. Reactions are still fetched but ONLY as commentary, not as votes. You will NOT call \`fetch_channel_messages\`, \`find_previous_questions\`, \`get_question_history\`, \`submit_answers\`, \`retrieve_scores\`, \`check_season_status\`, or \`upsert_season\`.
 
-   Note the \`batchId\` field on the payload (present when \`reveals\` is non-empty) — you pass it to \`update_answers_block\` in step 2.
+   Note the \`reveals[].questionId\` values on the payload — you pass them (as \`questionIds\`) to \`update_answers_block\` in step 2.
 
    The returned payload shape:
    - \`game\`: the game's slug (internal — never surface).
@@ -851,7 +851,7 @@ Deliver today's trivia reveal. The deterministic SCORING is done for you by \`co
    - \`"yes"\`: for EACH question in \`reveals\`, call \`update_question({ game: "{game}", questionId: <reveals[i].questionId>, revealBlocks: [...] })\` carrying THAT question's narrative as Block Kit — the verdict prose, the WHY explanation, the fun-fact comment, and (when its \`correct\` bucket is empty) the expanded "nobody cracked it" teaching. Put ONLY narrative in \`revealBlocks\`; NEVER the Answer/Correct/Incorrect facts (\`update_answers_block\` renders those deterministically from disk and appends your narrative beneath them). Author every revealed question's narrative BEFORE you call \`update_answers_block\` in step 2, so each card shows facts + that narrative.
    - \`"no"\`: do NOT call \`update_question\` at all — cards stay facts-only (today's flow) and the per-question narrative lives in the step-4 summary instead.
 
-2. CALL \`update_answers_block({ game: "{game}", batchId: <the batchId from step 1> })\`:
+2. CALL \`update_answers_block({ game: "{game}", questionIds: <every reveals[].questionId from step 1> })\`:
 
    This edits each revealed question's original Slack card into its final static state (drops the vote buttons, appends the results footer, adds the "See your answer" button) — deterministically, from the scored answers on disk. It does NOT score, judge, or post a new message. SKIP this call when \`reveals\` was empty.
 
@@ -1081,7 +1081,7 @@ Create via create_scheduled_message with:
     "mcp__trivia__update_answers_block",
     "mcp__trivia__start_new_season"
   ]
-- prompt: "Call compute_answers with the game name, then update_answers_block with the returned batchId to edit the question cards, then (on the season's last fire only) start_new_season, then render the returned payload as a reveal using the Game Show Presenter voice via submit_response."
+- prompt: "Call compute_answers with the game name, then update_answers_block with the revealed questionIds (reveals[].questionId) to edit the question cards, then (on the season's last fire only) start_new_season, then render the returned payload as a reveal using the Game Show Presenter voice via submit_response."
 
 ## After creating
 

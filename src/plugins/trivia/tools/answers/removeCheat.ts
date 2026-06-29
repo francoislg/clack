@@ -3,6 +3,7 @@ import { tool } from "@anthropic-ai/claude-agent-sdk";
 import { textResult, errorResult } from "../../../../tools/helpers.js";
 import { defaultGetGames, type GetGamesFn } from "../../core/configBridge.js";
 import { requireWritableGame } from "../../core/gamesRegistry.js";
+import { reprocessThenRepaintHint } from "../../core/refreshHint.js";
 import type { TriviaDataLayer } from "../../core/types.js";
 
 const DESCRIPTION = `Remove a cheat report against a player on a trivia question — the inverse of save_cheating. Admin-only.
@@ -59,12 +60,7 @@ export function createRemoveCheatTool(
         cheaterUserId: args.cheaterUserId,
         questionId: args.questionId,
         totalAttempts,
-        ...(revealAlreadyPosted
-          ? {
-              refreshHint:
-                "Reveal already posted — run `compute_answers` (reprocess this question) then `update_answers_block` to refresh scoring.",
-            }
-          : {}),
+        ...(revealAlreadyPosted ? { refreshHint: reprocessThenRepaintHint(args.questionId) } : {}),
       });
     },
   );

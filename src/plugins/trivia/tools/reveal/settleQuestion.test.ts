@@ -51,6 +51,8 @@ describe("settle_question — answer a prediction", () => {
       await tool.handler(args({ questionId: "p1", outcome: true }), SESSION),
     );
     assert.equal(res.settled, true);
+    // Answering a still-pending (unrevealed) prediction posts no result yet — no card to refresh.
+    assert.equal(res.refreshHint, undefined);
     const after = (await scoped.loadQuestions()).find((q) => q.id === "p1");
     assert.equal(after?.isTrue, true);
     assert.equal(after?.resolved, true);
@@ -69,7 +71,14 @@ describe("settle_question — answer a prediction", () => {
 
   it("re-settles an already-keyed question with override and rescores", async () => {
     const scoped = data.forGame(FIXTURE_GAME_NAME);
-    await scoped.saveQuestion(makePrediction({ isTrue: true, resolved: true }));
+    await scoped.saveQuestion(
+      makePrediction({
+        isTrue: true,
+        resolved: true,
+        processedAt: 9_000,
+        messageLink: "https://x.slack.com/archives/C1/p1700000000000000",
+      }),
+    );
     await scoped.saveAnswer({
       userId: "U1",
       questionId: "p1",
@@ -91,6 +100,8 @@ describe("settle_question — answer a prediction", () => {
     assert.equal(res.settled, true);
     assert.equal(res.reSettled, true);
     assert.equal(res.rescored, 2);
+    // Re-settling a revealed question changes scored verdicts → repaint after reprocess.
+    assert.match(res.refreshHint, /update_answers_block\(game, questionIds: \["p1"\]\)/);
     const after = (await scoped.loadQuestions()).find((q) => q.id === "p1");
     assert.equal(after?.isTrue, false);
     assert.equal(after?.resolvedOutcome, false);
@@ -136,7 +147,12 @@ describe("settle_question — invalidate", () => {
     const scoped = data.forGame(FIXTURE_GAME_NAME);
     // A normal answered question with scored answers.
     await scoped.saveQuestion(
-      makePrediction({ questionType: "fact", isTrue: true, resolved: undefined }),
+      makePrediction({
+        questionType: "fact",
+        isTrue: true,
+        resolved: undefined,
+        messageLink: "https://x.slack.com/archives/C1/p1700000000000000",
+      }),
     );
     await scoped.saveAnswer({
       userId: "U1",
@@ -162,6 +178,9 @@ describe("settle_question — invalidate", () => {
     );
     assert.equal(res.invalidated, true);
     assert.equal(res.cleared, 2);
+    // Standardized repaint call names questionIds with the affected id, never a batchId.
+    assert.match(res.refreshHint, /update_answers_block\(game, questionIds: \["p1"\]\)/);
+    assert.doesNotMatch(res.refreshHint, /batchId/);
 
     const after = (await scoped.loadQuestions()).find((q) => q.id === "p1");
     assert.equal(after?.invalidated, true);

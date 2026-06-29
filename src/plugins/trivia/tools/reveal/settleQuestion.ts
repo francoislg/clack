@@ -4,6 +4,7 @@ import { textResult, errorResult } from "../../../../tools/helpers.js";
 import { defaultGetGames, type GetGamesFn } from "../../core/configBridge.js";
 import { requireWritableGame } from "../../core/gamesRegistry.js";
 import { getAnswerTypeHandler } from "../../answerTypes/registry.js";
+import { repaintHint, reprocessThenRepaintHint } from "../../core/refreshHint.js";
 import type { ScopedTriviaDataLayer, TriviaDataLayer } from "../../core/types.js";
 
 // Drops `correct` verdicts so the next compute_answers rescores from scratch; raw picks kept.
@@ -25,7 +26,7 @@ ANSWER (pass \`outcome\`): stamps the answer key + \`resolved: true\` + \`resolv
 - choice → the winning option's 0-based index (number) OR its exact text (string).
 - freeform → the canonical answer text (string). Optionally also pass \`acceptableAnswers\` / \`gradingNotes\` to give the reveal judge the full spec.
 
-SKIP (pass \`skip: true\` + \`skippedReason\`): marks the question INVALIDATED — sets \`skipped: true\` + the reason — and clears any verdicts on its answers so it scores 0 for everyone. Works for ANY format/type, even an already-answered or already-revealed question. A skipped prediction counts as decided for the reveal gate. After skipping a revealed question, re-run update_answers_block to repaint its card.
+SKIP (pass \`skip: true\` + \`skippedReason\`): marks the question INVALIDATED — sets \`skipped: true\` + the reason — and clears any verdicts on its answers so it scores 0 for everyone. Works for ANY format/type, even an already-answered or already-revealed question. A skipped prediction counts as decided for the reveal gate. The result carries a \`refreshHint\` — call exactly that to repaint the now-invalidated card.
 
 RE-SETTLE (pass \`outcome\` + \`override: true\`): fixes a question already answered with the WRONG outcome. Re-stamps the answer key and clears stale verdicts so the next compute_answers rescores everyone against the corrected result. Without \`override\`, answering an already-keyed question errors.
 
@@ -120,6 +121,9 @@ export function createSettleQuestionTool(
           questionId: question.id,
           invalidatedReason: reason,
           cleared,
+          // The card needs repainting to show its invalidated state (whether mid-window
+          // or after reveal). No posted card → nothing to refresh.
+          ...(question.messageLink !== undefined ? { refreshHint: repaintHint(question.id) } : {}),
         });
       }
 
@@ -154,6 +158,11 @@ export function createSettleQuestionTool(
         questionId: question.id,
         resolvedOutcome: settled.resolvedOutcome,
         ...(alreadyKeyed ? { reSettled: true, rescored } : {}),
+        // Re-settling an already-revealed question clears its verdicts → reprocess, then
+        // repaint. Answering a still-pending prediction posts no result yet, so no card.
+        ...(alreadyKeyed && question.processedAt !== undefined
+          ? { refreshHint: reprocessThenRepaintHint(question.id) }
+          : {}),
       });
     },
   );

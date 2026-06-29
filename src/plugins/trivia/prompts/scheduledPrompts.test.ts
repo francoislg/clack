@@ -401,14 +401,16 @@ describe("PROCESS_REVEAL_INSTRUCTIONS — renderer brief", () => {
     assert.ok(iUpdate < iSeason, "update_answers_block must come before start_new_season");
   });
 
-  it("threads the batchId returned by compute_answers into update_answers_block", () => {
-    // update_answers_block REQUIRES the batchId; if the prompt stops telling Claude to
-    // pass the step-1 batchId, the projector errors with "No questions found" at runtime.
-    assert.match(PROCESS_REVEAL_INSTRUCTIONS, /Note the `batchId` field/);
+  it("threads the revealed questionIds from compute_answers into update_answers_block", () => {
+    // update_answers_block is keyed on questionIds; if the prompt stops telling Claude to
+    // pass the step-1 reveals[].questionId, the projector has nothing to repaint.
+    assert.match(PROCESS_REVEAL_INSTRUCTIONS, /Note the `reveals\[\]\.questionId` values/);
     assert.match(
       PROCESS_REVEAL_INSTRUCTIONS,
-      /update_answers_block\(\{ game: "\{game\}", batchId: <the batchId from step 1> \}\)/,
+      /update_answers_block\(\{ game: "\{game\}", questionIds: <every reveals\[\]\.questionId from step 1> \}\)/,
     );
+    // The batch handle must never be surfaced to Claude in the reveal flow.
+    assert.doesNotMatch(PROCESS_REVEAL_INSTRUCTIONS, /batchId: <the batchId from step 1>/);
   });
 
   it("gates start_new_season to the season's last fire only (never unconditional)", () => {
