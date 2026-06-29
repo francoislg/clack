@@ -15,7 +15,13 @@ PROJECT_ID=$(gcloud config get-value project 2>/dev/null)
 INSTANCE_NAME="clack"
 ZONE="northamerica-northeast1-a"
 MACHINE_TYPE="e2-medium"
-IMAGE_NAME="gcr.io/${PROJECT_ID}/clack:latest"
+
+# Artifact Registry: region is derived from ZONE by stripping the trailing
+# zone-letter suffix (northamerica-northeast1-a -> northamerica-northeast1) so
+# the registry and the VM always live in the same region.
+AR_REGION="${ZONE%-*}"
+AR_REPO="clack"
+IMAGE_NAME="${AR_REGION}-docker.pkg.dev/${PROJECT_ID}/${AR_REPO}/clack:latest"
 
 DATA_DISK_NAME="clack-data"
 DATA_DISK_SIZE="20GB"
@@ -57,4 +63,20 @@ require_instance() {
         echo "  Run scripts/gce-deploy.sh first to create it."
         exit 1
     fi
+}
+
+# Idempotently ensure the Artifact Registry Docker repo exists in AR_REGION.
+# Unlike GCR, Artifact Registry does not auto-create repos on first push, so
+# this must run before `gcloud builds submit`.
+require_ar_repo() {
+    if gcloud artifacts repositories describe "$AR_REPO" --location="$AR_REGION" &>/dev/null; then
+        return 0
+    fi
+    echo -e "${YELLOW}Creating Artifact Registry repo '$AR_REPO' in '$AR_REGION'...${NC}"
+    gcloud artifacts repositories create "$AR_REPO" \
+        --repository-format=docker \
+        --location="$AR_REGION" \
+        --description="Clack container images" \
+        --quiet
+    echo -e "${GREEN}✓ Artifact Registry repo ready${NC}"
 }
