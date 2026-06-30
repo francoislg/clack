@@ -17,24 +17,44 @@ const referenceArg = z.object({
 export function createListTopIdeasTool(sdk: ClackSdk) {
   return tool(
     "list_top_ideas",
-    "List the highest-priority OPEN idler work units, most important first. Use this at the start of a work fire to pick the single unit to advance. Returns at most `limit` units (default 5), each merging the entry's core knowledge with the idler work-state.",
+    'List OPEN idler work units. `sort_by: "priority"` (default) returns the highest-priority units first — use it in a WORK fire to pick the single unit to advance. `sort_by: "coldest"` returns the least-recently-attended units first (oldest `updatedAt`) — use it in a SYNC fire to rotate through what needs a re-check (re-verifying a unit bumps its `updatedAt`, rotating it to the back). Returns at most `limit` units (default 5), each merging the entry\'s core knowledge with the idler work-state plus its `updatedAt`, `staleAfter`, and a computed `overdue` flag.',
     {
       limit: z.number().int().min(1).max(50).optional().describe("Max units to return (default 5)"),
+      sort_by: z
+        .enum(["priority", "coldest"])
+        .optional()
+        .describe(
+          'Ordering: "priority" (default — highest priority first, the work fire\'s selection order) or "coldest" (oldest `updatedAt` first — the sync rotation).',
+        ),
     },
     async (args) => {
+      const now = new Date().toISOString();
       const entries = await sdk.memory.list();
       const open: Array<{ entry: (typeof entries)[number]; slot: IdlerSlot }> = [];
       for (const entry of entries) {
         const slot = parseSlot(entry.plugins?.idler);
         if (slot && slot.open) open.push({ entry, slot });
       }
-      open.sort((a, b) => b.slot.priority - a.slot.priority);
+      if (args.sort_by === "coldest") {
+        open.sort((a, b) =>
+          a.entry.updatedAt < b.entry.updatedAt
+            ? -1
+            : a.entry.updatedAt > b.entry.updatedAt
+              ? 1
+              : 0,
+        );
+      } else {
+        open.sort((a, b) => b.slot.priority - a.slot.priority);
+      }
       const ideas = open.slice(0, args.limit ?? 5).map(({ entry, slot }) => ({
         id: entry.id,
         what: entry.what,
         whereWeAre: slot.whereWeAre,
         nextSteps: entry.nextSteps ?? "",
         priority: slot.priority,
+        updatedAt: entry.updatedAt,
+        ...(entry.staleAfter ? { staleAfter: entry.staleAfter } : {}),
+        overdue: entry.staleAfter?.date != null && entry.staleAfter.date < now,
         references: entry.references,
         cursorsByRefId: slot.cursorsByRefId,
       }));
