@@ -252,6 +252,16 @@ export interface WorkerToolContext {
   silent?: boolean;
   /** Full app configuration */
   config: Config;
+  /**
+   * Resolved `changesWorkflow.requirePRReviewers` flag. When true, `ensure_pr` requests the
+   * Claude-chosen `reviewers` after creating the PR; when false/absent it ignores them.
+   */
+  requirePRReviewers?: boolean;
+  /**
+   * The requesting Slack user's mapped GitHub login (from the user registry), or null when the
+   * user is unmapped. Used by `ensure_pr` to exclude the PR author from the reviewer request.
+   */
+  requestingUserGithubUsername?: string | null;
 }
 
 /** Discriminated union — the tool server accepts either context */

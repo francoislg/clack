@@ -27,11 +27,6 @@ function makeCtx(overrides?: Partial<WorkerToolContext>): WorkerToolContext {
   };
 }
 
-interface ToolResult {
-  content: Array<{ text: string }>;
-  isError?: true;
-}
-
 function makeDeps() {
   const mockGetOctokit = vi.fn<() => Promise<unknown>>(async () => ({
     pulls: { list: vi.fn(async () => ({ data: [] })), create: vi.fn() },
@@ -82,7 +77,7 @@ describe("ensurePR tool", () => {
 
     const toolDef = createEnsurePRTool(makeCtx(), deps);
     const result = await toolDef.handler(
-      { title: "Test PR", summary: "Fix things" },
+      { title: "Test PR", summary: "Fix things", reviewers: undefined },
       { sessionId: "test" },
     );
 
@@ -104,7 +99,7 @@ describe("ensurePR tool", () => {
 
     const toolDef = createEnsurePRTool(makeCtx(), deps);
     const result = await toolDef.handler(
-      { title: "Test PR", summary: "Fix things" },
+      { title: "Test PR", summary: "Fix things", reviewers: undefined },
       { sessionId: "test" },
     );
 
@@ -133,7 +128,7 @@ describe("ensurePR tool", () => {
     const ctx = makeCtx();
     const toolDef = createEnsurePRTool(ctx, deps);
     const result = await toolDef.handler(
-      { title: "My PR", summary: "Changes" },
+      { title: "My PR", summary: "Changes", reviewers: undefined },
       { sessionId: "test" },
     );
 
@@ -177,7 +172,7 @@ describe("ensurePR tool", () => {
 
     const toolDef = createEnsurePRTool(makeCtx(), deps);
     const result = await toolDef.handler(
-      { title: "Race PR", summary: "Race" },
+      { title: "Race PR", summary: "Race", reviewers: undefined },
       { sessionId: "test" },
     );
 
@@ -204,7 +199,7 @@ describe("ensurePR tool", () => {
 
     const toolDef = createEnsurePRTool(makeCtx(), deps);
     const result = await toolDef.handler(
-      { title: "Fail PR", summary: "Fail" },
+      { title: "Fail PR", summary: "Fail", reviewers: undefined },
       { sessionId: "test" },
     );
 
@@ -228,7 +223,7 @@ describe("ensurePR tool", () => {
 
     const toolDef = createEnsurePRTool(makeCtx(), deps);
     const result = await toolDef.handler(
-      { title: "Error PR", summary: "Error" },
+      { title: "Error PR", summary: "Error", reviewers: undefined },
       { sessionId: "test" },
     );
 
@@ -255,7 +250,10 @@ describe("ensurePR tool", () => {
     }));
 
     const toolDef = createEnsurePRTool(makeCtx(), deps);
-    await toolDef.handler({ title: "PR", summary: "S" }, { sessionId: "test" });
+    await toolDef.handler(
+      { title: "PR", summary: "S", reviewers: undefined },
+      { sessionId: "test" },
+    );
 
     const createArgs = mockCreate.mock.calls[0]! as never as [{ base: string }];
     assert.equal(createArgs[0].base, "main");
@@ -273,12 +271,151 @@ describe("ensurePR tool", () => {
 
     const ctx = makeCtx();
     const toolDef = createEnsurePRTool(ctx, deps);
-    await toolDef.handler({ title: "PR", summary: "S" }, { sessionId: "test" });
+    await toolDef.handler(
+      { title: "PR", summary: "S", reviewers: undefined },
+      { sessionId: "test" },
+    );
 
     assert.ok(mockAppendExecutionLog.mock.calls.length >= 1);
     const logArgs = mockAppendExecutionLog.mock.calls[0]! as [string, string];
     assert.equal(logArgs[0], ctx.branchName);
     assert.ok(logArgs[1].includes("ensure_pr"));
+  });
+
+  it("requests reviewers (author excluded, case-insensitive) on a new PR when the flag is on", async () => {
+    const mockList = vi.fn(async () => ({ data: [] }));
+    const mockCreate = vi.fn(async () => ({
+      data: { number: 42, html_url: "https://github.com/org/my-repo/pull/42" },
+    }));
+    const mockRequestReviewers = vi.fn<
+      (args: { pull_number: number; reviewers: string[] }) => Promise<object>
+    >(async () => ({}));
+    const { deps, mockGetOctokit } = makeDeps();
+    mockGetOctokit.mockImplementation(async () => ({
+      pulls: { list: mockList, create: mockCreate, requestReviewers: mockRequestReviewers },
+    }));
+
+    const ctx = makeCtx({ requirePRReviewers: true, requestingUserGithubUsername: "Alice" });
+    const toolDef = createEnsurePRTool(ctx, deps);
+    const result = await toolDef.handler(
+      { title: "PR", summary: "S", reviewers: ["alice", "bob", "bob"] },
+      { sessionId: "test" },
+    );
+
+    const parsed = parseToolResult(result);
+    assert.equal(parsed.success, true);
+    assert.equal(parsed.warning, undefined);
+    assert.equal(mockRequestReviewers.mock.calls.length, 1);
+    const reqArgs = mockRequestReviewers.mock.calls[0]![0];
+    assert.equal(reqArgs.pull_number, 42);
+    assert.deepEqual(reqArgs.reviewers, ["bob"]);
+  });
+
+  it("requests reviewers on an existing PR when the flag is on", async () => {
+    const mockList = vi.fn(async () => ({
+      data: [{ number: 55, html_url: "https://github.com/org/my-repo/pull/55" }],
+    }));
+    const mockRequestReviewers = vi.fn<
+      (args: { pull_number: number; reviewers: string[] }) => Promise<object>
+    >(async () => ({}));
+    const { deps, mockGetOctokit } = makeDeps();
+    mockGetOctokit.mockImplementation(async () => ({
+      pulls: {
+        list: mockList,
+        create: vi.fn(),
+        update: vi.fn(),
+        requestReviewers: mockRequestReviewers,
+      },
+    }));
+
+    const ctx = makeCtx({ requirePRReviewers: true, requestingUserGithubUsername: "alice" });
+    const toolDef = createEnsurePRTool(ctx, deps);
+    const result = await toolDef.handler(
+      { title: "PR", summary: "S", reviewers: ["alice", "bob"] },
+      { sessionId: "test" },
+    );
+
+    const parsed = parseToolResult(result);
+    assert.equal(parsed.success, true);
+    assert.equal(parsed.created, false);
+    assert.equal(mockRequestReviewers.mock.calls.length, 1);
+    const reqArgs = mockRequestReviewers.mock.calls[0]![0];
+    assert.equal(reqArgs.pull_number, 55);
+    assert.deepEqual(reqArgs.reviewers, ["bob"]);
+  });
+
+  it("keeps success with a warning when requestReviewers fails", async () => {
+    const mockList = vi.fn(async () => ({ data: [] }));
+    const mockCreate = vi.fn(async () => ({
+      data: { number: 7, html_url: "https://github.com/org/my-repo/pull/7" },
+    }));
+    const mockRequestReviewers = vi.fn(async () => {
+      throw new Error("422 not a collaborator");
+    });
+    const { deps, mockGetOctokit } = makeDeps();
+    mockGetOctokit.mockImplementation(async () => ({
+      pulls: { list: mockList, create: mockCreate, requestReviewers: mockRequestReviewers },
+    }));
+
+    const ctx = makeCtx({ requirePRReviewers: true, requestingUserGithubUsername: null });
+    const toolDef = createEnsurePRTool(ctx, deps);
+    const result = await toolDef.handler(
+      { title: "PR", summary: "S", reviewers: ["bob"] },
+      { sessionId: "test" },
+    );
+
+    const parsed = parseToolResult(result);
+    assert.equal(parsed.success, true);
+    assert.equal(parsed.pr_url, "https://github.com/org/my-repo/pull/7");
+    assert.ok(parsed.warning);
+  });
+
+  it("warns (no request) when the flag is on but no reviewer resolves", async () => {
+    const mockList = vi.fn(async () => ({ data: [] }));
+    const mockCreate = vi.fn(async () => ({
+      data: { number: 8, html_url: "https://github.com/org/my-repo/pull/8" },
+    }));
+    const mockRequestReviewers = vi.fn(async () => ({}));
+    const { deps, mockGetOctokit } = makeDeps();
+    mockGetOctokit.mockImplementation(async () => ({
+      pulls: { list: mockList, create: mockCreate, requestReviewers: mockRequestReviewers },
+    }));
+
+    const ctx = makeCtx({ requirePRReviewers: true, requestingUserGithubUsername: null });
+    const toolDef = createEnsurePRTool(ctx, deps);
+    const result = await toolDef.handler(
+      { title: "PR", summary: "S", reviewers: [] },
+      { sessionId: "test" },
+    );
+
+    const parsed = parseToolResult(result);
+    assert.equal(parsed.success, true);
+    assert.ok(parsed.warning);
+    assert.equal(mockRequestReviewers.mock.calls.length, 0);
+  });
+
+  it("ignores reviewers entirely when the flag is off (no request, no warning)", async () => {
+    const mockList = vi.fn(async () => ({ data: [] }));
+    const mockCreate = vi.fn(async () => ({
+      data: { number: 9, html_url: "https://github.com/org/my-repo/pull/9" },
+    }));
+    const mockRequestReviewers = vi.fn(async () => ({}));
+    const { deps, mockGetOctokit } = makeDeps();
+    mockGetOctokit.mockImplementation(async () => ({
+      pulls: { list: mockList, create: mockCreate, requestReviewers: mockRequestReviewers },
+    }));
+
+    const ctx = makeCtx({ requirePRReviewers: false });
+    const toolDef = createEnsurePRTool(ctx, deps);
+    const result = await toolDef.handler(
+      { title: "PR", summary: "S", reviewers: ["alice", "bob"] },
+      { sessionId: "test" },
+    );
+
+    const parsed = parseToolResult(result);
+    assert.equal(parsed.success, true);
+    assert.equal(parsed.warning, undefined);
+    assert.equal(mockRequestReviewers.mock.calls.length, 0);
   });
 
   it("calls list with correct owner:branch head filter", async () => {
@@ -292,7 +429,10 @@ describe("ensurePR tool", () => {
 
     const ctx = makeCtx();
     const toolDef = createEnsurePRTool(ctx, deps);
-    await toolDef.handler({ title: "PR", summary: "S" }, { sessionId: "test" });
+    await toolDef.handler(
+      { title: "PR", summary: "S", reviewers: undefined },
+      { sessionId: "test" },
+    );
 
     const listArgs = mockList.mock.calls[0]! as never as [{ head: string; state: string }];
     assert.equal(listArgs[0].head, `org:${ctx.branchName}`);

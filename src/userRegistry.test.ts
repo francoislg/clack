@@ -7,6 +7,8 @@ import {
   getUserNamespace,
   upsertIdentity,
   mergeUserNamespace,
+  mergeUserGithub,
+  setUserDisplayName,
   clearRegistryCache,
   setUserRegistryDeps,
   resetUserRegistryDeps,
@@ -89,6 +91,73 @@ describe("userRegistry — namespaces", () => {
   it("getUserNamespace returns null for an absent namespace", async () => {
     await upsertIdentity("U1", "Alice", 0);
     assert.equal(await getUserNamespace("trivia", "U1"), null);
+  });
+});
+
+describe("userRegistry — github", () => {
+  it("sets github and preserves displayName, lastFetched, and plugins", async () => {
+    await upsertIdentity("U1", "Alice", 1000);
+    await mergeUserNamespace("trivia", "U1", { joinedAt: 5 });
+    await mergeUserGithub("U1", { username: "alice-gh" });
+    const record = await getUserRecord("U1");
+    assert.deepEqual(record?.github, { username: "alice-gh" });
+    assert.equal(record?.displayName, "Alice");
+    assert.equal(record?.lastFetched, 1000);
+    assert.deepEqual(record?.plugins?.trivia, { joinedAt: 5 });
+  });
+
+  it("clears github with null while preserving other fields", async () => {
+    await upsertIdentity("U1", "Alice", 1000);
+    await mergeUserGithub("U1", { username: "alice-gh" });
+    await mergeUserGithub("U1", null);
+    const record = await getUserRecord("U1");
+    assert.equal(record?.github, undefined);
+    assert.equal(record?.displayName, "Alice");
+  });
+
+  it("creates a placeholder record for an unknown user", async () => {
+    await mergeUserGithub("UX", { username: "octo" });
+    const record = await getUserRecord("UX");
+    assert.deepEqual(record?.github, { username: "octo" });
+    assert.equal(record?.displayName, "");
+    assert.equal(record?.lastFetched, 0);
+  });
+
+  it("upsertIdentity (lazy Slack refresh) preserves github", async () => {
+    await mergeUserGithub("U1", { username: "alice-gh" });
+    await upsertIdentity("U1", "Alice Refreshed", 2000);
+    const record = await getUserRecord("U1");
+    assert.deepEqual(record?.github, { username: "alice-gh" });
+    assert.equal(record?.displayName, "Alice Refreshed");
+  });
+
+  it("tolerates a malformed github field, dropping it but keeping the record", async () => {
+    installStore({
+      [`${process.cwd()}/data/state/users.json`]: JSON.stringify({
+        U1: { userId: "U1", displayName: "Alice", lastFetched: 1, github: "not-an-object" },
+      }),
+    });
+    const record = await getUserRecord("U1");
+    assert.equal(record?.displayName, "Alice");
+    assert.equal(record?.github, undefined);
+  });
+
+  it("setUserDisplayName overrides the name and preserves github", async () => {
+    await mergeUserGithub("U1", { username: "alice-gh" });
+    await setUserDisplayName("U1", "Manual Name");
+    const record = await getUserRecord("U1");
+    assert.equal(record?.displayName, "Manual Name");
+    assert.deepEqual(record?.github, { username: "alice-gh" });
+  });
+
+  it("serializes concurrent github writes for the same user", async () => {
+    await Promise.all([
+      mergeUserGithub("U1", { username: "first" }),
+      setUserDisplayName("U1", "Name"),
+    ]);
+    const record = persistedRegistry().U1;
+    assert.deepEqual(record?.github, { username: "first" });
+    assert.equal(record?.displayName, "Name");
   });
 });
 

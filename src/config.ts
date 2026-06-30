@@ -93,6 +93,11 @@ export interface ChangesWorkflowConfig {
    * gate entirely (rely on the worker pool's queue for backpressure instead).
    */
   maxActiveChangesPerUser?: number;
+  /**
+   * When true, Clack requests reviewers (chosen by Claude's judgement) on PRs it opens in
+   * worker mode. Default false. Intent only — reviewer-request failures never fail PR creation.
+   */
+  requirePRReviewers?: boolean;
 }
 
 // Per-trigger changes workflow config

@@ -261,6 +261,7 @@ export function validateConfig(config: unknown, slackAuth: SlackAuthConfig): Con
           monitoringIntervalMinutes: optNum(cwRaw.monitoringIntervalMinutes),
           reusableFolders,
           maxActiveChangesPerUser: optNum(cwRaw.maxActiveChangesPerUser),
+          requirePRReviewers: boolOr(cwRaw.requirePRReviewers, false),
         }
       : undefined,
     cron: cronConfig,

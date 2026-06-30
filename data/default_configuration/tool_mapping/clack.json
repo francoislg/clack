@@ -135,6 +135,9 @@
       "group": "lookups",
       "itemDetail": { "en": "user {query}", "fr": "utilisateur {query}" }
     },
+    "update_user": {
+      "label": { "en": "Updating user {user_id}", "fr": "Mise à jour de l'utilisateur {user_id}" }
+    },
     "find_emoji": {
       "label": { "en": "Looking up emoji \"{query}\"", "fr": "Recherche de l'emoji \"{query}\"" },
       "group": "lookups",

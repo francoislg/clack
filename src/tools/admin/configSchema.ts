@@ -345,6 +345,13 @@ export const CONFIG_SCHEMA: SchemaFor<Config> = {
           default: 1,
           required: false,
         },
+        requirePRReviewers: {
+          type: "boolean",
+          description:
+            "Request Claude-chosen reviewers on PRs the worker opens (excludes the author). Intent only — reviewer failures never fail PR creation.",
+          default: false,
+          required: false,
+        },
       },
     },
     cron: {

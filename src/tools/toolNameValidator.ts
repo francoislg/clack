@@ -33,6 +33,7 @@ export const CLACK_CORE_TOOL_NAMES: readonly string[] = [
   "find_changes",
   "find_pull_requests",
   "resolve_review_thread",
+  "update_user",
   "attach_integration",
   "list_skill_pack_skills",
   "load_skill",

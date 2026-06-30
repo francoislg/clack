@@ -37,6 +37,7 @@ import {
   runWorktreeSetup,
 } from "./execution.js";
 import { buildWorkerContext } from "../tools/context.js";
+import { getUserRecord } from "../userRegistry.js";
 import { buildClackTools } from "../tools/server.js";
 import { fetchPRReviewContext } from "./pr.js";
 import { defaultSpinoffGitOps } from "./spinoff.js";
@@ -107,6 +108,7 @@ export interface WorkflowDeps {
   getSession: (sessionId: string) => Promise<SessionContext | null>;
   forceResetBranch: (worker: Worker, repo: RepositoryConfig, branch: string) => Promise<void>;
   applySlicePatch: (worktreePath: string, patchPath: string) => Promise<void>;
+  getUserRecord: typeof getUserRecord;
 }
 
 export const defaultWorkflowDeps: WorkflowDeps = {
@@ -131,6 +133,7 @@ export const defaultWorkflowDeps: WorkflowDeps = {
   getSession,
   forceResetBranch,
   applySlicePatch: defaultSpinoffGitOps.applySlicePatch,
+  getUserRecord,
 };
 
 // ============================================================================
@@ -534,6 +537,7 @@ export async function handleFollowUp(
   };
 
   // Build worker context for this command
+  const requesterRecord = await deps.getUserRecord(session.userId);
   const workerCtx = deps.buildWorkerContext({
     worktreePath: worktree.worktreePath,
     branchName: activeChange.branch,
@@ -543,6 +547,8 @@ export async function handleFollowUp(
     threadTs: session.threadTs,
     sessionId: session.sessionId,
     config,
+    requirePRReviewers: config.changesWorkflow?.requirePRReviewers ?? false,
+    requestingUserGithubUsername: requesterRecord?.github?.username ?? null,
   });
   const workerTools = deps.buildClackTools(workerCtx);
 

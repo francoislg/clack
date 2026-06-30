@@ -112,6 +112,12 @@ Managed via the Home Tab in Slack. Per-repo access control with `read` and `writ
 
 Optional feature (gated by `changesWorkflow.enabled`). Dev+ users request changes → Claude creates a git worktree, implements changes, pushes a branch, opens a PR. Follow-ups (review, update, merge, close) happen in the same Slack thread. A background monitor detects externally merged/closed PRs and cleans up worktrees.
 
+#### PR reviewer assignment (`requirePRReviewers`)
+
+Optional, opt-in via `changesWorkflow.requirePRReviewers` (default `false`). When `true`, the worker prompt instructs Claude to choose reviewers and `ensure_pr` requests them (`octokit.pulls.requestReviewers`) after creating the PR, excluding the author (case-insensitive). Reviewer resolution maps Slack users → GitHub logins via a core `github` field on the user registry (`UserRecord.github.username`), settable by the `update_user` MCP tool (github editable by anyone; display_name self/admin-only). Claude resolves unmapped reviewers from the repo's collaborators (via the auto-injected `github-mcp-server`) joined by case-insensitive exact email; low-confidence (name-only) matches are ignored — never written, never requested. The flag is intent only: reviewer-request failures (missing scope, 422, unresolved list) **never fail PR creation** — they surface as a non-fatal `warning` in the `ensure_pr` result.
+
+**GitHub App scope requirements** (only when `requirePRReviewers` is enabled): the GitHub App needs `repos.listCollaborators` (read) and `pulls.requestReviewers` (write). There is no fail-fast boot check — a missing scope degrades to a runtime warning, consistent with the never-fail-PR contract. The Slack `users:read.email` scope is optional and improves match quality.
+
 #### Worktree models — disposable vs reusable pool
 
 Two worktree models behind a config flag (`changesWorkflow.reusableFolders.enabled`, default `false`):

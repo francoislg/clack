@@ -86,6 +86,8 @@ export interface BuildWorkerContextParams {
   sessionId: string;
   silent?: boolean;
   config: Config;
+  requirePRReviewers?: boolean;
+  requestingUserGithubUsername?: string | null;
 }
 
 export function buildWorkerContext(params: BuildWorkerContextParams): WorkerToolContext {

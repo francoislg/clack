@@ -270,6 +270,7 @@ describe("loadConfig", () => {
           additionalAllowedTools: ["tool_a", "tool_b"],
           sessionExpiryHours: 48,
           monitoringIntervalMinutes: 10,
+          requirePRReviewers: true,
         },
         reactions: {
           trigger: "robot_face",
@@ -289,10 +290,23 @@ describe("loadConfig", () => {
     assert.deepEqual(cfg.changesWorkflow?.additionalAllowedTools, ["tool_a", "tool_b"]);
     assert.equal(cfg.changesWorkflow?.sessionExpiryHours, 48);
     assert.equal(cfg.changesWorkflow?.monitoringIntervalMinutes, 10);
+    assert.equal(cfg.changesWorkflow?.requirePRReviewers, true);
 
     assert.equal(cfg.reactions.changesWorkflow?.enabled, true);
     assert.equal(cfg.reactions.changesWorkflow?.trigger, "wrench");
     assert.equal(cfg.directMessages.changesWorkflow?.enabled, true);
+  });
+
+  it("defaults requirePRReviewers to false when omitted", () => {
+    writeSlackAuth();
+    writeConfig(
+      minimalConfig({
+        changesWorkflow: { enabled: true },
+      }),
+    );
+
+    const cfg = loadConfig(configPath, true);
+    assert.equal(cfg.changesWorkflow?.requirePRReviewers, false);
   });
 
   it("omits reusableFolders when changesWorkflow has no reusableFolders block", () => {

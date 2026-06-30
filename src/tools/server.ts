@@ -66,6 +66,7 @@ import { createChannelsCache } from "../slack/channelsCache.js";
 
 // Action tools
 import { createProposeChangeTool } from "./actions/proposeChange.js";
+import { createUpdateUserTool } from "./actions/updateUser.js";
 import { createProposeConfigUpdateTool } from "./actions/proposeConfigUpdate.js";
 import { createProposeSkillCreateTool } from "./actions/proposeSkillCreate.js";
 import { createProposeSkillUpdateTool } from "./actions/proposeSkillUpdate.js";
@@ -418,6 +419,10 @@ function buildQueryTools(ctx: QueryToolContext): ClackQueryToolsResult {
   tools.push(createFindChangesTool(ctx));
   tools.push(createFindPullRequestsTool(ctx));
   tools.push(createResolveReviewThreadTool(ctx));
+
+  // update_user — available to all roles; per-field permission gating is enforced inside the
+  // tool (display_name self/admin-only; github.username open to anyone).
+  tools.push(createUpdateUserTool(ctx));
 
   if (canEditConfig(ctx.role)) {
     tools.push(createListConfigFilesTool(ctx));

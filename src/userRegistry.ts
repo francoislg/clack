@@ -41,13 +41,16 @@ export function resetUserRegistryDeps(): void {
 /**
  * One record in `data/state/users.json`. `displayName` and `lastFetched` are core
  * bookkeeping (the latter is the epoch-millis of the last successful Slack resolution,
- * never surfaced to plugins). `plugins` is a per-plugin namespace bag — each plugin owns
- * its own slice under `plugins.<pluginName>` and validates it with its own zod schema.
+ * never surfaced to plugins). `github` is an OPTIONAL core identity attribute (the user's
+ * mapped GitHub login) — a first-class field, NOT a plugin namespace. `plugins` is a
+ * per-plugin namespace bag — each plugin owns its own slice under `plugins.<pluginName>`
+ * and validates it with its own zod schema.
  */
 export interface UserRecord {
   userId: string;
   displayName: string;
   lastFetched: number;
+  github?: { username: string };
   plugins?: { [pluginName: string]: JsonObject };
 }
 
@@ -77,6 +80,15 @@ const userRecordZod = z.object({
   userId: z.string(),
   displayName: z.string().default(""),
   lastFetched: z.number().default(0),
+  // Tolerant per-field: a malformed `github` is logged and dropped to absent so it can't
+  // fail the record (or the whole registry) parse and wipe real state.
+  github: z
+    .object({ username: z.string() })
+    .optional()
+    .catch(() => {
+      logger.warn("users.json: malformed 'github' field dropped (expected { username: string })");
+      return undefined;
+    }),
   plugins: z.record(z.string(), jsonObjectZod).optional(),
 });
 
@@ -193,6 +205,7 @@ export function upsertIdentity(
       userId,
       displayName,
       lastFetched,
+      ...(existing?.github ? { github: existing.github } : {}),
       ...(existing?.plugins ? { plugins: existing.plugins } : {}),
     };
     await persist(map);
@@ -219,6 +232,43 @@ export function mergeUserNamespace(
       userId,
       plugins: { ...base.plugins, [plugin]: { ...prevNamespace, ...partial } },
     };
+    await persist(map);
+  });
+}
+
+/**
+ * Set or clear a user's core `github` field. `null` removes the field. Preserves all other
+ * core fields and plugin namespaces; creates a placeholder record (empty identity,
+ * `lastFetched: 0`) for an unknown user — a later `get` refreshes the identity. Serialized
+ * so concurrent writes don't lose updates.
+ */
+export function mergeUserGithub(
+  userId: string,
+  github: { username: string } | null,
+): Promise<void> {
+  return serialize(async () => {
+    const map = await loadRegistry();
+    const base: UserRecord = map[userId] ?? { userId, displayName: "", lastFetched: 0 };
+    if (github === null) {
+      const { github: _dropped, ...rest } = base;
+      map[userId] = { ...rest, userId };
+    } else {
+      map[userId] = { ...base, userId, github: { username: github.username } };
+    }
+    await persist(map);
+  });
+}
+
+/**
+ * Set a user's core `displayName` directly (a manual override of the Slack-resolved value).
+ * Bumps `lastFetched` to now so the lazy refresh doesn't immediately clobber it within the
+ * freshness TTL. Preserves `github` and plugin namespaces. Serialized.
+ */
+export function setUserDisplayName(userId: string, displayName: string): Promise<void> {
+  return serialize(async () => {
+    const map = await loadRegistry();
+    const base: UserRecord = map[userId] ?? { userId, displayName: "", lastFetched: 0 };
+    map[userId] = { ...base, userId, displayName, lastFetched: Date.now() };
     await persist(map);
   });
 }
