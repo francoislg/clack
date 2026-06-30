@@ -8,6 +8,7 @@ import type { RepositoryConfig, Config as AppConfig } from "../config.js";
 import type { StreamEvent } from "../streaming/types.js";
 import type { WorkerToolContext, ClackWorkerToolsResult } from "../tools/types.js";
 import type { ExecuteChangeOptions } from "./execution.js";
+import type { UserRecord } from "../userRegistry.js";
 import { createSdkMcpServer } from "@anthropic-ai/claude-agent-sdk";
 import { startChangeWorkflow, handleFollowUp, type WorkflowDeps } from "./workflow.js";
 import type { ReleaseReason, Worker, WorkerPool } from "../workers/types.js";
@@ -143,6 +144,7 @@ const mockForceResetBranch =
 const mockApplySlicePatch = vi.fn<(worktreePath: string, patchPath: string) => Promise<void>>(
   async () => {},
 );
+const mockGetUserRecord = vi.fn<(userId: string) => Promise<UserRecord | null>>(async () => null);
 
 // Types for test assertions
 type ExecuteChangeCallArg = Omit<ExecuteChangeOptions, "plan"> & {
@@ -182,6 +184,7 @@ function makeDeps(): WorkflowDeps {
     getSession: mockGetSession,
     forceResetBranch: mockForceResetBranch,
     applySlicePatch: mockApplySlicePatch,
+    getUserRecord: mockGetUserRecord,
   };
 }
 

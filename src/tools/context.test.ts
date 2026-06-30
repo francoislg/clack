@@ -107,4 +107,38 @@ describe("buildWorkerContext", () => {
 
     assert.equal(ctx.config, specificConfig);
   });
+
+  it("passes through requirePRReviewers and requestingUserGithubUsername", () => {
+    const ctx = buildWorkerContext({
+      worktreePath: "/w",
+      branchName: "b",
+      repoName: "r",
+      repoUrl: "u",
+      channelId: "C1",
+      threadTs: "0.0",
+      sessionId: "s1",
+      config: stubConfig,
+      requirePRReviewers: true,
+      requestingUserGithubUsername: "alice-gh",
+    });
+
+    assert.equal(ctx.requirePRReviewers, true);
+    assert.equal(ctx.requestingUserGithubUsername, "alice-gh");
+  });
+
+  it("leaves the reviewer fields undefined when not provided", () => {
+    const ctx = buildWorkerContext({
+      worktreePath: "/w",
+      branchName: "b",
+      repoName: "r",
+      repoUrl: "u",
+      channelId: "C1",
+      threadTs: "0.0",
+      sessionId: "s1",
+      config: stubConfig,
+    });
+
+    assert.equal(ctx.requirePRReviewers, undefined);
+    assert.equal(ctx.requestingUserGithubUsername, undefined);
+  });
 });

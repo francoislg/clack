@@ -20,6 +20,7 @@ import type { SessionUsage } from "../claude/usage.js";
 import { addSessionUsage } from "../sessions.js";
 import { detectRuntime } from "../claude/utilities.js";
 import { buildWorkerContext } from "../tools/context.js";
+import { getUserRecord } from "../userRegistry.js";
 import { buildClackTools } from "../tools/server.js";
 import { discoverEagerSkillPlugins } from "../skillPlugins.js";
 import type { StreamEvent } from "../streaming/types.js";
@@ -342,6 +343,16 @@ Important:
 - For the PR title, use a concise description (max 72 chars) — do NOT put "Requested by" or the requester's name in the title
 - For the PR summary, describe what was changed and why. If the prompt provides a "Requested by:" line, include it verbatim at the top of the PR body (never in the title)`;
 
+const REVIEWER_RESOLUTION_GUIDANCE = `
+
+PR REVIEWERS (enabled for this workspace):
+When you call ensure_pr, pass a \`reviewers\` array of GitHub logins chosen by your judgement. To resolve a reviewer whose GitHub login you don't already know:
+- Fetch the repository's collaborators via the GitHub MCP tools — everyone with access to THIS repo (org members with repo access AND outside collaborators), NOT the whole organization roster.
+- High-confidence path: if the candidate's Slack profile email is available, match it case-insensitively and exactly against a collaborator's email. On a match, persist it with the update_user tool (github.username) and use that login.
+- Fallback: if no email is available or there is no exact email match, leave the user unmapped — do NOT write a name-only guess via update_user and do NOT request them as a reviewer. (The Slack users:read.email scope is optional; matching simply degrades to "no reviewer" without it.)
+- The PR author is excluded automatically; don't add them.
+If no reviewer can be resolved, still create the PR — ensure_pr surfaces a non-fatal warning and the PR is created regardless.`;
+
 /**
  * Execute the change in the worktree
  */
@@ -406,6 +417,10 @@ export async function executeChange(opts: ExecuteChangeOptions): Promise<Executi
   // skills leave the prompt unchanged.
   systemPrompt = appendWorkerSkillsCatalog(systemPrompt, worktree.repoName);
 
+  if (config.changesWorkflow?.requirePRReviewers) {
+    systemPrompt += REVIEWER_RESOLUTION_GUIDANCE;
+  }
+
   const requester = request.userDisplayName?.trim() || `Slack user ${request.userId}`;
 
   let prompt = `Implement this change:
@@ -437,6 +452,7 @@ Follow the workflow steps in the system prompt. Report your final status using t
 
   // Build worker tools for this execution
   const repo = findRepoByName(plan.targetRepo, config);
+  const requesterRecord = await getUserRecord(request.userId);
   const workerCtx = buildWorkerContext({
     worktreePath: worktree.worktreePath,
     branchName: plan.branchName,
@@ -447,6 +463,8 @@ Follow the workflow steps in the system prompt. Report your final status using t
     sessionId,
     ...(request.silent && { silent: true }),
     config,
+    requirePRReviewers: config.changesWorkflow?.requirePRReviewers ?? false,
+    requestingUserGithubUsername: requesterRecord?.github?.username ?? null,
   });
   const workerTools = buildClackTools(workerCtx);
 
