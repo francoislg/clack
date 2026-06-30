@@ -225,12 +225,15 @@ export interface ResponseCapture {
   setAttentionLevel: (level: AttentionLevel) => void;
   setDeliveryMode: (mode: DeliveryMode) => void;
   setPostedTopLevel: () => void;
+  setEscalateToOwner: (diagnostic: string) => void;
   isSkipped: () => boolean;
   /** The attention level Claude set via `submit_response.attention_level`, or null if unset. */
   getAttentionLevel: () => AttentionLevel | null;
   /** The delivery mode Claude set via `submit_response.default_delivery_mode`, or null if unset. */
   getDeliveryMode: () => DeliveryMode | null;
   isPostedTopLevel: () => boolean;
+  /** The operator-facing diagnostic Claude set via `submit_response.escalate_to_owner`, or null if unset. */
+  getEscalateToOwner: () => string | null;
 }
 
 export function createResponseCapture(): ResponseCapture {
@@ -240,6 +243,7 @@ export function createResponseCapture(): ResponseCapture {
   let attentionLevel: AttentionLevel | null = null;
   let deliveryMode: DeliveryMode | null = null;
   let postedTopLevel = false;
+  let escalateToOwner: string | null = null;
 
   return {
     set(payload: SubmitResponsePayload, renderedBlocks: SlackBlocks): void {
@@ -271,6 +275,10 @@ export function createResponseCapture(): ResponseCapture {
       postedTopLevel = true;
     },
 
+    setEscalateToOwner(diagnostic: string): void {
+      escalateToOwner = diagnostic;
+    },
+
     isSkipped(): boolean {
       return skipped;
     },
@@ -285,6 +293,10 @@ export function createResponseCapture(): ResponseCapture {
 
     isPostedTopLevel(): boolean {
       return postedTopLevel;
+    },
+
+    getEscalateToOwner(): string | null {
+      return escalateToOwner;
     },
   };
 }
@@ -742,6 +754,7 @@ function buildQueryTools(ctx: QueryToolContext): ClackQueryToolsResult {
     getAttentionLevel: () => responseCapture.getAttentionLevel(),
     getDeliveryMode: () => responseCapture.getDeliveryMode(),
     isPostedTopLevel: () => responseCapture.isPostedTopLevel(),
+    getEscalateToOwner: () => responseCapture.getEscalateToOwner(),
   };
 }
 
@@ -788,6 +801,7 @@ function buildWorkerTools(ctx: WorkerToolContext): ClackWorkerToolsResult {
     getAttentionLevel: () => null,
     getDeliveryMode: () => null,
     isPostedTopLevel: () => false,
+    getEscalateToOwner: () => null,
   };
 }
 

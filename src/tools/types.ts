@@ -669,6 +669,8 @@ interface ClackToolsResultBase {
   getDeliveryMode: () => DeliveryMode | null;
   /** True when submit_response was called with `post_top_level: true` and delivery succeeded. */
   isPostedTopLevel: () => boolean;
+  /** The operator-facing diagnostic Claude set via `submit_response.escalate_to_owner`, or null if unset. */
+  getEscalateToOwner: () => string | null;
 }
 
 /** Query-mode result: map of MCP servers (one `clack` core server plus one per loaded plugin). */

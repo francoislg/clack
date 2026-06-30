@@ -41,10 +41,12 @@ function mockResponseCapture(overrides: Partial<ResponseCapture> = {}): Response
     setAttentionLevel: vi.fn<ResponseCapture["setAttentionLevel"]>(),
     setDeliveryMode: vi.fn<ResponseCapture["setDeliveryMode"]>(),
     setPostedTopLevel: vi.fn<ResponseCapture["setPostedTopLevel"]>(),
+    setEscalateToOwner: vi.fn<ResponseCapture["setEscalateToOwner"]>(),
     isSkipped: vi.fn<ResponseCapture["isSkipped"]>(() => false),
     getAttentionLevel: vi.fn<ResponseCapture["getAttentionLevel"]>(() => null),
     getDeliveryMode: vi.fn<ResponseCapture["getDeliveryMode"]>(() => null),
     isPostedTopLevel: vi.fn<ResponseCapture["isPostedTopLevel"]>(() => false),
+    getEscalateToOwner: vi.fn<ResponseCapture["getEscalateToOwner"]>(() => null),
     ...overrides,
   };
 }
@@ -193,6 +195,7 @@ interface CallToolRawArgs {
   default_delivery_mode?: DeliveryMode;
   post_top_level?: boolean;
   suppress_unfurls?: boolean;
+  escalate_to_owner?: string;
   additional_messages?: CallToolFollowerArgs[];
   thread_replies?: CallToolFollowerArgs[];
   deliver_to?: {
@@ -661,8 +664,12 @@ describe("createSubmitResponseTool", () => {
     const block = { type: "section", text: { type: "mrkdwn", text: "hi" } };
     const shape = buildSubmitResponseSchema({ submitResponseMode: "optional-post-to" });
 
-    it("exposes exactly skip_response and deliver_to — no primary fields or top-level actions", () => {
-      assert.deepEqual(Object.keys(shape).sort(), ["deliver_to", "skip_response"]);
+    it("exposes skip_response, deliver_to, and escalate_to_owner — no primary fields or top-level actions", () => {
+      assert.deepEqual(Object.keys(shape).sort(), [
+        "deliver_to",
+        "escalate_to_owner",
+        "skip_response",
+      ]);
       for (const forbidden of [
         "blocks",
         "actions",
@@ -676,6 +683,12 @@ describe("createSubmitResponseTool", () => {
       ]) {
         assert.ok(!(forbidden in shape), `optional-post-to schema must not offer ${forbidden}`);
       }
+    });
+
+    it("accepts escalate_to_owner alongside skip_response", () => {
+      const schema = z.object(shape);
+      const result = schema.safeParse({ skip_response: true, escalate_to_owner: "diag" });
+      assert.equal(result.success, true);
     });
 
     it("rejects a deliver_to entry that omits the required channel", () => {
@@ -3183,5 +3196,65 @@ describe("createSubmitResponseTool", () => {
       });
       assert.equal(over20.success, false);
     });
+  });
+});
+
+describe("submit_response escalate_to_owner capture", () => {
+  beforeEach(resetBlockMocks);
+
+  function escalateTracker() {
+    const diagnostics: string[] = [];
+    const capture = mockResponseCapture({
+      setEscalateToOwner: (d: string) => {
+        diagnostics.push(d);
+      },
+    });
+    return { capture, diagnostics };
+  }
+
+  it("captures the diagnostic on the normal response path", async () => {
+    const { capture, diagnostics } = escalateTracker();
+    const deps = makeDeps({ responseCapture: capture });
+
+    await callToolRawTopLevel(deps, {
+      blocks: [{ type: "section", text: { type: "mrkdwn", text: "I notified the owner." } }],
+      actions: [],
+      escalate_to_owner: "TOOL X failed: ECONNREFUSED",
+    });
+
+    assert.deepEqual(diagnostics, ["TOOL X failed: ECONNREFUSED"]);
+  });
+
+  it("captures the diagnostic alongside a deliver_to delivery (channelless)", async () => {
+    const { capture, diagnostics } = escalateTracker();
+    const deps = makeDeps({
+      submitResponseMode: "optional-post-to",
+      deliverToChannel: async () => ({ ok: true as const, ts: "ts-1" }),
+      recordResponseTs: async () => {},
+      responseCapture: capture,
+    });
+
+    const parsed = parseToolResult(
+      await callToolRawTopLevel(deps, {
+        deliver_to: [{ channel: "C1", response: { blocks: [{ type: "section" }] } }],
+        escalate_to_owner: "cron job hit a missing credential",
+      }),
+    );
+
+    assert.equal(parsed.success, true);
+    assert.deepEqual(diagnostics, ["cron job hit a missing credential"]);
+  });
+
+  it("does NOT capture an empty or whitespace-only diagnostic (treated as absent)", async () => {
+    const { capture, diagnostics } = escalateTracker();
+    const deps = makeDeps({ responseCapture: capture });
+
+    await callToolRawTopLevel(deps, {
+      blocks: [{ type: "section", text: { type: "mrkdwn", text: "hi" } }],
+      actions: [],
+      escalate_to_owner: "   ",
+    });
+
+    assert.equal(diagnostics.length, 0);
   });
 });

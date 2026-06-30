@@ -276,6 +276,11 @@ export const fr: Partial<Record<StringKey, string>> = {
     "Le worker est exclu des acquisitions jusqu'à résolution. Annulez les changements via le bouton « Annuler & restaurer » de l'onglet Accueil (ou retirez `.clack-quarantine.json` de `{path}` manuellement) une fois votre décision prise.",
   "changes.quarantine.branch_detached": "(détaché)",
 
+  // ─── Owner escalation DM (submit_response.escalate_to_owner) ────────
+  "owner_escalation.header": ":rotating_light: Clack a rencontré un problème et vous a prévenu",
+  "owner_escalation.context": "De *{user}* dans {channel}",
+  "owner_escalation.session": "Session : `{sessionId}`",
+
   // ─── Change-workflow queue / failure messages ──────────────────────
   "changes.queue.next_in_line":
     ":hourglass_flowing_sand: En attente d'un worker sur `{repo}` — prochain dans la file.",

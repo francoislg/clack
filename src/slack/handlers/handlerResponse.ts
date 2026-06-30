@@ -43,6 +43,7 @@ import { getUserPreference } from "../../userPreferences.js";
 import { logger } from "../../logger.js";
 import { resolveChannelLabel, slackLink } from "../logContext.js";
 import { writeErrorReport } from "../../errorReports.js";
+import { getOwnerUserId, sendOwnerDm } from "../ownerDm.js";
 
 export interface HandlerResponseDeps {
   askClaude: typeof askClaude;
@@ -66,6 +67,8 @@ export interface HandlerResponseDeps {
   createStreamer: (opts: ConstructorParameters<typeof SlackStreamer>[0]) => SlackStreamer;
   getUserPreference: typeof getUserPreference;
   writeErrorReport: typeof writeErrorReport;
+  getOwnerUserId: typeof getOwnerUserId;
+  sendOwnerDm: typeof sendOwnerDm;
   toErrorMessage: typeof toErrorMessage;
   getUserInfo: typeof getUserInfo;
   resolveChannelLabel: typeof resolveChannelLabel;
@@ -91,6 +94,8 @@ export const defaultHandlerResponseDeps: HandlerResponseDeps = {
   createStreamer: (opts) => new SlackStreamer(opts),
   getUserPreference,
   writeErrorReport,
+  getOwnerUserId,
+  sendOwnerDm,
   toErrorMessage,
   getUserInfo,
   resolveChannelLabel,
@@ -494,6 +499,10 @@ async function handleSkip(ctx: DeliveryContext, response: ClaudeResponse): Promi
   } catch (err) {
     logger.error("Failed to persist skipped turn to session:", err);
   }
+
+  // A skipped turn can still escalate — the channelless-cron path declines the user message
+  // (skip_response) yet sets escalate_to_owner, which is exactly where a silent failure hurts most.
+  await maybeEscalateToOwner(ctx, response);
 }
 
 /**
@@ -553,6 +562,8 @@ async function handleSuccess(ctx: DeliveryContext, response: ClaudeResponse): Pr
     triggerType: ctx.sessionInfo.triggerType,
     silent: ctx.silent,
   });
+
+  await maybeEscalateToOwner(ctx, response);
 }
 
 const ORPHANABLE_INTENT_TYPES = new Set(["change", "update", "config_update"]);
@@ -691,6 +702,55 @@ async function sendErrorReportDM(
     });
   } catch (dmError) {
     logger.error("Failed to send error report DM:", dmError);
+  }
+}
+
+/**
+ * Owner escalation for an operator-facing failure Claude flagged via
+ * `submit_response.escalate_to_owner`. DMs the diagnostic to the workspace owner and writes an
+ * error report (so it also surfaces in `admin_list_error_reports`). Best-effort: no owner, a DM
+ * failure, or a report-write failure is logged and swallowed — it never disrupts the turn, and the
+ * user only ever sees Claude's acknowledgement, never the raw diagnostic.
+ */
+async function maybeEscalateToOwner(ctx: DeliveryContext, response: ClaudeResponse): Promise<void> {
+  const diagnostic = response.escalateToOwner;
+  if (!diagnostic) return;
+
+  try {
+    const owner = await ctx.deps.getOwnerUserId();
+    if (owner) {
+      const userLabel =
+        ctx.session.displayName ?? ctx.session.username ?? `<@${ctx.sessionInfo.userId}>`;
+      const channelLabel = ctx.session.channelName
+        ? `#${ctx.session.channelName}`
+        : ctx.sessionInfo.channelId;
+      const text = [
+        t("owner_escalation.header"),
+        t("owner_escalation.context", { user: userLabel, channel: channelLabel }),
+        t("owner_escalation.session", { sessionId: ctx.session.sessionId }),
+        "",
+        diagnostic,
+      ].join("\n");
+      const sent = await ctx.deps.sendOwnerDm(owner, text, { suppressUnfurls: true });
+      if (!sent) logger.warn("owner escalation: DM to owner failed; report still written");
+    } else {
+      logger.warn("owner escalation: no owner configured; report still written");
+    }
+  } catch (err) {
+    logger.error("owner escalation: DM step failed:", err);
+  }
+
+  try {
+    await ctx.deps.writeErrorReport({
+      sessionId: ctx.session.sessionId,
+      errorMessage: diagnostic,
+      conversationTrace: response.conversationTrace ?? [],
+      ...(response.toolCallHistory &&
+        response.toolCallHistory.length > 0 && { toolCallHistory: response.toolCallHistory }),
+      timestamp: Date.now(),
+    });
+  } catch (err) {
+    logger.error("owner escalation: failed to write error report:", err);
   }
 }
 

@@ -60,6 +60,7 @@ const stubBuildClackTools: BaselineSmokeDeps["buildClackTools"] = () => ({
   getAttentionLevel: () => null,
   getDeliveryMode: () => null,
   isPostedTopLevel: () => false,
+  getEscalateToOwner: () => null,
 });
 
 function makeDeps(
