@@ -5,11 +5,18 @@ data/
 # Skill-local working directories
 .systematic/
 
-# Migration project scratch
-openspec/changes/add-claude-run-handle/
+# OpenSpec in-progress proposals (changes/). The merged source-of-truth
+# specs under openspec/specs/ are kept on purpose — they're real architecture docs.
+openspec/changes/
+
+# Test files — ~45% of code files; they mirror the module under test and
+# dilute community/god-node analysis without adding cross-cutting edges.
+*.test.ts
 
 # Coverage / test output (if generated)
 coverage/
 
-# Lockfiles graphify already skips by default — listing here for clarity
+# Lockfiles & graphify's own output are already hard-skipped by graphify;
+# listed here for clarity.
 package-lock.json
+graphify-out/

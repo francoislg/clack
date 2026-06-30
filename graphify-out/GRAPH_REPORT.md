@@ -1,1168 +1,730 @@
-# Graph Report - claude-slack-bot  (2026-06-30)
+# Graph Report - .  (2026-06-30)
 
 ## Corpus Check
-- 898 files · ~2,269,663 words
-- Verdict: corpus is large enough that graph structure adds value.
+- Large corpus: 657 files · ~762,094 words. Semantic extraction will be expensive (many Claude tokens). Consider running on a subfolder, or use --no-semantic to run AST-only.
 
 ## Summary
-- 4093 nodes · 8749 edges · 175 communities detected
-- Extraction: 82% EXTRACTED · 16% INFERRED · 0% AMBIGUOUS · INFERRED: 1421 edges (avg confidence: 0.8)
+- 2628 nodes · 6115 edges · 106 communities detected
+- Extraction: 80% EXTRACTED · 17% INFERRED · 0% AMBIGUOUS · INFERRED: 1056 edges (avg confidence: 0.8)
 - Token cost: 0 input · 0 output
 
 ## Community Hubs (Navigation)
-- [[_COMMUNITY_Community 0|Community 0]]
-- [[_COMMUNITY_Community 1|Community 1]]
-- [[_COMMUNITY_Community 2|Community 2]]
-- [[_COMMUNITY_Community 3|Community 3]]
-- [[_COMMUNITY_Community 4|Community 4]]
-- [[_COMMUNITY_Community 5|Community 5]]
-- [[_COMMUNITY_Community 6|Community 6]]
-- [[_COMMUNITY_Community 7|Community 7]]
-- [[_COMMUNITY_Community 8|Community 8]]
-- [[_COMMUNITY_Community 9|Community 9]]
-- [[_COMMUNITY_Community 10|Community 10]]
-- [[_COMMUNITY_Community 11|Community 11]]
-- [[_COMMUNITY_Community 12|Community 12]]
-- [[_COMMUNITY_Community 13|Community 13]]
-- [[_COMMUNITY_Community 14|Community 14]]
-- [[_COMMUNITY_Community 15|Community 15]]
-- [[_COMMUNITY_Community 16|Community 16]]
-- [[_COMMUNITY_Community 17|Community 17]]
-- [[_COMMUNITY_Community 18|Community 18]]
-- [[_COMMUNITY_Community 19|Community 19]]
-- [[_COMMUNITY_Community 20|Community 20]]
-- [[_COMMUNITY_Community 21|Community 21]]
-- [[_COMMUNITY_Community 22|Community 22]]
-- [[_COMMUNITY_Community 23|Community 23]]
-- [[_COMMUNITY_Community 24|Community 24]]
-- [[_COMMUNITY_Community 25|Community 25]]
-- [[_COMMUNITY_Community 26|Community 26]]
-- [[_COMMUNITY_Community 27|Community 27]]
-- [[_COMMUNITY_Community 28|Community 28]]
-- [[_COMMUNITY_Community 29|Community 29]]
-- [[_COMMUNITY_Community 30|Community 30]]
-- [[_COMMUNITY_Community 31|Community 31]]
-- [[_COMMUNITY_Community 32|Community 32]]
-- [[_COMMUNITY_Community 33|Community 33]]
-- [[_COMMUNITY_Community 34|Community 34]]
-- [[_COMMUNITY_Community 35|Community 35]]
-- [[_COMMUNITY_Community 36|Community 36]]
-- [[_COMMUNITY_Community 37|Community 37]]
-- [[_COMMUNITY_Community 38|Community 38]]
-- [[_COMMUNITY_Community 39|Community 39]]
-- [[_COMMUNITY_Community 40|Community 40]]
-- [[_COMMUNITY_Community 41|Community 41]]
-- [[_COMMUNITY_Community 42|Community 42]]
-- [[_COMMUNITY_Community 43|Community 43]]
-- [[_COMMUNITY_Community 44|Community 44]]
-- [[_COMMUNITY_Community 46|Community 46]]
-- [[_COMMUNITY_Community 47|Community 47]]
-- [[_COMMUNITY_Community 48|Community 48]]
-- [[_COMMUNITY_Community 49|Community 49]]
-- [[_COMMUNITY_Community 51|Community 51]]
-- [[_COMMUNITY_Community 54|Community 54]]
-- [[_COMMUNITY_Community 55|Community 55]]
-- [[_COMMUNITY_Community 56|Community 56]]
-- [[_COMMUNITY_Community 59|Community 59]]
-- [[_COMMUNITY_Community 60|Community 60]]
-- [[_COMMUNITY_Community 61|Community 61]]
-- [[_COMMUNITY_Community 62|Community 62]]
-- [[_COMMUNITY_Community 63|Community 63]]
-- [[_COMMUNITY_Community 64|Community 64]]
-- [[_COMMUNITY_Community 65|Community 65]]
-- [[_COMMUNITY_Community 66|Community 66]]
-- [[_COMMUNITY_Community 67|Community 67]]
-- [[_COMMUNITY_Community 68|Community 68]]
-- [[_COMMUNITY_Community 69|Community 69]]
-- [[_COMMUNITY_Community 70|Community 70]]
-- [[_COMMUNITY_Community 71|Community 71]]
-- [[_COMMUNITY_Community 72|Community 72]]
-- [[_COMMUNITY_Community 73|Community 73]]
-- [[_COMMUNITY_Community 74|Community 74]]
-- [[_COMMUNITY_Community 75|Community 75]]
-- [[_COMMUNITY_Community 79|Community 79]]
-- [[_COMMUNITY_Community 80|Community 80]]
-- [[_COMMUNITY_Community 81|Community 81]]
-- [[_COMMUNITY_Community 82|Community 82]]
-- [[_COMMUNITY_Community 83|Community 83]]
-- [[_COMMUNITY_Community 84|Community 84]]
-- [[_COMMUNITY_Community 85|Community 85]]
-- [[_COMMUNITY_Community 86|Community 86]]
-- [[_COMMUNITY_Community 87|Community 87]]
-- [[_COMMUNITY_Community 88|Community 88]]
-- [[_COMMUNITY_Community 89|Community 89]]
-- [[_COMMUNITY_Community 90|Community 90]]
-- [[_COMMUNITY_Community 91|Community 91]]
-- [[_COMMUNITY_Community 92|Community 92]]
-- [[_COMMUNITY_Community 93|Community 93]]
-- [[_COMMUNITY_Community 94|Community 94]]
-- [[_COMMUNITY_Community 95|Community 95]]
-- [[_COMMUNITY_Community 96|Community 96]]
-- [[_COMMUNITY_Community 97|Community 97]]
-- [[_COMMUNITY_Community 100|Community 100]]
-- [[_COMMUNITY_Community 101|Community 101]]
-- [[_COMMUNITY_Community 102|Community 102]]
-- [[_COMMUNITY_Community 103|Community 103]]
-- [[_COMMUNITY_Community 104|Community 104]]
-- [[_COMMUNITY_Community 105|Community 105]]
-- [[_COMMUNITY_Community 106|Community 106]]
-- [[_COMMUNITY_Community 107|Community 107]]
-- [[_COMMUNITY_Community 108|Community 108]]
-- [[_COMMUNITY_Community 109|Community 109]]
-- [[_COMMUNITY_Community 110|Community 110]]
-- [[_COMMUNITY_Community 111|Community 111]]
-- [[_COMMUNITY_Community 112|Community 112]]
-- [[_COMMUNITY_Community 113|Community 113]]
-- [[_COMMUNITY_Community 114|Community 114]]
-- [[_COMMUNITY_Community 115|Community 115]]
-- [[_COMMUNITY_Community 116|Community 116]]
-- [[_COMMUNITY_Community 117|Community 117]]
-- [[_COMMUNITY_Community 118|Community 118]]
-- [[_COMMUNITY_Community 119|Community 119]]
-- [[_COMMUNITY_Community 120|Community 120]]
-- [[_COMMUNITY_Community 121|Community 121]]
-- [[_COMMUNITY_Community 122|Community 122]]
-- [[_COMMUNITY_Community 123|Community 123]]
-- [[_COMMUNITY_Community 124|Community 124]]
-- [[_COMMUNITY_Community 125|Community 125]]
-- [[_COMMUNITY_Community 126|Community 126]]
-- [[_COMMUNITY_Community 127|Community 127]]
-- [[_COMMUNITY_Community 128|Community 128]]
-- [[_COMMUNITY_Community 129|Community 129]]
-- [[_COMMUNITY_Community 130|Community 130]]
-- [[_COMMUNITY_Community 131|Community 131]]
-- [[_COMMUNITY_Community 132|Community 132]]
-- [[_COMMUNITY_Community 133|Community 133]]
-- [[_COMMUNITY_Community 134|Community 134]]
-- [[_COMMUNITY_Community 135|Community 135]]
-- [[_COMMUNITY_Community 136|Community 136]]
-- [[_COMMUNITY_Community 137|Community 137]]
-- [[_COMMUNITY_Community 138|Community 138]]
-- [[_COMMUNITY_Community 139|Community 139]]
-- [[_COMMUNITY_Community 140|Community 140]]
-- [[_COMMUNITY_Community 141|Community 141]]
-- [[_COMMUNITY_Community 142|Community 142]]
-- [[_COMMUNITY_Community 143|Community 143]]
-- [[_COMMUNITY_Community 144|Community 144]]
-- [[_COMMUNITY_Community 145|Community 145]]
-- [[_COMMUNITY_Community 146|Community 146]]
-- [[_COMMUNITY_Community 147|Community 147]]
-- [[_COMMUNITY_Community 148|Community 148]]
-- [[_COMMUNITY_Community 149|Community 149]]
-- [[_COMMUNITY_Community 150|Community 150]]
-- [[_COMMUNITY_Community 151|Community 151]]
-- [[_COMMUNITY_Community 152|Community 152]]
-- [[_COMMUNITY_Community 153|Community 153]]
-- [[_COMMUNITY_Community 154|Community 154]]
-- [[_COMMUNITY_Community 155|Community 155]]
-- [[_COMMUNITY_Community 156|Community 156]]
-- [[_COMMUNITY_Community 157|Community 157]]
-- [[_COMMUNITY_Community 158|Community 158]]
-- [[_COMMUNITY_Community 159|Community 159]]
-- [[_COMMUNITY_Community 160|Community 160]]
-- [[_COMMUNITY_Community 161|Community 161]]
-- [[_COMMUNITY_Community 162|Community 162]]
-- [[_COMMUNITY_Community 163|Community 163]]
-- [[_COMMUNITY_Community 164|Community 164]]
-- [[_COMMUNITY_Community 165|Community 165]]
-- [[_COMMUNITY_Community 166|Community 166]]
-- [[_COMMUNITY_Community 167|Community 167]]
-- [[_COMMUNITY_Community 168|Community 168]]
-- [[_COMMUNITY_Community 169|Community 169]]
-- [[_COMMUNITY_Community 170|Community 170]]
-- [[_COMMUNITY_Community 171|Community 171]]
-- [[_COMMUNITY_Community 172|Community 172]]
-- [[_COMMUNITY_Community 173|Community 173]]
-- [[_COMMUNITY_Community 174|Community 174]]
-- [[_COMMUNITY_Community 175|Community 175]]
-- [[_COMMUNITY_Community 176|Community 176]]
-- [[_COMMUNITY_Community 177|Community 177]]
-- [[_COMMUNITY_Community 178|Community 178]]
-- [[_COMMUNITY_Community 179|Community 179]]
-- [[_COMMUNITY_Community 180|Community 180]]
-- [[_COMMUNITY_Community 181|Community 181]]
-- [[_COMMUNITY_Community 182|Community 182]]
-- [[_COMMUNITY_Community 183|Community 183]]
-- [[_COMMUNITY_Community 184|Community 184]]
-- [[_COMMUNITY_Community 185|Community 185]]
+- [[_COMMUNITY_srctools logger.ts|src/tools: logger.ts]]
+- [[_COMMUNITY_trivia plugin|trivia plugin]]
+- [[_COMMUNITY_CLAUDE.md Clack (Claude + Slack Bot)|CLAUDE.md: Clack (Claude + Slack Bot)]]
+- [[_COMMUNITY_srcslack handlerResponse.ts|src/slack: handlerResponse.ts]]
+- [[_COMMUNITY_srcslack t()|src/slack: t()]]
+- [[_COMMUNITY_srcworkers errorMessage()|src/workers: errorMessage()]]
+- [[_COMMUNITY_idler plugin|idler plugin]]
+- [[_COMMUNITY_srcclaude main()|src/claude: main()]]
+- [[_COMMUNITY_memoryRegistry roles.ts|memoryRegistry: roles.ts]]
+- [[_COMMUNITY_commons-image-search plugin|commons-image-search plugin]]
+- [[_COMMUNITY_srcstreaming lifecycle.ts|src/streaming: lifecycle.ts]]
+- [[_COMMUNITY_sessions sessions.ts|sessions: sessions.ts]]
+- [[_COMMUNITY_misc Zod schema validation|misc: Zod schema validation]]
+- [[_COMMUNITY_cronJobs cronJobs.ts|cronJobs: cronJobs.ts]]
+- [[_COMMUNITY_srcslack submitResponse.ts|src/slack: submitResponse.ts]]
+- [[_COMMUNITY_trivia plugin|trivia plugin]]
+- [[_COMMUNITY_srcmigrations types.ts|src/migrations: types.ts]]
+- [[_COMMUNITY_srcclaude index.ts|src/claude: index.ts]]
+- [[_COMMUNITY_userSkills userSkills.ts|userSkills: userSkills.ts]]
+- [[_COMMUNITY_srcslack userSkillsHomeActions.ts|src/slack: userSkillsHomeActions.ts]]
+- [[_COMMUNITY_srctools configZod.ts|src/tools: configZod.ts]]
+- [[_COMMUNITY_scriptsmigration-tests run.ts|scripts/migration-tests: run.ts]]
+- [[_COMMUNITY_spec instruction-system|spec: instruction-system]]
+- [[_COMMUNITY_srcstreaming SlackStreamer|src/streaming: SlackStreamer]]
+- [[_COMMUNITY_misc function|misc: function]]
+- [[_COMMUNITY_srctools aggregate.ts|src/tools: aggregate.ts]]
+- [[_COMMUNITY_gemini-image plugin|gemini-image plugin]]
+- [[_COMMUNITY_srcclaude SkillsManager|src/claude: SkillsManager]]
+- [[_COMMUNITY_spec trivia-games|spec: trivia-games]]
+- [[_COMMUNITY_scriptsgenerate-manifest.ts generate-manifest.|scripts/generate-manifest.ts: generate-manifest.]]
+- [[_COMMUNITY_srcworkers WorkerQueue|src/workers: WorkerQueue]]
+- [[_COMMUNITY_srctools envFile.ts|src/tools: envFile.ts]]
+- [[_COMMUNITY_srctools proposeConfigUpdate.testHelpers.ts|src/tools: proposeConfigUpdate.testHelpers.ts]]
+- [[_COMMUNITY_srctools configFieldSchemas.ts|src/tools: configFieldSchemas.ts]]
+- [[_COMMUNITY_srcslack assistantContextStore.ts|src/slack: assistantContextStore.ts]]
+- [[_COMMUNITY_spec streaming-responses|spec: streaming-responses]]
+- [[_COMMUNITY_spec trivia-question-search|spec: trivia-question-search]]
+- [[_COMMUNITY_docssetup-mcp-servers.md MCP Server Setup and|docs/setup-mcp-servers.md: MCP Server Setup and ]]
+- [[_COMMUNITY_spec worker-cancellation|spec: worker-cancellation]]
+- [[_COMMUNITY_srctools testHelpers.ts|src/tools: testHelpers.ts]]
+- [[_COMMUNITY_README.md Claude Code Authentication|README.md: Claude Code Authentication]]
+- [[_COMMUNITY_misc Changes Workflow System|misc: Changes Workflow System]]
+- [[_COMMUNITY_spec auto-execute-actions|spec: auto-execute-actions]]
+- [[_COMMUNITY_spec user-roles|spec: user-roles]]
+- [[_COMMUNITY_spec pinned-mcp-installs|spec: pinned-mcp-installs]]
+- [[_COMMUNITY_spec file-upload|spec: file-upload]]
+- [[_COMMUNITY_spec slack-file-attachments|spec: slack-file-attachments]]
+- [[_COMMUNITY_spec trivia-cheating-detection|spec: trivia-cheating-detection]]
+- [[_COMMUNITY_misc function|misc: function]]
+- [[_COMMUNITY_misc function|misc: function]]
+- [[_COMMUNITY_spec find-emoji-tool|spec: find-emoji-tool]]
+- [[_COMMUNITY_spec github-app|spec: github-app]]
+- [[_COMMUNITY_spec config-update-via-chat|spec: config-update-via-chat]]
+- [[_COMMUNITY_spec config-update-via-chat|spec: config-update-via-chat]]
+- [[_COMMUNITY_spec manifest-generation|spec: manifest-generation]]
+- [[_COMMUNITY_spec owner-error-escalation|spec: owner-error-escalation]]
+- [[_COMMUNITY_spec auto-respond|spec: auto-respond]]
+- [[_COMMUNITY_spec dm-first-reactions|spec: dm-first-reactions]]
+- [[_COMMUNITY_imagesclacknowledged-128.png Clacknowledged 12|images/clacknowledged-128.png: Clacknowledged 12]]
+- [[_COMMUNITY_openspecproject.md Project Context - Clack Bot|openspec/project.md: Project Context - Clack Bot]]
+- [[_COMMUNITY_spec admin-config-tools|spec: admin-config-tools]]
+- [[_COMMUNITY_spec admin-delete-message|spec: admin-delete-message]]
+- [[_COMMUNITY_spec admin-edit-instructions|spec: admin-edit-instructions]]
+- [[_COMMUNITY_spec admin-env-tools|spec: admin-env-tools]]
+- [[_COMMUNITY_spec admin-role-tool|spec: admin-role-tool]]
+- [[_COMMUNITY_spec app-lifecycle|spec: app-lifecycle]]
+- [[_COMMUNITY_spec auto-respond-pre-analysis|spec: auto-respond-pre-analysis]]
+- [[_COMMUNITY_spec auto-respond-tracking|spec: auto-respond-tracking]]
+- [[_COMMUNITY_spec find-emoji-tool|spec: find-emoji-tool]]
+- [[_COMMUNITY_spec find-user-tool|spec: find-user-tool]]
+- [[_COMMUNITY_spec git-log-tools|spec: git-log-tools]]
+- [[_COMMUNITY_spec github-app|spec: github-app]]
+- [[_COMMUNITY_spec github-mcp-auto-config|spec: github-mcp-auto-config]]
+- [[_COMMUNITY_spec instruction-variables|spec: instruction-variables]]
+- [[_COMMUNITY_spec lazy-skill-loading|spec: lazy-skill-loading]]
+- [[_COMMUNITY_spec manifest-generation|spec: manifest-generation]]
+- [[_COMMUNITY_spec session-transcript-tool|spec: session-transcript-tool]]
+- [[_COMMUNITY_spec skip-response|spec: skip-response]]
+- [[_COMMUNITY_spec slack-channel-resolver|spec: slack-channel-resolver]]
+- [[_COMMUNITY_spec streaming-responses|spec: streaming-responses]]
+- [[_COMMUNITY_spec tool-label-config|spec: tool-label-config]]
+- [[_COMMUNITY_spec trivia-categories|spec: trivia-categories]]
+- [[_COMMUNITY_spec user-preferences|spec: user-preferences]]
+- [[_COMMUNITY_spec instruction-variables|spec: instruction-variables]]
+- [[_COMMUNITY_CLAUDE.md Session Persistence|CLAUDE.md: Session Persistence]]
+- [[_COMMUNITY_spec config-update-via-chat|spec: config-update-via-chat]]
+- [[_COMMUNITY_spec config-update-via-chat|spec: config-update-via-chat]]
+- [[_COMMUNITY_spec manifest-generation|spec: manifest-generation]]
+- [[_COMMUNITY_spec trivia-choice-questions|spec: trivia-choice-questions]]
+- [[_COMMUNITY_spec trivia-prediction-questions|spec: trivia-prediction-questions]]
+- [[_COMMUNITY_spec trivia-visual-questions|spec: trivia-visual-questions]]
+- [[_COMMUNITY_spec owner-error-escalation|spec: owner-error-escalation]]
+- [[_COMMUNITY_spec auto-respond|spec: auto-respond]]
+- [[_COMMUNITY_spec repo-access-control|spec: repo-access-control]]
+- [[_COMMUNITY_spec trivia-question-locking|spec: trivia-question-locking]]
+- [[_COMMUNITY_spec trivia-post-game-buttons|spec: trivia-post-game-buttons]]
+- [[_COMMUNITY_spec channel-context|spec: channel-context]]
+- [[_COMMUNITY_spec attention-level|spec: attention-level]]
+- [[_COMMUNITY_spec lazy-mcp-loading|spec: lazy-mcp-loading]]
+- [[_COMMUNITY_spec thread-delivery-mode|spec: thread-delivery-mode]]
+- [[_COMMUNITY_spec trivia-question-hints|spec: trivia-question-hints]]
+- [[_COMMUNITY_spec cron-messages|spec: cron-messages]]
+- [[_COMMUNITY_spec auto-respond-pre-analysis|spec: auto-respond-pre-analysis]]
+- [[_COMMUNITY_spec repository-management|spec: repository-management]]
+- [[_COMMUNITY_spec error-reporting|spec: error-reporting]]
+- [[_COMMUNITY_spec conversation-stats|spec: conversation-stats]]
 
 ## God Nodes (most connected - your core abstractions)
-1. `tool()` - 143 edges
-2. `resolve()` - 93 edges
-3. `buildQueryTools()` - 89 edges
-4. `t()` - 81 edges
-5. `errorMessage()` - 50 edges
-6. `triviaPlugin()` - 40 edges
-7. `main()` - 37 edges
-8. `ReusablePool` - 26 edges
-9. `getConfig()` - 23 edges
-10. `casualTalkPlugin()` - 23 edges
+1. `buildQueryTools()` - 89 edges
+2. `resolve()` - 82 edges
+3. `t()` - 81 edges
+4. `errorMessage()` - 50 edges
+5. `triviaPlugin()` - 39 edges
+6. `main()` - 36 edges
+7. `ReusablePool` - 26 edges
+8. `getConfig()` - 23 edges
+9. `casualTalkPlugin()` - 23 edges
+10. `getConfigurationDir()` - 21 edges
 
 ## Surprising Connections (you probably didn't know these)
-- `main()` --calls--> `getSession()`  [INFERRED]
-  scripts/askClaude.ts → src/tools/query/getSessionTrace.test.ts
-- `Changes Workflow` --semantically_similar_to--> `Worker Verification Gate Feature`  [INFERRED] [semantically similar]
-  README.md → openspec/changes/add-worker-verification-gate/proposal.md
-- `Two-Tier Instruction System` --semantically_similar_to--> `In-Process MCP Tool Server`  [INFERRED] [semantically similar]
-  README.md → openspec/changes/archive/2026-02-17-clack-mcp-tools/specs/clack-tools/spec.md
+- `Tenor GIF Plugin` --semantically_similar_to--> `Casual Talk Plugin`  [INFERRED] [semantically similar]
+  docs/tenor-gif-plugin.md → openspec/specs/casual-talk-plugin/spec.md
 - `main()` --calls--> `truncate()`  [INFERRED]
   scripts/askClaudeWorktree.ts → src/plugins/trivia/answerTypes/freeform.ts
+- `main()` --calls--> `runClaude()`  [INFERRED]
+  scripts/askClaudeWorktree.ts → src/changes/execution.ts
 - `main()` --calls--> `truncate()`  [INFERRED]
   scripts/askClaudeWorktree.ts → src/text.ts
+- `loadConfigForManifest()` --calls--> `resolve()`  [INFERRED]
+  scripts/generate-manifest.ts → src/streaming/toolLabels.ts
 
 ## Hyperedges (group relationships)
-- **Three Trigger Modes Pattern** — reaction_trigger_mode, direct_message_mode, slack_integration [EXTRACTED 1.00]
-- **Claude Authentication Options** — oauth_token_auth, api_key_auth, claude_authentication [EXTRACTED 1.00]
-- **MCP Configuration Shapes** — mcp_pinned_shape, mcp_legacy_shape, mcp_http_shape [EXTRACTED 1.00]
-- **Clack Integration Ecosystem** — linear_integration, metabase_integration, asana_integration [INFERRED 0.90]
-- **Role Hierarchy System** — role_owner, role_admin, role_dev, role_member [EXTRACTED 1.00]
-- **hyperedge_1** — trigger_modes_concept, role_based_access_system, changes_workflow_system [INFERRED 0.75]
-- **hyperedge_2** — docker_deployment_infrastructure, credentials_management, role_based_access_system [INFERRED 0.70]
-- **hyperedge_3** — error_handling_framework, session_context_persistence, changes_workflow_system [INFERRED 0.65]
-- **** — mention.ts::handleMention, core.ts::processMessage, handlerResponse.ts::executeAndDeliver, dmActions.ts::postAnswerToChannel [0.9]
-- **** — changeAction.ts::handleChangeAction, changeAction.ts::triggerChangeWorkflow, slackStreamer.ts::SlackStreamer [0.9]
-- **** — changeThreadActions.ts::registerChangeThreadActionHandlers, changeThreadActions.ts::registerFollowUpActionHandler, changeThreadActions.ts::triggerFollowUp, slackStreamer.ts::finalizeStreamedWorkflow [0.9]
-- **** — autoExecute.ts::handleAutoExecuteActions, autoExecute.ts::handlePostToAutoExecute, changeAction.ts::triggerChangeWorkflow, changeThreadActions.ts::triggerFollowUp, dmActions.ts::postAnswerToChannel [0.9]
-- **** — slackStreamer.ts::SlackStreamer, slackStreamer.ts::finalizeStreamedWorkflow, toolLabels.ts::getToolLabel, toolLabels.ts::getToolGroup, toolLabels.ts::getToolDetails [1.0]
-- **** — homeTab.ts::renderHomeTab, homeTab.ts::handleHomeTabActions [0.8]
-- **** — dmActions.ts::postAnswerToChannel, dmActions.ts::resolveOrigin, handlerResponse.ts::executeAndDeliver, handlerResponse.ts::postDeliveryReactions [0.9]
+- **** — trivia_question_axes, cascade_system_trivia, visual_questions_trivia [INFERRED]
+- **** — worker_pool, branch_switching, dirty_file_quarantine, worker_skills [INFERRED]
+- **** — instruction_system, role_system, worker_skills [INFERRED]
+- **** — answers_format_axis, trivia_question_type_axis, prompt_medium_axis [EXTRACTED 1.00]
+- **** — read_config_file_tool, propose_config_update_tool, list_config_files_tool [EXTRACTED 1.00]
+- **** — trivia_list_games_tool, trivia_upsert_game_tool, trivia_game_registry [EXTRACTED 1.00]
+- **trivia reveal flow** —  [INFERRED 0.80]
+- **query execution and delivery pipeline** —  [INFERRED 0.80]
+- **memory and persistence layer** —  [INFERRED 0.85]
 
 ## Communities
 
-### Community 0 - "Community 0"
+### Community 0 - "src/tools: logger.ts"
 Cohesion: 0.01
-Nodes (203): createRemoveCheatTool(), createRetrieveScoresTool(), createSaveCheatingTool(), makeFakeSdk(), assembleBooleanVoters(), makeDeps(), buildExcludeSet(), isScoredAnswer() (+195 more)
+Nodes (206): createAddAutoRespondRuleTool(), createCancelReminderTool(), createCancelScheduledMessageTool(), createCancelWorkerRunTool(), createCreateScheduledMessageTool(), createDeleteAutoRespondRuleTool(), createProposeChangeTool(), createProposeSkillCreateTool() (+198 more)
 
-### Community 1 - "Community 1"
+### Community 1 - "trivia plugin"
 Cohesion: 0.01
-Nodes (144): makeCtx(), makeRepo(), deleteClackMessage(), resolveNonCollidingBranch(), findChangeEnabledRepo(), getChangeEnabledRepos(), isChangesEnabledForTrigger(), cleanupStaleSessionFolders() (+136 more)
+Nodes (150): createRemoveCheatTool(), createRetrieveScoresTool(), createSaveCheatingTool(), assembleBooleanVoters(), buildExcludeSet(), isScoredAnswer(), assembleChoiceVoters(), installHintButtonHandler() (+142 more)
 
-### Community 2 - "Community 2"
-Cohesion: 0.01
-Nodes (165): createAddAutoRespondRuleTool(), createCancelReminderTool(), createCancelScheduledMessageTool(), createCancelWorkerRunTool(), createCreateScheduledMessageTool(), createDeleteAutoRespondRuleTool(), createProposeChangeTool(), createProposeSkillCreateTool() (+157 more)
-
-### Community 3 - "Community 3"
+### Community 2 - "CLAUDE.md: Clack (Claude + Slack Bot)"
 Cohesion: 0.02
-Nodes (184): loadConfig(), detectFollowUpCommand(), drainStagedSpinoffs(), executeChange(), readBranchHead(), resolveChangesInstructions(), runClaude(), runClaudeInWorktree() (+176 more)
+Nodes (163): action button message preservation, Action Handler Registration, active-runs-registry Specification, Answer Formats, answersFormat Axis, Asana Integration, Asana Personal Access Token, Attention Level Engagement (+155 more)
 
-### Community 4 - "Community 4"
+### Community 3 - "src/slack: handlerResponse.ts"
 Cohesion: 0.02
-Nodes (135): formatOwnerNotification(), truncate(), buildHintModal(), extractToolErrorMessage(), buildPolicyBlock(), formatElapsedSeconds(), formatRelativeAge(), runActiveRunPreAnalysis() (+127 more)
+Nodes (105): detectFollowUpCommand(), findChangeEnabledRepo(), getChangeEnabledRepos(), isChangesEnabledForTrigger(), NullDelivery, fetchAssistantContext(), resolveContextChannelId(), enrichForPreAnalysis() (+97 more)
 
-### Community 5 - "Community 5"
-Cohesion: 0.02
-Nodes (74): isProtectedBranchName(), isValidBranchName(), checkSessionCompletion(), cleanupSession(), runCompletionCheck(), runIdleSweep(), makeDeps(), makeMockPool() (+66 more)
-
-### Community 6 - "Community 6"
+### Community 4 - "src/slack: t()"
 Cohesion: 0.03
-Nodes (90): isRevealResponsesMode(), normalizeChoices(), normalizeDifficultyPerFormat(), normalizeHint(), normalizeRangesMap(), normalizeRatioPerFormat(), parseTriviaAxisBag(), validateAllTimeRowMode() (+82 more)
+Nodes (115): formatOwnerNotification(), truncate(), buildHintModal(), runClaude(), buildWorkerBashGuardHook(), convertMarkdownToSlack(), splitForSlack(), ClaudeMessageParser (+107 more)
 
-### Community 7 - "Community 7"
+### Community 5 - "src/workers: errorMessage()"
 Cohesion: 0.03
-Nodes (74): seedJob(), resolveAutoRespondContext(), respond(), fetchViaHistory(), fetchViaReplies(), resolveReactedMessage(), reconcileMemoryReviewCron(), reviewJobExists() (+66 more)
+Nodes (61): getActiveChange(), drainStagedSpinoffs(), executeChange(), readBranchHead(), resolveChangesInstructions(), runClaudeInWorktree(), runWorktreeInstall(), runWorktreeSetup() (+53 more)
 
-### Community 8 - "Community 8"
-Cohesion: 0.03
-Nodes (28): makeHangingRun(), makeRunFromMessages(), createPushableAsyncIterable(), captureSessionId(), clackSession(), makeUserMessage(), createRunHandle(), makeDriver() (+20 more)
-
-### Community 9 - "Community 9"
-Cohesion: 0.03
-Nodes (54): convertMarkdownToSlack(), splitForSlack(), buildSuccessResponse(), buildToolResults(), handleQueryError(), optionalHistory(), buildAdditionalMessagesField(), buildSubmitResponseSchema() (+46 more)
-
-### Community 10 - "Community 10"
+### Community 6 - "idler plugin"
 Cohesion: 0.04
-Nodes (57): readRepoSkillBody(), discoverWorkerSkills(), getWorkerSkillMtimeMs(), listSlugs(), readDescription(), readWorkerSkillBody(), resolveSkillPath(), skillsRoots() (+49 more)
+Nodes (44): resolveFallbackTopics(), buildCronExpression(), computeTicks(), rateLabel(), rateToDieFromTicks(), resolveDie(), casualTalkPlugin(), appendActivity() (+36 more)
 
-### Community 11 - "Community 11"
-Cohesion: 0.03
-Nodes (89): Accept Image Only Messages Change, Add Error Reporting with Conversation Trace, Add Message Mode Proposal, Add Semantic Config Tools Change, Add Stop Reaction Change, Add Slack User Context Proposal, Add User Roles with Home Tab Management, Admin Config Tools Specification (+81 more)
-
-### Community 12 - "Community 12"
+### Community 7 - "src/claude: main()"
 Cohesion: 0.04
-Nodes (32): cloneValidRegistry(), isJsonObject(), parseMcpServerNames(), registriesEqual(), registryToJson(), safeJsonParse(), seedRegistry(), buildFiles() (+24 more)
+Nodes (62): loadConfig(), prepareMcpSession(), createPushableAsyncIterable(), captureSessionId(), clackQuery(), clackSession(), makeUserMessage(), createRunHandle() (+54 more)
 
-### Community 13 - "Community 13"
-Cohesion: 0.03
-Nodes (22): ClaudeMessageParser, detectPlatformError(), joinContentBlocks(), stringifyToolResultContent(), asNumber(), readResultUsage(), searchRecentInteractions(), makeCtx() (+14 more)
-
-### Community 14 - "Community 14"
-Cohesion: 0.04
-Nodes (44): call(), enrichForPreAnalysis(), fetchEnrichedContext(), createUsersSurface(), epochToIso(), fetchLastReply(), formatMessage(), resolveReplyUserName() (+36 more)
-
-### Community 15 - "Community 15"
+### Community 8 - "memoryRegistry: roles.ts"
 Cohesion: 0.05
-Nodes (44): clearActiveChange(), callTool(), getSession(), readFile(), cacheFile(), extensionForMime(), filePath(), getCachedFile() (+36 more)
+Nodes (57): buildTrackedMemoryKinds(), listTrackedKinds(), namespaceOf(), trackedMemoryKindsForRole(), createClackSdk(), createMemorySurface(), createUsersSurface(), zodErrorToResult() (+49 more)
 
-### Community 16 - "Community 16"
-Cohesion: 0.03
-Nodes (30): makeActiveChange(), makeCtx(), buildChangeSessionForPersistence(), getActiveChange(), setActiveChange(), updateActiveChangePrUrl(), updateActiveChangeStatus(), buildRestorePool() (+22 more)
+### Community 9 - "commons-image-search plugin"
+Cohesion: 0.04
+Nodes (33): fetchImageBytes(), fetchWithTimeout(), mimeFromUrl(), searchImages(), createFindImageTool(), braveImageSearchPlugin(), createFindSubjectTool(), commonsImageSearchPlugin() (+25 more)
 
-### Community 17 - "Community 17"
+### Community 10 - "src/streaming: lifecycle.ts"
+Cohesion: 0.05
+Nodes (58): getTaskCardMaxDetails(), debounce(), reinstallPinned(), startConfigWatcher(), watchFile(), watchTreeRecursively(), requestSoftRestart(), resetAllCaches() (+50 more)
+
+### Community 11 - "sessions: sessions.ts"
+Cohesion: 0.06
+Nodes (59): appendAttachHistory(), createFindRecentInteractionsTool(), isKnownPublic(), isVisible(), loadSession(), matchesKeywords(), matchesType(), summarize() (+51 more)
+
+### Community 12 - "misc: Zod schema validation"
 Cohesion: 0.06
 Nodes (68): role-based access control, add_reaction tool, Slack message URL parser, adminDeleteMessage tool, message deletion validator, adminListEnv tool, adminReadFile tool, adminSetEnv tool (+60 more)
 
-### Community 18 - "Community 18"
-Cohesion: 0.04
-Nodes (20): firstInlineImage(), GeminiError, generateImage(), createGenerateImageTool(), defaultGenerateImageDeps(), defaultGenerateImageSlackDeps(), argsOf(), makeDeps() (+12 more)
-
-### Community 19 - "Community 19"
-Cohesion: 0.05
-Nodes (29): getConfiguredMcpServerNames(), getMcpConfigPath(), getPinnedEntries(), isRemoteEntry(), loadAlwaysOnMcpServers(), loadMcpServer(), loadMcpServers(), loadStaticMcpConfig() (+21 more)
-
-### Community 20 - "Community 20"
-Cohesion: 0.05
-Nodes (36): readDataFile(), resolveDataPath(), validateConfigJson(), validateContent(), validateJson(), validateMcpJson(), writeDataFile(), buildIntegrationsCatalog() (+28 more)
-
-### Community 21 - "Community 21"
+### Community 13 - "cronJobs: cronJobs.ts"
 Cohesion: 0.06
-Nodes (37): Asana Integration, Asana Personal Access Token, Changes Workflow, Clack - Slack Bot, submit_response MCP Tool, In-Process MCP Tool Server, Claude Code Integration - Query Execution, Claude Code Integration Capability (+29 more)
+Nodes (57): reconcileMemoryReviewCron(), reviewJobExists(), actorDisplay(), actorDmTarget(), resolveJobActor(), getCronMaxRunHistory(), circularRuns(), expandHourList() (+49 more)
 
-### Community 22 - "Community 22"
+### Community 14 - "src/slack: submitResponse.ts"
+Cohesion: 0.05
+Nodes (34): textResult(), SilentDelivery, StreamingDelivery, buildAdditionalMessagesField(), buildSubmitResponseSchema(), buildThreadRepliesField(), createSubmitResponseTool(), recordError() (+26 more)
+
+### Community 15 - "trivia plugin"
+Cohesion: 0.08
+Nodes (54): isRevealResponsesMode(), normalizeChoices(), normalizeDifficultyPerFormat(), normalizeHint(), normalizeRangesMap(), normalizeRatioPerFormat(), parseTriviaAxisBag(), validateAllTimeRowMode() (+46 more)
+
+### Community 16 - "src/migrations: types.ts"
+Cohesion: 0.06
+Nodes (25): cloneValidRegistry(), isJsonObject(), parseMcpServerNames(), registriesEqual(), registryToJson(), safeJsonParse(), seedRegistry(), migrateSeasonEntry() (+17 more)
+
+### Community 17 - "src/claude: index.ts"
+Cohesion: 0.08
+Nodes (35): buildQuerySetup(), buildSuccessResponse(), buildToolResults(), handleQueryError(), hasProperty(), optionalHistory(), recordTraceEntry(), summarizeContentBlocks() (+27 more)
+
+### Community 18 - "userSkills: userSkills.ts"
+Cohesion: 0.11
+Nodes (32): readRepoSkillBody(), discoverWorkerSkills(), getWorkerSkillMtimeMs(), listSlugs(), readDescription(), readWorkerSkillBody(), resolveSkillPath(), skillsRoots() (+24 more)
+
+### Community 19 - "src/slack: userSkillsHomeActions.ts"
 Cohesion: 0.09
-Nodes (18): bump(), createAccumulators(), finalize(), foldSession(), localDayKey(), tallyEmoji(), fold(), topBy() (+10 more)
+Nodes (22): publishHomeView(), registerAddRoleHandlers(), registerHomeTabHandler(), registerRemoveRoleHandlers(), closeModalIfOpen(), extractViewId(), refreshHomeView(), registerCreateSubmit() (+14 more)
 
-### Community 23 - "Community 23"
-Cohesion: 0.07
-Nodes (10): dispatchAction(), dispatchView(), findActionHandler(), findViewHandler(), handler(), createStatusHandler(), defaultStatusDeps(), readPackageVersion() (+2 more)
+### Community 20 - "src/tools: configZod.ts"
+Cohesion: 0.12
+Nodes (20): readDataFile(), resolveDataPath(), validateConfigJson(), validateContent(), validateJson(), validateMcpJson(), writeDataFile(), isSupportedLanguage() (+12 more)
 
-### Community 24 - "Community 24"
-Cohesion: 0.09
-Nodes (16): publishHomeView(), registerAddRoleHandlers(), registerHomeTabHandler(), registerRemoveRoleHandlers(), makeApp(), closeModalIfOpen(), extractViewId(), refreshHomeView() (+8 more)
-
-### Community 25 - "Community 25"
-Cohesion: 0.1
-Nodes (12): createFindSubjectTool(), run(), commonsImageSearchPlugin(), extractExtMetadata(), fetchImageBytes(), fetchImageInfo(), fetchPageSummary(), fetchWithTimeout() (+4 more)
-
-### Community 26 - "Community 26"
-Cohesion: 0.09
-Nodes (7): fetchImageBytes(), fetchWithTimeout(), mimeFromUrl(), searchImages(), createFindImageTool(), run(), braveImageSearchPlugin()
-
-### Community 27 - "Community 27"
+### Community 21 - "scripts/migration-tests: run.ts"
 Cohesion: 0.14
 Nodes (9): buildTestTasks(), cleanup(), main(), parallel(), readTestConfig(), runFullPathTest(), setup(), validateFinalState() (+1 more)
 
-### Community 28 - "Community 28"
+### Community 22 - "spec: instruction-system"
+Cohesion: 0.09
+Nodes (26): cascading configuration resolver, localization and language directives, role-based access control, session state and persistence, trivia cascade axis resolution, two-tier resolution chain, worker pool (reusable/disposable), admin-config-tools spec (+18 more)
+
+### Community 23 - "src/streaming: SlackStreamer"
+Cohesion: 0.16
+Nodes (4): finalizeStreamedWorkflow(), fmtElapsed(), getSlackErrorCode(), SlackStreamer
+
+### Community 24 - "misc: function"
 Cohesion: 0.1
 Nodes (23): interface, interface, interface, function, function, function, function, function (+15 more)
 
-### Community 29 - "Community 29"
-Cohesion: 0.13
-Nodes (9): createProposeConfigUpdateTool(), callTool(), makeCtx(), makeDeps(), makeIntentStore(), buildConfigPath(), buildInstructionPath(), createReadConfigFileTool() (+1 more)
+### Community 25 - "src/tools: aggregate.ts"
+Cohesion: 0.16
+Nodes (17): bump(), createAccumulators(), finalize(), foldSession(), localDayKey(), tallyEmoji(), topBy(), computeConversationStats() (+9 more)
 
-### Community 30 - "Community 30"
-Cohesion: 0.1
-Nodes (21): Clack MCP Tools Infrastructure, Config Update via Chat, GitHub App Authentication, GitHub MCP Auto-Configuration, Instruction System, Instruction Variables Registry, Repository Instruction Files, Role-Based Instructions (+13 more)
+### Community 26 - "gemini-image plugin"
+Cohesion: 0.11
+Nodes (7): firstInlineImage(), GeminiError, generateImage(), createGenerateImageTool(), defaultGenerateImageDeps(), defaultGenerateImageSlackDeps(), geminiImagePlugin()
 
-### Community 31 - "Community 31"
-Cohesion: 0.12
-Nodes (3): completeSessionStart(), McpServerManager, fn()
-
-### Community 32 - "Community 32"
-Cohesion: 0.15
-Nodes (4): formatSeconds(), runSingleCheck(), runVerificationChecks(), FakeChild
-
-### Community 33 - "Community 33"
+### Community 27 - "src/claude: SkillsManager"
 Cohesion: 0.18
 Nodes (2): loadKey(), SkillsManager
 
-### Community 34 - "Community 34"
-Cohesion: 0.19
-Nodes (4): makeClient(), makeClientWithStreamers(), makeMockChatStreamer(), makeStreamerFailingAfter()
-
-### Community 35 - "Community 35"
+### Community 28 - "spec: trivia-games"
 Cohesion: 0.17
-Nodes (3): makeDeps(), makeStopDeps(), MockAssistant
+Nodes (12): answerLocked Flag, lock_questions MCP Tool, Enabled Flag on TriviaGame, TriviaGame Registry, trivia-games Specification, list_games MCP Tool, lockCron Optional Field, Migration 019: Trivia Games Data Move (+4 more)
 
-### Community 36 - "Community 36"
-Cohesion: 0.19
-Nodes (13): Cascading Configuration Resolver, ClackSdk Interface, Cron Job with requiredTools, Enforce Required Tools Feature, find_previous_questions Search Tool, Plugin Architecture Feature, Clack Plugin Contract, Per-Plugin MCP Server Namespace (+5 more)
-
-### Community 37 - "Community 37"
-Cohesion: 0.25
-Nodes (6): loadLines(), setEnv(), writeLines(), loadEnvLines(), setEnvVar(), writeEnvLines()
-
-### Community 38 - "Community 38"
-Cohesion: 0.29
-Nodes (7): extractThreadInfo(), keyFor(), PerThreadContextStore, messageArgs(), messagePayload(), threadArgs(), threadChangedPayload()
-
-### Community 39 - "Community 39"
-Cohesion: 0.28
-Nodes (4): parseFullName(), discoverRegisteredCoreToolNames(), walk(), validateRequiredToolNames()
-
-### Community 40 - "Community 40"
-Cohesion: 0.22
-Nodes (9): Changes Workflow capability, Home Tab configuration simplification, Home Tab UI component, Worker session restoration on startup, close_pr tool, ensure_pr tool, git_push tool, merge_pr tool (+1 more)
-
-### Community 41 - "Community 41"
-Cohesion: 0.29
-Nodes (4): clearRolesCache(), setRolesDeps(), makeDeps(), resetMocks()
-
-### Community 42 - "Community 42"
-Cohesion: 0.29
-Nodes (2): makeCtx(), makeRepo()
-
-### Community 43 - "Community 43"
-Cohesion: 0.38
-Nodes (4): makeCtx(), makeDeps(), makeRepo(), makeSimpleGit()
-
-### Community 44 - "Community 44"
-Cohesion: 0.29
-Nodes (1): NullDelivery
-
-### Community 46 - "Community 46"
-Cohesion: 0.33
-Nodes (6): Claude Agent SDK, Claude Code Integration Specification, Docker Deployment Specification, Add Docker Setup Script and Dockerfile, Use Claude Agent SDK Design, Use Claude Agent SDK Proposal
-
-### Community 47 - "Community 47"
-Cohesion: 0.33
-Nodes (6): Changes Workflow Delta Specification (cancellation), Cancel Worker Run Design Document, Worker Cancellation Specification, Stream Keepalive Design Document, Stream Keepalive Proposal, Streaming Responses with Keepalive Specification
-
-### Community 48 - "Community 48"
-Cohesion: 0.33
-Nodes (6): Scheduled Skip Conditions Proposal, Scheduled Messages Feature, Clack Tools Spec (Skip Conditions), Cron Messages Spec, Home Tab Spec (Skip Conditions), Skip Response Spec
-
-### Community 49 - "Community 49"
-Cohesion: 0.33
-Nodes (6): Add Block Kit Markdown and Table Change, Add Card and Carousel Blocks Change, Add Post to Message Parity Change, Clack Tool Response Specification (Markdown & Table), Clack Tool Response Specification (Card & Carousel), Clack Tool Response Specification (Post to Message Parity)
-
-### Community 51 - "Community 51"
-Cohesion: 0.6
-Nodes (4): makeCtx(), makeDeps(), makeRepo(), makeSimpleGit()
-
-### Community 54 - "Community 54"
+### Community 29 - "scripts/generate-manifest.ts: generate-manifest."
 Cohesion: 0.5
-Nodes (5): Query tools capability, find_user query tool, UsersCache abstraction, deepen_history query tool, git_log query tool
+Nodes (7): buildEvents(), buildScopes(), generateManifest(), getEnabledFeatures(), loadConfigForManifest(), main(), validateSlackAppConfig()
 
-### Community 55 - "Community 55"
+### Community 30 - "src/workers: WorkerQueue"
+Cohesion: 0.29
+Nodes (1): WorkerQueue
+
+### Community 31 - "src/tools: envFile.ts"
+Cohesion: 0.47
+Nodes (3): loadEnvLines(), setEnvVar(), writeEnvLines()
+
+### Community 32 - "src/tools: proposeConfigUpdate.testHelpers.ts"
+Cohesion: 0.53
+Nodes (5): createProposeConfigUpdateTool(), callTool(), makeCtx(), makeDeps(), makeIntentStore()
+
+### Community 33 - "src/tools: configFieldSchemas.ts"
 Cohesion: 0.4
-Nodes (5): Auto Respond Pre-Analysis Specification, Channel Context Specification, Channel Name Resolution Design Document, Channel Name Resolution Proposal, Streaming Responses Specification
+Nodes (2): buildConfigPath(), buildInstructionPath()
 
-### Community 56 - "Community 56"
-Cohesion: 0.4
-Nodes (5): Find Recent Interactions Design Document, Find Recent Interactions Tool Specification, Clack Tools Delta Specification (reactions), Message Reactions Context Design Document, Session Management Delta Specification (reactions)
+### Community 34 - "src/slack: assistantContextStore.ts"
+Cohesion: 0.6
+Nodes (3): extractThreadInfo(), keyFor(), PerThreadContextStore
 
-### Community 59 - "Community 59"
+### Community 35 - "spec: streaming-responses"
+Cohesion: 0.33
+Nodes (6): ClaudeRunHandle control surface, delivery handler abstraction, SDK session wrapper (clackQuery/clackSession), SlackStreamer reactive rollover, Slack chat stream management, tool label configuration system
+
+### Community 36 - "spec: trivia-question-search"
+Cohesion: 0.33
+Nodes (6): answer type format handler abstraction, cascade context builder, freeform answer reveal judge, reveal-time answer processing, trivia question contexts (lens axis), trivia question search and save
+
+### Community 37 - "docs/setup-mcp-servers.md: MCP Server Setup and "
 Cohesion: 0.5
 Nodes (4): HTTP/SSE MCP Configuration, Legacy npx MCP Configuration, Pinned MCP Server Configuration, MCP Server Setup and Configuration
 
-### Community 60 - "Community 60"
-Cohesion: 0.5
-Nodes (4): Home Tab Repository Access Tags, Repository Access Control Change, Role Hierarchy Numeric Levels, Tool Filtering by Repository Access
-
-### Community 61 - "Community 61"
-Cohesion: 0.67
-Nodes (4): Auto-execute config_update action, Claude instructions with delivery context, Delivery context (ephemeral, trigger type, DM-first), submit_response action schema
-
-### Community 62 - "Community 62"
-Cohesion: 0.5
-Nodes (4): Auto-Respond Tracking Feature, autoResponseActive Session Field, Pre-Analysis Tri-State Result, stop_tracking Query Tool
-
-### Community 63 - "Community 63"
-Cohesion: 0.67
-Nodes (4): Exclude Cheaters from Reveal Change, Trivia Cheating Detection Specification (Exclude Cheaters), Trivia Question Search Specification (With Cheating Gate), Trivia Scheduled Prompts Specification
-
-### Community 64 - "Community 64"
-Cohesion: 0.67
-Nodes (4): GIF Plugin Design, GIF Plugin Proposal, GIF Plugin Spec, Tenor API Service
-
-### Community 65 - "Community 65"
-Cohesion: 0.67
-Nodes (4): Cascading Config Resolver Spec, Claude Code Integration Spec, Lazy MCP Loading Spec, Lazy MCP Loading Tasks
-
-### Community 66 - "Community 66"
+### Community 38 - "spec: worker-cancellation"
 Cohesion: 0.5
 Nodes (4): cancel_worker_run MCP Tool, Worker Cancellation Specification, Worker Session Restore Specification, Worker Tools Specification
 
-### Community 67 - "Community 67"
+### Community 39 - "src/tools: testHelpers.ts"
+Cohesion: 1.0
+Nodes (2): parseToolResult(), toolResultText()
+
+### Community 40 - "README.md: Claude Code Authentication"
 Cohesion: 0.67
 Nodes (3): API Key Authentication, Claude Code Authentication, OAuth Token Authentication
 
-### Community 68 - "Community 68"
+### Community 41 - "misc: Changes Workflow System"
 Cohesion: 0.67
-Nodes (3): Credentials Management (SSH keys, API keys, Slack tokens), Docker Deployment Infrastructure, Docker Setup Design
+Nodes (3): Changes Workflow System, Role-Based Access System (Owner/Admin/Dev/Member), Session Context Persistence
 
-### Community 69 - "Community 69"
-Cohesion: 0.67
-Nodes (3): Permission Gating on Follow-Up Tools, Simplify Worker Modes, Single Unified Worker Mode
-
-### Community 70 - "Community 70"
-Cohesion: 0.67
-Nodes (3): Boot Migrations System, Migration Registry Pattern, Version Tracking via data/state/version.json
-
-### Community 71 - "Community 71"
-Cohesion: 0.67
-Nodes (3): Admin Set Role Tool Specification, Admin Set Role Design Document, User Roles Delta Specification
-
-### Community 72 - "Community 72"
-Cohesion: 0.67
-Nodes (3): Clack Tools Delta Specification (interactions), Delivery Context Delta Specification (interactions), Find Recent Interactions Proposal
-
-### Community 73 - "Community 73"
-Cohesion: 0.67
-Nodes (3): add_reaction MCP Tool, Reaction Tools Feature, remove_reaction MCP Tool
-
-### Community 74 - "Community 74"
-Cohesion: 1.0
-Nodes (3): Add Auto Respond MCP Tools Change, Auto Respond Rule Tools Specification, Auto Respond Specification (MCP Tools)
-
-### Community 75 - "Community 75"
+### Community 42 - "spec: auto-execute-actions"
 Cohesion: 0.67
 Nodes (3): Auto Execute Actions Specification, Auto Respond Rule Tools Specification (Final), Auto Respond Specification (Final)
 
-### Community 79 - "Community 79"
-Cohesion: 1.0
-Nodes (2): Lazy Skill Loading Feature, OpenSpec: Add Lazy Skill Loading
+### Community 43 - "spec: user-roles"
+Cohesion: 0.67
+Nodes (3): admin-deference Specification, User Role Hierarchy, user-roles Specification
 
-### Community 80 - "Community 80"
-Cohesion: 1.0
-Nodes (2): Error Reporting and Tool Context, Session Management - Tool Call History
+### Community 44 - "spec: pinned-mcp-installs"
+Cohesion: 0.67
+Nodes (3): MCP server configuration and installation, docker-deployment spec, pinned-mcp-installs spec
 
-### Community 81 - "Community 81"
+### Community 47 - "spec: file-upload"
 Cohesion: 1.0
-Nodes (2): Simplified Orchestrator Pattern, Worker Tools (MCP-Based Infrastructure)
+Nodes (2): file-upload Specification, upload_file MCP tool
 
-### Community 82 - "Community 82"
-Cohesion: 1.0
-Nodes (2): Session auto-cleanup notification removal, Completion monitor
-
-### Community 83 - "Community 83"
-Cohesion: 1.0
-Nodes (2): Send to Thread Content, Unified Response Delivery
-
-### Community 84 - "Community 84"
-Cohesion: 1.0
-Nodes (2): Slack File Attachments, Slack Image Support
-
-### Community 85 - "Community 85"
-Cohesion: 1.0
-Nodes (2): Clack Tools Delta Specification (admin-set-role), Admin Set Role Proposal
-
-### Community 86 - "Community 86"
-Cohesion: 1.0
-Nodes (2): Clack Tools Delta Specification (cancellation), Cancel Worker Run Proposal
-
-### Community 87 - "Community 87"
-Cohesion: 1.0
-Nodes (2): Admin Delete Message Specification, Admin Delete Message Design Document
-
-### Community 88 - "Community 88"
-Cohesion: 1.0
-Nodes (2): Clack Tools Delta Specification (delete message), Admin Delete Message Proposal
-
-### Community 89 - "Community 89"
-Cohesion: 1.0
-Nodes (2): Channel Context Delta Specification (reactions), Message Reactions Context Proposal
-
-### Community 90 - "Community 90"
-Cohesion: 1.0
-Nodes (2): Clack Plugins Specification, Trivia Instruction Tools Change
-
-### Community 91 - "Community 91"
-Cohesion: 1.0
-Nodes (2): Channel Context Specification, Harden Fetch Channel Messages Change
-
-### Community 92 - "Community 92"
-Cohesion: 1.0
-Nodes (2): Pin MCP Installs Change, Pinned MCP Installs Specification
-
-### Community 93 - "Community 93"
+### Community 48 - "spec: slack-file-attachments"
 Cohesion: 1.0
 Nodes (2): Slack File Attachments Specification, Slack Image Support Specification
 
-### Community 94 - "Community 94"
-Cohesion: 1.0
-Nodes (2): Trivia Batch Answers Specification, Trivia Categories Specification
-
-### Community 95 - "Community 95"
+### Community 49 - "spec: trivia-cheating-detection"
 Cohesion: 1.0
 Nodes (2): Trivia Cheating Detection Specification, Trivia Question Search Specification
 
-### Community 96 - "Community 96"
+### Community 50 - "misc: function"
 Cohesion: 1.0
 Nodes (2): function, function
 
-### Community 97 - "Community 97"
+### Community 51 - "misc: function"
 Cohesion: 1.0
 Nodes (2): function, function
 
-### Community 100 - "Community 100"
+### Community 52 - "spec: find-emoji-tool"
+Cohesion: 1.0
+Nodes (2): EmojiCache abstraction, find_emoji MCP tool
+
+### Community 53 - "spec: github-app"
+Cohesion: 1.0
+Nodes (2): GitHub App authentication system, GitHub MCP auto-injection
+
+### Community 54 - "spec: config-update-via-chat"
+Cohesion: 1.0
+Nodes (2): Configuration Cascade Resolver, read_config_file MCP Tool
+
+### Community 55 - "spec: config-update-via-chat"
+Cohesion: 1.0
+Nodes (2): propose_config_update MCP Tool, Semantic Config File Addressing
+
+### Community 56 - "spec: manifest-generation"
+Cohesion: 1.0
+Nodes (2): DM Type Conditional: assistant vs classic, Slack App Manifest
+
+### Community 57 - "spec: owner-error-escalation"
+Cohesion: 1.0
+Nodes (2): Error Reporting Mechanism, escalate_to_owner Field
+
+### Community 58 - "spec: auto-respond"
+Cohesion: 1.0
+Nodes (2): Auto-Respond Rule, Auto-Respond Trigger Mode
+
+### Community 59 - "spec: dm-first-reactions"
+Cohesion: 1.0
+Nodes (2): dm-first-reactions spec, slack-classic-dm spec
+
+### Community 60 - "images/clacknowledged-128.png: Clacknowledged 12"
+Cohesion: 1.0
+Nodes (2): Clacknowledged 128px Icon, Clacknowledged Logo Artwork
+
+### Community 63 - "openspec/project.md: Project Context - Clack Bot"
 Cohesion: 1.0
 Nodes (1): Project Context - Clack Bot
 
-### Community 101 - "Community 101"
+### Community 64 - "spec: admin-config-tools"
 Cohesion: 1.0
-Nodes (1): Clack MCP Tools - Change Request Detection
+Nodes (1): Admin Config Tools Specification
 
-### Community 102 - "Community 102"
-Cohesion: 1.0
-Nodes (1): Worktree Auth Wrapper
-
-### Community 103 - "Community 103"
-Cohesion: 1.0
-Nodes (1): Auto-Execute Change Actions
-
-### Community 104 - "Community 104"
-Cohesion: 1.0
-Nodes (1): DM-First Reactions Response Delivery
-
-### Community 105 - "Community 105"
-Cohesion: 1.0
-Nodes (1): Migrate Execution to SDK
-
-### Community 106 - "Community 106"
-Cohesion: 1.0
-Nodes (1): Unify Work Emoji Flow
-
-### Community 107 - "Community 107"
-Cohesion: 1.0
-Nodes (1): Config File Read/Write Tools
-
-### Community 108 - "Community 108"
-Cohesion: 1.0
-Nodes (1): Find Pull Requests Tool
-
-### Community 109 - "Community 109"
-Cohesion: 1.0
-Nodes (1): Work Mode Prompt Hint
-
-### Community 110 - "Community 110"
-Cohesion: 1.0
-Nodes (1): Admin DM Interaction for Migrations
-
-### Community 111 - "Community 111"
-Cohesion: 1.0
-Nodes (1): Cancel on Edit Implementation Tasks
-
-### Community 112 - "Community 112"
-Cohesion: 1.0
-Nodes (1): Session Management Specification (Cancellation)
-
-### Community 113 - "Community 113"
-Cohesion: 1.0
-Nodes (1): Session-Derived Delivery Context Tasks
-
-### Community 114 - "Community 114"
-Cohesion: 1.0
-Nodes (1): Slack Assistant Implementation Tasks
-
-### Community 115 - "Community 115"
-Cohesion: 1.0
-Nodes (1): Unified Response Delivery Implementation Tasks
-
-### Community 116 - "Community 116"
-Cohesion: 1.0
-Nodes (1): Config Editor Modal
-
-### Community 117 - "Community 117"
-Cohesion: 1.0
-Nodes (1): Conditional Hidden Rules
-
-### Community 118 - "Community 118"
-Cohesion: 1.0
-Nodes (1): Configurable Tool Labels
-
-### Community 119 - "Community 119"
-Cohesion: 1.0
-Nodes (1): Auto-Respond Pre-Analysis Implementation Tasks
-
-### Community 120 - "Community 120"
-Cohesion: 1.0
-Nodes (1): Silent Thinking Delivery Mode Specification
-
-### Community 121 - "Community 121"
-Cohesion: 1.0
-Nodes (1): Scheduled Reminders Change (2026-03-27)
-
-### Community 122 - "Community 122"
-Cohesion: 1.0
-Nodes (1): Slack chat.scheduleMessage API
-
-### Community 123 - "Community 123"
-Cohesion: 1.0
-Nodes (1): Static Migrations Change (2026-03-27)
-
-### Community 124 - "Community 124"
-Cohesion: 1.0
-Nodes (1): Admin Tools Change (2026-03-31)
-
-### Community 125 - "Community 125"
-Cohesion: 1.0
-Nodes (1): Secure Env Tools Change (2026-04-01)
-
-### Community 126 - "Community 126"
-Cohesion: 1.0
-Nodes (1): Paginated Slack Thread Fetch Change (2026-04-02)
-
-### Community 127 - "Community 127"
-Cohesion: 1.0
-Nodes (1): Slack conversations.replies API
-
-### Community 128 - "Community 128"
-Cohesion: 1.0
-Nodes (1): SDK Session Resume Change (2026-04-02)
-
-### Community 129 - "Community 129"
-Cohesion: 1.0
-Nodes (1): Skip Response Change (2026-04-02)
-
-### Community 130 - "Community 130"
-Cohesion: 1.0
-Nodes (1): Reaction Tools Tasks
-
-### Community 131 - "Community 131"
-Cohesion: 1.0
-Nodes (1): Submit Response with Reactions Feature
-
-### Community 132 - "Community 132"
-Cohesion: 1.0
-Nodes (1): GIF Plugin Tasks
-
-### Community 133 - "Community 133"
-Cohesion: 1.0
-Nodes (1): Lazy MCP Loading Design
-
-### Community 134 - "Community 134"
-Cohesion: 1.0
-Nodes (1): Lazy MCP Loading Proposal
-
-### Community 135 - "Community 135"
-Cohesion: 1.0
-Nodes (1): Separate Session Trigger Tasks
-
-### Community 136 - "Community 136"
-Cohesion: 1.0
-Nodes (1): Separate Session Trigger Design
-
-### Community 137 - "Community 137"
-Cohesion: 1.0
-Nodes (1): Separate Session Trigger Proposal
-
-### Community 138 - "Community 138"
-Cohesion: 1.0
-Nodes (1): Auto-Respond Pre-Analysis Spec
-
-### Community 139 - "Community 139"
-Cohesion: 1.0
-Nodes (1): Find Recent Interactions Spec
-
-### Community 140 - "Community 140"
-Cohesion: 1.0
-Nodes (1): Session Management Spec
-
-### Community 141 - "Community 141"
-Cohesion: 1.0
-Nodes (1): Session Transcript Tool Spec
-
-### Community 142 - "Community 142"
+### Community 65 - "spec: admin-delete-message"
 Cohesion: 1.0
 Nodes (1): Admin Delete Message Specification
 
-### Community 143 - "Community 143"
+### Community 66 - "spec: admin-edit-instructions"
 Cohesion: 1.0
 Nodes (1): Admin Edit Instructions Specification
 
-### Community 144 - "Community 144"
+### Community 67 - "spec: admin-env-tools"
 Cohesion: 1.0
 Nodes (1): Admin Env Tools Specification
 
-### Community 145 - "Community 145"
+### Community 68 - "spec: admin-role-tool"
 Cohesion: 1.0
 Nodes (1): Admin Role Tool Specification
 
-### Community 146 - "Community 146"
+### Community 69 - "spec: app-lifecycle"
 Cohesion: 1.0
 Nodes (1): App Lifecycle Specification
 
-### Community 147 - "Community 147"
+### Community 70 - "spec: auto-respond-pre-analysis"
 Cohesion: 1.0
 Nodes (1): Auto Respond Pre Analysis Specification (Final)
 
-### Community 148 - "Community 148"
+### Community 71 - "spec: auto-respond-tracking"
 Cohesion: 1.0
 Nodes (1): Auto Respond Tracking Specification (Final)
 
-### Community 149 - "Community 149"
-Cohesion: 1.0
-Nodes (1): file-upload Specification
-
-### Community 150 - "Community 150"
+### Community 72 - "spec: find-emoji-tool"
 Cohesion: 1.0
 Nodes (1): find-emoji-tool Specification
 
-### Community 151 - "Community 151"
+### Community 73 - "spec: find-user-tool"
 Cohesion: 1.0
 Nodes (1): find-user-tool Specification
 
-### Community 152 - "Community 152"
+### Community 74 - "spec: git-log-tools"
 Cohesion: 1.0
 Nodes (1): git-log-tools Specification
 
-### Community 153 - "Community 153"
+### Community 75 - "spec: github-app"
 Cohesion: 1.0
 Nodes (1): github-app Specification
 
-### Community 154 - "Community 154"
+### Community 76 - "spec: github-mcp-auto-config"
 Cohesion: 1.0
 Nodes (1): github-mcp-auto-config Specification
 
-### Community 155 - "Community 155"
-Cohesion: 1.0
-Nodes (1): home-tab Specification
-
-### Community 156 - "Community 156"
-Cohesion: 1.0
-Nodes (1): instruction-system Specification
-
-### Community 157 - "Community 157"
+### Community 77 - "spec: instruction-variables"
 Cohesion: 1.0
 Nodes (1): instruction-variables Specification
 
-### Community 158 - "Community 158"
+### Community 78 - "spec: lazy-skill-loading"
 Cohesion: 1.0
 Nodes (1): lazy-skill-loading Specification
 
-### Community 159 - "Community 159"
+### Community 79 - "spec: manifest-generation"
 Cohesion: 1.0
 Nodes (1): manifest-generation Specification
 
-### Community 160 - "Community 160"
-Cohesion: 1.0
-Nodes (1): pinned-mcp-installs Specification
-
-### Community 161 - "Community 161"
+### Community 80 - "spec: session-transcript-tool"
 Cohesion: 1.0
 Nodes (1): Session Transcript Tool Specification
 
-### Community 162 - "Community 162"
+### Community 81 - "spec: skip-response"
 Cohesion: 1.0
 Nodes (1): Skip Response Specification
 
-### Community 163 - "Community 163"
+### Community 82 - "spec: slack-channel-resolver"
+Cohesion: 1.0
+Nodes (1): Slack Channel Resolver Specification
+
+### Community 83 - "spec: streaming-responses"
+Cohesion: 1.0
+Nodes (1): Streaming Responses Specification
+
+### Community 84 - "spec: tool-label-config"
 Cohesion: 1.0
 Nodes (1): Tool Label Config Specification
 
-### Community 164 - "Community 164"
+### Community 85 - "spec: trivia-categories"
 Cohesion: 1.0
-Nodes (1): function
+Nodes (1): trivia-categories Specification
 
-### Community 165 - "Community 165"
+### Community 86 - "spec: user-preferences"
 Cohesion: 1.0
-Nodes (1): function
+Nodes (1): user-preferences Specification
 
-### Community 166 - "Community 166"
+### Community 87 - "spec: instruction-variables"
 Cohesion: 1.0
-Nodes (1): function
+Nodes (1): Instruction template variable registry
 
-### Community 167 - "Community 167"
+### Community 88 - "CLAUDE.md: Session Persistence"
 Cohesion: 1.0
-Nodes (1): class
+Nodes (1): Session Persistence
 
-### Community 168 - "Community 168"
+### Community 89 - "spec: config-update-via-chat"
 Cohesion: 1.0
-Nodes (1): function
+Nodes (1): Config Update Via Chat Specification
 
-### Community 169 - "Community 169"
+### Community 90 - "spec: config-update-via-chat"
 Cohesion: 1.0
-Nodes (1): function
+Nodes (1): list_config_files MCP Tool
 
-### Community 170 - "Community 170"
+### Community 91 - "spec: manifest-generation"
 Cohesion: 1.0
-Nodes (1): function
+Nodes (1): manifest-generation Specification
 
-### Community 171 - "Community 171"
+### Community 92 - "spec: trivia-choice-questions"
 Cohesion: 1.0
-Nodes (1): function
+Nodes (1): trivia-choice-questions Specification
 
-### Community 172 - "Community 172"
+### Community 93 - "spec: trivia-prediction-questions"
 Cohesion: 1.0
-Nodes (1): function
+Nodes (1): trivia-prediction-questions Specification
 
-### Community 173 - "Community 173"
+### Community 94 - "spec: trivia-visual-questions"
 Cohesion: 1.0
-Nodes (1): function
+Nodes (1): trivia-visual-questions Specification
 
-### Community 174 - "Community 174"
+### Community 95 - "spec: owner-error-escalation"
 Cohesion: 1.0
-Nodes (1): function
+Nodes (1): owner-error-escalation Specification
 
-### Community 175 - "Community 175"
+### Community 96 - "spec: auto-respond"
 Cohesion: 1.0
-Nodes (1): type
+Nodes (1): auto-respond Specification
 
-### Community 176 - "Community 176"
+### Community 97 - "spec: repo-access-control"
 Cohesion: 1.0
-Nodes (1): interface
+Nodes (1): repo-access-control Specification
 
-### Community 177 - "Community 177"
+### Community 98 - "spec: trivia-question-locking"
 Cohesion: 1.0
-Nodes (1): interface
+Nodes (1): trivia-question-locking Specification
 
-### Community 178 - "Community 178"
+### Community 99 - "spec: trivia-post-game-buttons"
 Cohesion: 1.0
-Nodes (1): EnvFileUtils
+Nodes (1): trivia-post-game-buttons Specification
 
-### Community 179 - "Community 179"
+### Community 100 - "spec: channel-context"
 Cohesion: 1.0
-Nodes (1): adminRestartApp tool
+Nodes (1): channel-context Specification
 
-### Community 180 - "Community 180"
+### Community 101 - "spec: attention-level"
 Cohesion: 1.0
-Nodes (1): viewSlackFile tool
+Nodes (1): attention-level Specification
 
-### Community 181 - "Community 181"
+### Community 102 - "spec: lazy-mcp-loading"
 Cohesion: 1.0
-Nodes (1): findSessionTranscript tool
+Nodes (1): lazy-mcp-loading Specification
 
-### Community 182 - "Community 182"
+### Community 103 - "spec: thread-delivery-mode"
 Cohesion: 1.0
-Nodes (1): findChanges tool
+Nodes (1): thread-delivery-mode Specification
 
-### Community 183 - "Community 183"
+### Community 104 - "spec: trivia-question-hints"
 Cohesion: 1.0
-Nodes (1): auto-respond rule fetcher
+Nodes (1): trivia-question-hints Specification
 
-### Community 184 - "Community 184"
+### Community 105 - "spec: cron-messages"
 Cohesion: 1.0
-Nodes (1): QueryToolContext type
+Nodes (1): cron-messages Specification
 
-### Community 185 - "Community 185"
+### Community 106 - "spec: auto-respond-pre-analysis"
 Cohesion: 1.0
-Nodes (1): WorkerToolContext type
+Nodes (1): auto-respond-pre-analysis Specification
+
+### Community 107 - "spec: repository-management"
+Cohesion: 1.0
+Nodes (1): repository-management Specification
+
+### Community 108 - "spec: error-reporting"
+Cohesion: 1.0
+Nodes (1): error-reporting Specification
+
+### Community 109 - "spec: conversation-stats"
+Cohesion: 1.0
+Nodes (1): conversation statistics aggregation
 
 ## Knowledge Gaps
-- **213 isolated node(s):** `Project Context - Clack Bot`, `Reaction Trigger Mode`, `Direct Message & Mention Modes`, `Owner Role`, `Admin Role` (+208 more)
+- **191 isolated node(s):** `Project Context - Clack Bot`, `Reaction Trigger Mode`, `Direct Message & Mention Modes`, `Owner Role`, `Admin Role` (+186 more)
   These have ≤1 connection - possible missing edges or undocumented components.
-- **Thin community `Community 33`** (13 nodes): `loadKey()`, `SkillsManager`, `.catalog()`, `.constructor()`, `.getSkill()`, `.isEagerPack()`, `.isSkillLoaded()`, `.knownLazyPackNames()`, `.knowsLazyPack()`, `.listSkills()`, `.markLoaded()`, `.packDescription()`, `.readSkillBody()`
+- **Thin community `src/claude: SkillsManager`** (13 nodes): `loadKey()`, `SkillsManager`, `.catalog()`, `.constructor()`, `.getSkill()`, `.isEagerPack()`, `.isSkillLoaded()`, `.knownLazyPackNames()`, `.knowsLazyPack()`, `.listSkills()`, `.markLoaded()`, `.packDescription()`, `.readSkillBody()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 42`** (8 nodes): `makeCtx()`, `makeDeps()`, `makePR()`, `makeRepo()`, `prInput()`, `returning()`, `throwing()`, `findPullRequests.test.ts`
+- **Thin community `src/workers: WorkerQueue`** (7 nodes): `WorkerQueue`, `.depth()`, `.dequeue()`, `.enqueueAndWait()`, `.findBySession()`, `.list()`, `.removeEntry()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 44`** (7 nodes): `NullDelivery`, `.deliver()`, `.handleEvent()`, `.windDown()`, `.windUp()`, `nullDelivery.test.ts`, `nullDelivery.ts`
+- **Thin community `src/tools: configFieldSchemas.ts`** (6 nodes): `buildConfigPath()`, `buildInstructionPath()`, `refineConfigTarget()`, `validateConfigTarget()`, `repoInstructionFiles.ts`, `configFieldSchemas.ts`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 79`** (2 nodes): `Lazy Skill Loading Feature`, `OpenSpec: Add Lazy Skill Loading`
+- **Thin community `src/tools: testHelpers.ts`** (3 nodes): `testHelpers.ts`, `parseToolResult()`, `toolResultText()`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 80`** (2 nodes): `Error Reporting and Tool Context`, `Session Management - Tool Call History`
+- **Thin community `spec: file-upload`** (2 nodes): `file-upload Specification`, `upload_file MCP tool`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 81`** (2 nodes): `Simplified Orchestrator Pattern`, `Worker Tools (MCP-Based Infrastructure)`
+- **Thin community `spec: slack-file-attachments`** (2 nodes): `Slack File Attachments Specification`, `Slack Image Support Specification`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 82`** (2 nodes): `Session auto-cleanup notification removal`, `Completion monitor`
+- **Thin community `spec: trivia-cheating-detection`** (2 nodes): `Trivia Cheating Detection Specification`, `Trivia Question Search Specification`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 83`** (2 nodes): `Send to Thread Content`, `Unified Response Delivery`
+- **Thin community `misc: function`** (2 nodes): `function`, `function`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 84`** (2 nodes): `Slack File Attachments`, `Slack Image Support`
+- **Thin community `misc: function`** (2 nodes): `function`, `function`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 85`** (2 nodes): `Clack Tools Delta Specification (admin-set-role)`, `Admin Set Role Proposal`
+- **Thin community `spec: find-emoji-tool`** (2 nodes): `EmojiCache abstraction`, `find_emoji MCP tool`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 86`** (2 nodes): `Clack Tools Delta Specification (cancellation)`, `Cancel Worker Run Proposal`
+- **Thin community `spec: github-app`** (2 nodes): `GitHub App authentication system`, `GitHub MCP auto-injection`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 87`** (2 nodes): `Admin Delete Message Specification`, `Admin Delete Message Design Document`
+- **Thin community `spec: config-update-via-chat`** (2 nodes): `Configuration Cascade Resolver`, `read_config_file MCP Tool`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 88`** (2 nodes): `Clack Tools Delta Specification (delete message)`, `Admin Delete Message Proposal`
+- **Thin community `spec: config-update-via-chat`** (2 nodes): `propose_config_update MCP Tool`, `Semantic Config File Addressing`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 89`** (2 nodes): `Channel Context Delta Specification (reactions)`, `Message Reactions Context Proposal`
+- **Thin community `spec: manifest-generation`** (2 nodes): `DM Type Conditional: assistant vs classic`, `Slack App Manifest`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 90`** (2 nodes): `Clack Plugins Specification`, `Trivia Instruction Tools Change`
+- **Thin community `spec: owner-error-escalation`** (2 nodes): `Error Reporting Mechanism`, `escalate_to_owner Field`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 91`** (2 nodes): `Channel Context Specification`, `Harden Fetch Channel Messages Change`
+- **Thin community `spec: auto-respond`** (2 nodes): `Auto-Respond Rule`, `Auto-Respond Trigger Mode`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 92`** (2 nodes): `Pin MCP Installs Change`, `Pinned MCP Installs Specification`
+- **Thin community `spec: dm-first-reactions`** (2 nodes): `dm-first-reactions spec`, `slack-classic-dm spec`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 93`** (2 nodes): `Slack File Attachments Specification`, `Slack Image Support Specification`
+- **Thin community `images/clacknowledged-128.png: Clacknowledged 12`** (2 nodes): `Clacknowledged 128px Icon`, `Clacknowledged Logo Artwork`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 94`** (2 nodes): `Trivia Batch Answers Specification`, `Trivia Categories Specification`
+- **Thin community `openspec/project.md: Project Context - Clack Bot`** (1 nodes): `Project Context - Clack Bot`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 95`** (2 nodes): `Trivia Cheating Detection Specification`, `Trivia Question Search Specification`
+- **Thin community `spec: admin-config-tools`** (1 nodes): `Admin Config Tools Specification`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 96`** (2 nodes): `function`, `function`
+- **Thin community `spec: admin-delete-message`** (1 nodes): `Admin Delete Message Specification`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 97`** (2 nodes): `function`, `function`
+- **Thin community `spec: admin-edit-instructions`** (1 nodes): `Admin Edit Instructions Specification`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 100`** (1 nodes): `Project Context - Clack Bot`
+- **Thin community `spec: admin-env-tools`** (1 nodes): `Admin Env Tools Specification`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 101`** (1 nodes): `Clack MCP Tools - Change Request Detection`
+- **Thin community `spec: admin-role-tool`** (1 nodes): `Admin Role Tool Specification`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 102`** (1 nodes): `Worktree Auth Wrapper`
+- **Thin community `spec: app-lifecycle`** (1 nodes): `App Lifecycle Specification`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 103`** (1 nodes): `Auto-Execute Change Actions`
+- **Thin community `spec: auto-respond-pre-analysis`** (1 nodes): `Auto Respond Pre Analysis Specification (Final)`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 104`** (1 nodes): `DM-First Reactions Response Delivery`
+- **Thin community `spec: auto-respond-tracking`** (1 nodes): `Auto Respond Tracking Specification (Final)`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 105`** (1 nodes): `Migrate Execution to SDK`
+- **Thin community `spec: find-emoji-tool`** (1 nodes): `find-emoji-tool Specification`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 106`** (1 nodes): `Unify Work Emoji Flow`
+- **Thin community `spec: find-user-tool`** (1 nodes): `find-user-tool Specification`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 107`** (1 nodes): `Config File Read/Write Tools`
+- **Thin community `spec: git-log-tools`** (1 nodes): `git-log-tools Specification`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 108`** (1 nodes): `Find Pull Requests Tool`
+- **Thin community `spec: github-app`** (1 nodes): `github-app Specification`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 109`** (1 nodes): `Work Mode Prompt Hint`
+- **Thin community `spec: github-mcp-auto-config`** (1 nodes): `github-mcp-auto-config Specification`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 110`** (1 nodes): `Admin DM Interaction for Migrations`
+- **Thin community `spec: instruction-variables`** (1 nodes): `instruction-variables Specification`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 111`** (1 nodes): `Cancel on Edit Implementation Tasks`
+- **Thin community `spec: lazy-skill-loading`** (1 nodes): `lazy-skill-loading Specification`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 112`** (1 nodes): `Session Management Specification (Cancellation)`
+- **Thin community `spec: manifest-generation`** (1 nodes): `manifest-generation Specification`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 113`** (1 nodes): `Session-Derived Delivery Context Tasks`
+- **Thin community `spec: session-transcript-tool`** (1 nodes): `Session Transcript Tool Specification`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 114`** (1 nodes): `Slack Assistant Implementation Tasks`
+- **Thin community `spec: skip-response`** (1 nodes): `Skip Response Specification`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 115`** (1 nodes): `Unified Response Delivery Implementation Tasks`
+- **Thin community `spec: slack-channel-resolver`** (1 nodes): `Slack Channel Resolver Specification`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 116`** (1 nodes): `Config Editor Modal`
+- **Thin community `spec: streaming-responses`** (1 nodes): `Streaming Responses Specification`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 117`** (1 nodes): `Conditional Hidden Rules`
+- **Thin community `spec: tool-label-config`** (1 nodes): `Tool Label Config Specification`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 118`** (1 nodes): `Configurable Tool Labels`
+- **Thin community `spec: trivia-categories`** (1 nodes): `trivia-categories Specification`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 119`** (1 nodes): `Auto-Respond Pre-Analysis Implementation Tasks`
+- **Thin community `spec: user-preferences`** (1 nodes): `user-preferences Specification`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 120`** (1 nodes): `Silent Thinking Delivery Mode Specification`
+- **Thin community `spec: instruction-variables`** (1 nodes): `Instruction template variable registry`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 121`** (1 nodes): `Scheduled Reminders Change (2026-03-27)`
+- **Thin community `CLAUDE.md: Session Persistence`** (1 nodes): `Session Persistence`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 122`** (1 nodes): `Slack chat.scheduleMessage API`
+- **Thin community `spec: config-update-via-chat`** (1 nodes): `Config Update Via Chat Specification`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 123`** (1 nodes): `Static Migrations Change (2026-03-27)`
+- **Thin community `spec: config-update-via-chat`** (1 nodes): `list_config_files MCP Tool`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 124`** (1 nodes): `Admin Tools Change (2026-03-31)`
+- **Thin community `spec: manifest-generation`** (1 nodes): `manifest-generation Specification`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 125`** (1 nodes): `Secure Env Tools Change (2026-04-01)`
+- **Thin community `spec: trivia-choice-questions`** (1 nodes): `trivia-choice-questions Specification`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 126`** (1 nodes): `Paginated Slack Thread Fetch Change (2026-04-02)`
+- **Thin community `spec: trivia-prediction-questions`** (1 nodes): `trivia-prediction-questions Specification`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 127`** (1 nodes): `Slack conversations.replies API`
+- **Thin community `spec: trivia-visual-questions`** (1 nodes): `trivia-visual-questions Specification`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 128`** (1 nodes): `SDK Session Resume Change (2026-04-02)`
+- **Thin community `spec: owner-error-escalation`** (1 nodes): `owner-error-escalation Specification`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 129`** (1 nodes): `Skip Response Change (2026-04-02)`
+- **Thin community `spec: auto-respond`** (1 nodes): `auto-respond Specification`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 130`** (1 nodes): `Reaction Tools Tasks`
+- **Thin community `spec: repo-access-control`** (1 nodes): `repo-access-control Specification`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 131`** (1 nodes): `Submit Response with Reactions Feature`
+- **Thin community `spec: trivia-question-locking`** (1 nodes): `trivia-question-locking Specification`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 132`** (1 nodes): `GIF Plugin Tasks`
+- **Thin community `spec: trivia-post-game-buttons`** (1 nodes): `trivia-post-game-buttons Specification`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 133`** (1 nodes): `Lazy MCP Loading Design`
+- **Thin community `spec: channel-context`** (1 nodes): `channel-context Specification`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 134`** (1 nodes): `Lazy MCP Loading Proposal`
+- **Thin community `spec: attention-level`** (1 nodes): `attention-level Specification`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 135`** (1 nodes): `Separate Session Trigger Tasks`
+- **Thin community `spec: lazy-mcp-loading`** (1 nodes): `lazy-mcp-loading Specification`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 136`** (1 nodes): `Separate Session Trigger Design`
+- **Thin community `spec: thread-delivery-mode`** (1 nodes): `thread-delivery-mode Specification`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 137`** (1 nodes): `Separate Session Trigger Proposal`
+- **Thin community `spec: trivia-question-hints`** (1 nodes): `trivia-question-hints Specification`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 138`** (1 nodes): `Auto-Respond Pre-Analysis Spec`
+- **Thin community `spec: cron-messages`** (1 nodes): `cron-messages Specification`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 139`** (1 nodes): `Find Recent Interactions Spec`
+- **Thin community `spec: auto-respond-pre-analysis`** (1 nodes): `auto-respond-pre-analysis Specification`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 140`** (1 nodes): `Session Management Spec`
+- **Thin community `spec: repository-management`** (1 nodes): `repository-management Specification`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 141`** (1 nodes): `Session Transcript Tool Spec`
+- **Thin community `spec: error-reporting`** (1 nodes): `error-reporting Specification`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 142`** (1 nodes): `Admin Delete Message Specification`
-  Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 143`** (1 nodes): `Admin Edit Instructions Specification`
-  Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 144`** (1 nodes): `Admin Env Tools Specification`
-  Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 145`** (1 nodes): `Admin Role Tool Specification`
-  Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 146`** (1 nodes): `App Lifecycle Specification`
-  Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 147`** (1 nodes): `Auto Respond Pre Analysis Specification (Final)`
-  Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 148`** (1 nodes): `Auto Respond Tracking Specification (Final)`
-  Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 149`** (1 nodes): `file-upload Specification`
-  Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 150`** (1 nodes): `find-emoji-tool Specification`
-  Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 151`** (1 nodes): `find-user-tool Specification`
-  Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 152`** (1 nodes): `git-log-tools Specification`
-  Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 153`** (1 nodes): `github-app Specification`
-  Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 154`** (1 nodes): `github-mcp-auto-config Specification`
-  Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 155`** (1 nodes): `home-tab Specification`
-  Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 156`** (1 nodes): `instruction-system Specification`
-  Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 157`** (1 nodes): `instruction-variables Specification`
-  Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 158`** (1 nodes): `lazy-skill-loading Specification`
-  Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 159`** (1 nodes): `manifest-generation Specification`
-  Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 160`** (1 nodes): `pinned-mcp-installs Specification`
-  Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 161`** (1 nodes): `Session Transcript Tool Specification`
-  Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 162`** (1 nodes): `Skip Response Specification`
-  Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 163`** (1 nodes): `Tool Label Config Specification`
-  Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 164`** (1 nodes): `function`
-  Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 165`** (1 nodes): `function`
-  Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 166`** (1 nodes): `function`
-  Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 167`** (1 nodes): `class`
-  Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 168`** (1 nodes): `function`
-  Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 169`** (1 nodes): `function`
-  Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 170`** (1 nodes): `function`
-  Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 171`** (1 nodes): `function`
-  Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 172`** (1 nodes): `function`
-  Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 173`** (1 nodes): `function`
-  Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 174`** (1 nodes): `function`
-  Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 175`** (1 nodes): `type`
-  Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 176`** (1 nodes): `interface`
-  Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 177`** (1 nodes): `interface`
-  Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 178`** (1 nodes): `EnvFileUtils`
-  Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 179`** (1 nodes): `adminRestartApp tool`
-  Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 180`** (1 nodes): `viewSlackFile tool`
-  Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 181`** (1 nodes): `findSessionTranscript tool`
-  Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 182`** (1 nodes): `findChanges tool`
-  Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 183`** (1 nodes): `auto-respond rule fetcher`
-  Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 184`** (1 nodes): `QueryToolContext type`
-  Too small to be a meaningful cluster - may be noise or needs more connections extracted.
-- **Thin community `Community 185`** (1 nodes): `WorkerToolContext type`
+- **Thin community `spec: conversation-stats`** (1 nodes): `conversation statistics aggregation`
   Too small to be a meaningful cluster - may be noise or needs more connections extracted.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `tool()` connect `Community 2` to `Community 0`, `Community 9`, `Community 10`, `Community 16`, `Community 18`, `Community 25`, `Community 26`, `Community 29`?**
+- **Why does `t()` connect `src/slack: t()` to `src/tools: logger.ts`, `trivia plugin`, `src/slack: handlerResponse.ts`, `src/workers: errorMessage()`, `src/streaming: lifecycle.ts`, `src/slack: submitResponse.ts`, `src/slack: userSkillsHomeActions.ts`, `src/streaming: SlackStreamer`?**
   _High betweenness centrality (0.018) - this node is a cross-community bridge._
-- **Why does `t()` connect `Community 4` to `Community 0`, `Community 1`, `Community 3`, `Community 9`, `Community 10`, `Community 24`?**
+- **Why does `resolve()` connect `src/tools: logger.ts` to `src/slack: handlerResponse.ts`, `src/slack: t()`, `src/workers: errorMessage()`, `src/claude: main()`, `memoryRegistry: roles.ts`, `commons-image-search plugin`, `src/streaming: lifecycle.ts`, `sessions: sessions.ts`, `cronJobs: cronJobs.ts`, `src/claude: index.ts`, `userSkills: userSkills.ts`, `src/slack: userSkillsHomeActions.ts`, `src/tools: configZod.ts`, `scripts/generate-manifest.ts: generate-manifest.`?**
   _High betweenness centrality (0.012) - this node is a cross-community bridge._
-- **Why does `resolve()` connect `Community 3` to `Community 1`, `Community 4`, `Community 5`, `Community 6`, `Community 7`, `Community 10`, `Community 13`, `Community 14`, `Community 15`, `Community 20`?**
-  _High betweenness centrality (0.011) - this node is a cross-community bridge._
-- **Are the 141 inferred relationships involving `tool()` (e.g. with `pluginWithMixedTopics()` and `createAdminSetRoleTool()`) actually correct?**
-  _`tool()` has 141 INFERRED edges - model-reasoned connections that need verification._
-- **Are the 89 inferred relationships involving `resolve()` (e.g. with `loadConfigForManifest()` and `main()`) actually correct?**
-  _`resolve()` has 89 INFERRED edges - model-reasoned connections that need verification._
-- **Are the 80 inferred relationships involving `buildQueryTools()` (e.g. with `createListRepositoriesTool()` and `createGitLogTool()`) actually correct?**
+- **Why does `WorkerQueue` connect `src/workers: WorkerQueue` to `src/tools: logger.ts`?**
+  _High betweenness centrality (0.010) - this node is a cross-community bridge._
+- **Are the 80 inferred relationships involving `buildQueryTools()` (e.g. with `isChannellessChannelId()` and `canEditConfig()`) actually correct?**
   _`buildQueryTools()` has 80 INFERRED edges - model-reasoned connections that need verification._
+- **Are the 78 inferred relationships involving `resolve()` (e.g. with `loadConfigForManifest()` and `main()`) actually correct?**
+  _`resolve()` has 78 INFERRED edges - model-reasoned connections that need verification._
 - **Are the 76 inferred relationships involving `t()` (e.g. with `handleMigrationFailure()` and `stampConfigUpdateLabels()`) actually correct?**
   _`t()` has 76 INFERRED edges - model-reasoned connections that need verification._
+- **Are the 49 inferred relationships involving `errorMessage()` (e.g. with `ensureInstalled()` and `installAllPinnedMcpServers()`) actually correct?**
+  _`errorMessage()` has 49 INFERRED edges - model-reasoned connections that need verification._
