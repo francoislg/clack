@@ -43,27 +43,63 @@ describe("buildGameSpecs", () => {
     assert.equal(reveal.name, "Trivia: ops — reveal");
   });
 
-  it("question spec has the expected requiredTools", () => {
+  it("non-flexible question spec requiredTools is get_ideas + post_questions only", () => {
     const [question] = buildGameSpecs([baseGame]);
-    const expected = [
+    assert.deepEqual(question.requiredTools, [
       "mcp__trivia__get_ideas",
-      "mcp__trivia__find_previous_questions",
-      "mcp__trivia__find_previous_subjects",
-      "mcp__trivia__save_question",
       "mcp__trivia__post_questions",
-    ];
-    assert.deepEqual(question.requiredTools, expected);
+    ]);
+    assert.ok(question.requiredTools);
+    // Conditional tools are excluded (in assertion order): predictions skip find_previous_questions,
+    // a staged-pool slot skips save_question, and find_previous_subjects runs only in the image subflow.
+    assert.ok(!question.requiredTools.includes("mcp__trivia__find_previous_questions"));
+    assert.ok(!question.requiredTools.includes("mcp__trivia__save_question"));
+    assert.ok(!question.requiredTools.includes("mcp__trivia__find_previous_subjects"));
   });
 
-  it("reveal spec requiredTools is the compute + project + rollover list", () => {
+  it("flexible game question spec drops post_questions (a fire may post zero questions)", () => {
+    const [question] = buildGameSpecs([
+      { ...baseGame, format: { questions: [{}, {}], flexible: true } },
+    ]);
+    assert.deepEqual(question.requiredTools, ["mcp__trivia__get_ideas"]);
+    assert.ok(question.requiredTools);
+    assert.ok(!question.requiredTools.includes("mcp__trivia__post_questions"));
+  });
+
+  it("reveal spec requiredTools is the single-tool compute_answers list", () => {
     const [, reveal] = buildGameSpecs([baseGame]);
-    assert.deepEqual(reveal.requiredTools, [
+    assert.deepEqual(reveal.requiredTools, ["mcp__trivia__compute_answers"]);
+  });
+
+  it("no required-tools list contains a conditional or mutating tool (invariant guard)", () => {
+    // The submit_response gate force-calls every requiredTools entry, so a list may only ever
+    // hold tools called on 100% of valid runs. These are the known conditional/mutating offenders.
+    const DENYLIST = [
+      "mcp__trivia__save_question",
+      "mcp__trivia__find_previous_subjects",
       "mcp__trivia__settle_question",
-      "mcp__trivia__compute_answers",
+      "mcp__trivia__update_question",
       "mcp__trivia__update_answers_block",
       "mcp__trivia__start_new_season",
-      "mcp__trivia__update_question",
-    ]);
+    ];
+    const games: TriviaGame[] = [
+      { ...baseGame, name: "full", prepCron: "0 8 * * *", lockCron: "0 14 * * *" },
+      {
+        ...baseGame,
+        name: "flex",
+        prepCron: "0 8 * * *",
+        lockCron: "0 14 * * *",
+        format: { questions: [{}, {}], flexible: true },
+      },
+    ];
+    for (const spec of buildGameSpecs(games)) {
+      for (const tool of DENYLIST) {
+        assert.ok(
+          !(spec.requiredTools ?? []).includes(tool),
+          `${spec.specKey} requiredTools must not include conditional/mutating tool ${tool}`,
+        );
+      }
+    }
   });
 
   it("question spec sets submitResponseMode to 'skipped'", () => {
@@ -82,7 +118,7 @@ describe("buildGameSpecs", () => {
     assert.deepEqual(reveal.attachedTopics, ["trivia"]);
   });
 
-  it("reveal spec NEVER includes the absorbed tools or conditional season tools", () => {
+  it("reveal spec NEVER includes the absorbed, conditional, or season tools", () => {
     const [, reveal] = buildGameSpecs([baseGame]);
     assert.ok(reveal.requiredTools);
     assert.ok(!reveal.requiredTools.includes("mcp__clack__fetch_channel_messages"));
@@ -94,6 +130,14 @@ describe("buildGameSpecs", () => {
     assert.ok(!reveal.requiredTools.includes("mcp__trivia__upsert_season"));
     assert.ok(!reveal.requiredTools.includes("mcp__trivia__delete_season"));
     assert.ok(!reveal.requiredTools.includes("mcp__trivia__post_questions"));
+    // Conditional reveal tools — excluded so the gate doesn't force-call them on runs where the
+    // prompt skips them: settle_question (no predictions), start_new_season (not the season's last
+    // fire), update_question (only when includeRevealInQuestions is "yes"), update_answers_block
+    // (skipped on an empty batch).
+    assert.ok(!reveal.requiredTools.includes("mcp__trivia__settle_question"));
+    assert.ok(!reveal.requiredTools.includes("mcp__trivia__update_answers_block"));
+    assert.ok(!reveal.requiredTools.includes("mcp__trivia__start_new_season"));
+    assert.ok(!reveal.requiredTools.includes("mcp__trivia__update_question"));
   });
 
   it("question prompt is non-empty and contains the boolean+choice path text", () => {
@@ -175,17 +219,15 @@ describe("buildGameSpecs", () => {
       assert.equal(prep.timezone, "America/Montreal");
     });
 
-    it("prep spec's requiredTools is the gen-only list — NOTABLY excludes post_questions", () => {
+    it("prep spec's requiredTools excludes post_questions and generation-conditional tools", () => {
       const [prep] = buildGameSpecs([{ ...baseGame, prepCron: "30 8 * * 1-5" }]);
-      const expected = [
-        "mcp__trivia__get_ideas",
-        "mcp__trivia__find_previous_questions",
-        "mcp__trivia__find_previous_subjects",
-        "mcp__trivia__save_question",
-      ];
+      const expected = ["mcp__trivia__get_ideas", "mcp__trivia__find_previous_questions"];
       assert.deepEqual(prep.requiredTools, expected);
       assert.ok(prep.requiredTools);
       assert.ok(!prep.requiredTools.includes("mcp__trivia__post_questions"));
+      // A prep fire whose pool is already full correctly no-ops (zero save_question calls).
+      assert.ok(!prep.requiredTools.includes("mcp__trivia__save_question"));
+      assert.ok(!prep.requiredTools.includes("mcp__trivia__find_previous_subjects"));
     });
 
     it("prep spec uses the PREP_QUESTIONS_INSTRUCTIONS prompt and substitutes {game}", () => {

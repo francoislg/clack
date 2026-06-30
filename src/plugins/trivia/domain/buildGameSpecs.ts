@@ -17,27 +17,35 @@ import {
 // independently-installed external plugins; the visual-research subflow discovers
 // whatever is available at runtime by tool description (not by a name convention).
 // Adding them here would couple trivia's schedule to a specific image-search plugin being installed.
-const QUESTION_REQUIRED_TOOLS = [
-  "mcp__trivia__get_ideas",
-  "mcp__trivia__find_previous_questions",
-  "mcp__trivia__find_previous_subjects",
-  "mcp__trivia__save_question",
-  "mcp__trivia__post_questions",
-];
+// The `requiredTools` gate refuses `submit_response` until EVERY listed tool is called, so a list
+// may name ONLY tools called on 100% of valid runs — never a generation-conditional one. For the
+// question cron, `get_ideas` opens every generation flow. `find_previous_questions` (skipped by
+// prediction generation), `find_previous_subjects` (image subflow only), and `save_question`
+// (skipped when a slot is served from the staged pool) are NOT guaranteed and are excluded.
+const QUESTION_BASE_REQUIRED_TOOLS = ["mcp__trivia__get_ideas"];
+
+// `post_questions` is the guaranteed deliverable for a NON-flexible game (≥1 question always
+// posted), so the gate keeps it. A flexible game may legitimately post zero questions on a fire,
+// and `post_questions`'s schema rejects an empty `items` — requiring it would deadlock that skip.
+// Resolved per game at spec-build time from the game's own `format.flexible`. A SEASON-imposed
+// flexible format is invisible here (`buildGameSpecs` is season-independent), so such games keep
+// `post_questions` required — a documented residual gap.
+function questionRequiredTools(game: TriviaGame): string[] {
+  const tools = [...QUESTION_BASE_REQUIRED_TOOLS];
+  if (game.format?.flexible !== true) tools.push("mcp__trivia__post_questions");
+  return tools;
+}
 
 /**
- * Prep-cron required-tools list. Notably EXCLUDES `post_questions` — the prep run must not
- * post a Slack message. Defense in depth: the cron spec is also channelless (no `channel`
- * field), which makes the SDK restrict `submit_response` to `{ skip_response: true }`.
- * Either restriction alone would suffice; both are present because the cost is zero and
- * the failure mode (accidental post from prep run) would be highly visible.
+ * Prep-cron required-tools list. EXCLUDES `post_questions` — the prep run must not post a Slack
+ * message (defense in depth: the cron spec is also channelless, which makes the SDK restrict
+ * `submit_response` to `{ skip_response: true }`). Also EXCLUDES `save_question` and
+ * `find_previous_subjects` for the same reason as the question list: a prep fire whose pool is
+ * already full correctly NO-OPs (zero `save_question` calls), and `find_previous_subjects` only
+ * fires in the image subflow — gating on either would deadlock those runs. Only the always-run
+ * discovery calls remain.
  */
-const PREP_REQUIRED_TOOLS = [
-  "mcp__trivia__get_ideas",
-  "mcp__trivia__find_previous_questions",
-  "mcp__trivia__find_previous_subjects",
-  "mcp__trivia__save_question",
-];
+const PREP_REQUIRED_TOOLS = ["mcp__trivia__get_ideas", "mcp__trivia__find_previous_questions"];
 
 /**
  * Lock-cron required-tools list — the single tool `lock_questions`. Like the prep spec,
@@ -47,20 +55,13 @@ const PREP_REQUIRED_TOOLS = [
  */
 const LOCK_REQUIRED_TOOLS = ["mcp__trivia__lock_questions"];
 
-/**
- * Reveal required-tools list. `settle_question` stamps a prediction's now-known outcome
- * before scoring (harmless for games with no predictions — the prompt simply never calls
- * it); `compute_answers` scores and returns the payload (+ `batchId`); `update_answers_block`
- * edits the question cards; `start_new_season` performs the idempotent season rollover the
- * prompt invokes only on the season's last fire (harmless when seasons are off).
- */
-const REVEAL_REQUIRED_TOOLS = [
-  "mcp__trivia__settle_question",
-  "mcp__trivia__compute_answers",
-  "mcp__trivia__update_answers_block",
-  "mcp__trivia__start_new_season",
-  "mcp__trivia__update_question",
-];
+// Reveal required-tools list. `compute_answers` is the ONLY tool called on every reveal — it
+// scores and returns the payload even on an empty batch (`reveals: []`). `settle_question`
+// (predictions only), `update_answers_block` (skipped on an empty batch), `start_new_season`
+// (season's last fire only), and `update_question` (`includeRevealInQuestions: "yes"` only) are
+// each conditional; gating on them force-calls a mutating tool with fabricated args on the runs
+// where they don't apply (observed in production), so they are excluded.
+const REVEAL_REQUIRED_TOOLS = ["mcp__trivia__compute_answers"];
 
 /**
  * Build the cron-job specs for a list of trivia games. Each game produces two or three specs:
@@ -133,7 +134,7 @@ export function buildGameSpecs(games: TriviaGame[], offDays?: OffDay[]): CronJob
         game.name,
       ),
       timezone: game.timezone,
-      requiredTools: QUESTION_REQUIRED_TOOLS,
+      requiredTools: questionRequiredTools(game),
       // The question's actual deliverable is the `post_questions` tool — which posts the
       // Slack message and stamps the question record. `submit_response` here is purely a
       // run terminator; the "skipped" mode constrains its schema to `{ skip_response: true }`

@@ -223,6 +223,13 @@ export interface CronJobSpec {
    * persisted value is left untouched on updates and absent on new entries.
    */
   name?: string;
+  /**
+   * Fully-qualified MCP tool names the run MUST call before `submit_response` is accepted. The
+   * gate force-calls every entry (its rejection tells Claude to call any missing one), so list
+   * ONLY tools invoked on 100% of valid runs of this spec — the deliverable or an always-run
+   * step. NEVER a conditional or mutating tool (one the prompt skips in some run shapes): forcing
+   * it makes the model fabricate arguments or state on the runs where it doesn't apply.
+   */
   requiredTools?: string[];
   skipConditions?: string;
   /**

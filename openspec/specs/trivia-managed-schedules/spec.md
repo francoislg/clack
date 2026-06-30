@@ -3,9 +3,7 @@
 ## Purpose
 
 TBD - created by archiving change add-trivia-games. Update Purpose after archive.
-
 ## Requirements
-
 ### Requirement: Trivia Games Config Schema
 
 The system SHALL accept an optional `trivia.games: TriviaGame[]` array in `data/config.json`. Each entry declares one trivia game with its own channel and up to four schedules (optional prep + question + reveal + optional lock):
@@ -204,37 +202,6 @@ When both `prepCron` and `questionCron` are valid, `buildGameSpecs` SHALL comput
 - **THEN** the warning is logged describing the misconfiguration
 - **AND** the spec list still contains the prep spec (with the misconfigured cron expression as authored)
 
-### Requirement: Required Tools Derive From Seasons Gate
-
-For each game's two specs, the `requiredTools` array SHALL be:
-
-- **Question spec** `requiredTools`: `["mcp__trivia__get_ideas", "mcp__trivia__find_previous_questions", "mcp__trivia__save_question", "mcp__trivia__post_questions"]`. The `post_questions` entry ensures the cron run cannot terminate without having dispatched the question to Slack and stamped its `postedAt`/`messageLink` on the question record. The list is independent of seasons.
-- **Reveal spec** `requiredTools`: `["mcp__trivia__process_reveal_answers"]` — a single-tool list. The reveal job's only hot-path tool is the `process_reveal_answers` tool, which internally absorbs the deterministic work previously performed by `fetch_channel_messages`, `find_previous_questions`, `get_question_history`, `submit_answers`, `retrieve_scores`, and `check_season_status`.
-
-The reveal spec's `requiredTools` list SHALL NOT vary with `trivia.seasons.enabled`. Seasons-specific behavior (the `seasonStatus` field, season rollover) lives inside `process_reveal_answers`. Neither `mcp__trivia__check_season_status` nor `mcp__trivia__upsert_season` nor `mcp__trivia__delete_season` SHALL appear in the reveal spec's `requiredTools` — they are not invoked by the reveal hot path under any seasons configuration.
-
-#### Scenario: Question spec requiredTools includes post_questions
-
-- **GIVEN** `buildGameSpecs(games, ...)` is called
-- **WHEN** the resulting `<name>:question` spec is inspected
-- **THEN** `requiredTools` includes `mcp__trivia__post_questions` alongside `mcp__trivia__get_ideas`, `mcp__trivia__find_previous_questions`, and `mcp__trivia__save_question`
-- **AND** the list is the same regardless of `trivia.seasons.enabled`
-
-#### Scenario: Reveal spec requiredTools is the single-tool list when seasons are disabled
-
-- **GIVEN** `config.trivia.seasons.enabled === false` (or absent)
-- **WHEN** the trivia plugin builds the reveal spec for any game
-- **THEN** the spec's `requiredTools` equals `["mcp__trivia__process_reveal_answers"]`
-- **AND** does NOT include `mcp__clack__fetch_channel_messages`, `mcp__trivia__find_previous_questions`, `mcp__trivia__get_question_history`, `mcp__trivia__submit_answers`, `mcp__trivia__retrieve_scores`, or `mcp__trivia__post_questions`
-
-#### Scenario: Reveal spec requiredTools is the same single-tool list when seasons are enabled
-
-- **GIVEN** `config.trivia.seasons.enabled === true`
-- **WHEN** the trivia plugin builds the reveal spec for any game
-- **THEN** the spec's `requiredTools` equals `["mcp__trivia__process_reveal_answers"]`
-- **AND** the list is byte-identical to the seasons-disabled case
-- **AND** does NOT include `mcp__trivia__check_season_status`, `mcp__trivia__upsert_season`, `mcp__trivia__delete_season`, or `mcp__trivia__post_questions`
-
 ### Requirement: Trivia Off-Days Config
 
 The system SHALL accept an optional `trivia.offDays: OffDay[]` array in `data/config.json`. This is a plugin-level list shared by every entry in `trivia.games[]`; there is no per-game override.
@@ -377,3 +344,46 @@ The reveal spec renders an actual user-facing message (the answer reveal with le
 - **WHEN** the trivia plugin calls `sdk.reconcileCronJobs("trivia", specs)`
 - **THEN** the resulting persisted cron job carries `submitResponseMode: "skipped"`
 - **AND** subsequent runs of that cron use the skipped-only `submit_response` schema (see the `submit-response-mode` capability)
+
+### Requirement: Required Tools Are Limited To Always-Called Tools
+
+A cron spec's `requiredTools` array SHALL contain ONLY tools that are invoked on 100% of valid runs of that spec. The `submit_response` required-tools gate force-calls every listed tool before accepting termination (its rejection message instructs Claude to call any not-yet-called tool), so listing a *conditional* tool — one the prompt invokes only sometimes (e.g. only for predictions, only on the season's last fire, only for image questions, only when fresh material exists) — causes the gate to force a spurious or state-mutating call on the runs where the tool does not apply. `requiredTools` is the must-call gate only; it does NOT restrict which tools are available to the run.
+
+For each game's specs, the lists SHALL be (resolved at spec-build time by `buildGameSpecs` from the static `TriviaGame`, not re-evaluated per fire):
+
+- **Question spec** `requiredTools`:
+  - When `game.format?.flexible !== true`: `["mcp__trivia__get_ideas", "mcp__trivia__post_questions"]`. `get_ideas` opens every generation flow; `post_questions` is the guaranteed deliverable of a non-flexible fire (at least one question is always posted), so the gate ensures the run cannot terminate without dispatching it.
+  - When `game.format?.flexible === true`: `["mcp__trivia__get_ideas"]`. A flexible fire may legitimately post zero questions, so `post_questions` is not guaranteed and SHALL NOT be required.
+  - `mcp__trivia__find_previous_questions`, `mcp__trivia__find_previous_subjects`, and `mcp__trivia__save_question` SHALL NOT appear in the question list: the duplicate-check gate is skipped by some generation paths (e.g. predictions), `find_previous_subjects` runs only in the image subflow, and `save_question` is skipped when a slot is served from the staged pool.
+- **Reveal spec** `requiredTools`: `["mcp__trivia__compute_answers"]` — a single-tool list. `compute_answers` is the only tool called on every reveal, including an empty batch (where it returns `reveals: []`). `mcp__trivia__settle_question`, `mcp__trivia__update_answers_block`, `mcp__trivia__start_new_season`, and `mcp__trivia__update_question` are each conditional and SHALL NOT appear.
+
+The reveal spec's `requiredTools` SHALL NOT vary with `trivia.seasons.enabled`. Seasons-specific behavior (the `seasonStatus` field, season rollover via `start_new_season`) is invoked by the reveal prompt only when applicable, never on every fire, and therefore is not gated.
+
+#### Scenario: Non-flexible question spec requiredTools
+
+- **GIVEN** a game whose effective format is not flexible (`game.format?.flexible !== true`)
+- **WHEN** the resulting `<name>:question` spec is inspected
+- **THEN** `requiredTools` equals `["mcp__trivia__get_ideas", "mcp__trivia__post_questions"]`
+- **AND** it does NOT include `mcp__trivia__find_previous_questions`, `mcp__trivia__find_previous_subjects`, or `mcp__trivia__save_question`
+
+#### Scenario: Flexible game question spec omits post_questions
+
+- **GIVEN** a game with `format.flexible === true`
+- **WHEN** the resulting `<name>:question` spec is inspected
+- **THEN** `requiredTools` equals `["mcp__trivia__get_ideas"]`
+- **AND** it does NOT include `mcp__trivia__post_questions` (a flexible fire may legitimately post zero questions)
+
+#### Scenario: Reveal spec requiredTools is the single-tool compute list
+
+- **GIVEN** any game
+- **WHEN** the trivia plugin builds the reveal spec
+- **THEN** the spec's `requiredTools` equals `["mcp__trivia__compute_answers"]`
+- **AND** it does NOT include `mcp__trivia__settle_question`, `mcp__trivia__update_answers_block`, `mcp__trivia__start_new_season`, or `mcp__trivia__update_question`
+
+#### Scenario: Reveal requiredTools does not vary with seasons
+
+- **GIVEN** two configs identical except `trivia.seasons.enabled` is `false` in one and `true` in the other
+- **WHEN** the reveal spec is built for the same game under each config
+- **THEN** both reveal specs' `requiredTools` equal `["mcp__trivia__compute_answers"]`
+- **AND** the two lists are byte-identical
+
