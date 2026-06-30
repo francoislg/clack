@@ -65,6 +65,9 @@ export interface ClaudeResponse {
   deliveryMode?: DeliveryMode;
   /** True when submit_response was invoked with post_top_level: true */
   postedTopLevel?: boolean;
+  /** Operator-facing diagnostic Claude set via submit_response.escalate_to_owner this turn, if any.
+   *  When present, the delivery layer DMs the owner and writes an error report. Absent when unset. */
+  escalateToOwner?: string;
   conversationTrace?: ConversationMessage[];
   /** Captured stderr output from the Claude Code process */
   stderrOutput?: string;
@@ -353,6 +356,7 @@ function buildSuccessResponse(
       skipped: true,
       attentionLevel: clackTools.getAttentionLevel() ?? undefined,
       deliveryMode: clackTools.getDeliveryMode() ?? undefined,
+      escalateToOwner: clackTools.getEscalateToOwner() ?? undefined,
       answer: "",
       conversationTrace,
       toolCallHistory: optionalHistory(streamToolHistory),
@@ -378,6 +382,7 @@ function buildSuccessResponse(
       postedTopLevel: clackTools.isPostedTopLevel() || undefined,
       attentionLevel: clackTools.getAttentionLevel() ?? undefined,
       deliveryMode: clackTools.getDeliveryMode() ?? undefined,
+      escalateToOwner: clackTools.getEscalateToOwner() ?? undefined,
     };
   }
 

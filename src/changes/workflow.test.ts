@@ -336,6 +336,7 @@ function resetMocks(): void {
     getAttentionLevel: () => null,
     getDeliveryMode: () => null,
     isPostedTopLevel: () => false,
+    getEscalateToOwner: () => null,
   }));
 }
 

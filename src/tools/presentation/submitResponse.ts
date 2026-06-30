@@ -640,6 +640,19 @@ const suppressUnfurlsField = z
       "answer where the link's title gives away what you'd say next).",
   );
 
+const escalateToOwnerField = z
+  .string()
+  .optional()
+  .describe(
+    "Operator-facing diagnostic for an INTERNAL/SYSTEM failure the user cannot act on — an " +
+      "unrecoverable tool error, a misconfiguration, a missing credential/permission, an unexpected " +
+      "crash. When set, this text is DM'd to the workspace owner ONLY (never shown to the user) and " +
+      "recorded as an error report. Put the full technical detail here (what failed, the exact error, " +
+      "what you were attempting), and keep your `blocks` to a short acknowledgement that the owner was " +
+      "notified. Do NOT use for normal outcomes the user should see (e.g. 'no results found', 'I can't " +
+      "do that here') — report those in `blocks` as usual.",
+  );
+
 // Schema for the normal response path
 const normalResponseSchema = {
   message: z
@@ -657,6 +670,7 @@ const normalResponseSchema = {
       "Interactive buttons for the user to click. Use an empty array for casual/conversational responses that don't need actions.",
     ),
   suppress_unfurls: suppressUnfurlsField,
+  escalate_to_owner: escalateToOwnerField,
 };
 
 const attentionLevelField = z
@@ -759,9 +773,11 @@ const skippedOnlyResponseSchema = {
     .describe(
       'REQUIRED to be `true`. This run\'s `submitResponseMode` is `"skipped"` — the actual deliverable ' +
         "was produced by another required tool, and `submit_response` is purely the run terminator. " +
-        "The schema accepts ONLY `{ skip_response: true }` and nothing else. Do NOT include `blocks`, " +
-        "`actions`, `table`, `reactions`, `message`, `post_top_level`, or `attention_level`.",
+        "The schema accepts ONLY `{ skip_response: true }` (optionally with `escalate_to_owner`) and " +
+        "nothing else. Do NOT include `blocks`, `actions`, `table`, `reactions`, `message`, " +
+        "`post_top_level`, or `attention_level`.",
     ),
+  escalate_to_owner: escalateToOwnerField,
 };
 
 // Shared message-payload entity carried by each `deliver_to` entry's `response`. Builds on
@@ -839,6 +855,7 @@ const optionalPostToResponseSchema = {
         "with repeated entries; post several separate messages to one channel with multiple entries " +
         "sharing a `channel`; reply into a thread by setting `thread_ts`.",
     ),
+  escalate_to_owner: escalateToOwnerField,
 };
 
 /**
@@ -864,6 +881,7 @@ interface SubmitResponseArgs {
   additional_messages?: MessagePayload[];
   thread_replies?: MessagePayload[];
   deliver_to?: DeliverToEntry[];
+  escalate_to_owner?: string;
 }
 
 /**
@@ -1008,6 +1026,14 @@ export function createSubmitResponseTool(deps: SubmitResponseDeps) {
           });
         }
       }
+
+      // Capture an owner escalation (if any) before path branching, so it's recorded on every
+      // success/skip outcome — normal, skip, and deliver_to. Empty/whitespace counts as absent.
+      const escalateToOwner =
+        "escalate_to_owner" in args && typeof args.escalate_to_owner === "string"
+          ? args.escalate_to_owner.trim()
+          : "";
+      if (escalateToOwner) responseCapture.setEscalateToOwner(escalateToOwner);
 
       // --- deliver_to path (optional-post-to / channelless) ---
       // This mode has no bound primary channel. The run resolves to exactly one of three

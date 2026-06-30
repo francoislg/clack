@@ -1,9 +1,5 @@
 import { logger } from "../logger.js";
-import { errorMessage } from "../errors.js";
-import { loadRoles } from "../roles.js";
-import { getSlackClient } from "../slack/app.js";
-import { openDmChannel } from "../slack/channelResolver.js";
-import { unfurlOptions } from "../slack/unfurlOptions.js";
+import { getOwnerUserId, sendOwnerDm } from "../slack/ownerDm.js";
 import { t } from "../i18n/t.js";
 import type { QuarantineEvent } from "./reusablePool.js";
 
@@ -36,46 +32,9 @@ export interface QuarantineNotifierDeps {
   ) => Promise<boolean>;
 }
 
-async function defaultGetOwnerUserId(): Promise<string | null> {
-  try {
-    const roles = await loadRoles();
-    return roles.owner;
-  } catch (err) {
-    logger.warn(`quarantine-notify: failed to load roles: ${errorMessage(err)}`);
-    return null;
-  }
-}
-
-async function defaultSendOwnerDm(
-  ownerUserId: string,
-  text: string,
-  options: { suppressUnfurls?: boolean } = {},
-): Promise<boolean> {
-  const client = getSlackClient();
-  if (!client) {
-    logger.warn(`quarantine-notify: no Slack client available`);
-    return false;
-  }
-  const dmChannel = await openDmChannel(client, ownerUserId);
-  if (!dmChannel) return false; // openDmChannel logs internally
-  try {
-    await client.chat.postMessage({
-      channel: dmChannel,
-      text,
-      ...unfurlOptions(options.suppressUnfurls),
-    });
-    return true;
-  } catch (err) {
-    logger.warn(
-      `quarantine-notify: failed to post DM to owner ${ownerUserId}: ${errorMessage(err)}`,
-    );
-    return false;
-  }
-}
-
 export const defaultQuarantineNotifierDeps: QuarantineNotifierDeps = {
-  getOwnerUserId: defaultGetOwnerUserId,
-  sendOwnerDm: defaultSendOwnerDm,
+  getOwnerUserId,
+  sendOwnerDm,
 };
 
 /**

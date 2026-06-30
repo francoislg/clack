@@ -269,6 +269,11 @@ export const en = {
     'The worker is excluded from acquire until cleared. Discard the changes via the Home Tab "Discard & restore" button (or remove `.clack-quarantine.json` from `{path}` manually) once you\'ve decided what to do.',
   "changes.quarantine.branch_detached": "(detached)",
 
+  // ─── Owner escalation DM (submit_response.escalate_to_owner) ────────
+  "owner_escalation.header": ":rotating_light: Clack hit a problem and notified you",
+  "owner_escalation.context": "From *{user}* in {channel}",
+  "owner_escalation.session": "Session: `{sessionId}`",
+
   // ─── Change-workflow queue / failure messages ──────────────────────
   "changes.queue.next_in_line":
     ":hourglass_flowing_sand: Waiting for a worker on `{repo}` — next in line.",

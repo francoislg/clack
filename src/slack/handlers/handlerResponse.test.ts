@@ -106,6 +106,12 @@ function resetStreamerInstance(overrides?: {
   mockStreamerGetAllMessageTss = vi.fn(() => streamerAllMessageTss);
 }
 
+const mockGetOwnerUserId = vi.fn<HandlerResponseDeps["getOwnerUserId"]>(async () => "U_OWNER");
+const mockSendOwnerDm = vi.fn<HandlerResponseDeps["sendOwnerDm"]>(async () => true);
+const mockWriteErrorReport = vi.fn<HandlerResponseDeps["writeErrorReport"]>(
+  async () => "report.json",
+);
+
 function makeDeps(): HandlerResponseDeps {
   return {
     askClaude: askClaudeAdapter,
@@ -133,7 +139,9 @@ function makeDeps(): HandlerResponseDeps {
         },
       }) as never,
     getUserPreference: mockGetUserPreference as never,
-    writeErrorReport: vi.fn(async () => {}) as never,
+    writeErrorReport: mockWriteErrorReport,
+    getOwnerUserId: mockGetOwnerUserId,
+    sendOwnerDm: mockSendOwnerDm,
     toErrorMessage: ((error: unknown) =>
       error instanceof Error ? error.message : String(error)) as never,
     getUserInfo: (async () => ({
@@ -216,6 +224,12 @@ beforeEach(() => {
   mockGetClaudeOptions.mockClear();
   mockHandleAutoExecuteActions.mockClear();
   mockGetUserPreference.mockClear();
+  mockGetOwnerUserId.mockClear();
+  mockGetOwnerUserId.mockImplementation(async () => "U_OWNER");
+  mockSendOwnerDm.mockClear();
+  mockSendOwnerDm.mockImplementation(async () => true);
+  mockWriteErrorReport.mockClear();
+  mockWriteErrorReport.mockImplementation(async () => "report.json");
 
   // Reset mockAskClaude to default implementation
   mockAskClaude.mockImplementation(async () => ({
@@ -2018,5 +2032,120 @@ describe("executeAndDeliver — multi-block iteration", () => {
 
     // All three deletes were attempted — the throw on 2.2 did not halt the loop.
     assert.equal(mockChatDelete.mock.calls.length, 3);
+  });
+});
+
+// ============================================================================
+// executeAndDeliver — owner escalation (escalate_to_owner)
+// ============================================================================
+
+describe("executeAndDeliver — owner escalation", () => {
+  const DIAGNOSTIC = "TOOL get_widget failed: ECONNREFUSED while calling the widget service";
+
+  it("DMs the owner the diagnostic and writes a report, keeping it out of the user message", async () => {
+    mockAskClaude.mockImplementation(async () => ({
+      success: true,
+      answer: "I hit a problem on my end — I've notified the owner.",
+      escalateToOwner: DIAGNOSTIC,
+    }));
+
+    const client = makeClient();
+    await executeAndDeliver({
+      client,
+      session: makeSession(),
+      sessionInfo: makeSessionInfo(),
+      claudeOptions: makeClaudeOptions(),
+      deps,
+    });
+
+    assert.equal(mockSendOwnerDm.mock.calls.length, 1);
+    const [owner, text, options] = mockSendOwnerDm.mock.calls[0];
+    assert.equal(owner, "U_OWNER");
+    assert.match(text, /ECONNREFUSED/);
+    assert.deepEqual(options, { suppressUnfurls: true });
+
+    assert.equal(mockWriteErrorReport.mock.calls.length, 1);
+    const report = mockWriteErrorReport.mock.calls[0][0];
+    assert.equal(report.errorMessage, DIAGNOSTIC);
+    assert.equal(report.sessionId, "session-1");
+
+    // The diagnostic must never reach the user-facing channel.
+    for (const call of mockPostMessage.mock.calls) {
+      assert.ok(!JSON.stringify(call[0]).includes("ECONNREFUSED"));
+    }
+  });
+
+  it("still writes a report (and does not DM) when no owner is configured", async () => {
+    mockGetOwnerUserId.mockImplementation(async () => null);
+    mockAskClaude.mockImplementation(async () => ({
+      success: true,
+      answer: "I hit a problem on my end — I've notified the owner.",
+      escalateToOwner: DIAGNOSTIC,
+    }));
+
+    await executeAndDeliver({
+      client: makeClient(),
+      session: makeSession(),
+      sessionInfo: makeSessionInfo(),
+      claudeOptions: makeClaudeOptions(),
+      deps,
+    });
+
+    assert.equal(mockSendOwnerDm.mock.calls.length, 0);
+    assert.equal(mockWriteErrorReport.mock.calls.length, 1);
+  });
+
+  it("still writes a report (and does not throw) when the owner DM fails", async () => {
+    mockSendOwnerDm.mockImplementation(async () => false);
+    mockAskClaude.mockImplementation(async () => ({
+      success: true,
+      answer: "I hit a problem on my end — I've notified the owner.",
+      escalateToOwner: DIAGNOSTIC,
+    }));
+
+    await executeAndDeliver({
+      client: makeClient(),
+      session: makeSession(),
+      sessionInfo: makeSessionInfo(),
+      claudeOptions: makeClaudeOptions(),
+      deps,
+    });
+
+    assert.equal(mockSendOwnerDm.mock.calls.length, 1);
+    assert.equal(mockWriteErrorReport.mock.calls.length, 1);
+  });
+
+  it("escalates on a skipped turn (channelless decline + escalate)", async () => {
+    mockAskClaude.mockImplementation(async () => ({
+      success: true,
+      skipped: true,
+      answer: "",
+      escalateToOwner: DIAGNOSTIC,
+    }));
+
+    await executeAndDeliver({
+      client: makeClient(),
+      session: makeSession(),
+      sessionInfo: makeSessionInfo(),
+      claudeOptions: makeClaudeOptions(),
+      deps,
+    });
+
+    assert.equal(mockSendOwnerDm.mock.calls.length, 1);
+    assert.equal(mockWriteErrorReport.mock.calls.length, 1);
+  });
+
+  it("does nothing when escalate_to_owner is absent", async () => {
+    // default mockAskClaude returns a plain success with no escalateToOwner
+    await executeAndDeliver({
+      client: makeClient(),
+      session: makeSession(),
+      sessionInfo: makeSessionInfo(),
+      claudeOptions: makeClaudeOptions(),
+      deps,
+    });
+
+    assert.equal(mockSendOwnerDm.mock.calls.length, 0);
+    assert.equal(mockWriteErrorReport.mock.calls.length, 0);
   });
 });
