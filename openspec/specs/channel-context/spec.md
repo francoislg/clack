@@ -2,9 +2,7 @@
 
 ## Purpose
 Channel name resolution cache and injection into Claude's context. Resolves opaque Slack channel IDs to human-readable names via the `conversations.info` API, cached in memory for the process lifetime.
-
 ## Requirements
-
 ### Requirement: Channel Info Cache
 
 The system SHALL cache Slack channel information in memory, resolving channel IDs to names via the Slack `conversations.info` API on first access.
@@ -70,20 +68,31 @@ The system SHALL include the channel name in the delivery context prompt for all
 
 ### Requirement: Channel Name in MCP Tool Results
 
-The system SHALL include the resolved channel name in MCP tool results that return channel identifiers.
+The system SHALL include the resolved channel name in MCP tool results that return channel identifiers. When the resolved channel has a non-empty Slack `purpose` (a purpose that is neither absent nor an empty string), `fetch_channel_messages` SHALL also include it as a `channel_purpose` field; an absent or empty purpose SHALL be omitted.
 
 #### Scenario: fetch_channel_messages includes channel name
 - **WHEN** `fetch_channel_messages` returns results
 - **THEN** the result object includes a `channel_name` field with the resolved channel name
 - **AND** the existing `channel` field (channel ID) is preserved
 
+#### Scenario: fetch_channel_messages includes channel purpose when available
+- **WHEN** `fetch_channel_messages` returns results
+- **AND** the resolved channel cache entry has a non-empty `purpose`
+- **THEN** the result object includes a `channel_purpose` field with that purpose string
+
+#### Scenario: fetch_channel_messages omits channel purpose when absent
+- **WHEN** `fetch_channel_messages` returns results
+- **AND** the resolved channel has no `purpose` (or channel resolution failed)
+- **THEN** the `channel_purpose` field is omitted from the result
+- **AND** the tool call succeeds
+
 #### Scenario: fetch_slack_message includes channel name
 - **WHEN** `fetch_slack_message` returns results for a parsed Slack URL
 - **THEN** the result object includes a `channel_name` field with the resolved channel name
 
-#### Scenario: Channel name resolution fails in tool
-- **WHEN** channel name resolution fails during a tool call
-- **THEN** the `channel_name` field is omitted from the result
+#### Scenario: Channel resolution fails in tool
+- **WHEN** channel resolution fails during a tool call
+- **THEN** both the `channel_name` and `channel_purpose` fields are omitted from the result
 - **AND** the tool call succeeds with the channel ID only
 
 #### Scenario: fetch_channel_messages includes reactions
@@ -160,3 +169,4 @@ The `fetch_channel_messages` tool SHALL include the effective query window and p
 - **WHEN** `fetch_channel_messages` returns one or more messages
 - **THEN** the response includes `has_more` reflecting Slack's pagination state
 - **AND** the response includes any `oldest`/`latest`/`oldest_iso`/`latest_iso` fields per the rules above
+

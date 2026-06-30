@@ -880,6 +880,113 @@ describe("fetchChannelMessages tool", () => {
     assert.equal(parsed.channel_name, undefined);
   });
 
+  it("includes channel_purpose in result when the channel has a purpose", async () => {
+    const getChannelInfo: FetchChannelMessagesDeps["getChannelInfo"] = vi.fn(async () => ({
+      id: "C123",
+      name: "memes",
+      purpose: "Post your best memes",
+    }));
+    const deps = makeDeps({ getChannelInfo });
+
+    const messages: MockMessage[] = [{ ts: "1.0", text: "text", user: "U1" }];
+    const client = makeSlackClient({ messages, has_more: false });
+    const ctx = makeCtx({ slackClient: client });
+    const toolDef = createFetchChannelMessagesTool(ctx, deps);
+
+    const result = await toolDef.handler(
+      {
+        channel_id: "C123",
+        limit: undefined,
+        oldest: undefined,
+        latest: undefined,
+        include_threads: undefined,
+      },
+      { sessionId: "test" },
+    );
+
+    const parsed = parseToolResult(result);
+    assert.equal(parsed.channel_purpose, "Post your best memes");
+  });
+
+  it("omits channel_purpose when the channel has no purpose", async () => {
+    const getChannelInfo: FetchChannelMessagesDeps["getChannelInfo"] = vi.fn(async () => ({
+      id: "C123",
+      name: "backend-dev",
+    }));
+    const deps = makeDeps({ getChannelInfo });
+
+    const messages: MockMessage[] = [{ ts: "1.0", text: "text", user: "U1" }];
+    const client = makeSlackClient({ messages, has_more: false });
+    const ctx = makeCtx({ slackClient: client });
+    const toolDef = createFetchChannelMessagesTool(ctx, deps);
+
+    const result = await toolDef.handler(
+      {
+        channel_id: "C123",
+        limit: undefined,
+        oldest: undefined,
+        latest: undefined,
+        include_threads: undefined,
+      },
+      { sessionId: "test" },
+    );
+
+    const parsed = parseToolResult(result);
+    assert.equal(parsed.channel_purpose, undefined);
+  });
+
+  it("includes channel_purpose on the empty-messages result path", async () => {
+    const getChannelInfo: FetchChannelMessagesDeps["getChannelInfo"] = vi.fn(async () => ({
+      id: "C123",
+      name: "memes",
+      purpose: "Post your best memes",
+    }));
+    const deps = makeDeps({ getChannelInfo });
+
+    const client = makeSlackClient({ messages: [], has_more: false });
+    const ctx = makeCtx({ slackClient: client });
+    const toolDef = createFetchChannelMessagesTool(ctx, deps);
+
+    const result = await toolDef.handler(
+      {
+        channel_id: "C123",
+        limit: undefined,
+        oldest: undefined,
+        latest: undefined,
+        include_threads: undefined,
+      },
+      { sessionId: "test" },
+    );
+
+    const parsed = parseToolResult(result);
+    assert.equal(parsed.message_count, 0);
+    assert.equal(parsed.channel_purpose, "Post your best memes");
+  });
+
+  it("omits channel_purpose when resolution fails", async () => {
+    const getChannelInfo: FetchChannelMessagesDeps["getChannelInfo"] = vi.fn(async () => undefined);
+    const deps = makeDeps({ getChannelInfo });
+
+    const messages: MockMessage[] = [{ ts: "1.0", text: "text", user: "U1" }];
+    const client = makeSlackClient({ messages, has_more: false });
+    const ctx = makeCtx({ slackClient: client });
+    const toolDef = createFetchChannelMessagesTool(ctx, deps);
+
+    const result = await toolDef.handler(
+      {
+        channel_id: "C123",
+        limit: undefined,
+        oldest: undefined,
+        latest: undefined,
+        include_threads: undefined,
+      },
+      { sessionId: "test" },
+    );
+
+    const parsed = parseToolResult(result);
+    assert.equal(parsed.channel_purpose, undefined);
+  });
+
   it("includes reactions in output when message has reactions", async () => {
     const userInfoMap = new Map([
       ["U1", { userId: "U1", displayName: "Alice" }],

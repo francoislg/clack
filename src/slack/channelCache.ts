@@ -7,6 +7,8 @@ export interface ChannelInfo {
   isDm?: boolean;
   /** True if the channel is private. Undefined for DMs. */
   isPrivate?: boolean;
+  /** The channel's Slack purpose text. Omitted when absent or empty. */
+  purpose?: string;
 }
 
 const channelCache = new Map<string, ChannelInfo>();
@@ -46,6 +48,10 @@ export async function getChannelInfo(
     };
     if (typeof result.channel.is_private === "boolean") {
       channelInfo.isPrivate = result.channel.is_private;
+    }
+    const purpose = result.channel.purpose?.value;
+    if (purpose) {
+      channelInfo.purpose = purpose;
     }
 
     channelCache.set(channelId, channelInfo);
