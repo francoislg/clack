@@ -354,26 +354,29 @@ The prompt SHALL explicitly state that Claude SHALL NOT invent or speculate abou
 
 ### Requirement: requiredTools per spec
 
-The `buildGameSpecs` function SHALL emit `requiredTools` for each cron spec:
+The `buildGameSpecs` function SHALL emit `requiredTools` for each cron spec containing ONLY tools called on 100% of valid runs of that spec (the `submit_response` gate force-calls every listed tool, so a conditional tool would be forced on runs where it does not apply):
 
-- For `<game>:question` (question-posting), `requiredTools: ["mcp__trivia__post_questions", "mcp__trivia__save_question", "mcp__trivia__get_ideas", "mcp__trivia__find_previous_questions"]`.
-- For `<game>:reveal` (reveal), `requiredTools: ["mcp__trivia__compute_answers", "mcp__trivia__update_answers_block"]`, plus `"mcp__trivia__start_new_season"` when seasons are enabled for the game. The `mcp__trivia__submit_answers` and `mcp__trivia__process_reveal_answers` tools SHALL NOT appear (they are removed/renamed).
+- For `<game>:question` (question-posting): `["mcp__trivia__get_ideas", "mcp__trivia__post_questions"]` when the game is NOT flexible, and `["mcp__trivia__get_ideas"]` when `game.format?.flexible === true` (a flexible fire may legitimately post zero questions). `save_question`, `find_previous_questions`, and `find_previous_subjects` SHALL NOT appear — they are skipped by some generation paths (predictions skip the dedup gate; staged-pool slots skip `save_question`; `find_previous_subjects` runs only in the image subflow).
+- For `<game>:reveal` (reveal): `["mcp__trivia__compute_answers"]`. `compute_answers` is the only tool called on every reveal (including an empty batch). `update_answers_block`, `start_new_season`, `settle_question`, and `update_question` SHALL NOT appear — each is invoked by the reveal prompt only conditionally. `submit_answers` and `process_reveal_answers` SHALL NOT appear (removed/renamed).
 
-#### Scenario: Question-posting spec requires post_questions
+#### Scenario: Non-flexible question spec requires get_ideas and post_questions
 
-- **WHEN** `buildGameSpecs` produces the `main:question` spec
-- **THEN** `requiredTools` includes `"mcp__trivia__post_questions"`
+- **WHEN** `buildGameSpecs` produces the `main:question` spec for a non-flexible game
+- **THEN** `requiredTools` equals `["mcp__trivia__get_ideas", "mcp__trivia__post_questions"]`
+- **AND** it does NOT include `"mcp__trivia__save_question"` or `"mcp__trivia__find_previous_questions"`
 
-#### Scenario: Reveal spec requires compute_answers and update_answers_block
+#### Scenario: Flexible question spec omits post_questions
+
+- **WHEN** `buildGameSpecs` produces the question spec for a game with `format.flexible === true`
+- **THEN** `requiredTools` equals `["mcp__trivia__get_ideas"]`
+- **AND** it does NOT include `"mcp__trivia__post_questions"`
+
+#### Scenario: Reveal spec requires only compute_answers
 
 - **WHEN** `buildGameSpecs` produces the `main:reveal` spec
-- **THEN** `requiredTools` includes `"mcp__trivia__compute_answers"` AND `"mcp__trivia__update_answers_block"`
-- **AND** `requiredTools` does NOT include `"mcp__trivia__submit_answers"` or `"mcp__trivia__process_reveal_answers"`
-
-#### Scenario: Reveal spec requires start_new_season when seasons enabled
-
-- **WHEN** `buildGameSpecs` produces the reveal spec for a game with seasons enabled
-- **THEN** `requiredTools` includes `"mcp__trivia__start_new_season"`
+- **THEN** `requiredTools` equals `["mcp__trivia__compute_answers"]`
+- **AND** it does NOT include `"mcp__trivia__update_answers_block"`, `"mcp__trivia__start_new_season"`, `"mcp__trivia__settle_question"`, `"mcp__trivia__update_question"`, `"mcp__trivia__submit_answers"`, or `"mcp__trivia__process_reveal_answers"`
+- **AND** the list is identical whether or not seasons are enabled for the game
 
 ### Requirement: Reveal prompt branches on reveals.length
 
@@ -710,15 +713,6 @@ The user-visible reason text SHALL name the config key (`config.cron.enabled`) s
 - **THEN** the `"yes"` branch instructs a per-question `update_question` call carrying the narrative, before `update_answers_block`
 - **AND** the `"no"` branch does not author card narrative
 
-### Requirement: Reveal `requiredTools` includes `update_question`
-
-`buildGameSpecs` SHALL include `"mcp__trivia__update_question"` in the reveal job's `requiredTools` so the `"yes"` branch can author per-card narrative. Its presence is harmless in `"no"` mode (the prompt does not call it).
-
-#### Scenario: Reveal spec lists update_question
-
-- **WHEN** `buildGameSpecs` produces the reveal spec
-- **THEN** `requiredTools` includes `"mcp__trivia__update_question"`
-
 ### Requirement: Reveal prompt branches the summary on `finalRevealSummary`
 
 `PROCESS_REVEAL_INSTRUCTIONS` SHALL branch the closing-summary rendering on the payload's `finalRevealSummary`, with type-gated instructions so each branch is a single linear path. The leaderboard `table` SHALL be posted top-level in every branch; only the verdict/WHY/voter narrative varies:
@@ -844,3 +838,4 @@ The answer-reveal prompt SHALL mention each entry in the payload's `invalidatedQ
 
 - **WHEN** a reveal fire's payload contains `invalidatedQuestions`
 - **THEN** the reveal post notes each as invalidated with its reason, and does not present a result for it
+

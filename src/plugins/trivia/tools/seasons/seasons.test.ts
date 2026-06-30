@@ -18,10 +18,7 @@ import {
   findSeasonBySlug,
   validateNoOverlap,
 } from "../../core/seasonTimeline.js";
-import {
-  buildProcessRevealInstructions,
-  CREATE_SCHEDULES_INSTRUCTIONS,
-} from "../../prompts/scheduledPrompts.js";
+import { buildProcessRevealInstructions } from "../../prompts/scheduledPrompts.js";
 
 // Reveal prompt is now a builder; EN-fallback render (no `setTriviaT`) for structural assertions.
 const PROCESS_REVEAL_INSTRUCTIONS = buildProcessRevealInstructions();
@@ -2087,17 +2084,6 @@ describe("scheduled prompt variants", () => {
   it("PROCESS_REVEAL describes the seasonStatus payload shape", () => {
     assert.ok(PROCESS_REVEAL_INSTRUCTIONS.includes("seasonStatus"));
     assert.ok(PROCESS_REVEAL_INSTRUCTIONS.includes("isLastFireOfSeason"));
-  });
-
-  it("CREATE_SCHEDULES references the compute + project + rollover reveal requiredTools list", () => {
-    assert.ok(CREATE_SCHEDULES_INSTRUCTIONS.includes("mcp__trivia__compute_answers"));
-    assert.ok(CREATE_SCHEDULES_INSTRUCTIONS.includes("mcp__trivia__update_answers_block"));
-    // start_new_season is a required reveal tool (the prompt calls it on the season's last fire).
-    assert.ok(CREATE_SCHEDULES_INSTRUCTIONS.includes("mcp__trivia__start_new_season"));
-    // The query-only timeline tools must NOT appear in any requiredTools list.
-    assert.ok(!CREATE_SCHEDULES_INSTRUCTIONS.includes("mcp__trivia__check_season_status"));
-    assert.ok(!CREATE_SCHEDULES_INSTRUCTIONS.includes("mcp__trivia__upsert_season"));
-    assert.ok(!CREATE_SCHEDULES_INSTRUCTIONS.includes("mcp__trivia__delete_season"));
   });
 });
 
