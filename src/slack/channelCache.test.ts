@@ -96,4 +96,28 @@ describe("channelCache", () => {
     const info = await getChannelInfo(client, "C888");
     assert.deepEqual(info, { id: "C888", name: "town-square", isPrivate: false });
   });
+
+  it("captures a non-empty purpose from the Slack API", async () => {
+    const client = makeClient({
+      ok: true,
+      channel: { name: "memes", purpose: { value: "Post your best memes" } },
+    });
+    const info = await getChannelInfo(client, "C999");
+    assert.deepEqual(info, { id: "C999", name: "memes", purpose: "Post your best memes" });
+  });
+
+  it("omits purpose when the Slack API returns an empty string", async () => {
+    const client = makeClient({
+      ok: true,
+      channel: { name: "general", purpose: { value: "" } },
+    });
+    const info = await getChannelInfo(client, "C111");
+    assert.deepEqual(info, { id: "C111", name: "general" });
+  });
+
+  it("omits purpose when the Slack API omits it", async () => {
+    const client = makeClient({ ok: true, channel: { name: "general" } });
+    const info = await getChannelInfo(client, "C222");
+    assert.deepEqual(info, { id: "C222", name: "general" });
+  });
 });

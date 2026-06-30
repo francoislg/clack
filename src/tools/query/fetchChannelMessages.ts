@@ -296,6 +296,7 @@ export function createFetchChannelMessagesTool(
           return textResult({
             channel: args.channel_id,
             ...(channelInfo && { channel_name: channelInfo.name }),
+            ...(channelInfo?.purpose && { channel_purpose: channelInfo.purpose }),
             message_count: 0,
             has_more: result.has_more ?? false,
             ...windowEcho,
@@ -336,6 +337,7 @@ export function createFetchChannelMessagesTool(
         return textResult({
           channel: args.channel_id,
           ...(channelInfo && { channel_name: channelInfo.name }),
+          ...(channelInfo?.purpose && { channel_purpose: channelInfo.purpose }),
           fetched_at: { epoch: (now.getTime() / 1000).toFixed(6), iso: now.toISOString() },
           message_count: messages.length,
           has_more: result.has_more ?? false,

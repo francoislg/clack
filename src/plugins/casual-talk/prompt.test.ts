@@ -145,15 +145,104 @@ describe("casual-talk prompt", () => {
     assert.ok(prompt.includes("(no fallback topics configured)"));
   });
 
-  it("frames a hit as a commitment to post (decides where/what, not whether)", () => {
+  it("frames a hit as a commitment to engage (decides where/how, not whether)", () => {
     const prompt = buildPrompt({
       die: 28,
       rateLabel: "daily (1/28)",
       channels: ["C111"],
       smallTalkTopics: ["food"],
     });
-    assert.ok(prompt.includes("WHERE and WHAT"));
+    assert.ok(prompt.includes("WHERE and HOW"));
     assert.ok(prompt.toLowerCase().includes("not whether"));
+  });
+
+  it("offers reaction as a non-exclusive on-hit move alongside posting", () => {
+    const prompt = buildPrompt({
+      die: 28,
+      rateLabel: "daily (1/28)",
+      channels: ["C111"],
+      smallTalkTopics: ["food"],
+    });
+    assert.ok(prompt.includes("three NON-EXCLUSIVE positive moves"));
+    assert.ok(prompt.includes("**react**"));
+    assert.ok(prompt.includes("**post**"));
+    assert.ok(prompt.includes("**both**"));
+  });
+
+  it("gives reactions a looser bar than posting and reuses the human-leaf guard", () => {
+    const prompt = buildPrompt({
+      die: 28,
+      rateLabel: "daily (1/28)",
+      channels: ["C111"],
+      smallTalkTopics: ["food"],
+    });
+    assert.ok(prompt.includes("Reacting is more open than posting"));
+    assert.ok(prompt.includes("REACTABLE"));
+    // Human-leaf guard reused for reactions (no pile-on on bots / own posts)
+    assert.ok(prompt.includes("only react to a message whose LATEST content is from a human"));
+    assert.ok(prompt.includes("Never react to a bot-leaf message"));
+  });
+
+  it("instructs find_emoji before reacting and calibrates to channel character", () => {
+    const prompt = buildPrompt({
+      die: 28,
+      rateLabel: "daily (1/28)",
+      channels: ["C111"],
+      smallTalkTopics: ["food"],
+    });
+    assert.ok(prompt.includes("call `find_emoji`"));
+    assert.ok(prompt.includes("fall back to a standard emoji"));
+    // Calibration sources: hint, channel_name, channel_purpose
+    assert.ok(prompt.includes("`channel_name`"));
+    assert.ok(prompt.includes("`channel_purpose`"));
+    // Reaction is added via add_reaction
+    assert.ok(prompt.includes("`add_reaction`"));
+  });
+
+  it("caps reaction volume by judgment with no fixed numeric cap", () => {
+    const prompt = buildPrompt({
+      die: 28,
+      rateLabel: "daily (1/28)",
+      channels: ["C111"],
+      smallTalkTopics: ["food"],
+    });
+    assert.ok(prompt.includes("ONE or TWO messages"));
+    assert.ok(prompt.includes("don't blanket the channel"));
+    assert.ok(prompt.includes("no fixed cap"));
+  });
+
+  it("documents react-only and react-and-post termination paths", () => {
+    const prompt = buildPrompt({
+      die: 28,
+      rateLabel: "daily (1/28)",
+      channels: ["C111"],
+      smallTalkTopics: ["food"],
+    });
+    // React-only: add_reaction then skip_response, no deliver_to
+    assert.ok(prompt.includes("**React-only**"));
+    assert.ok(prompt.includes("end the run with `submit_response({ skip_response: true })`"));
+    // React-and-post / post-only end with the deliver_to entry
+    assert.ok(prompt.includes("**React-and-post**"));
+  });
+
+  it("extends the never-reveal-automation rule to reactions", () => {
+    const prompt = buildPrompt({
+      die: 28,
+      rateLabel: "daily (1/28)",
+      channels: ["C111"],
+      smallTalkTopics: ["food"],
+    });
+    assert.ok(prompt.includes("this applies to reactions just as much as to posts"));
+  });
+
+  it("tells Claude to read channel_purpose to calibrate channel character", () => {
+    const prompt = buildPrompt({
+      die: 28,
+      rateLabel: "daily (1/28)",
+      channels: ["C111"],
+      smallTalkTopics: ["food"],
+    });
+    assert.ok(prompt.includes("`channel_name` and (when set) `channel_purpose`"));
   });
 
   it("with topics, the fresh opener is the default and skipping a hit is rare", () => {
