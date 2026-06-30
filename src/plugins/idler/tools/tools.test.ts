@@ -36,6 +36,9 @@ function isToolCallResult(value: object): value is ToolCallResult {
 interface IdeaLite {
   id: string;
   priority: number;
+  updatedAt?: string;
+  overdue?: boolean;
+  staleAfter?: { date?: string };
 }
 interface ParsedTool {
   ok?: boolean;
@@ -67,10 +70,22 @@ function parseTool(text: string): ParsedTool {
   if (typeof c.content === "string") out.content = c.content;
   if (Array.isArray(c.ideas)) {
     out.ideas = c.ideas.map((i) => {
-      const e = i as { id?: unknown; priority?: unknown };
+      const e = i as {
+        id?: unknown;
+        priority?: unknown;
+        updatedAt?: unknown;
+        overdue?: unknown;
+        staleAfter?: unknown;
+      };
       return {
         id: typeof e.id === "string" ? e.id : "",
         priority: typeof e.priority === "number" ? e.priority : 0,
+        updatedAt: typeof e.updatedAt === "string" ? e.updatedAt : undefined,
+        overdue: typeof e.overdue === "boolean" ? e.overdue : undefined,
+        staleAfter:
+          e.staleAfter && typeof e.staleAfter === "object"
+            ? (e.staleAfter as { date?: string })
+            : undefined,
       };
     });
   }
@@ -84,7 +99,12 @@ function parseTool(text: string): ParsedTool {
  */
 function statefulMemory(): ClackSdkMemory {
   const store = new Map<string, MemoryEntry>();
-  const ts = "2026-01-01T00:00:00.000Z";
+  const createdAtBase = "2026-01-01T00:00:00.000Z";
+  const clockBase = Date.parse(createdAtBase);
+  let writes = 0;
+  // Every write advances updatedAt monotonically (and touch:false preserves it), mirroring the
+  // real registry so the coldest-rotation and overdue assertions have strictly-increasing stamps.
+  const nextTs = (): string => new Date(clockBase + ++writes * 1000).toISOString();
   return createMemorySurface(
     {
       async getMemory(id) {
@@ -109,8 +129,8 @@ function statefulMemory(): ClackSdkMemory {
           nextSteps: input.nextSteps ?? ex?.nextSteps,
           references: input.references ?? ex?.references ?? [],
           linkedMemories: input.linkedMemories ?? ex?.linkedMemories ?? [],
-          createdAt: ex?.createdAt ?? ts,
-          updatedAt: ts,
+          createdAt: ex?.createdAt ?? createdAtBase,
+          updatedAt: nextTs(),
           ...(ex?.plugins ? { plugins: ex.plugins } : {}),
         };
         store.set(input.id, entry);
@@ -119,12 +139,13 @@ function statefulMemory(): ClackSdkMemory {
       async getMemoryNamespace(plugin, id) {
         return store.get(id)?.plugins?.[plugin] ?? null;
       },
-      async mergeMemoryNamespace(plugin, id, partial) {
+      async mergeMemoryNamespace(plugin, id, partial, opts) {
         const base = store.get(id);
         if (!base) throw new Error(`no memory entry for id "${id}"`);
         const prev = base.plugins?.[plugin] ?? {};
         store.set(id, {
           ...base,
+          updatedAt: opts?.touch === false ? base.updatedAt : nextTs(),
           plugins: { ...base.plugins, [plugin]: { ...prev, ...partial } },
         });
       },
@@ -161,6 +182,12 @@ async function invoke<Args>(
 
 type UpsertArgs = Parameters<ReturnType<typeof createUpsertIdeaTool>["handler"]>[0];
 type CfgArgs = Parameters<ReturnType<typeof createSetConfigTool>["handler"]>[0];
+type ListTopArgs = Parameters<ReturnType<typeof createListTopIdeasTool>["handler"]>[0];
+
+/** Fill the zod-optional list_top_ideas keys with undefined to satisfy the exact arg type. */
+function topArgs(o: Partial<ListTopArgs> = {}): ListTopArgs {
+  return { limit: o.limit, sort_by: o.sort_by };
+}
 
 /** Fill the zod-optional keys with undefined so the handler's exact arg type is satisfied. */
 function ideaArgs(o: Partial<UpsertArgs> & { id: string; kind: UpsertArgs["kind"] }): UpsertArgs {
@@ -221,7 +248,7 @@ describe("idler memory tools", () => {
     await invoke(createUpsertIdeaTool(sdk), ideaArgs({ id: "A", kind: "continue" }));
     await invoke(createUpsertIdeaTool(sdk), ideaArgs({ id: "B", kind: "triage" }));
 
-    const payload = await invoke(createListTopIdeasTool(sdk), { limit: 5 });
+    const payload = await invoke(createListTopIdeasTool(sdk), topArgs({ limit: 5 }));
     assert.equal(payload.ideas?.length, 2, "A deduped");
     assert.equal(payload.ideas?.[0].id, "A", "continue (highest) sorts first");
   });
@@ -229,14 +256,14 @@ describe("idler memory tools", () => {
   it("upsert_idea open:false closes; list_top_ideas excludes it", async () => {
     await invoke(createUpsertIdeaTool(sdk), ideaArgs({ id: "A", kind: "implement" }));
     await invoke(createUpsertIdeaTool(sdk), ideaArgs({ id: "A", kind: "none", open: false }));
-    const payload = await invoke(createListTopIdeasTool(sdk), { limit: undefined });
+    const payload = await invoke(createListTopIdeasTool(sdk), topArgs());
     assert.equal(payload.ideas?.length, 0);
   });
 
   it("reprioritize_idea overrides the computed score", async () => {
     await invoke(createUpsertIdeaTool(sdk), ideaArgs({ id: "A", kind: "review" }));
     await invoke(createReprioritizeTool(sdk), { id: "A", priority: 9999 });
-    const payload = await invoke(createListTopIdeasTool(sdk), { limit: undefined });
+    const payload = await invoke(createListTopIdeasTool(sdk), topArgs());
     assert.equal(payload.ideas?.[0].priority, 9999);
   });
 
@@ -259,7 +286,7 @@ describe("idler memory tools", () => {
     assert.equal(slot?.ignoredAt, before?.updatedAt, "ignoredAt snapshots updatedAt");
     assert.equal(slot?.open, false);
 
-    const top = await invoke(createListTopIdeasTool(sdk), { limit: undefined });
+    const top = await invoke(createListTopIdeasTool(sdk), topArgs());
     assert.equal(top.ideas?.length, 0, "ignored entry is not an open unit");
   });
 
@@ -291,7 +318,7 @@ describe("idler memory tools", () => {
     const slot = await sdk.memory.data(idlerSlotSchema).get("note:z");
     assert.equal(slot?.ignoredAt, undefined, "adopt clears the ignore marker");
 
-    const top = await invoke(createListTopIdeasTool(sdk), { limit: undefined });
+    const top = await invoke(createListTopIdeasTool(sdk), topArgs());
     assert.equal(top.ideas?.length, 1);
     assert.equal(top.ideas?.[0].id, "note:z");
   });
@@ -300,11 +327,76 @@ describe("idler memory tools", () => {
     await invoke(createUpsertIdeaTool(sdk), ideaArgs({ id: "A", kind: "review" }));
     const cleared = await invoke(createClearIdeaTool(sdk), { key: "A" });
     assert.equal(cleared.ok, true);
-    const top = await invoke(createListTopIdeasTool(sdk), { limit: undefined });
+    const top = await invoke(createListTopIdeasTool(sdk), topArgs());
     assert.equal(top.ideas?.length, 0, "cleared unit is closed");
 
     const missing = await invoke(createClearIdeaTool(sdk), { key: "missing" });
     assert.ok(missing.error);
+  });
+
+  it("list_top_ideas sort_by coldest returns oldest-updatedAt first", async () => {
+    await invoke(createUpsertIdeaTool(sdk), ideaArgs({ id: "first", kind: "review" }));
+    await invoke(createUpsertIdeaTool(sdk), ideaArgs({ id: "second", kind: "review" }));
+    await invoke(createUpsertIdeaTool(sdk), ideaArgs({ id: "third", kind: "review" }));
+
+    const payload = await invoke(createListTopIdeasTool(sdk), topArgs({ sort_by: "coldest" }));
+    assert.deepEqual(
+      payload.ideas?.map((i) => i.id),
+      ["first", "second", "third"],
+    );
+  });
+
+  it("list_top_ideas surfaces updatedAt, staleAfter, and a computed overdue flag", async () => {
+    await invoke(
+      createUpsertIdeaTool(sdk),
+      ideaArgs({ id: "past", kind: "review", staleAfter: { date: "2000-01-01T00:00:00.000Z" } }),
+    );
+    await invoke(
+      createUpsertIdeaTool(sdk),
+      ideaArgs({ id: "future", kind: "review", staleAfter: { date: "2999-01-01T00:00:00.000Z" } }),
+    );
+    await invoke(createUpsertIdeaTool(sdk), ideaArgs({ id: "none", kind: "review" }));
+
+    const payload = await invoke(createListTopIdeasTool(sdk), topArgs());
+    const byId = new Map((payload.ideas ?? []).map((i) => [i.id, i]));
+    assert.equal(byId.get("past")?.overdue, true, "past staleAfter is overdue");
+    assert.equal(typeof byId.get("past")?.updatedAt, "string", "updatedAt is surfaced");
+    assert.equal(byId.get("past")?.staleAfter?.date, "2000-01-01T00:00:00.000Z");
+    assert.equal(byId.get("future")?.overdue, false, "future staleAfter is not overdue");
+    assert.equal(byId.get("none")?.overdue, false, "no staleAfter is not overdue");
+    assert.equal(byId.get("none")?.staleAfter, undefined, "absent staleAfter is omitted");
+  });
+
+  it("list_top_ideas defaults to priority-descending order", async () => {
+    await invoke(createUpsertIdeaTool(sdk), ideaArgs({ id: "lo", kind: "review" }));
+    await invoke(createUpsertIdeaTool(sdk), ideaArgs({ id: "hi", kind: "continue" }));
+
+    const payload = await invoke(createListTopIdeasTool(sdk), topArgs());
+    assert.equal(payload.ideas?.[0].id, "hi", "continue outranks review under the default order");
+  });
+
+  it("re-verifying a unit rotates it to the back of the coldest order", async () => {
+    await invoke(createUpsertIdeaTool(sdk), ideaArgs({ id: "a", kind: "review" }));
+    await invoke(createUpsertIdeaTool(sdk), ideaArgs({ id: "b", kind: "review" }));
+
+    const before = await invoke(createListTopIdeasTool(sdk), topArgs({ sort_by: "coldest" }));
+    assert.equal(before.ideas?.[0].id, "a", "a is coldest initially");
+
+    await invoke(createUpsertIdeaTool(sdk), ideaArgs({ id: "a", kind: "review" }));
+    const after = await invoke(createListTopIdeasTool(sdk), topArgs({ sort_by: "coldest" }));
+    assert.equal(after.ideas?.[0].id, "b", "a rotated to the back after re-verification");
+  });
+
+  it("a parked (blocked) unit sorts below a workable one", async () => {
+    await invoke(createUpsertIdeaTool(sdk), ideaArgs({ id: "workable", kind: "continue" }));
+    await invoke(
+      createUpsertIdeaTool(sdk),
+      ideaArgs({ id: "parked", kind: "continue", blocked: true }),
+    );
+
+    const payload = await invoke(createListTopIdeasTool(sdk), topArgs({ limit: 1 }));
+    assert.equal(payload.ideas?.length, 1);
+    assert.equal(payload.ideas?.[0].id, "workable", "parked unit falls outside the top-1 window");
   });
 });
 
