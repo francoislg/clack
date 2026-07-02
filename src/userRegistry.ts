@@ -50,7 +50,13 @@ export interface UserRecord {
   userId: string;
   displayName: string;
   lastFetched: number;
+  // Slack-sourced identity backfilled by the full-roster sync (`syncRoster`). Optional because
+  // a record created by a per-user resolution or a placeholder write predates any roster sync.
+  username?: string;
+  avatarUrl?: string;
   github?: { username: string };
+  // Human-authored alternate names / nicknames, used as an extra haystack for user search.
+  otherNames?: string[];
   plugins?: { [pluginName: string]: JsonObject };
 }
 
@@ -82,11 +88,32 @@ const userRecordZod = z.object({
   lastFetched: z.number().default(0),
   // Tolerant per-field: a malformed `github` is logged and dropped to absent so it can't
   // fail the record (or the whole registry) parse and wipe real state.
+  username: z
+    .string()
+    .optional()
+    .catch(() => {
+      logger.warn("users.json: malformed 'username' field dropped (expected string)");
+      return undefined;
+    }),
+  avatarUrl: z
+    .string()
+    .optional()
+    .catch(() => {
+      logger.warn("users.json: malformed 'avatarUrl' field dropped (expected string)");
+      return undefined;
+    }),
   github: z
     .object({ username: z.string() })
     .optional()
     .catch(() => {
       logger.warn("users.json: malformed 'github' field dropped (expected { username: string })");
+      return undefined;
+    }),
+  otherNames: z
+    .array(z.string())
+    .optional()
+    .catch(() => {
+      logger.warn("users.json: malformed 'otherNames' field dropped (expected string[])");
       return undefined;
     }),
   plugins: z.record(z.string(), jsonObjectZod).optional(),
@@ -180,6 +207,12 @@ export async function listUserIdentities(): Promise<UserIdentity[]> {
   return Object.values(map).map((r) => ({ userId: r.userId, displayName: r.displayName }));
 }
 
+/** Full records, for search — the registry is the search universe (`find_user`). */
+export async function listUserRecords(): Promise<UserRecord[]> {
+  const map = await loadRegistry();
+  return Object.values(map);
+}
+
 export async function getUserNamespace(plugin: string, userId: string): Promise<JsonObject | null> {
   const map = await loadRegistry();
   return map[userId]?.plugins?.[plugin] ?? null;
@@ -254,6 +287,92 @@ export function mergeUserGithub(
       map[userId] = { ...rest, userId };
     } else {
       map[userId] = { ...base, userId, github: { username: github.username } };
+    }
+    await persist(map);
+  });
+}
+
+const MAX_OTHER_NAMES = 20;
+const MAX_OTHER_NAME_LENGTH = 60;
+
+/**
+ * Apply add/remove ops to an alternate-name list: trim, drop empties + over-length, dedup
+ * case-insensitively (existing order preserved, adds appended), remove case-insensitively,
+ * and cap the total. Pure — the serialized mutator wraps it in a read-modify-write.
+ */
+function applyOtherNamesOps(
+  existing: string[],
+  ops: { add?: string[]; remove?: string[] },
+): string[] {
+  const removeSet = new Set(
+    (ops.remove ?? []).map((n) => n.trim().toLowerCase()).filter((n) => n.length > 0),
+  );
+  const result: string[] = [];
+  const seen = new Set<string>();
+  for (const raw of [...existing, ...(ops.add ?? [])]) {
+    const name = raw.trim();
+    if (name.length === 0 || name.length > MAX_OTHER_NAME_LENGTH) continue;
+    const key = name.toLowerCase();
+    if (seen.has(key) || removeSet.has(key)) continue;
+    seen.add(key);
+    result.push(name);
+  }
+  return result.slice(0, MAX_OTHER_NAMES);
+}
+
+/**
+ * Add and/or remove entries in a user's core `otherNames` array, normalized + deduped. When the
+ * result is empty the field is omitted rather than stored as `[]`. Preserves all other core fields
+ * and plugin namespaces; creates a placeholder record for an unknown user. Serialized.
+ */
+export function mergeUserOtherNames(
+  userId: string,
+  ops: { add?: string[]; remove?: string[] },
+): Promise<void> {
+  return serialize(async () => {
+    const map = await loadRegistry();
+    const base: UserRecord = map[userId] ?? { userId, displayName: "", lastFetched: 0 };
+    const next = applyOtherNamesOps(base.otherNames ?? [], ops);
+    if (next.length === 0) {
+      const { otherNames: _dropped, ...rest } = base;
+      map[userId] = { ...rest, userId };
+    } else {
+      map[userId] = { ...base, userId, otherNames: next };
+    }
+    await persist(map);
+  });
+}
+
+/** One member's Slack-sourced identity, as written by the full-roster sync. */
+export interface RosterMember {
+  userId: string;
+  username: string;
+  displayName: string;
+  avatarUrl: string;
+}
+
+/**
+ * Batch-upsert Slack-sourced identity for every roster member in ONE serialized write. Refreshes
+ * only `username`, `displayName`, and `avatarUrl`; preserves `github`, `otherNames`, `plugins`, and
+ * (deliberately) `lastFetched` — the roster sync is a different concern from the per-user lazy
+ * display-name refresh, so it must not reset that freshness clock. Creates records for new members.
+ */
+export function upsertRosterMembers(members: RosterMember[]): Promise<void> {
+  return serialize(async () => {
+    const map = await loadRegistry();
+    for (const m of members) {
+      const base: UserRecord = map[m.userId] ?? {
+        userId: m.userId,
+        displayName: "",
+        lastFetched: 0,
+      };
+      map[m.userId] = {
+        ...base,
+        userId: m.userId,
+        username: m.username,
+        displayName: m.displayName,
+        avatarUrl: m.avatarUrl,
+      };
     }
     await persist(map);
   });

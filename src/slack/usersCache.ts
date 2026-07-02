@@ -1,8 +1,8 @@
 import type { App } from "@slack/bolt";
-import { logger } from "../logger.js";
 import type { JsonObject } from "../config.js";
-import { getUserRecord, type UserRecord } from "../userRegistry.js";
+import { listUserRecords, type UserRecord } from "../userRegistry.js";
 import { buildWildcardMatcher } from "./wildcardMatcher.js";
+import { ensureRosterFresh as defaultEnsureRosterFresh } from "./rosterSync.js";
 
 export interface SlackUserEntry {
   userId: string;
@@ -10,15 +10,22 @@ export interface SlackUserEntry {
   displayName: string;
   avatarUrl: string;
   github?: { username: string };
+  otherNames?: string[];
   plugins?: { [pluginName: string]: JsonObject };
 }
 
-/** Narrow read surface into the user registry — injected so tests stub it without touching disk. */
+/** Narrow read surface into the registry — injected so tests supply records without touching disk. */
 export interface UserRegistryReader {
-  getUserRecord: (userId: string) => Promise<UserRecord | null>;
+  listUserRecords: () => Promise<UserRecord[]>;
 }
 
-export const defaultUserRegistryReader: UserRegistryReader = { getUserRecord };
+export const defaultUserRegistryReader: UserRegistryReader = { listUserRecords };
+
+export interface UsersCacheDeps {
+  registry?: UserRegistryReader;
+  /** TTL-gated roster refresh; injected so unit tests run without a Slack roster fetch. */
+  ensureRosterFresh?: (client: App["client"] | null) => Promise<void>;
+}
 
 export interface UserSearchOptions {
   offset?: number;
@@ -29,7 +36,7 @@ export interface UserSearchOptions {
 
 export interface UserSearchResult {
   entries: SlackUserEntry[];
-  /** Total matches across the whole roster, independent of offset/limit. */
+  /** Total matches across the whole registry, independent of offset/limit. */
   totalMatched: number;
 }
 
@@ -37,102 +44,52 @@ export interface UsersCache {
   search(queries: string[], options?: UserSearchOptions): Promise<UserSearchResult>;
 }
 
-function isRealUser(member: { deleted?: boolean; is_bot?: boolean; id?: string }): boolean {
-  return !member.deleted && !member.is_bot && member.id !== "USLACKBOT";
+// A Slack-sourced field absent on a not-yet-synced record (e.g. an `update_user` placeholder) reads
+// as the empty string, so the entry shape is stable regardless of sync state.
+function baseEntry(record: UserRecord): SlackUserEntry {
+  const entry: SlackUserEntry = {
+    userId: record.userId,
+    username: record.username ?? "",
+    displayName: record.displayName ?? "",
+    avatarUrl: record.avatarUrl ?? "",
+  };
+  if (record.github) entry.github = record.github;
+  if (record.otherNames && record.otherNames.length > 0) entry.otherNames = record.otherNames;
+  return entry;
 }
 
-function toUserEntry(member: {
-  id?: string;
-  name?: string;
-  profile?: {
-    display_name?: string;
-    real_name?: string;
-    image_original?: string;
-    image_512?: string;
-  };
-}): SlackUserEntry {
-  return {
-    userId: member.id ?? "",
-    username: member.name ?? "",
-    displayName: member.profile?.display_name || member.profile?.real_name || "",
-    // image_512 is always synthesized by Slack; image_original exists only for custom uploads.
-    avatarUrl: member.profile?.image_original || member.profile?.image_512 || "",
-  };
+function recordMatches(
+  record: UserRecord,
+  queries: string[],
+  matchers: Array<(value: string) => boolean>,
+): boolean {
+  return matchers.some(
+    (match, i) =>
+      // userId is always exact (case-insensitive) — no wildcard/substring
+      queries[i].toLowerCase() === record.userId.toLowerCase() ||
+      match(record.username ?? "") ||
+      match(record.displayName ?? "") ||
+      (record.github ? match(record.github.username) : false) ||
+      (record.otherNames?.some((name) => match(name)) ?? false),
+  );
 }
 
-export function createUsersCache(
-  client: App["client"],
-  registry: UserRegistryReader = defaultUserRegistryReader,
-): UsersCache {
-  let cached: SlackUserEntry[] | null = null;
-
-  async function fetchAll(): Promise<SlackUserEntry[]> {
-    if (cached) return cached;
-
-    const users: SlackUserEntry[] = [];
-    let cursor: string | undefined;
-
-    do {
-      const result = await client.users.list({ limit: 1000, cursor });
-
-      if (!result.ok || !result.members) {
-        logger.error(`Failed to fetch users list: ${result.error}`);
-        break;
-      }
-
-      for (const member of result.members) {
-        if (isRealUser(member)) users.push(toUserEntry(member));
-      }
-
-      cursor = result.response_metadata?.next_cursor || undefined;
-    } while (cursor);
-
-    cached = users;
-    logger.debug(`UsersCache: fetched and cached ${users.length} users`);
-    return cached;
-  }
-
-  function matchesUser(
-    user: SlackUserEntry,
-    queries: string[],
-    matchers: Array<(value: string) => boolean>,
-  ): boolean {
-    return matchers.some(
-      (match, i) =>
-        // userId is always exact (case-insensitive) — no wildcard/substring
-        queries[i].toLowerCase() === user.userId.toLowerCase() ||
-        match(user.username) ||
-        match(user.displayName),
-    );
-  }
-
-  // Left-join registry attributes onto a roster entry. Never throws — a missing or malformed
-  // record simply yields no enrichment (the registry reader is graceful, and we guard anyway).
-  async function enrich(
-    user: SlackUserEntry,
-    includePluginData: string[],
-  ): Promise<SlackUserEntry> {
-    let record: UserRecord | null = null;
-    try {
-      record = await registry.getUserRecord(user.userId);
-    } catch (error) {
-      logger.debug(`UsersCache: registry enrichment failed for ${user.userId}: ${error}`);
+function projectPlugins(record: UserRecord, includePluginData: string[]): SlackUserEntry {
+  const entry = baseEntry(record);
+  if (includePluginData.length > 0 && record.plugins) {
+    const projected: { [pluginName: string]: JsonObject } = {};
+    for (const name of includePluginData) {
+      const namespace = record.plugins[name];
+      if (namespace !== undefined) projected[name] = namespace;
     }
-    if (!record) return user;
-
-    const enriched: SlackUserEntry = { ...user };
-    if (record.github) enriched.github = record.github;
-
-    if (includePluginData.length > 0 && record.plugins) {
-      const projected: { [pluginName: string]: JsonObject } = {};
-      for (const name of includePluginData) {
-        const namespace = record.plugins[name];
-        if (namespace !== undefined) projected[name] = namespace;
-      }
-      if (Object.keys(projected).length > 0) enriched.plugins = projected;
-    }
-    return enriched;
+    if (Object.keys(projected).length > 0) entry.plugins = projected;
   }
+  return entry;
+}
+
+export function createUsersCache(client: App["client"], deps: UsersCacheDeps = {}): UsersCache {
+  const registry = deps.registry ?? defaultUserRegistryReader;
+  const ensureRosterFresh = deps.ensureRosterFresh ?? defaultEnsureRosterFresh;
 
   return {
     async search(queries: string[], options: UserSearchOptions = {}): Promise<UserSearchResult> {
@@ -140,22 +97,25 @@ export function createUsersCache(
       const limit = options.limit && options.limit > 0 ? options.limit : 10;
       const includePluginData = options.includePluginData ?? [];
 
-      const users = await fetchAll();
+      // Keep the registry current before searching it (cold-await / stale-background / fresh-skip).
+      await ensureRosterFresh(client);
+
+      const records = await registry.listUserRecords();
       const matchers = queries.map(buildWildcardMatcher);
       const seen = new Set<string>();
-      const matches: SlackUserEntry[] = [];
+      const matches: UserRecord[] = [];
 
-      for (const user of users) {
-        if (seen.has(user.userId)) continue;
-        if (matchesUser(user, queries, matchers)) {
-          seen.add(user.userId);
-          matches.push(user);
+      for (const record of records) {
+        if (seen.has(record.userId)) continue;
+        if (recordMatches(record, queries, matchers)) {
+          seen.add(record.userId);
+          matches.push(record);
         }
       }
 
-      // Enrich only the returned page, so registry reads stay bounded by `limit`.
+      // Project plugin data only on the returned page.
       const page = matches.slice(offset, offset + limit);
-      const entries = await Promise.all(page.map((user) => enrich(user, includePluginData)));
+      const entries = page.map((record) => projectPlugins(record, includePluginData));
       return { entries, totalMatched: matches.length };
     },
   };

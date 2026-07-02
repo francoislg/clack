@@ -1,8 +1,5 @@
-# user-update-tool Specification
+## MODIFIED Requirements
 
-## Purpose
-TBD - created by archiving change add-pr-reviewer-mapping. Update Purpose after archive.
-## Requirements
 ### Requirement: update_user MCP Tool
 
 The system SHALL provide an `update_user` MCP tool that mutates fields on a user's registry record using an explicit, typed argument schema. The tool SHALL NOT accept a free-form data bag; its writable surface is fixed by a zod schema that is the single source of truth. The tool SHALL target a user by `user_id` and SHALL be able to: set or clear `display_name` (root identity) with omit-to-keep / explicit-null-to-clear semantics; set or clear `github.username` with the same semantics; and add and/or remove entries in `other_names` via `add_other_names` / `remove_other_names` string arrays. On success the tool SHALL return the updated record's resolved identity (including the resulting `other_names`); on a rejected write it SHALL return an error result naming the offending field and apply no changes.
@@ -85,4 +82,3 @@ The system SHALL enforce per-field write permissions on `update_user`, resolved 
 - **WHEN** a non-admin caller calls `update_user` with both `display_name` (for a different user, unauthorized) and `add_other_names` (authorized) in one call
 - **THEN** the entire call is rejected with a permission error naming `display_name`
 - **AND** neither field is applied — the record is left unchanged
-

@@ -1,255 +1,231 @@
 import { describe, it, vi } from "vitest";
 import assert from "node:assert/strict";
 import type { App } from "@slack/bolt";
-import { WebClient } from "@slack/web-api";
-import { createUsersCache, type UserRegistryReader } from "./usersCache.js";
+import { createUsersCache, type UsersCacheDeps } from "./usersCache.js";
 import type { UserRecord } from "../userRegistry.js";
 
 // ---------------------------------------------------------------------------
-// Mock Slack client that returns a fixed list of members
+// Helpers — the registry is the search universe; a stubbed roster refresh keeps
+// unit tests off the Slack roster fetch entirely.
 // ---------------------------------------------------------------------------
 
-interface FakeMember {
-  id: string;
-  name: string;
-  profile: {
-    display_name?: string;
-    real_name?: string;
-    image_original?: string;
-    image_512?: string;
+const DUMMY_CLIENT = {} as App["client"];
+
+function makeCache(records: UserRecord[], over: Partial<UsersCacheDeps> = {}) {
+  const deps: UsersCacheDeps = {
+    registry: { listUserRecords: async () => records },
+    ensureRosterFresh: async () => {},
+    ...over,
   };
-  deleted?: boolean;
-  is_bot?: boolean;
+  return createUsersCache(DUMMY_CLIENT, deps);
 }
 
-function makeClient(members: FakeMember[]): App["client"] {
-  return {
-    users: {
-      list: async () => ({
-        ok: true,
-        members,
-        response_metadata: { next_cursor: "" },
-      }),
-    },
-  } as unknown as App["client"];
-}
+const rec = (over: Partial<UserRecord> & { userId: string }): UserRecord => ({
+  displayName: "",
+  lastFetched: 0,
+  ...over,
+});
 
-// Registry is an outside dependency — always injected so a unit test never touches disk.
-const EMPTY_REGISTRY: UserRegistryReader = { getUserRecord: async () => null };
-
-function makeRegistry(records: { [userId: string]: UserRecord }): UserRegistryReader {
-  return { getUserRecord: async (userId) => records[userId] ?? null };
-}
-
-function makeCache(members: FakeMember[], registry: UserRegistryReader = EMPTY_REGISTRY) {
-  return createUsersCache(makeClient(members), registry);
-}
-
-const MEMBERS: FakeMember[] = [
+const RECORDS: UserRecord[] = [
   {
-    id: "U001",
-    name: "alice",
-    profile: {
-      display_name: "Alice Anderson",
-      image_original: "https://cdn.example.com/alice-orig.png",
-      image_512: "https://cdn.example.com/alice-512.png",
-    },
+    userId: "U001",
+    username: "alice",
+    displayName: "Alice Anderson",
+    lastFetched: 0,
+    avatarUrl: "https://cdn.example.com/alice-orig.png",
+    github: { username: "alice-gh" },
   },
   {
-    id: "U002",
-    name: "bob",
-    profile: { display_name: "Bob Baker", image_512: "https://cdn.example.com/bob-512.png" },
+    userId: "U002",
+    username: "bob",
+    displayName: "Bob Baker",
+    lastFetched: 0,
+    avatarUrl: "https://cdn.example.com/bob-512.png",
+    otherNames: ["Bobby", "Rob"],
   },
-  { id: "U003", name: "charlie", profile: { display_name: "", real_name: "Charlie Chen" } },
-  { id: "U004", name: "diana.prince", profile: { display_name: "Diana Prince" } },
-  { id: "U005", name: "eve_online", profile: { display_name: "Eve Online" } },
-  // Filtered out:
-  { id: "U006", name: "deleted_user", profile: { display_name: "Gone" }, deleted: true },
-  { id: "U007", name: "botuser", profile: { display_name: "Bot" }, is_bot: true },
-  { id: "USLACKBOT", name: "slackbot", profile: { display_name: "Slackbot" } },
+  { userId: "U003", username: "charlie", displayName: "Charlie Chen", lastFetched: 0 },
+  { userId: "U004", username: "diana.prince", displayName: "Diana Prince", lastFetched: 0 },
+  { userId: "U005", username: "eve_online", displayName: "Eve Online", lastFetched: 0 },
 ];
 
 // ---------------------------------------------------------------------------
-// search — exercises buildMatcher internally
+// Matching
 // ---------------------------------------------------------------------------
 
-describe("UsersCache.search", () => {
+describe("UsersCache.search matching", () => {
   it("finds user by exact userId (case-insensitive)", async () => {
-    const cache = makeCache(MEMBERS);
-    const { entries: results } = await cache.search(["u001"]);
-    assert.equal(results.length, 1);
-    assert.equal(results[0].userId, "U001");
-  });
-
-  it("finds user by substring of username", async () => {
-    const cache = makeCache(MEMBERS);
-    const { entries: results } = await cache.search(["ali"]);
-    assert.equal(results.length, 1);
-    assert.equal(results[0].username, "alice");
+    const { entries } = await makeCache(RECORDS).search(["u001"]);
+    assert.equal(entries.length, 1);
+    assert.equal(entries[0].userId, "U001");
   });
 
   it("never matches a wildcard against userId (userId is exact-only)", async () => {
-    // Every roster id starts with "U", but "U*" must not match any of them via userId.
-    const cache = makeCache(MEMBERS);
-    const { entries } = await cache.search(["U*"]);
+    const { entries } = await makeCache(RECORDS).search(["U*"]);
     assert.equal(entries.length, 0);
   });
 
-  it("finds user by substring of displayName", async () => {
-    const cache = makeCache(MEMBERS);
-    const { entries: results } = await cache.search(["Anderson"]);
-    assert.equal(results.length, 1);
-    assert.equal(results[0].displayName, "Alice Anderson");
+  it("finds user by substring of username", async () => {
+    const { entries } = await makeCache(RECORDS).search(["ali"]);
+    assert.equal(entries.length, 1);
+    assert.equal(entries[0].username, "alice");
   });
 
-  it("substring matching is case-insensitive", async () => {
-    const cache = makeCache(MEMBERS);
-    const { entries: results } = await cache.search(["BOB"]);
-    assert.equal(results.length, 1);
-    assert.equal(results[0].username, "bob");
+  it("finds user by substring of displayName", async () => {
+    const { entries } = await makeCache(RECORDS).search(["Anderson"]);
+    assert.equal(entries.length, 1);
+    assert.equal(entries[0].displayName, "Alice Anderson");
+  });
+
+  it("matching is case-insensitive", async () => {
+    const { entries } = await makeCache(RECORDS).search(["BOB"]);
+    assert.equal(entries.length, 1);
+    assert.equal(entries[0].username, "bob");
+  });
+
+  it("matches a mapped github.username", async () => {
+    const { entries } = await makeCache(RECORDS).search(["alice-gh"]);
+    assert.equal(entries.length, 1);
+    assert.equal(entries[0].userId, "U001");
+  });
+
+  it("matches an alternate name (otherNames)", async () => {
+    const { entries } = await makeCache(RECORDS).search(["Bobby"]);
+    assert.equal(entries.length, 1);
+    assert.equal(entries[0].userId, "U002");
+  });
+
+  it("matches otherNames via wildcard", async () => {
+    const { entries } = await makeCache(RECORDS).search(["Ro*"]);
+    assert.equal(entries.length, 1);
+    assert.equal(entries[0].userId, "U002");
   });
 
   it("supports wildcard patterns", async () => {
-    const cache = makeCache(MEMBERS);
-    // Matches "diana.prince" and nothing else
-    const { entries: results } = await cache.search(["diana*"]);
-    assert.equal(results.length, 1);
-    assert.equal(results[0].username, "diana.prince");
+    const { entries } = await makeCache(RECORDS).search(["diana*"]);
+    assert.equal(entries.length, 1);
+    assert.equal(entries[0].username, "diana.prince");
   });
 
   it("supports wildcard in the middle", async () => {
-    const cache = makeCache(MEMBERS);
-    // Matches usernames with underscore pattern: eve_online
-    const { entries: results } = await cache.search(["eve*online"]);
-    assert.equal(results.length, 1);
-    assert.equal(results[0].username, "eve_online");
+    const { entries } = await makeCache(RECORDS).search(["eve*online"]);
+    assert.equal(entries.length, 1);
+    assert.equal(entries[0].username, "eve_online");
   });
 
-  it("multiple queries are OR-ed together", async () => {
-    const cache = makeCache(MEMBERS);
-    const { entries: results } = await cache.search(["alice", "bob"]);
-    assert.equal(results.length, 2);
-    const names = results.map((r) => r.username).sort();
-    assert.deepEqual(names, ["alice", "bob"]);
+  it("escapes special regex characters in a wildcard query", async () => {
+    const { entries } = await makeCache(RECORDS).search(["diana.prince"]);
+    assert.equal(entries.length, 1);
+    assert.equal(entries[0].username, "diana.prince");
   });
 
-  it("deduplicates results when same user matches multiple queries", async () => {
-    const cache = makeCache(MEMBERS);
-    // Both "alice" and "Anderson" match U001
-    const { entries: results } = await cache.search(["alice", "Anderson"]);
-    assert.equal(results.length, 1);
-    assert.equal(results[0].userId, "U001");
+  it("OR-s multiple queries together", async () => {
+    const { entries } = await makeCache(RECORDS).search(["alice", "bob"]);
+    assert.deepEqual(entries.map((e) => e.username).sort(), ["alice", "bob"]);
   });
 
-  it("respects limit parameter", async () => {
-    const cache = makeCache(MEMBERS);
-    // All 5 active users have displayNames containing a space — broad substring match
-    const { entries: results } = await cache.search([" "], { limit: 2 });
-    assert.equal(results.length, 2);
+  it("deduplicates when the same user matches multiple queries", async () => {
+    const { entries } = await makeCache(RECORDS).search(["alice", "Anderson"]);
+    assert.equal(entries.length, 1);
+    assert.equal(entries[0].userId, "U001");
   });
 
-  it("uses default limit of 10", async () => {
-    const cache = makeCache(MEMBERS);
-    // All 5 active users have displayNames containing a space
-    const { entries: results } = await cache.search([" "]);
-    assert.equal(results.length, 5);
-  });
-
-  it("filters out deleted users, bots, and USLACKBOT", async () => {
-    const cache = makeCache(MEMBERS);
-    // Try to find the filtered-out users
-    const { entries: results } = await cache.search(["deleted_user", "botuser", "USLACKBOT"]);
-    assert.equal(results.length, 0);
-  });
-
-  it("falls back to real_name when display_name is empty", async () => {
-    const cache = makeCache(MEMBERS);
-    const { entries: results } = await cache.search(["charlie"]);
-    assert.equal(results.length, 1);
-    assert.equal(results[0].displayName, "Charlie Chen");
-  });
-
-  it("prefers image_original for avatarUrl when present", async () => {
-    const cache = makeCache(MEMBERS);
-    const { entries: results } = await cache.search(["alice"]);
-    assert.equal(results[0].avatarUrl, "https://cdn.example.com/alice-orig.png");
-  });
-
-  it("falls back to image_512 when image_original is absent", async () => {
-    const cache = makeCache(MEMBERS);
-    const { entries: results } = await cache.search(["bob"]);
-    assert.equal(results[0].avatarUrl, "https://cdn.example.com/bob-512.png");
-  });
-
-  it("uses empty string for avatarUrl when no image fields are present", async () => {
-    const cache = makeCache(MEMBERS);
-    const { entries: results } = await cache.search(["charlie"]);
-    assert.equal(results[0].avatarUrl, "");
-  });
-
-  it("returns empty array when no matches", async () => {
-    const cache = makeCache(MEMBERS);
-    const { entries: results } = await cache.search(["nonexistent_user_xyz"]);
-    assert.equal(results.length, 0);
-  });
-
-  it("caches the user list and does not re-fetch", async () => {
-    let fetchCount = 0;
-    const client = {
-      users: {
-        list: async () => {
-          fetchCount++;
-          return {
-            ok: true,
-            members: MEMBERS,
-            response_metadata: { next_cursor: "" },
-          };
-        },
-      },
-    } as unknown as App["client"];
-
-    const cache = createUsersCache(client, EMPTY_REGISTRY);
-    await cache.search(["alice"]);
-    await cache.search(["bob"]);
-    await cache.search(["charlie"]);
-    assert.equal(fetchCount, 1);
-  });
-
-  it("handles wildcard with special regex characters in query", async () => {
-    // "diana.prince" has a dot — the wildcard matcher should escape it
-    const cache = makeCache(MEMBERS);
-    const { entries: results } = await cache.search(["diana.prince"]);
-    assert.equal(results.length, 1);
-    assert.equal(results[0].username, "diana.prince");
+  it("returns an empty array when nothing matches", async () => {
+    const { entries } = await makeCache(RECORDS).search(["nonexistent_xyz"]);
+    assert.equal(entries.length, 0);
   });
 });
 
 // ---------------------------------------------------------------------------
-// Pagination — offset, limit bounds, and totalMatched
+// Entry shape — Slack-sourced base fields, github, otherNames
+// ---------------------------------------------------------------------------
+
+describe("UsersCache.search entry shape", () => {
+  it("carries the full github object when present", async () => {
+    const { entries } = await makeCache(RECORDS).search(["alice"]);
+    assert.deepEqual(entries[0].github, { username: "alice-gh" });
+  });
+
+  it("carries otherNames when present, omits when absent", async () => {
+    const bob = await makeCache(RECORDS).search(["bob"]);
+    assert.deepEqual(bob.entries[0].otherNames, ["Bobby", "Rob"]);
+    const alice = await makeCache(RECORDS).search(["alice"]);
+    assert.equal(alice.entries[0].otherNames, undefined);
+  });
+
+  it("returns empty strings for username/avatarUrl on a record missing synced base fields", async () => {
+    const records = [rec({ userId: "U900", displayName: "", otherNames: ["Ghost"] })];
+    const { entries } = await makeCache(records).search(["Ghost"]);
+    assert.equal(entries.length, 1);
+    assert.equal(entries[0].username, "");
+    assert.equal(entries[0].avatarUrl, "");
+    assert.equal(entries[0].displayName, "");
+  });
+
+  it("surfaces a registry user with no live-roster equivalent (registry is the universe)", async () => {
+    const records = [rec({ userId: "U999", displayName: "Departed", username: "departed" })];
+    const { entries, totalMatched } = await makeCache(records).search(["departed"]);
+    assert.equal(entries.length, 1);
+    assert.equal(totalMatched, 1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Plugin projection
+// ---------------------------------------------------------------------------
+
+describe("UsersCache.search plugin projection", () => {
+  const withPlugins = [
+    rec({
+      userId: "U001",
+      username: "alice",
+      displayName: "Alice",
+      plugins: { trivia: { score: 42 }, casual: { mood: "chipper" } },
+    }),
+  ];
+
+  it("projects only requested namespaces", async () => {
+    const { entries } = await makeCache(withPlugins).search(["alice"], {
+      includePluginData: ["trivia"],
+    });
+    assert.deepEqual(entries[0].plugins, { trivia: { score: 42 } });
+  });
+
+  it("omits plugins when includePluginData is empty", async () => {
+    const { entries } = await makeCache(withPlugins).search(["alice"]);
+    assert.equal(entries[0].plugins, undefined);
+  });
+
+  it("omits a requested namespace that is absent for the user", async () => {
+    const { entries } = await makeCache(withPlugins).search(["alice"], {
+      includePluginData: ["missing"],
+    });
+    assert.equal(entries[0].plugins, undefined);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Pagination
 // ---------------------------------------------------------------------------
 
 describe("UsersCache.search pagination", () => {
-  // All 5 active members share a space in their displayName — a broad match.
+  // All 5 records share a space in their displayName — a broad match.
   const ALL = [" "];
 
   it("reports totalMatched independent of limit", async () => {
-    const cache = makeCache(MEMBERS);
-    const { entries, totalMatched } = await cache.search(ALL, { limit: 2 });
+    const { entries, totalMatched } = await makeCache(RECORDS).search(ALL, { limit: 2 });
     assert.equal(entries.length, 2);
     assert.equal(totalMatched, 5);
   });
 
   it("reports totalMatched independent of offset", async () => {
-    const cache = makeCache(MEMBERS);
-    const { entries, totalMatched } = await cache.search(ALL, { offset: 3, limit: 2 });
+    const { entries, totalMatched } = await makeCache(RECORDS).search(ALL, { offset: 3, limit: 2 });
     assert.equal(entries.length, 2);
     assert.equal(totalMatched, 5);
   });
 
   it("returns disjoint pages across offsets", async () => {
-    const cache = makeCache(MEMBERS);
-    const page1 = await cache.search(ALL, { offset: 0, limit: 2 });
-    const page2 = await cache.search(ALL, { offset: 2, limit: 2 });
+    const page1 = await makeCache(RECORDS).search(ALL, { offset: 0, limit: 2 });
+    const page2 = await makeCache(RECORDS).search(ALL, { offset: 2, limit: 2 });
     const ids2 = page2.entries.map((e) => e.userId);
     assert.equal(
       page1.entries.some((e) => ids2.includes(e.userId)),
@@ -258,140 +234,45 @@ describe("UsersCache.search pagination", () => {
   });
 
   it("returns an empty page beyond the last match, keeping totalMatched", async () => {
-    const cache = makeCache(MEMBERS);
-    const { entries, totalMatched } = await cache.search(ALL, { offset: 99, limit: 2 });
+    const { entries, totalMatched } = await makeCache(RECORDS).search(ALL, {
+      offset: 99,
+      limit: 2,
+    });
     assert.equal(entries.length, 0);
     assert.equal(totalMatched, 5);
   });
 
   it("clamps a negative offset to 0", async () => {
-    const cache = makeCache(MEMBERS);
-    const { entries } = await cache.search(ALL, { offset: -5, limit: 2 });
+    const { entries } = await makeCache(RECORDS).search(ALL, { offset: -5, limit: 2 });
     assert.equal(entries.length, 2);
   });
 
   it("falls back to the default limit when limit <= 0", async () => {
-    const cache = makeCache(MEMBERS);
-    const { entries } = await cache.search(ALL, { limit: 0 });
+    const { entries } = await makeCache(RECORDS).search(ALL, { limit: 0 });
     assert.equal(entries.length, 5);
   });
-});
 
-// ---------------------------------------------------------------------------
-// Registry enrichment
-// ---------------------------------------------------------------------------
-
-describe("UsersCache.search registry enrichment", () => {
-  const record = (over: Partial<UserRecord>): UserRecord => ({
-    userId: "U001",
-    displayName: "Alice Anderson",
-    lastFetched: 0,
-    ...over,
-  });
-
-  it("attaches the full github object when the registry has one", async () => {
-    const registry = makeRegistry({ U001: record({ github: { username: "alice-gh" } }) });
-    const { entries } = await makeCache(MEMBERS, registry).search(["alice"]);
-    assert.deepEqual(entries[0].github, { username: "alice-gh" });
-  });
-
-  it("omits github when the user has no registry record", async () => {
-    const { entries } = await makeCache(MEMBERS, EMPTY_REGISTRY).search(["alice"]);
-    assert.equal(entries[0].github, undefined);
-  });
-
-  it("projects only requested plugin namespaces", async () => {
-    const registry = makeRegistry({
-      U001: record({ plugins: { trivia: { score: 42 }, casual: { mood: "chipper" } } }),
-    });
-    const { entries } = await makeCache(MEMBERS, registry).search(["alice"], {
-      includePluginData: ["trivia"],
-    });
-    assert.deepEqual(entries[0].plugins, { trivia: { score: 42 } });
-  });
-
-  it("omits plugins entirely when includePluginData is empty", async () => {
-    const registry = makeRegistry({ U001: record({ plugins: { trivia: { score: 42 } } }) });
-    const { entries } = await makeCache(MEMBERS, registry).search(["alice"]);
-    assert.equal(entries[0].plugins, undefined);
-  });
-
-  it("omits a requested namespace that is absent for the user", async () => {
-    const registry = makeRegistry({ U001: record({ plugins: { trivia: { score: 42 } } }) });
-    const { entries } = await makeCache(MEMBERS, registry).search(["alice"], {
-      includePluginData: ["missing"],
-    });
-    assert.equal(entries[0].plugins, undefined);
-  });
-
-  it("only enriches the returned page, not the whole match set", async () => {
-    let reads = 0;
-    const registry: UserRegistryReader = {
-      getUserRecord: async (userId) => {
-        reads++;
-        return record({ userId });
-      },
-    };
-    await makeCache(MEMBERS, registry).search([" "], { limit: 2 });
-    assert.equal(reads, 2);
-  });
-
-  it("does not source registry-only users (roster is the search universe)", async () => {
-    const registry = makeRegistry({
-      U999: record({ userId: "U999", displayName: "Ghost", github: { username: "ghost" } }),
-    });
-    const { entries, totalMatched } = await makeCache(MEMBERS, registry).search(["U999"]);
-    assert.equal(entries.length, 0);
-    assert.equal(totalMatched, 0);
-  });
-
-  it("degrades gracefully when the registry read throws", async () => {
-    const registry: UserRegistryReader = {
-      getUserRecord: async () => {
-        throw new Error("registry exploded");
-      },
-    };
-    const { entries } = await makeCache(MEMBERS, registry).search(["alice"], {
-      includePluginData: ["trivia"],
-    });
-    assert.equal(entries.length, 1);
-    assert.equal(entries[0].userId, "U001");
-    assert.equal(entries[0].github, undefined);
-    assert.equal(entries[0].plugins, undefined);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// fetchAll — roster paging and API failure
-// ---------------------------------------------------------------------------
-
-describe("UsersCache.search roster fetch", () => {
-  it("follows next_cursor across multiple pages", async () => {
-    const page1 = [{ id: "U001", name: "alice", profile: { display_name: "Alice" } }];
-    const page2 = [{ id: "U002", name: "bob", profile: { display_name: "Bob" } }];
-    const client = new WebClient();
-    vi.spyOn(client.users, "list").mockImplementation(async (opts) =>
-      opts?.cursor === "next"
-        ? { ok: true, members: page2, response_metadata: { next_cursor: "" } }
-        : { ok: true, members: page1, response_metadata: { next_cursor: "next" } },
+  it("uses a default limit of 10", async () => {
+    const many = Array.from({ length: 15 }, (_, i) =>
+      rec({ userId: `U${i}`, displayName: `User ${i}`, username: `user${i}` }),
     );
-
-    const cache = createUsersCache(client, EMPTY_REGISTRY);
-    const { entries, totalMatched } = await cache.search(["alice", "bob"]);
-    assert.equal(totalMatched, 2);
-    assert.deepEqual(entries.map((e) => e.userId).sort(), ["U001", "U002"]);
+    const { entries, totalMatched } = await makeCache(many).search(["user"]);
+    assert.equal(entries.length, 10);
+    assert.equal(totalMatched, 15);
   });
+});
 
-  it("returns no results when the roster fetch fails", async () => {
-    const client = new WebClient();
-    vi.spyOn(client.users, "list").mockImplementation(async () => ({
-      ok: false,
-      error: "rate_limited",
-    }));
+// ---------------------------------------------------------------------------
+// Roster-sync trigger wiring
+// ---------------------------------------------------------------------------
 
-    const cache = createUsersCache(client, EMPTY_REGISTRY);
-    const { entries, totalMatched } = await cache.search(["alice"]);
-    assert.equal(entries.length, 0);
-    assert.equal(totalMatched, 0);
+describe("UsersCache.search roster-sync trigger", () => {
+  it("calls ensureRosterFresh with the client before searching", async () => {
+    const ensureRosterFresh = vi.fn<(client: App["client"] | null) => Promise<void>>(
+      async () => {},
+    );
+    await makeCache(RECORDS, { ensureRosterFresh }).search(["alice"]);
+    assert.equal(ensureRosterFresh.mock.calls.length, 1);
+    assert.equal(ensureRosterFresh.mock.calls[0][0], DUMMY_CLIENT);
   });
 });
