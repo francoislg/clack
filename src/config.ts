@@ -469,6 +469,17 @@ export function getWorktreesDir(): string {
 }
 
 /**
+ * Absolute path to the optional operator-provided worker settings file. It is a native
+ * Claude Code `settings.json` (pure SDK shape, a sibling of `data/mcp.json`) forwarded to
+ * worker-mode Claude via the Agent SDK `settings` option, letting operators attach external
+ * PreToolUse command hooks and `permissions.deny` rules without any tool-specific code.
+ * Absent → worker runs in SDK isolation mode exactly as before.
+ */
+export function getWorkerSettingsPath(): string {
+  return resolve(getDataDir(), "worker-settings.json");
+}
+
+/**
  * Extra admin-claim keywords from `config.admin.additionalWords`, or `[]` when config is unloaded
  * or the section is absent. Null-safe (does not throw) so prompt assembly can call it in any
  * context, including tests that never load config.

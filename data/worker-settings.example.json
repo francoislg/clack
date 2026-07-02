@@ -1,0 +1,12 @@
+{
+  "_comment": "Optional. Copy to data/worker-settings.json to attach external guardrails to worker-mode Claude. This is a native Claude Code settings.json — Clack forwards it verbatim to the Agent SDK. Paths must be ABSOLUTE and resolve INSIDE the runtime environment (GCE VM / Docker image), not your laptop; any referenced binaries + prerequisites (e.g. jq, bash) must be installed there. Absent → worker runs exactly as before.",
+  "_comment_enforcement": "The worker runs in bypassPermissions mode, so permissions allow/deny rules are SKIPPED. Use PreToolUse hooks for hard enforcement — hooks fire even under bypass. Keep hard blocks in the hook (a PreToolUse hook returning a deny decision blocks the call).",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": ".*",
+        "hooks": [{ "type": "command", "command": "/absolute/path/to/your/hook.sh" }]
+      }
+    ]
+  }
+}
