@@ -8,7 +8,7 @@ import type { UsersCache } from "../../slack/usersCache.js";
 export function createFindUserTool(ctx: QueryToolContext, usersCache: UsersCache) {
   return tool(
     "find_user",
-    "Search for Slack workspace members by user ID, username, or display name — the source of truth for teammate identity. Supports multiple search terms (results are unioned). Matching is case-insensitive substring by default. Use * as a wildcard (e.g., 'Mi*' matches 'Mike', 'Michael'; '*sen' matches 'Jensen'). Each result includes the member's public profile picture URL (avatarUrl, usable as an image tool's input_image_url) and, when mapped, their `github` identity. Paginate with `offset`; the response reports `totalCount` (all matches) and `hasMore`. Pass `includePluginData` (e.g. [\"trivia\"]) to project plugin-held per-user data (dev+ only; ignored for lower roles).",
+    "Search for Slack workspace members — the source of truth for teammate identity. Matches each term against user ID, username, display name, mapped GitHub login, and human-authored alternate names (otherNames, e.g. a nickname like 'Jo' for 'Jonathan'). Supports multiple search terms (results are unioned). Matching is case-insensitive substring by default. Use * as a wildcard (e.g., 'Mi*' matches 'Mike', 'Michael'; '*sen' matches 'Jensen'). Each result includes the member's public profile picture URL (avatarUrl, usable as an image tool's input_image_url) and, when set, their `github` identity and `otherNames`. Paginate with `offset`; the response reports `totalCount` (all matches) and `hasMore`. Pass `includePluginData` (e.g. [\"trivia\"]) to project plugin-held per-user data (dev+ only; ignored for lower roles).",
     {
       query: z
         .array(z.string())

@@ -1,8 +1,5 @@
-# find-user-tool Specification
+## MODIFIED Requirements
 
-## Purpose
-MCP query tool and supporting cache abstraction for searching Slack workspace members by name, username, or user ID with multi-term substring and wildcard matching.
-## Requirements
 ### Requirement: UsersCache Abstraction
 
 The system SHALL provide a `UsersCache` abstraction whose search operates over the persisted user registry (`data/state/users.json`) as the source of truth, kept current by the full-roster sync, and reports the full match count for pagination. The abstraction SHALL NOT search a separate in-memory `users.list` roster; the live Slack roster reaches search only by having been synced into the registry.
@@ -132,20 +129,3 @@ The system SHALL provide a `find_user` MCP query tool that searches the user reg
 
 - **WHEN** Claude has a user's `avatarUrl` from `find_user`
 - **THEN** the tool description indicates the URL can be passed to an image tool (e.g. `generate_image`'s `input_image_url`) as a source/edit image
-
-### Requirement: find_user is the instructed source of truth for user information
-
-The system SHALL instruct Claude, via an always-loaded baseline instruction, to treat `find_user` as the canonical path for resolving teammate identity and to never fabricate user attributes.
-
-#### Scenario: Baseline instruction ships for all roles
-
-- **WHEN** the system assembles the system prompt for any role and trigger mode
-- **THEN** a baseline `user/` instruction file is loaded that names `find_user` as the source of truth for user identity — display name, GitHub login, and profile
-- **AND** it directs Claude to call `find_user` when it needs a user attribute not already in context
-- **AND** it forbids guessing or fabricating a user's GitHub handle, name, or other attributes
-
-#### Scenario: Instruction advertises pagination
-
-- **WHEN** the baseline user-lookup instruction is loaded
-- **THEN** it notes that `find_user` is paginated (`offset`) and reports `totalCount`, so Claude can page through to obtain the complete set when needed
-

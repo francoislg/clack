@@ -4,10 +4,13 @@ import {
   loadRegistry,
   getUserRecord,
   listUserIdentities,
+  listUserRecords,
   getUserNamespace,
   upsertIdentity,
   mergeUserNamespace,
   mergeUserGithub,
+  mergeUserOtherNames,
+  upsertRosterMembers,
   setUserDisplayName,
   clearRegistryCache,
   setUserRegistryDeps,
@@ -158,6 +161,150 @@ describe("userRegistry — github", () => {
     const record = persistedRegistry().U1;
     assert.deepEqual(record?.github, { username: "first" });
     assert.equal(record?.displayName, "Name");
+  });
+});
+
+describe("userRegistry — otherNames", () => {
+  it("adds names normalized (trimmed) and case-insensitively deduped, preserving order", async () => {
+    await mergeUserOtherNames("U1", { add: ["Jo", " jo ", "Jonathan", "JO"] });
+    const record = await getUserRecord("U1");
+    assert.deepEqual(record?.otherNames, ["Jo", "Jonathan"]);
+  });
+
+  it("appends adds after existing entries and dedups across both", async () => {
+    await mergeUserOtherNames("U1", { add: ["Jo"] });
+    await mergeUserOtherNames("U1", { add: ["jo", "Jon"] });
+    const record = await getUserRecord("U1");
+    assert.deepEqual(record?.otherNames, ["Jo", "Jon"]);
+  });
+
+  it("removes case-insensitively", async () => {
+    await mergeUserOtherNames("U1", { add: ["Jo", "Jonathan"] });
+    await mergeUserOtherNames("U1", { remove: ["jonathan"] });
+    const record = await getUserRecord("U1");
+    assert.deepEqual(record?.otherNames, ["Jo"]);
+  });
+
+  it("omits the field entirely once the last entry is removed", async () => {
+    await mergeUserOtherNames("U1", { add: ["Jo"] });
+    await mergeUserOtherNames("U1", { remove: ["JO"] });
+    const record = await getUserRecord("U1");
+    assert.equal(record?.otherNames, undefined);
+    const serialized = store.get(`${process.cwd()}/data/state/users.json`) ?? "{}";
+    assert.equal(serialized.includes("otherNames"), false);
+  });
+
+  it("drops empty and over-long names", async () => {
+    const tooLong = "x".repeat(61);
+    await mergeUserOtherNames("U1", { add: ["", "   ", "Keep", tooLong] });
+    const record = await getUserRecord("U1");
+    assert.deepEqual(record?.otherNames, ["Keep"]);
+  });
+
+  it("caps the stored list at the maximum count", async () => {
+    const many = Array.from({ length: 25 }, (_, i) => `name${i}`);
+    await mergeUserOtherNames("U1", { add: many });
+    const record = await getUserRecord("U1");
+    assert.equal(record?.otherNames?.length, 20);
+    assert.deepEqual(record?.otherNames, many.slice(0, 20));
+  });
+
+  it("preserves displayName, github, and plugins", async () => {
+    await upsertIdentity("U1", "Alice", 1000);
+    await mergeUserGithub("U1", { username: "alice-gh" });
+    await mergeUserNamespace("trivia", "U1", { joinedAt: 5 });
+    await mergeUserOtherNames("U1", { add: ["Ali"] });
+    const record = await getUserRecord("U1");
+    assert.equal(record?.displayName, "Alice");
+    assert.deepEqual(record?.github, { username: "alice-gh" });
+    assert.deepEqual(record?.plugins?.trivia, { joinedAt: 5 });
+    assert.deepEqual(record?.otherNames, ["Ali"]);
+  });
+
+  it("creates a placeholder record for an unknown user", async () => {
+    await mergeUserOtherNames("UX", { add: ["Nick"] });
+    const record = await getUserRecord("UX");
+    assert.equal(record?.displayName, "");
+    assert.equal(record?.lastFetched, 0);
+    assert.deepEqual(record?.otherNames, ["Nick"]);
+  });
+
+  it("serializes concurrent otherNames writes for the same user", async () => {
+    await Promise.all([
+      mergeUserOtherNames("U1", { add: ["First"] }),
+      mergeUserOtherNames("U1", { add: ["Second"] }),
+    ]);
+    const record = persistedRegistry().U1;
+    assert.deepEqual([...(record?.otherNames ?? [])].sort(), ["First", "Second"]);
+  });
+
+  it("tolerates a malformed otherNames field, dropping it but keeping the record", async () => {
+    installStore({
+      [`${process.cwd()}/data/state/users.json`]: JSON.stringify({
+        U1: { userId: "U1", displayName: "Alice", lastFetched: 1, otherNames: "not-an-array" },
+      }),
+    });
+    const record = await getUserRecord("U1");
+    assert.equal(record?.displayName, "Alice");
+    assert.equal(record?.otherNames, undefined);
+  });
+});
+
+describe("userRegistry — roster upsert", () => {
+  it("upserts Slack-sourced fields and creates records for new members", async () => {
+    await upsertRosterMembers([
+      { userId: "U1", username: "alice", displayName: "Alice A", avatarUrl: "https://x/a.png" },
+      { userId: "U2", username: "bob", displayName: "Bob B", avatarUrl: "" },
+    ]);
+    const records = await listUserRecords();
+    assert.equal(records.length, 2);
+    const u1 = await getUserRecord("U1");
+    assert.equal(u1?.username, "alice");
+    assert.equal(u1?.avatarUrl, "https://x/a.png");
+  });
+
+  it("preserves github, otherNames, plugins, and lastFetched on an existing record", async () => {
+    await upsertIdentity("U1", "Old Name", 12345);
+    await mergeUserGithub("U1", { username: "alice-gh" });
+    await mergeUserOtherNames("U1", { add: ["Ali"] });
+    await mergeUserNamespace("trivia", "U1", { joinedAt: 5 });
+    await upsertRosterMembers([
+      { userId: "U1", username: "alice", displayName: "Alice Fresh", avatarUrl: "https://x/a.png" },
+    ]);
+    const record = await getUserRecord("U1");
+    assert.equal(record?.displayName, "Alice Fresh");
+    assert.equal(record?.username, "alice");
+    assert.equal(record?.lastFetched, 12345);
+    assert.deepEqual(record?.github, { username: "alice-gh" });
+    assert.deepEqual(record?.otherNames, ["Ali"]);
+    assert.deepEqual(record?.plugins?.trivia, { joinedAt: 5 });
+  });
+});
+
+describe("userRegistry — new field tolerance", () => {
+  it("loads a legacy record without username/avatarUrl/otherNames unchanged", async () => {
+    installStore({
+      [`${process.cwd()}/data/state/users.json`]: JSON.stringify({
+        U1: { userId: "U1", displayName: "Alice", lastFetched: 1 },
+      }),
+    });
+    const record = await getUserRecord("U1");
+    assert.equal(record?.displayName, "Alice");
+    assert.equal(record?.username, undefined);
+    assert.equal(record?.avatarUrl, undefined);
+    assert.equal(record?.otherNames, undefined);
+  });
+
+  it("drops a malformed username/avatarUrl but keeps the record", async () => {
+    installStore({
+      [`${process.cwd()}/data/state/users.json`]: JSON.stringify({
+        U1: { userId: "U1", displayName: "Alice", lastFetched: 1, username: 42, avatarUrl: true },
+      }),
+    });
+    const record = await getUserRecord("U1");
+    assert.equal(record?.displayName, "Alice");
+    assert.equal(record?.username, undefined);
+    assert.equal(record?.avatarUrl, undefined);
   });
 });
 

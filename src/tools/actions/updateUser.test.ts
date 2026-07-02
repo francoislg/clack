@@ -9,11 +9,14 @@ interface UpdateUserArgs {
   user_id: string;
   display_name?: string | null;
   github?: { username: string } | null;
+  add_other_names?: string[];
+  remove_other_names?: string[];
 }
 
 interface MockedUpdateUserDeps {
   getUserRecord: Mock;
   mergeUserGithub: Mock;
+  mergeUserOtherNames: Mock;
   setUserDisplayName: Mock;
 }
 
@@ -40,6 +43,7 @@ function makeDeps(): MockedUpdateUserDeps {
       }),
     ),
     mergeUserGithub: vi.fn(async () => undefined),
+    mergeUserOtherNames: vi.fn(async () => undefined),
     setUserDisplayName: vi.fn(async () => undefined),
   };
 }
@@ -47,7 +51,13 @@ function makeDeps(): MockedUpdateUserDeps {
 async function call(ctx: QueryToolContext, deps: MockedUpdateUserDeps, args: UpdateUserArgs) {
   const tool = createUpdateUserTool(ctx, deps);
   const result = await tool.handler(
-    { display_name: undefined, github: undefined, ...args },
+    {
+      display_name: undefined,
+      github: undefined,
+      add_other_names: undefined,
+      remove_other_names: undefined,
+      ...args,
+    },
     { signal: new AbortController().signal, requestId: "r" },
   );
   return result as { content: readonly { type: string }[]; isError?: boolean };
@@ -70,6 +80,7 @@ describe("update_user", () => {
       user_id: "U_BOB",
       display_name: "Existing",
       github: { username: "existing-gh" },
+      other_names: [],
     });
   });
 
@@ -136,5 +147,48 @@ describe("update_user", () => {
     const deps = makeDeps();
     const result = await call(makeCtx(), deps, { user_id: "U_BOB" });
     assert.equal(result.isError, true);
+  });
+
+  it("lets any user add/remove another user's other_names, delegating normalized intent", async () => {
+    const deps = makeDeps();
+    const result = await call(makeCtx({ userId: "U_ALICE", role: "member" }), deps, {
+      user_id: "U_BOB",
+      add_other_names: ["Bobby"],
+      remove_other_names: ["Rob"],
+    });
+    assert.equal(result.isError, undefined);
+    assert.equal(deps.mergeUserOtherNames.mock.calls[0][0], "U_BOB");
+    // The tool forwards the raw ops; normalization/dedup is the mutator's own concern.
+    assert.deepEqual(deps.mergeUserOtherNames.mock.calls[0][1], {
+      add: ["Bobby"],
+      remove: ["Rob"],
+    });
+    assert.equal(deps.setUserDisplayName.mock.calls.length, 0);
+    assert.equal(deps.mergeUserGithub.mock.calls.length, 0);
+  });
+
+  it("surfaces the resulting other_names in the success payload", async () => {
+    const deps = makeDeps();
+    deps.getUserRecord.mockImplementation(async (userId: string) => ({
+      userId,
+      displayName: "Existing",
+      lastFetched: 0,
+      otherNames: ["Bobby"],
+    }));
+    const result = await call(makeCtx(), deps, { user_id: "U_BOB", add_other_names: ["Bobby"] });
+    const json = parseToolResult(result);
+    assert.deepEqual(json.user.other_names, ["Bobby"]);
+  });
+
+  it("rejects a mixed call atomically when display_name is unauthorized (other_names not applied)", async () => {
+    const deps = makeDeps();
+    const result = await call(makeCtx({ userId: "U_ALICE", role: "member" }), deps, {
+      user_id: "U_BOB",
+      display_name: "Hacked",
+      add_other_names: ["Bobby"],
+    });
+    assert.equal(result.isError, true);
+    assert.equal(deps.setUserDisplayName.mock.calls.length, 0);
+    assert.equal(deps.mergeUserOtherNames.mock.calls.length, 0);
   });
 });
