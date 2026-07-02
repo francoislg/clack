@@ -232,6 +232,9 @@ async function loadSession(
   }
 }
 
+export const INCLUDE_SECTION_ENUM = z.enum(["entries", "usage"]);
+export type IncludeSection = z.infer<typeof INCLUDE_SECTION_ENUM>;
+
 export interface SearchArgs {
   keywords?: string;
   type?: "all" | "dm" | "public_channels";
@@ -245,13 +248,25 @@ export interface SearchArgs {
   triggerType?: string;
   /** Epoch-ms lower bound on `createdAt`. Only sessions created at or after this are returned. */
   since?: number;
+  /** Which sections to compute and return. Empty/absent is treated as `["entries"]`. */
+  include?: IncludeSection[];
 }
 
-/** Result of a search: the paginated entries plus a usage aggregate over the FULL matched set. */
+/** A search result, projected to the requested `include` sections.
+ *  `entries` is the paginated per-session summaries; `totalUsage` is the usage aggregate over the
+ *  FULL matched set (pre-pagination). Each key is present only when its section was requested. */
 export interface SearchResult {
-  results: InteractionResult[];
-  /** Component-wise sum of `usage` across every matched session (pre-pagination). */
-  totalUsage: SessionUsage;
+  entries?: InteractionResult[];
+  totalUsage?: SessionUsage;
+}
+
+/** An empty or absent `include` is treated as `["entries"]`. */
+function resolveSections(include: IncludeSection[] | undefined): {
+  wantEntries: boolean;
+  wantUsage: boolean;
+} {
+  const sections: IncludeSection[] = include && include.length > 0 ? include : ["entries"];
+  return { wantEntries: sections.includes("entries"), wantUsage: sections.includes("usage") };
 }
 
 export async function searchRecentInteractions(
@@ -260,9 +275,13 @@ export async function searchRecentInteractions(
   deps: FindRecentInteractionsDeps,
 ): Promise<SearchResult> {
   const sessionsDir = deps.getSessionsDir();
+  const { wantEntries, wantUsage } = resolveSections(args.include);
 
   if (!(await deps.fileExists(sessionsDir))) {
-    return { results: [], totalUsage: { ...ZERO_USAGE } };
+    return {
+      ...(wantEntries ? { entries: [] } : {}),
+      ...(wantUsage ? { totalUsage: { ...ZERO_USAGE } } : {}),
+    };
   }
 
   const sessionIds = await deps.readdir(sessionsDir);
@@ -329,34 +348,41 @@ export async function searchRecentInteractions(
     filtered = filtered.filter((s) => s.createdAt >= since);
   }
 
-  // Aggregate over the FULL matched set, before pagination, so a window-scoped query reports
-  // the window's true total regardless of limit/offset.
-  const totalUsage = filtered.reduce<SessionUsage>((acc, s) => addUsage(acc, s.usage), {
-    ...ZERO_USAGE,
-  });
+  const result: SearchResult = {};
 
-  const paginated = filtered.slice(args.offset ?? 0, (args.offset ?? 0) + (args.limit ?? 10));
+  if (wantUsage) {
+    // Aggregate over the FULL matched set, before pagination, so a window-scoped query reports
+    // the window's true total regardless of limit/offset.
+    result.totalUsage = filtered.reduce<SessionUsage>((acc, s) => addUsage(acc, s.usage), {
+      ...ZERO_USAGE,
+    });
+  }
 
-  const results = paginated.map((s) => {
-    const summary = summarize(s);
-    return {
-      sessionId: s.sessionId,
-      channelId: s.channelId,
-      channelName: s.channelName,
-      triggerType: s.triggerType,
-      userId: s.userId,
-      displayName: s.displayName,
-      createdAt: s.createdAt,
-      lastActivity: s.lastActivity,
-      firstQuestion: summary.firstQuestion,
-      latestAssistantText: summary.latestAssistantText,
-      messageCount: summary.messageCount,
-      assistantTurnCount: summary.assistantTurnCount,
-      skippedTurnCount: summary.skippedTurnCount,
-    };
-  });
+  // Skip building entry summaries entirely when only usage was requested — a usage-only query
+  // stays bounded no matter how large the matched sessions' prompts are.
+  if (wantEntries) {
+    const paginated = filtered.slice(args.offset ?? 0, (args.offset ?? 0) + (args.limit ?? 10));
+    result.entries = paginated.map((s) => {
+      const summary = summarize(s);
+      return {
+        sessionId: s.sessionId,
+        channelId: s.channelId,
+        channelName: s.channelName,
+        triggerType: s.triggerType,
+        userId: s.userId,
+        displayName: s.displayName,
+        createdAt: s.createdAt,
+        lastActivity: s.lastActivity,
+        firstQuestion: summary.firstQuestion,
+        latestAssistantText: summary.latestAssistantText,
+        messageCount: summary.messageCount,
+        assistantTurnCount: summary.assistantTurnCount,
+        skippedTurnCount: summary.skippedTurnCount,
+      };
+    });
+  }
 
-  return { results, totalUsage };
+  return result;
 }
 
 export function createFindRecentInteractionsTool(
@@ -378,7 +404,7 @@ export function createFindRecentInteractionsTool(
 
   return tool(
     "find_recent_interactions",
-    "Search Clack's recent interaction history. Use this when the user references something you may have previously said or sent, or when you're unsure what context they're referring to. Searches across the question, user follow-ups, and Clack's responses.",
+    "Search Clack's recent interaction history. Use this when the user references something you may have previously said or sent, or when you're unsure what context they're referring to. Searches across the question, user follow-ups, and Clack's responses. Returns an object projected to the requested `include` sections (`{ entries }` by default).",
     {
       keywords: z
         .string()
@@ -441,24 +467,21 @@ export function createFindRecentInteractionsTool(
         .describe(
           "Epoch-millisecond lower bound on session creation time. Only sessions created at or after this are returned. Use to scope to a time window (e.g. since the start of a reporting window).",
         ),
-      include_usage: z
-        .boolean()
+      include: z
+        .array(INCLUDE_SECTION_ENUM)
         .optional()
-        .default(false)
+        .default(["entries"])
         .describe(
-          "When true, also returns `totalUsage` — the summed token + cost usage across ALL matched sessions (the full set, independent of limit/offset). Use to report how many tokens a set of sessions consumed.",
+          'Which sections to return, as a projected object. "entries" (default) → the paginated per-session summaries; "usage" → a `totalUsage` object summing token + cost usage across ALL matched sessions (the full set, independent of limit/offset). Request `["usage"]` alone to tally spend over a window without pulling back entries — a bounded result that will not hit the tool-result size cap. An empty array is treated as `["entries"]`.',
         ),
     },
-    async ({ include_auto_respond, trigger_type, include_usage, ...rest }) => {
-      const { results, totalUsage } = await searchRecentInteractions(
+    async ({ include_auto_respond, trigger_type, include, ...rest }) => {
+      const result = await searchRecentInteractions(
         ctx,
-        { ...rest, includeAutoRespond: include_auto_respond, triggerType: trigger_type },
+        { ...rest, includeAutoRespond: include_auto_respond, triggerType: trigger_type, include },
         deps,
       );
-      if (include_usage) {
-        return textResult({ entries: results, totalUsage });
-      }
-      return textResult(results);
+      return textResult(result);
     },
   );
 }

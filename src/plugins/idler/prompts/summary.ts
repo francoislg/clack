@@ -14,7 +14,7 @@ export function buildSummaryPrompt(channel: string): string {
 
 ## Steps
 1. Call read_activity to get this window's entries.
-2. Tally this window's spend: call find_recent_interactions with \`channel: "${channel}"\`, \`trigger_type: "scheduled"\`, \`include_usage: true\`, and \`since\` set to the start of this window in epoch-milliseconds — use the EARLIEST activity entry's \`at\` timestamp from step 1, or roughly 24 hours before now if there are no entries. Read \`totalUsage\` from the result (it is always present; zero when the window had no sessions).
+2. Tally this window's spend: call find_recent_interactions with \`channel: "${channel}"\`, \`trigger_type: "scheduled"\`, \`include: ["usage"]\`, and \`since\` set to the start of this window in epoch-milliseconds — use the EARLIEST activity entry's \`at\` timestamp from step 1, or roughly 24 hours before now if there are no entries. Read \`totalUsage\` from the result (it is always present; zero when the window had no sessions). Asking for only the usage section keeps the result small, so this call will not exceed the tool-result size cap.
 3. If there are no activity entries, post a brief "nothing to report" line. Otherwise compose a concise digest grouped as:
    - PRs opened
    - Comments addressed / threads resolved

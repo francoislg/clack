@@ -5,16 +5,17 @@ import {
   searchRecentInteractions,
   createFindRecentInteractionsTool,
   type FindRecentInteractionsDeps,
+  type IncludeSection,
   type InteractionResult,
   type SearchArgs,
   type SearchResult,
 } from "./findRecentInteractions.js";
 import type { QueryToolContext } from "../types.js";
-import type { SessionUsage } from "../../claude/usage.js";
+import { ZERO_USAGE, type SessionUsage } from "../../claude/usage.js";
 import { parseToolResult } from "../testHelpers.js";
 
 /** Full tool-handler args (the SDK passes a fully-parsed object — supply every schema key). */
-function toolArgs(over: { include_usage?: boolean } = {}) {
+function toolArgs(over: { include?: IncludeSection[] } = {}) {
   return {
     keywords: undefined,
     type: "all" as const,
@@ -24,7 +25,7 @@ function toolArgs(over: { include_usage?: boolean } = {}) {
     limit: 10,
     offset: 0,
     since: undefined,
-    include_usage: over.include_usage ?? false,
+    include: over.include ?? ["entries"],
   };
 }
 
@@ -125,15 +126,21 @@ async function search(
   ctx: QueryToolContext,
   args: SearchArgs = {},
 ): Promise<InteractionResult[]> {
-  return (await searchRecentInteractions(ctx, args, deps)).results;
+  return (await searchRecentInteractions(ctx, args, deps)).entries ?? [];
 }
 
+/** Requests both sections so usage-aggregate tests can read `entries` and `totalUsage` together. */
 async function searchFull(
   deps: FindRecentInteractionsDeps,
   ctx: QueryToolContext,
   args: SearchArgs = {},
-): Promise<SearchResult> {
-  return searchRecentInteractions(ctx, args, deps);
+): Promise<Required<SearchResult>> {
+  const result = await searchRecentInteractions(
+    ctx,
+    { include: ["entries", "usage"], ...args },
+    deps,
+  );
+  return { entries: result.entries ?? [], totalUsage: result.totalUsage ?? ZERO_USAGE };
 }
 
 // ---------------------------------------------------------------------------
@@ -626,7 +633,7 @@ describe("searchRecentInteractions", () => {
     });
   });
 
-  describe("include_usage aggregate", () => {
+  describe("usage aggregate via include", () => {
     const usage = (over: Partial<SessionUsage> = {}): SessionUsage => ({
       inputTokens: 0,
       outputTokens: 0,
@@ -672,8 +679,8 @@ describe("searchRecentInteractions", () => {
         b: makeSessionFile({ sessionId: "b", createdAt: 2000, usage: usage({ inputTokens: 20 }) }),
         c: makeSessionFile({ sessionId: "c", createdAt: 3000, usage: usage({ inputTokens: 30 }) }),
       });
-      const { results, totalUsage } = await searchFull(deps, makeCtx(), { limit: 1 });
-      assert.equal(results.length, 1);
+      const { entries, totalUsage } = await searchFull(deps, makeCtx(), { limit: 1 });
+      assert.equal(entries.length, 1);
       assert.equal(totalUsage.inputTokens, 60);
     });
 
@@ -681,8 +688,8 @@ describe("searchRecentInteractions", () => {
       const deps = makeDeps({
         a: makeSessionFile({ sessionId: "a", createdAt: 1000, usage: usage({ inputTokens: 9 }) }),
       });
-      const { results, totalUsage } = await searchFull(deps, makeCtx(), { since: 99999 });
-      assert.equal(results.length, 0);
+      const { entries, totalUsage } = await searchFull(deps, makeCtx(), { since: 99999 });
+      assert.equal(entries.length, 0);
       assert.deepEqual(totalUsage, usage());
     });
 
@@ -705,7 +712,7 @@ describe("searchRecentInteractions", () => {
   });
 });
 
-describe("find_recent_interactions tool — include_usage result shape", () => {
+describe("find_recent_interactions tool — include projection result shape", () => {
   function toolWith(usageVal: SessionUsage) {
     const deps = makeDeps({
       a: makeSessionFile({ sessionId: "a", channelId: "C001", userId: "U001", usage: usageVal }),
@@ -721,20 +728,39 @@ describe("find_recent_interactions tool — include_usage result shape", () => {
     costUsd: 0.3,
   };
 
-  it("returns { entries, totalUsage } when include_usage is true", async () => {
+  it("returns an object with { entries } and no totalUsage by default", async () => {
+    const toolDef = toolWith(usage);
+    const parsed = parseToolResult(await toolDef.handler(toolArgs(), { sessionId: "t" }));
+    assert.ok(!Array.isArray(parsed));
+    assert.equal(parsed.entries.length, 1);
+    assert.equal(parsed.totalUsage, undefined);
+  });
+
+  it("returns { entries, totalUsage } when both sections are requested", async () => {
     const toolDef = toolWith(usage);
     const parsed = parseToolResult(
-      await toolDef.handler(toolArgs({ include_usage: true }), { sessionId: "t" }),
+      await toolDef.handler(toolArgs({ include: ["entries", "usage"] }), { sessionId: "t" }),
     );
-    assert.ok(!Array.isArray(parsed));
     assert.equal(parsed.entries.length, 1);
     assert.deepEqual(parsed.totalUsage, usage);
   });
 
-  it("returns a bare entries array (shape unchanged) when include_usage is false", async () => {
+  it("returns ONLY { totalUsage } and builds no entries for a usage-only request", async () => {
     const toolDef = toolWith(usage);
-    const parsed = parseToolResult(await toolDef.handler(toolArgs(), { sessionId: "t" }));
-    assert.ok(Array.isArray(parsed));
-    assert.equal(parsed.length, 1);
+    const parsed = parseToolResult(
+      await toolDef.handler(toolArgs({ include: ["usage"] }), { sessionId: "t" }),
+    );
+    assert.deepEqual(parsed.totalUsage, usage);
+    // The bounded-payload guarantee: no entries are built or returned on the usage-only path.
+    assert.deepEqual(Object.keys(parsed), ["totalUsage"]);
+  });
+
+  it("treats an empty include array as the entries-only default", async () => {
+    const toolDef = toolWith(usage);
+    const parsed = parseToolResult(
+      await toolDef.handler(toolArgs({ include: [] }), { sessionId: "t" }),
+    );
+    assert.equal(parsed.entries.length, 1);
+    assert.equal(parsed.totalUsage, undefined);
   });
 });
