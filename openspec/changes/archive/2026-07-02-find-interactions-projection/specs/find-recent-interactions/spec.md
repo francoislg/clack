@@ -1,8 +1,7 @@
 # find-recent-interactions Specification
 
-## Purpose
-Query tool that searches persisted Q&A session history, enabling Claude to recover context from prior interactions with privacy-aware filtering.
-## Requirements
+## MODIFIED Requirements
+
 ### Requirement: Find Recent Interactions Tool
 
 The system SHALL provide a `find_recent_interactions` query tool that searches persisted Q&A session history so Claude can recover context from prior interactions. The tool returns a lightweight summary per session derived from the session's `trigger` metadata and `messages[]` log; full transcripts are retrieved separately via `find_session_transcript`. The tool's top-level result is an object projected to the sections the caller requested via the `include` parameter (see the "Result projection via include sections" requirement); the entries section — when present — is an array of the per-session summaries described below.
@@ -100,20 +99,7 @@ The system SHALL provide a `find_recent_interactions` query tool that searches p
 - **AND** sessions older than this cap are not considered for results (they remain on disk for other tools)
 - **AND** the cap exists to bound query cost as the session corpus grows
 
-### Requirement: Filter by minimum creation time
-
-The system SHALL accept an optional `since` parameter on `find_recent_interactions` — an epoch-millisecond lower bound on `createdAt`. When provided, only sessions created at or after `since` are returned. This lets a caller scope results to a time window (e.g. an idler reporting window) without paging.
-
-#### Scenario: Sessions before `since` are excluded
-
-- **WHEN** Claude calls `find_recent_interactions` with a `since` timestamp
-- **THEN** only sessions whose `createdAt >= since` are returned
-- **AND** all other filters (channel, trigger type, privacy) still apply
-
-#### Scenario: No `since` returns the full recent window
-
-- **WHEN** Claude calls `find_recent_interactions` without `since`
-- **THEN** results are not bounded below by creation time (existing behavior)
+## ADDED Requirements
 
 ### Requirement: Result projection via include sections
 
@@ -157,3 +143,10 @@ Requesting `"usage"` without `"entries"` SHALL compute and return `totalUsage` a
 - **WHEN** Claude calls `find_recent_interactions` with `"usage"` in `include` and no session matches the filters
 - **THEN** the result includes `totalUsage` with every component (`inputTokens`, `outputTokens`, `cacheReadTokens`, `cacheCreationTokens`, `costUsd`) equal to `0`
 
+## REMOVED Requirements
+
+### Requirement: Optional usage aggregate
+
+**Reason**: Replaced by the `include` projection selector. The `include_usage` boolean could only ADD `totalUsage` on top of the (always-returned) entries; it gave no way to request the aggregate *instead of* the entries. Because entry `firstQuestion` values can be very large (e.g. an idler work-fire prompt embeds the full fetch-instructions file), the entries pushed the combined result past the SDK tool-result token cap, making `totalUsage` unreadable.
+
+**Migration**: Callers that previously passed `include_usage: true` to read `totalUsage` SHALL pass `include: ["usage"]` (aggregate only) or `include: ["entries", "usage"]` (both). Callers that omitted `include_usage` are unaffected — the default `include: ["entries"]` preserves entries-only behavior.

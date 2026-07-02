@@ -8,11 +8,13 @@ describe("buildSummaryPrompt", () => {
     expect(prompt).toContain('channel: "C0REPORT"');
   });
 
-  it("instructs a scoped usage query via find_recent_interactions", () => {
+  it("instructs a scoped usage-only query via find_recent_interactions", () => {
     expect(prompt).toContain("find_recent_interactions");
-    expect(prompt).toContain("include_usage");
+    expect(prompt).toContain('include: ["usage"]');
     expect(prompt).toContain('trigger_type: "scheduled"');
     expect(prompt).toContain("since");
+    // Explains WHY usage-only is safe (bounded result) so the instruction isn't lost on reword.
+    expect(prompt).toContain("keeps the result small");
   });
 
   it("instructs reporting a spend line and omitting it only on failure", () => {
