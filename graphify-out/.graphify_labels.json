@@ -293,5 +293,7 @@
   "291": "Worktree Pools",
   "292": "Zod Validation",
   "293": "tester-smoke.sh",
-  "295": "002.ts"
+  "294": "remember.ts",
+  "295": "002.ts",
+  "296": "RevealSlackDeps"
 }

@@ -1,4 +1,5 @@
 import type { App } from "@slack/bolt";
+import { isChannellessChannelId } from "../channelless.js";
 import { logger } from "../logger.js";
 
 export interface ChannelInfo {
@@ -25,6 +26,12 @@ export async function getChannelInfo(
   const cached = channelCache.get(channelId);
   if (cached) {
     return cached;
+  }
+
+  // Channelless cron dispatch synthesizes a `channelless:<jobId>` sentinel that is not a
+  // real Slack channel — skip the API call (it would 404 with channel_not_found).
+  if (isChannellessChannelId(channelId)) {
+    return undefined;
   }
 
   // DM channels start with D — skip the API call

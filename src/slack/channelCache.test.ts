@@ -41,6 +41,14 @@ describe("channelCache", () => {
     );
   });
 
+  it("returns undefined for a channelless sentinel without an API call", async () => {
+    const client = makeClient({ ok: true, channel: { name: "general" } });
+    const result = await getChannelInfo(client, "channelless:37db6a68-4c9");
+
+    assert.equal(result, undefined);
+    assert.equal(vi.mocked(client.conversations.info).mock.calls.length, 0);
+  });
+
   it("returns undefined on API error", async () => {
     const client = {
       conversations: {
