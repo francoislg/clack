@@ -6,6 +6,7 @@ import {
   checkSessionCompletion,
   runCompletionCheck,
   runIdleSweep,
+  runQueueDrainBackstop,
   startCompletionMonitor,
   stopCompletionMonitor,
   setMonitorDeps,
@@ -595,10 +596,12 @@ function makeWorkerRecord(over: Partial<Worker> = {}): Worker {
 function makeSweepPool(over: {
   candidates?: Worker[];
   detachIfClean?: (w: Worker, o?: { treatUnpushedAsDirty?: boolean }) => Promise<boolean>;
+  pumpQueuedRepos?: () => void;
 }): IdleSweepPool {
   return {
     idleSweepCandidates: async () => over.candidates ?? [],
     detachIfClean: over.detachIfClean ?? (async () => true),
+    pumpQueuedRepos: over.pumpQueuedRepos ?? (() => {}),
   };
 }
 
@@ -950,5 +953,30 @@ describe("runIdleSweep", () => {
 
     await runIdleSweep();
     assert.equal(detachCalled, false);
+  });
+});
+
+describe("runQueueDrainBackstop", () => {
+  it("is a no-op when reusable mode is off (getReusablePool returns null)", () => {
+    setMonitorDeps(makeDeps({ getReusablePool: () => null }));
+    assert.doesNotThrow(() => runQueueDrainBackstop());
+  });
+
+  it("delegates to the pool's queue drain when reusable mode is on", () => {
+    let pumped = 0;
+    setMonitorDeps(
+      makeDeps({
+        getReusablePool: () =>
+          makeSweepPool({
+            pumpQueuedRepos: () => {
+              pumped++;
+            },
+          }),
+      }),
+    );
+
+    runQueueDrainBackstop();
+
+    assert.equal(pumped, 1);
   });
 });

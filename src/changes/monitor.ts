@@ -16,13 +16,15 @@ import { poolWorkerForChange } from "./poolWorker.js";
 import type { ReleaseReason, Worker, WorkerPool } from "../workers/types.js";
 
 /**
- * Structural surface of `ReusablePool` used by `runIdleSweep`. Defined here so
- * tests can stub the sweep behavior without standing up a real pool. The class
- * implements this implicitly via its public methods.
+ * Structural surface of `ReusablePool` used by the monitor tick (idle sweep +
+ * queue-drain backstop). Defined here so tests can stub the behavior without
+ * standing up a real pool. The class implements this implicitly via its public
+ * methods.
  */
 export interface IdleSweepPool {
   idleSweepCandidates(now?: Date): Promise<Worker[]>;
   detachIfClean(worker: Worker, options?: { treatUnpushedAsDirty?: boolean }): Promise<boolean>;
+  pumpQueuedRepos(): void;
 }
 
 // ============================================================================
@@ -290,6 +292,17 @@ export async function runCompletionCheck(): Promise<void> {
   }
 }
 
+/**
+ * Backstop the reusable pool's queue drain. Every idle-transition already drains its
+ * own queue, so this is a no-op unless one failed to — in which case the periodic tick
+ * recovers the stranded waiter by handing it an idle worker. Reusable-mode only.
+ */
+export function runQueueDrainBackstop(): void {
+  const pool = deps.getReusablePool();
+  if (!pool) return;
+  pool.pumpQueuedRepos();
+}
+
 // ============================================================================
 // Scheduler
 // ============================================================================
@@ -334,6 +347,11 @@ export function startCompletionMonitor(): void {
       await runIdleSweep();
     } catch (error) {
       logger.error("Idle sweep failed:", error);
+    }
+    try {
+      runQueueDrainBackstop();
+    } catch (error) {
+      logger.error("Queue drain backstop failed:", error);
     }
   };
 
