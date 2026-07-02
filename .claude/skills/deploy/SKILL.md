@@ -34,7 +34,7 @@ Monitor(
   description: "deploy progress",
   timeout_ms: 900000,    # 15 min — safely above the script's 5-min readiness wait
   persistent: false,
-  command: "tail -f <OUTPUT_FILE> | grep -E --line-buffered \"✓|✗|ERROR|error:|failed|denied|no space|Artifact Registry|Pre-pulling|Draining|Bot idle|Drain timeout|Drain check skipped|Stopping old|Waiting for|Bot is ready|downtime|Step [0-9]+/[0-9]+ : FROM|Successfully built|Successfully tagged|^DONE|New image pulled|Total reclaimed\""
+  command: "tail -f <OUTPUT_FILE> | grep -E --line-buffered \"✓|✗|ERROR|error:|failed|denied|no space|Artifact Registry|Pre-pulling|Draining|Bot idle|Drain timeout|Drain check skipped|Stopping old|Waiting for|Bot is ready|downtime|Step [0-9]+/[0-9]+ : FROM|Successfully built|Successfully tagged|^DONE|New image pulled|Total reclaimed|worker-settings|Worker settings|overlay detected\""
 )
 ```
 
@@ -49,12 +49,17 @@ One sentence per event, matching the marker:
 | Event substring | Reply |
 |---|---|
 | `Creating Artifact Registry repo` | `Creating registry repo (first AR deploy).` |
+| `Custom overlay detected` | `Overlay build (base + custom layers).` |
+| `Base image pushed` | `Base pushed; building overlay.` |
+| `Overlay image pushed` | `Overlay pushed.` |
 | `Step 1/32 : FROM ... Step 8/32 : FROM` | `Build phase.` |
 | `Successfully built <sha>` | `Built.` |
 | `^DONE` (after build) | `Pushed.` |
 | `Pre-pulling new image (bot still running)` | `Pre-pulling.` |
 | `Total reclaimed space: <X> GB` | `<X> GB reclaimed.` |
 | `New image pulled` | `Pulled.` |
+| `Worker settings pushed` | `Worker settings synced.` |
+| `No local data/worker-settings.json` | `No local worker settings; VM copy untouched.` |
 | `Draining: (N runs, M workers) waiting...` | `Draining — N runs, M workers active.` |
 | `Bot idle — proceeding` | `Drained.` |
 | `Drain timeout — still busy` | `Drain timed out; swapping anyway.` |
