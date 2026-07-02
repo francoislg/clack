@@ -295,5 +295,10 @@
   "293": "tester-smoke.sh",
   "294": "remember.ts",
   "295": "002.ts",
-  "296": "RevealSlackDeps"
+  "296": "RevealSlackDeps",
+  "297": "ClackSdkMemoryData",
+  "298": "SubmitResponseDeps",
+  "299": "archive.ts",
+  "300": "PluginLogger",
+  "301": "workerBashGuard.ts"
 }

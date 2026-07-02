@@ -84,11 +84,13 @@ describe("configFieldSchemas", () => {
   });
 
   describe("REPO_FILE_ENUM", () => {
-    it("accepts the three editable per-repo markdown files", () => {
+    it("accepts the five editable per-repo markdown files", () => {
       for (const file of [
         "changes_instructions.md",
         "worktree_setup_instructions.md",
         "worktree_install_instructions.md",
+        "test_instructions.md",
+        "tester_data_setup_instructions.md",
       ]) {
         assert.equal(REPO_FILE_ENUM.safeParse(file).success, true, `should accept ${file}`);
       }

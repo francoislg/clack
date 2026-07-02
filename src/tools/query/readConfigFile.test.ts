@@ -199,6 +199,23 @@ describe("readConfigFile tool", () => {
     );
   });
 
+  it("reads the tester instruction files via the repo field", async () => {
+    for (const file of ["test_instructions.md", "tester_data_setup_instructions.md"]) {
+      const mockReadInstructionFile = vi.fn<ReadConfigFileDeps["readInstructionFile"]>(() => ({
+        default_content: null,
+        custom_content: "tester override",
+      }));
+      const deps = makeDeps({ readInstructionFile: mockReadInstructionFile });
+
+      const result = await callTool(makeCtx(), deps, { repo: "applauz-monorepo", file });
+
+      const parsed = parseToolResult(result);
+      assert.equal(parsed.file, `applauz-monorepo/${file}`);
+      assert.equal(parsed.custom_content, "tester override");
+      assert.equal(mockReadInstructionFile.mock.calls[0][0], `applauz-monorepo/${file}`);
+    }
+  });
+
   it("errors for an unknown repo without reading", async () => {
     const mockReadInstructionFile = vi.fn<ReadConfigFileDeps["readInstructionFile"]>(() => ({
       default_content: "x",
