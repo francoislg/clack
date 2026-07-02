@@ -8,6 +8,8 @@ dist/
 data/config.json
 data/mcp.json
 data/worker-settings.json
+data/docker/*
+!data/docker/Dockerfile.custom.example
 data/*.md
 data/repositories/
 data/sessions/

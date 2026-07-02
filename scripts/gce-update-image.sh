@@ -29,9 +29,35 @@ gcloud services enable artifactregistry.googleapis.com --quiet 2>/dev/null || tr
 require_ar_repo
 
 cd "$PROJECT_DIR"
-gcloud builds submit --tag "$IMAGE_NAME" --quiet
 
-echo -e "${GREEN}✓ Image pushed to $IMAGE_NAME${NC}"
+# Optional per-instance image overlay (see docs/worker-settings.md). When
+# data/docker/Dockerfile.custom (gitignored) exists, the generic image is
+# pushed as :base and the overlay — built FROM it with data/docker/ as the
+# build context — becomes the deployed :latest. Without the file, behavior
+# is identical to before: one generic build straight to :latest.
+CUSTOM_DOCKERFILE="$DATA_DIR/docker/Dockerfile.custom"
+if [ -f "$CUSTOM_DOCKERFILE" ]; then
+    BASE_IMAGE_NAME="${IMAGE_NAME%:*}:base"
+    echo -e "${YELLOW}Custom overlay detected (data/docker/Dockerfile.custom)${NC}"
+    gcloud builds submit --tag "$BASE_IMAGE_NAME" --quiet
+    echo -e "${GREEN}✓ Base image pushed to $BASE_IMAGE_NAME${NC}"
+
+    # gcloud's --tag shorthand requires the context's dockerfile to be named
+    # `Dockerfile`; a generated config lets us keep the Dockerfile.custom name.
+    OVERLAY_CFG=$(mktemp)
+    cat > "$OVERLAY_CFG" <<EOF
+steps:
+- name: 'gcr.io/cloud-builders/docker'
+  args: ['build', '-f', 'Dockerfile.custom', '-t', '$IMAGE_NAME', '.']
+images: ['$IMAGE_NAME']
+EOF
+    gcloud builds submit "$DATA_DIR/docker" --config="$OVERLAY_CFG" --quiet
+    rm -f "$OVERLAY_CFG"
+    echo -e "${GREEN}✓ Overlay image pushed to $IMAGE_NAME${NC}"
+else
+    gcloud builds submit --tag "$IMAGE_NAME" --quiet
+    echo -e "${GREEN}✓ Image pushed to $IMAGE_NAME${NC}"
+fi
 echo ""
 
 # Runtime status endpoint (published to the VM's loopback in the run command below)
@@ -64,6 +90,29 @@ gcloud compute ssh "$INSTANCE_NAME" --zone="$ZONE" --quiet --command="
 "
 
 echo -e "${GREEN}✓ New image pulled${NC}"
+echo ""
+
+# ============================================
+# Phase 1.2: Sync worker settings (optional operator guardrails)
+# ============================================
+# data/worker-settings.json (gitignored) is an operator-provided native Claude
+# Code settings file injected into worker-mode Claude — see
+# docs/worker-settings.md. It is operator-owned and never edited VM-side, so
+# the local copy is the source of truth and travels with every deploy. When
+# absent locally, the VM copy (if any) is deliberately left untouched so a
+# deploy from a fresh checkout doesn't silently disable guardrails.
+if [ -f "$DATA_DIR/worker-settings.json" ]; then
+    echo -e "${YELLOW}Pushing worker settings...${NC}"
+    tar -C "$DATA_DIR" -cf - worker-settings.json \
+        | gcloud compute ssh "$INSTANCE_NAME" --zone="$ZONE" --quiet --command="
+            set -e
+            sudo tar -C '$REMOTE_DATA_DIR' -xf -
+            sudo chown 1001:1001 '$REMOTE_DATA_DIR/worker-settings.json'
+        "
+    echo -e "${GREEN}✓ Worker settings pushed${NC}"
+else
+    echo "No local data/worker-settings.json — VM copy (if any) left untouched."
+fi
 echo ""
 
 # ============================================

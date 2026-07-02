@@ -23,3 +23,8 @@ data/default_configuration
 # Examples:
 # data/plugins/my-org-plugin
 # data/plugins/another-code-only-plugin
+
+# NOTE: worker guardrail hooks need no entries here — the standard deploy
+# (scripts/gce-update-image.sh) pushes data/worker-settings.json automatically,
+# and hook binaries are baked into the image via data/docker/Dockerfile.custom.
+# Full guide: docs/worker-settings.md
