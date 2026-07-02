@@ -169,7 +169,62 @@ gcloud compute ssh "$INSTANCE_NAME" --zone="$ZONE" --quiet --command="
         -p 127.0.0.1:${STATUS_PORT}:${STATUS_PORT} \\
         -v $DATA_MOUNT_POINT/data:/app/data \\
         $IMAGE_NAME
+
+    # The pre-pull prune runs while the OLD image is still tagged and in use, so
+    # the replaced image survives as ~1.5 GB of dangling garbage until the NEXT
+    # deploy. Prune again now that the swap has freed it — this keeps the small
+    # boot disk at ~55% steady state instead of ~85%.
+    docker image prune -f
 "
+
+# ============================================
+# Phase 2.5: Tester sidecar (opt-in via config.tester.enabled)
+# ============================================
+# COS has no docker compose, so this mirrors docker-compose.tester.yml as a
+# plain `docker run` and joins both containers to a shared `clack` docker
+# network for container-name DNS (config.tester.sidecarUrl =
+# http://clack-playwright:8931/mcp, config.tester.appHost = clack). The local
+# config is the source of truth for whether the feature is on; disabled or
+# absent removes any stale sidecar so it doesn't hold RAM on the VM.
+TESTER_ENABLED=$(node --input-type=module -e "
+import { readFileSync } from 'node:fs';
+const c = JSON.parse(readFileSync('$DATA_DIR/config.json', 'utf-8'));
+console.log(c.tester?.enabled === true ? 'true' : 'false');
+" 2>/dev/null || echo false)
+
+if [ "$TESTER_ENABLED" = "true" ]; then
+    echo -e "${YELLOW}Tester enabled — ensuring Playwright sidecar...${NC}"
+    tar -C "$PROJECT_DIR/docker/clack-playwright" -cf - config.json \
+        | gcloud compute ssh "$INSTANCE_NAME" --zone="$ZONE" --quiet --command="
+            set -e
+            sudo mkdir -p '$REMOTE_DATA_DIR/tester/recordings' '$DATA_MOUNT_POINT/clack-playwright'
+            sudo chmod 777 '$REMOTE_DATA_DIR/tester/recordings'
+            sudo tar -C '$DATA_MOUNT_POINT/clack-playwright' -xf -
+            docker network create clack 2>/dev/null || true
+            docker pull mcr.microsoft.com/playwright/mcp:latest
+            docker rm -f clack-playwright 2>/dev/null || true
+            docker run -d \\
+                --name clack-playwright \\
+                --restart unless-stopped \\
+                --network clack \\
+                -v '$REMOTE_DATA_DIR/tester/recordings:/recordings' \\
+                -v '$DATA_MOUNT_POINT/clack-playwright/config.json:/etc/clack-playwright/config.json:ro' \\
+                mcr.microsoft.com/playwright/mcp:latest \\
+                --headless --host 0.0.0.0 --port 8931 --allowed-hosts '*' \\
+                --config /etc/clack-playwright/config.json \\
+                --output-max-size 2000000000
+            docker network connect clack clack 2>/dev/null || true
+        "
+    echo -e "${GREEN}✓ Playwright sidecar running (shared docker network: clack)${NC}"
+else
+    gcloud compute ssh "$INSTANCE_NAME" --zone="$ZONE" --quiet --command="
+        if docker ps -a --format '{{.Names}}' | grep -q '^clack-playwright\$'; then
+            docker rm -f clack-playwright
+            echo 'Tester disabled — removed stale clack-playwright sidecar.'
+        fi
+    " || true
+fi
+echo ""
 
 # ============================================
 # Phase 3: Wait for 'Clack is ready' (downtime ends here)

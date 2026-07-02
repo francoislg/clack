@@ -16,6 +16,7 @@ data/sessions/
 data/error-reports/
 data/worktrees/
 data/worktree-sessions/
+data/tester/
 data/state/
 data/cache/
 data/.claude/

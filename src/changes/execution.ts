@@ -1,7 +1,11 @@
 import { clackSession } from "../claude/query.js";
 import { existsSync, readFileSync } from "node:fs";
 import { simpleGit } from "simple-git";
-import { getConfig, findRepoByName, getWorkerSettingsPath } from "../config.js";
+import { getConfig, findRepoByName, getWorkerSettingsPath, type Config } from "../config.js";
+import { t } from "../i18n/t.js";
+import { buildTesterSystemPrompt, buildTesterUserPrompt } from "../tester/prompt.js";
+import { teardownAppProcess } from "../tester/processTeardown.js";
+import { buildPlaywrightMcpServerConfig } from "../tester/sidecar.js";
 import type { McpServerConfig } from "@anthropic-ai/claude-agent-sdk";
 import { errorMessage } from "../errors.js";
 import { resolveInstructionFile } from "../instructions.js";
@@ -396,6 +400,10 @@ export async function executeChange(opts: ExecuteChangeOptions): Promise<Executi
   } = opts;
   const config = getConfig();
 
+  if (plan.kind === "test") {
+    return executeTest(opts, config);
+  }
+
   // Build the allowed tools list
   const defaultTools = ["Read", "Glob", "Grep", "Write", "Edit", "Bash", "ToolSearch"];
   const additionalTools = config.changesWorkflow?.additionalAllowedTools ?? [];
@@ -541,6 +549,87 @@ Follow the workflow steps in the system prompt. Report your final status using t
     sdkSessionId: capturedSdkSessionId,
     ...(stagedSpinoffs.length > 0 && { stagedSpinoffs }),
   };
+}
+
+/**
+ * Tester run: boot the app from the (already checked-out) PR branch, drive it via the
+ * Playwright MCP sidecar, record, upload, and narrate. Differences from an implement run:
+ * reduced-privilege toolbelt (kind: "test"), no authenticated-push-remote refresh (git
+ * stays read-only — `runClaude` directly, not `runClaudeInWorktree`), the Playwright MCP
+ * attached alongside the clack server, success judged by the run itself (no HEAD/PR
+ * no-op check), and guaranteed app-process teardown on every exit path.
+ */
+async function executeTest(opts: ExecuteChangeOptions, config: Config): Promise<ExecutionResult> {
+  const { plan, worktree, request, sessionId, onEvent, abortController, onHandle } = opts;
+
+  const tester = config.tester;
+  if (!tester?.enabled || !tester.sidecarUrl) {
+    return { success: false, error: t("tester.not_enabled") };
+  }
+
+  const requester = request.userDisplayName?.trim() || `Slack user ${request.userId}`;
+  const promptOpts = {
+    description: plan.description,
+    branchName: plan.branchName,
+    repoName: worktree.repoName,
+    requester,
+    tester,
+  };
+
+  const workerCtx = buildWorkerContext({
+    worktreePath: worktree.worktreePath,
+    branchName: plan.branchName,
+    repoName: worktree.repoName,
+    repoUrl: "",
+    channelId: request.channel,
+    threadTs: request.threadTs ?? request.messageTs,
+    sessionId,
+    kind: "test",
+    config,
+  });
+  const testerTools = buildClackTools(workerCtx);
+
+  let capturedSdkSessionId: string | undefined;
+  try {
+    const result = await runClaude({
+      prompt: buildTesterUserPrompt(promptOpts),
+      cwd: worktree.worktreePath,
+      systemPrompt: buildTesterSystemPrompt(promptOpts),
+      allowedTools: ["Read", "Glob", "Grep", "Bash", "ToolSearch"],
+      disallowedTools: ["Task", "TaskOutput", "Write", "Edit"],
+      branchName: plan.branchName,
+      mcpServers: {
+        clack: testerTools.mcpServer,
+        playwright: buildPlaywrightMcpServerConfig(tester.sidecarUrl),
+      },
+      onEvent,
+      abortController,
+      ...(onHandle && { onHandle }),
+      onSessionId: (id) => {
+        capturedSdkSessionId = id;
+      },
+    });
+
+    if (result.usage) {
+      await addSessionUsage(sessionId, result.usage);
+    }
+
+    if (!result.success) {
+      return {
+        success: false,
+        error: result.error ?? "Test run failed",
+        sdkSessionId: capturedSdkSessionId,
+      };
+    }
+
+    return {
+      success: true,
+      summary: "Test run complete",
+      sdkSessionId: capturedSdkSessionId,
+    };
+  } finally {
+    await teardownAppProcess(worktree.worktreePath);
+  }
 }
 
 /**

@@ -1,0 +1,57 @@
+{
+  "default": { "en": "Driving the test browser", "fr": "Pilotage du navigateur de test" },
+  "group": { "en": "Driving the test browser", "fr": "Pilotage du navigateur de test" },
+  "tools": {
+    "browser_navigate": {
+      "label": { "en": "Opening {url}", "fr": "Ouverture de {url}" }
+    },
+    "browser_navigate_back": {
+      "label": { "en": "Going back", "fr": "Retour en arrière" }
+    },
+    "browser_click": {
+      "label": { "en": "Clicking {element}", "fr": "Clic sur {element}" }
+    },
+    "browser_type": {
+      "label": { "en": "Typing into {element}", "fr": "Saisie dans {element}" }
+    },
+    "browser_fill_form": {
+      "label": { "en": "Filling a form", "fr": "Remplissage d'un formulaire" }
+    },
+    "browser_select_option": {
+      "label": { "en": "Selecting {element}", "fr": "Sélection de {element}" }
+    },
+    "browser_hover": {
+      "label": { "en": "Hovering {element}", "fr": "Survol de {element}" }
+    },
+    "browser_press_key": {
+      "label": { "en": "Pressing {key}", "fr": "Appui sur {key}" }
+    },
+    "browser_snapshot": {
+      "label": { "en": "Inspecting the page", "fr": "Inspection de la page" }
+    },
+    "browser_take_screenshot": {
+      "label": { "en": "Taking a screenshot", "fr": "Capture d'écran" }
+    },
+    "browser_wait_for": {
+      "label": { "en": "Waiting for the page", "fr": "Attente de la page" }
+    },
+    "browser_close": {
+      "label": {
+        "en": "Closing the browser (finalizing video)",
+        "fr": "Fermeture du navigateur (finalisation de la vidéo)"
+      }
+    },
+    "browser_tabs": {
+      "label": { "en": "Managing browser tabs", "fr": "Gestion des onglets" }
+    },
+    "browser_console_messages": {
+      "label": { "en": "Reading console messages", "fr": "Lecture des messages console" }
+    },
+    "browser_network_requests": {
+      "label": { "en": "Reading network requests", "fr": "Lecture des requêtes réseau" }
+    },
+    "browser_evaluate": {
+      "label": { "en": "Evaluating script on the page", "fr": "Évaluation d'un script sur la page" }
+    }
+  }
+}

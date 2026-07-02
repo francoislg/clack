@@ -142,7 +142,10 @@ export async function triggerChangeWorkflow(
         channel: streamChannel,
         threadTs: streamThreadTs,
         userId,
-        thinkingTitle: t("streamer.working_on", { branch: intent.branch }),
+        thinkingTitle:
+          intent.kind === "test"
+            ? t("streamer.testing", { branch: intent.branch })
+            : t("streamer.working_on", { branch: intent.branch }),
       });
   await streamer.start();
 
@@ -165,6 +168,7 @@ export async function triggerChangeWorkflow(
       branchName: intent.branch,
       description: intent.description,
       targetRepo: intent.repo,
+      ...(intent.kind === "test" && { kind: "test" as const }),
       ...(intent.plan && { plan: intent.plan }),
       ...(intent.resumeRemoteBranch && { resumeRemoteBranch: true }),
     };

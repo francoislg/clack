@@ -277,6 +277,37 @@ export interface CronConfig {
   maxRunHistory?: number;
 }
 
+/**
+ * Tester feature ("test this PR" runs). Fully inert when absent or `enabled: false`:
+ * the `run_test` action tool is not registered, no tester toolbelt exists, and no
+ * Home Tab surface renders. When enabled, a tester run drives the app under test via
+ * the Playwright MCP server running in the opt-in sidecar container.
+ */
+export interface TesterConfig {
+  enabled: boolean;
+  /**
+   * URL of the Playwright MCP sidecar's HTTP endpoint, e.g.
+   * "http://clack-playwright:8931/mcp". Required when `enabled` is true.
+   */
+  sidecarUrl?: string;
+  /**
+   * Directory where the sidecar writes session recordings — the shared volume's
+   * mount point in THIS container. Required when `enabled` is true.
+   */
+  recordingsDir?: string;
+  /**
+   * Hostname of the main Clack container AS SEEN FROM THE SIDECAR (the shared Docker
+   * network name the sidecar's browser uses to reach the app under test). Default "clack".
+   */
+  appHost?: string;
+  /** Max simultaneous tester runs (each adds a browser + the app dev server). Default 1. */
+  maxConcurrent?: number;
+}
+
+export const DEFAULT_TESTER_APP_HOST = "clack";
+
+export const DEFAULT_TESTER_MAX_CONCURRENT = 1;
+
 export interface Config {
   slack: SlackConfig;
   slackApp?: SlackAppConfig;
@@ -337,6 +368,10 @@ export interface Config {
    * Absent → only the built-in keyword list applies.
    */
   admin?: AdminConfig;
+  /**
+   * Tester feature ("test this PR"). Absent or disabled → fully inert. See {@link TesterConfig}.
+   */
+  tester?: TesterConfig;
   /**
    * Workspace-global user-facing language. BCP-47 short code. When absent or `"en"`,
    * the bot behaves identically to its pre-localization state. When set to `"fr"`,

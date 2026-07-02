@@ -6,6 +6,7 @@ import type { SlackImageFile, SlackFile } from "../slack/slackFileBase.js";
 import type { QueryToolContext, WorkerToolContext, DeliverFn, DeliveryControl } from "./types.js";
 import type { McpServerManager } from "../claude/mcpServerManager.js";
 import type { SkillsManager } from "../claude/skillsManager.js";
+import type { ChangeKind } from "../changes/types.js";
 
 export interface BuildQueryContextParams {
   userId: string;
@@ -84,6 +85,8 @@ export interface BuildWorkerContextParams {
   channelId: string;
   threadTs: string;
   sessionId: string;
+  /** Run kind: `"test"` selects the tester toolbelt. Absent reads as `"implement"`. */
+  kind?: ChangeKind;
   silent?: boolean;
   config: Config;
   requirePRReviewers?: boolean;

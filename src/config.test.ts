@@ -1542,3 +1542,109 @@ describe("assistant config", () => {
     );
   });
 });
+
+// ---------------------------------------------------------------------------
+// tester config
+// ---------------------------------------------------------------------------
+
+describe("tester config", () => {
+  const originalCwd = process.cwd();
+
+  beforeEach(() => {
+    if (existsSync(tmpBase)) rmSync(tmpBase, { recursive: true });
+    mkdirSync(tmpBase, { recursive: true });
+    process.chdir(tmpBase);
+    writeSlackAuth();
+  });
+
+  afterEach(() => {
+    process.chdir(originalCwd);
+  });
+
+  it("is undefined when the block is absent", () => {
+    writeConfig(minimalConfig());
+    const cfg = loadConfig(configPath, true);
+    assert.equal(cfg.tester, undefined);
+  });
+
+  it("accepts { enabled: false } without sidecar fields", () => {
+    writeConfig(minimalConfig({ tester: { enabled: false } }));
+    const cfg = loadConfig(configPath, true);
+    assert.deepEqual(cfg.tester, { enabled: false });
+  });
+
+  it("accepts a fully-populated enabled block", () => {
+    writeConfig(
+      minimalConfig({
+        tester: {
+          enabled: true,
+          sidecarUrl: "http://clack-playwright:8931/mcp",
+          recordingsDir: "/recordings",
+          maxConcurrent: 2,
+        },
+      }),
+    );
+    const cfg = loadConfig(configPath, true);
+    assert.deepEqual(cfg.tester, {
+      enabled: true,
+      sidecarUrl: "http://clack-playwright:8931/mcp",
+      recordingsDir: "/recordings",
+      maxConcurrent: 2,
+    });
+  });
+
+  it("rejects a non-object tester section", () => {
+    writeConfig(minimalConfig({ tester: "nope" }));
+    assert.throws(
+      () => loadConfig(configPath, true),
+      (err: unknown) => err instanceof Error && err.message.includes("tester"),
+    );
+  });
+
+  it("rejects non-boolean enabled", () => {
+    writeConfig(minimalConfig({ tester: { enabled: "yes" } }));
+    assert.throws(
+      () => loadConfig(configPath, true),
+      (err: unknown) => err instanceof Error && err.message.includes("tester.enabled"),
+    );
+  });
+
+  it("rejects enabled: true without sidecarUrl/recordingsDir", () => {
+    writeConfig(minimalConfig({ tester: { enabled: true } }));
+    assert.throws(
+      () => loadConfig(configPath, true),
+      (err: unknown) =>
+        err instanceof Error &&
+        err.message.includes("tester.sidecarUrl") &&
+        err.message.includes("required"),
+    );
+  });
+
+  it("rejects a non-positive maxConcurrent", () => {
+    writeConfig(
+      minimalConfig({
+        tester: {
+          enabled: true,
+          sidecarUrl: "http://sidecar/mcp",
+          recordingsDir: "/recordings",
+          maxConcurrent: 0,
+        },
+      }),
+    );
+    assert.throws(
+      () => loadConfig(configPath, true),
+      (err: unknown) => err instanceof Error && err.message.includes("tester.maxConcurrent"),
+    );
+  });
+
+  it("rejects unknown keys", () => {
+    writeConfig(minimalConfig({ tester: { enabled: false, uploadTargets: ["slack"] } }));
+    assert.throws(
+      () => loadConfig(configPath, true),
+      (err: unknown) =>
+        err instanceof Error &&
+        err.message.includes("tester") &&
+        err.message.includes("uploadTargets"),
+    );
+  });
+});

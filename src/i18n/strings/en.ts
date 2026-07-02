@@ -281,6 +281,15 @@ export const en = {
     ":hourglass_flowing_sand: Queued at position {position} for a worker on `{repo}`.",
   "changes.create_workspace_failed": "Failed to create workspace: {error}",
 
+  // ─── Tester ("test this PR" runs) ────────────────────────────────────
+  "tester.not_enabled":
+    "The tester feature is not enabled or not fully configured (see `config.tester`).",
+  "tester.sidecar_unreachable":
+    ":warning: The Playwright sidecar is unreachable at `{url}` — the test was not started. Is the `clack-playwright` container running?",
+  "tester.busy":
+    ":hourglass_flowing_sand: A test run is already in progress. Try again when it finishes.",
+  "homeTab.workers.testing_count": "{count} testing",
+
   // ─── Spinoff (split a slice into a separate sibling PR) ─────────────
   "changes.spinoff.patch_apply_failed":
     "Couldn't apply the spun-off changes from `{path}`: {error}. The patch was kept there for recovery.",
@@ -446,6 +455,7 @@ export const en = {
   // ─── Streaming task-card titles ────────────────────────────────────
   "streamer.analyzing": "Analyzing…",
   "streamer.working_on": "Working on {branch}",
+  "streamer.testing": "Testing {branch}",
   "streamer.tool_label_checking": "Checking {name}",
   "streamer.tool_label_running": "Running {tool}",
 

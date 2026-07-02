@@ -6,6 +6,7 @@ import { loadRoles, getRole, hasOwner, type UserRole } from "../roles.js";
 import { canEditConfig, canManageRoles, canRequestChanges } from "../permissions.js";
 import { getActiveWorkers } from "../changes/activeState.js";
 import { getWorkerPoolSnapshot, type WorkerPoolSnapshot } from "../workers/index.js";
+import { getActiveTesterRuns, type ActiveTesterRun } from "../tester/concurrency.js";
 import { listInstructionFiles } from "../configurationFiles.js";
 import { getReactionDelivery, getUserPreference } from "../userPreferences.js";
 import { getVisibleRepos, canWriteRepo } from "../repoAccess.js";
@@ -52,6 +53,7 @@ export interface HomeTabDeps {
   canRequestChanges: (role: UserRole) => boolean;
   getActiveWorkers: () => ActiveWorker[];
   getWorkerPoolSnapshot: () => WorkerPoolSnapshot;
+  getActiveTesterRuns: () => ActiveTesterRun[];
   listInstructionFiles: () => InstructionFileListing;
   getReactionDelivery: (userId: string) => Promise<string>;
   getUserPreference: <K extends keyof UserPreferences>(
@@ -86,6 +88,7 @@ export const defaultHomeTabDeps: HomeTabDeps = {
   canRequestChanges,
   getActiveWorkers,
   getWorkerPoolSnapshot,
+  getActiveTesterRuns,
   listInstructionFiles,
   getReactionDelivery,
   getUserPreference,
@@ -742,6 +745,22 @@ export function buildWorkersSection(deps: HomeTabDeps = defaultHomeTabDeps): Kno
     type: "header",
     text: { type: "plain_text", text: t("home.workers.header"), emoji: true },
   });
+
+  // Active tester runs get a context line (e.g. "1 testing — my-repo `feature/x`") in
+  // both pool modes, so an in-flight QA session is visible at a glance.
+  const testerRuns = deps.getActiveTesterRuns();
+  if (testerRuns.length > 0) {
+    const details = testerRuns.map((run) => `${run.repo} \`${run.branch}\``).join(", ");
+    blocks.push({
+      type: "context",
+      elements: [
+        {
+          type: "mrkdwn",
+          text: `🎬 ${t("homeTab.workers.testing_count", { count: testerRuns.length })} — ${details}`,
+        },
+      ],
+    });
+  }
 
   if (!snapshot.reusable) {
     // Disposable mode — list active change sessions.

@@ -1,0 +1,51 @@
+# Opt-in Playwright MCP sidecar for the tester feature ("test this PR").
+#
+# NOT started by default — the tester feature is inert without it. Bring it up with:
+#   docker compose -f docker-compose.tester.yml up -d
+#
+# Works in both deployments:
+#  - GCP VM (Clack in Docker): do NOT use this file — COS has no docker compose.
+#    scripts/gce-update-image.sh mirrors it as a plain `docker run` whenever the
+#    local config has tester.enabled, joining both containers to a shared `clack`
+#    docker network. Set config.tester.appHost to the main container's name
+#    (default "clack") and sidecarUrl to "http://clack-playwright:8931/mcp".
+#  - Local dev (Clack via `npm run dev` on the host): the sidecar reaches the host
+#    through host.docker.internal; set config.tester.appHost to
+#    "host.docker.internal" and sidecarUrl to "http://localhost:8931/mcp".
+#
+# Recordings land in ./data/tester/recordings (mounted at /recordings in the
+# sidecar). data/ is already the main container's mounted volume, so Clack sees
+# them without extra plumbing — set config.tester.recordingsDir accordingly
+# ("data/tester/recordings" locally, "/app/data/tester/recordings" in Docker).
+
+services:
+  clack-playwright:
+    image: mcr.microsoft.com/playwright/mcp:latest
+    container_name: clack-playwright
+    restart: unless-stopped
+    command:
+      - "--headless"
+      - "--host"
+      - "0.0.0.0"
+      - "--port"
+      - "8931"
+      - "--allowed-hosts"
+      - "*"
+      - "--config"
+      - "/etc/clack-playwright/config.json"
+      # Evict old recordings past ~2GB so the shared volume never grows unbounded.
+      - "--output-max-size"
+      - "2000000000"
+    ports:
+      - "8931:8931"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./data/tester/recordings:/recordings
+      - ./docker/clack-playwright/config.json:/etc/clack-playwright/config.json:ro
+    networks:
+      - clack
+
+networks:
+  clack:
+    name: clack
