@@ -1,4 +1,4 @@
-import type { ChangeStatus, ChangeSession } from "./types.js";
+import type { ChangeKind, ChangeStatus, ChangeSession } from "./types.js";
 import type { WorktreeInfo } from "../worktrees.js";
 import type { ClaudeRunHandle } from "../claude/runHandle.js";
 import {
@@ -48,6 +48,8 @@ export interface ActiveChangeState {
   branch: string;
   repo: string;
   description: string;
+  /** Run kind: `"test"` marks a tester (QA) run — no PR, no follow-up actions. */
+  kind?: ChangeKind;
   worktree?: WorktreeInfo;
   status: ChangeStatus;
   prUrl?: string;

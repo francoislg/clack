@@ -15,6 +15,7 @@ import type { McpServerManager } from "../claude/mcpServerManager.js";
 import type { SkillsManager } from "../claude/skillsManager.js";
 import type { SlackImageFile, SlackFile } from "../slack/slackFileBase.js";
 import type { SpinoffIntentData } from "../changes/spinoff.js";
+import type { ChangeKind } from "../changes/types.js";
 
 // ============================================================================
 // Query handle — shared mutable ref for the SDK Query object
@@ -248,6 +249,11 @@ export interface WorkerToolContext {
   threadTs: string;
   /** Change session ID (for state updates) */
   sessionId: string;
+  /**
+   * Run kind. `"test"` selects the reduced-privilege tester toolbelt (no PR/push tools,
+   * `record_and_upload` instead). Absent reads as `"implement"` — the classic worker set.
+   */
+  kind?: ChangeKind;
   /** When true, `report_status` suppresses its Slack post (silent change run). */
   silent?: boolean;
   /** Full app configuration */
@@ -290,6 +296,8 @@ export interface StagedChangeIntent {
   branch: string;
   description: string;
   repo: string;
+  /** Run kind: `"test"` for a tester (QA + recording) run. Absent reads as `"implement"`. */
+  kind?: ChangeKind;
   /**
    * Detailed implementation plan built up during the Slack conversation.
    * Forwarded to the worker so it doesn't have to re-derive intent from

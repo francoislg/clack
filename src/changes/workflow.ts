@@ -37,6 +37,8 @@ import {
   runWorktreeSetup,
 } from "./execution.js";
 import { buildWorkerContext } from "../tools/context.js";
+import { checkSidecarReachable } from "../tester/sidecar.js";
+import { tryAcquireTesterSlot, releaseTesterSlot } from "../tester/concurrency.js";
 import { getUserRecord } from "../userRegistry.js";
 import { buildClackTools } from "../tools/server.js";
 import { fetchPRReviewContext } from "./pr.js";
@@ -207,6 +209,44 @@ async function settleRecoveryResult(
   };
 }
 
+/**
+ * Settle a tester run terminally. The workspace holds nothing to follow up on (no PR,
+ * no commits), so the worker is released immediately — completed on success,
+ * cancelled/failed otherwise. The tester slot itself is freed by the caller's finally.
+ */
+async function settleTestResult(
+  deps: WorkflowDeps,
+  sessionId: string,
+  plan: ChangePlan,
+  worker: Worker,
+  activeChange: ActiveChangeState,
+  execResult: ExecutionResult,
+): Promise<ChangeResult> {
+  try {
+    await deps.pool.release(worker, "discarded");
+  } catch (err) {
+    deps.appendExecutionLog(
+      plan.branchName,
+      `Failed to release tester workspace: ${errorMessage(err)}`,
+    );
+  }
+  activeChange.worktree = undefined;
+  if (!execResult.success) {
+    const cancelledTest = buildCancelledResult(
+      activeChange,
+      deps,
+      sessionId,
+      execResult.error,
+      "Test run cancelled",
+    );
+    if (cancelledTest) return cancelledTest;
+    deps.updateActiveChangeStatus(sessionId, "failed");
+    return { success: false, error: execResult.error ?? "Test run failed" };
+  }
+  deps.updateActiveChangeStatus(sessionId, "completed");
+  return { success: true, summary: execResult.summary ?? "Test run complete" };
+}
+
 // ============================================================================
 // Main Workflow Orchestration
 // ============================================================================
@@ -260,6 +300,57 @@ export async function startChangeWorkflow(
     };
   }
 
+  // Tester gates: sidecar reachability is checked BEFORE any workspace is acquired or app
+  // booted (fail fast, nothing to tear down), and the tester slot bounds concurrent runs
+  // (each adds a browser + the app dev server on top of the worker and Claude).
+  const isTest = plan.kind === "test";
+  if (isTest) {
+    const tester = config.tester;
+    if (!tester?.enabled || !tester.sidecarUrl) {
+      return { success: false, error: t("tester.not_enabled") };
+    }
+    if (!(await checkSidecarReachable(tester.sidecarUrl))) {
+      return { success: false, error: t("tester.sidecar_unreachable", { url: tester.sidecarUrl }) };
+    }
+    if (
+      !tryAcquireTesterSlot({
+        sessionId,
+        repo: plan.targetRepo,
+        branch: plan.branchName,
+      })
+    ) {
+      return { success: false, error: t("tester.busy") };
+    }
+  }
+
+  // The finally is the ONLY tester-slot release site — every exit path (early return,
+  // acquire failure, execution throw) flows through it, so the slot can never leak.
+  try {
+    return await runAcquiredChangeWorkflow(
+      request,
+      plan,
+      sessionId,
+      repo,
+      isTest,
+      deps,
+      onEvent,
+      onAck,
+    );
+  } finally {
+    if (isTest) releaseTesterSlot(sessionId);
+  }
+}
+
+async function runAcquiredChangeWorkflow(
+  request: ChangeRequest,
+  plan: ChangePlan,
+  sessionId: string,
+  repo: RepositoryConfig,
+  isTest: boolean,
+  deps: WorkflowDeps,
+  onEvent?: (event: StreamEvent) => void | Promise<void>,
+  onAck?: (text: string) => Promise<void>,
+): Promise<ChangeResult> {
   // Reserve the active change slot early to prevent concurrent triggers
   // (e.g., auto-execute + button click racing). The worktree field is set
   // after creation, but the slot blocks duplicate startChangeWorkflow calls.
@@ -267,6 +358,7 @@ export async function startChangeWorkflow(
     branch: plan.branchName,
     repo: plan.targetRepo,
     description: plan.description,
+    ...(isTest && { kind: "test" as const }),
     worktree: undefined, // set below after worktree creation
     status: "executing",
     startedAt: new Date(),
@@ -397,6 +489,10 @@ export async function startChangeWorkflow(
     if (ac) ac.sdkSessionId = execResult.sdkSessionId;
   }
 
+  if (isTest) {
+    return settleTestResult(deps, sessionId, plan, worker, activeChange, execResult);
+  }
+
   if (!execResult.success) {
     const cancelledResult = buildCancelledResult(
       activeChange,
@@ -448,6 +544,16 @@ export async function handleFollowUp(
   const activeChange = session.activeChange;
   if (!activeChange) {
     return { success: false, error: "No active change in this thread." };
+  }
+
+  // A tester run is terminal by design: there is no PR to review/merge/update, and the
+  // recovery commands would re-run the branch through the full-privilege implement
+  // toolbelt. Request a fresh test instead.
+  if (activeChange.kind === "test") {
+    return {
+      success: false,
+      error: "Test runs have no follow-up actions. Ask for a new test instead.",
+    };
   }
 
   const config = deps.getConfig();

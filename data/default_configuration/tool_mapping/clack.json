@@ -300,6 +300,15 @@
     "close_pr": {
       "label": { "en": "Closing pull request", "fr": "Fermeture de la pull request" }
     },
+    "run_test": {
+      "label": { "en": "Staging test run for {branch}", "fr": "Préparation du test pour {branch}" }
+    },
+    "record_and_upload": {
+      "label": {
+        "en": "Recording & uploading video",
+        "fr": "Enregistrement et téléversement de la vidéo"
+      }
+    },
     "schedule_reminder": {
       "label": {
         "en": "Scheduling reminder to <#{channel}>",

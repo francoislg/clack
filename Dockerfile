@@ -17,8 +17,8 @@ FROM node:22-alpine
 
 WORKDIR /app
 
-# Install git for repository operations
-RUN apk add --no-cache git curl bash
+# Install git for repository operations; ffmpeg transcodes tester recordings (webm→mp4)
+RUN apk add --no-cache git curl bash ffmpeg lsof
 
 # Enable corepack so pnpm/yarn shims are available for repo hooks
 RUN corepack enable

@@ -664,4 +664,37 @@ describe("buildClackTools — worker mode", () => {
       assert.ok(result.toolNames.includes(name), `expected worker tool ${name}`);
     }
   });
+
+  it("does not expose record_and_upload in the implement toolbelt", () => {
+    const result = buildClackTools(makeWorkerCtx());
+    assert.ok(!result.toolNames.includes("record_and_upload"));
+  });
+});
+
+describe("buildClackTools — tester mode (kind: 'test')", () => {
+  it("omits every PR/code-mutating worker tool", () => {
+    const result = buildClackTools(makeWorkerCtx({ kind: "test" }));
+    for (const name of [
+      "git_push",
+      "ensure_pr",
+      "merge_pr",
+      "close_pr",
+      "await_ci",
+      "resolve_review_thread",
+      "propose_spinoff",
+    ]) {
+      assert.ok(!result.toolNames.includes(name), `tester toolbelt must omit ${name}`);
+    }
+  });
+
+  it("includes report_status and record_and_upload", () => {
+    const result = buildClackTools(makeWorkerCtx({ kind: "test" }));
+    assert.ok(result.toolNames.includes("report_status"));
+    assert.ok(result.toolNames.includes("record_and_upload"));
+  });
+
+  it("stages no intents", () => {
+    const result = buildClackTools(makeWorkerCtx({ kind: "test" }));
+    assert.equal(result.getStagedIntents().size, 0);
+  });
 });

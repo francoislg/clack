@@ -433,6 +433,70 @@ export const adminZod = z.unknown().transform((raw, ctx): Config["admin"] => {
   return { additionalWords };
 });
 
+export const testerZod = z.unknown().transform((raw, ctx): Config["tester"] => {
+  if (raw === undefined) return undefined;
+  if (!isPlainObject(raw as JsonValue)) {
+    ctx.addIssue({ code: "custom", message: "Config 'tester' must be an object" });
+    return z.NEVER;
+  }
+  const obj = raw as JsonObject;
+  for (const key of Object.keys(obj)) {
+    if (!["enabled", "sidecarUrl", "recordingsDir", "appHost", "maxConcurrent"].includes(key)) {
+      ctx.addIssue({ code: "custom", message: `Config 'tester' contains unknown key '${key}'` });
+      return z.NEVER;
+    }
+  }
+  if (typeof obj.enabled !== "boolean") {
+    ctx.addIssue({ code: "custom", message: "Config 'tester.enabled' must be a boolean" });
+    return z.NEVER;
+  }
+  const requireString = (key: "sidecarUrl" | "recordingsDir" | "appHost"): string | undefined => {
+    const val = obj[key];
+    if (val === undefined) return undefined;
+    if (typeof val !== "string" || val.trim().length === 0) {
+      ctx.addIssue({
+        code: "custom",
+        message: `Config 'tester.${key}' must be a non-empty string`,
+      });
+      return undefined;
+    }
+    return val;
+  };
+  const sidecarUrl = requireString("sidecarUrl");
+  const recordingsDir = requireString("recordingsDir");
+  const appHost = requireString("appHost");
+  if (obj.enabled && (!sidecarUrl || !recordingsDir)) {
+    ctx.addIssue({
+      code: "custom",
+      message:
+        "Config 'tester.sidecarUrl' and 'tester.recordingsDir' are required when 'tester.enabled' is true",
+    });
+    return z.NEVER;
+  }
+  let maxConcurrent: number | undefined;
+  if (obj.maxConcurrent !== undefined) {
+    if (
+      typeof obj.maxConcurrent !== "number" ||
+      !Number.isInteger(obj.maxConcurrent) ||
+      obj.maxConcurrent < 1
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        message: `Config 'tester.maxConcurrent' must be a positive integer (got ${JSON.stringify(obj.maxConcurrent)})`,
+      });
+      return z.NEVER;
+    }
+    maxConcurrent = obj.maxConcurrent;
+  }
+  return {
+    enabled: obj.enabled,
+    ...(sidecarUrl !== undefined && { sidecarUrl }),
+    ...(recordingsDir !== undefined && { recordingsDir }),
+    ...(appHost !== undefined && { appHost }),
+    ...(maxConcurrent !== undefined && { maxConcurrent }),
+  };
+});
+
 export const submitResponseZod = z.unknown().transform((raw, ctx): Config["submitResponse"] => {
   const fallback = { maxAdditionalMessages: DEFAULT_MAX_ADDITIONAL_MESSAGES };
   if (raw === undefined) return fallback;

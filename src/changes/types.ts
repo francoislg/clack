@@ -29,10 +29,19 @@ export interface ChangeRequest {
   silent?: boolean;
 }
 
+/**
+ * What a change run is FOR. `"implement"` (the default when absent) is the classic worker
+ * flow ending in a PR; `"test"` is a tester run — reduced-privilege QA on an existing PR
+ * branch ending in a recording, never a PR.
+ */
+export type ChangeKind = "implement" | "test";
+
 export interface ChangePlan {
   branchName: string;
   description: string;
   targetRepo: string;
+  /** Run kind. Absent reads as `"implement"`. */
+  kind?: ChangeKind;
   /**
    * Detailed implementation plan from the originating Slack conversation,
    * if one was discussed. Forwarded into the worker prompt so the worker

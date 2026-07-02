@@ -66,6 +66,7 @@ import { createChannelsCache } from "../slack/channelsCache.js";
 
 // Action tools
 import { createProposeChangeTool } from "./actions/proposeChange.js";
+import { createRunTestTool } from "./actions/runTest.js";
 import { createUpdateUserTool } from "./actions/updateUser.js";
 import { createProposeConfigUpdateTool } from "./actions/proposeConfigUpdate.js";
 import { createProposeSkillCreateTool } from "./actions/proposeSkillCreate.js";
@@ -119,6 +120,7 @@ import { createEnsurePRTool } from "./worker/ensurePR.js";
 import { createMergePRTool } from "./worker/mergePR.js";
 import { createClosePRTool } from "./worker/closePR.js";
 import { createReportStatusTool } from "./worker/reportStatus.js";
+import { createRecordAndUploadTool } from "./worker/recordAndUpload.js";
 import { createProposeSpinoffTool } from "./worker/proposeSpinoff.js";
 import { createLoadSkillTool as createWorkerLoadSkillTool } from "./worker/loadSkill.js";
 import { isChannellessChannelId } from "../channelless.js";
@@ -468,6 +470,9 @@ function buildQueryTools(ctx: QueryToolContext): ClackQueryToolsResult {
     tools.push(createProposeChangeTool(ctx, intentStore));
     tools.push(createRequestUpdateTool(ctx, intentStore));
     tools.push(createCancelWorkerRunTool(ctx));
+    if (ctx.config.tester?.enabled) {
+      tools.push(createRunTestTool(ctx, intentStore));
+    }
   }
 
   if (canEditConfig(ctx.role)) {
@@ -758,7 +763,51 @@ function buildQueryTools(ctx: QueryToolContext): ClackQueryToolsResult {
   };
 }
 
+/** Shared worker-mode result wrapper — only the intent store varies between toolbelts. */
+function workerToolsResult(
+  mcpServer: ClackWorkerToolsResult["mcpServer"],
+  toolNames: string[],
+  getStagedIntents: ClackWorkerToolsResult["getStagedIntents"],
+): ClackWorkerToolsResult {
+  return {
+    mcpServer,
+    toolNames,
+    getResult: () => null,
+    getRenderedBlocks: () => null,
+    getStagedIntents,
+    getToolCallHistory: () => [],
+    isSkipped: () => false,
+    getAttentionLevel: () => null,
+    getDeliveryMode: () => null,
+    isPostedTopLevel: () => false,
+    getEscalateToOwner: () => null,
+  };
+}
+
+/**
+ * Tester toolbelt — strictly less privileged than the worker set. No PR/push tools
+ * (`git_push`/`ensure_pr`/`merge_pr`/`close_pr` are omitted, git stays read-only);
+ * gains `record_and_upload` for delivering the session recording.
+ */
+function buildTesterTools(ctx: WorkerToolContext): ClackWorkerToolsResult {
+  const tools = [createReportStatusTool(ctx), createRecordAndUploadTool(ctx), createRememberTool()];
+
+  const toolNames = tools.map((t) => t.name);
+
+  const mcpServer = createSdkMcpServer({
+    name: "clack",
+    version: "1.0.0",
+    tools,
+  });
+
+  return workerToolsResult(mcpServer, toolNames, () => new Map());
+}
+
 function buildWorkerTools(ctx: WorkerToolContext): ClackWorkerToolsResult {
+  if (ctx.kind === "test") {
+    return buildTesterTools(ctx);
+  }
+
   // Worker-side intent store — mirrors query mode (a fresh store per build, drained via
   // getStagedIntents after the run). Today only propose_spinoff stages into it.
   const intentStore = createIntentStore();
@@ -790,19 +839,7 @@ function buildWorkerTools(ctx: WorkerToolContext): ClackWorkerToolsResult {
     tools,
   });
 
-  return {
-    mcpServer,
-    toolNames,
-    getResult: () => null,
-    getRenderedBlocks: () => null,
-    getStagedIntents: () => intentStore.getAll(),
-    getToolCallHistory: () => [],
-    isSkipped: () => false,
-    getAttentionLevel: () => null,
-    getDeliveryMode: () => null,
-    isPostedTopLevel: () => false,
-    getEscalateToOwner: () => null,
-  };
+  return workerToolsResult(mcpServer, toolNames, () => intentStore.getAll());
 }
 
 /**

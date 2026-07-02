@@ -487,6 +487,44 @@ export const CONFIG_SCHEMA: SchemaFor<Config> = {
         },
       },
     },
+    tester: {
+      type: "object",
+      description:
+        "Tester feature ('test this PR' runs). Fully inert when absent or disabled. Requires the Playwright MCP sidecar container to be deployed.",
+      required: false,
+      fields: {
+        enabled: {
+          type: "boolean",
+          description: "Enable tester runs (run_test action tool + tester toolbelt).",
+          default: false,
+        },
+        sidecarUrl: {
+          type: "string",
+          description:
+            "URL of the Playwright MCP sidecar's HTTP endpoint (e.g. http://clack-playwright:8931/mcp). Required when enabled.",
+          required: false,
+        },
+        recordingsDir: {
+          type: "string",
+          description:
+            "Mount point of the shared recordings volume in the main container. Required when enabled.",
+          required: false,
+        },
+        appHost: {
+          type: "string",
+          description:
+            "Hostname of the main Clack container as seen from the sidecar (shared Docker network).",
+          default: "clack",
+          required: false,
+        },
+        maxConcurrent: {
+          type: "number",
+          description: "Max simultaneous tester runs (each adds a browser + app dev server).",
+          default: 1,
+          required: false,
+        },
+      },
+    },
     language: {
       type: "enum",
       description: "Workspace-global user-facing language (BCP-47 short code).",

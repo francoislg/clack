@@ -288,6 +288,15 @@ export const fr: Partial<Record<StringKey, string>> = {
     ":hourglass_flowing_sand: En file (position {position}) pour un worker sur `{repo}`.",
   "changes.create_workspace_failed": "Échec de création du workspace : {error}",
 
+  // ─── Tester ("test this PR" runs) ────────────────────────────────────
+  "tester.not_enabled":
+    "La fonctionnalité de test n'est pas activée ou est mal configurée (voir `config.tester`).",
+  "tester.sidecar_unreachable":
+    ":warning: Le sidecar Playwright est injoignable à `{url}` — le test n'a pas démarré. Le conteneur `clack-playwright` est-il en marche ?",
+  "tester.busy":
+    ":hourglass_flowing_sand: Un test est déjà en cours. Réessayez quand il sera terminé.",
+  "homeTab.workers.testing_count": "{count} en test",
+
   // ─── Spinoff (split a slice into a separate sibling PR) ─────────────
   "changes.spinoff.patch_apply_failed":
     "Impossible d'appliquer les modifications détachées depuis `{path}` : {error}. Le correctif y a été conservé pour récupération.",
@@ -459,6 +468,7 @@ export const fr: Partial<Record<StringKey, string>> = {
   // ─── Streaming task-card titles ────────────────────────────────────
   "streamer.analyzing": "Analyse en cours…",
   "streamer.working_on": "Travail sur {branch}",
+  "streamer.testing": "Test de {branch}",
   "streamer.tool_label_checking": "Vérification de {name}",
   "streamer.tool_label_running": "Exécution de {tool}",
 

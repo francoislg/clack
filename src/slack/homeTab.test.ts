@@ -85,6 +85,7 @@ function makeDeps(): HomeTabDeps {
     getUserTimezone: mockGetUserTimezone,
     humanReadableSchedule: mockHumanReadableSchedule,
     getWorkerPoolSnapshot: () => ({ reusable: false, byRepo: [] }),
+    getActiveTesterRuns: () => [],
   };
 }
 
@@ -1034,6 +1035,29 @@ describe("buildWorkersSection (reusable mode)", () => {
     const blocks = buildWorkersSection(deps);
     const texts = getSectionTexts(blocks);
     assert.ok(texts.some((t) => /No workers provisioned yet/.test(t)));
+  });
+
+  it("shows an active tester run as a testing line", () => {
+    const deps: HomeTabDeps = {
+      ...makeDeps(),
+      getWorkerPoolSnapshot: () => ({ reusable: true, byRepo: [] }),
+      getActiveTesterRuns: () => [
+        { sessionId: "s1", repo: "my-repo", branch: "feature/login", startedAt: new Date() },
+      ],
+    };
+    const blocks = buildWorkersSection(deps);
+    const rendered = JSON.stringify(blocks);
+    assert.ok(rendered.includes("1 testing"));
+    assert.ok(rendered.includes("feature/login"));
+  });
+
+  it("shows no testing line when no tester run is active", () => {
+    const deps: HomeTabDeps = {
+      ...makeDeps(),
+      getWorkerPoolSnapshot: () => ({ reusable: true, byRepo: [] }),
+    };
+    const blocks = buildWorkersSection(deps);
+    assert.ok(!JSON.stringify(blocks).includes("testing"));
   });
 
   it("renders per-repo status counts", () => {

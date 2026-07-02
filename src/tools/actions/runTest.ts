@@ -1,0 +1,102 @@
+import { z } from "zod";
+import { tool } from "@anthropic-ai/claude-agent-sdk";
+import type { QueryToolContext } from "../types.js";
+import type { IntentStore } from "../server.js";
+import { textResult, errorResult } from "../helpers.js";
+import { canWriteRepo, getWritableRepos } from "../../repoAccess.js";
+import type { RepositoryConfig } from "../../config.js";
+import type { UserRole } from "../../roles.js";
+import { isProtectedBranchName } from "../../changes/branchNaming.js";
+
+export interface RunTestDeps {
+  canWriteRepo: (role: UserRole, repo: RepositoryConfig) => boolean;
+  getWritableRepos: (role: UserRole, repos: RepositoryConfig[]) => RepositoryConfig[];
+}
+
+export const defaultRunTestDeps: RunTestDeps = {
+  canWriteRepo,
+  getWritableRepos,
+};
+
+export function createRunTestTool(
+  ctx: QueryToolContext,
+  intentStore: IntentStore,
+  deps: RunTestDeps = defaultRunTestDeps,
+) {
+  return tool(
+    "run_test",
+    "Run a QA test session against an existing PR branch: boots the app from that branch in a " +
+      "workspace, seeds data, drives it in a browser, records a video, and uploads the recording " +
+      "to this thread. The branch must already exist on the remote (a PR's head branch). " +
+      "Returns a ref ID to use in submit_response.",
+    {
+      branch: z
+        .string()
+        .describe(
+          "The EXISTING remote branch to test — typically an open PR's head branch, taken as-is.",
+        ),
+      repo: z.string().describe("Repository name the branch belongs to"),
+      test_focus: z
+        .string()
+        .optional()
+        .describe(
+          "What to exercise: the flows, pages, or behaviors the test should drive and record. " +
+            "Include any detail from the conversation — the tester does NOT see the Slack thread.",
+        ),
+    },
+    async (args) => {
+      const repo = ctx.config.repositories.find((r) => r.name === args.repo);
+      if (!repo) {
+        const availableRepos = ctx.config.repositories.map((r) => r.name);
+        return errorResult(
+          `Repository "${args.repo}" not found. Available repositories: ${availableRepos.join(", ")}`,
+        );
+      }
+
+      if (!deps.canWriteRepo(ctx.role, repo)) {
+        const writableRepos = deps
+          .getWritableRepos(ctx.role, ctx.config.repositories)
+          .map((r) => r.name);
+        return errorResult(
+          `You do not have write access to "${args.repo}".${
+            writableRepos.length > 0
+              ? ` Repos you can test: ${writableRepos.join(", ")}`
+              : " No repos have change support for your role."
+          }`,
+        );
+      }
+
+      if (isProtectedBranchName(args.branch, repo.branch || "main")) {
+        return errorResult(
+          `Cannot run a test on protected branch "${args.branch}". Target a PR's head branch instead.`,
+        );
+      }
+
+      const description = args.test_focus
+        ? `Test the app on branch ${args.branch}: ${args.test_focus}`
+        : `Test the app on branch ${args.branch}`;
+
+      const ref = intentStore.stage({
+        type: "change",
+        kind: "test",
+        branch: args.branch,
+        description,
+        repo: args.repo,
+        resumeRemoteBranch: true,
+      });
+
+      return textResult({
+        ref,
+        branch: args.branch,
+        repo: args.repo,
+        description,
+        applied: false,
+        instruction:
+          "STAGED — no workspace has been acquired and no test has started yet. The user must " +
+          "click the action button to launch the test run. Attach a `change` action with this " +
+          "ref to your submit_response and set its label to a test-flavored one (e.g. " +
+          "'Start Test'). Use pending language in your prose — the test has NOT run.",
+      });
+    },
+  );
+}

@@ -53,6 +53,7 @@ export const CLACK_CORE_TOOL_NAMES: readonly string[] = [
   "propose_change",
   "request_update",
   "cancel_worker_run",
+  "run_test",
   "propose_skill_create",
   "propose_skill_update",
   "propose_skill_disable",

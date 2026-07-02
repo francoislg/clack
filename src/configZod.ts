@@ -17,6 +17,7 @@ import {
   assistantZod,
   adminZod,
   submitResponseZod,
+  testerZod,
 } from "./configSchemas.js";
 
 const DEFAULT_TASK_CARD_MAX_DETAILS = 5;
@@ -275,6 +276,7 @@ export function validateConfig(config: unknown, slackAuth: SlackAuthConfig): Con
     userSkills: parseOrThrow(userSkillsZod, c.userSkills),
     submitResponse: parseOrThrow(submitResponseZod, c.submitResponse),
     admin: parseOrThrow(adminZod, c.admin),
+    tester: parseOrThrow(testerZod, c.tester),
     language: isSupportedLanguage(c.language) ? c.language : undefined,
   };
 
