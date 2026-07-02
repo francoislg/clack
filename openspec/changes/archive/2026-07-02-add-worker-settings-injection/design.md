@@ -6,7 +6,7 @@ The Agent SDK exposes two relevant levers:
 - `settingSources: ('user'|'project'|'local')[]` — loads whole settings files by source, but also pulls in CLAUDE.md and everything else in those files (unwanted coupling), and is source-located rather than operator-chosen.
 - `settings: string | Settings` — the equivalent of the `--settings` CLI flag; loads a single operator-chosen file (or inline object) into the highest-priority "flag" layer, **without** enabling any other filesystem source. `Settings.hooks` is exactly the native command-hook shape (`{ type: 'command', command }`), and `Settings.permissions` supports `deny` rules.
 
-The desired external tool (e.g. claude-dont) is a **PreToolUse command hook**, normally registered in `settings.json`. The `settings` option is therefore the surgical injection point.
+The desired kind of external tool is a **PreToolUse command hook**, normally registered in `settings.json`. The `settings` option is therefore the surgical injection point.
 
 ## Goals / Non-Goals
 
@@ -49,7 +49,7 @@ The built-in `buildWorkerBashGuardHook` stays on the programmatic `hooks` option
 ## Risks / Trade-offs
 
 - **[Programmatic hook vs. settings.hooks may not both fire]** → Spike before implementing: register a throwaway `echo` command hook in a settings file alongside the bash guard and confirm both execute on a single Bash call. If they don't merge, fall back to translating file command-hooks into programmatic wrapper callbacks.
-- **[`permissions.deny`/`allow` rules are inert under the worker's `bypassPermissions` mode]** → The worker runs with `permissionMode: "bypassPermissions"`, which SKIPS the allow/deny permission system. So operator `permissions` rules in the settings file will NOT be enforced (and equally cannot *widen* past Clack's guards). PreToolUse **hooks** are unaffected — they fire under bypass — so command hooks (claude-dont's mechanism) are the enforcement path. The example file leads with hooks and documents this caveat; hard blocks belong in a PreToolUse hook returning a deny decision, not in `permissions.deny`.
+- **[`permissions.deny`/`allow` rules are inert under the worker's `bypassPermissions` mode]** → The worker runs with `permissionMode: "bypassPermissions"`, which SKIPS the allow/deny permission system. So operator `permissions` rules in the settings file will NOT be enforced (and equally cannot *widen* past Clack's guards). PreToolUse **hooks** are unaffected — they fire under bypass — so command hooks (the mechanism external guardrail tools use) are the enforcement path. The example file leads with hooks and documents this caveat; hard blocks belong in a PreToolUse hook returning a deny decision, not in `permissions.deny`.
 - **[Referenced hook binary must exist in the runtime env]** → The `command` path and any prerequisites (`jq`, `bash`) must be present **inside the GCE VM / Docker image**, at absolute paths — not on the operator's laptop. This is an ops/deployment burden, documented but not solved by code.
 - **[Path-forward defers validation]** → A malformed settings file fails a change mid-run rather than at boot. Mitigation: log the file's presence at boot; escalate to fail-fast validation (Decision 3) if this bites.
 - **[Arbitrary shell execution]** → Command hooks run arbitrary shell on the Clack host with Clack's privileges. Acceptable because the file is operator-authored and deploy-gated, not user-facing.

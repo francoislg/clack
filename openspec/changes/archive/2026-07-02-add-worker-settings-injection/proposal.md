@@ -8,7 +8,7 @@ Worker-mode Claude runs in the Agent SDK's **isolation mode** — it loads no fi
 - The file lives at a fixed, gitignored path, `data/worker-settings.json` (a sibling of `data/mcp.json`); absent → worker behaves exactly as today (zero-config unaffected).
 - The path is resolved to an **absolute** path before being passed (the worker `cwd` is a per-run worktree, so relative resolution would break).
 - The existing programmatic `buildWorkerBashGuardHook` PreToolUse guard continues to fire alongside any operator-supplied command hooks (both channels coexist).
-- **No reference to any specific hook tool** (e.g. claude-dont) anywhere in the codebase — Clack only knows "read this native settings file and forward it." Installation of the actual hook binary/scripts and authoring of the settings file are operator/ops steps (documented, not coded).
+- **No reference to any specific hook tool** anywhere in the codebase — Clack only knows "read this native settings file and forward it." Installation of the actual hook binary/scripts and authoring of the settings file are operator/ops steps (documented, not coded).
 
 ## Capabilities
 

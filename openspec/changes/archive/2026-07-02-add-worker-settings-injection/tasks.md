@@ -1,6 +1,6 @@
 ## 1. Spike: confirm hook-channel coexistence (deferred — needs a live worker run)
 
-> Requires a running Clack + Slack worker; not runnable in the CI/sandbox. The door-opener is inert without a file and leaves the programmatic bash guard untouched, so it is safe to ship ahead of this live check. Strong supporting evidence already exists: an external command hook (claude-dont) runs live alongside other hooks in the authoring session.
+> Requires a running Clack + Slack worker; not runnable in the CI/sandbox. The door-opener is inert without a file and leaves the programmatic bash guard untouched, so it is safe to ship ahead of this live check. Strong supporting evidence already exists: an external command hook ran live alongside other hooks in the authoring session.
 
 - [ ] 1.1 Author a throwaway `worker-settings.json` with a PreToolUse command hook that `echo`s a marker for Bash calls; run a worker change and confirm the marker AND the built-in bash guard both fire on the same Bash call
 - [ ] 1.2 Confirm operator `permissions.deny` in the settings file cannot re-enable a tool Clack disabled via `disallowedTools`/the bash guard (precedence check)
