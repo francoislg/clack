@@ -229,12 +229,47 @@ export class ReusablePool implements WorkerPool {
     worker.lastUsedAt = new Date();
     this.persist();
 
-    const next = this.queue.dequeue(worker.repo);
-    if (next) {
-      this.fulfillQueueEntry(worker, next).catch((err) => {
-        next.reject(err instanceof Error ? err : new Error(String(err)));
-      });
+    this.pumpQueue(worker.repo);
+  }
+
+  /**
+   * Hand the next queued waiter an available worker for `repo`. MUST be called from
+   * every path that returns a worker to `idle` (`release`, `detachIfClean`,
+   * `clearQuarantine`) so a freed worker never strands a queued acquire.
+   *
+   * Dequeues ONE entry per call (a single freed worker satisfies at most one waiter) and
+   * no-ops when nothing is queued or no worker is idle. The idle worker is `claim`ed
+   * synchronously before the async branch-switch, so a concurrent pump on the same repo
+   * can't select the same worker mid-switch and hand it to a second waiter.
+   */
+  private pumpQueue(repo: string): void {
+    if (this.queue.depth(repo) === 0) return;
+    const idle = this.workers.find((w) => w.repo === repo && w.status === "idle");
+    if (!idle) return;
+    if (this.dropIfFolderMissing(idle)) {
+      this.pumpQueue(repo);
+      return;
     }
+    const next = this.queue.dequeue(repo);
+    if (!next) return;
+    this.claim(idle, next.sessionId);
+    // fulfillReserved settles `next` internally; the catch is a last-resort settle so an
+    // unexpected throw can never leave the waiter hanging.
+    this.fulfillReserved(idle, next).catch((err) => {
+      next.reject(err instanceof Error ? err : new Error(String(err)));
+    });
+  }
+
+  /**
+   * Drain every repo that currently has queued waiters. Public entry point for the
+   * change-monitor backstop: if any idle-transition ever fails to drain, the periodic
+   * tick recovers the stranded waiter by handing it an idle worker. Resolves waiters
+   * by giving them a worker — it never times out or abandons work. Cheap no-op when
+   * no repo has both a waiter and an idle worker.
+   */
+  pumpQueuedRepos(): void {
+    const repos = new Set(this.queue.list().map((e) => e.repo));
+    for (const repo of repos) this.pumpQueue(repo);
   }
 
   /**
@@ -263,18 +298,52 @@ export class ReusablePool implements WorkerPool {
     });
   }
 
-  private async fulfillQueueEntry(_worker: Worker, entry: QueueEntry): Promise<void> {
-    const repo = findRepoByName(entry.repo, getConfig());
-    if (!repo) {
-      entry.reject(new Error(`Repository ${entry.repo} no longer configured`));
-      return;
-    }
+  /**
+   * Prepare a worker that `pumpQueue` has already claimed for the queued entry's branch,
+   * then resolve the waiter with it — the branch-switch + setup half of acquire's idle path.
+   * Unlike `acquire`, any failure (including a mid-switch quarantine) REJECTS this entry
+   * rather than retrying another worker: a freshly-idle pooled worker is clean by construction,
+   * so the dirty case is near-impossible here, and the caller re-requests on the rare failure.
+   * Always settles `entry`: on failure the reservation's claim is cleared (worker back to idle
+   * unless the switch quarantined it) and the waiter is rejected, never left hanging.
+   */
+  private async fulfillReserved(worker: Worker, entry: QueueEntry): Promise<void> {
     try {
-      const claimed = await this.acquire(repo, entry.branch, entry.sessionId);
-      entry.resolve(claimed);
+      const repo = findRepoByName(entry.repo, getConfig());
+      if (!repo) {
+        this.releaseReservation(worker);
+        entry.reject(new Error(`Repository ${entry.repo} no longer configured`));
+        return;
+      }
+      // Queued entries never carry `resumeRemoteBranch` (only propose_change's
+      // continue_existing_pr sets it, and that path isn't queued), so branch from
+      // origin/<default> as usual.
+      if (worker.currentBranch !== entry.branch) {
+        await switchBranch(worker, repo, entry.branch);
+      }
+      await this.maybeRerunSetup(worker, repo);
+      await this.runInstallStep(worker, repo);
+      entry.resolve(worker);
     } catch (err) {
+      // `switchBranch` already quarantined a dirty worker (status + record) before throwing;
+      // surface it to the owner like `acquire` does, not just to the waiter via the rejection.
+      if (err instanceof DirtyWorkerQuarantined) {
+        this.notifyQuarantine(worker, err.dirtyFiles, "branch_switch");
+      }
+      this.releaseReservation(worker);
       entry.reject(err instanceof Error ? err : new Cancelled(String(err)));
     }
+  }
+
+  /**
+   * Undo a `pumpQueue` reservation when fulfillment fails: always clear the claim so the
+   * rejected session no longer owns the worker, and return it to `idle` only when the
+   * failure left it `busy` (a mid-switch quarantine or a failed setup keep their own status).
+   */
+  private releaseReservation(worker: Worker): void {
+    if (worker.status === "busy") worker.status = "idle";
+    worker.claimedBy = null;
+    this.persist();
   }
 
   async refreshSetup(worker: Worker, repo: RepositoryConfig): Promise<void> {
@@ -380,6 +449,11 @@ export class ReusablePool implements WorkerPool {
     return worker;
   }
 
+  // A newly-provisioned worker transitions to `idle` here but deliberately does NOT
+  // pumpQueue: entries only queue when the pool is at `maxConcurrent` (no room to
+  // grow), and an in-flight `initializing` worker is awaited directly by `acquire`
+  // (step 3), never via the queue — so a fresh worker going idle cannot coincide with
+  // a queued waiter. The monitor backstop covers any unforeseen residual.
   private async runInitialSetup(worker: Worker, repo: RepositoryConfig): Promise<void> {
     if (!this.setupRunner) {
       worker.setupComplete = true;
@@ -497,6 +571,7 @@ export class ReusablePool implements WorkerPool {
     worker.status = "idle";
     worker.lastUsedAt = new Date();
     this.persist();
+    this.pumpQueue(worker.repo);
     return true;
   }
 
@@ -551,6 +626,7 @@ export class ReusablePool implements WorkerPool {
     worker.claimedBy = null;
     worker.lastUsedAt = new Date();
     this.persist();
+    this.pumpQueue(worker.repo);
     logger.info(`Worker ${workerId} restored from quarantine (admin discard)`);
     return { ok: true, worker };
   }
