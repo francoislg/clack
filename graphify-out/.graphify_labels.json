@@ -190,7 +190,7 @@
   "188": "brave-image-search",
   "189": "commons-image-search",
   "190": "findSessionTranscript.ts",
-  "191": "quarantineNotifier.ts",
+  "191": "admin.ts",
   "192": "AGENTS.md",
   "193": "Asana Personal Access Token",
   "194": "Brave Image Search Plugin",
@@ -293,5 +293,5 @@
   "291": "Worktree Pools",
   "292": "Zod Validation",
   "293": "slackErrors.ts",
-  "294": "hint.ts"
+  "294": "workerBashGuard.ts"
 }
