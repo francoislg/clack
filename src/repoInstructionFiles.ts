@@ -9,6 +9,8 @@ export const REPO_INSTRUCTION_FILES = [
   "changes_instructions.md",
   "worktree_setup_instructions.md",
   "worktree_install_instructions.md",
+  "test_instructions.md",
+  "tester_data_setup_instructions.md",
 ] as const;
 
 export type RepoInstructionFile = (typeof REPO_INSTRUCTION_FILES)[number];

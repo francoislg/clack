@@ -12,6 +12,7 @@ import {
   getEffectiveContentLength,
   searchInstructionFiles,
 } from "./configurationFiles.js";
+import { REPO_INSTRUCTION_FILES } from "./repoInstructionFiles.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -222,10 +223,12 @@ describe("listInstructionFiles", () => {
 
     const alpha = result.repos.find((r) => r.repo === "alpha");
     assert.ok(alpha);
-    assert.equal(alpha.files.length, 3);
+    assert.equal(alpha.files.length, 5);
     assert.ok(alpha.files.some((f) => f.file === "changes_instructions.md"));
     assert.ok(alpha.files.some((f) => f.file === "worktree_setup_instructions.md"));
     assert.ok(alpha.files.some((f) => f.file === "worktree_install_instructions.md"));
+    assert.ok(alpha.files.some((f) => f.file === "test_instructions.md"));
+    assert.ok(alpha.files.some((f) => f.file === "tester_data_setup_instructions.md"));
   });
 
   it("reports semantic status for repo files", () => {
@@ -249,7 +252,7 @@ describe("listInstructionFiles", () => {
     assert.equal(setupEntry.status, "custom-only");
   });
 
-  it("returns correct repo count: 1 entry per repo with 3 files each", () => {
+  it("returns correct repo count: 1 entry per repo with all registry files each", () => {
     writeSlackAuth();
     writeConfig([
       { name: "a", url: "https://github.com/org/a.git", description: "A" },
@@ -261,7 +264,7 @@ describe("listInstructionFiles", () => {
     const result = listInstructionFiles();
     assert.equal(result.repos.length, 3);
     for (const repo of result.repos) {
-      assert.equal(repo.files.length, 3);
+      assert.equal(repo.files.length, REPO_INSTRUCTION_FILES.length);
     }
   });
 });

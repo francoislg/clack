@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { DEFAULT_TESTER_APP_HOST, type TesterConfig } from "../config.js";
+import { buildSetupMemoryPromptSections } from "../memory/setupMemory.js";
 import { resolveInstructionFile } from "../instructions.js";
 import { logger } from "../logger.js";
 
@@ -13,9 +14,9 @@ HARD RULES — this is a read-only QA workspace:
 
 WORKFLOW:
 1. Understand the change: read the branch's diff against the default branch (git log / git diff) to know what to exercise.
-2. Find the app's port: read the workspace's .env / setup files to find which port the app serves on.
-3. Start the app in the background via Bash, making sure it binds 0.0.0.0 (e.g. HOST=0.0.0.0) — localhost-only binding makes the app unreachable from the test browser. IMMEDIATELY after starting it, write {"pid": <pid>, "port": <port>} to ${APP_PROCESS_INFO_FILENAME} in the workspace root so the process is tracked for cleanup.
-4. Health-check: poll the app (e.g. curl http://localhost:<port>) until it responds, up to 120 seconds. If it never becomes healthy, report the boot failure via report_status and STOP — do not drive a dead app. Once healthy, update ${APP_PROCESS_INFO_FILENAME} so "pid" is the process actually LISTENING on the port (\`lsof -ti tcp:<port>\`) — wrappers like npx/pnpm spawn the real server as a child, and killing only the wrapper orphans it.
+2. DISCOVER what to run. (a) Determine which service(s) this change needs: intersect the diff with the repo's service layout — from the NOTES FROM PREVIOUS RUNS service catalog when present, otherwise discover it from the repo's documentation (README, CONTRIBUTING, docs/) and workspace manifests (package.json workspaces, docker-compose, etc.). In a monorepo, boot only the affected service(s) plus their dependencies (APIs, databases); the subset is decided per run from THIS diff — never replay a previous run's choice. (b) Map the selected services' prerequisites — env files, docker dependencies, build-first packages, ports — and set them up. Repo documentation is the source of truth; when learned notes conflict with the repo, trust the repo.
+3. Start the required service(s) in the background via Bash, making sure the app under test binds 0.0.0.0 (e.g. HOST=0.0.0.0) — localhost-only binding makes the app unreachable from the test browser. IMMEDIATELY after starting it, write {"pid": <pid>, "port": <port>} to ${APP_PROCESS_INFO_FILENAME} in the workspace root so the process is tracked for cleanup.
+4. Health-check: poll the app (e.g. curl http://localhost:<port>) until it responds, up to 120 seconds. If it never becomes healthy, report the boot failure via report_status and STOP — do not drive a dead app (still record whatever setup knowledge you gained per REPO SETUP MEMORY below). Once healthy, update ${APP_PROCESS_INFO_FILENAME} so "pid" is the process actually LISTENING on the port (\`lsof -ti tcp:<port>\`) — wrappers like npx/pnpm spawn the real server as a child, and killing only the wrapper orphans it.
 5. Seed test data if DATA SETUP instructions are provided below. If seeding FAILS, report the failure via report_status and STOP — do not test a partially-seeded app.
 6. Drive the app with the playwright browser tools. Navigate to http://{APP_HOST}:<port> (NOT localhost — the browser runs in a separate container). Exercise the flows named in the test focus, deliberately and observantly: the session is being recorded, so make the walkthrough tell a story someone can follow.
 7. When finished, close the browser session (this finalizes the video), then call record_and_upload to deliver the recording to the thread.
@@ -32,6 +33,11 @@ export interface TesterPromptOptions {
   repoName: string;
   requester: string;
   tester: TesterConfig;
+  /**
+   * Learned setup notes for this repo (`tester-setup:<repo>` memory entry), fetched by the
+   * caller via `loadSetupNotes` — keeps this builder sync. Null/absent on a cold run.
+   */
+  learnedNotes?: string | null;
 }
 
 function readOptionalInstructionFile(relativePath: string): string | null {
@@ -54,6 +60,12 @@ function readOptionalInstructionFile(relativePath: string): string | null {
 export function buildTesterSystemPrompt(opts: TesterPromptOptions): string {
   const appHost = opts.tester.appHost ?? DEFAULT_TESTER_APP_HOST;
   let systemPrompt = TESTER_SYSTEM_PROMPT.replaceAll("{APP_HOST}", appHost);
+
+  systemPrompt += buildSetupMemoryPromptSections(
+    "tester",
+    opts.repoName,
+    opts.learnedNotes ?? null,
+  );
 
   const testInstructions = readOptionalInstructionFile(`${opts.repoName}/test_instructions.md`);
   if (testInstructions) {

@@ -252,7 +252,7 @@ The system SHALL provide a `list_config_files` MCP tool that returns instruction
 
 - **WHEN** Claude calls `list_config_files`
 - **THEN** the response includes a `repos` array
-- **AND** each entry has a `repo` name and a `files` list covering all three editable per-repo markdown files (`changes_instructions.md`, `worktree_setup_instructions.md`, `worktree_install_instructions.md`), each with its source status
+- **AND** each entry has a `repo` name and a `files` list covering all five editable per-repo markdown files (`changes_instructions.md`, `worktree_setup_instructions.md`, `worktree_install_instructions.md`, `test_instructions.md`, `tester_data_setup_instructions.md`), each with its source status
 - **AND** the file names are derived from the centralized per-repo file constant
 
 #### Scenario: Role with no files at all
@@ -321,19 +321,30 @@ The system SHALL provide a `list_config_files` MCP tool that returns instruction
 
 The system SHALL define the set of editable per-repository instruction files in a single centralized constant that every consumer imports. Adding or removing an editable per-repo file SHALL require editing only that one constant.
 
-The set SHALL contain exactly the per-repo **markdown** instruction files: `changes_instructions.md`, `worktree_setup_instructions.md`, and `worktree_install_instructions.md`. It SHALL NOT contain `worktree_dirty_ignore.txt` (a non-markdown globs file).
+The set SHALL contain exactly the per-repo **markdown** instruction files: `changes_instructions.md`, `worktree_setup_instructions.md`, `worktree_install_instructions.md`, `test_instructions.md`, and `tester_data_setup_instructions.md`. It SHALL NOT contain `worktree_dirty_ignore.txt` (a non-markdown globs file).
 
 #### Scenario: Single source of truth drives the schema enum
 
 - **WHEN** the repo-mode `file` enum is constructed for `read_config_file` and `propose_config_update`
 - **THEN** its members are derived from the centralized constant (not an inline literal list)
-- **AND** the accepted file values are exactly `changes_instructions.md`, `worktree_setup_instructions.md`, `worktree_install_instructions.md`
+- **AND** the accepted file values are exactly `changes_instructions.md`, `worktree_setup_instructions.md`, `worktree_install_instructions.md`, `test_instructions.md`, `tester_data_setup_instructions.md`
 
 #### Scenario: Single source of truth drives the file listing
 
 - **WHEN** `list_config_files` enumerates each repository's files
 - **THEN** the per-repo file names are derived from the same centralized constant
-- **AND** all three markdown files appear for every configured repository
+- **AND** all five markdown files appear for every configured repository
+
+#### Scenario: Tester instruction files editable via chat
+
+- **GIVEN** an admin asks Clack to update a repo's test instructions
+- **WHEN** `propose_config_update` is called with `{ repo, file: "test_instructions.md" }` or `{ repo, file: "tester_data_setup_instructions.md" }`
+- **THEN** the file value is accepted by the schema enum and the update flows through the normal confirmation flow
+
+#### Scenario: Tester instruction files readable via chat
+
+- **WHEN** `read_config_file` is called with `{ repo, file: "test_instructions.md" }` or `{ repo, file: "tester_data_setup_instructions.md" }`
+- **THEN** the file value is accepted by the schema enum and the tool returns the default and custom layer content as applicable
 
 ### Requirement: Repository-Scoped Config File Addressing
 

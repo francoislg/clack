@@ -16,6 +16,7 @@ import type { ChangePlan, ChangeRequest, ExecutionResult } from "./types.js";
 import type { SpinoffIntentData } from "./spinoff.js";
 import { appendExecutionLog } from "./persistence.js";
 import { appendWorkerSkillsCatalog } from "./workerSkillsCatalog.js";
+import { loadSetupNotes, buildSetupMemoryPromptSections } from "../memory/setupMemory.js";
 import { buildWorkerBashGuardHook } from "./workerBashGuard.js";
 import { getActiveChange } from "./activeState.js";
 import { detectPlatformError } from "../claude/messageParser.js";
@@ -433,6 +434,11 @@ export async function executeChange(opts: ExecuteChangeOptions): Promise<Executi
   // skills leave the prompt unchanged.
   systemPrompt = appendWorkerSkillsCatalog(systemPrompt, worktree.repoName);
 
+  // Learned setup notes (advisory, from previous runs) + the directive to maintain them.
+  // A missing entry is the normal cold-run path — only the directive is injected then.
+  const setupNotes = await loadSetupNotes("worker", worktree.repoName);
+  systemPrompt += buildSetupMemoryPromptSections("worker", worktree.repoName, setupNotes);
+
   if (config.changesWorkflow?.requirePRReviewers) {
     systemPrompt += REVIEWER_RESOLUTION_GUIDANCE;
   }
@@ -574,6 +580,7 @@ async function executeTest(opts: ExecuteChangeOptions, config: Config): Promise<
     repoName: worktree.repoName,
     requester,
     tester,
+    learnedNotes: await loadSetupNotes("tester", worktree.repoName),
   };
 
   const workerCtx = buildWorkerContext({

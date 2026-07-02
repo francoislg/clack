@@ -790,7 +790,12 @@ function workerToolsResult(
  * gains `record_and_upload` for delivering the session recording.
  */
 function buildTesterTools(ctx: WorkerToolContext): ClackWorkerToolsResult {
-  const tools = [createReportStatusTool(ctx), createRecordAndUploadTool(ctx), createRememberTool()];
+  const tools = [
+    createReportStatusTool(ctx),
+    createRecordAndUploadTool(ctx),
+    createRememberTool(),
+    createRecallTool(),
+  ];
 
   const toolNames = tools.map((t) => t.name);
 
@@ -828,8 +833,10 @@ function buildWorkerTools(ctx: WorkerToolContext): ClackWorkerToolsResult {
   tools.push(createProposeSpinoffTool(ctx, intentStore));
   tools.push(createWorkerLoadSkillTool(ctx));
 
-  // Memory faculty — workers tag their task so in-flight work is visible in memory.
+  // Memory faculty — workers tag their task so in-flight work is visible in memory,
+  // and read back learned repo context (e.g. setup notes) via recall.
   tools.push(createRememberTool());
+  tools.push(createRecallTool());
 
   const toolNames = tools.map((t) => t.name);
 

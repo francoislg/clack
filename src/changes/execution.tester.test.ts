@@ -50,6 +50,12 @@ vi.mock("../skillPlugins.js", async (importOriginal) => {
   return { ...original, discoverEagerSkillPlugins: vi.fn(() => []) };
 });
 
+const loadSetupNotesMock = vi.hoisted(() => vi.fn(async (): Promise<string | null> => null));
+vi.mock("../memory/setupMemory.js", async (importOriginal) => {
+  const original = await importOriginal<typeof import("../memory/setupMemory.js")>();
+  return { ...original, loadSetupNotes: loadSetupNotesMock };
+});
+
 // ============================================================================
 // Helpers
 // ============================================================================
@@ -146,6 +152,7 @@ describe("executeChange — tester runs (kind: 'test')", () => {
     vi.clearAllMocks();
     getConfigMock.mockReturnValue(testerConfig());
     clackSessionMock.mockImplementation(() => makeRunFromMessages([successResult("done")]));
+    loadSetupNotesMock.mockResolvedValue(null);
   });
 
   it("succeeds without any commit or PR (no no-op check) and tears down the app", async () => {
@@ -180,6 +187,23 @@ describe("executeChange — tester runs (kind: 'test')", () => {
     assert.ok(params.options.disallowedTools.includes("Write"));
     assert.ok(params.options.disallowedTools.includes("Edit"));
     assert.ok(!params.options.allowedTools.includes("Write"));
+  });
+
+  it("injects learned setup notes into the tester system prompt", async () => {
+    loadSetupNotesMock.mockResolvedValue("## Services\n- web: pnpm dev, port 3000");
+
+    await executeChange({
+      plan: makeTestPlan(),
+      worktree,
+      request: makeRequest(),
+      sessionId: "s1",
+    });
+
+    assert.deepEqual(loadSetupNotesMock.mock.calls[0], ["tester", worktree.repoName]);
+    const params = clackSessionMock.mock.calls[0][0];
+    assert.ok(params.options.systemPrompt.includes("NOTES FROM PREVIOUS RUNS (advisory"));
+    assert.ok(params.options.systemPrompt.includes("## Services\n- web: pnpm dev, port 3000"));
+    assert.ok(params.options.systemPrompt.includes('"tester-setup:my-repo"'));
   });
 
   it("folds the run's usage back onto the originating session", async () => {

@@ -90,6 +90,29 @@ describe("buildTesterSystemPrompt", () => {
     assert.ok(prompt.includes(".clack-tester-app.json"));
     assert.ok(prompt.includes("0.0.0.0"));
   });
+
+  it("starts the workflow with the discovery phase", () => {
+    const prompt = buildTesterSystemPrompt(makeOpts());
+    assert.ok(prompt.includes("DISCOVER what to run"));
+    assert.ok(prompt.includes("the subset is decided per run from THIS diff"));
+  });
+
+  it("injects learned notes and the tester-keyed rewrite directive when provided", () => {
+    const prompt = buildTesterSystemPrompt({
+      ...makeOpts(),
+      learnedNotes: "## Services\n- web: pnpm dev, port 3000",
+    });
+    assert.ok(prompt.includes("NOTES FROM PREVIOUS RUNS (advisory"));
+    assert.ok(prompt.includes("## Services\n- web: pnpm dev, port 3000"));
+    assert.ok(prompt.includes('"tester-setup:my-repo"'));
+  });
+
+  it("omits the notes section on a cold run but keeps the directive", () => {
+    const prompt = buildTesterSystemPrompt({ ...makeOpts(), learnedNotes: null });
+    assert.ok(!prompt.includes("NOTES FROM PREVIOUS RUNS (advisory"));
+    assert.ok(prompt.includes("REPO SETUP MEMORY"));
+    assert.ok(prompt.includes('"tester-setup:my-repo"'));
+  });
 });
 
 describe("buildTesterUserPrompt", () => {

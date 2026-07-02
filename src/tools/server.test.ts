@@ -669,6 +669,12 @@ describe("buildClackTools — worker mode", () => {
     const result = buildClackTools(makeWorkerCtx());
     assert.ok(!result.toolNames.includes("record_and_upload"));
   });
+
+  it("includes the memory faculty (remember + recall)", () => {
+    const result = buildClackTools(makeWorkerCtx());
+    assert.ok(result.toolNames.includes("remember"));
+    assert.ok(result.toolNames.includes("recall"));
+  });
 });
 
 describe("buildClackTools — tester mode (kind: 'test')", () => {
@@ -691,6 +697,12 @@ describe("buildClackTools — tester mode (kind: 'test')", () => {
     const result = buildClackTools(makeWorkerCtx({ kind: "test" }));
     assert.ok(result.toolNames.includes("report_status"));
     assert.ok(result.toolNames.includes("record_and_upload"));
+  });
+
+  it("includes the memory faculty (remember + recall)", () => {
+    const result = buildClackTools(makeWorkerCtx({ kind: "test" }));
+    assert.ok(result.toolNames.includes("remember"));
+    assert.ok(result.toolNames.includes("recall"));
   });
 
   it("stages no intents", () => {
