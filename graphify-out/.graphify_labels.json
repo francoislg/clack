@@ -291,5 +291,7 @@
   "289": "Worker Processing Mode",
   "290": "Worker Session",
   "291": "Worktree Pools",
-  "292": "Zod Validation"
+  "292": "Zod Validation",
+  "293": "slackErrors.ts",
+  "294": "hint.ts"
 }
