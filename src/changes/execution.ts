@@ -1,7 +1,7 @@
 import { clackSession } from "../claude/query.js";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { simpleGit } from "simple-git";
-import { getConfig, findRepoByName } from "../config.js";
+import { getConfig, findRepoByName, getWorkerSettingsPath } from "../config.js";
 import type { McpServerConfig } from "@anthropic-ai/claude-agent-sdk";
 import { errorMessage } from "../errors.js";
 import { resolveInstructionFile } from "../instructions.js";
@@ -118,6 +118,13 @@ export async function runClaude(options: {
   let resultError: string | undefined;
   const parser = new ClaudeMessageParser(options.onEvent);
 
+  // Optional operator-provided native settings.json — forwarded to the SDK to attach
+  // external guardrails (PreToolUse command hooks, permissions.deny) without any
+  // tool-specific code. Absolute path (worker cwd is a per-run worktree). Absent → omitted.
+  const workerSettingsPath = getWorkerSettingsPath();
+  const workerSettings = existsSync(workerSettingsPath) ? workerSettingsPath : undefined;
+  if (workerSettings) log?.(`Loading worker settings from ${workerSettings}`);
+
   const run = deps.clackSession({
     prompt: options.prompt,
     resumeSessionId: options.resumeSessionId,
@@ -132,6 +139,7 @@ export async function runClaude(options: {
       allowDangerouslySkipPermissions: true,
       hooks: { PreToolUse: [buildWorkerBashGuardHook()] },
       plugins: discoverEagerSkillPlugins(),
+      ...(workerSettings && { settings: workerSettings }),
       ...(options.mcpServers && {
         mcpServers: options.mcpServers as Record<string, McpServerConfig>,
       }),

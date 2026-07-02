@@ -1,11 +1,17 @@
-import { describe, it, vi } from "vitest";
+import { describe, it, vi, beforeEach } from "vitest";
 import assert from "node:assert/strict";
+import { existsSync } from "node:fs";
 import type { SDKMessage, SDKResultSuccess } from "@anthropic-ai/claude-agent-sdk";
 import type { UUID } from "node:crypto";
 import { runClaude, type RunClaudeDeps } from "./execution.js";
-import type { Config } from "../config.js";
+import { getWorkerSettingsPath, type Config } from "../config.js";
 import type { ClackSessionRun, ClackSessionParams } from "../claude/query.js";
 import { createRunHandle } from "../claude/runHandle.js";
+
+vi.mock("node:fs", async (importActual) => ({
+  ...(await importActual<typeof import("node:fs")>()),
+  existsSync: vi.fn(),
+}));
 
 // ============================================================================
 // Helpers
@@ -174,5 +180,59 @@ describe("runClaude — usage capture", () => {
       cacheCreationTokens: 8,
       costUsd: 0.75,
     });
+  });
+});
+
+// ============================================================================
+// runClaude — worker settings forwarding
+// ============================================================================
+
+describe("runClaude — worker settings forwarding", () => {
+  beforeEach(() => {
+    vi.mocked(existsSync).mockReset();
+  });
+
+  function captureOptions(): {
+    deps: RunClaudeDeps;
+    getOptions: () => ClackSessionParams["options"];
+  } {
+    const clackSession = vi.fn((_params: ClackSessionParams) =>
+      makeRunFromMessages([resultSuccessWithUsage("ok", {} as SDKResultSuccess["usage"])]),
+    );
+    return {
+      deps: { getConfig: vi.fn(() => makeConfig()), clackSession },
+      getOptions: () => clackSession.mock.calls[0]![0].options,
+    };
+  }
+
+  it("forwards the absolute settings path when the file exists", async () => {
+    vi.mocked(existsSync).mockReturnValue(true);
+    const { deps, getOptions } = captureOptions();
+
+    await runClaude({ prompt: "go", cwd: "/some/worktree/path", _deps: deps });
+
+    assert.equal(getOptions()?.settings, getWorkerSettingsPath());
+    // Absolute + independent of the per-run worktree cwd.
+    assert.ok(!String(getOptions()?.settings).startsWith("/some/worktree/path/"));
+  });
+
+  it("omits settings when the file is absent (isolation mode)", async () => {
+    vi.mocked(existsSync).mockReturnValue(false);
+    const { deps, getOptions } = captureOptions();
+
+    await runClaude({ prompt: "go", cwd: "/tmp", _deps: deps });
+
+    assert.equal(getOptions()?.settings, undefined);
+  });
+
+  it("keeps the bash guard hook registered regardless of settings presence", async () => {
+    for (const present of [true, false]) {
+      vi.mocked(existsSync).mockReturnValue(present);
+      const { deps, getOptions } = captureOptions();
+
+      await runClaude({ prompt: "go", cwd: "/tmp", _deps: deps });
+
+      assert.equal(getOptions()?.hooks?.PreToolUse?.length, 1);
+    }
   });
 });
