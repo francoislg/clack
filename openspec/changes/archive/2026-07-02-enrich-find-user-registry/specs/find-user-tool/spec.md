@@ -1,8 +1,5 @@
-# find-user-tool Specification
+## MODIFIED Requirements
 
-## Purpose
-MCP query tool and supporting cache abstraction for searching Slack workspace members by name, username, or user ID with multi-term substring and wildcard matching.
-## Requirements
 ### Requirement: UsersCache Abstraction
 
 The system SHALL provide a `UsersCache` abstraction that fetches and caches the Slack workspace user list for search operations, enriches results from the persisted user registry, and reports the full match count for pagination.
@@ -143,6 +140,8 @@ The system SHALL provide a `find_user` MCP query tool that searches Slack worksp
 - **WHEN** Claude has a user's `avatarUrl` from `find_user`
 - **THEN** the tool description indicates the URL can be passed to an image tool (e.g. `generate_image`'s `input_image_url`) as a source/edit image
 
+## ADDED Requirements
+
 ### Requirement: find_user is the instructed source of truth for user information
 
 The system SHALL instruct Claude, via an always-loaded baseline instruction, to treat `find_user` as the canonical path for resolving teammate identity and to never fabricate user attributes.
@@ -158,4 +157,3 @@ The system SHALL instruct Claude, via an always-loaded baseline instruction, to 
 
 - **WHEN** the baseline user-lookup instruction is loaded
 - **THEN** it notes that `find_user` is paginated (`offset`) and reports `totalCount`, so Claude can page through to obtain the complete set when needed
-

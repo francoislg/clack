@@ -1,5 +1,7 @@
 import type { App } from "@slack/bolt";
 import { logger } from "../logger.js";
+import type { JsonObject } from "../config.js";
+import { getUserRecord, type UserRecord } from "../userRegistry.js";
 import { buildWildcardMatcher } from "./wildcardMatcher.js";
 
 export interface SlackUserEntry {
@@ -7,10 +9,32 @@ export interface SlackUserEntry {
   username: string;
   displayName: string;
   avatarUrl: string;
+  github?: { username: string };
+  plugins?: { [pluginName: string]: JsonObject };
+}
+
+/** Narrow read surface into the user registry — injected so tests stub it without touching disk. */
+export interface UserRegistryReader {
+  getUserRecord: (userId: string) => Promise<UserRecord | null>;
+}
+
+export const defaultUserRegistryReader: UserRegistryReader = { getUserRecord };
+
+export interface UserSearchOptions {
+  offset?: number;
+  limit?: number;
+  /** Plugin namespaces to project onto each result — the tool authorizes these before passing them in. */
+  includePluginData?: string[];
+}
+
+export interface UserSearchResult {
+  entries: SlackUserEntry[];
+  /** Total matches across the whole roster, independent of offset/limit. */
+  totalMatched: number;
 }
 
 export interface UsersCache {
-  search(queries: string[], limit?: number): Promise<SlackUserEntry[]>;
+  search(queries: string[], options?: UserSearchOptions): Promise<UserSearchResult>;
 }
 
 function isRealUser(member: { deleted?: boolean; is_bot?: boolean; id?: string }): boolean {
@@ -36,7 +60,10 @@ function toUserEntry(member: {
   };
 }
 
-export function createUsersCache(client: App["client"]): UsersCache {
+export function createUsersCache(
+  client: App["client"],
+  registry: UserRegistryReader = defaultUserRegistryReader,
+): UsersCache {
   let cached: SlackUserEntry[] | null = null;
 
   async function fetchAll(): Promise<SlackUserEntry[]> {
@@ -79,22 +106,57 @@ export function createUsersCache(client: App["client"]): UsersCache {
     );
   }
 
+  // Left-join registry attributes onto a roster entry. Never throws — a missing or malformed
+  // record simply yields no enrichment (the registry reader is graceful, and we guard anyway).
+  async function enrich(
+    user: SlackUserEntry,
+    includePluginData: string[],
+  ): Promise<SlackUserEntry> {
+    let record: UserRecord | null = null;
+    try {
+      record = await registry.getUserRecord(user.userId);
+    } catch (error) {
+      logger.debug(`UsersCache: registry enrichment failed for ${user.userId}: ${error}`);
+    }
+    if (!record) return user;
+
+    const enriched: SlackUserEntry = { ...user };
+    if (record.github) enriched.github = record.github;
+
+    if (includePluginData.length > 0 && record.plugins) {
+      const projected: { [pluginName: string]: JsonObject } = {};
+      for (const name of includePluginData) {
+        const namespace = record.plugins[name];
+        if (namespace !== undefined) projected[name] = namespace;
+      }
+      if (Object.keys(projected).length > 0) enriched.plugins = projected;
+    }
+    return enriched;
+  }
+
   return {
-    async search(queries: string[], limit = 10): Promise<SlackUserEntry[]> {
+    async search(queries: string[], options: UserSearchOptions = {}): Promise<UserSearchResult> {
+      const offset = Math.max(0, options.offset ?? 0);
+      const limit = options.limit && options.limit > 0 ? options.limit : 10;
+      const includePluginData = options.includePluginData ?? [];
+
       const users = await fetchAll();
       const matchers = queries.map(buildWildcardMatcher);
       const seen = new Set<string>();
-      const results: SlackUserEntry[] = [];
+      const matches: SlackUserEntry[] = [];
 
       for (const user of users) {
         if (seen.has(user.userId)) continue;
         if (matchesUser(user, queries, matchers)) {
           seen.add(user.userId);
-          results.push(user);
+          matches.push(user);
         }
       }
 
-      return results.slice(0, limit);
+      // Enrich only the returned page, so registry reads stay bounded by `limit`.
+      const page = matches.slice(offset, offset + limit);
+      const entries = await Promise.all(page.map((user) => enrich(user, includePluginData)));
+      return { entries, totalMatched: matches.length };
     },
   };
 }

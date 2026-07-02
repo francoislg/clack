@@ -8,7 +8,12 @@ import { createFindUserTool } from "./findUser.js";
 
 import type { QueryToolContext } from "../types.js";
 import { parseToolResult } from "../testHelpers.js";
-import type { UsersCache, SlackUserEntry } from "../../slack/usersCache.js";
+import type {
+  UsersCache,
+  SlackUserEntry,
+  UserSearchOptions,
+  UserSearchResult,
+} from "../../slack/usersCache.js";
 
 function makeCtx(overrides?: Partial<QueryToolContext>): QueryToolContext {
   return {
@@ -37,15 +42,36 @@ function makeCtx(overrides?: Partial<QueryToolContext>): QueryToolContext {
   };
 }
 
-const mockSearch = vi.fn<(queries: string[], limit?: number) => Promise<SlackUserEntry[]>>();
+const mockSearch =
+  vi.fn<(queries: string[], options?: UserSearchOptions) => Promise<UserSearchResult>>();
 
 function makeUsersCache(): UsersCache {
   return { search: mockSearch };
 }
 
+function searchResult(entries: SlackUserEntry[], totalMatched = entries.length): UserSearchResult {
+  return { entries, totalMatched };
+}
+
 function resetMocks() {
   mockSearch.mockClear();
-  mockSearch.mockImplementation(async () => []);
+  mockSearch.mockImplementation(async () => searchResult([]));
+}
+
+// Every arg key is passed explicitly (undefined for unset) — the SDK tool handler types
+// the full arg object as required.
+function args(over: {
+  query: string[];
+  limit?: number;
+  offset?: number;
+  includePluginData?: string[];
+}) {
+  return {
+    query: over.query,
+    limit: over.limit,
+    offset: over.offset,
+    includePluginData: over.includePluginData,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -55,131 +81,151 @@ function resetMocks() {
 describe("findUser tool", () => {
   beforeEach(resetMocks);
 
-  it("returns users from cache search", async () => {
-    const users = [
+  it("returns cache entries with the pagination envelope", async () => {
+    const users: SlackUserEntry[] = [
       {
         userId: "U100",
         username: "alice",
         displayName: "Alice A",
         avatarUrl: "https://x/alice.png",
+        github: { username: "alice-gh" },
       },
       { userId: "U200", username: "bob", displayName: "Bob B", avatarUrl: "https://x/bob.png" },
     ];
-    mockSearch.mockImplementation(async () => users);
+    mockSearch.mockImplementation(async () => searchResult(users, 2));
 
-    const ctx = makeCtx();
-    const toolDef = createFindUserTool(ctx, makeUsersCache());
-
-    const result = await toolDef.handler(
-      { query: ["alice", "bob"], limit: undefined },
-      { sessionId: "test" },
+    const toolDef = createFindUserTool(makeCtx(), makeUsersCache());
+    const parsed = parseToolResult(
+      await toolDef.handler(args({ query: ["alice", "bob"] }), { sessionId: "test" }),
     );
 
-    const parsed = parseToolResult(result);
-    assert.equal(parsed.total, 2);
+    assert.equal(parsed.totalCount, 2);
+    assert.equal(parsed.offset, 0);
+    assert.equal(parsed.hasMore, false);
     assert.equal(parsed.users.length, 2);
-    assert.equal(parsed.truncated, false);
     assert.equal(parsed.users[0].userId, "U100");
+    assert.deepEqual(parsed.users[0].github, { username: "alice-gh" });
     assert.equal(parsed.users[1].username, "bob");
-    assert.equal(parsed.users[0].avatarUrl, "https://x/alice.png");
   });
 
-  it("passes query and default limit to cache", async () => {
-    mockSearch.mockImplementation(async () => []);
-
-    const ctx = makeCtx();
-    const toolDef = createFindUserTool(ctx, makeUsersCache());
-
-    await toolDef.handler({ query: ["test-query"], limit: undefined }, { sessionId: "test" });
+  it("forwards default offset/limit and empty plugin data to the cache", async () => {
+    const toolDef = createFindUserTool(makeCtx(), makeUsersCache());
+    await toolDef.handler(args({ query: ["test-query"] }), { sessionId: "test" });
 
     assert.equal(mockSearch.mock.calls.length, 1);
-    const call = mockSearch.mock.calls[0];
-    assert.deepEqual(call[0], ["test-query"]);
-    assert.equal(call[1], 10);
+    const [queries, options] = mockSearch.mock.calls[0];
+    assert.deepEqual(queries, ["test-query"]);
+    assert.deepEqual(options, { offset: 0, limit: 10, includePluginData: [] });
   });
 
-  it("passes custom limit to cache", async () => {
-    mockSearch.mockImplementation(async () => []);
+  it("forwards custom limit and offset to the cache", async () => {
+    const toolDef = createFindUserTool(makeCtx(), makeUsersCache());
+    await toolDef.handler(args({ query: ["someone"], limit: 5, offset: 20 }), {
+      sessionId: "test",
+    });
 
-    const ctx = makeCtx();
-    const toolDef = createFindUserTool(ctx, makeUsersCache());
-
-    await toolDef.handler({ query: ["someone"], limit: 5 }, { sessionId: "test" });
-
-    assert.equal(mockSearch.mock.calls.length, 1);
-    assert.equal(mockSearch.mock.calls[0][1], 5);
+    const [, options] = mockSearch.mock.calls[0];
+    assert.equal(options?.limit, 5);
+    assert.equal(options?.offset, 20);
   });
 
-  it("sets truncated=true when results hit the limit", async () => {
-    const users = Array.from({ length: 10 }, (_, i) => ({
+  it("reports hasMore=true when more matches remain beyond the page", async () => {
+    const page = Array.from({ length: 10 }, (_, i) => ({
       userId: `U${i}`,
       username: `user${i}`,
       displayName: `User ${i}`,
-      avatarUrl: `https://x/user${i}.png`,
+      avatarUrl: "",
     }));
-    mockSearch.mockImplementation(async () => users);
+    mockSearch.mockImplementation(async () => searchResult(page, 25));
 
-    const ctx = makeCtx();
-    const toolDef = createFindUserTool(ctx, makeUsersCache());
-
-    const result = await toolDef.handler(
-      { query: ["user"], limit: undefined },
-      { sessionId: "test" },
+    const toolDef = createFindUserTool(makeCtx(), makeUsersCache());
+    const parsed = parseToolResult(
+      await toolDef.handler(args({ query: ["user"] }), { sessionId: "test" }),
     );
 
-    const parsed = parseToolResult(result);
-    assert.equal(parsed.total, 10);
-    assert.equal(parsed.truncated, true);
+    assert.equal(parsed.totalCount, 25);
+    assert.equal(parsed.hasMore, true);
   });
 
-  it("sets truncated=true when results match custom limit", async () => {
-    const users = [
-      { userId: "U1", username: "a", displayName: "A", avatarUrl: "" },
-      { userId: "U2", username: "b", displayName: "B", avatarUrl: "" },
-      { userId: "U3", username: "c", displayName: "C", avatarUrl: "" },
+  it("reports hasMore=false when the page reaches the end from an offset", async () => {
+    const page = [{ userId: "U9", username: "z", displayName: "Z", avatarUrl: "" }];
+    mockSearch.mockImplementation(async () => searchResult(page, 6));
+
+    const toolDef = createFindUserTool(makeCtx(), makeUsersCache());
+    const parsed = parseToolResult(
+      await toolDef.handler(args({ query: ["z"], offset: 5 }), { sessionId: "test" }),
+    );
+
+    assert.equal(parsed.totalCount, 6);
+    assert.equal(parsed.offset, 5);
+    assert.equal(parsed.hasMore, false);
+  });
+
+  it("clamps a negative offset to 0", async () => {
+    const toolDef = createFindUserTool(makeCtx(), makeUsersCache());
+    const parsed = parseToolResult(
+      await toolDef.handler(args({ query: ["a"], offset: -5 }), { sessionId: "test" }),
+    );
+
+    assert.equal(parsed.offset, 0);
+    assert.equal(mockSearch.mock.calls[0][1]?.offset, 0);
+  });
+
+  it("falls back to the default limit when limit <= 0", async () => {
+    const toolDef = createFindUserTool(makeCtx(), makeUsersCache());
+    await toolDef.handler(args({ query: ["a"], limit: 0 }), { sessionId: "test" });
+
+    assert.equal(mockSearch.mock.calls[0][1]?.limit, 10);
+  });
+
+  it("forwards includePluginData for a dev-role caller", async () => {
+    const toolDef = createFindUserTool(makeCtx({ role: "dev" }), makeUsersCache());
+    await toolDef.handler(args({ query: ["a"], includePluginData: ["trivia"] }), {
+      sessionId: "test",
+    });
+
+    assert.deepEqual(mockSearch.mock.calls[0][1]?.includePluginData, ["trivia"]);
+  });
+
+  it("surfaces plugin data returned by the cache in the response", async () => {
+    const users: SlackUserEntry[] = [
+      {
+        userId: "U100",
+        username: "alice",
+        displayName: "Alice A",
+        avatarUrl: "",
+        plugins: { trivia: { score: 42 } },
+      },
     ];
-    mockSearch.mockImplementation(async () => users);
+    mockSearch.mockImplementation(async () => searchResult(users));
 
-    const ctx = makeCtx();
-    const toolDef = createFindUserTool(ctx, makeUsersCache());
-
-    const result = await toolDef.handler({ query: ["test"], limit: 3 }, { sessionId: "test" });
-
-    const parsed = parseToolResult(result);
-    assert.equal(parsed.truncated, true);
-  });
-
-  it("sets truncated=false when results are below the limit", async () => {
-    const users = [{ userId: "U1", username: "solo", displayName: "Solo", avatarUrl: "" }];
-    mockSearch.mockImplementation(async () => users);
-
-    const ctx = makeCtx();
-    const toolDef = createFindUserTool(ctx, makeUsersCache());
-
-    const result = await toolDef.handler(
-      { query: ["solo"], limit: undefined },
-      { sessionId: "test" },
+    const toolDef = createFindUserTool(makeCtx({ role: "dev" }), makeUsersCache());
+    const parsed = parseToolResult(
+      await toolDef.handler(args({ query: ["alice"], includePluginData: ["trivia"] }), {
+        sessionId: "test",
+      }),
     );
 
-    const parsed = parseToolResult(result);
-    assert.equal(parsed.total, 1);
-    assert.equal(parsed.truncated, false);
+    assert.deepEqual(parsed.users[0].plugins, { trivia: { score: 42 } });
   });
 
-  it("returns empty when no users match", async () => {
-    mockSearch.mockImplementation(async () => []);
+  it("drops includePluginData for a below-dev caller", async () => {
+    const toolDef = createFindUserTool(makeCtx({ role: "member" }), makeUsersCache());
+    await toolDef.handler(args({ query: ["a"], includePluginData: ["trivia"] }), {
+      sessionId: "test",
+    });
 
-    const ctx = makeCtx();
-    const toolDef = createFindUserTool(ctx, makeUsersCache());
+    assert.deepEqual(mockSearch.mock.calls[0][1]?.includePluginData, []);
+  });
 
-    const result = await toolDef.handler(
-      { query: ["nonexistent"], limit: undefined },
-      { sessionId: "test" },
+  it("returns an empty envelope when no users match", async () => {
+    const toolDef = createFindUserTool(makeCtx(), makeUsersCache());
+    const parsed = parseToolResult(
+      await toolDef.handler(args({ query: ["nonexistent"] }), { sessionId: "test" }),
     );
 
-    const parsed = parseToolResult(result);
-    assert.equal(parsed.total, 0);
+    assert.equal(parsed.totalCount, 0);
     assert.deepEqual(parsed.users, []);
-    assert.equal(parsed.truncated, false);
+    assert.equal(parsed.hasMore, false);
   });
 });
