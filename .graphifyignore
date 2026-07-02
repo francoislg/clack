@@ -5,9 +5,12 @@ data/
 # Skill-local working directories
 .systematic/
 
-# OpenSpec in-progress proposals (changes/). The merged source-of-truth
-# specs under openspec/specs/ are kept on purpose — they're real architecture docs.
+# OpenSpec dirs. changes/ = in-progress proposals. specs/ = merged spec prose:
+# 0.9.x structural markdown extraction shreds them into ~5.9k heading nodes with
+# ZERO edges to code (measured 0% spec↔code bridging) — 57% of the graph, pure
+# noise per graphify's own "scope out verbose specs" guidance. Excluded.
 openspec/changes/
+openspec/specs/
 
 # Test files — ~45% of code files; they mirror the module under test and
 # dilute community/god-node analysis without adding cross-cutting edges.
