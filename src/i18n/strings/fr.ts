@@ -165,6 +165,12 @@ export const fr: Partial<Record<StringKey, string>> = {
 
   // ─── Auto-respond ──────────────────────────────────────────────────
   "home.auto_respond.header": "Réponse automatique",
+  "home.auto_respond.conversations_header": "*Conversations suivies*",
+  "home.auto_respond.conversation_level": "attention : {level}",
+  "home.auto_respond.conversation_expires": "expire dans {time}",
+  "home.auto_respond.conversation_dormant": "en veille — se réengagera si la conversation reprend",
+  "home.auto_respond.conversation_sessions": "{count} session(s) liée(s)",
+  "home.auto_respond.stop_following": "Ne plus suivre",
   "home.auto_respond.empty": "_Aucune règle auto-respond configurée._",
   "home.auto_respond.paused_suffix": " _(en pause)_",
   "home.auto_respond.pre_analysis_suffix": " · Pré-analyse",

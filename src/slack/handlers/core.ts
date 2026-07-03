@@ -190,6 +190,13 @@ export interface ProcessMessageParams {
    * See the `plugin-topic-instructions` capability.
    */
   preAttachedTopics?: string[];
+  /**
+   * Explicit session to continue instead of resolving by thread. Set by the ephemeral
+   * channel-conversation path (`triggerType: "channelReply"`): the incoming message is
+   * top-level (no `thread_ts`), but the turn must resume the anchor session — its record,
+   * its `sdkSessionId` — so Claude keeps the conversation's context.
+   */
+  resumeSessionId?: string;
 }
 
 interface ProcessingContext {
@@ -230,6 +237,8 @@ interface ProcessingContext {
   readonly roleOverride?: UserRole;
   /** Topic names pre-attached for the session — see ProcessMessageParams.preAttachedTopics. */
   readonly preAttachedTopics?: string[];
+  /** Explicit session to continue — see ProcessMessageParams.resumeSessionId. */
+  readonly resumeSessionId?: string;
 }
 
 /** Construct a `SessionTrigger` from the inputs we have at handler time. The switch on
@@ -265,9 +274,11 @@ function buildTriggerFromParams(params: {
       };
     case "autoRespond":
     case "threadReply":
-      // A threadReply event here only happens when there was NO existing session found — in
-      // practice that's almost always an autoRespond-created session in a thread. Model as
-      // autoRespond for the new trigger union (threadReply is NOT a session-creating type).
+    case "channelReply":
+      // A threadReply/channelReply event here only happens when there was NO existing session
+      // found (for channelReply: the anchor session vanished and the turn falls back to a
+      // fresh session). Model as autoRespond for the trigger union — neither is a
+      // session-creating type in its own right.
       return {
         type: "autoRespond",
         userId: params.userId,
@@ -328,7 +339,11 @@ async function setupSession(ctx: ProcessingContext, deps: CoreDeps): Promise<Ses
       ? await deps.transformUserMentions(client, messageText)
       : messageText;
 
-  let session = threadTs ? await deps.findSessionByThread(channelId, threadTs) : null;
+  let session = ctx.resumeSessionId
+    ? await deps.getSession(ctx.resumeSessionId)
+    : threadTs
+      ? await deps.findSessionByThread(channelId, threadTs)
+      : null;
 
   // Resolve user and channel info for session attribution. For channelless cron
   // dispatch (synthetic `channelless:<jobId>` sentinel), skip the Slack lookup —
@@ -583,6 +598,7 @@ export async function processMessage(
       autoRespondRuleName: params.autoRespondRuleName,
       roleOverride: params.roleOverride,
       preAttachedTopics: params.preAttachedTopics,
+      resumeSessionId: params.resumeSessionId,
     };
 
     const userLabel = await deps.resolveUserLabel(client, userId);

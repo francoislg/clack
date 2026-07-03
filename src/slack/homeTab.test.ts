@@ -220,6 +220,74 @@ beforeEach(() => {
 });
 
 // ============================================================================
+// Auto-respond section — followed conversations (ephemeral rules)
+// ============================================================================
+
+describe("buildHomeView — followed conversations", () => {
+  function ephemeralRule(overrides: Partial<AutoRespondRule> = {}): AutoRespondRule {
+    return {
+      id: "eph-1",
+      kind: "ephemeral",
+      channels: ["C_CONV"],
+      attentionLevel: "medium",
+      expiresAt: Date.now() + 30 * 60 * 1000,
+      sessionIds: ["anchor", "thread-1"],
+      anchorText: "Deploy digest",
+      enabled: true,
+      ...overrides,
+    };
+  }
+
+  it("renders a conversation row with level, expiry, session count, and Stop following", async () => {
+    setDefaultMocks("admin");
+    mockGetRules.mockImplementation(async () => [
+      ephemeralRule(),
+      { id: "std-1", channels: ["C_STD"], enabled: true },
+    ]);
+    const view = await buildHomeView({ userId: "U001" }, makeDeps());
+    const texts = getSectionTexts(view.blocks as KnownBlock[]);
+
+    const row = texts.find((tx) => tx.includes("<#C_CONV>"));
+    assert.ok(row, "conversation row must render");
+    assert.ok(row.includes("attention: medium"));
+    assert.ok(row.includes("expires in"));
+    assert.ok(row.includes("2 linked session(s)"));
+    assert.ok(texts.some((tx) => tx.includes("Conversations being followed")));
+    assert.ok(
+      texts.some((tx) => tx.includes("<#C_STD>")),
+      "standing rule still renders",
+    );
+  });
+
+  it("renders dormant label past expiry and no Edit accessory on ephemeral rows", async () => {
+    setDefaultMocks("admin");
+    mockGetRules.mockImplementation(async () => [
+      ephemeralRule({ expiresAt: Date.now() - 60 * 1000 }),
+    ]);
+    const view = await buildHomeView({ userId: "U001" }, makeDeps());
+    const blocks = view.blocks as KnownBlock[];
+    const texts = getSectionTexts(blocks);
+
+    assert.ok(texts.some((tx) => tx.includes("dormant")));
+    const row = blocks.find(
+      (b) =>
+        b.type === "section" &&
+        (b as { text?: { text?: string } }).text?.text?.includes("<#C_CONV>"),
+    ) as { accessory?: { action_id?: string; text?: { text?: string } } };
+    assert.ok(row.accessory?.action_id?.startsWith("ai_stop_following:"));
+    assert.equal(row.accessory?.text?.text, "Stop following");
+  });
+
+  it("does not render the conversations sub-group when only standing rules exist", async () => {
+    setDefaultMocks("admin");
+    mockGetRules.mockImplementation(async () => [{ id: "std-1", channels: ["C1"], enabled: true }]);
+    const view = await buildHomeView({ userId: "U001" }, makeDeps());
+    const texts = getSectionTexts(view.blocks as KnownBlock[]);
+    assert.ok(!texts.some((tx) => tx.includes("Conversations being followed")));
+  });
+});
+
+// ============================================================================
 // buildHomeView
 // ============================================================================
 

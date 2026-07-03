@@ -2,6 +2,7 @@ import { describe, it } from "vitest";
 import assert from "node:assert/strict";
 import { stopThread, type StopPipelineDeps } from "./stopPipeline.js";
 import type { ActiveChangeState } from "../changes/activeState.js";
+import type { EphemeralRule } from "../ephemeralRules.js";
 import type { SessionContext } from "../sessions.js";
 import type { ChangeStatus } from "../changes/types.js";
 import { makeFakeRunHandle, type FakeRunHandle } from "../claude/runHandle.testFixtures.js";
@@ -16,10 +17,15 @@ interface FakeSetup {
   queuedSessionId?: string;
   /** Records every (sessionId, reason) cancelQueuedSession was called with. */
   cancelQueuedCalls?: Array<{ sessionId: string; reason?: string }>;
+  /** Ephemeral channel-conversation rule returned for the channel under test. */
+  ephemeralRule?: EphemeralRule;
+  /** Channels whose ephemeral rule was deleted. */
+  deletedEphemeralChannels?: string[];
 }
 
 function makeDeps(setup: FakeSetup): StopPipelineDeps {
   setup.cancelQueuedCalls = setup.cancelQueuedCalls ?? [];
+  setup.deletedEphemeralChannels = setup.deletedEphemeralChannels ?? [];
   return {
     getActiveRunByThread: () => setup.queryHandle ?? undefined,
     findSessionByThread: async () => {
@@ -36,6 +42,11 @@ function makeDeps(setup: FakeSetup): StopPipelineDeps {
     cancelQueuedSession: (sessionId, reason) => {
       setup.cancelQueuedCalls!.push({ sessionId, reason });
       return setup.queuedSessionId === sessionId;
+    },
+    getEphemeralRuleForChannel: async () => setup.ephemeralRule ?? null,
+    deleteEphemeralRuleForChannel: async (channel) => {
+      setup.deletedEphemeralChannels!.push(channel);
+      return true;
     },
   };
 }
@@ -235,5 +246,47 @@ describe("stopThread", () => {
     assert.equal(result.queuedCancelled, false);
     // cancelQueuedSession should not have been consulted when a handle was available
     assert.deepEqual(setup.cancelQueuedCalls, []);
+  });
+
+  it("deletes the channel's ephemeral rule when the stopped session is in its ledger", async () => {
+    const setup: FakeSetup = {
+      queryHandle: null,
+      session: { sessionId: "anchor-sess", attentionLevel: "medium" },
+      activeChange: null,
+      disengagedSessionIds: [],
+      ephemeralRule: {
+        id: "eph-1",
+        kind: "ephemeral",
+        channels: ["C1"],
+        attentionLevel: "medium",
+        expiresAt: 0,
+        sessionIds: ["anchor-sess"],
+        anchorText: "digest",
+        enabled: true,
+      },
+    };
+    await stopThread("C1", "t-1", "U1", "stop reaction", makeDeps(setup));
+    assert.deepEqual(setup.deletedEphemeralChannels, ["C1"]);
+  });
+
+  it("leaves the ephemeral rule alone when the stopped session is unrelated to it", async () => {
+    const setup: FakeSetup = {
+      queryHandle: null,
+      session: { sessionId: "other-sess", attentionLevel: "medium" },
+      activeChange: null,
+      disengagedSessionIds: [],
+      ephemeralRule: {
+        id: "eph-1",
+        kind: "ephemeral",
+        channels: ["C1"],
+        attentionLevel: "medium",
+        expiresAt: 0,
+        sessionIds: ["anchor-sess"],
+        anchorText: "digest",
+        enabled: true,
+      },
+    };
+    await stopThread("C1", "t-1", "U1", "stop reaction", makeDeps(setup));
+    assert.deepEqual(setup.deletedEphemeralChannels, []);
   });
 });

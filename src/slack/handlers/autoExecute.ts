@@ -41,6 +41,7 @@ import {
   type EngageThreadOptions,
 } from "../../sessions.js";
 import { activeSessions, type SessionInfo } from "../activeSessions.js";
+import { seedEphemeralRule } from "../../ephemeralRules.js";
 import { logger } from "../../logger.js";
 import { isChannellessChannelId } from "../../channelless.js";
 import type { StagedChangeIntent } from "../../tools/types.js";
@@ -94,6 +95,7 @@ export interface AutoExecuteDeps {
     threadRoot: string,
     opts: EngageThreadOptions,
   ) => Promise<SessionContext | null>;
+  seedEphemeralRule: typeof seedEphemeralRule;
   restoreSession: (sessionId: string) => Promise<SessionInfo | null>;
 }
 
@@ -119,6 +121,7 @@ export const defaultAutoExecuteDeps: AutoExecuteDeps = {
   findSessionByThread,
   getSession,
   registerThreadSession,
+  seedEphemeralRule,
   updateSession: updateSession as never,
   restoreSession: (sessionId: string) =>
     activeSessions.restore(sessionId) as Promise<SessionInfo | null>,
@@ -629,6 +632,29 @@ async function handlePostToAutoExecute(
             });
           } catch (err) {
             logger.warn(`post_to: failed to seed engaged thread (cross-post succeeded): ${err}`);
+          }
+        }
+      }
+      // Best-effort, non-fatal: a top-level cross-post can open an ephemeral channel
+      // conversation window. Ignored (logged) when the action targeted a thread.
+      if (action.channel_attention_level) {
+        if (targetThreadTs) {
+          logger.warn(
+            `post_to: channel_attention_level ignored — the action targeted a thread in ${targetChannel}`,
+          );
+        } else {
+          try {
+            await deps.seedEphemeralRule({
+              channel: targetChannel,
+              attentionLevel: action.channel_attention_level,
+              sessionId,
+              anchorText: snapshot.text,
+              ...(action.follow_up_context && { followUpContext: action.follow_up_context }),
+            });
+          } catch (err) {
+            logger.warn(
+              `post_to: failed to seed channel conversation (cross-post succeeded): ${err}`,
+            );
           }
         }
       }

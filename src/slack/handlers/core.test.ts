@@ -492,3 +492,112 @@ describe("processMessage — concurrent same-thread dedup", () => {
     await p1;
   });
 });
+
+describe("processMessage — resumeSessionId", () => {
+  beforeEach(() => {
+    resetAllMocks();
+  });
+
+  it("reuses session when resumeSessionId is set and getSession resolves", async () => {
+    const resumedSession = makeSession({ sessionId: "resumed-session-123" });
+    mockGetSession.mockImplementation(async () => resumedSession);
+
+    const deps = makeDeps();
+    await processMessage(
+      makeParams({
+        triggerType: "directMessages",
+        resumeSessionId: "resumed-session-123",
+      }),
+      deps,
+    );
+
+    assert.equal(mockGetSession.mock.calls.length, 2);
+    assert.equal(mockGetSession.mock.calls[0]![0], "resumed-session-123");
+    assert.equal(mockCreateSession.mock.calls.length, 0);
+    assert.equal(mockUpdateSession.mock.calls.length, 1);
+    assert.equal(mockUpdateThreadContext.mock.calls.length, 1);
+  });
+
+  it("creates fresh session when resumeSessionId is set but getSession returns null", async () => {
+    mockGetSession.mockImplementation(async () => null);
+
+    const deps = makeDeps();
+    await processMessage(
+      makeParams({
+        triggerType: "directMessages",
+        resumeSessionId: "missing-session-id",
+      }),
+      deps,
+    );
+
+    assert.equal(mockGetSession.mock.calls.length, 1);
+    assert.equal(mockCreateSession.mock.calls.length, 1);
+  });
+
+  it("appends user message to resumed session via updateSession", async () => {
+    const existingSession = makeSession({
+      sessionId: "existing-1",
+      messages: [{ role: "assistant" as const, text: "previous response", ts: Date.now() }],
+    });
+    mockGetSession.mockImplementation(async () => existingSession);
+
+    const deps = makeDeps();
+    await processMessage(
+      makeParams({
+        triggerType: "directMessages",
+        resumeSessionId: "existing-1",
+        messageText: "new follow-up message",
+      }),
+      deps,
+    );
+
+    assert.equal(mockUpdateSession.mock.calls.length, 1);
+    const updateCall = mockUpdateSession.mock.calls[0];
+    assert.equal(updateCall![0], "existing-1");
+    const updates = updateCall![1];
+    assert.ok(Array.isArray(updates.messages));
+    const messages = updates.messages;
+    assert.ok(messages.length > 0);
+    const lastMsg = messages[messages.length - 1];
+    assert.equal(lastMsg.text, "new follow-up message");
+    assert.equal(lastMsg.role, "user");
+  });
+
+  it("does not create session when resumeSessionId is provided and session is found", async () => {
+    const foundSession = makeSession({ sessionId: "found-session" });
+    mockGetSession.mockImplementation(async () => foundSession);
+
+    const deps = makeDeps();
+    await processMessage(
+      makeParams({
+        triggerType: "directMessages",
+        resumeSessionId: "found-session",
+      }),
+      deps,
+    );
+
+    assert.equal(mockCreateSession.mock.calls.length, 0);
+    assert.equal(mockGetSession.mock.calls.length, 2);
+  });
+
+  it("prioritizes resumeSessionId over threadTs lookup", async () => {
+    const resumedSession = makeSession({ sessionId: "explicitly-resumed" });
+    const threadSession = makeSession({ sessionId: "thread-found" });
+    mockGetSession.mockImplementation(async () => resumedSession);
+    mockFindSessionByThread.mockImplementation(async () => threadSession);
+
+    const deps = makeDeps();
+    await processMessage(
+      makeParams({
+        triggerType: "directMessages",
+        threadTs: "1700000000.000001",
+        resumeSessionId: "explicitly-resumed",
+      }),
+      deps,
+    );
+
+    assert.equal(mockGetSession.mock.calls.length, 2);
+    assert.equal(mockFindSessionByThread.mock.calls.length, 0);
+    assert.equal(mockCreateSession.mock.calls.length, 0);
+  });
+});

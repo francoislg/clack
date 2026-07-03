@@ -29,9 +29,11 @@ import {
   setAttentionLevel,
   setDeliveryMode,
   createSession,
+  registerThreadSession,
   appendAssistantMessage,
   appendStagedIntents,
 } from "../../sessions.js";
+import { appendSessionToEphemeralRule } from "../../ephemeralRules.js";
 import type { SessionAssistantMessage, DeliveryMode } from "../../sessions.js";
 import { askClaude } from "../../claude/index.js";
 import { analyzeError } from "../../claude/utilities.js";
@@ -64,6 +66,10 @@ export interface HandlerResponseDeps {
   setDeliveryMode: typeof setDeliveryMode;
   /** Optional: when present, top-level posts create a follow-up session tied to the new thread. */
   createSession?: typeof createSession;
+  /** Seeds an engaged session on a thread (channelReply threaded handoff). */
+  registerThreadSession: typeof registerThreadSession;
+  /** Records a session joining a channel conversation's ledger (channelReply turns). */
+  appendSessionToEphemeralRule: typeof appendSessionToEphemeralRule;
   getErrorBlocksWithRetry: typeof getErrorBlocksWithRetry;
   getUsageLimitBlocks: typeof getUsageLimitBlocks;
   asSlackBlocks: typeof asSlackBlocks;
@@ -92,6 +98,8 @@ export const defaultHandlerResponseDeps: HandlerResponseDeps = {
   setAttentionLevel,
   setDeliveryMode,
   createSession,
+  registerThreadSession,
+  appendSessionToEphemeralRule,
   getErrorBlocksWithRetry,
   getUsageLimitBlocks,
   asSlackBlocks,
@@ -328,6 +336,37 @@ function applyDeliveryReactions(
   }
 }
 
+/** channelReply only: record a session joining the channel conversation's ledger. Best-effort. */
+async function appendToConversationLedger(ctx: DeliveryContext, sessionId: string): Promise<void> {
+  if (ctx.sessionInfo.triggerType !== "channelReply") return;
+  try {
+    await ctx.deps.appendSessionToEphemeralRule(ctx.targetChannel, sessionId);
+  } catch (err) {
+    logger.warn("Failed to append session to channel conversation ledger:", err);
+  }
+}
+
+/**
+ * channelReply threaded handoff: the primary delivery landed as a reply in the thread under
+ * the user's channel message, but the turn ran on the resumed ANCHOR session — no session is
+ * indexed for that thread. Seed an engaged thread session (owned by the normal thread
+ * auto-respond path from here on) and record it in the conversation ledger. Best-effort.
+ */
+async function seedChannelReplyThreadHandoff(ctx: DeliveryContext): Promise<void> {
+  if (ctx.sessionInfo.triggerType !== "channelReply" || !ctx.targetThread) return;
+  try {
+    const seeded = await ctx.deps.registerThreadSession(ctx.targetChannel, ctx.targetThread, {
+      attentionLevel: "medium",
+      ...(ctx.session.additionalSystemPrompt && {
+        followUpContext: ctx.session.additionalSystemPrompt,
+      }),
+    });
+    if (seeded) await appendToConversationLedger(ctx, seeded.sessionId);
+  } catch (err) {
+    logger.warn("Failed to seed thread handoff session for channel reply:", err);
+  }
+}
+
 /**
  * Build the single DeliverFn that Claude's submit_response tool calls. The active delivery
  * handler (`ctx.current`) owns the primary landing (streaming finalizes its card in place;
@@ -389,7 +428,7 @@ function buildDeliverFn(ctx: DeliveryContext): DeliverFn {
         // correctness failure, so delivery should still succeed.
         if (ts && ctx.deps.createSession) {
           try {
-            await ctx.deps.createSession({
+            const followUp = await ctx.deps.createSession({
               channelId: ctx.targetChannel,
               messageTs: ts,
               threadTs: ts,
@@ -405,6 +444,7 @@ function buildDeliverFn(ctx: DeliveryContext): DeliverFn {
               username: ctx.session.username,
               displayName: ctx.session.displayName,
             });
+            await appendToConversationLedger(ctx, followUp.sessionId);
           } catch (err) {
             logger.warn("Failed to create follow-up session for top-level post:", err);
           }
@@ -423,6 +463,7 @@ function buildDeliverFn(ctx: DeliveryContext): DeliverFn {
       ctx.alreadyDelivered = true;
       if (!res.notified) await sendResponseNotification(ctx);
       applyDeliveryReactions(ctx, res.ts, opts.reactions);
+      await seedChannelReplyThreadHandoff(ctx);
       return { ok: true as const, ts: res.ts };
     } catch (error) {
       logger.error("Delivery failed:", error);

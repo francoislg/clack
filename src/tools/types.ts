@@ -1,6 +1,7 @@
 import type { App } from "@slack/bolt";
 import type { Block as SlackRawBlock, KnownBlock } from "@slack/types";
 import type { SlackBlocks } from "../slack/blocks.js";
+import type { EphemeralAttentionLevel } from "../ephemeralRules.js";
 import type { AuthoredTableBlock, Block } from "../slack/blockSchema.js";
 import type {
   McpSdkServerConfigWithInstance,
@@ -114,6 +115,9 @@ export interface DeliverToEntry {
   follow_up_context?: string;
   /** Optional delivery mode seeded onto the destination thread (only meaningful with a non-`"off"` level). */
   default_delivery_mode?: DeliveryMode;
+  /** Optional: seed an ephemeral channel-conversation window on the destination channel.
+   *  Only meaningful for a top-level post (no `thread_ts`); `"always"` is not seedable. */
+  channel_attention_level?: EphemeralAttentionLevel;
 }
 
 /**
@@ -132,7 +136,9 @@ export type DeliverToChannelFn = (args: {
   followUpContext?: string;
   /** Delivery mode seeded onto the engaged session (only meaningful with a non-`"off"` level). */
   deliveryMode?: DeliveryMode;
-}) => Promise<{ ok: true; ts?: string } | { ok: false; error: string }>;
+  /** When set on a top-level delivery, seed an ephemeral channel-conversation window after posting. */
+  channelAttentionLevel?: EphemeralAttentionLevel;
+}) => Promise<{ ok: true; ts?: string; warning?: string } | { ok: false; error: string }>;
 
 // ============================================================================
 // Tool Context (discriminated union)
@@ -529,6 +535,9 @@ export interface PostToAction {
   follow_up_context?: string;
   /** Optional delivery mode seeded onto the cross-posted thread (only meaningful with a non-`"off"` level). */
   default_delivery_mode?: DeliveryMode;
+  /** Optional: seed an ephemeral channel-conversation window on the destination channel.
+   *  Only meaningful for a top-level post (no `thread_ts`); `"always"` is not seedable. */
+  channel_attention_level?: EphemeralAttentionLevel;
   /** Internal: resolved content entry ID set by submit_response before delivery (not from Claude) */
   _snapshotId?: string;
 }

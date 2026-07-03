@@ -2,7 +2,8 @@ import { z } from "zod";
 import { tool } from "@anthropic-ai/claude-agent-sdk";
 import type { QueryToolContext } from "../types.js";
 import { textResult, errorResult } from "../helpers.js";
-import { updateRule, type AutoRespondRulePatch } from "../../autoRespond.js";
+import { updateRule, getRule, type AutoRespondRulePatch } from "../../autoRespond.js";
+import { isEphemeralRule } from "../../ephemeralRules.js";
 import { resolveChannelId, type ResolveChannelResult } from "../../slack/channelResolver.js";
 import { logger } from "../../logger.js";
 import { errorMessage } from "../../errors.js";
@@ -96,6 +97,14 @@ export function createUpdateAutoRespondRuleTool(
       if (args.attentionLevel !== undefined) patch.attentionLevel = args.attentionLevel;
 
       try {
+        const existing = await getRule(args.id);
+        if (existing && isEphemeralRule(existing)) {
+          return errorResult(
+            `Rule "${args.id}" is an ephemeral channel conversation — it cannot be edited. ` +
+              "Its attention level is adjusted via `channel_attention_level` on responding turns; " +
+              "to stop following the conversation, use delete_auto_respond_rule.",
+          );
+        }
         const updated = await deps.updateRule(args.id, patch);
         if (!updated) {
           return errorResult(`Auto-respond rule "${args.id}" not found.`);

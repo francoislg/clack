@@ -64,6 +64,11 @@ function makeDeps(overrides: Partial<AutoRespondDeps> = {}): AutoRespondDeps {
     activeRunPreAnalysis: vi.fn(async () => "append" as const),
     loadSharedContext: () => "",
     getActiveRun: () => undefined,
+    getEphemeralRule: async () => null,
+    channelContinuationPreAnalysis: vi.fn(async () => "respond" as const),
+    ratchetEphemeralRule: vi.fn(async () => null),
+    renewEphemeralRule: vi.fn(async () => null),
+    deleteEphemeralRule: vi.fn(async () => true),
     ...overrides,
   };
 }
