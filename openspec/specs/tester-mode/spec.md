@@ -28,6 +28,8 @@ When the feature is enabled, Claude SHALL detect a test request (e.g. "test this
 
 The tool SHALL accept an optional `new_branch: boolean` argument. When `new_branch` is `true`, the staged intent SHALL carry `resumeRemoteBranch: false`, so the run creates a fresh throwaway branch off the repository's default branch instead of resuming an existing remote branch. When `new_branch` is omitted or `false`, the staged intent SHALL carry `resumeRemoteBranch: true`, preserving existing behavior exactly. The tool description SHALL instruct Claude to use `new_branch: true` when the user asks to test or record current behavior (no PR in play) and to name the branch a throwaway slug (e.g. `test/record-feature-x`). The protected-branch guard SHALL apply in both modes.
 
+The `test_focus` argument's description SHALL steer content by provenance: it SHALL instruct Claude to describe WHAT to exercise (flows, pages, behaviors) and to include details the user stated in the conversation (the tester cannot see the Slack thread), and it SHALL instruct Claude NOT to copy boot/setup knowledge obtained from recalled memories into the field — the tester receives learned setup notes directly through prompt injection, where they remain advisory and self-correcting, whereas `test_focus` lands in the operator-authoritative request description.
+
 #### Scenario: Dev user requests a test in a thread
 
 - **WHEN** a dev+ user says "test this PR" in a thread and the feature is enabled
@@ -57,6 +59,18 @@ The tool SHALL accept an optional `new_branch: boolean` argument. When `new_bran
 
 - **WHEN** `run_test` is called with a protected branch name (e.g. `main`), regardless of `new_branch`
 - **THEN** the tool returns an error and no intent is staged
+
+#### Scenario: Memory-recalled setup facts stay out of test_focus
+
+- **GIVEN** query-mode Claude recalled a `tester-setup:<repo>` memory before staging a test
+- **WHEN** it composes the `run_test` call
+- **THEN** the `test_focus` describes the flows to exercise and any user-stated details, without repeating the recalled entry's boot/setup facts (ports, seed strategy, auth workarounds)
+
+#### Scenario: User-stated setup instructions still flow through
+
+- **GIVEN** the user says "test it against the staging config" in the thread
+- **WHEN** Claude stages the test
+- **THEN** that user-stated instruction is included in `test_focus`, provenance — not content type — being the exclusion criterion
 
 ### Requirement: Tester acquires a worktree on the target branch
 

@@ -51,7 +51,10 @@ export function createRunTestTool(
         .optional()
         .describe(
           "What to exercise: the flows, pages, or behaviors the test should drive and record. " +
-            "Include any detail from the conversation — the tester does NOT see the Slack thread.",
+            "Include details the USER stated in the conversation — the tester does NOT see the " +
+            "Slack thread. Do NOT copy boot/setup knowledge from recalled memories (ports, seed " +
+            "strategy, auth workarounds): the tester receives learned setup notes directly, and " +
+            "repeating them here freezes potentially stale facts as authoritative instructions.",
         ),
     },
     async (args) => {

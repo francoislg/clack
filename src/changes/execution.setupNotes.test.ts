@@ -32,9 +32,10 @@ vi.mock("../instructions.js", async (importOriginal) => {
   return { ...original, resolveInstructionFile: vi.fn(() => null) };
 });
 
+const appendExecutionLogMock = vi.hoisted(() => vi.fn());
 vi.mock("./persistence.js", async (importOriginal) => {
   const original = await importOriginal<typeof import("./persistence.js")>();
-  return { ...original, appendExecutionLog: vi.fn() };
+  return { ...original, appendExecutionLog: appendExecutionLogMock };
 });
 
 vi.mock("../skillPlugins.js", async (importOriginal) => {
@@ -138,7 +139,10 @@ describe("executeChange — worker setup-notes injection", () => {
   });
 
   it("injects the learned notes section and the rewrite directive when an entry exists", async () => {
-    loadSetupNotesMock.mockResolvedValue("## Services\n- web: pnpm dev, port 3000");
+    loadSetupNotesMock.mockResolvedValue({
+      notes: "## Services\n- web: pnpm dev, port 3000",
+      updatedAt: "2026-01-02T00:00:00.000Z",
+    });
 
     await executeChange({
       plan: makeImplementPlan(),
@@ -155,7 +159,26 @@ describe("executeChange — worker setup-notes injection", () => {
     assert.ok(systemPrompt.includes('"worker-setup:my-repo"'));
   });
 
-  it("omits the notes section on a cold run but keeps the directive", async () => {
+  it("logs the injection outcome with length and staleness timestamp", async () => {
+    const notes = "## Services\n- web: pnpm dev, port 3000";
+    loadSetupNotesMock.mockResolvedValue({ notes, updatedAt: "2026-01-02T00:00:00.000Z" });
+
+    await executeChange({
+      plan: makeImplementPlan(),
+      worktree,
+      request: makeRequest(),
+      sessionId: "s1",
+    });
+
+    const lines = appendExecutionLogMock.mock.calls.map((call) => call[1]);
+    assert.ok(
+      lines.includes(
+        `Setup notes: injected (${notes.length} chars, updated 2026-01-02T00:00:00.000Z)`,
+      ),
+    );
+  });
+
+  it("omits the notes section on a cold run but keeps the directive, and logs the cold run", async () => {
     loadSetupNotesMock.mockResolvedValue(null);
 
     await executeChange({
@@ -168,6 +191,8 @@ describe("executeChange — worker setup-notes injection", () => {
     const systemPrompt = capturedSystemPrompt();
     assert.ok(!systemPrompt.includes("NOTES FROM PREVIOUS RUNS (advisory"));
     assert.ok(systemPrompt.includes("REPO SETUP MEMORY"));
+    const lines = appendExecutionLogMock.mock.calls.map((call) => call[1]);
+    assert.ok(lines.includes("Setup notes: none (cold run)"));
   });
 
   it("leaves the base execution prompt intact", async () => {

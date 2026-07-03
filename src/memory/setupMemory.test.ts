@@ -1,5 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { setupMemoryId, loadSetupNotes } from "./setupMemory.js";
+import {
+  setupMemoryId,
+  loadSetupNotes,
+  setupNotesLogLine,
+  buildSetupMemoryPromptSections,
+} from "./setupMemory.js";
 import { getMemory, type MemoryEntry } from "../memoryRegistry.js";
 
 vi.mock("../memoryRegistry.js", () => ({
@@ -32,10 +37,13 @@ describe("loadSetupNotes", () => {
     getMemoryMock.mockReset();
   });
 
-  it("returns the entry's what text when present", async () => {
+  it("returns the entry's what text and updatedAt when present", async () => {
     getMemoryMock.mockResolvedValue(makeEntry("## Services\n- web: pnpm dev, port 3000"));
-    const notes = await loadSetupNotes("worker", "acme");
-    expect(notes).toBe("## Services\n- web: pnpm dev, port 3000");
+    const loaded = await loadSetupNotes("worker", "acme");
+    expect(loaded).toEqual({
+      notes: "## Services\n- web: pnpm dev, port 3000",
+      updatedAt: "2026-01-02T00:00:00.000Z",
+    });
     expect(getMemoryMock).toHaveBeenCalledWith("worker-setup:acme");
   });
 
@@ -58,5 +66,34 @@ describe("loadSetupNotes", () => {
   it("returns null when the store lookup throws", async () => {
     getMemoryMock.mockRejectedValue(new Error("store corrupted"));
     expect(await loadSetupNotes("tester", "acme")).toBeNull();
+  });
+});
+
+describe("setupNotesLogLine", () => {
+  it("reports length and staleness timestamp when notes were loaded", () => {
+    const line = setupNotesLogLine({
+      notes: "## Services\n- web",
+      updatedAt: "2026-01-02T00:00:00.000Z",
+    });
+    expect(line).toBe("Setup notes: injected (17 chars, updated 2026-01-02T00:00:00.000Z)");
+  });
+
+  it("reports a cold run when there are no notes", () => {
+    expect(setupNotesLogLine(null)).toBe("Setup notes: none (cold run)");
+  });
+});
+
+describe("buildSetupMemoryPromptSections", () => {
+  it("places the recipe in what per the directive, warning off why/nextSteps", () => {
+    const sections = buildSetupMemoryPromptSections("tester", "acme", null);
+    expect(sections).toContain("REPO SETUP MEMORY");
+    expect(sections).toContain("The full recipe body goes in `what`");
+    expect(sections).toContain("never in `why` or `nextSteps`");
+  });
+
+  it("prefixes the notes section when notes exist", () => {
+    const sections = buildSetupMemoryPromptSections("worker", "acme", "## Services\n- web");
+    expect(sections).toContain("NOTES FROM PREVIOUS RUNS");
+    expect(sections).toContain("## Services\n- web");
   });
 });

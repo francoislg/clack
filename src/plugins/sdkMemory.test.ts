@@ -18,15 +18,16 @@ describe("createMemorySurface remember", () => {
     };
     const rememberCore = vi.fn(async (input: RememberInput) => {
       captured.push(input);
-      return entry;
+      return { entry, previous: undefined };
     });
 
     const memory = createMemorySurface({ rememberCore }, "idler", noopWarn);
-    await memory.remember({
+    const returned = await memory.remember({
       id: "note:a",
       linkedMemories: [{ id: "sentry:1", reason: "root cause of" }],
     });
 
     expect(captured[0].linkedMemories).toEqual([{ id: "sentry:1", reason: "root cause of" }]);
+    expect(returned).toBe(entry);
   });
 });

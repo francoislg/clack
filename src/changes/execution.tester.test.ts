@@ -8,6 +8,7 @@ import type { Config } from "../config.js";
 import type { WorktreeInfo } from "../worktrees.js";
 import type { ChangePlan, ChangeRequest } from "./types.js";
 import { executeChange } from "./execution.js";
+import type { LoadedSetupNotes } from "../memory/setupMemory.js";
 
 const clackSessionMock = vi.hoisted(() => vi.fn());
 vi.mock("../claude/query.js", async (importOriginal) => {
@@ -40,9 +41,10 @@ vi.mock("../instructions.js", async (importOriginal) => {
   return { ...original, resolveInstructionFile: vi.fn(() => null) };
 });
 
+const appendExecutionLogMock = vi.hoisted(() => vi.fn());
 vi.mock("./persistence.js", async (importOriginal) => {
   const original = await importOriginal<typeof import("./persistence.js")>();
-  return { ...original, appendExecutionLog: vi.fn() };
+  return { ...original, appendExecutionLog: appendExecutionLogMock };
 });
 
 vi.mock("../skillPlugins.js", async (importOriginal) => {
@@ -50,7 +52,9 @@ vi.mock("../skillPlugins.js", async (importOriginal) => {
   return { ...original, discoverEagerSkillPlugins: vi.fn(() => []) };
 });
 
-const loadSetupNotesMock = vi.hoisted(() => vi.fn(async (): Promise<string | null> => null));
+const loadSetupNotesMock = vi.hoisted(() =>
+  vi.fn(async (): Promise<LoadedSetupNotes | null> => null),
+);
 vi.mock("../memory/setupMemory.js", async (importOriginal) => {
   const original = await importOriginal<typeof import("../memory/setupMemory.js")>();
   return { ...original, loadSetupNotes: loadSetupNotesMock };
@@ -190,7 +194,8 @@ describe("executeChange — tester runs (kind: 'test')", () => {
   });
 
   it("injects learned setup notes into the tester system prompt", async () => {
-    loadSetupNotesMock.mockResolvedValue("## Services\n- web: pnpm dev, port 3000");
+    const notes = "## Services\n- web: pnpm dev, port 3000";
+    loadSetupNotesMock.mockResolvedValue({ notes, updatedAt: "2026-01-02T00:00:00.000Z" });
 
     await executeChange({
       plan: makeTestPlan(),
@@ -204,6 +209,26 @@ describe("executeChange — tester runs (kind: 'test')", () => {
     assert.ok(params.options.systemPrompt.includes("NOTES FROM PREVIOUS RUNS (advisory"));
     assert.ok(params.options.systemPrompt.includes("## Services\n- web: pnpm dev, port 3000"));
     assert.ok(params.options.systemPrompt.includes('"tester-setup:my-repo"'));
+    const logLines = appendExecutionLogMock.mock.calls.map((call) => call[1]);
+    assert.ok(
+      logLines.includes(
+        `Setup notes: injected (${notes.length} chars, updated 2026-01-02T00:00:00.000Z)`,
+      ),
+    );
+  });
+
+  it("logs the cold run when no setup notes exist", async () => {
+    loadSetupNotesMock.mockResolvedValue(null);
+
+    await executeChange({
+      plan: makeTestPlan(),
+      worktree,
+      request: makeRequest(),
+      sessionId: "s1",
+    });
+
+    const logLines = appendExecutionLogMock.mock.calls.map((call) => call[1]);
+    assert.ok(logLines.includes("Setup notes: none (cold run)"));
   });
 
   it("folds the run's usage back onto the originating session", async () => {

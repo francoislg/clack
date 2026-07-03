@@ -465,9 +465,13 @@ export async function searchMemory(args: SearchMemoryArgs): Promise<MemorySearch
 /**
  * Create or update a core memory entry by `id`. Preserves any existing `plugins` namespaces and
  * `createdAt`; only touches the core knowledge fields and bumps `updatedAt`. Omitted fields keep
- * their prior value (or sensible defaults on first create).
+ * their prior value (or sensible defaults on first create). Returns the saved entry together
+ * with the entry it replaced (`previous` is `undefined` on first create) so callers can surface
+ * overwrite feedback.
  */
-export function rememberCore(input: RememberInput): Promise<MemoryEntry> {
+export function rememberCore(
+  input: RememberInput,
+): Promise<{ entry: MemoryEntry; previous: MemoryEntry | undefined }> {
   return serialize(async () => {
     const store = await loadMemoryStore();
     const existing = store[input.id];
@@ -486,7 +490,7 @@ export function rememberCore(input: RememberInput): Promise<MemoryEntry> {
     };
     const next: MemoryStore = { ...store, [input.id]: entry };
     await persist(next);
-    return entry;
+    return { entry, previous: existing };
   });
 }
 

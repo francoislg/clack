@@ -189,6 +189,7 @@
   "187": "priority.ts",
   "188": "brave-image-search",
   "189": "commons-image-search",
+  "190": "adminReadFile.ts",
   "191": "resolveReviewThread.ts",
   "192": "AGENTS.md",
   "193": "Asana Personal Access Token",
@@ -292,6 +293,17 @@
   "291": "Worktree Pools",
   "292": "Zod Validation",
   "293": "tester-smoke.sh",
+  "294": "randomRoll.ts",
   "295": "002.ts",
-  "297": "ClackSdkMemoryData"
+  "296": "MinimalGit",
+  "297": "ClackSdkMemoryData",
+  "298": "MinimalGit",
+  "299": "proposeChange.ts",
+  "300": "github.ts",
+  "301": "QueueEntry",
+  "302": "IdleSweepPool",
+  "303": "catchUp.ts",
+  "304": "trackedKinds.ts",
+  "305": "GenerateImageSlackDeps",
+  "306": "SetupRunner"
 }
