@@ -59,6 +59,9 @@ const mockSetAttentionLevel = vi.fn<HandlerResponseDeps["setAttentionLevel"]>(as
 const mockSetDeliveryMode = vi.fn<HandlerResponseDeps["setDeliveryMode"]>(async () => {});
 
 const mockGetErrorBlocksWithRetry = vi.fn(() => [{ type: "section" }]);
+const mockGetUsageLimitBlocks = vi.fn<HandlerResponseDeps["getUsageLimitBlocks"]>(() => [
+  { type: "section", text: { type: "mrkdwn", text: "usage limit" } },
+]);
 const mockAsSlackBlocks = vi.fn((blocks: never) => blocks);
 
 const mockSendErrorReport = vi.fn<(...args: never[]) => Promise<void>>(async () => {});
@@ -121,6 +124,7 @@ function makeDeps(): HandlerResponseDeps {
     addError: mockAddError as never,
     setAttentionLevel: mockSetAttentionLevel,
     setDeliveryMode: mockSetDeliveryMode,
+    getUsageLimitBlocks: mockGetUsageLimitBlocks,
     getErrorBlocksWithRetry: mockGetErrorBlocksWithRetry as never,
     asSlackBlocks: mockAsSlackBlocks as never,
     sendErrorReport: mockSendErrorReport as never,
@@ -217,6 +221,7 @@ beforeEach(() => {
   mockUpdateSession.mockClear();
   mockAddError.mockClear();
   mockGetErrorBlocksWithRetry.mockClear();
+  mockGetUsageLimitBlocks.mockClear();
   mockAsSlackBlocks.mockClear();
   mockSendErrorReport.mockClear();
   mockAnalyzeError.mockClear();
@@ -729,11 +734,12 @@ describe("executeAndDeliver — error handling", () => {
     assert.ok(call.text.includes("crashed"));
   });
 
-  it("uses error message directly for platform limit errors", async () => {
+  it("renders usage-limit blocks with the reset time for platform limit errors", async () => {
     mockAskClaude.mockImplementation(async () => ({
       success: false,
       answer: "",
-      error: "Usage limit reached for this account",
+      error: "Claude usage limit reached (five_hour) — resets at 2026-07-03T19:00:00.000Z.",
+      platformLimit: { kind: "usage_limit", resetsAt: 1783105200, rateLimitType: "five_hour" },
       conversationTrace: [],
     }));
 
@@ -747,9 +753,41 @@ describe("executeAndDeliver — error handling", () => {
       deps,
     });
 
+    assert.equal(mockGetUsageLimitBlocks.mock.calls.length, 1);
+    assert.equal(mockGetUsageLimitBlocks.mock.calls[0][0], 1783105200);
+    assert.equal(mockGetErrorBlocksWithRetry.mock.calls.length, 0);
+
     const postMessage = getPostMessageMock(client);
     const call = postMessage.mock.calls[0][0] as { text: string };
-    assert.ok(call.text.includes("Usage limit reached"));
+    assert.ok(call.text.includes("<!date^1783105200^{time}"));
+    assert.ok(!call.text.includes("crashed"));
+  });
+
+  it("renders the no-reset usage-limit message when resetsAt is absent", async () => {
+    mockAskClaude.mockImplementation(async () => ({
+      success: false,
+      answer: "",
+      error: "Claude usage limit reached. The limit resets automatically — please try again later.",
+      platformLimit: { kind: "usage_limit" },
+      conversationTrace: [],
+    }));
+
+    const client = makeClient();
+
+    await executeAndDeliver({
+      client,
+      session: makeSession(),
+      sessionInfo: makeSessionInfo(),
+      claudeOptions: makeClaudeOptions(),
+      deps,
+    });
+
+    assert.equal(mockGetUsageLimitBlocks.mock.calls.length, 1);
+    assert.equal(mockGetUsageLimitBlocks.mock.calls[0][0], undefined);
+
+    const postMessage = getPostMessageMock(client);
+    const call = postMessage.mock.calls[0][0] as { text: string };
+    assert.ok(call.text.includes("try again later"));
     assert.ok(!call.text.includes("crashed"));
   });
 

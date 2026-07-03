@@ -28,7 +28,11 @@ import {
 } from "../memory/setupMemory.js";
 import { buildWorkerBashGuardHook } from "./workerBashGuard.js";
 import { getActiveChange } from "./activeState.js";
-import { detectPlatformError } from "../claude/messageParser.js";
+import {
+  detectPlatformError,
+  platformLimitMessage,
+  type PlatformLimitInfo,
+} from "../claude/messageParser.js";
 import { ClaudeMessageParser } from "../claude/messageParser.js";
 import type { SessionUsage } from "../claude/usage.js";
 import { addSessionUsage } from "../sessions.js";
@@ -83,6 +87,8 @@ export async function runClaude(options: {
   success: boolean;
   text: string;
   error?: string;
+  /** Set when the failure is a Claude platform usage limit rather than a crash. */
+  platformLimit?: PlatformLimitInfo;
   lastMessage?: string;
   usage?: SessionUsage;
 }> {
@@ -285,23 +291,30 @@ export async function runClaude(options: {
   clearTimeout(timeoutId);
   clearInterval(heartbeatInterval);
 
+  // Check for platform errors masquerading as successful responses. The structured
+  // rate_limit_event (exact resetsAt) wins over text-based detection. Resolved before
+  // settling so the run doesn't settle as a success when the turn actually hit a limit.
+  const platformLimit =
+    parser.platformLimit ??
+    detectPlatformError(finalText) ??
+    detectPlatformError(parser.lastAssistantText);
+  const limitError = platformLimit ? platformLimitMessage(platformLimit) : undefined;
+
   // Settle the run so the input stream closes cleanly and any registry slot is freed.
   run.settle({
-    success: resultSuccess,
+    success: resultSuccess && !platformLimit,
     answer: finalText.trim(),
-    ...(resultError && { error: resultError }),
+    ...(limitError ? { error: limitError } : resultError && { error: resultError }),
   });
 
-  // Check for platform errors masquerading as successful responses
-  const platformError =
-    detectPlatformError(finalText) ?? detectPlatformError(parser.lastAssistantText);
-  if (platformError) {
-    logger.warn(`Platform error detected in worker: ${platformError}`);
-    log?.(`Platform error: ${platformError}`);
+  if (platformLimit && limitError) {
+    logger.warn(`Platform error detected in worker: ${limitError}`);
+    log?.(`Platform error: ${limitError}`);
     return {
       success: false,
       text: finalText.trim(),
-      error: platformError,
+      error: limitError,
+      platformLimit,
       lastMessage: lastProgressMessage,
       usage: parser.result?.usage,
     };

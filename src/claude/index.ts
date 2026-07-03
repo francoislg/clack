@@ -6,7 +6,13 @@ import {
   unregister as unregisterActiveRun,
 } from "../slack/activeRuns.js";
 import { getConfig, getRepositoriesDir } from "../config.js";
-import { ClaudeMessageParser, detectPlatformError, isResumeMissingError } from "./messageParser.js";
+import {
+  ClaudeMessageParser,
+  detectPlatformError,
+  isResumeMissingError,
+  platformLimitMessage,
+  type PlatformLimitInfo,
+} from "./messageParser.js";
 import { buildSystemPrompt, buildPrompt } from "./promptBuilder.js";
 import { trackedMemoryKindsForRole } from "../memory/trackedKinds.js";
 import { detectRuntime } from "./utilities.js";
@@ -53,6 +59,8 @@ export interface ClaudeResponse {
   success: boolean;
   answer: string;
   error?: string;
+  /** Set when the failure is a Claude platform usage limit rather than a crash. */
+  platformLimit?: PlatformLimitInfo;
   /** True when the request was aborted via AbortController (not a real error) */
   cancelled?: boolean;
   /** True when Claude chose to skip the response via submit_response skip_response flag */
@@ -608,6 +616,7 @@ export async function askClaude(
             success: false,
             answer: "",
             error: `Claude query failed: ${parser.result.error}`,
+            ...(parser.platformLimit && { platformLimit: parser.platformLimit }),
             conversationTrace,
             toolCallHistory: optionalHistory(streamToolHistory),
           });
@@ -615,15 +624,20 @@ export async function askClaude(
         }
       }
 
-      // Check for platform errors masquerading as successful responses
-      const platformError =
-        detectPlatformError(answer) ?? detectPlatformError(parser.lastAssistantText);
-      if (platformError) {
-        logger.warn(`Platform error detected: ${platformError}`);
+      // Check for platform errors masquerading as successful responses. The structured
+      // rate_limit_event (exact resetsAt) wins over text-based detection.
+      const platformLimit =
+        parser.platformLimit ??
+        detectPlatformError(answer) ??
+        detectPlatformError(parser.lastAssistantText);
+      if (platformLimit) {
+        const limitError = platformLimitMessage(platformLimit);
+        logger.warn(`Platform error detected: ${limitError}`);
         run.settle({
           success: false,
           answer: "",
-          error: platformError,
+          error: limitError,
+          platformLimit,
           conversationTrace,
           toolCallHistory: optionalHistory(streamToolHistory),
         });

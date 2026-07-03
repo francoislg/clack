@@ -254,6 +254,10 @@ export const en = {
   // ─── Error blocks ──────────────────────────────────────────────────
   "blocks.crash_error": ":warning: Claude seems to have crashed, maybe try again?",
   "blocks.try_again_button": "🔄 Try Again",
+  "blocks.usage_limit_error":
+    "😴 Claude is out of usage for now — I'll be back around {resetTime}.",
+  "blocks.usage_limit_error_no_reset":
+    "😴 Claude is out of usage for now — please try again later.",
 
   // ─── Worker quarantine DM ──────────────────────────────────────────
   "changes.quarantine.trigger_release": "PR completion",

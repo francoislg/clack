@@ -5,6 +5,7 @@ import {
   detectPlatformError,
   extractToolErrorMessage,
   isResumeMissingError,
+  platformLimitMessage,
 } from "./messageParser.js";
 import type { StreamEvent } from "../streaming/types.js";
 import type {
@@ -13,6 +14,8 @@ import type {
   SDKUserMessage,
   SDKResultSuccess,
   SDKResultError,
+  SDKRateLimitEvent,
+  SDKRateLimitInfo,
 } from "@anthropic-ai/claude-agent-sdk";
 import type { UUID } from "node:crypto";
 
@@ -95,17 +98,22 @@ function resultError(
   };
 }
 
+function rateLimitEvent(info: SDKRateLimitInfo): SDKRateLimitEvent {
+  return {
+    type: "rate_limit_event",
+    rate_limit_info: info,
+    uuid: TEST_UUID,
+    session_id: TEST_SESSION_ID,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // detectPlatformError
 // ---------------------------------------------------------------------------
 describe("detectPlatformError", () => {
-  it("returns error message when text matches rate-limit pattern", () => {
+  it("returns a usage_limit info when text matches rate-limit pattern", () => {
     const text = "Sorry, you've hit your limit for today. Your usage resets 14 hours from now.";
-    const result = detectPlatformError(text);
-    assert.equal(
-      result,
-      "Claude usage limit reached. The limit resets automatically \u2014 please try again later.",
-    );
+    assert.deepEqual(detectPlatformError(text), { kind: "usage_limit" });
   });
 
   it("matches case-insensitive variants", () => {
@@ -127,6 +135,63 @@ describe("detectPlatformError", () => {
 
   it("returns null for empty string", () => {
     assert.equal(detectPlatformError(""), null);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// platformLimitMessage
+// ---------------------------------------------------------------------------
+describe("platformLimitMessage", () => {
+  it("includes the reset time and window when present", () => {
+    const msg = platformLimitMessage({
+      kind: "usage_limit",
+      resetsAt: 1783105200,
+      rateLimitType: "five_hour",
+    });
+    assert.equal(
+      msg,
+      "Claude usage limit reached (five_hour) — resets at 2026-07-03T19:00:00.000Z.",
+    );
+  });
+
+  it("falls back to the generic message without a reset time", () => {
+    assert.equal(
+      platformLimitMessage({ kind: "usage_limit" }),
+      "Claude usage limit reached. The limit resets automatically — please try again later.",
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ClaudeMessageParser — rate_limit_event
+// ---------------------------------------------------------------------------
+describe("ClaudeMessageParser rate_limit_event handling", () => {
+  it("captures a rejected rate_limit_event with resetsAt and rateLimitType", async () => {
+    const parser = new ClaudeMessageParser();
+    await parser.process(
+      rateLimitEvent({ status: "rejected", resetsAt: 1783105200, rateLimitType: "five_hour" }),
+    );
+    assert.deepEqual(parser.platformLimit, {
+      kind: "usage_limit",
+      resetsAt: 1783105200,
+      rateLimitType: "five_hour",
+    });
+  });
+
+  it("ignores allowed and allowed_warning events", async () => {
+    const parser = new ClaudeMessageParser();
+    await parser.process(rateLimitEvent({ status: "allowed" }));
+    assert.equal(parser.platformLimit, null);
+    await parser.process(rateLimitEvent({ status: "allowed_warning", utilization: 90 }));
+    assert.equal(parser.platformLimit, null);
+  });
+
+  it("clears an earlier rejection when a later event reports allowed", async () => {
+    const parser = new ClaudeMessageParser();
+    await parser.process(rateLimitEvent({ status: "rejected", resetsAt: 1783105200 }));
+    assert.notEqual(parser.platformLimit, null);
+    await parser.process(rateLimitEvent({ status: "allowed" }));
+    assert.equal(parser.platformLimit, null);
   });
 });
 

@@ -30,15 +30,42 @@ export interface ParsedResult {
 }
 
 /**
+ * Typed platform-limit condition. Produced either from the SDK's structured
+ * `rate_limit_event` (carries the exact reset epoch) or from text-based
+ * detection of the limit message (no reset time available).
+ */
+export interface PlatformLimitInfo {
+  kind: "usage_limit";
+  /** Epoch seconds when the limit lifts. Absent when only text detection matched. */
+  resetsAt?: number;
+  /** SDK rate-limit window, e.g. "five_hour", "seven_day". */
+  rateLimitType?: string;
+}
+
+/**
  * Detect known Claude platform error messages that arrive as "successful" text
  * (e.g. rate limits, quota exhaustion). These bypass the SDK's error handling
- * and look like normal assistant output.
+ * and look like normal assistant output. Fallback for when no structured
+ * `rate_limit_event` was seen on the stream.
  */
-export function detectPlatformError(text: string): string | null {
+export function detectPlatformError(text: string): PlatformLimitInfo | null {
   if (/you've\s+hit\s+your\s+limit/i.test(text) && /resets?\s+\d{1,2}/i.test(text)) {
-    return "Claude usage limit reached. The limit resets automatically — please try again later.";
+    return { kind: "usage_limit" };
   }
   return null;
+}
+
+/**
+ * Internal (logs, session errors[], error reports) English description of a
+ * platform limit. User-facing Slack rendering goes through t() in blocks.ts.
+ */
+export function platformLimitMessage(info: PlatformLimitInfo): string {
+  if (info.resetsAt) {
+    const iso = new Date(info.resetsAt * 1000).toISOString();
+    const type = info.rateLimitType ? ` (${info.rateLimitType})` : "";
+    return `Claude usage limit reached${type} — resets at ${iso}.`;
+  }
+  return "Claude usage limit reached. The limit resets automatically — please try again later.";
 }
 
 /**
@@ -131,6 +158,7 @@ export class ClaudeMessageParser {
   private emittedToolIds = new Set<string>();
   private _lastAssistantText = "";
   private _result: ParsedResult | null = null;
+  private _platformLimit: PlatformLimitInfo | null = null;
   private onEvent?: (event: StreamEvent) => void | Promise<void>;
   private pendingToolUses = new Map<string, PendingToolUse>();
 
@@ -146,8 +174,22 @@ export class ClaudeMessageParser {
     return this._result;
   }
 
+  /** Set when the stream's most recent rate_limit_event reported status "rejected". */
+  get platformLimit(): PlatformLimitInfo | null {
+    return this._platformLimit;
+  }
+
   async process(message: SDKMessage): Promise<ParsedMessage> {
     const parsed: ParsedMessage = { toolUses: [], assistantText: null, completedToolCalls: [] };
+
+    // rate_limit_event — "most recent event wins": a later "allowed" clears an earlier rejection
+    if (message.type === "rate_limit_event") {
+      const info = message.rate_limit_info;
+      this._platformLimit =
+        info.status === "rejected"
+          ? { kind: "usage_limit", resetsAt: info.resetsAt, rateLimitType: info.rateLimitType }
+          : null;
+    }
 
     // 1. tool_progress — emit tool_start early with empty args if not already seen
     if (message.type === "tool_progress" && this.onEvent) {
