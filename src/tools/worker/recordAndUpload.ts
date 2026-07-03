@@ -38,9 +38,26 @@ export function findLatestRecording(dir: string): string | null {
   return newest?.path ?? null;
 }
 
+// Pace floor: mpdecimate drops at most this many consecutive duplicate frames, so a
+// frozen stretch plays at ~1/(N+1) of real time instead of vanishing entirely.
+const CONDENSE_MAX_CONSECUTIVE_DROPS = 12;
+
+/** Transcode args that also condense idle video: duplicate frames (the browser sitting
+ * frozen between actions) are dropped and the survivors re-timed to a uniform rate. */
+export function buildTranscodeArgs(webmPath: string, mp4Path: string): string[] {
+  return [
+    "-y",
+    "-i",
+    webmPath,
+    "-vf",
+    `mpdecimate=max=${CONDENSE_MAX_CONSECUTIVE_DROPS},setpts=N/FRAME_RATE/TB`,
+    mp4Path,
+  ];
+}
+
 async function transcodeToMp4(webmPath: string): Promise<string> {
   const mp4Path = webmPath.replace(/\.webm$/, ".mp4");
-  await execFileAsync("ffmpeg", ["-y", "-i", webmPath, mp4Path]);
+  await execFileAsync("ffmpeg", buildTranscodeArgs(webmPath, mp4Path));
   return mp4Path;
 }
 

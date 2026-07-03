@@ -97,6 +97,21 @@ describe("buildTesterSystemPrompt", () => {
     assert.ok(prompt.includes("the subset is decided per run from THIS diff"));
   });
 
+  it("splits driving into a verify phase and a recorded demo take", () => {
+    const prompt = buildTesterSystemPrompt(makeOpts());
+    assert.ok(prompt.includes("VERIFY — throwaway browser session"));
+    assert.ok(prompt.includes("RECORD — the demo take"));
+    assert.ok(prompt.includes("Reopening the browser starts a fresh recording"));
+    assert.ok(prompt.includes("do NOT restart it between phases"));
+    assert.ok(!prompt.includes("the session is being recorded"));
+  });
+
+  it("tells Claude the newest recording is the demo and video_file is the override", () => {
+    const prompt = buildTesterSystemPrompt(makeOpts());
+    assert.ok(prompt.includes("It picks the newest recording"));
+    assert.ok(prompt.includes("video_file"));
+  });
+
   it("injects learned notes and the tester-keyed rewrite directive when provided", () => {
     const prompt = buildTesterSystemPrompt({
       ...makeOpts(),

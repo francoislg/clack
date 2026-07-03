@@ -4,6 +4,7 @@ import { mkdirSync, rmSync, writeFileSync, utimesSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import {
+  buildTranscodeArgs,
   createRecordAndUploadTool,
   findLatestRecording,
   type RecordAndUploadDeps,
@@ -76,6 +77,16 @@ describe("findLatestRecording", () => {
     const past = new Date(Date.now() - 60_000);
     utimesSync(older, past, past);
     assert.equal(findLatestRecording(tmpBase), newer);
+  });
+});
+
+describe("buildTranscodeArgs", () => {
+  it("condenses idle frames with a pace-floored mpdecimate/setpts chain", () => {
+    const args = buildTranscodeArgs("/rec/in.webm", "/rec/in.mp4");
+    assert.ok(args.includes("-y"));
+    assert.equal(args[args.indexOf("-i") + 1], "/rec/in.webm");
+    assert.equal(args[args.indexOf("-vf") + 1], "mpdecimate=max=12,setpts=N/FRAME_RATE/TB");
+    assert.equal(args[args.length - 1], "/rec/in.mp4");
   });
 });
 

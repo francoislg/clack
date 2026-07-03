@@ -5,7 +5,7 @@ import { existsSync, rmSync, statSync } from "node:fs";
 import { resolve } from "node:path";
 import { promisify } from "node:util";
 import { checkSidecarReachable } from "./sidecar.js";
-import { findLatestRecording } from "../tools/worker/recordAndUpload.js";
+import { buildTranscodeArgs, findLatestRecording } from "../tools/worker/recordAndUpload.js";
 
 // Real-I/O smoke test for the tester recording pipeline: sidecar container →
 // MCP-driven browser → .webm on the shared volume → ffmpeg mp4. Runs ONLY when
@@ -109,7 +109,7 @@ describe.skipIf(!SMOKE_ENABLED)("tester recording pipeline (live sidecar)", () =
 
       if (await hasFfmpeg()) {
         const mp4 = webm.replace(/\.webm$/, ".mp4");
-        await execFileAsync("ffmpeg", ["-y", "-i", webm, mp4]);
+        await execFileAsync("ffmpeg", buildTranscodeArgs(webm, mp4));
         assert.ok(existsSync(mp4) && statSync(mp4).size > 0, "transcode produced no mp4");
         rmSync(mp4, { force: true });
       } else {
