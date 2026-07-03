@@ -293,6 +293,12 @@ echo ""
 # ============================================
 echo -e "${YELLOW}Deploying container...${NC}"
 
+TESTER_ENABLED=$(read_tester_enabled)
+SIDECAR_RESERVE_MB=0
+if [ "$TESTER_ENABLED" = "true" ]; then
+    SIDECAR_RESERVE_MB=$SIDECAR_MEM_MB
+fi
+
 gcloud compute ssh "$INSTANCE_NAME" --zone="$ZONE" --quiet --command="
     set -e
 
@@ -313,9 +319,15 @@ gcloud compute ssh "$INSTANCE_NAME" --zone="$ZONE" --quiet --command="
     # skipping comment lines (matches the local docker-setup.sh run command).
     # .env is mode 644 (set above) so the SSH user can read it for --env-file parsing,
     # while still owned by UID 1001 for the in-container clack user.
+    # Memory cap: total minus host/sidecar reserves (see gce-common.sh) so a
+    # runaway worker job OOMs inside the container, never the host.
+    TOTAL_MB=\$(free -m | grep Mem | tr -s ' ' | cut -d' ' -f2)
+    CLACK_MEM_MB=\$((TOTAL_MB - $HOST_RESERVE_MB - $SIDECAR_RESERVE_MB))
     docker run -d \\
         --name clack \\
         --restart unless-stopped \\
+        --memory \${CLACK_MEM_MB}m \\
+        --memory-swap \${CLACK_MEM_MB}m \\
         --env-file $DATA_MOUNT_POINT/data/auth/.env \\
         -v $DATA_MOUNT_POINT/data:/app/data \\
         $IMAGE_NAME

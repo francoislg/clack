@@ -16,6 +16,26 @@ INSTANCE_NAME="clack"
 ZONE="northamerica-northeast1-a"
 MACHINE_TYPE="e2-medium"
 
+# Container memory limits. The clack container's cap is computed ON THE VM as
+# total memory minus these reserves, so a machine-type bump raises it
+# automatically. A runaway worker job (e.g. a monorepo pnpm install) then gets
+# OOM-killed inside the container instead of thrashing the host to death —
+# that wedged the whole VM (SSH included) on 2026-07-02. The sidecar reserve
+# applies only when config.tester.enabled (Chromium peaked ~704 MiB in live runs).
+HOST_RESERVE_MB=384
+SIDECAR_MEM_MB=896
+
+# "true"/"false": whether the local config enables the tester feature (drives
+# the sidecar container + the sidecar memory reserve). Callers use this both
+# before `docker run` (memory math) and in the sidecar deploy phase.
+read_tester_enabled() {
+    node --input-type=module -e "
+import { readFileSync } from 'node:fs';
+const c = JSON.parse(readFileSync('$DATA_DIR/config.json', 'utf-8'));
+console.log(c.tester?.enabled === true ? 'true' : 'false');
+" 2>/dev/null || echo false
+}
+
 # Artifact Registry: region is derived from ZONE by stripping the trailing
 # zone-letter suffix (northamerica-northeast1-a -> northamerica-northeast1) so
 # the registry and the VM always live in the same region.
