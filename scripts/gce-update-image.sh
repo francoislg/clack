@@ -156,15 +156,26 @@ echo ""
 # ============================================
 echo -e "${YELLOW}Stopping old container and starting new one...${NC}"
 
+TESTER_ENABLED=$(read_tester_enabled)
+SIDECAR_RESERVE_MB=0
+if [ "$TESTER_ENABLED" = "true" ]; then
+    SIDECAR_RESERVE_MB=$SIDECAR_MEM_MB
+fi
+
 DOWNTIME_START=$(date +%s)
 
 gcloud compute ssh "$INSTANCE_NAME" --zone="$ZONE" --quiet --command="
     set -e
+    TOTAL_MB=\$(free -m | grep Mem | tr -s ' ' | cut -d' ' -f2)
+    CLACK_MEM_MB=\$((TOTAL_MB - $HOST_RESERVE_MB - $SIDECAR_RESERVE_MB))
+    echo \"Memory cap: \${CLACK_MEM_MB}m of \${TOTAL_MB}m (host reserve ${HOST_RESERVE_MB}m, sidecar reserve ${SIDECAR_RESERVE_MB}m)\"
     docker stop clack 2>/dev/null || true
     docker rm clack 2>/dev/null || true
     docker run -d \\
         --name clack \\
         --restart unless-stopped \\
+        --memory \${CLACK_MEM_MB}m \\
+        --memory-swap \${CLACK_MEM_MB}m \\
         --env-file $DATA_MOUNT_POINT/data/auth/.env \\
         -p 127.0.0.1:${STATUS_PORT}:${STATUS_PORT} \\
         -v $DATA_MOUNT_POINT/data:/app/data \\
@@ -184,14 +195,9 @@ gcloud compute ssh "$INSTANCE_NAME" --zone="$ZONE" --quiet --command="
 # plain `docker run` and joins both containers to a shared `clack` docker
 # network for container-name DNS (config.tester.sidecarUrl =
 # http://clack-playwright:8931/mcp, config.tester.appHost = clack). The local
-# config is the source of truth for whether the feature is on; disabled or
-# absent removes any stale sidecar so it doesn't hold RAM on the VM.
-TESTER_ENABLED=$(node --input-type=module -e "
-import { readFileSync } from 'node:fs';
-const c = JSON.parse(readFileSync('$DATA_DIR/config.json', 'utf-8'));
-console.log(c.tester?.enabled === true ? 'true' : 'false');
-" 2>/dev/null || echo false)
-
+# config is the source of truth for whether the feature is on (TESTER_ENABLED
+# is computed before the swap above, where it also sets the memory reserves);
+# disabled or absent removes any stale sidecar so it doesn't hold RAM on the VM.
 if [ "$TESTER_ENABLED" = "true" ]; then
     echo -e "${YELLOW}Tester enabled — ensuring Playwright sidecar...${NC}"
     tar -C "$PROJECT_DIR/docker/clack-playwright" -cf - config.json \
@@ -206,6 +212,8 @@ if [ "$TESTER_ENABLED" = "true" ]; then
             docker run -d \\
                 --name clack-playwright \\
                 --restart unless-stopped \\
+                --memory ${SIDECAR_MEM_MB}m \\
+                --memory-swap ${SIDECAR_MEM_MB}m \\
                 --network clack \\
                 -v '$REMOTE_DATA_DIR/tester/recordings:/recordings' \\
                 -v '$DATA_MOUNT_POINT/clack-playwright/config.json:/etc/clack-playwright/config.json:ro' \\
