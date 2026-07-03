@@ -261,6 +261,10 @@ export const fr: Partial<Record<StringKey, string>> = {
   // ─── Error blocks ──────────────────────────────────────────────────
   "blocks.crash_error": ":warning: Claude semble avoir crashé, vous pouvez réessayer.",
   "blocks.try_again_button": "🔄 Réessayer",
+  "blocks.usage_limit_error":
+    "😴 Claude n'a plus d'utilisation disponible pour le moment — de retour vers {resetTime}.",
+  "blocks.usage_limit_error_no_reset":
+    "😴 Claude n'a plus d'utilisation disponible pour le moment — veuillez réessayer plus tard.",
 
   // ─── Worker quarantine DM ──────────────────────────────────────────
   "changes.quarantine.trigger_release": "fin de PR",

@@ -298,6 +298,34 @@ export function getErrorBlocks(message: string): SlackBlocks {
   return [block];
 }
 
+/**
+ * User-facing usage-limit notice. `resetsAt` (epoch seconds) renders as a Slack
+ * `<!date^…>` token so each viewer sees the reset time in their own timezone;
+ * the UTC string is the notification/old-client fallback. No retry button —
+ * retrying before the reset is guaranteed to fail.
+ */
+export function usageLimitText(resetsAt?: number): string {
+  if (!resetsAt) return t("blocks.usage_limit_error_no_reset");
+  const fallback = new Intl.DateTimeFormat("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+    timeZone: "UTC",
+    timeZoneName: "short",
+  }).format(new Date(resetsAt * 1000));
+  return t("blocks.usage_limit_error", { resetTime: `<!date^${resetsAt}^{time}|${fallback}>` });
+}
+
+export function getUsageLimitBlocks(resetsAt?: number): SlackBlocks {
+  const block: SectionBlock = {
+    type: "section",
+    text: {
+      type: "mrkdwn",
+      text: usageLimitText(resetsAt),
+    },
+  };
+  return [block];
+}
+
 export function getErrorBlocksWithRetry(sessionId: string): SlackBlocks {
   const section: SectionBlock = {
     type: "section",

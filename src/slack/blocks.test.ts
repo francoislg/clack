@@ -7,6 +7,8 @@ import {
   getStructuredAcceptedBlocks,
   getErrorBlocks,
   getErrorBlocksWithRetry,
+  getUsageLimitBlocks,
+  usageLimitText,
   validateActionButtonLabels,
   SLACK_BUTTON_LABEL_MAX,
 } from "./blocks.js";
@@ -198,6 +200,28 @@ describe("getErrorBlocksWithRetry", () => {
     const button = actions.elements[0] as Button;
     assert.equal(button.action_id, "clack_retry");
     assert.equal(button.value, "s1");
+  });
+});
+
+describe("usageLimitText / getUsageLimitBlocks", () => {
+  it("renders a Slack date token with a UTC fallback when resetsAt is present", () => {
+    const text = usageLimitText(1783105200);
+    assert.ok(text.includes("<!date^1783105200^{time}|"));
+    assert.ok(text.includes("7:00 PM UTC"));
+  });
+
+  it("renders the no-reset message when resetsAt is absent", () => {
+    const text = usageLimitText();
+    assert.ok(!text.includes("<!date^"));
+    assert.ok(text.includes("try again later"));
+  });
+
+  it("renders a single section block with no retry button", () => {
+    const out = getUsageLimitBlocks(1783105200);
+    assert.equal(out.length, 1);
+    const section = out[0] as SectionBlock;
+    assert.equal(section.type, "section");
+    assert.ok(section.text?.text.includes("<!date^1783105200^{time}|"));
   });
 });
 

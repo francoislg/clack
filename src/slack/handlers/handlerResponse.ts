@@ -15,7 +15,13 @@ import type { DeliveryHandler } from "./delivery/types.js";
 import { StreamingDelivery } from "./delivery/streamingDelivery.js";
 import { SilentDelivery } from "./delivery/silentDelivery.js";
 import { NullDelivery } from "./delivery/nullDelivery.js";
-import { getErrorBlocksWithRetry, asSlackBlocks, type SlackBlocks } from "../blocks.js";
+import {
+  getErrorBlocksWithRetry,
+  getUsageLimitBlocks,
+  usageLimitText,
+  asSlackBlocks,
+  type SlackBlocks,
+} from "../blocks.js";
 import { t } from "../../i18n/t.js";
 import {
   updateSession,
@@ -59,6 +65,7 @@ export interface HandlerResponseDeps {
   /** Optional: when present, top-level posts create a follow-up session tied to the new thread. */
   createSession?: typeof createSession;
   getErrorBlocksWithRetry: typeof getErrorBlocksWithRetry;
+  getUsageLimitBlocks: typeof getUsageLimitBlocks;
   asSlackBlocks: typeof asSlackBlocks;
   sendErrorReport: typeof sendErrorReport;
   getConfig: typeof getConfig;
@@ -86,6 +93,7 @@ export const defaultHandlerResponseDeps: HandlerResponseDeps = {
   setDeliveryMode,
   createSession,
   getErrorBlocksWithRetry,
+  getUsageLimitBlocks,
   asSlackBlocks,
   sendErrorReport,
   getConfig,
@@ -628,9 +636,9 @@ async function handleError(ctx: DeliveryContext, response: ClaudeResponse): Prom
   // Tool-call records are preserved on the appended error assistant message above
   // (via `errorAssistantMessage.toolCalls`). Error report files also capture them.
 
-  const isPlatformLimit = /usage limit|limit reached/i.test(errorMessage);
-  const errorText = isPlatformLimit
-    ? errorMessage
+  const platformLimit = response.platformLimit;
+  const errorText = platformLimit
+    ? usageLimitText(platformLimit.resetsAt)
     : `Claude seems to have crashed (session: ${ctx.session.sessionId}), maybe try again?`;
 
   // For silentThinking, suppress channel error posting — caller handles errors
@@ -652,7 +660,11 @@ async function handleError(ctx: DeliveryContext, response: ClaudeResponse): Prom
   await ctx.client.chat.postMessage({
     channel: ctx.targetChannel,
     thread_ts: ctx.targetThread,
-    blocks: ctx.deps.asSlackBlocks(ctx.deps.getErrorBlocksWithRetry(ctx.session.sessionId)),
+    blocks: ctx.deps.asSlackBlocks(
+      platformLimit
+        ? ctx.deps.getUsageLimitBlocks(platformLimit.resetsAt)
+        : ctx.deps.getErrorBlocksWithRetry(ctx.session.sessionId),
+    ),
     text: errorText,
   });
 
