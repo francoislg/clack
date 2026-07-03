@@ -111,13 +111,40 @@ EOF
 fi
 
 # --- Application image: a single build FROM the tools image ---
-echo -e "${YELLOW}Building application image...${NC}"
+# Built with a BuildKit registry cache so an unchanged package-lock.json restores
+# the two `npm ci` layers (builder full + runtime prod) from Artifact Registry
+# instead of reinstalling — the ~140s that dominates a cold app build. The cache
+# lives in a dedicated clack:buildcache tag: a build-time artifact ONLY, never
+# deployed and never pulled by the VM. mode=max caches every stage (plain
+# --cache-from would miss the builder stage); ignore-error=true makes a
+# cache-export failure a warning, not a deploy failure, under `set -e`. The cache
+# does NOT change clack:latest — the multi-stage boundary still discards the
+# builder's devDeps, so the deployed image is byte-identical to an uncached build.
+#
+# --cache-to type=registry needs buildx's docker-container driver (the default
+# `docker` driver can't export a registry cache), which also means the result is
+# not loaded into the host Docker — so we --push directly and drop the config's
+# `images:` field. Builder create + build MUST share one bash step: a separate
+# Cloud Build `steps:` entry runs in a fresh container and loses the builder.
+echo -e "${YELLOW}Building application image (registry-cached)...${NC}"
 APP_CFG=$(mktemp)
 cat > "$APP_CFG" <<EOF
 steps:
 - name: 'gcr.io/cloud-builders/docker'
-  args: ['build', '-t', '$IMAGE_NAME', '--build-arg', 'TOOLS_IMAGE=$TOOLS_IMAGE_NAME_HASH', '.']
-images: ['$IMAGE_NAME']
+  entrypoint: 'bash'
+  args:
+    - '-c'
+    - |
+      set -e
+      docker buildx create --name clackx --driver docker-container --use 2>/dev/null || docker buildx use clackx
+      docker buildx build \\
+        --platform linux/amd64 \\
+        --build-arg TOOLS_IMAGE=$TOOLS_IMAGE_NAME_HASH \\
+        --cache-from type=registry,ref=$BUILDCACHE_IMAGE_NAME \\
+        --cache-to type=registry,ref=$BUILDCACHE_IMAGE_NAME,mode=max,ignore-error=true \\
+        -t $IMAGE_NAME \\
+        --push \\
+        .
 EOF
 gcloud builds submit "$PROJECT_DIR" --config="$APP_CFG" --quiet
 rm -f "$APP_CFG"
