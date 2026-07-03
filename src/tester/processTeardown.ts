@@ -37,18 +37,35 @@ export function readAppProcessInfo(worktreePath: string): AppProcessInfo | null 
 export interface TeardownDeps {
   kill: (pid: number, signal: NodeJS.Signals | 0) => void;
   listPidsOnPort: (port: number) => Promise<number[]>;
+  listPidsByCmdline: (needle: string) => Promise<number[]>;
   delay: (ms: number) => Promise<void>;
+}
+
+function parsePidList(stdout: string): number[] {
+  return stdout
+    .split("\n")
+    .map((line) => Number.parseInt(line.trim(), 10))
+    .filter((pid) => Number.isInteger(pid) && pid > 0);
 }
 
 async function defaultListPidsOnPort(port: number): Promise<number[]> {
   try {
     const { stdout } = await execFileAsync("lsof", ["-ti", `tcp:${port}`]);
-    return stdout
-      .split("\n")
-      .map((line) => Number.parseInt(line.trim(), 10))
-      .filter((pid) => Number.isInteger(pid) && pid > 0);
+    return parsePidList(stdout);
   } catch {
     // lsof exits non-zero when nothing listens on the port
+    return [];
+  }
+}
+
+async function defaultListPidsByCmdline(needle: string): Promise<number[]> {
+  try {
+    // pgrep -f takes an ERE; escape metacharacters so the path matches literally.
+    const pattern = needle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const { stdout } = await execFileAsync("pgrep", ["-f", pattern]);
+    return parsePidList(stdout).filter((pid) => pid !== process.pid);
+  } catch {
+    // pgrep exits non-zero when nothing matches
     return [];
   }
 }
@@ -56,6 +73,7 @@ async function defaultListPidsOnPort(port: number): Promise<number[]> {
 export const defaultTeardownDeps: TeardownDeps = {
   kill: (pid, signal) => process.kill(pid, signal),
   listPidsOnPort: defaultListPidsOnPort,
+  listPidsByCmdline: defaultListPidsByCmdline,
   delay: (ms) => new Promise((resolveDelay) => setTimeout(resolveDelay, ms)),
 };
 
@@ -94,8 +112,8 @@ async function killPid(pid: number, deps: TeardownDeps): Promise<void> {
 }
 
 /**
- * Kill the app process a tester run started, by tracked PID (and its process group)
- * with a port-lookup fallback.
+ * Kill the app process a tester run started, by tracked PID (and its process group),
+ * a port-lookup fallback, and a worktree-cmdline sweep for stray supervisors.
  * Runs on EVERY tester exit path (success, error, cancel, timeout) and never throws —
  * a failed kill (process already gone) is logged and cleanup continues. Independent of
  * worktree removal: `rm -rf` deletes files, not processes.
@@ -105,20 +123,25 @@ export async function teardownAppProcess(
   deps: TeardownDeps = defaultTeardownDeps,
 ): Promise<void> {
   const info = readAppProcessInfo(worktreePath);
-  if (!info) {
-    logger.debug(`No tracked tester app process in ${worktreePath}; nothing to tear down`);
-    return;
-  }
 
-  if (info.pid) {
+  if (info?.pid) {
     await killPid(info.pid, deps);
   }
 
-  if (info.port) {
+  if (info?.port) {
     const pids = await deps.listPidsOnPort(info.port);
     for (const pid of pids) {
       await killPid(pid, deps);
     }
+  }
+
+  // Supervisor wrappers (pnpm/nodemon/…) survive the pid and port kills: they aren't
+  // in the tracked pid's group and don't listen on the port. Their command lines
+  // reference the worktree, so sweep by that — and do it even with no info file,
+  // which is exactly the state a crashed run leaves behind.
+  const strays = await deps.listPidsByCmdline(worktreePath);
+  for (const pid of strays) {
+    await killPid(pid, deps);
   }
 
   try {
