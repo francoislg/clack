@@ -1,6 +1,10 @@
 import { describe, it, beforeEach, vi } from "vitest";
 import assert from "node:assert/strict";
-import type { SDKMessage, SDKResultSuccess } from "@anthropic-ai/claude-agent-sdk";
+import type {
+  SDKAssistantMessage,
+  SDKMessage,
+  SDKResultSuccess,
+} from "@anthropic-ai/claude-agent-sdk";
 import type { UUID } from "node:crypto";
 import { createRunHandle } from "../claude/runHandle.js";
 import type { ClackSessionRun } from "../claude/query.js";
@@ -55,9 +59,14 @@ vi.mock("../skillPlugins.js", async (importOriginal) => {
 const loadSetupNotesMock = vi.hoisted(() =>
   vi.fn(async (): Promise<LoadedSetupNotes | null> => null),
 );
+const setupEntryWasRewrittenMock = vi.hoisted(() => vi.fn(async () => false));
 vi.mock("../memory/setupMemory.js", async (importOriginal) => {
   const original = await importOriginal<typeof import("../memory/setupMemory.js")>();
-  return { ...original, loadSetupNotes: loadSetupNotesMock };
+  return {
+    ...original,
+    loadSetupNotes: loadSetupNotesMock,
+    setupEntryWasRewritten: setupEntryWasRewrittenMock,
+  };
 });
 
 // ============================================================================
@@ -89,6 +98,18 @@ function successResult(text: string): SDKResultSuccess {
     modelUsage: {},
     permission_denials: [],
     uuid: "00000000-0000-0000-0000-000000000000" as UUID,
+    session_id: "test",
+  };
+}
+
+function assistantToolUse(toolName: string): SDKAssistantMessage {
+  return {
+    type: "assistant",
+    message: {
+      content: [{ type: "tool_use", id: `tu-${toolName}`, name: toolName, input: {} }],
+    } as SDKAssistantMessage["message"],
+    parent_tool_use_id: null,
+    uuid: "00000000-0000-0000-0000-000000000001" as UUID,
     session_id: "test",
   };
 }
@@ -155,8 +176,13 @@ describe("executeChange — tester runs (kind: 'test')", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     getConfigMock.mockReturnValue(testerConfig());
-    clackSessionMock.mockImplementation(() => makeRunFromMessages([successResult("done")]));
+    // Default run reports status so the deliverable gate passes; gate-specific tests
+    // override this with deliverable-free runs.
+    clackSessionMock.mockImplementation(() =>
+      makeRunFromMessages([assistantToolUse("mcp__clack__report_status"), successResult("done")]),
+    );
     loadSetupNotesMock.mockResolvedValue(null);
+    setupEntryWasRewrittenMock.mockResolvedValue(false);
   });
 
   it("succeeds without any commit or PR (no no-op check) and tears down the app", async () => {
@@ -272,5 +298,184 @@ describe("executeChange — tester runs (kind: 'test')", () => {
     assert.ok(result.error?.includes("not enabled"));
     assert.equal(clackSessionMock.mock.calls.length, 0);
     assert.equal(teardownAppProcessMock.mock.calls.length, 0);
+  });
+});
+
+describe("executeChange — tester deliverable gate", () => {
+  type ClackSessionParams = {
+    prompt: string;
+    onSessionId?: (id: string) => void;
+    onResumeFallback?: () => void;
+  };
+
+  function deliverableFreeRun(params: ClackSessionParams): ClackSessionRun {
+    params.onSessionId?.("sdk-session-1");
+    return makeRunFromMessages([successResult("81% and climbing, let me wait")]);
+  }
+
+  function logLines(): string[] {
+    return appendExecutionLogMock.mock.calls.map((call) => String(call[1]));
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    getConfigMock.mockReturnValue(testerConfig());
+    loadSetupNotesMock.mockResolvedValue(null);
+    setupEntryWasRewrittenMock.mockResolvedValue(false);
+  });
+
+  it("passes the gate on a report-only run without any corrective resume", async () => {
+    clackSessionMock.mockImplementation(() =>
+      makeRunFromMessages([assistantToolUse("mcp__clack__report_status"), successResult("done")]),
+    );
+
+    const result = await executeChange({
+      plan: makeTestPlan(),
+      worktree,
+      request: makeRequest(),
+      sessionId: "s1",
+    });
+
+    assert.equal(result.success, true);
+    assert.equal(clackSessionMock.mock.calls.length, 1);
+    assert.ok(logLines().includes("Deliverable gate: passed"));
+  });
+
+  it("trips the gate and succeeds when the corrective resume delivers", async () => {
+    clackSessionMock
+      .mockImplementationOnce(deliverableFreeRun)
+      .mockImplementationOnce((params: ClackSessionParams) => {
+        params.onSessionId?.("sdk-session-1");
+        return makeRunFromMessages([
+          assistantToolUse("mcp__clack__record_and_upload"),
+          successResult("delivered"),
+        ]);
+      });
+
+    const result = await executeChange({
+      plan: makeTestPlan(),
+      worktree,
+      request: makeRequest(),
+      sessionId: "s1",
+    });
+
+    assert.equal(result.success, true);
+    assert.equal(result.summary, "Test run complete (after corrective resume)");
+    assert.equal(clackSessionMock.mock.calls.length, 2);
+    const resumeParams = clackSessionMock.mock.calls[1][0];
+    assert.equal(resumeParams.resumeSessionId, "sdk-session-1");
+    assert.ok(resumeParams.prompt.includes("record_and_upload"));
+    assert.ok(logLines().some((line) => line.startsWith("Deliverable gate: tripped")));
+    assert.ok(logLines().includes("Corrective resume: delivered"));
+    assert.equal(teardownAppProcessMock.mock.calls.length, 1);
+  });
+
+  it("includes the setup rewrite in the corrective prompt only when the entry was not rewritten", async () => {
+    setupEntryWasRewrittenMock.mockResolvedValue(false);
+    clackSessionMock
+      .mockImplementationOnce(deliverableFreeRun)
+      .mockImplementationOnce((params: ClackSessionParams) => {
+        params.onSessionId?.("sdk-session-1");
+        return makeRunFromMessages([
+          assistantToolUse("mcp__clack__report_status"),
+          successResult("delivered"),
+        ]);
+      });
+
+    await executeChange({
+      plan: makeTestPlan(),
+      worktree,
+      request: makeRequest(),
+      sessionId: "s1",
+    });
+
+    const resumeParams = clackSessionMock.mock.calls[1][0];
+    assert.ok(resumeParams.prompt.includes('"tester-setup:my-repo"'));
+  });
+
+  it("omits the setup rewrite from the corrective prompt when the entry was rewritten mid-run", async () => {
+    setupEntryWasRewrittenMock.mockResolvedValue(true);
+    clackSessionMock
+      .mockImplementationOnce(deliverableFreeRun)
+      .mockImplementationOnce((params: ClackSessionParams) => {
+        params.onSessionId?.("sdk-session-1");
+        return makeRunFromMessages([
+          assistantToolUse("mcp__clack__report_status"),
+          successResult("delivered"),
+        ]);
+      });
+
+    await executeChange({
+      plan: makeTestPlan(),
+      worktree,
+      request: makeRequest(),
+      sessionId: "s1",
+    });
+
+    const resumeParams = clackSessionMock.mock.calls[1][0];
+    assert.ok(!resumeParams.prompt.includes("tester-setup:my-repo"));
+  });
+
+  it("fails loudly when the corrective resume also delivers nothing, with exactly one attempt", async () => {
+    clackSessionMock
+      .mockImplementationOnce(deliverableFreeRun)
+      .mockImplementationOnce((params: ClackSessionParams) => {
+        params.onSessionId?.("sdk-session-1");
+        return makeRunFromMessages([successResult("still nothing")]);
+      });
+
+    const result = await executeChange({
+      plan: makeTestPlan(),
+      worktree,
+      request: makeRequest(),
+      sessionId: "s1",
+    });
+
+    assert.equal(result.success, false);
+    assert.ok(result.error?.includes("without delivering a recording or a status report"));
+    assert.equal(clackSessionMock.mock.calls.length, 2);
+    assert.ok(logLines().includes("Corrective resume: failed to deliver"));
+    assert.equal(teardownAppProcessMock.mock.calls.length, 1);
+  });
+
+  it("fails loudly and aborts the attempt when the resume falls back to a fresh session", async () => {
+    clackSessionMock
+      .mockImplementationOnce(deliverableFreeRun)
+      .mockImplementationOnce((params: ClackSessionParams) => {
+        params.onResumeFallback?.();
+        return makeRunFromMessages([
+          assistantToolUse("mcp__clack__report_status"),
+          successResult("context-free noise"),
+        ]);
+      });
+
+    const result = await executeChange({
+      plan: makeTestPlan(),
+      worktree,
+      request: makeRequest(),
+      sessionId: "s1",
+    });
+
+    assert.equal(result.success, false);
+    assert.ok(result.error?.includes("without delivering a recording or a status report"));
+    assert.ok(logLines().some((line) => line.startsWith("Corrective resume: fell back")));
+  });
+
+  it("skips the corrective resume and fails loudly when no SDK session id was captured", async () => {
+    clackSessionMock.mockImplementation(() =>
+      makeRunFromMessages([successResult("no init message ever arrived")]),
+    );
+
+    const result = await executeChange({
+      plan: makeTestPlan(),
+      worktree,
+      request: makeRequest(),
+      sessionId: "s1",
+    });
+
+    assert.equal(result.success, false);
+    assert.equal(clackSessionMock.mock.calls.length, 1);
+    assert.ok(logLines().includes("Corrective resume: skipped (no SDK session id)"));
+    assert.equal(teardownAppProcessMock.mock.calls.length, 1);
   });
 });

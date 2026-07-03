@@ -295,6 +295,8 @@ export const fr: Partial<Record<StringKey, string>> = {
     ":warning: Le sidecar Playwright est injoignable à `{url}` — le test n'a pas démarré. Le conteneur `clack-playwright` est-il en marche ?",
   "tester.busy":
     ":hourglass_flowing_sand: Un test est déjà en cours. Réessayez quand il sera terminé.",
+  "tester.gate_failed":
+    "Le test s'est terminé sans livrer d'enregistrement ni de rapport d'état, et une tentative de reprise corrective n'a rien livré non plus. Consultez le journal d'exécution pour voir ce que le test faisait au moment de l'arrêt.",
   "homeTab.workers.testing_count": "{count} en test",
 
   // ─── Spinoff (split a slice into a separate sibling PR) ─────────────

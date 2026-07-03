@@ -305,6 +305,7 @@ describe("clackSession", () => {
     });
 
     let capturedId: string | undefined;
+    const onResumeFallback = vi.fn();
     const run = clackSession(
       {
         prompt: "test",
@@ -312,6 +313,7 @@ describe("clackSession", () => {
         onSessionId: (id) => {
           capturedId = id;
         },
+        onResumeFallback,
       },
       makeDeps(),
     );
@@ -325,6 +327,7 @@ describe("clackSession", () => {
     // Should have captured the new session ID
     assert.equal(capturedId, "new-session-id");
     assert.equal(messages.length, 2);
+    assert.equal(onResumeFallback.mock.calls.length, 1);
   });
 
   it("falls back to fresh session when SDK yields a resume-missing result", async () => {
@@ -340,6 +343,7 @@ describe("clackSession", () => {
     });
 
     let capturedId: string | undefined;
+    const onResumeFallback = vi.fn();
     const run = clackSession(
       {
         prompt: "test",
@@ -347,6 +351,7 @@ describe("clackSession", () => {
         onSessionId: (id) => {
           capturedId = id;
         },
+        onResumeFallback,
       },
       makeDeps(),
     );
@@ -358,6 +363,7 @@ describe("clackSession", () => {
     assert.equal(capturedId, "new-session-id");
     assert.equal(messages.length, 2);
     assert.deepEqual(messages, [makeInitMessage("new-session-id"), makeResultMessage("done")]);
+    assert.equal(onResumeFallback.mock.calls.length, 1);
   });
 
   it("surfaces non-resume-missing error results without retrying", async () => {

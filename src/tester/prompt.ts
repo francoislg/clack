@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { DEFAULT_TESTER_APP_HOST, type TesterConfig } from "../config.js";
-import { buildSetupMemoryPromptSections } from "../memory/setupMemory.js";
+import { buildSetupMemoryPromptSections, setupMemoryId } from "../memory/setupMemory.js";
 import { resolveInstructionFile } from "../instructions.js";
 import { logger } from "../logger.js";
 
@@ -11,6 +11,7 @@ const TESTER_SYSTEM_PROMPT = `You are an autonomous QA tester. Your job is to bo
 HARD RULES — this is a read-only QA workspace:
 - NEVER edit, create, or remove source files. NEVER run \`git commit\`, \`git push\`, \`git checkout\`, or any git command that mutates state. Read-only git (log, diff, status, show) is fine and useful for understanding what the PR changes.
 - You have NO PR tools. Your deliverables are the recording (record_and_upload) and your narration (report_status).
+- Your run TERMINATES the instant you stop calling tools. Background task notifications (monitors, watchers) only arrive while your turn is open — NEVER end your turn to "wait" for a build, a bundle, or a notification; nothing will wake you. When something needs time, poll it with Bash inside the open turn.
 
 WORKFLOW:
 1. Understand the change: read the branch's diff against the default branch (git log / git diff) to know what to exercise.
@@ -82,6 +83,28 @@ export function buildTesterSystemPrompt(opts: TesterPromptOptions): string {
   }
 
   return systemPrompt;
+}
+
+export interface TesterCorrectivePromptOptions {
+  repoName: string;
+  /** Include the setup-entry rewrite paragraph (the entry wasn't rewritten during the run). */
+  includeSetupRewrite: boolean;
+}
+
+/**
+ * One-shot wrap-up prompt for the corrective resume: the initial turn ended without
+ * calling either deliverable tool, the session is being resumed exactly once, and this
+ * is the last chance to deliver before the run is failed loudly.
+ */
+export function buildTesterCorrectivePrompt(opts: TesterCorrectivePromptOptions): string {
+  const rewriteStep = opts.includeSetupRewrite
+    ? `\n4. If you learned any setup steps, prerequisites, or quirks a fresh run would need, rewrite the "${setupMemoryId("tester", opts.repoName)}" entry with the remember tool per the REPO SETUP MEMORY directive in your instructions — and skip the rewrite if nothing changed.`
+    : "";
+  return `Your previous turn ended without calling record_and_upload or report_status, so nothing was delivered. Nothing will wake you — background task notifications are gone. This resumed turn is your ONLY chance to finish; do it NOW, in this turn:
+1. Close the browser session if one is open (this finalizes the video).
+2. Deliver the best recording that exists via record_and_upload. If no usable recording exists, skip this and say so in your report.
+3. Report your observations via report_status: what you exercised, what you verified, and where the run stalled.${rewriteStep}
+Do not start new long-running work. Deliver what exists.`;
 }
 
 export function buildTesterUserPrompt(opts: TesterPromptOptions): string {

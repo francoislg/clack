@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
   setupMemoryId,
   loadSetupNotes,
+  setupEntryWasRewritten,
   setupNotesLogLine,
   buildSetupMemoryPromptSections,
 } from "./setupMemory.js";
@@ -66,6 +67,40 @@ describe("loadSetupNotes", () => {
   it("returns null when the store lookup throws", async () => {
     getMemoryMock.mockRejectedValue(new Error("store corrupted"));
     expect(await loadSetupNotes("tester", "acme")).toBeNull();
+  });
+});
+
+describe("setupEntryWasRewritten", () => {
+  beforeEach(() => {
+    getMemoryMock.mockReset();
+  });
+
+  it("reports rewritten when updatedAt changed from the baseline", async () => {
+    getMemoryMock.mockResolvedValue(makeEntry("## Services"));
+    const rewritten = await setupEntryWasRewritten("tester", "acme", "2026-01-01T12:00:00.000Z");
+    expect(rewritten).toBe(true);
+    expect(getMemoryMock).toHaveBeenCalledWith("tester-setup:acme");
+  });
+
+  it("reports untouched when updatedAt equals the baseline", async () => {
+    getMemoryMock.mockResolvedValue(makeEntry("## Services"));
+    const rewritten = await setupEntryWasRewritten("tester", "acme", "2026-01-02T00:00:00.000Z");
+    expect(rewritten).toBe(false);
+  });
+
+  it("reports rewritten when an entry appeared where the baseline was null", async () => {
+    getMemoryMock.mockResolvedValue(makeEntry("## Services"));
+    expect(await setupEntryWasRewritten("tester", "acme", null)).toBe(true);
+  });
+
+  it("fails open (not rewritten) on a missing entry", async () => {
+    getMemoryMock.mockResolvedValue(null);
+    expect(await setupEntryWasRewritten("tester", "acme", null)).toBe(false);
+  });
+
+  it("fails open (not rewritten) when the store lookup throws", async () => {
+    getMemoryMock.mockRejectedValue(new Error("store corrupted"));
+    expect(await setupEntryWasRewritten("tester", "acme", "2026-01-01T00:00:00.000Z")).toBe(false);
   });
 });
 
