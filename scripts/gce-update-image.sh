@@ -23,41 +23,105 @@ require_instance
 # ============================================
 # Build and push image
 # ============================================
-echo -e "${YELLOW}Building and pushing Docker image...${NC}"
-
 gcloud services enable artifactregistry.googleapis.com --quiet 2>/dev/null || true
 require_ar_repo
 
 cd "$PROJECT_DIR"
 
-# Optional per-instance image overlay (see docs/worker-settings.md). When
-# data/docker/Dockerfile.custom (gitignored) exists, the generic image is
-# pushed as :base and the overlay — built FROM it with data/docker/ as the
-# build context — becomes the deployed :latest. Without the file, behavior
-# is identical to before: one generic build straight to :latest.
+# --- Tools base image (system deps + github-mcp-server + optional overlay) ---
+# The application image builds FROM a content-addressed tools image, so a normal
+# code deploy rebuilds only `npm ci` + `tsc` + copy. The tools tag is a SHA-256
+# of Dockerfile.tools plus everything under data/docker/ (the per-instance
+# overlay). When that exact tag already exists in Artifact Registry we skip the
+# tools build entirely; otherwise we build it once. The immutable `…:tools-<hash>`
+# reference is passed to the app build via --build-arg TOOLS_IMAGE, so there is
+# no mutable tag to reconcile. See the docker-deployment spec for the contract.
 CUSTOM_DOCKERFILE="$DATA_DIR/docker/Dockerfile.custom"
-if [ -f "$CUSTOM_DOCKERFILE" ]; then
-    BASE_IMAGE_NAME="${IMAGE_NAME%:*}:base"
-    echo -e "${YELLOW}Custom overlay detected (data/docker/Dockerfile.custom)${NC}"
-    gcloud builds submit --tag "$BASE_IMAGE_NAME" --quiet
-    echo -e "${GREEN}✓ Base image pushed to $BASE_IMAGE_NAME${NC}"
 
-    # gcloud's --tag shorthand requires the context's dockerfile to be named
-    # `Dockerfile`; a generated config lets us keep the Dockerfile.custom name.
-    OVERLAY_CFG=$(mktemp)
-    cat > "$OVERLAY_CFG" <<EOF
+# SHA-256 over the full tools inputs. Hashing the whole data/docker/ tree (rather
+# than an enumerated file list) can never drift from what the overlay COPYs in;
+# an edit to an unbuilt file there merely triggers a harmless extra tools build.
+tools_hash_inputs() {
+    cat Dockerfile.tools
+    if [ -d "$DATA_DIR/docker" ]; then
+        find "$DATA_DIR/docker" -type f | LC_ALL=C sort | while IFS= read -r f; do
+            printf '\n== %s ==\n' "${f#"$DATA_DIR/docker/"}"
+            cat "$f"
+        done
+    fi
+}
+# Clean up any generated Cloud Build configs on every exit path, incl. a failed
+# `gcloud builds submit` under set -e (the configs are assigned further below).
+trap 'rm -f "${TOOLS_CFG:-}" "${OVERLAY_CFG:-}" "${APP_CFG:-}"' EXIT
+
+# `cat Dockerfile.tools` (and thus the hash) fails silently in the subshell
+# without pipefail, so guard explicitly: a missing file or a malformed digest
+# must abort rather than proceed with a bogus tools tag.
+[ -f Dockerfile.tools ] || { echo -e "${RED}✗ Dockerfile.tools not found${NC}"; exit 1; }
+TOOLS_HASH=$(tools_hash_inputs | shasum -a 256 | cut -d' ' -f1)
+if ! printf '%s' "$TOOLS_HASH" | grep -qE '^[0-9a-f]{64}$'; then
+    echo -e "${RED}✗ Failed to compute tools hash${NC}"; exit 1
+fi
+TOOLS_IMAGE_NAME_HASH="${TOOLS_IMAGE_NAME}-${TOOLS_HASH}"   # …/clack:tools-<hash>
+
+# Reuse when the exact tools tag already exists. The check fails SAFE: any
+# non-zero result (not-found, unreachable, credential error) falls through to a
+# rebuild rather than reusing a possibly-absent image.
+if gcloud artifacts docker images describe "$TOOLS_IMAGE_NAME_HASH" >/dev/null 2>&1; then
+    echo -e "${GREEN}✓ Tools image up to date (${TOOLS_HASH:0:12}) — skipping tools build${NC}"
+else
+    echo -e "${YELLOW}Building tools image (${TOOLS_HASH:0:12})...${NC}"
+    # gcloud's --tag shorthand requires the context's Dockerfile to be named
+    # `Dockerfile`; generated configs let us name Dockerfile.tools / .custom.
+    TOOLS_CFG=$(mktemp)
+    if [ -f "$CUSTOM_DOCKERFILE" ]; then
+        # Generic tools → mutable :tools-base (the overlay FROMs it), then the
+        # overlay (context data/docker/) → the content-addressed :tools-<hash>.
+        cat > "$TOOLS_CFG" <<EOF
 steps:
 - name: 'gcr.io/cloud-builders/docker'
-  args: ['build', '-f', 'Dockerfile.custom', '-t', '$IMAGE_NAME', '.']
+  args: ['build', '-f', 'Dockerfile.tools', '-t', '$TOOLS_BASE_IMAGE_NAME', '.']
+images: ['$TOOLS_BASE_IMAGE_NAME']
+EOF
+        gcloud builds submit "$PROJECT_DIR" --config="$TOOLS_CFG" --quiet
+        echo -e "${GREEN}✓ Tools base pushed to $TOOLS_BASE_IMAGE_NAME${NC}"
+
+        OVERLAY_CFG=$(mktemp)
+        cat > "$OVERLAY_CFG" <<EOF
+steps:
+- name: 'gcr.io/cloud-builders/docker'
+  args: ['build', '-f', 'Dockerfile.custom', '-t', '$TOOLS_IMAGE_NAME_HASH', '.']
+images: ['$TOOLS_IMAGE_NAME_HASH']
+EOF
+        gcloud builds submit "$DATA_DIR/docker" --config="$OVERLAY_CFG" --quiet
+        rm -f "$OVERLAY_CFG"
+        echo -e "${GREEN}✓ Tools overlay pushed to $TOOLS_IMAGE_NAME_HASH${NC}"
+    else
+        # No overlay: the generic tools image IS the tools image.
+        cat > "$TOOLS_CFG" <<EOF
+steps:
+- name: 'gcr.io/cloud-builders/docker'
+  args: ['build', '-f', 'Dockerfile.tools', '-t', '$TOOLS_IMAGE_NAME_HASH', '.']
+images: ['$TOOLS_IMAGE_NAME_HASH']
+EOF
+        gcloud builds submit "$PROJECT_DIR" --config="$TOOLS_CFG" --quiet
+        echo -e "${GREEN}✓ Tools image pushed to $TOOLS_IMAGE_NAME_HASH${NC}"
+    fi
+    rm -f "$TOOLS_CFG"
+fi
+
+# --- Application image: a single build FROM the tools image ---
+echo -e "${YELLOW}Building application image...${NC}"
+APP_CFG=$(mktemp)
+cat > "$APP_CFG" <<EOF
+steps:
+- name: 'gcr.io/cloud-builders/docker'
+  args: ['build', '-t', '$IMAGE_NAME', '--build-arg', 'TOOLS_IMAGE=$TOOLS_IMAGE_NAME_HASH', '.']
 images: ['$IMAGE_NAME']
 EOF
-    gcloud builds submit "$DATA_DIR/docker" --config="$OVERLAY_CFG" --quiet
-    rm -f "$OVERLAY_CFG"
-    echo -e "${GREEN}✓ Overlay image pushed to $IMAGE_NAME${NC}"
-else
-    gcloud builds submit --tag "$IMAGE_NAME" --quiet
-    echo -e "${GREEN}✓ Image pushed to $IMAGE_NAME${NC}"
-fi
+gcloud builds submit "$PROJECT_DIR" --config="$APP_CFG" --quiet
+rm -f "$APP_CFG"
+echo -e "${GREEN}✓ Image pushed to $IMAGE_NAME${NC}"
 echo ""
 
 # Runtime status endpoint (published to the VM's loopback in the run command below)

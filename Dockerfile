@@ -1,3 +1,8 @@
+# Tools base image reference. Defaults to a bare tag for local builds against a
+# locally-tagged tools image; the deploy overrides it with the Artifact
+# Registry-qualified ref via --build-arg so this file stays registry-agnostic.
+ARG TOOLS_IMAGE=clack:tools
+
 # Build stage
 FROM node:22-alpine AS builder
 
@@ -12,25 +17,12 @@ COPY src/ ./src/
 COPY tsconfig.json tsconfig.build.json ./
 RUN npm run build
 
-# Production stage
-FROM node:22-alpine
+# Production stage — bases on the pinned tools image (system deps + corepack +
+# github-mcp-server live there; see Dockerfile.tools). TOOLS_IMAGE is supplied by
+# the deploy as the AR-qualified ref; it defaults to a bare tag for local builds.
+FROM ${TOOLS_IMAGE}
 
 WORKDIR /app
-
-# Install git for repository operations; ffmpeg transcodes tester recordings (webm→mp4)
-RUN apk add --no-cache git curl bash ffmpeg lsof
-
-# Enable corepack so pnpm/yarn shims are available for repo hooks
-RUN corepack enable
-
-# Install github-mcp-server for GitHub API access via MCP
-ARG GITHUB_MCP_SERVER_VERSION=0.31.0
-# Default to amd64 for builders that don't auto-populate TARGETARCH (e.g. classic
-# Cloud Build, plain `docker build` without buildx). buildx overrides this per platform.
-ARG TARGETARCH=amd64
-RUN ARCH=$(echo "${TARGETARCH}" | sed 's/amd64/x86_64/' | sed 's/arm64/arm64/') && \
-    wget -qO- "https://github.com/github/github-mcp-server/releases/download/v${GITHUB_MCP_SERVER_VERSION}/github-mcp-server_Linux_${ARCH}.tar.gz" \
-    | tar -xz -C /usr/local/bin github-mcp-server
 
 # Copy package files and install production dependencies only
 COPY package*.json ./

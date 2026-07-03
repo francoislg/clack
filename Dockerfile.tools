@@ -1,0 +1,25 @@
+# Tools base image (clack:tools-base)
+#
+# Carries the slow, rarely-changing system layer so the application image can
+# build FROM it and a normal code deploy rebuilds only npm ci + tsc + copy.
+# Rebuilt only when its inputs change — see scripts/gce-update-image.sh, which
+# hashes this file (+ any data/docker/ overlay) and skips the build when the
+# hash already exists in Artifact Registry.
+FROM node:22-alpine
+
+# git for repository operations; ffmpeg transcodes tester recordings (webm→mp4)
+RUN apk add --no-cache git curl bash ffmpeg lsof
+
+# Enable corepack so pnpm/yarn shims are available for repo hooks
+RUN corepack enable
+
+# Install github-mcp-server for GitHub API access via MCP
+ARG GITHUB_MCP_SERVER_VERSION=0.31.0
+# Default to amd64 for builders that don't auto-populate TARGETARCH (e.g. classic
+# Cloud Build, plain `docker build` without buildx). buildx overrides this per platform.
+ARG TARGETARCH=amd64
+# github-mcp-server release assets are named _Linux_x86_64 / _Linux_arm64, so only
+# amd64 needs remapping (arm64 already matches the asset name).
+RUN ARCH=$(echo "${TARGETARCH}" | sed 's/amd64/x86_64/') && \
+    wget -qO- "https://github.com/github/github-mcp-server/releases/download/v${GITHUB_MCP_SERVER_VERSION}/github-mcp-server_Linux_${ARCH}.tar.gz" \
+    | tar -xz -C /usr/local/bin github-mcp-server
