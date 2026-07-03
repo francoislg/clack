@@ -25,17 +25,27 @@ export function createRunTestTool(
 ) {
   return tool(
     "run_test",
-    "Run a QA test session against an existing PR branch: boots the app from that branch in a " +
-      "workspace, seeds data, drives it in a browser, records a video, and uploads the recording " +
-      "to this thread. The branch must already exist on the remote (a PR's head branch). " +
-      "Returns a ref ID to use in submit_response.",
+    "Run a QA test session: boots the app from a branch in a workspace, seeds data, drives it " +
+      "in a browser, records a video, and uploads the recording to this thread. By default the " +
+      "branch must already exist on the remote (a PR's head branch); set new_branch to test " +
+      "current behavior without a PR. Returns a ref ID to use in submit_response.",
     {
       branch: z
         .string()
         .describe(
-          "The EXISTING remote branch to test — typically an open PR's head branch, taken as-is.",
+          "The branch to test. Without new_branch, an EXISTING remote branch — typically an " +
+            "open PR's head branch, taken as-is. With new_branch, a fresh throwaway slug " +
+            "(e.g. test/record-feature-x).",
         ),
       repo: z.string().describe("Repository name the branch belongs to"),
+      new_branch: z
+        .boolean()
+        .optional()
+        .describe(
+          "Create a fresh throwaway branch off the default branch instead of resuming an " +
+            "existing remote branch. Use when the user asks to test or record CURRENT behavior " +
+            "rather than a PR, and name the branch a throwaway slug (e.g. test/record-feature-x).",
+        ),
       test_focus: z
         .string()
         .optional()
@@ -72,9 +82,12 @@ export function createRunTestTool(
         );
       }
 
+      const target = args.new_branch
+        ? `on a fresh branch off ${repo.branch || "main"}`
+        : `on branch ${args.branch}`;
       const description = args.test_focus
-        ? `Test the app on branch ${args.branch}: ${args.test_focus}`
-        : `Test the app on branch ${args.branch}`;
+        ? `Test the app ${target}: ${args.test_focus}`
+        : `Test the app ${target}`;
 
       const ref = intentStore.stage({
         type: "change",
@@ -82,7 +95,7 @@ export function createRunTestTool(
         branch: args.branch,
         description,
         repo: args.repo,
-        resumeRemoteBranch: true,
+        resumeRemoteBranch: !args.new_branch,
       });
 
       return textResult({
