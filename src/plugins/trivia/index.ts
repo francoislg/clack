@@ -46,6 +46,7 @@ import {
   FINALE_TONE_CONTENT,
 } from "./prompts/topicInstructions.js";
 import { buildGameSpecs } from "./domain/buildGameSpecs.js";
+import { installCatchUp } from "./catchUp.js";
 import { registerInteractiveHandlers } from "./answerTypes/installInteractions.js";
 import { installHintButtonHandler } from "./answerTypes/hintButton.js";
 import { installPostGameButtons } from "./revealCards/postGameButtons.js";
@@ -209,4 +210,8 @@ export const triviaPlugin: ClackPlugin = async (sdk: ClackSdk) => {
   if (games.length > 0) {
     sdk.logger.info(`reconciled ${specs.length} cron job specs across ${games.length} game(s)`);
   }
+
+  // Boot catch-up: recover cron fires missed while the process was down. Games are
+  // read at hook-fire time so a config hot-reload between boot and dispatch is honored.
+  installCatchUp(sdk, () => loadTriviaConfig()?.games ?? []);
 };

@@ -48,8 +48,10 @@ import {
   updateJob,
   deleteJob,
   MAX_JITTER_MINUTES,
+  type CronJob,
   type SkipDate,
 } from "../cronJobs.js";
+import { registerDelayedBootHandler, computeMissedRuns } from "../cronCatchUp.js";
 import { registerThreadSession } from "../sessions.js";
 import type { SettableAttentionLevel, AttentionLevel } from "../sessions.js";
 export type { SettableAttentionLevel, AttentionLevel };
@@ -469,6 +471,32 @@ export interface ClackSdk {
    */
   findOwnedCronJobs(): Promise<Array<{ id: string; specKey: string }>>;
   /**
+   * Register a handler invoked once per boot, `cron.catchUp.delayMinutes` after the cron
+   * scheduler starts (default 3 min) — on EVERY boot, whether or not any fires were missed.
+   * Handlers across plugins run sequentially in registration order; a throwing handler is
+   * logged and does not block later handlers. Registrations are cleared and re-collected
+   * on soft restart. Typical use: query {@link missedRuns} for the plugin's own jobs and
+   * decide in code what (if anything) to catch up via {@link runCronJobNow}.
+   */
+  onDelayedBoot(handler: () => void | Promise<void>): void;
+  /**
+   * Cron occurrences of one of this plugin's own jobs that were expected but never
+   * started: canonical slot times strictly after `max(lastRunAt ?? createdAt, now − 14d)`
+   * and at or before now, capped at 100 entries. Disabled jobs report none. Owner-scoped:
+   * `specKey` resolves only within this plugin's reconciled jobs; an unknown or foreign
+   * specKey rejects.
+   */
+  missedRuns(specKey: string): Promise<{ lastExpectedRuns: Date[] }>;
+  /**
+   * Fire one of this plugin's own jobs immediately as a plain run — NO `asOf` replay
+   * semantics. Routed through the scheduler's `executeJob`, so the `skipDates` gate
+   * (against today), the running-jobs guard, `markJobStarted` double-fire protection,
+   * and run-history recording all apply; the tick will not re-fire the caught-up slot.
+   * Awaits run completion. Rejects on unknown/foreign specKey or when no Slack client
+   * is available yet.
+   */
+  runCronJobNow(specKey: string): Promise<void>;
+  /**
    * Send a DM to the deployment owner (the user with the `owner` role).
    *
    * Resolved server-side: the owner ID is read from roles, the DM channel is opened
@@ -710,6 +738,17 @@ export interface ClackSdkDeps {
   createJob?: typeof createJob;
   updateJob?: typeof updateJob;
   deleteJob?: typeof deleteJob;
+  /** Backs `sdk.onDelayedBoot` — optional in tests that don't exercise catch-up. */
+  registerDelayedBootHandler?: typeof registerDelayedBootHandler;
+  /** Backs `sdk.missedRuns` — optional in tests that don't exercise catch-up. */
+  computeMissedRuns?: typeof computeMissedRuns;
+  /**
+   * Backs `sdk.runCronJobNow`. Bound at the `loadAndInstallPlugins` call sites to the
+   * scheduler's `executeJob` (which isn't importable here — a static import would close
+   * the module cycle sdk → cronScheduler → handlers/core → tools/server → lifecycle →
+   * registry → sdk). Absent → `runCronJobNow` rejects, mirroring `startThreadConversation`.
+   */
+  executeCronJob?: (job: CronJob, client: App["client"]) => Promise<void>;
   clackQuery: typeof defaultClackQuery;
   /**
    * Backs `sdk.startThreadConversation`. Bound at the `loadAndInstallPlugins` call
@@ -750,6 +789,8 @@ export const defaultClackSdkDeps: ClackSdkDeps = {
   createJob,
   updateJob,
   deleteJob,
+  registerDelayedBootHandler,
+  computeMissedRuns,
   clackQuery: defaultClackQuery,
 };
 
@@ -907,6 +948,16 @@ export function createClackSdk(
       out = out.replaceAll(`{${name}}`, String(value));
     }
     return out;
+  }
+
+  async function resolveOwnedCronJob(specKey: string): Promise<CronJob> {
+    const find = deps.findByPluginOwner ?? findByPluginOwner;
+    const jobs = await find(pluginName);
+    const job = jobs.find((j) => j.specKey === specKey);
+    if (!job) {
+      throw new Error(`No cron job with specKey "${specKey}" is owned by plugin "${pluginName}"`);
+    }
+    return job;
   }
 
   const sdk: ClackSdk = {
@@ -1150,6 +1201,36 @@ export function createClackSdk(
         }
       }
       return out;
+    },
+
+    onDelayedBoot(handler: () => void | Promise<void>): void {
+      if (typeof handler !== "function") {
+        throw new Error("onDelayedBoot: handler must be a function");
+      }
+      const register = deps.registerDelayedBootHandler ?? registerDelayedBootHandler;
+      register(pluginName, handler);
+    },
+
+    async missedRuns(specKey: string): Promise<{ lastExpectedRuns: Date[] }> {
+      const job = await resolveOwnedCronJob(specKey);
+      const compute = deps.computeMissedRuns ?? computeMissedRuns;
+      return { lastExpectedRuns: compute(job, new Date()) };
+    },
+
+    async runCronJobNow(specKey: string): Promise<void> {
+      const job = await resolveOwnedCronJob(specKey);
+      if (!deps.executeCronJob) {
+        throw new Error(
+          `runCronJobNow("${specKey}"): no executeCronJob dependency wired in this context`,
+        );
+      }
+      const client = deps.getSlackClient();
+      if (!client) {
+        throw new Error(
+          `runCronJobNow("${specKey}"): no Slack client available yet — the cron scheduler has not started`,
+        );
+      }
+      await deps.executeCronJob(job, client);
     },
 
     getSlackClient(): App["client"] | null {

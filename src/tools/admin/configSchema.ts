@@ -380,6 +380,21 @@ export const CONFIG_SCHEMA: SchemaFor<Config> = {
           default: 50,
           required: false,
         },
+        catchUp: {
+          type: "object",
+          description:
+            "Boot-time catch-up: plugins with a delayed-boot handler are dispatched after this settle delay so they can recover cron fires missed while Clack was down.",
+          required: false,
+          fields: {
+            delayMinutes: {
+              type: "number",
+              description:
+                "Minutes between cron-scheduler start and delayed-boot hook dispatch. Integer >= 0; 0 dispatches immediately.",
+              default: 3,
+              required: false,
+            },
+          },
+        },
       },
     },
     threadAutoRespond: {

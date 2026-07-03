@@ -11,6 +11,10 @@
  */
 
 export const en = {
+  // Owner DM sent by boot catch-up when a missed quiz day cannot be recovered.
+  "catchup.quiz_lost":
+    "😴 The *{game}* quiz for {dates} was missed while Clack was down, and it's too late to catch it up — that day is skipped.",
+
   // Live roster footer rendered under freeform question cards.
   "roster.answered_label": "📝 *Answered:*",
   "roster.no_answers_yet": "(no answers yet)",
@@ -131,6 +135,9 @@ export const en = {
 };
 
 export const fr: Partial<Record<keyof typeof en, string>> = {
+  "catchup.quiz_lost":
+    "😴 Le quiz *{game}* du {dates} a été manqué pendant que Clack était hors ligne, et il est trop tard pour le rattraper — cette journée est sautée.",
+
   "roster.answered_label": "📝 *Réponses :*",
   "roster.no_answers_yet": "(aucune réponse pour l'instant)",
 

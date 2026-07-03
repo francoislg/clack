@@ -2,6 +2,7 @@ import { z } from "zod";
 import type { UserRole } from "./roles.js";
 import type {
   Config,
+  CronConfig,
   JsonObject,
   JsonValue,
   ThinkingFeedbackConfig,
@@ -494,6 +495,42 @@ export const testerZod = z.unknown().transform((raw, ctx): Config["tester"] => {
     ...(recordingsDir !== undefined && { recordingsDir }),
     ...(appHost !== undefined && { appHost }),
     ...(maxConcurrent !== undefined && { maxConcurrent }),
+  };
+});
+
+export const cronCatchUpZod = z.unknown().transform((raw, ctx): CronConfig["catchUp"] => {
+  if (raw === undefined) return undefined;
+  if (!isPlainObject(raw as JsonValue)) {
+    ctx.addIssue({ code: "custom", message: "Config 'cron.catchUp' must be an object" });
+    return z.NEVER;
+  }
+  const obj = raw as JsonObject;
+  for (const key of Object.keys(obj)) {
+    if (key !== "delayMinutes") {
+      ctx.addIssue({
+        code: "custom",
+        message: `Config 'cron.catchUp' contains unknown key '${key}'`,
+      });
+      return z.NEVER;
+    }
+  }
+  let delayMinutes: number | undefined;
+  if (obj.delayMinutes !== undefined) {
+    if (
+      typeof obj.delayMinutes !== "number" ||
+      !Number.isInteger(obj.delayMinutes) ||
+      obj.delayMinutes < 0
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        message: `Config 'cron.catchUp.delayMinutes' must be an integer >= 0 (got ${JSON.stringify(obj.delayMinutes)})`,
+      });
+      return z.NEVER;
+    }
+    delayMinutes = obj.delayMinutes;
+  }
+  return {
+    ...(delayMinutes !== undefined && { delayMinutes }),
   };
 });
 

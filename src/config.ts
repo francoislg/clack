@@ -275,6 +275,16 @@ export interface CronConfig {
   enabled?: boolean;
   userSchedules?: boolean;
   maxRunHistory?: number;
+  catchUp?: CronCatchUpConfig;
+}
+
+/**
+ * Boot-time catch-up settings. `delayMinutes` is the settle window between the cron
+ * scheduler starting and the delayed-boot plugin hooks being dispatched (integer ≥ 0;
+ * `0` dispatches on the next event-loop tick — useful in tests). Default 3.
+ */
+export interface CronCatchUpConfig {
+  delayMinutes?: number;
 }
 
 /**
@@ -485,6 +495,18 @@ export function getTaskCardMaxDetails(): number {
 export function getCronMaxRunHistory(): number {
   if (!cachedConfig) return DEFAULT_SCHEDULED_MESSAGES_MAX_RUN_HISTORY;
   return cachedConfig.cron?.maxRunHistory ?? DEFAULT_SCHEDULED_MESSAGES_MAX_RUN_HISTORY;
+}
+
+const DEFAULT_CRON_CATCH_UP_DELAY_MINUTES = 3;
+
+/**
+ * Resolved settle delay (minutes) between cron-scheduler start and delayed-boot hook
+ * dispatch, sourced from `config.cron.catchUp.delayMinutes` with a built-in fallback
+ * when config is missing or unloaded.
+ */
+export function getCronCatchUpDelayMinutes(): number {
+  if (!cachedConfig) return DEFAULT_CRON_CATCH_UP_DELAY_MINUTES;
+  return cachedConfig.cron?.catchUp?.delayMinutes ?? DEFAULT_CRON_CATCH_UP_DELAY_MINUTES;
 }
 
 export function getDataDir(): string {
