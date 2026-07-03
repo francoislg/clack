@@ -50,6 +50,10 @@ IMAGE_NAME="${AR_REGION}-docker.pkg.dev/${PROJECT_ID}/${AR_REPO}/clack:latest"
 # per-instance overlay builds FROM when data/docker/Dockerfile.custom exists.
 TOOLS_IMAGE_NAME="${AR_REGION}-docker.pkg.dev/${PROJECT_ID}/${AR_REPO}/clack:tools"
 TOOLS_BASE_IMAGE_NAME="${AR_REGION}-docker.pkg.dev/${PROJECT_ID}/${AR_REPO}/clack:tools-base"
+# BuildKit registry build cache for the app image (npm ci layers). A build-time
+# cache artifact ONLY — never deployed, never pulled by the VM. The app build
+# imports/exports it so an unchanged package-lock.json restores npm ci from cache.
+BUILDCACHE_IMAGE_NAME="${AR_REGION}-docker.pkg.dev/${PROJECT_ID}/${AR_REPO}/clack:buildcache"
 
 DATA_DISK_NAME="clack-data"
 DATA_DISK_SIZE="20GB"
