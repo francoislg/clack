@@ -36,7 +36,8 @@ export interface TesterPromptOptions {
   tester: TesterConfig;
   /**
    * Learned setup notes for this repo (`tester-setup:<repo>` memory entry), fetched by the
-   * caller via `loadSetupNotes` — keeps this builder sync. Null/absent on a cold run.
+   * caller via `loadSetupNotes` (which unwraps to the notes text) — keeps this builder sync.
+   * Null/absent on a cold run.
    */
   learnedNotes?: string | null;
 }

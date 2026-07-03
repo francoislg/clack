@@ -70,11 +70,23 @@ describe("memoryRegistry persistence", () => {
   });
 
   it("remembers a core entry and reads it back, stamping timestamps", async () => {
-    const entry = await rememberCore({ id: "note:a", what: "remember a", why: "because" });
+    const { entry, previous } = await rememberCore({
+      id: "note:a",
+      what: "remember a",
+      why: "because",
+    });
     expect(entry.createdAt).toBe(fixedNow.toISOString());
     expect(entry.updatedAt).toBe(fixedNow.toISOString());
+    expect(previous).toBeUndefined();
     const got = await getMemory("note:a");
     expect(got?.what).toBe("remember a");
+  });
+
+  it("returns the replaced entry on overwrite", async () => {
+    await rememberCore({ id: "x", what: "the original full body" });
+    const { entry, previous } = await rememberCore({ id: "x", what: "v2" });
+    expect(entry.what).toBe("v2");
+    expect(previous?.what).toBe("the original full body");
   });
 
   it("preserves createdAt and plugin namespaces across a core update", async () => {
@@ -198,7 +210,7 @@ describe("memoryRegistry linkedMemories", () => {
   });
 
   it("accepts a link to an id that does not exist (dangling-tolerant)", async () => {
-    const entry = await rememberCore({
+    const { entry } = await rememberCore({
       id: "x",
       linkedMemories: [{ id: "note:absent", reason: "supersedes" }],
     });

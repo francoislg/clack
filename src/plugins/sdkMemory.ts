@@ -51,8 +51,9 @@ export function createMemorySurface(
     recall(args: SearchMemoryArgs): Promise<MemorySearchResult> {
       return (deps.searchMemory ?? searchMemory)(args);
     },
-    remember(input: RememberInput): Promise<MemoryEntry> {
-      return (deps.rememberCore ?? rememberCore)(input);
+    async remember(input: RememberInput): Promise<MemoryEntry> {
+      const { entry } = await (deps.rememberCore ?? rememberCore)(input);
+      return entry;
     },
     onBeforeExpire(fn: BeforeExpireHook): void {
       (deps.registerBeforeExpire ?? registerBeforeExpire)(pluginName, fn);

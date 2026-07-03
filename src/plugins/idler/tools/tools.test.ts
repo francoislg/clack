@@ -134,7 +134,7 @@ function statefulMemory(): ClackSdkMemory {
           ...(ex?.plugins ? { plugins: ex.plugins } : {}),
         };
         store.set(input.id, entry);
-        return entry;
+        return { entry, previous: ex };
       },
       async getMemoryNamespace(plugin, id) {
         return store.get(id)?.plugins?.[plugin] ?? null;

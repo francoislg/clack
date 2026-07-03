@@ -25,13 +25,29 @@ const linkArg = z.object({
     ),
 });
 
+const SHRINK_WARNING_MIN_PREVIOUS_CHARS = 500;
+const SHRINK_WARNING_RATIO = 0.25;
+
+export interface RememberToolResult {
+  ok: true;
+  id: string;
+  updatedAt: string;
+  replaced?: { previousWhatLength: number; newWhatLength: number };
+  warning?: string;
+}
+
 export function createRememberTool(deps: RememberDeps = defaultDeps) {
   return tool(
     "remember",
     "Save or update something worth remembering in Clack's memory — a useful fact, a decision, a reminder, or context about an entity. Keyed by a stable, namespaced `id` (e.g. 'sentry:1234', 'asana:567', 'note:deploy-needs-node-22'). Re-using an `id` updates the existing entry. Set `staleAfter.date` (ISO) when you can estimate when this stops mattering, so the daily review can prune it; `staleAfter.reason` captures the condition in words. Use `linkedMemories` to relate this entry to another when the relationship is semantic (supersession, causation, blocking, duplication) — something keyword search would not connect — not a generic 'see also'.",
     {
       id: z.string().describe("Stable namespaced id — the dedup identity (e.g. 'sentry:1234')"),
-      what: z.string().optional().describe("What this is — a one-line statement"),
+      what: z
+        .string()
+        .optional()
+        .describe(
+          "What this is — usually a one-line statement; living-document entries (e.g. setup recipes) store their full markdown body here",
+        ),
       why: z.string().optional().describe("Why it must be remembered"),
       staleAfter: z
         .object({
@@ -65,8 +81,28 @@ export function createRememberTool(deps: RememberDeps = defaultDeps) {
         references: args.references,
         linkedMemories: args.linkedMemories,
       };
-      const saved = await deps.rememberCore(input);
-      return textResult({ ok: true, id: saved.id, updatedAt: saved.updatedAt });
+      const { entry, previous } = await deps.rememberCore(input);
+      const payload: RememberToolResult = {
+        ok: true,
+        id: entry.id,
+        updatedAt: entry.updatedAt,
+      };
+      if (previous && args.what !== undefined) {
+        const previousWhatLength = previous.what.length;
+        const newWhatLength = entry.what.length;
+        payload.replaced = { previousWhatLength, newWhatLength };
+        if (
+          previousWhatLength > SHRINK_WARNING_MIN_PREVIOUS_CHARS &&
+          newWhatLength < previousWhatLength * SHRINK_WARNING_RATIO
+        ) {
+          payload.warning =
+            `The new \`what\` (${newWhatLength} chars) replaced a much larger one ` +
+            `(${previousWhatLength} chars). If this entry is a living document (e.g. a setup ` +
+            `recipe), you may have unintentionally replaced its full body with a summary — ` +
+            `re-issue remember with the complete content if so.`;
+        }
+      }
+      return textResult(payload);
     },
   );
 }

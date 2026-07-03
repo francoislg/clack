@@ -16,7 +16,11 @@ import type { ChangePlan, ChangeRequest, ExecutionResult } from "./types.js";
 import type { SpinoffIntentData } from "./spinoff.js";
 import { appendExecutionLog } from "./persistence.js";
 import { appendWorkerSkillsCatalog } from "./workerSkillsCatalog.js";
-import { loadSetupNotes, buildSetupMemoryPromptSections } from "../memory/setupMemory.js";
+import {
+  loadSetupNotes,
+  buildSetupMemoryPromptSections,
+  setupNotesLogLine,
+} from "../memory/setupMemory.js";
 import { buildWorkerBashGuardHook } from "./workerBashGuard.js";
 import { getActiveChange } from "./activeState.js";
 import { detectPlatformError } from "../claude/messageParser.js";
@@ -437,7 +441,12 @@ export async function executeChange(opts: ExecuteChangeOptions): Promise<Executi
   // Learned setup notes (advisory, from previous runs) + the directive to maintain them.
   // A missing entry is the normal cold-run path — only the directive is injected then.
   const setupNotes = await loadSetupNotes("worker", worktree.repoName);
-  systemPrompt += buildSetupMemoryPromptSections("worker", worktree.repoName, setupNotes);
+  appendExecutionLog(plan.branchName, setupNotesLogLine(setupNotes));
+  systemPrompt += buildSetupMemoryPromptSections(
+    "worker",
+    worktree.repoName,
+    setupNotes?.notes ?? null,
+  );
 
   if (config.changesWorkflow?.requirePRReviewers) {
     systemPrompt += REVIEWER_RESOLUTION_GUIDANCE;
@@ -574,13 +583,15 @@ async function executeTest(opts: ExecuteChangeOptions, config: Config): Promise<
   }
 
   const requester = request.userDisplayName?.trim() || `Slack user ${request.userId}`;
+  const testerSetupNotes = await loadSetupNotes("tester", worktree.repoName);
+  appendExecutionLog(plan.branchName, setupNotesLogLine(testerSetupNotes));
   const promptOpts = {
     description: plan.description,
     branchName: plan.branchName,
     repoName: worktree.repoName,
     requester,
     tester,
-    learnedNotes: await loadSetupNotes("tester", worktree.repoName),
+    learnedNotes: testerSetupNotes?.notes ?? null,
   };
 
   const workerCtx = buildWorkerContext({
