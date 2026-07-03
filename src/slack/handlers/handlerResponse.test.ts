@@ -53,8 +53,8 @@ const mockAppendAssistantMessage = vi.fn<
 
 const mockAppendStagedIntents = vi.fn<HandlerResponseDeps["appendStagedIntents"]>(async () => {});
 
-const mockUpdateSession = vi.fn<(...args: never[]) => Promise<void>>(async () => {});
-const mockAddError = vi.fn<(...args: never[]) => Promise<void>>(async () => {});
+const mockUpdateSession = vi.fn<HandlerResponseDeps["updateSession"]>(async () => null);
+const mockAddError = vi.fn<HandlerResponseDeps["addError"]>(async () => null);
 const mockSetAttentionLevel = vi.fn<HandlerResponseDeps["setAttentionLevel"]>(async () => {});
 const mockSetDeliveryMode = vi.fn<HandlerResponseDeps["setDeliveryMode"]>(async () => {});
 
@@ -65,7 +65,7 @@ const mockGetUsageLimitBlocks = vi.fn<HandlerResponseDeps["getUsageLimitBlocks"]
 const mockAsSlackBlocks = vi.fn((blocks: never) => blocks);
 
 const mockSendErrorReport = vi.fn<(...args: never[]) => Promise<void>>(async () => {});
-const mockAnalyzeError = vi.fn<(...args: never[]) => Promise<string>>(async () => "error analysis");
+const mockAnalyzeError = vi.fn<HandlerResponseDeps["analyzeError"]>(async () => "error analysis");
 
 const mockGetConfig = vi.fn(() => ({
   slack: { sendErrorsAsDM: false },
@@ -109,21 +109,33 @@ function resetStreamerInstance(overrides?: {
   mockStreamerGetAllMessageTss = vi.fn(() => streamerAllMessageTss);
 }
 
+const mockRegisterThreadSession = vi.fn<HandlerResponseDeps["registerThreadSession"]>(
+  async () => null,
+);
+const mockAppendSessionToEphemeralRule = vi.fn<HandlerResponseDeps["appendSessionToEphemeralRule"]>(
+  async () => null,
+);
 const mockGetOwnerUserId = vi.fn<HandlerResponseDeps["getOwnerUserId"]>(async () => "U_OWNER");
 const mockSendOwnerDm = vi.fn<HandlerResponseDeps["sendOwnerDm"]>(async () => true);
 const mockWriteErrorReport = vi.fn<HandlerResponseDeps["writeErrorReport"]>(
   async () => "report.json",
+);
+const mockCreateSession = vi.fn<NonNullable<HandlerResponseDeps["createSession"]>>(async () =>
+  makeSession({ sessionId: "follow-up-session" }),
 );
 
 function makeDeps(): HandlerResponseDeps {
   return {
     askClaude: askClaudeAdapter,
     appendStagedIntents: mockAppendStagedIntents,
-    analyzeError: mockAnalyzeError as never,
-    updateSession: mockUpdateSession as never,
-    addError: mockAddError as never,
+    analyzeError: mockAnalyzeError,
+    updateSession: mockUpdateSession,
+    addError: mockAddError,
     setAttentionLevel: mockSetAttentionLevel,
     setDeliveryMode: mockSetDeliveryMode,
+    createSession: mockCreateSession as HandlerResponseDeps["createSession"],
+    registerThreadSession: mockRegisterThreadSession,
+    appendSessionToEphemeralRule: mockAppendSessionToEphemeralRule,
     getUsageLimitBlocks: mockGetUsageLimitBlocks,
     getErrorBlocksWithRetry: mockGetErrorBlocksWithRetry as never,
     asSlackBlocks: mockAsSlackBlocks as never,
@@ -235,6 +247,8 @@ beforeEach(() => {
   mockSendOwnerDm.mockImplementation(async () => true);
   mockWriteErrorReport.mockClear();
   mockWriteErrorReport.mockImplementation(async () => "report.json");
+  mockCreateSession.mockClear();
+  mockCreateSession.mockImplementation(async () => makeSession({ sessionId: "follow-up-session" }));
 
   // Reset mockAskClaude to default implementation
   mockAskClaude.mockImplementation(async () => ({
@@ -1227,7 +1241,13 @@ describe("executeAndDeliver — deliver function", () => {
   });
 });
 
-type DeliverOpts = { blocks: object[]; reactions?: string[] };
+type DeliverOpts = {
+  blocks: object[];
+  reactions?: string[];
+  postTopLevel?: boolean;
+  suppressUnfurls?: boolean;
+  threadTs?: string;
+};
 type DeliverResult = Promise<{ ok: true; ts?: string } | { ok: false; error: string }>;
 
 async function waitForReactionAddCalls(
@@ -2185,5 +2205,208 @@ describe("executeAndDeliver — owner escalation", () => {
 
     assert.equal(mockSendOwnerDm.mock.calls.length, 0);
     assert.equal(mockWriteErrorReport.mock.calls.length, 0);
+  });
+});
+
+// ============================================================================
+// seedChannelReplyThreadHandoff
+// ============================================================================
+
+describe("executeAndDeliver — seedChannelReplyThreadHandoff", () => {
+  beforeEach(() => {
+    mockRegisterThreadSession.mockClear();
+    mockAppendSessionToEphemeralRule.mockClear();
+    resetStreamerInstance();
+    mockAskClaude.mockClear();
+    mockAskClaude.mockImplementation(async () => ({
+      success: true,
+      answer: "test answer",
+    }));
+  });
+
+  it("calls registerThreadSession and appendSessionToEphemeralRule when triggerType==='channelReply'", async () => {
+    const seededSession = makeSession({ sessionId: "thread-session-1" });
+    mockRegisterThreadSession.mockImplementation(async () => seededSession);
+
+    mockAskClaude.mockImplementationOnce(async (...args: Parameters<typeof mockAskClaude>) => {
+      const opts = args[1] as { deliver: (o: DeliverOpts) => DeliverResult };
+      await opts.deliver({
+        blocks: [{ type: "section", text: { type: "mrkdwn", text: "answer" } }],
+      });
+      return { success: true, answer: "answer" };
+    });
+
+    const client = makeClient();
+    const session = makeSession();
+    const sessionInfo = makeSessionInfo({ triggerType: "channelReply" });
+
+    await executeAndDeliver({
+      client,
+      session,
+      sessionInfo,
+      claudeOptions: makeClaudeOptions(),
+      deps,
+    });
+
+    assert.equal(mockRegisterThreadSession.mock.calls.length, 1);
+    const registerArgs = mockRegisterThreadSession.mock.calls[0] as Parameters<
+      typeof mockRegisterThreadSession
+    >;
+    assert.equal(registerArgs[0], "C001");
+    assert.equal(registerArgs[1], "1700000000.000001");
+    assert.ok(registerArgs[2]);
+    assert.equal((registerArgs[2] as { attentionLevel: string }).attentionLevel, "medium");
+
+    assert.equal(mockAppendSessionToEphemeralRule.mock.calls.length, 1);
+    const appendArgs = mockAppendSessionToEphemeralRule.mock.calls[0] as Parameters<
+      typeof mockAppendSessionToEphemeralRule
+    >;
+    assert.equal(appendArgs[0], "C001");
+    assert.equal(appendArgs[1], "thread-session-1");
+  });
+
+  it("does not call registerThreadSession when triggerType is NOT 'channelReply'", async () => {
+    mockAskClaude.mockImplementationOnce(async (...args: Parameters<typeof mockAskClaude>) => {
+      const opts = args[1] as { deliver: (o: DeliverOpts) => DeliverResult };
+      await opts.deliver({
+        blocks: [{ type: "section", text: { type: "mrkdwn", text: "answer" } }],
+      });
+      return { success: true, answer: "answer" };
+    });
+
+    const client = makeClient();
+    const session = makeSession();
+    const sessionInfo = makeSessionInfo({ triggerType: "mentions" });
+
+    await executeAndDeliver({
+      client,
+      session,
+      sessionInfo,
+      claudeOptions: makeClaudeOptions(),
+      deps,
+    });
+
+    assert.equal(mockRegisterThreadSession.mock.calls.length, 0);
+    assert.equal(mockAppendSessionToEphemeralRule.mock.calls.length, 0);
+  });
+
+  it("logs registerThreadSession failure as warning and does NOT fail delivery", async () => {
+    mockRegisterThreadSession.mockImplementation(async () => {
+      throw new Error("registerThreadSession failed");
+    });
+
+    mockAskClaude.mockImplementationOnce(async (...args: Parameters<typeof mockAskClaude>) => {
+      const opts = args[1] as { deliver: (o: DeliverOpts) => DeliverResult };
+      await opts.deliver({
+        blocks: [{ type: "section", text: { type: "mrkdwn", text: "answer" } }],
+      });
+      return { success: true, answer: "answer" };
+    });
+
+    const client = makeClient();
+    const session = makeSession();
+    const sessionInfo = makeSessionInfo({ triggerType: "channelReply" });
+
+    const response = await executeAndDeliver({
+      client,
+      session,
+      sessionInfo,
+      claudeOptions: makeClaudeOptions(),
+      deps,
+    });
+
+    assert.equal(response.success, true);
+  });
+
+  it("appends follow-up session to conversation ledger when postTopLevel with channelReply", async () => {
+    mockAskClaude.mockImplementationOnce(async (...args: Parameters<typeof mockAskClaude>) => {
+      const opts = args[1] as { deliver: (o: DeliverOpts) => DeliverResult };
+      await opts.deliver({
+        blocks: [{ type: "section", text: { type: "mrkdwn", text: "answer" } }],
+        postTopLevel: true,
+      });
+      return { success: true, answer: "answer" };
+    });
+
+    const client = makeClient();
+    mockPostMessage.mockImplementation(async () => ({
+      ok: true,
+      ts: "1700000000.000200",
+    }));
+
+    const session = makeSession();
+    const sessionInfo = makeSessionInfo({ triggerType: "channelReply" });
+
+    await executeAndDeliver({
+      client,
+      session,
+      sessionInfo,
+      claudeOptions: makeClaudeOptions(),
+      deps,
+    });
+
+    assert.equal(mockAppendSessionToEphemeralRule.mock.calls.length, 1);
+  });
+
+  it("does NOT append when postTopLevel and triggerType is not channelReply", async () => {
+    mockAskClaude.mockImplementationOnce(async (...args: Parameters<typeof mockAskClaude>) => {
+      const opts = args[1] as { deliver: (o: DeliverOpts) => DeliverResult };
+      await opts.deliver({
+        blocks: [{ type: "section", text: { type: "mrkdwn", text: "answer" } }],
+        postTopLevel: true,
+      });
+      return { success: true, answer: "answer" };
+    });
+
+    const client = makeClient();
+    mockPostMessage.mockImplementation(async () => ({
+      ok: true,
+      ts: "1700000000.000200",
+    }));
+
+    const session = makeSession();
+    const sessionInfo = makeSessionInfo({ triggerType: "reactions" });
+
+    await executeAndDeliver({
+      client,
+      session,
+      sessionInfo,
+      claudeOptions: makeClaudeOptions(),
+      deps,
+    });
+
+    assert.equal(mockAppendSessionToEphemeralRule.mock.calls.length, 0);
+  });
+
+  it("includes additionalSystemPrompt in registerThreadSession when present", async () => {
+    const seededSession = makeSession({ sessionId: "thread-session-2" });
+    mockRegisterThreadSession.mockImplementation(async () => seededSession);
+
+    mockAskClaude.mockImplementationOnce(async (...args: Parameters<typeof mockAskClaude>) => {
+      const opts = args[1] as { deliver: (o: DeliverOpts) => DeliverResult };
+      await opts.deliver({
+        blocks: [{ type: "section", text: { type: "mrkdwn", text: "answer" } }],
+      });
+      return { success: true, answer: "answer" };
+    });
+
+    const client = makeClient();
+    const session = makeSession({ additionalSystemPrompt: "extra context here" });
+    const sessionInfo = makeSessionInfo({ triggerType: "channelReply" });
+
+    await executeAndDeliver({
+      client,
+      session,
+      sessionInfo,
+      claudeOptions: makeClaudeOptions(),
+      deps,
+    });
+
+    assert.equal(mockRegisterThreadSession.mock.calls.length, 1);
+    const registerArgs = mockRegisterThreadSession.mock.calls[0] as Parameters<
+      typeof mockRegisterThreadSession
+    >;
+    const options = registerArgs[2] as { attentionLevel: string; followUpContext?: string };
+    assert.equal(options.followUpContext, "extra context here");
   });
 });

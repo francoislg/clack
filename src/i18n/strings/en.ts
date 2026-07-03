@@ -161,6 +161,12 @@ export const en = {
 
   // ─── Home Tab: auto-respond ────────────────────────────────────────
   "home.auto_respond.header": "Auto-Respond",
+  "home.auto_respond.conversations_header": "*Conversations being followed*",
+  "home.auto_respond.conversation_level": "attention: {level}",
+  "home.auto_respond.conversation_expires": "expires in {time}",
+  "home.auto_respond.conversation_dormant": "dormant — will re-engage if the conversation resumes",
+  "home.auto_respond.conversation_sessions": "{count} linked session(s)",
+  "home.auto_respond.stop_following": "Stop following",
   "home.auto_respond.empty": "_No auto-respond rules configured._",
   "home.auto_respond.paused_suffix": " _(paused)_",
   "home.auto_respond.pre_analysis_suffix": " · Pre-analysis",

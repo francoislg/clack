@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { createUpdateAutoRespondRuleTool } from "./updateAutoRespondRule.js";
 import type { QueryToolContext } from "../types.js";
 import { addRule, clearAutoRespondCache, getRule } from "../../autoRespond.js";
+import { seedEphemeralRule } from "../../ephemeralRules.js";
 import type { ResolveChannelResult } from "../../slack/channelResolver.js";
 
 const originalCwd = process.cwd;
@@ -224,5 +225,33 @@ describe("update_auto_respond_rule tool", () => {
 
     assert.equal(result.isError, true);
     assert.match(textAt(result, 0), /not found/);
+  });
+
+  it("rejects ephemeral rules with a pointer to channel_attention_level", async () => {
+    const rule = await seedEphemeralRule({
+      channel: "C1",
+      attentionLevel: "medium",
+      sessionId: "sess-1",
+      anchorText: "digest",
+    });
+
+    const tool = createUpdateAutoRespondRuleTool(buildCtx(), {
+      resolveChannel: resolverFor({}),
+    });
+    const result = await call(tool, {
+      id: rule.id,
+      channels: undefined,
+      userFilters: undefined,
+      keywords: undefined,
+      extraContext: "x",
+      preAnalysisContext: undefined,
+      attentionLevel: undefined,
+    });
+
+    assert.equal(result.isError, true);
+    assert.match(textAt(result, 0), /ephemeral channel conversation/);
+    assert.match(textAt(result, 0), /channel_attention_level/);
+    const stored = await getRule(rule.id);
+    assert.ok(stored, "rule must survive the rejected update");
   });
 });

@@ -15,6 +15,7 @@ import { DEFAULT_MAX_ADDITIONAL_MESSAGES } from "../../config.js";
 import { logger } from "../../logger.js";
 import { appendStagedIntents as _appendStagedIntents } from "../../sessions.js";
 import type { AttentionLevel, DeliveryMode } from "../../sessions.js";
+import type { EphemeralAttentionLevel } from "../../ephemeralRules.js";
 import { readInstructionFile as _readInstructionFile } from "../../configurationFiles.js";
 import { textResult } from "../helpers.js";
 import { DISMISSAL_PHRASES_INLINE } from "../../claude/dismissalPhrases.js";
@@ -145,6 +146,18 @@ const threadEngagementDeliveryModeField = z
       "natural for casual chatter. Only meaningful alongside a non-`off` `attention_level`.",
   );
 
+const channelAttentionLevelSeedField = z
+  .enum(["high", "medium", "low"])
+  .optional()
+  .describe(
+    "Optional. Only meaningful for a TOP-LEVEL destination post (no thread_ts): temporarily follow " +
+      "the DESTINATION CHANNEL's conversation — top-level replies in the channel are judged for " +
+      "relatedness to this post and answered while the window lasts. Unrelated channel traffic decays " +
+      "the level one rung at a time; the window expires ~60 minutes after the last exchange (a late " +
+      "genuine reply can still revive it). Distinct from `attention_level`, which follows the " +
+      "destination THREAD; `always` is not seedable for a channel. Omit for fire-and-forget.",
+  );
+
 const postToActionSchema = z.object({
   type: z.literal("post_to"),
   label: buttonLabelSchema
@@ -173,6 +186,7 @@ const postToActionSchema = z.object({
   attention_level: threadEngagementAttentionField,
   follow_up_context: followUpContextField,
   default_delivery_mode: threadEngagementDeliveryModeField,
+  channel_attention_level: channelAttentionLevelSeedField,
   suppress_unfurls: z
     .boolean()
     .optional()
@@ -462,6 +476,10 @@ export interface SubmitResponseDeps {
   submitResponseMode?: "always" | "optional" | "optional-post-to" | "skipped";
   /** When true, the `attention_level` dial (incl. `"off"` to disengage) is available in the schema. */
   allowAttentionLevel?: boolean;
+  /** When true (channelReply turns only), the `channel_attention_level` reframe dial is exposed. */
+  allowChannelAttentionLevel?: boolean;
+  /** Applies Claude's `channel_attention_level` to the channel's ephemeral rule (`"off"` deletes). */
+  setChannelAttentionLevel?: (level: EphemeralAttentionLevel | "off") => Promise<void>;
   /**
    * When true, the `post_top_level` parameter is available in the schema. Claude can set it
    * per-response to route the reply as a top-level channel message instead of a thread reply.
@@ -614,6 +632,34 @@ interface SubmitResponseSuccessResult {
    * Helps Claude confirm a multi-message batch landed as expected.
    */
   messagesDelivered?: number;
+  /** Non-fatal per-entry notices (e.g. an ignored `channel_attention_level` on a threaded entry). */
+  warnings?: string[];
+  /** Echoes back the channel window level Claude set this turn, when it set one. */
+  channelAttentionLevel?: EphemeralAttentionLevel | "off";
+}
+
+type ChannelAttentionReframe = EphemeralAttentionLevel | "off";
+
+/** Reads `channel_attention_level` off the args and applies it via the injected mutator.
+ *  Best-effort: a mutation failure is logged, never turned into a delivery error.
+ *  `args` stays `object` because the field only exists on the channelReply schema variant;
+ *  the zod layer has already validated it, so the narrowing cast is safe. */
+async function applyChannelAttentionLevel(
+  args: object,
+  setChannelAttentionLevel?: (level: ChannelAttentionReframe) => Promise<void>,
+): Promise<ChannelAttentionReframe | undefined> {
+  const level =
+    "channel_attention_level" in args
+      ? (args.channel_attention_level as ChannelAttentionReframe | undefined)
+      : undefined;
+  if (!level || !setChannelAttentionLevel) return undefined;
+  try {
+    await setChannelAttentionLevel(level);
+    return level;
+  } catch (err) {
+    logger.warn(`submit_response: failed to apply channel_attention_level: ${err}`);
+    return undefined;
+  }
 }
 
 function recordSuccess<TArgs extends object>(
@@ -712,6 +758,17 @@ const postTopLevelField = z
       "to the channel with no thread_ts. Ignored when skip_response is true (nothing to post). " +
       "Do NOT combine with a `post_to` action targeting the same channel without a thread_ts — " +
       "that would duplicate the message and will be rejected.",
+  );
+
+const channelAttentionLevelReframeField = z
+  .enum(["high", "medium", "low", "off"])
+  .optional()
+  .describe(
+    "Adjust how eagerly Clack keeps following THIS CHANNEL's top-level conversation (the " +
+      'ephemeral window that triggered this turn). Raise to "high" when the channel is actively ' +
+      'talking with you, lower to "low" as it winds down, or "off" to stop following the channel ' +
+      "entirely. Independent of `attention_level`, which governs the THREAD dial — both can be " +
+      "set on the same turn. Omit to leave the window's current level unchanged.",
   );
 
 // Schema with attention-level tuning but no skip_response (e.g. mentions)
@@ -824,6 +881,7 @@ const deliverToEntrySchema = z
     attention_level: threadEngagementAttentionField,
     follow_up_context: followUpContextField,
     default_delivery_mode: threadEngagementDeliveryModeField,
+    channel_attention_level: channelAttentionLevelSeedField,
     response: deliverToResponseSchema,
   })
   .strict();
@@ -902,6 +960,7 @@ export function buildSubmitResponseSchema(
     | "submitResponseMode"
     | "allowSkip"
     | "allowAttentionLevel"
+    | "allowChannelAttentionLevel"
     | "allowPostTopLevel"
     | "allowMultiMessage"
     | "maxAdditionalMessages"
@@ -930,6 +989,10 @@ export function buildSubmitResponseSchema(
     base.post_top_level = postTopLevelField;
   }
 
+  if (deps.allowChannelAttentionLevel) {
+    base.channel_attention_level = channelAttentionLevelReframeField;
+  }
+
   if (deps.allowMultiMessage) {
     const cap = deps.maxAdditionalMessages ?? DEFAULT_MAX_ADDITIONAL_MESSAGES;
     base.additional_messages = buildAdditionalMessagesField(cap);
@@ -953,6 +1016,7 @@ export function createSubmitResponseTool(deps: SubmitResponseDeps) {
     sessionChannelId,
     sessionThreadTs,
     submitResponseMode,
+    setChannelAttentionLevel,
     requiredTools,
     hasPendingInput,
     consumePendingPushedTexts,
@@ -974,6 +1038,7 @@ export function createSubmitResponseTool(deps: SubmitResponseDeps) {
     submitResponseMode: deps.submitResponseMode,
     allowSkip: deps.allowSkip,
     allowAttentionLevel: deps.allowAttentionLevel,
+    allowChannelAttentionLevel: deps.allowChannelAttentionLevel,
     allowPostTopLevel: deps.allowPostTopLevel,
     allowMultiMessage: deps.allowMultiMessage,
     maxAdditionalMessages: deps.maxAdditionalMessages,
@@ -1087,6 +1152,7 @@ export function createSubmitResponseTool(deps: SubmitResponseDeps) {
         // entry's posted ts becomes the run's responseTs (the anchor cron status reads).
         let messagesDelivered = 0;
         let firstTs: string | undefined;
+        const deliveryWarnings: string[] = [];
         if (deliverToChannel) {
           for (let i = 0; i < deliverTo.length; i++) {
             const entry = deliverTo[i];
@@ -1097,6 +1163,9 @@ export function createSubmitResponseTool(deps: SubmitResponseDeps) {
               ...(entry.attention_level && { attentionLevel: entry.attention_level }),
               ...(entry.follow_up_context && { followUpContext: entry.follow_up_context }),
               ...(entry.default_delivery_mode && { deliveryMode: entry.default_delivery_mode }),
+              ...(entry.channel_attention_level && {
+                channelAttentionLevel: entry.channel_attention_level,
+              }),
             });
             if (!res.ok) {
               const prior =
@@ -1111,6 +1180,7 @@ export function createSubmitResponseTool(deps: SubmitResponseDeps) {
             }
             messagesDelivered++;
             if (firstTs === undefined) firstTs = res.ts;
+            if (res.warning) deliveryWarnings.push(`deliver_to[${i}]: ${res.warning}`);
           }
           // The messages have already landed — a failure to persist the anchor responseTs must
           // NOT turn a successful delivery into a tool error (which would make Claude retry and
@@ -1132,6 +1202,7 @@ export function createSubmitResponseTool(deps: SubmitResponseDeps) {
           success: true,
           delivered: !!deliverToChannel,
           ...(messagesDelivered > 0 && { messagesDelivered }),
+          ...(deliveryWarnings.length > 0 && { warnings: deliveryWarnings }),
         };
         recordSuccess(recorder, args, result);
         return textResult(result);
@@ -1165,12 +1236,14 @@ export function createSubmitResponseTool(deps: SubmitResponseDeps) {
         if (newMode) {
           responseCapture.setDeliveryMode(newMode);
         }
+        const newChannelLevel = await applyChannelAttentionLevel(args, setChannelAttentionLevel);
         const result: SubmitResponseSuccessResult = {
           success: true,
           skipped: true,
           ...(newLevel && { attentionLevel: newLevel }),
           ...(newLevel === "off" && { disengaged: true as const }),
           ...(newMode && { deliveryMode: newMode }),
+          ...(newChannelLevel && { channelAttentionLevel: newChannelLevel }),
         };
         recordSuccess(recorder, args, result);
         return textResult(result);
@@ -1395,6 +1468,7 @@ export function createSubmitResponseTool(deps: SubmitResponseDeps) {
       if (wantsPostTopLevel) {
         responseCapture.setPostedTopLevel();
       }
+      const newChannelLevel = await applyChannelAttentionLevel(args, setChannelAttentionLevel);
 
       const result: SubmitResponseSuccessResult = {
         success: true,
@@ -1406,6 +1480,7 @@ export function createSubmitResponseTool(deps: SubmitResponseDeps) {
         ...(newLevel === "off" && { disengaged: true as const }),
         ...(newMode && { deliveryMode: newMode }),
         ...(wantsPostTopLevel && { postedTopLevel: true as const }),
+        ...(newChannelLevel && { channelAttentionLevel: newChannelLevel }),
       };
       recordSuccess(recorder, args, result);
 

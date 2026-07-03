@@ -15,6 +15,8 @@ import { discoverSkillPluginInfo } from "../skillPlugins.js";
 import { discoverUserSkills } from "../userSkills.js";
 import { buildUserSkillsSection } from "./userSkillsHomeTab.js";
 import { getRules, type AutoRespondRule } from "../autoRespond.js";
+import { isEphemeralRule } from "../ephemeralRules.js";
+import { formatElapsedSeconds } from "../claude/preAnalysis.js";
 import { getJobs, getJobsByUser, type CronJob } from "../cronJobs.js";
 import { humanReadableSchedule } from "../cronFormatter.js";
 import { getSlackClient } from "./app.js";
@@ -1421,13 +1423,50 @@ async function buildAutoRespondSection(
   deps: HomeTabDeps = defaultHomeTabDeps,
 ): Promise<(KnownBlock | Block)[]> {
   const blocks: (KnownBlock | Block)[] = [];
-  const rules = await deps.getRules();
+  const allRules = await deps.getRules();
+  const conversations = allRules.filter(isEphemeralRule);
+  const rules = allRules.filter((r) => !isEphemeralRule(r));
 
   blocks.push({ type: "divider" });
   blocks.push({
     type: "header",
     text: { type: "plain_text", text: t("home.auto_respond.header") },
   });
+
+  if (conversations.length > 0) {
+    blocks.push({
+      type: "section",
+      text: { type: "mrkdwn", text: t("home.auto_respond.conversations_header") },
+    });
+    const now = Date.now();
+    for (const conversation of conversations) {
+      const channel = `<#${conversation.channels[0]}>`;
+      const level = t("home.auto_respond.conversation_level", {
+        level: conversation.attentionLevel,
+      });
+      const expiry =
+        conversation.expiresAt > now
+          ? t("home.auto_respond.conversation_expires", {
+              time: formatElapsedSeconds((conversation.expiresAt - now) / 1000),
+            })
+          : t("home.auto_respond.conversation_dormant");
+      const sessions = t("home.auto_respond.conversation_sessions", {
+        count: String(conversation.sessionIds.length),
+      });
+      blocks.push({
+        type: "section",
+        text: {
+          type: "mrkdwn",
+          text: `${channel} · ${level} · ${expiry} · ${sessions}`,
+        },
+        accessory: {
+          type: "button",
+          text: { type: "plain_text", text: t("home.auto_respond.stop_following") },
+          action_id: `ai_stop_following:${conversation.id}`,
+        },
+      });
+    }
+  }
 
   if (rules.length === 0) {
     blocks.push({

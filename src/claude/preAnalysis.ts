@@ -2,6 +2,7 @@ import { clackQuery as _clackQuery } from "./query.js";
 import { logger } from "../logger.js";
 import { truncate } from "../text.js";
 import { detectRuntime } from "./utilities.js";
+import type { EphemeralAttentionLevel } from "../ephemeralRules.js";
 import type { SDKMessage, Options } from "@anthropic-ai/claude-agent-sdk";
 
 // ---------------------------------------------------------------------------
@@ -43,6 +44,94 @@ export function formatRelativeAge(ts: string, now = Date.now()): string {
 }
 
 export type PreAnalysisResult = "respond" | "skip" | "stop";
+
+const CLASSIFIER_DISALLOWED_TOOLS = [
+  "Write",
+  "Edit",
+  "NotebookEdit",
+  "Bash",
+  "Task",
+  "TaskOutput",
+  "Read",
+  "Glob",
+  "Grep",
+];
+
+function buildConversationContext(recentMessages?: PreAnalysisMessage[]): string {
+  if (!recentMessages || recentMessages.length === 0) return "";
+  const lines = recentMessages.map(
+    (m) => `[${m.ts ? formatRelativeAge(m.ts) + " " : ""}${m.author}]: ${m.text}`,
+  );
+  return `\n\nRECENT CHANNEL HISTORY (oldest first):\n${lines.join("\n")}`;
+}
+
+function buildTimingLine(
+  botName: string,
+  location: "thread" | "channel",
+  secondsSinceLastBotMessage?: number,
+): string {
+  if (secondsSinceLastBotMessage == null) return "";
+  return `\n\nTIMING: this message arrived ${formatElapsedSeconds(secondsSinceLastBotMessage)} after ${botName}'s last message in this ${location}.`;
+}
+
+type ClassifierRun =
+  | { ok: true; text: string }
+  | { ok: false; reason: "error" | "no_result" | "non_success" };
+
+/** Drive one single-turn classifier call and normalize the outcome: the lowercased result
+ *  text on success, or the failure reason. Verdict mapping stays with each caller. */
+async function runClassifierQuery(
+  systemPrompt: string,
+  prompt: string,
+  deps: PreAnalysisDeps,
+): Promise<ClassifierRun> {
+  try {
+    let lastAssistantText = "";
+
+    for await (const message of deps.clackQuery({
+      prompt,
+      options: {
+        cwd: process.cwd(),
+        executable: detectRuntime(),
+        model: "sonnet",
+        systemPrompt,
+        disallowedTools: CLASSIFIER_DISALLOWED_TOOLS,
+        maxTurns: 1,
+      },
+    })) {
+      if (message.type === "assistant" && message.message?.content) {
+        lastAssistantText = "";
+        for (const block of message.message.content) {
+          if ("text" in block && typeof block.text === "string") {
+            lastAssistantText += block.text;
+          }
+        }
+      }
+      if (message.type === "result") {
+        const resultText = ((message as { result?: string }).result || lastAssistantText)
+          .trim()
+          .toLowerCase();
+        if (message.subtype !== "success") return { ok: false, reason: "non_success" };
+        return { ok: true, text: resultText };
+      }
+    }
+
+    return { ok: false, reason: "no_result" };
+  } catch (error) {
+    logger.warn("Classifier call failed:", error);
+    return { ok: false, reason: "error" };
+  }
+}
+
+function buildClassifyPrompt(
+  conversationContext: string,
+  timingLine: string,
+  messageText: string,
+  messageAuthor: string,
+  channelName?: string,
+): string {
+  return `${conversationContext}${timingLine}\n\nMESSAGE TO CLASSIFY:${channelName ? `\nChannel: #${channelName}` : ""}\nFrom: ${messageAuthor}\n\n"""${messageText}"""`;
+}
 
 /** Verdict for active-run pre-analysis: append the message onto the live run, or skip it. */
 export type ActiveRunPreAnalysisResult = "append" | "skip";
@@ -104,15 +193,8 @@ export async function runPreAnalysis(
     ? `${sharedContext}\n\nAdditional context: ${preAnalysisContext}`
     : preAnalysisContext;
 
-  const conversationContext =
-    recentMessages && recentMessages.length > 0
-      ? `\n\nRECENT CHANNEL HISTORY (oldest first):\n${recentMessages.map((m) => `[${m.ts ? formatRelativeAge(m.ts) + " " : ""}${m.author}]: ${m.text}`).join("\n")}`
-      : "";
-
-  const timingLine =
-    secondsSinceLastBotMessage != null
-      ? `\n\nTIMING: this message arrived ${formatElapsedSeconds(secondsSinceLastBotMessage)} after ${botName}'s last message in this thread.`
-      : "";
+  const conversationContext = buildConversationContext(recentMessages);
+  const timingLine = buildTimingLine(botName, "thread", secondsSinceLastBotMessage);
 
   const directAddress =
     level === "low"
@@ -145,60 +227,101 @@ ${contextSection}
 
 OUTPUT FORMAT: The single word ${outputVerdicts}. Nothing else.`;
 
-  try {
-    let lastAssistantText = "";
-
-    for await (const message of deps.clackQuery({
-      prompt: `${conversationContext}${timingLine}\n\nMESSAGE TO CLASSIFY:${channelName ? `\nChannel: #${channelName}` : ""}\nFrom: ${messageAuthor}\n\n"""${messageText}"""`,
-      options: {
-        cwd: process.cwd(),
-        executable: detectRuntime(),
-        model: "sonnet",
-        systemPrompt,
-        disallowedTools: [
-          "Write",
-          "Edit",
-          "NotebookEdit",
-          "Bash",
-          "Task",
-          "TaskOutput",
-          "Read",
-          "Glob",
-          "Grep",
-        ],
-        maxTurns: 1,
-      },
-    })) {
-      if (message.type === "assistant" && message.message?.content) {
-        lastAssistantText = "";
-        for (const block of message.message.content) {
-          if ("text" in block && typeof block.text === "string") {
-            lastAssistantText += block.text;
-          }
-        }
-      }
-      if (message.type === "result") {
-        const resultText = ((message as { result?: string }).result || lastAssistantText)
-          .trim()
-          .toLowerCase();
-        logger.info(
-          `Pre-analysis result: text="${resultText}", message="${truncate(messageText, 50)}"${slackLink ?? ""}`,
-        );
-        if (message.subtype !== "success") return "skip";
-        if (resultText.includes("respond")) return "respond";
-        // "stop" (auto-disengage) is honored only at the low rung; higher rungs never
-        // disengage via the cheap gate, so any stray "stop" there falls through to "skip".
-        if (level === "low" && resultText.includes("stop")) return "stop";
-        return "skip";
-      }
-    }
-
-    logger.warn(`Pre-analysis: no result message received for "${truncate(messageText, 50)}"`);
-    return "skip";
-  } catch (error) {
-    logger.warn("Pre-analysis call failed:", error);
+  const run = await runClassifierQuery(
+    systemPrompt,
+    buildClassifyPrompt(conversationContext, timingLine, messageText, messageAuthor, channelName),
+    deps,
+  );
+  if (!run.ok) {
+    logger.warn(`Pre-analysis: ${run.reason} for "${truncate(messageText, 50)}"`);
     return "skip";
   }
+
+  logger.info(
+    `Pre-analysis result: text="${run.text}", message="${truncate(messageText, 50)}"${slackLink ?? ""}`,
+  );
+  if (run.text.includes("respond")) return "respond";
+  // "stop" (auto-disengage) is honored only at the low rung; higher rungs never
+  // disengage via the cheap gate, so any stray "stop" there falls through to "skip".
+  if (level === "low" && run.text.includes("stop")) return "stop";
+  return "skip";
+}
+
+function buildChannelContinuationPolicyBlock(
+  botName: string,
+  level: EphemeralAttentionLevel,
+): string {
+  const lean =
+    level === "high"
+      ? `LEAN: this conversation window is at HIGH attention — the channel is actively talking with ${botName}. Classify as "respond" anything plausibly aimed at ${botName} or continuing the anchor topic; "skip" only messages clearly about something else.`
+      : level === "medium"
+        ? `LEAN: this conversation window is at MEDIUM attention. Classify as "respond" a message that engages the anchor topic or ${botName}'s last channel message; when a message is ambiguous, prefer "skip" — a channel is a shared space and most messages are not for ${botName}.`
+        : `LEAN: this conversation window is at LOW attention — it is winding down. Classify as "respond" ONLY direct address or an unmistakable continuation of the anchor conversation; everything ambiguous is "skip".`;
+
+  return `${lean}
+
+Then classify the message:
+- "respond" — part of the conversation ${botName}'s anchor post started: a reply to it, a follow-up on its topic, or a message directed at ${botName}.
+- "skip" — ordinary channel traffic about something else. This is the DEFAULT: in a channel, unrelated is the norm, and a "skip" costs nothing.
+- "stop" — the conversation is explicitly closed ("thanks, all set", "we're done here") or the channel has clearly and durably moved on from the anchor topic.`;
+}
+
+/**
+ * Channel-continuation gate for ephemeral conversation windows: unlike the thread gate,
+ * the message is TOP-LEVEL channel traffic, so unrelatedness is the default prior — the
+ * question is whether this message is part of the conversation the bot's anchor post
+ * started. Returns null when the classifier call fails, so the caller leaves the rule
+ * untouched (no ratchet, no deletion) instead of treating the failure as a verdict.
+ */
+export async function runChannelContinuationPreAnalysis(
+  messageText: string,
+  messageAuthor: string,
+  botName: string,
+  anchorText: string,
+  level: EphemeralAttentionLevel,
+  sharedContext?: string,
+  recentMessages?: PreAnalysisMessage[],
+  channelName?: string,
+  slackLink?: string,
+  secondsSinceLastBotMessage?: number,
+  deps: PreAnalysisDeps = defaultPreAnalysisDeps,
+): Promise<PreAnalysisResult | null> {
+  const conversationContext = buildConversationContext(recentMessages);
+  const timingLine = buildTimingLine(botName, "channel", secondsSinceLastBotMessage);
+
+  const systemPrompt = `You are a classifier. You output exactly one word, nothing else.
+
+A Slack bot named "${botName}" recently posted a top-level message in this channel and is temporarily following the conversation it started. The message you are classifying is a NEW TOP-LEVEL CHANNEL MESSAGE — not a thread reply. In a channel, most messages are NOT about the bot's post; unrelatedness is the default assumption. Your job: decide whether this message is part of the conversation the bot's post started.
+
+THE BOT'S ANCHOR POST (judge relatedness against this, not just vibes):
+"""${anchorText}"""
+
+HIGHEST-PRIORITY SIGNAL — DIRECT ADDRESS: if the message names ${botName} in plain text ("${botName}, ...", "hey ${botName}") or is an imperative or question that only makes sense aimed at ${botName}'s post, it is part of the conversation — "respond". (A passing mention like "I'll ask ${botName} later" is NOT direct address.)
+
+${buildChannelContinuationPolicyBlock(botName, level)}
+
+TIMING: weigh the gap since ${botName} last spoke as a decaying lean. A message minutes after the bot's post is plausibly a reply to it — lean "respond" for ambiguous cases. After hours (including overnight), the lean is gone: only clear topical linkage to the anchor post or direct address earns "respond". Elapsed time alone is never a reason for "stop".
+${sharedContext ? `\n${sharedContext}\n` : ""}
+OUTPUT FORMAT: The single word "respond", "skip", or "stop". Nothing else.`;
+
+  const run = await runClassifierQuery(
+    systemPrompt,
+    buildClassifyPrompt(conversationContext, timingLine, messageText, messageAuthor, channelName),
+    deps,
+  );
+  if (!run.ok) {
+    logger.warn(
+      `Channel-continuation pre-analysis: ${run.reason} for "${truncate(messageText, 50)}"`,
+    );
+    return null;
+  }
+
+  logger.info(
+    `Channel-continuation pre-analysis: text="${run.text}", message="${truncate(messageText, 50)}"${slackLink ?? ""}`,
+  );
+  if (run.text.includes("respond")) return "respond";
+  if (run.text.includes("stop")) return "stop";
+  return "skip";
 }
 
 /**
@@ -226,15 +349,8 @@ export async function runActiveRunPreAnalysis(
     ? `${sharedContext}\n\nAdditional context: ${preAnalysisContext}`
     : preAnalysisContext;
 
-  const conversationContext =
-    recentMessages && recentMessages.length > 0
-      ? `\n\nRECENT CHANNEL HISTORY (oldest first):\n${recentMessages.map((m) => `[${m.ts ? formatRelativeAge(m.ts) + " " : ""}${m.author}]: ${m.text}`).join("\n")}`
-      : "";
-
-  const timingLine =
-    secondsSinceLastBotMessage != null
-      ? `\n\nTIMING: this message arrived ${formatElapsedSeconds(secondsSinceLastBotMessage)} after ${botName}'s last message in this thread.`
-      : "";
+  const conversationContext = buildConversationContext(recentMessages);
+  const timingLine = buildTimingLine(botName, "thread", secondsSinceLastBotMessage);
 
   const systemPrompt = `You are a classifier. You output exactly one word, nothing else.
 
@@ -253,57 +369,19 @@ ${contextSection}
 
 OUTPUT FORMAT: The single word "append" or "skip". Nothing else.`;
 
-  try {
-    let lastAssistantText = "";
-
-    for await (const message of deps.clackQuery({
-      prompt: `${conversationContext}${timingLine}\n\nMESSAGE TO CLASSIFY:${channelName ? `\nChannel: #${channelName}` : ""}\nFrom: ${messageAuthor}\n\n"""${messageText}"""`,
-      options: {
-        cwd: process.cwd(),
-        executable: detectRuntime(),
-        model: "sonnet",
-        systemPrompt,
-        disallowedTools: [
-          "Write",
-          "Edit",
-          "NotebookEdit",
-          "Bash",
-          "Task",
-          "TaskOutput",
-          "Read",
-          "Glob",
-          "Grep",
-        ],
-        maxTurns: 1,
-      },
-    })) {
-      if (message.type === "assistant" && message.message?.content) {
-        lastAssistantText = "";
-        for (const block of message.message.content) {
-          if ("text" in block && typeof block.text === "string") {
-            lastAssistantText += block.text;
-          }
-        }
-      }
-      if (message.type === "result") {
-        const resultText = ((message as { result?: string }).result || lastAssistantText)
-          .trim()
-          .toLowerCase();
-        logger.info(
-          `Active-run pre-analysis: text="${resultText}", message="${truncate(messageText, 50)}"${slackLink ?? ""}`,
-        );
-        if (message.subtype !== "success") return "append";
-        if (resultText.includes("skip")) return "skip";
-        return "append";
-      }
-    }
-
-    logger.warn(
-      `Active-run pre-analysis: no result message received for "${truncate(messageText, 50)}"`,
-    );
-    return "append";
-  } catch (error) {
-    logger.warn("Active-run pre-analysis call failed:", error);
+  const run = await runClassifierQuery(
+    systemPrompt,
+    buildClassifyPrompt(conversationContext, timingLine, messageText, messageAuthor, channelName),
+    deps,
+  );
+  if (!run.ok) {
+    logger.warn(`Active-run pre-analysis: ${run.reason} for "${truncate(messageText, 50)}"`);
     return "append";
   }
+
+  logger.info(
+    `Active-run pre-analysis: text="${run.text}", message="${truncate(messageText, 50)}"${slackLink ?? ""}`,
+  );
+  if (run.text.includes("skip")) return "skip";
+  return "append";
 }

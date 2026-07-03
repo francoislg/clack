@@ -26,6 +26,12 @@ import { asSlackBlocks } from "../slack/blocks.js";
 import type { SlackBlocks } from "../slack/blocks.js";
 import { updateSession, getSession, registerThreadSession } from "../sessions.js";
 import type { SessionContext, AttentionLevel, DeliveryMode } from "../sessions.js";
+import {
+  seedEphemeralRule,
+  getEphemeralRuleForChannel,
+  setEphemeralRuleLevel,
+  type EphemeralAttentionLevel,
+} from "../ephemeralRules.js";
 import { canRequestChanges, canEditConfig, canAccessMemory } from "../permissions.js";
 import { createRememberTool } from "./query/remember.js";
 import { createRecallTool } from "./query/recall.js";
@@ -352,8 +358,17 @@ export function computeAllowSkip(
  */
 export function shouldAllowAttentionLevel(triggerType: TriggerType): boolean {
   return (
-    triggerType === "autoRespond" || triggerType === "threadReply" || triggerType === "mentions"
+    triggerType === "autoRespond" ||
+    triggerType === "threadReply" ||
+    triggerType === "mentions" ||
+    triggerType === "channelReply"
   );
+}
+
+/** The `channel_attention_level` reframe dial only exists on ephemeral channel-conversation
+ *  turns — the one trigger where a channel window is live to mutate. */
+export function shouldAllowChannelAttentionLevel(triggerType: TriggerType): boolean {
+  return triggerType === "channelReply";
 }
 
 /**
@@ -367,7 +382,8 @@ export function shouldAllowPostTopLevel(triggerType: TriggerType): boolean {
     triggerType === "autoRespond" ||
     triggerType === "threadReply" ||
     triggerType === "mentions" ||
-    triggerType === "reactions"
+    triggerType === "reactions" ||
+    triggerType === "channelReply"
   );
 }
 
@@ -597,7 +613,15 @@ function buildQueryTools(ctx: QueryToolContext): ClackQueryToolsResult {
   // one. Only wired when a Slack client is present (absent in test/verify contexts).
   const slackClient = ctx.slackClient;
   const deliverToChannel: DeliverToChannelFn | undefined = slackClient
-    ? async ({ channel, threadTs, payload, attentionLevel, followUpContext, deliveryMode }) => {
+    ? async ({
+        channel,
+        threadTs,
+        payload,
+        attentionLevel,
+        followUpContext,
+        deliveryMode,
+        channelAttentionLevel,
+      }) => {
         try {
           const snapshot: ResponseSnapshot = {
             text: extractDisplayText(payload.blocks),
@@ -643,7 +667,29 @@ function buildQueryTools(ctx: QueryToolContext): ClackQueryToolsResult {
               );
             }
           }
-          return { ok: true as const, ts: res.ts };
+          let warning: string | undefined;
+          if (channelAttentionLevel) {
+            if (threadTs) {
+              warning =
+                "channel_attention_level was ignored: it only applies to a top-level post (this entry has a thread_ts).";
+            } else {
+              // Best-effort like the thread seed above — a seeding failure never fails delivery.
+              try {
+                await seedEphemeralRule({
+                  channel,
+                  attentionLevel: channelAttentionLevel,
+                  sessionId: ctx.session.sessionId,
+                  anchorText: extractDisplayText(payload.blocks),
+                  ...(followUpContext && { followUpContext }),
+                });
+              } catch (err) {
+                logger.warn(
+                  `deliver_to: failed to seed channel conversation (delivery succeeded): ${err}`,
+                );
+              }
+            }
+          }
+          return { ok: true as const, ts: res.ts, ...(warning && { warning }) };
         } catch (error) {
           return { ok: false as const, error: errorMessage(error) };
         }
@@ -671,6 +717,13 @@ function buildQueryTools(ctx: QueryToolContext): ClackQueryToolsResult {
       sessionChannelId: ctx.session.channelId,
       allowSkip: computeAllowSkip(triggerType, ctx.skipConditions, ctx.submitResponseMode),
       allowAttentionLevel: shouldAllowAttentionLevel(triggerType),
+      allowChannelAttentionLevel: shouldAllowChannelAttentionLevel(triggerType),
+      ...(shouldAllowChannelAttentionLevel(triggerType) && {
+        setChannelAttentionLevel: async (level: EphemeralAttentionLevel | "off") => {
+          const rule = await getEphemeralRuleForChannel(ctx.session.channelId);
+          if (rule) await setEphemeralRuleLevel(rule.id, level);
+        },
+      }),
       allowPostTopLevel: shouldAllowPostTopLevel(triggerType),
       // Top-level multi-message fields gated to scheduled (cron) context only. In DM,
       // @mention, reaction, etc. the trigger channel is the user's space and multi-message

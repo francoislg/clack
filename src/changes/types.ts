@@ -11,7 +11,8 @@ export type TriggerType =
   | "reactions"
   | "autoRespond"
   | "scheduled"
-  | "threadReply";
+  | "threadReply"
+  | "channelReply";
 
 export interface ChangeRequest {
   userId: string;

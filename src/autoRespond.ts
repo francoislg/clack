@@ -4,6 +4,12 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { logger } from "./logger.js";
 import { fileExists } from "./fs.js";
+import {
+  loadEphemeralRules,
+  deleteEphemeralRuleById,
+  clearEphemeralRulesCache,
+  isEphemeralRule,
+} from "./ephemeralRules.js";
 import type { SettableAttentionLevel } from "./sessions.js";
 
 // ============================================================================
@@ -12,6 +18,9 @@ import type { SettableAttentionLevel } from "./sessions.js";
 
 export interface AutoRespondRule {
   id: string;
+  /** Discriminator. Absent reads as `"standing"` (admin-authored rule). `"ephemeral"` marks a
+   *  Clack-seeded channel-conversation window (see the ephemeral operations section). */
+  kind?: "standing" | "ephemeral";
   channels: string[];
   userFilters?: string[];
   /** Optional keywords — trigger if message text contains any (case-insensitive) */
@@ -20,9 +29,18 @@ export interface AutoRespondRule {
   extraContext?: string;
   /** Optional pre-analysis context — when set, a lightweight Claude Haiku call evaluates message relevance before responding */
   preAnalysisContext?: string;
-  /** Optional attention level seeded onto sessions this rule creates. Defaults to `"medium"`. */
+  /** Optional attention level seeded onto sessions this rule creates. Defaults to `"medium"`.
+   *  On ephemeral rules this is the LIVE dial (mutated by ratchet/reframe), never `"always"`. */
   attentionLevel?: SettableAttentionLevel;
   enabled: boolean;
+  /** Ephemeral only: sliding window end (epoch ms). Past it the rule is dormant, not dead. */
+  expiresAt?: number;
+  /** Ephemeral only: ordered conversation ledger; `[0]` is the anchor session. */
+  sessionIds?: string[];
+  /** Ephemeral only: the seeding post's text (truncated) for the continuation judge. */
+  anchorText?: string;
+  /** Ephemeral only: guidance injected into responding turns (the standing `extraContext` slot). */
+  followUpContext?: string;
 }
 
 interface AutoRespondState {
@@ -62,7 +80,7 @@ function getFilePath(): string {
   return resolve(getStateDir(), "auto-respond.json");
 }
 
-export async function loadRules(): Promise<AutoRespondRule[]> {
+async function loadStandingRules(): Promise<AutoRespondRule[]> {
   if (cached) {
     return cached.rules;
   }
@@ -89,6 +107,12 @@ export async function loadRules(): Promise<AutoRespondRule[]> {
     cached = { ...DEFAULT_STATE, rules: [] };
     return cached.rules;
   }
+}
+
+/** Merged view, ephemeral first — ephemeral windows outrank standing rules everywhere. */
+export async function loadRules(): Promise<AutoRespondRule[]> {
+  const [ephemeral, standing] = await Promise.all([loadEphemeralRules(), loadStandingRules()]);
+  return [...ephemeral, ...standing];
 }
 
 async function saveState(state: AutoRespondState): Promise<void> {
@@ -124,7 +148,7 @@ export async function addRule(
   preAnalysisContext?: string,
   attentionLevel?: SettableAttentionLevel,
 ): Promise<AutoRespondRule> {
-  const rules = await loadRules();
+  const rules = await loadStandingRules();
   const rule: AutoRespondRule = {
     id: randomUUID().slice(0, 8),
     channels,
@@ -158,7 +182,7 @@ export async function updateRule(
   ruleId: string,
   patch: AutoRespondRulePatch,
 ): Promise<AutoRespondRule | null> {
-  const rules = await loadRules();
+  const rules = await loadStandingRules();
   const rule = rules.find((r) => r.id === ruleId);
   if (!rule) return null;
 
@@ -209,7 +233,7 @@ export async function updateRule(
 }
 
 export async function toggleRule(ruleId: string): Promise<AutoRespondRule | null> {
-  const rules = await loadRules();
+  const rules = await loadStandingRules();
   const rule = rules.find((r) => r.id === ruleId);
   if (!rule) return null;
 
@@ -220,14 +244,16 @@ export async function toggleRule(ruleId: string): Promise<AutoRespondRule | null
 }
 
 export async function deleteRule(ruleId: string): Promise<boolean> {
-  const rules = await loadRules();
+  const rules = await loadStandingRules();
   const index = rules.findIndex((r) => r.id === ruleId);
-  if (index === -1) return false;
+  if (index !== -1) {
+    rules.splice(index, 1);
+    await saveState({ rules });
+    logger.info(`Auto-respond rule ${ruleId} deleted`);
+    return true;
+  }
 
-  rules.splice(index, 1);
-  await saveState({ rules });
-  logger.info(`Auto-respond rule ${ruleId} deleted`);
-  return true;
+  return deleteEphemeralRuleById(ruleId);
 }
 
 export async function getRule(ruleId: string): Promise<AutoRespondRule | null> {
@@ -256,6 +282,9 @@ export async function findMatchingRule(
   const textLower = messageText?.toLowerCase();
 
   for (const rule of rules) {
+    // Ephemeral windows never route through standing-rule matching — the message
+    // handler resolves them first via getEphemeralRuleForChannel and its judge.
+    if (isEphemeralRule(rule)) continue;
     if (!rule.channels.includes(channelId)) continue;
 
     const hasUserFilters = rule.userFilters && rule.userFilters.length > 0;
@@ -286,4 +315,5 @@ export async function findMatchingRule(
 // Clear cache (useful for testing)
 export function clearAutoRespondCache(): void {
   cached = null;
+  clearEphemeralRulesCache();
 }

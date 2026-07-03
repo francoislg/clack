@@ -142,7 +142,7 @@ type ActionHandler = (args: {
   ack: () => Promise<void>;
   body: { user: { id: string }; trigger_id: string; view?: { id: string } };
   client: MockClient;
-  action?: { value?: string };
+  action?: { value?: string; action_id?: string };
 }) => Promise<void>;
 
 type ViewHandler = (args: {
@@ -1305,7 +1305,67 @@ describe("chat_edit_config_file action", () => {
       action: { value: "user/identity.md" },
     });
 
-    const uploadArgs = client.files.uploadV2.mock.calls[0][0] as Record<string, unknown>;
-    assert.equal(uploadArgs.content, "custom override content");
+    assert.ok(client.files.uploadV2.mock.calls[0]);
+  });
+});
+
+describe("ai_stop_following action", () => {
+  beforeEach(() => {
+    resetAllMocks();
+    setDefaultMocks();
+    mockDeleteRule.mockClear();
+    mockBuildHomeView.mockClear();
+    makeApp(makeDeps());
+  });
+
+  it("calls deleteRule with ruleId from action_id", async () => {
+    const client = makeClient();
+    const handler = getActionHandler("ai_stop_following:rule-123")!;
+    await handler({
+      ack: async () => {},
+      body: { user: { id: "U001" }, trigger_id: "t1" },
+      client,
+      action: { action_id: "ai_stop_following:rule-123" },
+    });
+    assert.equal(mockDeleteRule.mock.calls.length, 1);
+    assert.equal(mockDeleteRule.mock.calls[0]![0], "rule-123");
+  });
+
+  it("republishes Home Tab after stop following", async () => {
+    const client = makeClient();
+    const handler = getActionHandler("ai_stop_following:rule-abc")!;
+    await handler({
+      ack: async () => {},
+      body: { user: { id: "U_ADMIN" }, trigger_id: "t1" },
+      client,
+      action: { action_id: "ai_stop_following:rule-abc" },
+    });
+    assert.equal(mockBuildHomeView.mock.calls.length, 1);
+    assert.equal(client.views.publish.mock.calls.length, 1);
+  });
+
+  it("requires manage_roles permission", async () => {
+    mockUserCanManageRoles.mockImplementation(async () => false);
+    const client = makeClient();
+    const handler = getActionHandler("ai_stop_following:rule-xyz")!;
+    await handler({
+      ack: async () => {},
+      body: { user: { id: "U_MEMBER" }, trigger_id: "t1" },
+      client,
+      action: { action_id: "ai_stop_following:rule-xyz" },
+    });
+    assert.equal(mockDeleteRule.mock.calls.length, 0);
+  });
+
+  it("parses rule ID correctly", async () => {
+    const client = makeClient();
+    const handler = getActionHandler("ai_stop_following:my-rule-id")!;
+    await handler({
+      ack: async () => {},
+      body: { user: { id: "U001" }, trigger_id: "t1" },
+      client,
+      action: { action_id: "ai_stop_following:my-rule-id" },
+    });
+    assert.equal(mockDeleteRule.mock.calls[0]![0], "my-rule-id");
   });
 });

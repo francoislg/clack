@@ -81,6 +81,8 @@ function makeDeps(
     allowSkip: boolean;
     submitResponseMode: "always" | "optional" | "optional-post-to" | "skipped";
     allowAttentionLevel: boolean;
+    allowChannelAttentionLevel: boolean;
+    setChannelAttentionLevel: (level: "high" | "medium" | "low" | "off") => Promise<void>;
     allowPostTopLevel: boolean;
     allowMultiMessage: boolean;
     maxAdditionalMessages: number;
@@ -120,6 +122,8 @@ function makeDeps(
     allowSkip: overrides.allowSkip,
     submitResponseMode: overrides.submitResponseMode,
     allowAttentionLevel: overrides.allowAttentionLevel,
+    allowChannelAttentionLevel: overrides.allowChannelAttentionLevel,
+    setChannelAttentionLevel: overrides.setChannelAttentionLevel,
     allowPostTopLevel: overrides.allowPostTopLevel,
     allowMultiMessage: overrides.allowMultiMessage,
     maxAdditionalMessages: overrides.maxAdditionalMessages,
@@ -196,6 +200,7 @@ interface CallToolRawArgs {
   post_top_level?: boolean;
   suppress_unfurls?: boolean;
   escalate_to_owner?: string;
+  channel_attention_level?: "high" | "medium" | "low" | "off";
   additional_messages?: CallToolFollowerArgs[];
   thread_replies?: CallToolFollowerArgs[];
   deliver_to?: {
@@ -204,6 +209,7 @@ interface CallToolRawArgs {
     attention_level?: AttentionLevel;
     follow_up_context?: string;
     default_delivery_mode?: DeliveryMode;
+    channel_attention_level?: "high" | "medium" | "low";
     response: {
       blocks?: unknown[];
       table?: unknown;
@@ -453,6 +459,64 @@ describe("createSubmitResponseTool", () => {
       assert.equal(seen[0].attentionLevel, "high");
       assert.equal(seen[0].followUpContext, "ctx");
       assert.equal(seen[0].threadTs, "1700000000.000100");
+    });
+
+    it("forwards channel_attention_level to the delivery adapter", async () => {
+      const seen: { channelAttentionLevel?: string; threadTs?: string }[] = [];
+      const deliverToChannel = async (args: {
+        channel: string;
+        threadTs?: string;
+        payload: unknown;
+        channelAttentionLevel?: "high" | "medium" | "low";
+      }) => {
+        seen.push({ channelAttentionLevel: args.channelAttentionLevel, threadTs: args.threadTs });
+        return { ok: true as const, ts: `ts-${seen.length}` };
+      };
+      const deps = makeDeps({
+        submitResponseMode: "optional-post-to",
+        deliverToChannel,
+        recordResponseTs: async () => {},
+      });
+
+      const parsed = parseToolResult(
+        await callToolRawTopLevel(deps, {
+          deliver_to: [
+            {
+              channel: "C1",
+              channel_attention_level: "medium",
+              response: { blocks: [block] },
+            },
+          ],
+        }),
+      );
+      assert.equal(parsed.delivered, true);
+      assert.equal(seen.length, 1);
+      assert.equal(seen[0].channelAttentionLevel, "medium");
+      assert.equal(seen[0].threadTs, undefined);
+    });
+
+    it("surfaces per-entry delivery warnings on the success result", async () => {
+      const warnings: string[] = [];
+      const deliverToChannel = async (args: { channel: string; payload: unknown }) => {
+        warnings.push(args.channel);
+        return {
+          ok: true as const,
+          ts: "ts-1",
+          warning: "channel_attention_level was ignored: it only applies to a top-level post.",
+        };
+      };
+      const deps = makeDeps({
+        submitResponseMode: "optional-post-to",
+        deliverToChannel,
+        recordResponseTs: async () => {},
+      });
+
+      const parsed = parseToolResult(
+        await callToolRawTopLevel(deps, { deliver_to: [entry("C456")] }),
+      );
+      assert.equal(parsed.success, true);
+      assert.equal(Array.isArray(parsed.warnings), true);
+      assert.match(String(parsed.warnings[0]), /deliver_to\[0\].*only applies to a top-level post/);
     });
 
     it("forwards default_delivery_mode to the delivery adapter", async () => {
@@ -711,6 +775,99 @@ describe("createSubmitResponseTool", () => {
         deliver_to: [{ channel: "C1", thread_ts: "1.2", response: { blocks: [block] } }],
       });
       assert.equal(result.success, true);
+    });
+
+    it("accepts channel_attention_level on a deliver_to entry but rejects 'always'", () => {
+      const schema = z.object(shape);
+      const ok = schema.safeParse({
+        deliver_to: [
+          { channel: "C1", channel_attention_level: "medium", response: { blocks: [block] } },
+        ],
+      });
+      assert.equal(ok.success, true);
+      const rejected = schema.safeParse({
+        deliver_to: [
+          { channel: "C1", channel_attention_level: "always", response: { blocks: [block] } },
+        ],
+      });
+      assert.equal(rejected.success, false);
+    });
+  });
+
+  describe("channel_attention_level reframe (channelReply turns)", () => {
+    it("is exposed only when allowChannelAttentionLevel is set", () => {
+      const withFlag = buildSubmitResponseSchema({
+        allowAttentionLevel: true,
+        allowChannelAttentionLevel: true,
+      });
+      assert.ok("channel_attention_level" in withFlag);
+      const without = buildSubmitResponseSchema({ allowAttentionLevel: true });
+      assert.ok(!("channel_attention_level" in without));
+      const scheduled = buildSubmitResponseSchema({ submitResponseMode: "optional-post-to" });
+      assert.ok(!("channel_attention_level" in scheduled));
+    });
+
+    it("applies both dials on one turn and echoes them back", async () => {
+      const reframes: string[] = [];
+      const deps = makeDeps({
+        setChannelAttentionLevel: async (level: "high" | "medium" | "low" | "off") => {
+          reframes.push(level);
+        },
+      });
+
+      const parsed = parseToolResult(
+        await callToolRawTopLevel(deps, {
+          blocks: [{ type: "section", text: { type: "mrkdwn", text: "hi" } }],
+          actions: [],
+          attention_level: "high",
+          channel_attention_level: "low",
+        }),
+      );
+
+      assert.equal(parsed.success, true);
+      assert.equal(parsed.attentionLevel, "high");
+      assert.equal(parsed.channelAttentionLevel, "low");
+      assert.deepEqual(reframes, ["low"]);
+    });
+
+    it("off is applied through the mutator (rule deletion is the mutator's job)", async () => {
+      const reframes: string[] = [];
+      const deps = makeDeps({
+        setChannelAttentionLevel: async (level: "high" | "medium" | "low" | "off") => {
+          reframes.push(level);
+        },
+      });
+
+      const parsed = parseToolResult(
+        await callToolRawTopLevel(deps, {
+          blocks: [{ type: "section", text: { type: "mrkdwn", text: "bye" } }],
+          actions: [],
+          channel_attention_level: "off",
+        }),
+      );
+
+      assert.equal(parsed.success, true);
+      assert.equal(parsed.channelAttentionLevel, "off");
+      assert.deepEqual(reframes, ["off"]);
+    });
+
+    it("a mutator failure never fails the delivery", async () => {
+      const deps = makeDeps({
+        setChannelAttentionLevel: async () => {
+          throw new Error("disk full");
+        },
+      });
+
+      const parsed = parseToolResult(
+        await callToolRawTopLevel(deps, {
+          blocks: [{ type: "section", text: { type: "mrkdwn", text: "hi" } }],
+          actions: [],
+          channel_attention_level: "high",
+        }),
+      );
+
+      assert.equal(parsed.success, true);
+      assert.equal(parsed.channelAttentionLevel, undefined);
     });
   });
 

@@ -3,6 +3,7 @@ import { getByThread as getActiveRunByThread } from "./activeRuns.js";
 import { findSessionByThread, setAttentionLevel, isEngaged } from "../sessions.js";
 import { getActiveChange } from "../changes/activeState.js";
 import { cancelQueuedSession } from "../workers/index.js";
+import { getEphemeralRuleForChannel, deleteEphemeralRuleForChannel } from "../ephemeralRules.js";
 import type { ChangeStatus } from "../changes/types.js";
 
 const TERMINAL_STATUSES: ReadonlyArray<ChangeStatus> = ["completed", "failed", "cancelled"];
@@ -25,6 +26,8 @@ export interface StopPipelineDeps {
   getActiveChange: typeof getActiveChange;
   setAttentionLevel: typeof setAttentionLevel;
   cancelQueuedSession: typeof cancelQueuedSession;
+  getEphemeralRuleForChannel: typeof getEphemeralRuleForChannel;
+  deleteEphemeralRuleForChannel: typeof deleteEphemeralRuleForChannel;
 }
 
 export const defaultStopPipelineDeps: StopPipelineDeps = {
@@ -33,6 +36,8 @@ export const defaultStopPipelineDeps: StopPipelineDeps = {
   getActiveChange,
   setAttentionLevel,
   cancelQueuedSession,
+  getEphemeralRuleForChannel,
+  deleteEphemeralRuleForChannel,
 };
 
 /**
@@ -97,6 +102,18 @@ export async function stopThread(
     if (isEngaged(session)) {
       await deps.setAttentionLevel(session.sessionId, "off");
       result.sessionDisengaged = true;
+    }
+
+    // A stop aimed at a session in a channel-conversation ledger also closes that
+    // channel's ephemeral window (e.g. a stop reaction on the bot's top-level post).
+    // Best-effort: a failure here must not break the rest of the stop pipeline.
+    try {
+      const ephemeralRule = await deps.getEphemeralRuleForChannel(channelId);
+      if (ephemeralRule?.sessionIds.includes(session.sessionId)) {
+        await deps.deleteEphemeralRuleForChannel(channelId);
+      }
+    } catch (err) {
+      logger.warn(`stopThread: failed to close channel conversation in ${channelId}:`, err);
     }
   }
 

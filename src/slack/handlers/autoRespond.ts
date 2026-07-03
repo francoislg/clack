@@ -4,8 +4,16 @@ import { getConfig, type Config } from "../../config.js";
 import { logger } from "../../logger.js";
 import { findMatchingRule, loadRules } from "../../autoRespond.js";
 import {
+  getEphemeralRuleForChannel,
+  ratchetEphemeralRule,
+  renewEphemeralRule,
+  deleteEphemeralRuleForChannel,
+  type EphemeralRule,
+} from "../../ephemeralRules.js";
+import {
   runPreAnalysis,
   runActiveRunPreAnalysis,
+  runChannelContinuationPreAnalysis,
   type PreAnalysisMessage,
 } from "../../claude/preAnalysis.js";
 import { loadPreAnalysisContext } from "../../configurationFiles.js";
@@ -159,6 +167,8 @@ interface AutoRespondContext {
   ruleName?: string;
   /** Initial attention level seeded onto the new session from the matched rule (top-level only). */
   attentionLevel?: SettableAttentionLevel;
+  /** channelReply only: the ephemeral rule's anchor session, resumed by processMessage. */
+  resumeSessionId?: string;
 }
 
 export interface AutoRespondDeps {
@@ -168,6 +178,11 @@ export interface AutoRespondDeps {
   activeRunPreAnalysis: typeof runActiveRunPreAnalysis;
   loadSharedContext: typeof loadPreAnalysisContext;
   getActiveRun: typeof getActiveRunForChannelMessage;
+  getEphemeralRule: typeof getEphemeralRuleForChannel;
+  channelContinuationPreAnalysis: typeof runChannelContinuationPreAnalysis;
+  ratchetEphemeralRule: typeof ratchetEphemeralRule;
+  renewEphemeralRule: typeof renewEphemeralRule;
+  deleteEphemeralRule: typeof deleteEphemeralRuleForChannel;
 }
 
 const defaultAutoRespondDeps: AutoRespondDeps = {
@@ -177,6 +192,11 @@ const defaultAutoRespondDeps: AutoRespondDeps = {
   activeRunPreAnalysis: runActiveRunPreAnalysis,
   loadSharedContext: loadPreAnalysisContext,
   getActiveRun: getActiveRunForChannelMessage,
+  getEphemeralRule: getEphemeralRuleForChannel,
+  channelContinuationPreAnalysis: runChannelContinuationPreAnalysis,
+  ratchetEphemeralRule,
+  renewEphemeralRule,
+  deleteEphemeralRule: deleteEphemeralRuleForChannel,
 };
 
 /**
@@ -395,7 +415,29 @@ export async function resolveAutoRespondContext(
     };
   }
 
-  // Top-level: rule matching + pre-analysis
+  // Top-level: an ephemeral conversation window outranks standing rules. When one exists
+  // for the channel, it owns this message entirely — whatever the verdict, standing rules
+  // never get a shot at the same message.
+  const ephemeralRule = await deps.getEphemeralRule(channelId);
+  if (ephemeralRule) {
+    return resolveEphemeralConversation(
+      ephemeralRule,
+      channelId,
+      messageTs,
+      messageUser,
+      rawText,
+      config,
+      client,
+      botUserId,
+      botId,
+      channelInfo?.name,
+      channelLabel,
+      deps,
+      rawFiles,
+    );
+  }
+
+  // Standing rules: rule matching + pre-analysis
   if (!config.autoRespond?.enabled) return null;
 
   const rules = await loadRules();
@@ -470,6 +512,146 @@ export async function resolveAutoRespondContext(
   };
 }
 
+/** Prompt additions for a channelReply turn: the seed's follow-up guidance, the pull-based
+ *  ledger hint, and placement guidance (quick beats top-level, depth moves to a thread). */
+function buildChannelReplyPrompt(rule: EphemeralRule): string {
+  const parts: string[] = [
+    "You are continuing a conversation you started with a top-level post in this channel. " +
+      "The user replied in the channel (not in a thread).",
+    "PLACEMENT: for a quick conversational beat, reply top-level in the channel (`post_top_level: true`) to keep the conversation flowing. " +
+      "For anything substantive (detailed answers, code, multi-step help), reply WITHOUT `post_top_level` so your answer threads under the user's message.",
+  ];
+  if (rule.followUpContext) {
+    parts.push(`FOLLOW-UP GUIDANCE: ${rule.followUpContext}`);
+  }
+  if (rule.sessionIds.length > 1) {
+    parts.push(
+      `This conversation has ${rule.sessionIds.length} linked sessions (side-threads it spawned). ` +
+        "If you need what was said in them, retrieve them with `find_sessions` — do not guess.",
+    );
+  }
+  return parts.join("\n\n");
+}
+
+/**
+ * Lifecycle for a top-level message in a channel with an ephemeral conversation window.
+ * The judge ALWAYS runs while the rule exists — expiry never short-circuits it; a past-expiry
+ * rule is dormant, and this message is the event that decides its fate:
+ *   respond → continue the anchor session, renew the window (even when dormant — revival)
+ *   skip    → within the window: ratchet one rung; dormant: delete
+ *   stop    → delete
+ *   null    → classifier failure: no response, rule untouched
+ */
+async function resolveEphemeralConversation(
+  rule: EphemeralRule,
+  channelId: string,
+  messageTs: string,
+  messageUser: string | undefined,
+  rawText: string | undefined,
+  config: Config,
+  client: WebClient,
+  botUserId: string,
+  botId: string | undefined,
+  channelName: string | undefined,
+  channelLabel: string,
+  deps: AutoRespondDeps,
+  rawFiles?: unknown[],
+): Promise<AutoRespondContext | null> {
+  let textForAnalysis = rawText?.trim();
+  if (!textForAnalysis) {
+    const { imageFiles } = extractAttachments(rawFiles);
+    if (imageFiles?.length) {
+      textForAnalysis = buildImageOnlyPreAnalysisText(imageFiles);
+    } else {
+      return null;
+    }
+  }
+
+  const botName = config.slackApp?.name ?? "Clack";
+  const messageLink = await slackLink(client, channelId, messageTs);
+  const enrichment = await fetchEnrichedContext(
+    client,
+    async () => {
+      const history = await client.conversations.history({
+        channel: channelId,
+        latest: messageTs,
+        limit: 10,
+        inclusive: false,
+      });
+      return (history.messages ?? []).reverse();
+    },
+    textForAnalysis,
+    messageUser,
+    botUserId,
+    botId,
+    botName,
+    "Channel-continuation pre-analysis: failed to enrich message context",
+  );
+
+  const lastBotTs = [...enrichment.history].reverse().find((m) => m.isBot)?.ts;
+  const parsedBotTs = lastBotTs != null ? parseFloat(lastBotTs) : Number.NaN;
+  const secondsSinceLastBotMessage = Number.isFinite(parsedBotTs)
+    ? Math.max(0, parseFloat(messageTs) - parsedBotTs)
+    : undefined;
+
+  const verdict = await deps.channelContinuationPreAnalysis(
+    enrichment.resolvedMessageText,
+    enrichment.messageAuthorName,
+    botName,
+    rule.anchorText,
+    rule.attentionLevel,
+    deps.loadSharedContext() || undefined,
+    enrichment.history,
+    channelName,
+    messageLink,
+    secondsSinceLastBotMessage,
+  );
+
+  const dormant = Date.now() > rule.expiresAt;
+  logger.info(
+    `Channel conversation ${rule.id} in ${channelLabel}: verdict=${verdict ?? "error"}, level=${rule.attentionLevel}, dormant=${dormant}${messageLink}`,
+  );
+
+  if (verdict === null) return null;
+
+  // Lifecycle mutations are best-effort: a failed disk write must never crash the event
+  // handler (skip/stop) or block a respond verdict from answering. The next message's
+  // verdict re-runs the same transition, so a lost mutation self-heals.
+  const mutate = async (
+    label: string,
+    op: () => Promise<EphemeralRule | boolean | null>,
+  ): Promise<void> => {
+    try {
+      await op();
+    } catch (err) {
+      logger.warn(`Channel conversation ${rule.id}: ${label} failed (continuing):`, err);
+    }
+  };
+
+  if (verdict === "stop") {
+    await mutate("close on stop", () => deps.deleteEphemeralRule(channelId));
+    return null;
+  }
+
+  if (verdict === "skip") {
+    if (dormant) {
+      await mutate("dormant close", () => deps.deleteEphemeralRule(channelId));
+    } else {
+      await mutate("ratchet", () => deps.ratchetEphemeralRule(rule.id));
+    }
+    return null;
+  }
+
+  await mutate("renew", () => deps.renewEphemeralRule(rule.id));
+  return {
+    triggerType: "channelReply",
+    userId: messageUser ?? "channel-reply",
+    preAnalysis: `channel-${verdict}`,
+    resumeSessionId: rule.sessionIds[0],
+    additionalSystemPrompt: buildChannelReplyPrompt(rule),
+  };
+}
+
 export function registerAutoRespondHandler(app: App): void {
   app.event("message", async ({ event, client }) => {
     // Skip non-message subtypes (edits, deletes, joins, etc.) — but allow bot_message through
@@ -501,6 +683,10 @@ export function registerAutoRespondHandler(app: App): void {
       logger.info(
         `Inline stop emoji in thread reply from ${messageUser} in ${event.channel} (thread ${targetThread})`,
       );
+      // A top-level stop also closes the channel's conversation window, if one exists.
+      if (!threadTs) {
+        await deleteEphemeralRuleForChannel(event.channel);
+      }
       await stopThread(event.channel, targetThread, messageUser, "stopped via inline emoji");
       return;
     }
@@ -578,6 +764,7 @@ async function respond(
       preAnalysis: context.preAnalysis,
       autoRespondRuleName: context.ruleName,
       attentionLevel: context.attentionLevel,
+      resumeSessionId: context.resumeSessionId,
       ...attachments,
     });
   } catch (error) {

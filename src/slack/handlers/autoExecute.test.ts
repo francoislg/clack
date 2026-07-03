@@ -94,6 +94,16 @@ const mockResolveOrigin = vi.fn<
 const mockRestoreSession = vi.fn<(sessionId: string) => Promise<SessionInfo | null>>(
   async () => null,
 );
+const mockSeedEphemeralRule = vi.fn<AutoExecuteDeps["seedEphemeralRule"]>(async (opts) => ({
+  id: "eph-1",
+  kind: "ephemeral",
+  channels: [opts.channel],
+  attentionLevel: opts.attentionLevel,
+  expiresAt: 0,
+  sessionIds: [opts.sessionId],
+  anchorText: opts.anchorText,
+  enabled: true,
+}));
 const mockActiveSessions = {
   restore: vi.fn<(sessionId: string) => Promise<SessionInfo | null>>(async () => null),
 };
@@ -147,6 +157,7 @@ function makeDeps(): AutoExecuteDeps {
     getSession: mockGetSession,
     updateSession: mockUpdateSession,
     registerThreadSession: mockRegisterThreadSession,
+    seedEphemeralRule: mockSeedEphemeralRule,
     restoreSession: mockActiveSessions.restore,
   };
 }
@@ -189,6 +200,7 @@ beforeEach(() => {
   mockFindSessionByThread.mockClear();
   mockGetSession.mockClear();
   mockRegisterThreadSession.mockClear();
+  mockSeedEphemeralRule.mockClear();
   mockPostAnswerToChannel.mockClear();
   mockResolveOrigin.mockClear();
   mockActiveSessions.restore.mockClear();
@@ -417,6 +429,64 @@ describe("handleAutoExecuteActions — post_to thread engagement", () => {
     await handleAutoExecuteActions(params, makeDeps());
 
     assert.equal(mockRegisterThreadSession.mock.calls.length, 0);
+  });
+
+  it("seeds a channel conversation for a top-level cross-post with channel_attention_level", async () => {
+    mockGetSession.mockResolvedValue(sessionWithSnapshot());
+    mockPostAnswerToChannel.mockResolvedValue({ ok: true, ts: "1700000000.999999" });
+    const params = makeBaseParams({
+      response: makeResponseWithActions(
+        {
+          blocks: [],
+          actions: [postTo({ channel_attention_level: "medium", follow_up_context: "ctx" })],
+        },
+        {},
+      ),
+    });
+
+    await handleAutoExecuteActions(params, makeDeps());
+
+    assert.equal(mockSeedEphemeralRule.mock.calls.length, 1);
+    assert.deepEqual(mockSeedEphemeralRule.mock.calls[0][0], {
+      channel: "C200",
+      attentionLevel: "medium",
+      sessionId: "session-1",
+      anchorText: "x",
+      followUpContext: "ctx",
+    });
+  });
+
+  it("ignores channel_attention_level when the action targets a thread", async () => {
+    mockGetSession.mockResolvedValue(sessionWithSnapshot());
+    mockPostAnswerToChannel.mockResolvedValue({ ok: true, ts: "1700000000.999999" });
+    const params = makeBaseParams({
+      response: makeResponseWithActions(
+        {
+          blocks: [],
+          actions: [postTo({ thread_ts: "1700000000.111111", channel_attention_level: "medium" })],
+        },
+        {},
+      ),
+    });
+
+    await handleAutoExecuteActions(params, makeDeps());
+
+    assert.equal(mockSeedEphemeralRule.mock.calls.length, 0);
+  });
+
+  it("does not seed a channel conversation when the cross-post throws", async () => {
+    mockGetSession.mockResolvedValue(sessionWithSnapshot());
+    mockPostAnswerToChannel.mockRejectedValue(new Error("slack down"));
+    const params = makeBaseParams({
+      response: makeResponseWithActions(
+        { blocks: [], actions: [postTo({ channel_attention_level: "high" })] },
+        {},
+      ),
+    });
+
+    await handleAutoExecuteActions(params, makeDeps());
+
+    assert.equal(mockSeedEphemeralRule.mock.calls.length, 0);
   });
 });
 

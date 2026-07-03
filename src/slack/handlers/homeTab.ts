@@ -764,6 +764,20 @@ export function registerHomeTabHandler(app: App, deps: HomeTabDeps = defaultHome
     }
   });
 
+  // Stop following button on an ephemeral conversation row (admin only) — deletes the
+  // channel's conversation window and re-renders the Home Tab. No modal involved.
+  app.action<BlockAction>(/^ai_stop_following:/, async ({ ack, body, client, action }) => {
+    await ack();
+    try {
+      if (!(await deps.userCanManageRoles(body.user.id))) return;
+      const ruleId = (action as { action_id: string }).action_id.split(":")[1];
+      await deps.deleteRule(ruleId);
+      await publishHomeView(client, body.user.id, deps);
+    } catch (error) {
+      logger.error("Failed to stop following channel conversation:", error);
+    }
+  });
+
   // Delete Rule button (inside edit modal — has confirm dialog)
   app.action<BlockAction>(/^ai_delete_rule:/, async ({ ack, body, client, action }) => {
     await ack();
