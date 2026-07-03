@@ -14,7 +14,7 @@ NC='\033[0m'
 PROJECT_ID=$(gcloud config get-value project 2>/dev/null)
 INSTANCE_NAME="clack"
 ZONE="northamerica-northeast1-a"
-MACHINE_TYPE="e2-medium"
+MACHINE_TYPE="e2-standard-2"
 
 # Container memory limits. The clack container's cap is computed ON THE VM as
 # total memory minus these reserves, so a machine-type bump raises it

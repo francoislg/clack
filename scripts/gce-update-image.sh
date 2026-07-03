@@ -168,6 +168,18 @@ gcloud compute ssh "$INSTANCE_NAME" --zone="$ZONE" --quiet --command="
     # sets this initially, but reapply in case a sync run reverted it).
     sudo chmod 644 $DATA_MOUNT_POINT/data/auth/.env
 
+    # Reclaim any file not owned by the container user (1001) — a manual sudo
+    # edit on the VM leaves root-owned files the app then EACCESes on (this
+    # bit data/state/memory.json once). repositories/ and worktrees/ are
+    # skipped: they're huge trees and only ever written by the app itself.
+    for entry in $DATA_MOUNT_POINT/data/* $DATA_MOUNT_POINT/data/.[!.]*; do
+        [ -e \"\$entry\" ] || continue
+        case \"\$entry\" in
+            */repositories|*/worktrees) continue ;;
+        esac
+        sudo chown -R 1001:1001 \"\$entry\"
+    done
+
     # Register Artifact Registry credential helper for THIS user (writes to SSH
     # user's \$HOME, which is writable; /root is read-only on COS so sudo would fail).
     docker-credential-gcr configure-docker --registries=${AR_REGION}-docker.pkg.dev

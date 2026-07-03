@@ -224,6 +224,15 @@ fi
 
 # Allow non-root container processes to write into the mount
 chmod a+rwx "\$MOUNT_POINT"
+
+# Containers race this mount at boot: their binds under the mountpoint resolve
+# to empty paths pre-mount (the tester sidecar exits 127; clack can come up
+# against an empty data dir). Restart them now that the disk is up.
+for c in clack clack-playwright; do
+  if docker ps -a --format '{{.Names}}' | grep -q "^\$c\$"; then
+    docker restart "\$c" || true
+  fi
+done
 MOUNT_EOF
 
 # Set as startup-script metadata so the mount survives reboots
