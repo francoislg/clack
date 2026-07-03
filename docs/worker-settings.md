@@ -91,25 +91,31 @@ checked at each worker start, not at boot).
 
 The settings file alone is not enough — the hook **binaries** it points at must
 exist inside the runtime environment. They ship via the optional
-**per-instance image overlay**, a gitignored Dockerfile layered on top of the
-generic image:
+**per-instance image overlay**, a gitignored Dockerfile layered onto the pinned
+**tools base image**:
 
 1. `cp data/docker/Dockerfile.custom.example data/docker/Dockerfile.custom`
-   (gitignored) and edit it — `apk add` any packages the hook needs, `COPY` the
-   hook files to a fixed absolute path like `/opt/worker-hooks/<your-hook>/`
-   (anything `COPY`'d must live inside `data/docker/`, the build context).
+   (gitignored) and edit it — `FROM …/clack:tools-base`, `apk add` any packages
+   the hook needs, `COPY` the hook files to a fixed absolute path like
+   `/opt/worker-hooks/<your-hook>/` (anything `COPY`'d must live inside
+   `data/docker/`, the build context). Stay root — the tools base has no `clack`
+   user yet (the app stage creates it), so do not add a `USER clack` switch.
 2. Write `data/worker-settings.json` pointing at those in-image paths.
 3. Deploy normally. When `data/docker/Dockerfile.custom` exists,
-   `scripts/gce-update-image.sh` builds the generic image as `clack:base`, then
-   builds your overlay on top and deploys *that* as `clack:latest`. Without the
-   file, deploys are exactly as before (generic image only).
+   `scripts/gce-update-image.sh` builds the generic tools image as
+   `clack:tools-base`, then builds your overlay on top and pushes it as the
+   content-addressed `clack:tools-<hash>`; the app image builds `FROM` that.
+   Without the file, the generic tools image *is* `clack:tools-<hash>`.
 
-The overlay is rebuilt on **every deploy**, so it is repeatable by
-construction — the Dockerfile *is* the provisioning script; there is no
-separate install step and nothing that can drift. The committed base
-`Dockerfile` stays generic; nothing instance-specific is ever committed. A
-small `provision.sh` inside `data/docker/` (re-fetching hook sources) keeps
-the build context itself reproducible from a fresh checkout.
+The overlay is folded into the tools image, which is rebuilt **only when its
+inputs change** (`Dockerfile.tools` or anything under `data/docker/`) — a normal
+code deploy reuses the existing tools image and doesn't touch it. It is still
+repeatable by construction — the Dockerfile *is* the provisioning script; there
+is no separate install step and nothing that can drift. The committed base
+`Dockerfile` stays generic (it takes the tools image as a `TOOLS_IMAGE`
+build-arg, so no instance-specific registry path is ever committed). A small
+`provision.sh` inside `data/docker/` (re-fetching hook sources) keeps the build
+context itself reproducible from a fresh checkout.
 
 Note: do **not** bake `data/worker-settings.json` into an overlay — the
 persistent-disk mount at `/app/data` shadows any image content at that path.

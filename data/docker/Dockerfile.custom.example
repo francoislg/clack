@@ -1,11 +1,13 @@
 # Optional per-instance image overlay — NOT committed, NOT built by default.
 #
 # Copy to data/docker/Dockerfile.custom (gitignored) to layer instance-specific
-# installs on top of the generic Clack image. When that file exists,
-# scripts/gce-update-image.sh builds the generic image as `clack:base`, then
-# builds this overlay (build context: data/docker/) and deploys IT as
-# `clack:latest`. Without the file, deploys are identical to before (generic
-# image only) — zero-config instances are unaffected.
+# installs into the pinned tools image. When that file exists,
+# scripts/gce-update-image.sh builds the generic tools image as
+# `clack:tools-base`, then builds this overlay (build context: data/docker/) and
+# pushes IT as `clack:tools`; the app image then builds FROM `clack:tools`.
+# Without the file, `clack:tools` is just the generic tools image — zero-config
+# instances are unaffected. The overlay is rebuilt only when tools inputs change
+# (this file, or anything under data/docker/), not on every code deploy.
 #
 # Use this for things the persistent data disk can't carry: OS packages
 # (`apk add`), dynamically-linked binaries, anything that needs root at install
@@ -14,12 +16,14 @@
 # NEITHER — the standard deploy pushes `data/worker-settings.json`
 # automatically.
 #
+# This layers on the BARE tools base — it is root and has no `clack` user yet
+# (the app stage creates that user and ends on `USER clack`). So stay root here
+# and do NOT add a `USER clack` switch; it would fail (no such user).
+#
 # Replace REGION and PROJECT_ID with your instance's values — the deploy script
 # prints the exact image path it pushes (e.g.
-# `northamerica-northeast1-docker.pkg.dev/my-project/clack/clack:base`).
-FROM REGION-docker.pkg.dev/PROJECT_ID/clack/clack:base
-
-USER root
+# `northamerica-northeast1-docker.pkg.dev/my-project/clack/clack:tools-base`).
+FROM REGION-docker.pkg.dev/PROJECT_ID/clack/clack:tools-base
 
 # Example: install OS packages your worker hooks depend on
 # RUN apk add --no-cache jq ripgrep
@@ -28,6 +32,3 @@ USER root
 # Files must live inside data/docker/ — this directory is the build context.
 # COPY my-hook/ /opt/worker-hooks/my-hook/
 # RUN chmod +x /opt/worker-hooks/my-hook/hook.sh
-
-# Always return to the unprivileged runtime user
-USER clack

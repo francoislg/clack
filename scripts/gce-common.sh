@@ -42,6 +42,14 @@ console.log(c.tester?.enabled === true ? 'true' : 'false');
 AR_REGION="${ZONE%-*}"
 AR_REPO="clack"
 IMAGE_NAME="${AR_REGION}-docker.pkg.dev/${PROJECT_ID}/${AR_REPO}/clack:latest"
+# Pinned tools base image (system deps + github-mcp-server + optional per-instance
+# overlay). The app image builds FROM a content-addressed `…/clack:tools-<hash>`
+# derived in gce-update-image.sh, so it is rebuilt only when its inputs change.
+# TOOLS_IMAGE_NAME is the `…/clack:tools` PREFIX the hash suffix is appended to (no
+# mutable `:tools` tag is pushed). TOOLS_BASE_IMAGE_NAME is the mutable base the
+# per-instance overlay builds FROM when data/docker/Dockerfile.custom exists.
+TOOLS_IMAGE_NAME="${AR_REGION}-docker.pkg.dev/${PROJECT_ID}/${AR_REPO}/clack:tools"
+TOOLS_BASE_IMAGE_NAME="${AR_REGION}-docker.pkg.dev/${PROJECT_ID}/${AR_REPO}/clack:tools-base"
 
 DATA_DISK_NAME="clack-data"
 DATA_DISK_SIZE="20GB"
