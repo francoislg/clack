@@ -300,5 +300,6 @@
   "298": "SubmitResponseDeps",
   "299": "archive.ts",
   "300": "PluginLogger",
-  "301": "workerBashGuard.ts"
+  "301": "workerBashGuard.ts",
+  "302": "createAdminDescribeConfigFileTool"
 }

@@ -12,6 +12,7 @@ function makeDeps(overrides?: Partial<TeardownDeps>): TeardownDeps {
   return {
     kill: vi.fn(),
     listPidsOnPort: vi.fn(async () => []),
+    listPidsByCmdline: vi.fn(async () => []),
     delay: vi.fn(async () => {}),
     ...overrides,
   };
@@ -113,6 +114,18 @@ describe("teardownAppProcess", () => {
     const killedPids = new Set(kill.mock.calls.map(([pid]) => pid));
     assert.ok(killedPids.has(4242));
     assert.ok(killedPids.has(5555));
+  });
+
+  it("sweeps supervisor processes matching the worktree cmdline, even without an info file", async () => {
+    // No info file written — the crashed-run state.
+    const kill = vi.fn();
+    const listPidsByCmdline = vi.fn(async () => [7001, 7002]);
+    const deps = makeDeps({ kill, listPidsByCmdline });
+    await teardownAppProcess(tmpBase, deps);
+    assert.deepEqual(listPidsByCmdline.mock.calls[0], [tmpBase]);
+    const killedPids = new Set(kill.mock.calls.map(([pid]) => pid));
+    assert.ok(killedPids.has(7001));
+    assert.ok(killedPids.has(7002));
   });
 
   it("kills the surviving process group when the tracked wrapper pid is already dead", async () => {
