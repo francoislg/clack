@@ -68,13 +68,18 @@ describe("runTest tool", () => {
     deps = makeDeps();
   });
 
-  it("stages a kind:'test' change intent with resumeRemoteBranch always set", async () => {
+  it("stages a kind:'test' change intent resuming the remote branch by default", async () => {
     const ctx = makeCtx();
     const store = createIntentStore();
     const toolDef = createRunTestTool(ctx, store, deps);
 
     const result = await toolDef.handler(
-      { branch: "feature/login-flow", repo: "my-repo", test_focus: "exercise the login page" },
+      {
+        branch: "feature/login-flow",
+        repo: "my-repo",
+        new_branch: undefined,
+        test_focus: "exercise the login page",
+      },
       { sessionId: "test" },
     );
 
@@ -89,13 +94,99 @@ describe("runTest tool", () => {
     assert.ok(intent.description.includes("exercise the login page"));
   });
 
+  it("stages resumeRemoteBranch: false when new_branch is true", async () => {
+    const ctx = makeCtx();
+    const store = createIntentStore();
+    const toolDef = createRunTestTool(ctx, store, deps);
+
+    const result = await toolDef.handler(
+      {
+        branch: "test/record-login-flow",
+        repo: "my-repo",
+        new_branch: true,
+        test_focus: "record the login flow as it works today",
+      },
+      { sessionId: "test" },
+    );
+
+    const parsed = parseToolResult(result);
+    assert.equal(result.isError ?? false, false);
+    const intent = store.resolve(String(parsed.ref));
+    assert.ok(intent && intent.type === "change");
+    assert.equal(intent.resumeRemoteBranch, false);
+    assert.ok(intent.description.includes("fresh branch off main"));
+    assert.ok(intent.description.includes("record the login flow as it works today"));
+  });
+
+  it("describes a fresh-branch run without test_focus using the repo default branch", async () => {
+    const ctx = makeCtx({
+      config: {
+        repositories: [makeRepo({ branch: "master" })],
+        tester: { enabled: true, sidecarUrl: "http://sidecar/mcp", recordingsDir: "/recordings" },
+      } as QueryToolContext["config"],
+    });
+    const store = createIntentStore();
+    const toolDef = createRunTestTool(ctx, store, deps);
+
+    const result = await toolDef.handler(
+      { branch: "test/smoke", repo: "my-repo", new_branch: true, test_focus: undefined },
+      { sessionId: "test" },
+    );
+
+    const intent = store.resolve(String(parseToolResult(result).ref));
+    assert.ok(intent && intent.type === "change");
+    assert.equal(intent.description, "Test the app on a fresh branch off master");
+  });
+
+  it("stages resumeRemoteBranch: true when new_branch is omitted or false", async () => {
+    const ctx = makeCtx();
+    const store = createIntentStore();
+    const toolDef = createRunTestTool(ctx, store, deps);
+
+    const omitted = await toolDef.handler(
+      { branch: "feature/x", repo: "my-repo", new_branch: undefined, test_focus: undefined },
+      { sessionId: "test" },
+    );
+    const omittedIntent = store.resolve(String(parseToolResult(omitted).ref));
+    assert.ok(omittedIntent && omittedIntent.type === "change");
+    assert.equal(omittedIntent.resumeRemoteBranch, true);
+
+    const explicit = await toolDef.handler(
+      { branch: "feature/x", repo: "my-repo", new_branch: false, test_focus: undefined },
+      { sessionId: "test" },
+    );
+    const explicitIntent = store.resolve(String(parseToolResult(explicit).ref));
+    assert.ok(explicitIntent && explicitIntent.type === "change");
+    assert.equal(explicitIntent.resumeRemoteBranch, true);
+  });
+
+  it("refuses the protected default branch even with new_branch: true", async () => {
+    const ctx = makeCtx();
+    const store = createIntentStore();
+    const toolDef = createRunTestTool(ctx, store, deps);
+
+    const result = await toolDef.handler(
+      { branch: "main", repo: "my-repo", new_branch: true, test_focus: undefined },
+      { sessionId: "test" },
+    );
+
+    const parsed = parseToolResult(result);
+    assert.equal(result.isError, true);
+    assert.ok(parsed.error.includes("protected"));
+  });
+
   it("does not require the clack/{type}/{name} branch convention", async () => {
     const ctx = makeCtx();
     const store = createIntentStore();
     const toolDef = createRunTestTool(ctx, store, deps);
 
     const result = await toolDef.handler(
-      { branch: "someone-elses/pr-branch", repo: "my-repo", test_focus: undefined },
+      {
+        branch: "someone-elses/pr-branch",
+        repo: "my-repo",
+        new_branch: undefined,
+        test_focus: undefined,
+      },
       { sessionId: "test" },
     );
 
@@ -108,7 +199,7 @@ describe("runTest tool", () => {
     const toolDef = createRunTestTool(ctx, store, deps);
 
     const result = await toolDef.handler(
-      { branch: "feature/x", repo: "nope", test_focus: undefined },
+      { branch: "feature/x", repo: "nope", new_branch: undefined, test_focus: undefined },
       { sessionId: "test" },
     );
 
@@ -123,7 +214,7 @@ describe("runTest tool", () => {
     const toolDef = createRunTestTool(ctx, store, makeDeps({ canWriteRepo: vi.fn(() => false) }));
 
     const result = await toolDef.handler(
-      { branch: "feature/x", repo: "my-repo", test_focus: undefined },
+      { branch: "feature/x", repo: "my-repo", new_branch: undefined, test_focus: undefined },
       { sessionId: "test" },
     );
 
@@ -138,7 +229,7 @@ describe("runTest tool", () => {
     const toolDef = createRunTestTool(ctx, store, deps);
 
     const result = await toolDef.handler(
-      { branch: "main", repo: "my-repo", test_focus: undefined },
+      { branch: "main", repo: "my-repo", new_branch: undefined, test_focus: undefined },
       { sessionId: "test" },
     );
 
@@ -153,7 +244,7 @@ describe("runTest tool", () => {
     const toolDef = createRunTestTool(ctx, store, deps);
 
     const result = await toolDef.handler(
-      { branch: "feature/x", repo: "my-repo", test_focus: undefined },
+      { branch: "feature/x", repo: "my-repo", new_branch: undefined, test_focus: undefined },
       { sessionId: "test" },
     );
 
