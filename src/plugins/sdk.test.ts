@@ -8,6 +8,7 @@ import { tool, type SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import { WebClient } from "@slack/web-api";
 import { createClackSdk, type ClackSdkDeps, type AttentionLevel } from "./sdk.js";
 import type { RolesConfig } from "../roles.js";
+import type { CronJob } from "../cronJobs.js";
 
 const EMPTY_ROLES: RolesConfig = { owner: null, admins: [], devs: [] };
 
@@ -55,6 +56,9 @@ describe("ClackSdk", () => {
       createJob: deps?.createJob,
       updateJob: deps?.updateJob,
       deleteJob: deps?.deleteJob,
+      registerDelayedBootHandler: deps?.registerDelayedBootHandler,
+      computeMissedRuns: deps?.computeMissedRuns,
+      executeCronJob: deps?.executeCronJob,
       clackQuery: deps?.clackQuery ?? (() => emptyClackQuery()),
       startThreadConversation: deps?.startThreadConversation,
       registerThreadSession: deps?.registerThreadSession,
@@ -1307,6 +1311,98 @@ describe("ClackSdk", () => {
         assert.equal(store.jobs[0].specKey, "good");
         assert.equal(store.jobs[0].jitterMinutes, 4);
       });
+    });
+  });
+
+  describe("delayed-boot catch-up surface", () => {
+    const ownedJob = {
+      id: "job-1",
+      cronExpression: "0 10 * * *",
+      prompt: "p",
+      createdBy: null,
+      systemActor: "plugin:test-plugin",
+      createdAt: "2026-06-01T00:00:00.000Z",
+      enabled: true,
+      timezone: "UTC",
+      plugin: "test-plugin",
+      pluginManaged: true,
+      specKey: "daily:question",
+    };
+
+    it("onDelayedBoot registers the handler under the plugin's name", () => {
+      const registerDelayedBootHandler =
+        vi.fn<(ownerKey: string, handler: () => void | Promise<void>) => void>();
+      const { sdk } = makeSdk("test-plugin", { registerDelayedBootHandler });
+      const handler = async () => {};
+
+      sdk.onDelayedBoot(handler);
+
+      assert.deepEqual(registerDelayedBootHandler.mock.calls[0], ["test-plugin", handler]);
+    });
+
+    it("missedRuns resolves the plugin's own job and returns computed dates", async () => {
+      const dates = [new Date("2026-06-10T10:00:00.000Z")];
+      const computeMissedRuns = vi.fn<(job: CronJob, now?: Date) => Date[]>(() => dates);
+      const { sdk } = makeSdk("test-plugin", {
+        findByPluginOwner: async () => [ownedJob],
+        computeMissedRuns,
+      });
+
+      const result = await sdk.missedRuns("daily:question");
+
+      assert.deepEqual(result, { lastExpectedRuns: dates });
+      assert.equal(computeMissedRuns.mock.calls[0]?.[0], ownedJob);
+    });
+
+    it("missedRuns rejects an unknown specKey without leaking other owners' jobs", async () => {
+      const { sdk } = makeSdk("test-plugin", {
+        findByPluginOwner: async () => [ownedJob],
+        computeMissedRuns: vi.fn(() => []),
+      });
+
+      await assert.rejects(() => sdk.missedRuns("other-plugin:reveal"), /other-plugin:reveal/);
+    });
+
+    it("runCronJobNow executes the resolved job with the live Slack client", async () => {
+      const client = new WebClient("xoxb-test");
+      const executeCronJob = vi.fn<(job: CronJob, client: WebClient) => Promise<void>>(
+        async () => {},
+      );
+      const { sdk } = makeSdk("test-plugin", {
+        findByPluginOwner: async () => [ownedJob],
+        getSlackClient: () => client,
+        executeCronJob,
+      });
+
+      await sdk.runCronJobNow("daily:question");
+
+      assert.equal(executeCronJob.mock.calls[0]?.[0], ownedJob);
+      assert.equal(executeCronJob.mock.calls[0]?.[1], client);
+    });
+
+    it("runCronJobNow rejects when no Slack client is available", async () => {
+      const executeCronJob = vi.fn(async () => {});
+      const { sdk } = makeSdk("test-plugin", {
+        findByPluginOwner: async () => [ownedJob],
+        getSlackClient: () => null,
+        executeCronJob,
+      });
+
+      await assert.rejects(() => sdk.runCronJobNow("daily:question"), /no Slack client/);
+      assert.equal(executeCronJob.mock.calls.length, 0);
+    });
+
+    it("runCronJobNow rejects an unknown specKey without executing anything", async () => {
+      const client = new WebClient("xoxb-test");
+      const executeCronJob = vi.fn(async () => {});
+      const { sdk } = makeSdk("test-plugin", {
+        findByPluginOwner: async () => [ownedJob],
+        getSlackClient: () => client,
+        executeCronJob,
+      });
+
+      await assert.rejects(() => sdk.runCronJobNow("nope"), /nope/);
+      assert.equal(executeCronJob.mock.calls.length, 0);
     });
   });
 

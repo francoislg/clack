@@ -18,6 +18,7 @@ import {
   adminZod,
   submitResponseZod,
   testerZod,
+  cronCatchUpZod,
 } from "./configSchemas.js";
 
 const DEFAULT_TASK_CARD_MAX_DETAILS = 5;
@@ -144,10 +145,14 @@ export function validateConfig(config: unknown, slackAuth: SlackAuthConfig): Con
     );
     cronUserSchedules = false;
   }
+  // catchUp is fail-fast (unlike the graceful legacy fields above): a typo'd delay
+  // silently falling back to 3 minutes would be confusing to debug.
+  const cronCatchUp = parseOrThrow(cronCatchUpZod, cronRaw?.catchUp);
   const cronConfig: CronConfig = {
     ...(cronEnabled !== undefined ? { enabled: cronEnabled } : {}),
     ...(cronUserSchedules !== undefined ? { userSchedules: cronUserSchedules } : {}),
     ...(cronMaxRunHistory !== undefined ? { maxRunHistory: cronMaxRunHistory } : {}),
+    ...(cronCatchUp !== undefined ? { catchUp: cronCatchUp } : {}),
   };
 
   // taskCards (graceful — invalid value logs + degrades to {})

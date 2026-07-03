@@ -1,7 +1,7 @@
 import { join } from "path";
 import { config as dotenvConfig } from "dotenv";
 
-import { loadConfig, getConfig } from "./config.js";
+import { loadConfig, getConfig, getCronCatchUpDelayMinutes } from "./config.js";
 import { loadGitHubCredentials, clearGitHubTokenCache, gitHubCredentialsExist } from "./github.js";
 import { logger } from "./logger.js";
 import {
@@ -16,7 +16,12 @@ import { ensureWorktreeDirectories } from "./worktrees.js";
 import { startCompletionMonitor, stopCompletionMonitor } from "./changes/monitor.js";
 import { validateInstructionFiles } from "./instructions.js";
 import { startConfigWatcher } from "./configWatcher.js";
-import { startCronScheduler, stopCronScheduler } from "./cronScheduler.js";
+import { startCronScheduler, stopCronScheduler, executeJob } from "./cronScheduler.js";
+import {
+  armDelayedBootDispatch,
+  cancelDelayedBootDispatch,
+  clearDelayedBootHandlers,
+} from "./cronCatchUp.js";
 import { resetMcpCache } from "./mcp.js";
 import { installAllPinnedMcpServers } from "./mcpInstaller.js";
 import { resetToolMappingCache } from "./streaming/toolMappingLoader.js";
@@ -56,6 +61,10 @@ export interface LifecycleDeps {
   startConfigWatcher: typeof startConfigWatcher;
   startCronScheduler: typeof startCronScheduler;
   stopCronScheduler: typeof stopCronScheduler;
+  armDelayedBootDispatch: typeof armDelayedBootDispatch;
+  cancelDelayedBootDispatch: typeof cancelDelayedBootDispatch;
+  clearDelayedBootHandlers: typeof clearDelayedBootHandlers;
+  getCronCatchUpDelayMinutes: typeof getCronCatchUpDelayMinutes;
   resetMcpCache: typeof resetMcpCache;
   installAllPinnedMcpServers: typeof installAllPinnedMcpServers;
   resetToolMappingCache: typeof resetToolMappingCache;
@@ -89,6 +98,10 @@ export const defaultLifecycleDeps: LifecycleDeps = {
   startConfigWatcher,
   startCronScheduler,
   stopCronScheduler,
+  armDelayedBootDispatch,
+  cancelDelayedBootDispatch,
+  clearDelayedBootHandlers,
+  getCronCatchUpDelayMinutes,
   resetMcpCache,
   installAllPinnedMcpServers,
   resetToolMappingCache,
@@ -120,6 +133,9 @@ function resetAllCaches(deps: LifecycleDeps = defaultLifecycleDeps): void {
   deps.clearAutoRespondCache();
   deps.clearCronJobsCache();
   deps.clearUserSkillBodyCache();
+  // Handlers re-register during the plugin reload that follows this reset — clearing
+  // here prevents the prior plugin generation's handlers from accumulating.
+  deps.clearDelayedBootHandlers();
 }
 
 // ---------------------------------------------------------------------------
@@ -152,6 +168,9 @@ function startSchedulers(deps: LifecycleDeps = defaultLifecycleDeps): void {
     const client = deps.getSlackClient();
     if (client) {
       deps.startCronScheduler(client);
+      // Delayed-boot hooks need the scheduler's Slack client (runCronJobNow), so the
+      // dispatch timer arms only when the scheduler actually started.
+      deps.armDelayedBootDispatch(deps.getCronCatchUpDelayMinutes());
     }
   }
 }
@@ -159,6 +178,7 @@ function startSchedulers(deps: LifecycleDeps = defaultLifecycleDeps): void {
 function stopSchedulers(deps: LifecycleDeps = defaultLifecycleDeps): void {
   stopConfigWatcherFn?.();
   stopConfigWatcherFn = undefined;
+  deps.cancelDelayedBootDispatch();
   deps.stopCronScheduler();
   deps.stopCompletionMonitor();
   deps.stopSyncScheduler();
@@ -301,6 +321,7 @@ export async function restartAll(
       await deps.loadAndInstallPlugins(pluginNames, {
         requestSoftRestart: (reason) => requestSoftRestart(reason, deps),
         startThreadConversation,
+        executeCronJob: executeJob,
       });
     } catch (error) {
       warnings.push(

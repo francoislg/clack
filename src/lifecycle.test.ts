@@ -46,6 +46,10 @@ function createMockDeps(): {
   const mockClearAutoRespondCache = vi.fn();
   const mockClearCronJobsCache = vi.fn();
   const mockClearUserSkillBodyCache = vi.fn();
+  const mockArmDelayedBootDispatch = vi.fn();
+  const mockCancelDelayedBootDispatch = vi.fn();
+  const mockClearDelayedBootHandlers = vi.fn();
+  const mockGetCronCatchUpDelayMinutes = vi.fn(() => 3);
   const mockLoadAndInstallPlugins = vi.fn(
     async (_pluginNames: string[]): Promise<LoadedPlugins> => ({ results: [] }),
   );
@@ -78,6 +82,10 @@ function createMockDeps(): {
     mockClearAutoRespondCache,
     mockClearCronJobsCache,
     mockClearUserSkillBodyCache,
+    mockArmDelayedBootDispatch,
+    mockCancelDelayedBootDispatch,
+    mockClearDelayedBootHandlers,
+    mockGetCronCatchUpDelayMinutes,
     mockLoadAndInstallPlugins,
   };
 
@@ -104,6 +112,10 @@ function createMockDeps(): {
     startConfigWatcher: mockStartConfigWatcher as Function as LifecycleDeps["startConfigWatcher"],
     startCronScheduler: mockStartCronScheduler,
     stopCronScheduler: mockStopCronScheduler,
+    armDelayedBootDispatch: mockArmDelayedBootDispatch,
+    cancelDelayedBootDispatch: mockCancelDelayedBootDispatch,
+    clearDelayedBootHandlers: mockClearDelayedBootHandlers,
+    getCronCatchUpDelayMinutes: mockGetCronCatchUpDelayMinutes,
     resetMcpCache: mockResetMcpCache,
     installAllPinnedMcpServers: mockInstallAllPinnedMcpServers,
     resetToolMappingCache: mockResetToolMappingCache,
@@ -135,6 +147,48 @@ describe("restartAll", () => {
     assert.equal(mocks.mockClearGitHubTokenCache.mock.calls.length, 1);
     assert.equal(mocks.mockClearAutoRespondCache.mock.calls.length, 1);
     assert.equal(mocks.mockClearCronJobsCache.mock.calls.length, 1);
+    assert.equal(mocks.mockClearDelayedBootHandlers.mock.calls.length, 1);
+  });
+
+  it("cancels the delayed-boot dispatch when stopping schedulers", async () => {
+    const { deps, mocks } = createMockDeps();
+
+    await restartAll(deps);
+
+    assert.equal(mocks.mockCancelDelayedBootDispatch.mock.calls.length, 1);
+  });
+
+  it("does not arm the delayed-boot dispatch when the cron scheduler doesn't start", async () => {
+    const { deps, mocks } = createMockDeps();
+
+    await restartAll(deps);
+
+    assert.equal(mocks.mockArmDelayedBootDispatch.mock.calls.length, 0);
+  });
+
+  it("arms the delayed-boot dispatch with the config delay after starting the cron scheduler", async () => {
+    const { deps, mocks } = createMockDeps();
+    const cronEnabledConfig = () => ({
+      repositories: [{ name: "test-repo" }],
+      changesWorkflow: { enabled: false },
+      claudeCode: { watchMcpConfig: false },
+      cron: { enabled: true },
+    });
+    mocks.mockLoadConfig.mockImplementation(cronEnabledConfig);
+    mocks.mockGetConfig.mockImplementation(cronEnabledConfig);
+    const fakeClient = {} as ReturnType<LifecycleDeps["getSlackClient"]>;
+    mocks.mockGetSlackClient.mockImplementation(() => fakeClient);
+    mocks.mockGetCronCatchUpDelayMinutes.mockReturnValue(7);
+
+    await restartAll(deps);
+
+    assert.equal(mocks.mockStartCronScheduler.mock.calls.length, 1);
+    assert.deepEqual(mocks.mockArmDelayedBootDispatch.mock.calls[0], [7]);
+    assert.ok(
+      mocks.mockArmDelayedBootDispatch.mock.invocationCallOrder[0]! >
+        mocks.mockStartCronScheduler.mock.invocationCallOrder[0]!,
+      "arm must happen after the scheduler starts",
+    );
   });
 
   it("re-installs pinned MCP servers after resetting caches", async () => {

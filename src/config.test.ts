@@ -16,6 +16,7 @@ import {
   getConfig,
   getTaskCardMaxDetails,
   getCronMaxRunHistory,
+  getCronCatchUpDelayMinutes,
   getAdditionalAdminWords,
   DEFAULT_TASK_CARD_MAX_DETAILS,
   DEFAULT_SCHEDULED_MESSAGES_MAX_RUN_HISTORY,
@@ -1150,6 +1151,68 @@ describe("cron.maxRunHistory config", () => {
     writeConfig(minimalConfig({ scheduledMessagesMaxRunHistory: 75 }));
     const cfg = loadConfig(configPath, true);
     assert.equal(cfg.cron?.maxRunHistory, 75);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// cron.catchUp / getCronCatchUpDelayMinutes
+// ---------------------------------------------------------------------------
+
+describe("cron.catchUp config", () => {
+  const originalCwd = process.cwd();
+
+  beforeEach(() => {
+    if (existsSync(tmpBase)) rmSync(tmpBase, { recursive: true });
+    mkdirSync(tmpBase, { recursive: true });
+    process.chdir(tmpBase);
+    writeSlackAuth();
+  });
+
+  afterEach(() => {
+    process.chdir(originalCwd);
+    if (existsSync(tmpBase)) rmSync(tmpBase, { recursive: true, force: true });
+  });
+
+  it("parses cron.catchUp.delayMinutes and exposes it via the accessor", () => {
+    writeConfig(minimalConfig({ cron: { catchUp: { delayMinutes: 10 } } }));
+    const cfg = loadConfig(configPath, true);
+    assert.equal(cfg.cron?.catchUp?.delayMinutes, 10);
+    assert.equal(getCronCatchUpDelayMinutes(), 10);
+  });
+
+  it("accessor falls back to 3 when the block is absent", () => {
+    writeConfig(minimalConfig());
+    const cfg = loadConfig(configPath, true);
+    assert.equal(cfg.cron?.catchUp, undefined);
+    assert.equal(getCronCatchUpDelayMinutes(), 3);
+  });
+
+  it("accepts delayMinutes: 0", () => {
+    writeConfig(minimalConfig({ cron: { catchUp: { delayMinutes: 0 } } }));
+    const cfg = loadConfig(configPath, true);
+    assert.equal(cfg.cron?.catchUp?.delayMinutes, 0);
+    assert.equal(getCronCatchUpDelayMinutes(), 0);
+  });
+
+  it("rejects a negative delayMinutes at boot", () => {
+    writeConfig(minimalConfig({ cron: { catchUp: { delayMinutes: -1 } } }));
+    assert.throws(
+      () => loadConfig(configPath, true),
+      /cron\.catchUp\.delayMinutes.*must be an integer >= 0/,
+    );
+  });
+
+  it("rejects a non-integer delayMinutes at boot", () => {
+    writeConfig(minimalConfig({ cron: { catchUp: { delayMinutes: 2.5 } } }));
+    assert.throws(
+      () => loadConfig(configPath, true),
+      /cron\.catchUp\.delayMinutes.*must be an integer >= 0/,
+    );
+  });
+
+  it("rejects an unknown key in cron.catchUp at boot", () => {
+    writeConfig(minimalConfig({ cron: { catchUp: { delay: 5 } } }));
+    assert.throws(() => loadConfig(configPath, true), /cron\.catchUp.*unknown key 'delay'/);
   });
 });
 
