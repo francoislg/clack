@@ -82,6 +82,14 @@ export interface ClackSessionParams {
    * active-runs registry uses this to deregister the handle.
    */
   onTerminal?: () => void;
+  /**
+   * Fires when a `resumeSessionId` run falls back to a fresh session (the backend has no
+   * record of the session, or the resume attempt threw). The fresh session replays the
+   * prompt WITHOUT the original conversation context — callers whose prompt only makes
+   * sense against that context use this to abort rather than let it run. Must be
+   * synchronous — it is not awaited, and a rejected promise would go unobserved.
+   */
+  onResumeFallback?: () => void;
 }
 
 /**
@@ -136,7 +144,8 @@ export function clackSession(
   params: ClackSessionParams,
   deps: QueryDeps = defaultQueryDeps,
 ): ClackSessionRun {
-  const { prompt, options, resumeSessionId, onSessionId, onQuery, onTerminal } = params;
+  const { prompt, options, resumeSessionId, onSessionId, onQuery, onTerminal, onResumeFallback } =
+    params;
 
   // Replay buffer — every SDKUserMessage pushed via the driver is appended here so the
   // resume-fallback path can replay them onto a fresh input stream.
@@ -276,6 +285,12 @@ export function clackSession(
 
     // Fallback: tear down the resume input stream, build a fresh one, and replay
     // every buffered message (initial prompt + any sendUpdate calls so far).
+    // A throwing consumer callback must not break the recovery itself.
+    try {
+      onResumeFallback?.();
+    } catch (callbackError) {
+      logger.warn(`onResumeFallback callback threw: ${callbackError}`);
+    }
     if (!currentInputStream.ended) currentInputStream.end();
     currentInputStream = createPushableAsyncIterable();
     for (const msg of replayBuffer) {

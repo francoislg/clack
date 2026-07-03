@@ -288,6 +288,8 @@ export const en = {
     ":warning: The Playwright sidecar is unreachable at `{url}` — the test was not started. Is the `clack-playwright` container running?",
   "tester.busy":
     ":hourglass_flowing_sand: A test run is already in progress. Try again when it finishes.",
+  "tester.gate_failed":
+    "The test run ended without delivering a recording or a status report, and a corrective wrap-up attempt did not deliver either. Check the execution log for what the run was doing when it stopped.",
   "homeTab.workers.testing_count": "{count} testing",
 
   // ─── Spinoff (split a slice into a separate sibling PR) ─────────────

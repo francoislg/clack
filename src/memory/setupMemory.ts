@@ -40,6 +40,29 @@ export async function loadSetupNotes(
 }
 
 /**
+ * Whether the setup entry was rewritten since the pre-run baseline `updatedAt`
+ * (null baseline = no entry existed before the run). Value equality, not wall-clock
+ * ordering, so clock skew can't affect the answer. Fail-open: a missing entry or a
+ * store error reads as "not rewritten" — the caller then includes the rewrite
+ * instruction, which is harmless because the directive tells Claude to skip the
+ * rewrite when nothing changed. Never throws.
+ */
+export async function setupEntryWasRewritten(
+  kind: SetupRunKind,
+  repoName: string,
+  baselineUpdatedAt: string | null,
+): Promise<boolean> {
+  try {
+    const entry = await getMemory(setupMemoryId(kind, repoName));
+    if (!entry) return false;
+    return entry.updatedAt !== baselineUpdatedAt;
+  } catch (error) {
+    logger.warn(`Failed to check ${kind} setup entry for '${repoName}': ${error}`);
+    return false;
+  }
+}
+
+/**
  * One execution-log line per run stating the injection outcome, so a cold run is
  * distinguishable from a logging gap and stale notes are visible by their age.
  */

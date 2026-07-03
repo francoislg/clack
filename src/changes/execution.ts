@@ -3,7 +3,11 @@ import { existsSync, readFileSync } from "node:fs";
 import { simpleGit } from "simple-git";
 import { getConfig, findRepoByName, getWorkerSettingsPath, type Config } from "../config.js";
 import { t } from "../i18n/t.js";
-import { buildTesterSystemPrompt, buildTesterUserPrompt } from "../tester/prompt.js";
+import {
+  buildTesterCorrectivePrompt,
+  buildTesterSystemPrompt,
+  buildTesterUserPrompt,
+} from "../tester/prompt.js";
 import { teardownAppProcess } from "../tester/processTeardown.js";
 import { buildPlaywrightMcpServerConfig } from "../tester/sidecar.js";
 import type { McpServerConfig } from "@anthropic-ai/claude-agent-sdk";
@@ -19,6 +23,7 @@ import { appendWorkerSkillsCatalog } from "./workerSkillsCatalog.js";
 import {
   loadSetupNotes,
   buildSetupMemoryPromptSections,
+  setupEntryWasRewritten,
   setupNotesLogLine,
 } from "../memory/setupMemory.js";
 import { buildWorkerBashGuardHook } from "./workerBashGuard.js";
@@ -62,6 +67,8 @@ export async function runClaude(options: {
   onEvent?: (event: StreamEvent) => void | Promise<void>;
   resumeSessionId?: string;
   onSessionId?: (sessionId: string) => void;
+  /** Forwarded to `clackSession` — fires when a resume falls back to a fresh session. */
+  onResumeFallback?: () => void;
   /** External AbortController for cancellation support. If omitted, one is created internally. */
   abortController?: AbortController;
   /**
@@ -138,6 +145,7 @@ export async function runClaude(options: {
     prompt: options.prompt,
     resumeSessionId: options.resumeSessionId,
     onSessionId: options.onSessionId,
+    onResumeFallback: options.onResumeFallback,
     options: {
       cwd: options.cwd,
       executable: detectRuntime(),
@@ -607,20 +615,39 @@ async function executeTest(opts: ExecuteChangeOptions, config: Config): Promise<
   });
   const testerTools = buildClackTools(workerCtx);
 
+  // Deliverable tracking: a tester run must end having called record_and_upload and/or
+  // report_status. Tool names arrive on the event stream as full MCP names
+  // (mcp__clack__record_and_upload), so match on the trailing segment.
+  let deliveredRecording = false;
+  let deliveredReport = false;
+  const spyOnEvent = async (event: StreamEvent): Promise<void> => {
+    if (event.type === "tool_start") {
+      if (event.toolName.endsWith("record_and_upload")) deliveredRecording = true;
+      if (event.toolName.endsWith("report_status")) deliveredReport = true;
+    }
+    await onEvent?.(event);
+  };
+  const delivered = () => deliveredRecording || deliveredReport;
+
+  const systemPrompt = buildTesterSystemPrompt(promptOpts);
+  const mcpServers = {
+    clack: testerTools.mcpServer,
+    playwright: buildPlaywrightMcpServerConfig(tester.sidecarUrl),
+  };
+  const allowedTools = ["Read", "Glob", "Grep", "Bash", "ToolSearch"];
+  const disallowedTools = ["Task", "TaskOutput", "Write", "Edit"];
+
   let capturedSdkSessionId: string | undefined;
   try {
     const result = await runClaude({
       prompt: buildTesterUserPrompt(promptOpts),
       cwd: worktree.worktreePath,
-      systemPrompt: buildTesterSystemPrompt(promptOpts),
-      allowedTools: ["Read", "Glob", "Grep", "Bash", "ToolSearch"],
-      disallowedTools: ["Task", "TaskOutput", "Write", "Edit"],
+      systemPrompt,
+      allowedTools,
+      disallowedTools,
       branchName: plan.branchName,
-      mcpServers: {
-        clack: testerTools.mcpServer,
-        playwright: buildPlaywrightMcpServerConfig(tester.sidecarUrl),
-      },
-      onEvent,
+      mcpServers,
+      onEvent: spyOnEvent,
       abortController,
       ...(onHandle && { onHandle }),
       onSessionId: (id) => {
@@ -640,15 +667,129 @@ async function executeTest(opts: ExecuteChangeOptions, config: Config): Promise<
       };
     }
 
+    if (delivered()) {
+      appendExecutionLog(plan.branchName, "Deliverable gate: passed");
+      return {
+        success: true,
+        summary: "Test run complete",
+        sdkSessionId: capturedSdkSessionId,
+      };
+    }
+
+    appendExecutionLog(
+      plan.branchName,
+      "Deliverable gate: tripped (run ended without record_and_upload or report_status)",
+    );
+
+    if (capturedSdkSessionId) {
+      const correctiveDelivered = await runCorrectiveResume({
+        resumeSessionId: capturedSdkSessionId,
+        plan,
+        worktree,
+        sessionId,
+        config,
+        systemPrompt,
+        mcpServers,
+        allowedTools,
+        disallowedTools,
+        baselineSetupUpdatedAt: testerSetupNotes?.updatedAt ?? null,
+        spyOnEvent,
+        delivered,
+      });
+      if (correctiveDelivered) {
+        appendExecutionLog(plan.branchName, "Corrective resume: delivered");
+        return {
+          success: true,
+          summary: "Test run complete (after corrective resume)",
+          sdkSessionId: capturedSdkSessionId,
+        };
+      }
+      appendExecutionLog(plan.branchName, "Corrective resume: failed to deliver");
+    } else {
+      appendExecutionLog(plan.branchName, "Corrective resume: skipped (no SDK session id)");
+    }
+
     return {
-      success: true,
-      summary: "Test run complete",
+      success: false,
+      error: t("tester.gate_failed"),
       sdkSessionId: capturedSdkSessionId,
     };
   } finally {
-    await teardownAppProcess(worktree.worktreePath);
+    try {
+      await teardownAppProcess(worktree.worktreePath);
+    } catch (teardownError) {
+      logger.warn(`Tester app teardown failed: ${errorMessage(teardownError)}`);
+    }
   }
 }
+
+interface CorrectiveResumeOptions {
+  resumeSessionId: string;
+  plan: ChangePlan;
+  worktree: WorktreeInfo;
+  sessionId: string;
+  config: Config;
+  systemPrompt: string;
+  mcpServers: Record<string, McpServerConfig>;
+  allowedTools: string[];
+  disallowedTools: string[];
+  baselineSetupUpdatedAt: string | null;
+  spyOnEvent: (event: StreamEvent) => Promise<void>;
+  delivered: () => boolean;
+}
+
+/**
+ * One corrective wrap-up turn on the same SDK session after a tripped deliverable gate.
+ * The resumed session keeps the run's full context, so the prompt can also salvage the
+ * setup-memory rewrite when the run never wrote one. A resume that falls back to a fresh
+ * session is aborted immediately — the corrective prompt is meaningless without context.
+ * Returns whether a deliverable tool was called during the resumed turn.
+ */
+async function runCorrectiveResume(opts: CorrectiveResumeOptions): Promise<boolean> {
+  const includeSetupRewrite = !(await setupEntryWasRewritten(
+    "tester",
+    opts.worktree.repoName,
+    opts.baselineSetupUpdatedAt,
+  ));
+
+  const correctiveAbort = new AbortController();
+  let fellBack = false;
+  const result = await runClaude({
+    prompt: buildTesterCorrectivePrompt({
+      repoName: opts.worktree.repoName,
+      includeSetupRewrite,
+    }),
+    cwd: opts.worktree.worktreePath,
+    systemPrompt: opts.systemPrompt,
+    allowedTools: opts.allowedTools,
+    disallowedTools: opts.disallowedTools,
+    branchName: opts.plan.branchName,
+    mcpServers: opts.mcpServers,
+    timeout: Math.min(
+      CORRECTIVE_RESUME_TIMEOUT_MINUTES,
+      opts.config.changesWorkflow?.timeoutMinutes ?? CORRECTIVE_RESUME_TIMEOUT_MINUTES,
+    ),
+    resumeSessionId: opts.resumeSessionId,
+    onEvent: opts.spyOnEvent,
+    abortController: correctiveAbort,
+    onResumeFallback: () => {
+      fellBack = true;
+      correctiveAbort.abort();
+      appendExecutionLog(
+        opts.plan.branchName,
+        "Corrective resume: fell back to a fresh session — aborting the attempt",
+      );
+    },
+  });
+
+  if (result.usage) {
+    await addSessionUsage(opts.sessionId, result.usage);
+  }
+
+  return !fellBack && opts.delivered();
+}
+
+const CORRECTIVE_RESUME_TIMEOUT_MINUTES = 15;
 
 /**
  * Pull the spinoff slices a worker staged via `propose_spinoff` out of the worker tool

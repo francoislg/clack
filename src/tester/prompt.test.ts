@@ -3,7 +3,11 @@ import assert from "node:assert/strict";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
-import { buildTesterSystemPrompt, buildTesterUserPrompt } from "./prompt.js";
+import {
+  buildTesterCorrectivePrompt,
+  buildTesterSystemPrompt,
+  buildTesterUserPrompt,
+} from "./prompt.js";
 import type { TesterConfig } from "../config.js";
 
 const tmpBase = resolve(tmpdir(), `tester-prompt-${process.pid}`);
@@ -127,6 +131,53 @@ describe("buildTesterSystemPrompt", () => {
     assert.ok(!prompt.includes("NOTES FROM PREVIOUS RUNS (advisory"));
     assert.ok(prompt.includes("REPO SETUP MEMORY"));
     assert.ok(prompt.includes('"tester-setup:my-repo"'));
+  });
+});
+
+describe("turn-end hard rule", () => {
+  beforeEach(() => {
+    resolveInstructionFileMock.mockReturnValue(null);
+  });
+
+  it("is present in every assembled system prompt", () => {
+    const prompt = buildTesterSystemPrompt(makeOpts());
+    assert.ok(prompt.includes("Your run TERMINATES the instant you stop calling tools"));
+    assert.ok(prompt.includes("NEVER end your turn"));
+    assert.ok(prompt.includes("poll it with Bash"));
+  });
+
+  it("survives repo-specific instruction overrides", () => {
+    const instructionsPath = join(tmpBase, "test_instructions.md");
+    writeFileSync(instructionsPath, "Always test on staging.");
+    resolveInstructionFileMock.mockImplementation((filename: string) =>
+      filename.endsWith("test_instructions.md") ? instructionsPath : null,
+    );
+    const prompt = buildTesterSystemPrompt(makeOpts());
+    assert.ok(prompt.includes("Your run TERMINATES the instant you stop calling tools"));
+    assert.ok(prompt.includes("Always test on staging."));
+  });
+});
+
+describe("buildTesterCorrectivePrompt", () => {
+  it("instructs finish-now delivery of both deliverable tools", () => {
+    const prompt = buildTesterCorrectivePrompt({ repoName: "my-repo", includeSetupRewrite: false });
+    assert.ok(prompt.includes("record_and_upload"));
+    assert.ok(prompt.includes("report_status"));
+    assert.ok(prompt.includes("Close the browser session"));
+    assert.ok(prompt.includes("Nothing will wake you"));
+  });
+
+  it("includes the setup rewrite step when the entry was not rewritten", () => {
+    const prompt = buildTesterCorrectivePrompt({ repoName: "my-repo", includeSetupRewrite: true });
+    assert.ok(prompt.includes('"tester-setup:my-repo"'));
+    assert.ok(prompt.includes("REPO SETUP MEMORY"));
+    assert.ok(prompt.includes("remember tool"));
+  });
+
+  it("omits the setup rewrite step when the entry was rewritten mid-run", () => {
+    const prompt = buildTesterCorrectivePrompt({ repoName: "my-repo", includeSetupRewrite: false });
+    assert.ok(!prompt.includes("tester-setup:my-repo"));
+    assert.ok(!prompt.includes("REPO SETUP MEMORY"));
   });
 });
 
