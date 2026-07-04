@@ -1710,4 +1710,67 @@ describe("tester config", () => {
         err.message.includes("uploadTargets"),
     );
   });
+
+  it("accepts the service keys (dockerProxyUrl, servicesBudgetMb, serviceImageAllowlist)", () => {
+    writeConfig(
+      minimalConfig({
+        tester: {
+          enabled: true,
+          sidecarUrl: "http://clack-playwright:8931/mcp",
+          recordingsDir: "/recordings",
+          dockerProxyUrl: "http://clack-docker-proxy:2375",
+          servicesBudgetMb: 512,
+          serviceImageAllowlist: ["mysql:8", "redis:7"],
+        },
+      }),
+    );
+    const cfg = loadConfig(configPath, true);
+    assert.equal(cfg.tester?.dockerProxyUrl, "http://clack-docker-proxy:2375");
+    assert.equal(cfg.tester?.servicesBudgetMb, 512);
+    assert.deepEqual(cfg.tester?.serviceImageAllowlist, ["mysql:8", "redis:7"]);
+  });
+
+  it("accepts servicesBudgetMb of 0", () => {
+    writeConfig(minimalConfig({ tester: { enabled: false, servicesBudgetMb: 0 } }));
+    const cfg = loadConfig(configPath, true);
+    assert.equal(cfg.tester?.servicesBudgetMb, 0);
+  });
+
+  it("rejects an empty-string dockerProxyUrl", () => {
+    writeConfig(minimalConfig({ tester: { enabled: false, dockerProxyUrl: " " } }));
+    assert.throws(
+      () => loadConfig(configPath, true),
+      (err: unknown) => err instanceof Error && err.message.includes("tester.dockerProxyUrl"),
+    );
+  });
+
+  it("rejects a negative or non-integer servicesBudgetMb", () => {
+    writeConfig(minimalConfig({ tester: { enabled: false, servicesBudgetMb: -1 } }));
+    assert.throws(
+      () => loadConfig(configPath, true),
+      (err: unknown) => err instanceof Error && err.message.includes("tester.servicesBudgetMb"),
+    );
+    writeConfig(minimalConfig({ tester: { enabled: false, servicesBudgetMb: 1.5 } }));
+    assert.throws(
+      () => loadConfig(configPath, true),
+      (err: unknown) => err instanceof Error && err.message.includes("tester.servicesBudgetMb"),
+    );
+  });
+
+  it("rejects a serviceImageAllowlist with non-string or empty entries", () => {
+    writeConfig(
+      minimalConfig({ tester: { enabled: false, serviceImageAllowlist: ["mysql:8", ""] } }),
+    );
+    assert.throws(
+      () => loadConfig(configPath, true),
+      (err: unknown) =>
+        err instanceof Error && err.message.includes("tester.serviceImageAllowlist"),
+    );
+    writeConfig(minimalConfig({ tester: { enabled: false, serviceImageAllowlist: [42] } }));
+    assert.throws(
+      () => loadConfig(configPath, true),
+      (err: unknown) =>
+        err instanceof Error && err.message.includes("tester.serviceImageAllowlist"),
+    );
+  });
 });

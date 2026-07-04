@@ -6,6 +6,7 @@ import type { SessionContext } from "../sessions.js";
 import type { Config as AppConfig, RepositoryConfig } from "../config.js";
 import type { ReleaseReason, Worker, WorkerPool } from "../workers/types.js";
 import { startChangeWorkflow, handleFollowUp, type WorkflowDeps } from "./workflow.js";
+import { TesterServiceError } from "../tester/services.js";
 
 const checkSidecarReachableMock = vi.hoisted(() => vi.fn(async () => true));
 vi.mock("../tester/sidecar.js", async (importOriginal) => {
@@ -129,6 +130,9 @@ function makeDeps(overrides: Partial<WorkflowDeps> = {}): WorkflowDeps & { poolC
     forceResetBranch: vi.fn(async () => {}),
     applySlicePatch: vi.fn(async () => {}),
     getUserRecord: vi.fn(async () => null),
+    loadTesterServices: vi.fn(() => ({ ok: true as const, services: null })),
+    ensureTesterServices: vi.fn(async () => []),
+    stopTesterServices: vi.fn(async () => {}),
     ...overrides,
   };
   return Object.assign(deps, { poolCalls });
@@ -284,6 +288,140 @@ describe("startChangeWorkflow — tester runs", () => {
     assert.equal(result.success, true);
     assert.equal(checkSidecarReachableMock.mock.calls.length, 0);
     assert.equal(tryAcquireTesterSlotMock.mock.calls.length, 0);
+  });
+});
+
+describe("startChangeWorkflow — tester services", () => {
+  const MYSQL_SPEC = { name: "mysql", image: "mysql:8", memoryMb: 384, port: 3306 };
+  const STARTED = [
+    { name: "mysql", host: "clack-svc-my-repo-mysql", port: 3306, image: "mysql:8", tmpfs: true },
+  ];
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    checkSidecarReachableMock.mockResolvedValue(true);
+    tryAcquireTesterSlotMock.mockReturnValue(true);
+  });
+
+  it("provisions after the slot claim, before acquisition, and stops after the run", async () => {
+    const order: string[] = [];
+    tryAcquireTesterSlotMock.mockImplementation(() => {
+      order.push("slot");
+      return true;
+    });
+    const deps = makeDeps({
+      loadTesterServices: vi.fn(() => ({ ok: true as const, services: [MYSQL_SPEC] })),
+      ensureTesterServices: vi.fn(async () => {
+        order.push("ensure");
+        return STARTED;
+      }),
+      stopTesterServices: vi.fn(async () => {
+        order.push("stop");
+      }),
+    });
+    const poolAcquire = deps.pool.acquire;
+    deps.pool.acquire = async (...args) => {
+      order.push("acquire");
+      return poolAcquire(...args);
+    };
+    releaseTesterSlotMock.mockImplementation(() => {
+      order.push("release");
+    });
+
+    const result = await startChangeWorkflow(makeRequest(), makeTestPlan(), "s1", undefined, deps);
+
+    assert.equal(result.success, true);
+    assert.deepEqual(order, ["slot", "ensure", "acquire", "stop", "release"]);
+  });
+
+  it("threads the started services into executeChange", async () => {
+    const deps = makeDeps({
+      loadTesterServices: vi.fn(() => ({ ok: true as const, services: [MYSQL_SPEC] })),
+      ensureTesterServices: vi.fn(async () => STARTED),
+    });
+
+    await startChangeWorkflow(makeRequest(), makeTestPlan(), "s1", undefined, deps);
+
+    const opts = vi.mocked(deps.executeChange).mock.calls[0][0];
+    assert.deepEqual(opts.testerServices, STARTED);
+  });
+
+  it("omits testerServices from executeChange when the repo declares none", async () => {
+    const deps = makeDeps();
+
+    await startChangeWorkflow(makeRequest(), makeTestPlan(), "s1", undefined, deps);
+
+    assert.equal(vi.mocked(deps.ensureTesterServices).mock.calls.length, 0);
+    assert.equal(vi.mocked(deps.stopTesterServices).mock.calls.length, 0);
+    const opts = vi.mocked(deps.executeChange).mock.calls[0][0];
+    assert.equal("testerServices" in opts, false);
+  });
+
+  it("aborts before acquisition on an invalid declaration file", async () => {
+    const deps = makeDeps({
+      loadTesterServices: vi.fn(() => ({
+        ok: false as const,
+        error: "'tester_services.services[0].port' too big",
+      })),
+    });
+
+    const result = await startChangeWorkflow(makeRequest(), makeTestPlan(), "s1", undefined, deps);
+
+    assert.equal(result.success, false);
+    assert.ok(result.error?.includes("tester_services.json` is invalid"));
+    assert.ok(result.error?.includes("port' too big"));
+    assert.equal(deps.poolCalls.acquired, 0);
+    assert.deepEqual(releaseTesterSlotMock.mock.calls[0], ["s1"]);
+    assert.equal(vi.mocked(deps.stopTesterServices).mock.calls.length, 0);
+  });
+
+  it("aborts before acquisition when provisioning fails, without a teardown of its own", async () => {
+    const deps = makeDeps({
+      loadTesterServices: vi.fn(() => ({ ok: true as const, services: [MYSQL_SPEC] })),
+      ensureTesterServices: vi.fn(async () => {
+        throw new TesterServiceError("budget_exceeded", "need 384 MB but budget is 100");
+      }),
+    });
+
+    const result = await startChangeWorkflow(makeRequest(), makeTestPlan(), "s1", undefined, deps);
+
+    assert.equal(result.success, false);
+    assert.ok(result.error?.includes("tester.servicesBudgetMb"));
+    assert.ok(result.error?.includes("need 384 MB but budget is 100"));
+    assert.equal(deps.poolCalls.acquired, 0);
+    assert.deepEqual(releaseTesterSlotMock.mock.calls[0], ["s1"]);
+    assert.equal(vi.mocked(deps.stopTesterServices).mock.calls.length, 0);
+  });
+
+  it("stops services even when the execution fails", async () => {
+    const deps = makeDeps({
+      loadTesterServices: vi.fn(() => ({ ok: true as const, services: [MYSQL_SPEC] })),
+      ensureTesterServices: vi.fn(async () => STARTED),
+      executeChange: vi.fn(async (): Promise<ExecutionResult> => {
+        throw new Error("boom");
+      }),
+    });
+
+    const result = await startChangeWorkflow(makeRequest(), makeTestPlan(), "s1", undefined, deps);
+
+    assert.equal(result.success, false);
+    assert.equal(vi.mocked(deps.stopTesterServices).mock.calls.length, 1);
+    assert.equal(vi.mocked(deps.stopTesterServices).mock.calls[0][0], "my-repo");
+  });
+
+  it("never touches the service path on implement runs", async () => {
+    const deps = makeDeps();
+
+    await startChangeWorkflow(
+      makeRequest(),
+      { branchName: "clack/feat/x", description: "d", targetRepo: "my-repo" },
+      "s1",
+      undefined,
+      deps,
+    );
+
+    assert.equal(vi.mocked(deps.loadTesterServices).mock.calls.length, 0);
+    assert.equal(vi.mocked(deps.stopTesterServices).mock.calls.length, 0);
   });
 });
 

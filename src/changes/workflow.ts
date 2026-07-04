@@ -39,12 +39,21 @@ import {
 import { buildWorkerContext } from "../tools/context.js";
 import { checkSidecarReachable } from "../tester/sidecar.js";
 import { tryAcquireTesterSlot, releaseTesterSlot } from "../tester/concurrency.js";
+import { loadTesterServices } from "../tester/servicesConfig.js";
+import {
+  ensureServices,
+  stopServices,
+  TesterServiceError,
+  type StartedService,
+  type TesterServiceErrorKind,
+} from "../tester/services.js";
 import { getUserRecord } from "../userRegistry.js";
 import { buildClackTools } from "../tools/server.js";
 import { fetchPRReviewContext } from "./pr.js";
 import { defaultSpinoffGitOps } from "./spinoff.js";
 import type { StreamEvent } from "../streaming/types.js";
 import { errorMessage } from "../errors.js";
+import { logger } from "../logger.js";
 import type { Config as AppConfig, RepositoryConfig } from "../config.js";
 import type { McpServerConfig } from "@anthropic-ai/claude-agent-sdk";
 
@@ -111,6 +120,9 @@ export interface WorkflowDeps {
   forceResetBranch: (worker: Worker, repo: RepositoryConfig, branch: string) => Promise<void>;
   applySlicePatch: (worktreePath: string, patchPath: string) => Promise<void>;
   getUserRecord: typeof getUserRecord;
+  loadTesterServices: typeof loadTesterServices;
+  ensureTesterServices: typeof ensureServices;
+  stopTesterServices: typeof stopServices;
 }
 
 export const defaultWorkflowDeps: WorkflowDeps = {
@@ -136,6 +148,9 @@ export const defaultWorkflowDeps: WorkflowDeps = {
   forceResetBranch,
   applySlicePatch: defaultSpinoffGitOps.applySlicePatch,
   getUserRecord,
+  loadTesterServices,
+  ensureTesterServices: ensureServices,
+  stopTesterServices: stopServices,
 };
 
 // ============================================================================
@@ -323,9 +338,19 @@ export async function startChangeWorkflow(
     }
   }
 
-  // The finally is the ONLY tester-slot release site — every exit path (early return,
-  // acquire failure, execution throw) flows through it, so the slot can never leak.
+  // The finally is the ONLY tester-slot/service release site — every exit path (early
+  // return, acquire failure, execution throw) flows through it, so neither can leak.
+  let testerServicesStarted = false;
   try {
+    let testerServices: StartedService[] | undefined;
+    if (isTest) {
+      const provisioned = await provisionTesterServices(plan, config, deps);
+      if (!provisioned.ok) {
+        return { success: false, error: provisioned.error };
+      }
+      testerServices = provisioned.services;
+      testerServicesStarted = provisioned.services.length > 0;
+    }
     return await runAcquiredChangeWorkflow(
       request,
       plan,
@@ -335,9 +360,89 @@ export async function startChangeWorkflow(
       deps,
       onEvent,
       onAck,
+      testerServices,
     );
   } finally {
-    if (isTest) releaseTesterSlot(sessionId);
+    if (isTest) {
+      // Teardown BEFORE the slot release: the slot is what serializes runs, so freeing
+      // it first would let a new run's ensureServices race this run's stopServices on
+      // the same containers. The catch keeps a teardown/log failure from masking the
+      // try's outcome; the nested finally makes the release unconditional.
+      try {
+        if (testerServicesStarted) {
+          await deps.stopTesterServices(plan.targetRepo, config.tester ?? { enabled: false });
+          deps.appendExecutionLog(plan.branchName, "Tester services: stopped");
+        }
+      } catch (err) {
+        logger.warn(`Tester service teardown failed: ${errorMessage(err)}`);
+      } finally {
+        releaseTesterSlot(sessionId);
+      }
+    }
+  }
+}
+
+const TESTER_SERVICE_ERROR_KEYS: Record<
+  TesterServiceErrorKind,
+  | "tester.services_proxy_missing"
+  | "tester.services_proxy_unreachable"
+  | "tester.services_image_not_allowlisted"
+  | "tester.services_budget_exceeded"
+  | "tester.services_readiness_timeout"
+  | "tester.services_provision_failed"
+> = {
+  proxy_missing: "tester.services_proxy_missing",
+  proxy_unreachable: "tester.services_proxy_unreachable",
+  image_not_allowlisted: "tester.services_image_not_allowlisted",
+  budget_exceeded: "tester.services_budget_exceeded",
+  readiness_timeout: "tester.services_readiness_timeout",
+  provision_failed: "tester.services_provision_failed",
+};
+
+/**
+ * Load the repo's tester service declarations and provision them. Runs AFTER the tester
+ * slot is claimed (the slot serializes runs, so services never race) and BEFORE any
+ * workspace is acquired (a failed provision leaves nothing to tear down upstream —
+ * `ensureServices` is itself all-or-nothing).
+ */
+async function provisionTesterServices(
+  plan: ChangePlan,
+  config: AppConfig,
+  deps: Pick<WorkflowDeps, "loadTesterServices" | "ensureTesterServices" | "appendExecutionLog">,
+): Promise<{ ok: true; services: StartedService[] } | { ok: false; error: string }> {
+  const loaded = deps.loadTesterServices(plan.targetRepo);
+  if (!loaded.ok) {
+    return { ok: false, error: t("tester.services_invalid", { detail: loaded.error }) };
+  }
+  if (!loaded.services || loaded.services.length === 0) {
+    return { ok: true, services: [] };
+  }
+  deps.appendExecutionLog(
+    plan.branchName,
+    `Tester services: provisioning ${loaded.services.map((s) => s.name).join(", ")}`,
+  );
+  try {
+    const services = await deps.ensureTesterServices({
+      repoName: plan.targetRepo,
+      services: loaded.services,
+      tester: config.tester ?? { enabled: false },
+    });
+    deps.appendExecutionLog(
+      plan.branchName,
+      `Tester services: ready (${services.map((s) => `${s.host}:${s.port}`).join(", ")})`,
+    );
+    return { ok: true, services };
+  } catch (err) {
+    if (err instanceof TesterServiceError) {
+      return {
+        ok: false,
+        error: t(TESTER_SERVICE_ERROR_KEYS[err.kind], { detail: err.message }),
+      };
+    }
+    return {
+      ok: false,
+      error: t("tester.services_provision_failed", { detail: errorMessage(err) }),
+    };
   }
 }
 
@@ -350,6 +455,7 @@ async function runAcquiredChangeWorkflow(
   deps: WorkflowDeps,
   onEvent?: (event: StreamEvent) => void | Promise<void>,
   onAck?: (text: string) => Promise<void>,
+  testerServices?: StartedService[],
 ): Promise<ChangeResult> {
   // Reserve the active change slot early to prevent concurrent triggers
   // (e.g., auto-execute + button click racing). The worktree field is set
@@ -469,6 +575,7 @@ async function runAcquiredChangeWorkflow(
       resumeContext,
       onEvent,
       abortController,
+      ...(testerServices && testerServices.length > 0 && { testerServices }),
       onHandle: (handle) => {
         activeChange.handle = handle;
       },

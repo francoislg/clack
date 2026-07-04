@@ -228,7 +228,7 @@ chmod a+rwx "\$MOUNT_POINT"
 # Containers race this mount at boot: their binds under the mountpoint resolve
 # to empty paths pre-mount (the tester sidecar exits 127; clack can come up
 # against an empty data dir). Restart them now that the disk is up.
-for c in clack clack-playwright; do
+for c in clack clack-playwright clack-docker-proxy; do
   if docker ps -a --format '{{.Names}}' | grep -q "^\$c\$"; then
     docker restart "\$c" || true
   fi
@@ -305,7 +305,8 @@ echo -e "${YELLOW}Deploying container...${NC}"
 TESTER_ENABLED=$(read_tester_enabled)
 SIDECAR_RESERVE_MB=0
 if [ "$TESTER_ENABLED" = "true" ]; then
-    SIDECAR_RESERVE_MB=$SIDECAR_MEM_MB
+    SERVICES_BUDGET_MB=$(read_tester_services_budget)
+    SIDECAR_RESERVE_MB=$((SIDECAR_MEM_MB + PROXY_MEM_MB + SERVICES_BUDGET_MB))
 fi
 
 gcloud compute ssh "$INSTANCE_NAME" --zone="$ZONE" --quiet --command="

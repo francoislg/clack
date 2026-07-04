@@ -10,6 +10,7 @@ import {
 } from "../tester/prompt.js";
 import { teardownAppProcess } from "../tester/processTeardown.js";
 import { buildPlaywrightMcpServerConfig } from "../tester/sidecar.js";
+import type { StartedService } from "../tester/services.js";
 import type { McpServerConfig } from "@anthropic-ai/claude-agent-sdk";
 import { errorMessage } from "../errors.js";
 import { resolveInstructionFile } from "../instructions.js";
@@ -410,6 +411,8 @@ export interface ExecuteChangeOptions {
    * can call `handle.stop(reason)` instead of touching the AbortController.
    */
   onHandle?: (handle: ClaudeRunHandle) => void;
+  /** Tester runs only: services the workflow gate provisioned, advertised in the prompt. */
+  testerServices?: StartedService[];
 }
 
 export async function executeChange(opts: ExecuteChangeOptions): Promise<ExecutionResult> {
@@ -613,6 +616,7 @@ async function executeTest(opts: ExecuteChangeOptions, config: Config): Promise<
     requester,
     tester,
     learnedNotes: testerSetupNotes?.notes ?? null,
+    services: opts.testerServices ?? [],
   };
 
   const workerCtx = buildWorkerContext({

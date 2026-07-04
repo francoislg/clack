@@ -307,6 +307,20 @@ export const fr: Partial<Record<StringKey, string>> = {
     ":hourglass_flowing_sand: Un test est déjà en cours. Réessayez quand il sera terminé.",
   "tester.gate_failed":
     "Le test s'est terminé sans livrer d'enregistrement ni de rapport d'état, et une tentative de reprise corrective n'a rien livré non plus. Consultez le journal d'exécution pour voir ce que le test faisait au moment de l'arrêt.",
+  "tester.services_invalid":
+    ":warning: Le fichier `tester_services.json` de ce dépôt est invalide — le test n'a pas démarré. {detail}",
+  "tester.services_proxy_missing":
+    ":warning: Ce dépôt déclare des services de test, mais `tester.dockerProxyUrl` n'est pas configuré — le test n'a pas démarré.",
+  "tester.services_proxy_unreachable":
+    ":warning: Le proxy docker des services de test est injoignable — le test n'a pas démarré. {detail}",
+  "tester.services_image_not_allowlisted":
+    ":no_entry: Un service de test déclaré utilise une image hors de `tester.serviceImageAllowlist` — le test n'a pas démarré. {detail}",
+  "tester.services_budget_exceeded":
+    ":no_entry: Les services de test déclarés dépassent `tester.servicesBudgetMb` — le test n'a pas démarré. {detail}",
+  "tester.services_readiness_timeout":
+    ":warning: Un service de test a démarré mais n'est jamais devenu prêt — le test n'a pas démarré. {detail}",
+  "tester.services_provision_failed":
+    ":warning: La mise en place des services de test de ce dépôt a échoué — le test n'a pas démarré. {detail}",
   "homeTab.workers.testing_count": "{count} en test",
 
   // ─── Spinoff (split a slice into a separate sibling PR) ─────────────

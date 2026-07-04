@@ -3,6 +3,7 @@ import { DEFAULT_TESTER_APP_HOST, type TesterConfig } from "../config.js";
 import { buildSetupMemoryPromptSections, setupMemoryId } from "../memory/setupMemory.js";
 import { resolveInstructionFile } from "../instructions.js";
 import { logger } from "../logger.js";
+import type { StartedService } from "./services.js";
 
 export const APP_PROCESS_INFO_FILENAME = ".clack-tester-app.json";
 
@@ -41,6 +42,11 @@ export interface TesterPromptOptions {
    * Null/absent on a cold run.
    */
   learnedNotes?: string | null;
+  /**
+   * Services the workflow gate provisioned for this run (from the repo's
+   * `tester_services.json`). Empty/absent → no TEST SERVICES section, prompt unchanged.
+   */
+  services?: StartedService[];
 }
 
 function readOptionalInstructionFile(relativePath: string): string | null {
@@ -70,6 +76,8 @@ export function buildTesterSystemPrompt(opts: TesterPromptOptions): string {
     opts.learnedNotes ?? null,
   );
 
+  systemPrompt += buildTestServicesSection(opts.services ?? []);
+
   const testInstructions = readOptionalInstructionFile(`${opts.repoName}/test_instructions.md`);
   if (testInstructions) {
     systemPrompt += `\n\nRepository-Specific Test Instructions:\n${testInstructions}`;
@@ -83,6 +91,15 @@ export function buildTesterSystemPrompt(opts: TesterPromptOptions): string {
   }
 
   return systemPrompt;
+}
+
+function buildTestServicesSection(services: StartedService[]): string {
+  if (services.length === 0) return "";
+  const lines = services.map(
+    (service) =>
+      `- ${service.name} → host "${service.host}", port ${service.port} (${service.image}${service.tmpfs ? ", tmpfs" : ""})`,
+  );
+  return `\n\nTEST SERVICES (already running, fresh and empty, reachable from this workspace):\n${lines.join("\n")}\nWire the app under test to these per the repository test instructions. Do not start your own service containers — these are the only ones available, and they are torn down when the run ends.`;
 }
 
 export interface TesterCorrectivePromptOptions {

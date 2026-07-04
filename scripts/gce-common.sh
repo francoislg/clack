@@ -25,6 +25,14 @@ MACHINE_TYPE="e2-standard-2"
 HOST_RESERVE_MB=384
 SIDECAR_MEM_MB=896
 
+# Tester-services control plane: a restricted docker-socket-proxy that lets Clack
+# provision per-repo service containers (mysql, redis, ...) for tester runs. Deployed
+# (and its reserve applied) only when config.tester.enabled; the per-repo services
+# themselves are additionally budgeted by config.tester.servicesBudgetMb.
+PROXY_IMAGE="tecnativa/docker-socket-proxy:latest"
+PROXY_CONTAINER_NAME="clack-docker-proxy"
+PROXY_MEM_MB=64
+
 # "true"/"false": whether the local config enables the tester feature (drives
 # the sidecar container + the sidecar memory reserve). Callers use this both
 # before `docker run` (memory math) and in the sidecar deploy phase.
@@ -34,6 +42,17 @@ import { readFileSync } from 'node:fs';
 const c = JSON.parse(readFileSync('$DATA_DIR/config.json', 'utf-8'));
 console.log(c.tester?.enabled === true ? 'true' : 'false');
 " 2>/dev/null || echo false
+}
+
+# Memory (MB) reserved for per-repo tester service containers, from the local
+# config's tester.servicesBudgetMb (0 when absent/invalid — no services can run).
+read_tester_services_budget() {
+    node --input-type=module -e "
+import { readFileSync } from 'node:fs';
+const c = JSON.parse(readFileSync('$DATA_DIR/config.json', 'utf-8'));
+const v = c.tester?.servicesBudgetMb;
+console.log(Number.isInteger(v) && v >= 0 ? v : 0);
+" 2>/dev/null || echo 0
 }
 
 # Artifact Registry: region is derived from ZONE by stripping the trailing
