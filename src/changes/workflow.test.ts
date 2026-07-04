@@ -185,6 +185,9 @@ function makeDeps(): WorkflowDeps {
     forceResetBranch: mockForceResetBranch,
     applySlicePatch: mockApplySlicePatch,
     getUserRecord: mockGetUserRecord,
+    loadTesterServices: vi.fn(() => ({ ok: true as const, services: null })),
+    ensureTesterServices: vi.fn(async () => []),
+    stopTesterServices: vi.fn(async () => {}),
   };
 }
 

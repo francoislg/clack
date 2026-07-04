@@ -442,7 +442,18 @@ export const testerZod = z.unknown().transform((raw, ctx): Config["tester"] => {
   }
   const obj = raw as JsonObject;
   for (const key of Object.keys(obj)) {
-    if (!["enabled", "sidecarUrl", "recordingsDir", "appHost", "maxConcurrent"].includes(key)) {
+    if (
+      ![
+        "enabled",
+        "sidecarUrl",
+        "recordingsDir",
+        "appHost",
+        "maxConcurrent",
+        "dockerProxyUrl",
+        "servicesBudgetMb",
+        "serviceImageAllowlist",
+      ].includes(key)
+    ) {
       ctx.addIssue({ code: "custom", message: `Config 'tester' contains unknown key '${key}'` });
       return z.NEVER;
     }
@@ -451,7 +462,9 @@ export const testerZod = z.unknown().transform((raw, ctx): Config["tester"] => {
     ctx.addIssue({ code: "custom", message: "Config 'tester.enabled' must be a boolean" });
     return z.NEVER;
   }
-  const requireString = (key: "sidecarUrl" | "recordingsDir" | "appHost"): string | undefined => {
+  const requireString = (
+    key: "sidecarUrl" | "recordingsDir" | "appHost" | "dockerProxyUrl",
+  ): string | undefined => {
     const val = obj[key];
     if (val === undefined) return undefined;
     if (typeof val !== "string" || val.trim().length === 0) {
@@ -489,12 +502,46 @@ export const testerZod = z.unknown().transform((raw, ctx): Config["tester"] => {
     }
     maxConcurrent = obj.maxConcurrent;
   }
+  const dockerProxyUrl = requireString("dockerProxyUrl");
+  let servicesBudgetMb: number | undefined;
+  if (obj.servicesBudgetMb !== undefined) {
+    if (
+      typeof obj.servicesBudgetMb !== "number" ||
+      !Number.isInteger(obj.servicesBudgetMb) ||
+      obj.servicesBudgetMb < 0
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        message: `Config 'tester.servicesBudgetMb' must be a non-negative integer (got ${JSON.stringify(obj.servicesBudgetMb)})`,
+      });
+      return z.NEVER;
+    }
+    servicesBudgetMb = obj.servicesBudgetMb;
+  }
+  let serviceImageAllowlist: string[] | undefined;
+  if (obj.serviceImageAllowlist !== undefined) {
+    const list = obj.serviceImageAllowlist;
+    if (
+      !Array.isArray(list) ||
+      list.some((entry) => typeof entry !== "string" || entry.trim().length === 0)
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        message: "Config 'tester.serviceImageAllowlist' must be an array of non-empty strings",
+      });
+      return z.NEVER;
+    }
+    serviceImageAllowlist = list as string[];
+  }
   return {
     enabled: obj.enabled,
     ...(sidecarUrl !== undefined && { sidecarUrl }),
     ...(recordingsDir !== undefined && { recordingsDir }),
     ...(appHost !== undefined && { appHost }),
     ...(maxConcurrent !== undefined && { maxConcurrent }),
+    ...(dockerProxyUrl !== undefined && { dockerProxyUrl }),
+    ...(servicesBudgetMb !== undefined && { servicesBudgetMb }),
+    ...(serviceImageAllowlist !== undefined && { serviceImageAllowlist }),
   };
 });
 

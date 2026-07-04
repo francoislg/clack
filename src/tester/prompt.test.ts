@@ -132,6 +132,41 @@ describe("buildTesterSystemPrompt", () => {
     assert.ok(prompt.includes("REPO SETUP MEMORY"));
     assert.ok(prompt.includes('"tester-setup:my-repo"'));
   });
+
+  it("renders the TEST SERVICES section when services were provisioned", () => {
+    const prompt = buildTesterSystemPrompt({
+      ...makeOpts(),
+      services: [
+        {
+          name: "mysql",
+          host: "clack-svc-my-repo-mysql",
+          port: 3306,
+          image: "mysql:8",
+          tmpfs: true,
+        },
+        {
+          name: "redis",
+          host: "clack-svc-my-repo-redis",
+          port: 6379,
+          image: "redis:7",
+          tmpfs: false,
+        },
+      ],
+    });
+    assert.ok(prompt.includes("TEST SERVICES (already running, fresh and empty"));
+    assert.ok(
+      prompt.includes('- mysql → host "clack-svc-my-repo-mysql", port 3306 (mysql:8, tmpfs)'),
+    );
+    assert.ok(prompt.includes('- redis → host "clack-svc-my-repo-redis", port 6379 (redis:7)'));
+    assert.ok(prompt.includes("Do not start your own service containers"));
+  });
+
+  it("is byte-identical to the no-services prompt when services are absent or empty", () => {
+    const withoutField = buildTesterSystemPrompt(makeOpts());
+    const withEmpty = buildTesterSystemPrompt({ ...makeOpts(), services: [] });
+    assert.equal(withEmpty, withoutField);
+    assert.ok(!withoutField.includes("TEST SERVICES"));
+  });
 });
 
 describe("turn-end hard rule", () => {

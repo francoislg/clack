@@ -312,6 +312,24 @@ export interface TesterConfig {
   appHost?: string;
   /** Max simultaneous tester runs (each adds a browser + the app dev server). Default 1. */
   maxConcurrent?: number;
+  /**
+   * URL of the restricted docker-socket-proxy the service lifecycle talks to, e.g.
+   * "http://clack-docker-proxy:2375". Workspace-wide (one proxy serves all repos).
+   * Required at run time only when the target repo declares tester services.
+   */
+  dockerProxyUrl?: string;
+  /**
+   * Ceiling on the summed `memoryMb` of a repo's declared tester services. A run whose
+   * declared services exceed this budget aborts before anything is provisioned. The
+   * deploy scripts reserve this amount out of the clack container's memory cap. Default 0
+   * (no services can run until an operator sets a budget).
+   */
+  servicesBudgetMb?: number;
+  /**
+   * Exact-match allowlist of images tester services may run (e.g. ["mysql:8", "redis:7"]).
+   * A declared service whose image is not listed aborts the run before any pull.
+   */
+  serviceImageAllowlist?: string[];
 }
 
 export const DEFAULT_TESTER_APP_HOST = "clack";

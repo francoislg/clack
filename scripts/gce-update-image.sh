@@ -262,7 +262,8 @@ echo -e "${YELLOW}Stopping old container and starting new one...${NC}"
 TESTER_ENABLED=$(read_tester_enabled)
 SIDECAR_RESERVE_MB=0
 if [ "$TESTER_ENABLED" = "true" ]; then
-    SIDECAR_RESERVE_MB=$SIDECAR_MEM_MB
+    SERVICES_BUDGET_MB=$(read_tester_services_budget)
+    SIDECAR_RESERVE_MB=$((SIDECAR_MEM_MB + PROXY_MEM_MB + SERVICES_BUDGET_MB))
 fi
 
 DOWNTIME_START=$(date +%s)
@@ -327,12 +328,38 @@ if [ "$TESTER_ENABLED" = "true" ]; then
             docker network connect clack clack 2>/dev/null || true
         "
     echo -e "${GREEN}✓ Playwright sidecar running (shared docker network: clack)${NC}"
+
+    # Tester-services control plane: a docker-socket-proxy restricted to container +
+    # image endpoints (no exec, no volumes, no host introspection). Never port-mapped
+    # to the host — reachable only over the clack network at
+    # config.tester.dockerProxyUrl (http://clack-docker-proxy:2375). Clack's service
+    # lifecycle is the only consumer; Claude gets no docker-facing tool.
+    echo -e "${YELLOW}Ensuring docker-socket-proxy (tester services control plane)...${NC}"
+    gcloud compute ssh "$INSTANCE_NAME" --zone="$ZONE" --quiet --command="
+        set -e
+        docker pull $PROXY_IMAGE
+        docker rm -f $PROXY_CONTAINER_NAME 2>/dev/null || true
+        docker run -d \\
+            --name $PROXY_CONTAINER_NAME \\
+            --restart unless-stopped \\
+            --memory ${PROXY_MEM_MB}m \\
+            --memory-swap ${PROXY_MEM_MB}m \\
+            --network clack \\
+            -e CONTAINERS=1 \\
+            -e POST=1 \\
+            -e IMAGES=1 \\
+            -v /var/run/docker.sock:/var/run/docker.sock:ro \\
+            $PROXY_IMAGE
+    "
+    echo -e "${GREEN}✓ Docker proxy running (reserve: playwright ${SIDECAR_MEM_MB}m + proxy ${PROXY_MEM_MB}m + services ${SERVICES_BUDGET_MB}m)${NC}"
 else
     gcloud compute ssh "$INSTANCE_NAME" --zone="$ZONE" --quiet --command="
-        if docker ps -a --format '{{.Names}}' | grep -q '^clack-playwright\$'; then
-            docker rm -f clack-playwright
-            echo 'Tester disabled — removed stale clack-playwright sidecar.'
-        fi
+        for c in clack-playwright $PROXY_CONTAINER_NAME; do
+            if docker ps -a --format '{{.Names}}' | grep -q \"^\$c\$\"; then
+                docker rm -f \"\$c\"
+                echo \"Tester disabled — removed stale \$c sidecar.\"
+            fi
+        done
     " || true
 fi
 echo ""

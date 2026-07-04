@@ -300,6 +300,20 @@ export const en = {
     ":hourglass_flowing_sand: A test run is already in progress. Try again when it finishes.",
   "tester.gate_failed":
     "The test run ended without delivering a recording or a status report, and a corrective wrap-up attempt did not deliver either. Check the execution log for what the run was doing when it stopped.",
+  "tester.services_invalid":
+    ":warning: This repo's `tester_services.json` is invalid — the test was not started. {detail}",
+  "tester.services_proxy_missing":
+    ":warning: This repo declares tester services, but `tester.dockerProxyUrl` is not configured — the test was not started.",
+  "tester.services_proxy_unreachable":
+    ":warning: The docker proxy for tester services is unreachable — the test was not started. {detail}",
+  "tester.services_image_not_allowlisted":
+    ":no_entry: A declared tester service uses an image outside `tester.serviceImageAllowlist` — the test was not started. {detail}",
+  "tester.services_budget_exceeded":
+    ":no_entry: The declared tester services exceed `tester.servicesBudgetMb` — the test was not started. {detail}",
+  "tester.services_readiness_timeout":
+    ":warning: A tester service started but never became ready — the test was not started. {detail}",
+  "tester.services_provision_failed":
+    ":warning: Provisioning this repo's tester services failed — the test was not started. {detail}",
   "homeTab.workers.testing_count": "{count} testing",
 
   // ─── Spinoff (split a slice into a separate sibling PR) ─────────────

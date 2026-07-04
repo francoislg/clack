@@ -538,6 +538,26 @@ export const CONFIG_SCHEMA: SchemaFor<Config> = {
           default: 1,
           required: false,
         },
+        dockerProxyUrl: {
+          type: "string",
+          description:
+            "URL of the restricted docker-socket-proxy used to run per-repo tester services (e.g. http://clack-docker-proxy:2375). Required only when a repo declares tester_services.json.",
+          required: false,
+        },
+        servicesBudgetMb: {
+          type: "number",
+          description:
+            "Ceiling on the summed memoryMb of a repo's declared tester services; runs exceeding it abort before provisioning. Deploy scripts reserve this amount out of the clack container's memory cap.",
+          default: 0,
+          required: false,
+        },
+        serviceImageAllowlist: {
+          type: "array",
+          description:
+            "Exact-match allowlist of images tester services may run. A declared service whose image is not listed aborts the run.",
+          items: { type: "string", description: "An allowed image reference (e.g. mysql:8)." },
+          required: false,
+        },
       },
     },
     language: {
