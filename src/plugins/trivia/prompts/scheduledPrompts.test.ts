@@ -553,6 +553,15 @@ describe("PROCESS_REVEAL_INSTRUCTIONS — renderer brief", () => {
     assert.match(PROCESS_REVEAL_INSTRUCTIONS, /look up the entry by `userId`/);
   });
 
+  it("describes the perfect-round star appended to the This Round cell", () => {
+    assert.match(PROCESS_REVEAL_INSTRUCTIONS, /PERFECT-ROUND STAR/);
+    assert.match(PROCESS_REVEAL_INSTRUCTIONS, /perfectRound: true/);
+    // The star trails the medal-and-score content; the worked example shows it.
+    assert.match(PROCESS_REVEAL_INSTRUCTIONS, /🥇 3 ⭐/);
+    // Server flag is authoritative — Claude must not re-derive perfection.
+    assert.match(PROCESS_REVEAL_INSTRUCTIONS, /do NOT re-derive perfection/);
+  });
+
   it("gates the This Round row on a non-empty perPlayer, not reveals.length or reveal mode", () => {
     // Rendered whenever perPlayer is non-empty, for any reveal count and any mode.
     assert.match(PROCESS_REVEAL_INSTRUCTIONS, /whenever `roundSummary\.perPlayer` is non-empty/);
