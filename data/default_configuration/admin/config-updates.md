@@ -14,7 +14,7 @@ addressing modes, and you pass **exactly one** of `role` or `repo`:
 
 - **Role mode** — instruction files for a role:
   - `role` — one of `user`, `dev`, `admin`, `owner`
-  - `topic` — optional integration name (e.g., `metabase`, `monday`) for topic-scoped files
+  - `topic` — optional integration name (e.g., `metabase`, `sentry`) for topic-scoped files
   - `file` — bare filename ending in `.md` (no slashes)
 - **Repo mode** — per-repository instruction files:
   - `repo` — a configured repository name
