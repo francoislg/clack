@@ -28,7 +28,11 @@ export function createRunTestTool(
     "Run a QA test session: boots the app from a branch in a workspace, seeds data, drives it " +
       "in a browser, records a video, and uploads the recording to this thread. By default the " +
       "branch must already exist on the remote (a PR's head branch); set new_branch to test " +
-      "current behavior without a PR. Returns a ref ID to use in submit_response.",
+      "current behavior without a PR. Before staging, ALWAYS investigate the change first — read " +
+      "the diff and the affected files, identify which app/package actually exercises the changed " +
+      "code, and author test_focus as a concrete plan (target app, the flow that reaches the " +
+      "change, what to observe) rather than a generic 'test this PR'. Do not stage until you can " +
+      "name the app whose UI exercises the change. Returns a ref ID to use in submit_response.",
     {
       branch: z
         .string()
@@ -52,7 +56,12 @@ export function createRunTestTool(
         .describe(
           "What to exercise: the flows, pages, or behaviors the test should drive and record. " +
             "Include details the USER stated in the conversation — the tester does NOT see the " +
-            "Slack thread. Do NOT copy boot/setup knowledge from recalled memories (ports, seed " +
+            "Slack thread. First determine which app or package the change actually touches — " +
+            "read the diff / changed files — and target THAT app; when the change is in a shared " +
+            "package, name the consuming app(s) that exercise it. Do NOT inherit the target app " +
+            "from recalled setup memory: those notes may describe a different app than the one " +
+            "this change affects (e.g. an admin client when the fix lives in a UI package the hub " +
+            "consumes). Do NOT copy boot/setup knowledge from recalled memories (ports, seed " +
             "strategy, auth workarounds): the tester receives learned setup notes directly, and " +
             "repeating them here freezes potentially stale facts as authoritative instructions.",
         ),

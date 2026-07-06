@@ -98,7 +98,8 @@ describe("buildTesterSystemPrompt", () => {
   it("starts the workflow with the discovery phase", () => {
     const prompt = buildTesterSystemPrompt(makeOpts());
     assert.ok(prompt.includes("DISCOVER what to run"));
-    assert.ok(prompt.includes("the subset is decided per run from THIS diff"));
+    assert.ok(prompt.includes("The target app is decided per run from THIS diff"));
+    assert.ok(prompt.includes("OVERRIDES any app named in the test focus or the setup notes"));
   });
 
   it("splits driving into a verify phase and a recorded demo take", () => {
