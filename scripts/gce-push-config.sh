@@ -179,9 +179,26 @@ sudo mkdir -p '$REMOTE_DATA_DIR'
 sudo chmod a+rwx '$REMOTE_DATA_DIR'
 sudo tar -C '$DATA_MOUNT_POINT' -xf -
 sudo chown -R 1001:1001$REMOTE_CHOWN_TARGETS
+sudo chmod -R u+rwX,go+rX$REMOTE_CHOWN_TARGETS
 "
 
 rm -f "$TMPLIST"
+
+# tar preserves the source file mode, so a restrictively-permissioned local file
+# (Write-tool output is mode 600) would land unreadable/unwritable for the app.
+# The chown+chmod above reassigns every pushed manifest path to the container
+# user with owner read/write (dirs traversable) — user config the app edits via
+# the Home Tab needs write; shipped defaults just need read. Verify from the
+# container's own point of view so a botched push fails here, not at a 9am cron.
+CONTAINER_PATHS=""
+for p in "${PATHS[@]}"; do
+    CONTAINER_PATHS+=" /app/$p"
+done
+echo -e "${YELLOW}Verifying container read-access...${NC}"
+if ! verify_container_reads $CONTAINER_PATHS; then
+    echo -e "${RED}✗ Pushed files are not readable by the app. Fix perms/ownership on the VM before relying on this push.${NC}"
+    exit 1
+fi
 
 echo -e "${GREEN}✓ Config pushed${NC}"
 echo ""
