@@ -16,6 +16,13 @@ Each work fire advances AT MOST ONE unit by ONE step. A kind counts only when it
 ## Review requires fresh commits
 The review kind is productive ONLY when the target PR has new commits since the unit's last-reviewed cursor (the PR head you recorded last time). This applies to BOTH self-review (your own PRs) and review of human/external PRs. After reviewing, record the reviewed PR head on the reference cursor. When the PR head is unchanged since that cursor, there is no review work this fire — call upsert_idea with blocked: true so the unit sinks below "nothing", and move on. Never post a redundant review on an unchanged PR.
 
+## Handling PR references (canonical review check)
+For ANY reference that points at a pull request, review detection follows THIS sequence — regardless of what the unit's howToRead says. The recipe text still governs non-PR surfaces and non-review PR concerns; never skip this check because a recipe doesn't mention reviews.
+1. Attach the GitHub tools first: call attach_integration("github"). Do this only when PR references are in play (a tracked unit carries a PR reference, or open Clack-authored PRs exist) — skip entirely otherwise.
+2. Probe cheaply: pull_request_read with method get_reviews per PR, comparing the latest review's timestamp against the reference cursor. Strictly newer than the cursor = a hit; at-or-before = nothing new, stop here for that PR.
+3. On a hit, read the full content: get_reviews alone returns metadata WITHOUT body text — make two more pull_request_read calls, one with method get_comments (review summary bodies) and one with method get_review_comments (inline threads).
+4. Record it: upsert_idea with freshInput: true so the unit rises as continue work, and capture what arrived in whereWeAre/nextSteps.
+
 ## One step per tick
 Never chain multiple code-changing actions in one fire. Trigger a review and STOP — read the result on a later fire. This keeps the loop simple and robust. Only (re)post "@claude review this" when the PR has new commits since the last trigger; never re-trigger on an unchanged PR just to have something to do.
 

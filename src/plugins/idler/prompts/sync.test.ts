@@ -41,4 +41,14 @@ describe("buildSyncPrompt — every-fire memory maintenance", () => {
     const prompt = buildSyncPrompt(config(false), "fetch");
     expect(prompt).not.toContain("TRIAGE RECENTLY-CHANGED MEMORY");
   });
+
+  it("points PR references at the PR-handling contract in both reference-reading steps", () => {
+    const prompt = buildSyncPrompt(config(true), "fetch");
+    expect(prompt).toContain(
+      "for PR references, follow the PR-handling contract (canonical review check)",
+    );
+    expect(prompt).toContain(
+      "(PR references: follow the PR-handling contract's canonical review check)",
+    );
+  });
 });

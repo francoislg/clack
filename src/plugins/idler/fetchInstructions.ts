@@ -38,7 +38,9 @@ tools for \`howToRead\`/\`howToComment\` when installed; otherwise read the link
 originating Slack thread. When you open a PR, link it back to the source item in the PR body.
 
 ### Clack's own open PRs
-Inspect them for continue work (new review comments) and self-review opportunities.
+Inspect them for continue work (new review comments) and self-review opportunities. Formal review
+detection follows the shipped PR-handling contract (canonical review check), which overrides
+\`howToRead\` for PR references — no need to spell out review tools in recipes here.
 
 ## Prioritization hints
 - Prefer continuing in-flight PRs over starting new work.

@@ -21,4 +21,19 @@ describe("BEHAVIOR_INSTRUCTION", () => {
   it("guards the @claude review re-trigger against unchanged PRs", () => {
     assert.match(BEHAVIOR_INSTRUCTION, /new commits since the last trigger/);
   });
+
+  it("mandates the canonical PR review check with gated attach and full content read", () => {
+    assert.match(BEHAVIOR_INSTRUCTION, /Handling PR references/);
+    assert.match(BEHAVIOR_INSTRUCTION, /attach_integration\("github"\)/);
+    assert.match(BEHAVIOR_INSTRUCTION, /only when PR references are in play/);
+    assert.match(BEHAVIOR_INSTRUCTION, /get_reviews/);
+    assert.match(BEHAVIOR_INSTRUCTION, /get_comments/);
+    assert.match(BEHAVIOR_INSTRUCTION, /get_review_comments/);
+    assert.match(BEHAVIOR_INSTRUCTION, /freshInput: true/);
+  });
+
+  it("overrides howToRead recipe text for PR references", () => {
+    assert.match(BEHAVIOR_INSTRUCTION, /regardless of what the unit's howToRead says/);
+    assert.match(BEHAVIOR_INSTRUCTION, /non-PR surfaces/);
+  });
 });
