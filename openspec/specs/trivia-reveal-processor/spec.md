@@ -65,6 +65,7 @@ type ProcessRevealResult = {
       correct: number;
       answered: number;
       roundMvp?: true;
+      perfectRound?: true;
     }>;
   };
   seasonStatus?: {
@@ -541,6 +542,7 @@ roundSummary: {
     correct: number; // count of revealed questions this player answered correctly
     answered: number; // count of revealed questions this player submitted a scored answer to (correct or incorrect)
     roundMvp?: true; // present iff this player is tied for the highest `correct` count this fire
+    perfectRound?: true; // present iff totalQuestions >= 3 AND this player answered every revealed question correctly
   }>;
 }
 ```
@@ -554,6 +556,8 @@ The scoring filter SHALL be identical to the leaderboard's: cheaters (per the qu
 `perPlayer` SHALL be sorted by `correct` descending, ties broken by `displayName` ascending (case-insensitive, locale-sensitive comparison).
 
 `roundMvp: true` SHALL be set on EVERY player tied for the highest `correct` value in `perPlayer`. When no player has `correct > 0`, `roundMvp` SHALL be absent from all entries.
+
+`perfectRound: true` SHALL be set on a player's entry IFF `roundSummary.totalQuestions >= 3` AND that player's `correct === totalQuestions` (they answered every revealed question correctly). When `totalQuestions < 3`, `perfectRound` SHALL be absent from ALL entries, regardless of any player's correctness. `perfectRound` is orthogonal to `roundMvp`: a perfect-round player is necessarily an MVP (they hold the top `correct` value), but the MVP set may include non-perfect players (e.g. a 2/3 tie) that carry `roundMvp` without `perfectRound`.
 
 #### Scenario: roundSummary present in every mode, computed from scored answers
 
@@ -617,6 +621,38 @@ The scoring filter SHALL be identical to the leaderboard's: cheaters (per the qu
 - **GIVEN** a revealed question where bob answered correctly but is a flagged cheater for it
 - **WHEN** `compute_answers` returns
 - **THEN** bob does NOT appear in `roundSummary.perPlayer` (excluded by the same scoring filter as the leaderboard)
+
+#### Scenario: Perfect round flagged on a 3-question sweep
+
+- **GIVEN** a 3-question fire
+- **AND** carol answered all three correctly (`correct: 3, answered: 3`)
+- **AND** alice answered two of three correctly (`correct: 2, answered: 3`)
+- **WHEN** `compute_answers` returns
+- **THEN** carol's entry carries `perfectRound: true`
+- **AND** alice's entry does NOT carry `perfectRound`
+
+#### Scenario: Perfect round requires answering all questions, not just all attempted
+
+- **GIVEN** a 3-question fire
+- **AND** bob answered only Q1 and Q2, both correctly, and did not answer Q3 (`correct: 2, answered: 2`)
+- **WHEN** `compute_answers` returns
+- **THEN** bob's entry does NOT carry `perfectRound` (his `correct` of 2 is below `totalQuestions` of 3)
+
+#### Scenario: Perfect round suppressed below the 3-question threshold
+
+- **GIVEN** a 2-question fire
+- **AND** alice answered both correctly (`correct: 2, answered: 2`)
+- **WHEN** `compute_answers` returns
+- **THEN** alice's entry carries `roundMvp: true`
+- **AND** alice's entry does NOT carry `perfectRound`
+- **AND** no entry in `roundSummary.perPlayer` carries `perfectRound`
+
+#### Scenario: Multiple perfect players on one fire
+
+- **GIVEN** a 4-question fire
+- **AND** alice and bob each answered all four correctly
+- **WHEN** `compute_answers` returns
+- **THEN** both alice's and bob's entries carry `perfectRound: true` and `roundMvp: true`
 
 ### Requirement: `processedAt` field on TriviaQuestion
 

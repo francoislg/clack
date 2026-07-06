@@ -310,7 +310,10 @@
   "308": "catchUp.ts",
   "309": "McpServerRegistry",
   "310": "forget.ts",
-  "311": "persistGame.ts",
   "312": "pruneArchive.ts",
-  "313": "archive"
+  "313": "archive",
+  "314": "main",
+  "316": "recall.ts",
+  "317": "024.ts",
+  "318": "computeAllowSkip"
 }

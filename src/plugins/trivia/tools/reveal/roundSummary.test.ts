@@ -54,14 +54,18 @@ describe("computeRoundSummary", () => {
     assert.equal(byId.get("alice")?.correct, 2);
     assert.equal(byId.get("alice")?.answered, 3);
     assert.equal(byId.get("alice")?.roundMvp, undefined);
+    assert.equal(byId.get("alice")?.perfectRound, undefined);
 
+    // bob answered only 2 of the 3 questions — a partial sweep is not perfect.
     assert.equal(byId.get("bob")?.correct, 2);
     assert.equal(byId.get("bob")?.answered, 2);
     assert.equal(byId.get("bob")?.roundMvp, undefined);
+    assert.equal(byId.get("bob")?.perfectRound, undefined);
 
     assert.equal(byId.get("carol")?.correct, 3);
     assert.equal(byId.get("carol")?.answered, 3);
     assert.equal(byId.get("carol")?.roundMvp, true);
+    assert.equal(byId.get("carol")?.perfectRound, true);
   });
 
   it("multiple MVPs when tied at the top", () => {
@@ -141,5 +145,56 @@ describe("computeRoundSummary", () => {
       id === "U123" ? "Zoe" : id,
     );
     assert.equal(out.perPlayer[0].displayName, "Zoe");
+  });
+
+  describe("perfectRound", () => {
+    it("flags a clean sweep of a 3-question fire", () => {
+      const answers = [
+        ans("q1", "carol", true),
+        ans("q2", "carol", true),
+        ans("q3", "carol", true),
+        ans("q1", "alice", true),
+        ans("q2", "alice", true),
+        ans("q3", "alice", false),
+      ];
+      const out = computeRoundSummary(["q1", "q2", "q3"], answers, cap);
+      const byId = new Map(out.perPlayer.map((p) => [p.userId, p]));
+      assert.equal(byId.get("carol")?.perfectRound, true);
+      assert.equal(byId.get("alice")?.perfectRound, undefined, "2/3 is not perfect");
+    });
+
+    it("does NOT flag a partial player who got everything they answered right", () => {
+      // bob answered only q1+q2 (both correct) and skipped q3 → correct 2 < totalQuestions 3.
+      const answers = [ans("q1", "bob", true), ans("q2", "bob", true)];
+      const out = computeRoundSummary(["q1", "q2", "q3"], answers, cap);
+      assert.equal(out.perPlayer[0].perfectRound, undefined);
+    });
+
+    it("does NOT flag a sweep below the 3-question threshold", () => {
+      const answers = [ans("q1", "alice", true), ans("q2", "alice", true)];
+      const out = computeRoundSummary(["q1", "q2"], answers, cap);
+      const alice = out.perPlayer[0];
+      assert.equal(alice.correct, 2);
+      assert.equal(alice.roundMvp, true, "still the MVP");
+      assert.equal(alice.perfectRound, undefined, "2-question sweep is not a perfect round");
+    });
+
+    it("does NOT flag a 1-question sweep", () => {
+      const out = computeRoundSummary(["q1"], [ans("q1", "alice", true)], cap);
+      assert.equal(out.perPlayer[0].perfectRound, undefined);
+    });
+
+    it("flags every player who sweeps a 4-question fire", () => {
+      const answers = ["q1", "q2", "q3", "q4"].flatMap((q) => [
+        ans(q, "alice", true),
+        ans(q, "bob", true),
+      ]);
+      const out = computeRoundSummary(["q1", "q2", "q3", "q4"], answers, cap);
+      assert.equal(out.perPlayer.filter((p) => p.perfectRound).length, 2);
+      assert.ok(
+        out.perPlayer.every((p) => p.roundMvp),
+        "both are also MVPs",
+      );
+    });
   });
 });

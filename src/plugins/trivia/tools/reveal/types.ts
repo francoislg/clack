@@ -111,6 +111,8 @@ export interface RoundSummaryEntry {
   answered: number;
   /** Present iff this player is tied for the highest `correct` count (and that count is > 0). */
   roundMvp?: true;
+  /** Present iff the fire had >= 3 questions AND this player answered every one correctly. */
+  perfectRound?: true;
 }
 
 export interface RoundSummary {
