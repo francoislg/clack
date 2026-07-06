@@ -18,7 +18,7 @@ Per-fire action cap: ${config.maxActionsPerFire} (an action = a code-changing ev
 
 ## Steps
 1. Call list_top_ideas to get the highest-priority open units.
-2. Pick the single highest-priority unit that has FRESH work RIGHT NOW. Re-read its references (their howToRead) before committing, so you act on current state, not a stale snapshot. A stale review (PR head unchanged since you last reviewed it) or a quiet triage (no new source activity) does NOT count as workable. If no unit has fresh work, end the fire — doing nothing is the correct outcome, never manufacture activity to fill the fire.
+2. Pick the single highest-priority unit that has FRESH work RIGHT NOW. Re-read its references (their howToRead) before committing, so you act on current state, not a stale snapshot — PR references follow the PR-handling contract (canonical review check), not the recipe text. A stale review (PR head unchanged since you last reviewed it) or a quiet triage (no new source activity) does NOT count as workable. If no unit has fresh work, end the fire — doing nothing is the correct outcome, never manufacture activity to fill the fire.
 3. Advance it by ONE step per the kind ladder:
    - CONTINUE: address NEW PR comments (human + Claude Code bot) since the cursor, push, resolve_review_thread, advance the cursor.
    - TRIAGE: compare to the codebase → actionable / needs-info (comment + cursor) / already-done (comment WITH proof, then upsert_idea open=false).
