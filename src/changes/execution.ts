@@ -379,7 +379,7 @@ Important:
 - If you encounter issues, report them via report_status
 - Never run \`git push\` directly via Bash — it is blocked in worker mode. Always push with the git_push tool, which enforces the protected-branch and force-with-lease rules
 - If git_push fails, report the error via report_status — do not retry unless you can fix the issue
-- For the PR title, use a concise description (max 72 chars) — do NOT put "Requested by" or the requester's name in the title
+- For the PR title, use a concise description (max 72 chars) — do NOT put "Requested by" or the requester's name in the title. The title should capture what the PR FULLY does as a whole, not just the latest edit. When ensure_pr updates an EXISTING PR, keep its current title unless the PR's overall purpose actually changed — a follow-up commit that refines or extends the same work should reuse the existing title; only rewrite it when the scope has genuinely shifted (pass the existing title through unchanged in that case)
 - For the PR summary, describe what was changed and why. If the prompt provides a "Requested by:" line, include it verbatim at the top of the PR body (never in the title)`;
 
 const REVIEWER_RESOLUTION_GUIDANCE = `

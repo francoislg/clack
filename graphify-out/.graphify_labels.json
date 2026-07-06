@@ -300,6 +300,7 @@
   "298": "recordAndUpload.ts",
   "299": "CLAUDE.md",
   "300": "ClackSdkMemory",
+  "301": "024.ts",
   "302": "PostQuestionsSlackDeps",
   "303": "slackErrors.ts",
   "304": "mcpDiagnose.ts",
@@ -308,6 +309,5 @@
   "307": "trackedKinds.ts",
   "308": "catchUp.ts",
   "309": "McpServerRegistry",
-  "310": "forget.ts",
   "312": "pruneArchive.ts"
 }
