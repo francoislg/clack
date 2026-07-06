@@ -314,6 +314,8 @@ export const en = {
     ":warning: A tester service started but never became ready — the test was not started. {detail}",
   "tester.services_provision_failed":
     ":warning: Provisioning this repo's tester services failed — the test was not started. {detail}",
+  "tester.services_owner_alert":
+    ":test_tube: Tester services couldn't be provisioned for `{repo}` — the test run was aborted.\n{detail}",
   "homeTab.workers.testing_count": "{count} testing",
 
   // ─── Spinoff (split a slice into a separate sibling PR) ─────────────

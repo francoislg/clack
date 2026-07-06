@@ -180,6 +180,8 @@
   "178": "MCP Server Setup",
   "179": "slackErrors.ts",
   "180": "updateUser.ts",
+  "181": "updateUser.ts",
+  "182": "trackedKinds.ts",
   "183": "Plugin Hard Rules",
   "184": "Status by surface",
   "185": "ClackSdkMemory",
@@ -187,6 +189,7 @@
   "187": "priority.ts",
   "188": "brave-image-search",
   "189": "commons-image-search",
+  "190": "SettableAttentionLevel",
   "191": "extractDisplayText",
   "192": "AGENTS.md",
   "193": "Asana Personal Access Token",
@@ -292,10 +295,12 @@
   "293": "tester-smoke.sh",
   "294": "workerBashGuard.ts",
   "295": "archive.ts",
+  "296": "forget.ts",
+  "297": "getArchived.ts",
   "298": "recordAndUpload.ts",
   "299": "CLAUDE.md",
+  "300": "loadSkill.ts",
+  "301": "cancelScheduledMessage.ts",
   "302": "PostQuestionsSlackDeps",
-  "303": "slackErrors.ts",
-  "304": "mcpDiagnose.ts",
-  "308": "catchUp.ts"
+  "303": "slackErrors.ts"
 }

@@ -58,6 +58,9 @@ is acquired — a tester silently missing its database wastes the whole run.
    pulled if missing → container created (memory caps, tmpfs, `clack` network) → started
    → TCP-probed until ready (60 s per service). Any failure tears down everything
    provisioned and aborts the run with a clear thread error; nothing was acquired yet.
+   The workspace owner is also DMed (`tester.services_owner_alert`, best-effort) — the
+   requester may not be the operator, so an infra failure (e.g. a service OOM-killed for
+   an under-provisioned `memoryMb`) shouldn't go unnoticed.
 4. The tester prompt gains a TEST SERVICES section (name, host, port, image) and the
    repo's `test_instructions.md` tells the tester how to wire the app (env overrides,
    migrations, seeds — seeding stays repo-side).

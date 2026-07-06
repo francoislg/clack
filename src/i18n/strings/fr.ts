@@ -321,6 +321,8 @@ export const fr: Partial<Record<StringKey, string>> = {
     ":warning: Un service de test a démarré mais n'est jamais devenu prêt — le test n'a pas démarré. {detail}",
   "tester.services_provision_failed":
     ":warning: La mise en place des services de test de ce dépôt a échoué — le test n'a pas démarré. {detail}",
+  "tester.services_owner_alert":
+    ":test_tube: Les services de test n'ont pas pu être mis en place pour `{repo}` — le test a été abandonné.\n{detail}",
   "homeTab.workers.testing_count": "{count} en test",
 
   // ─── Spinoff (split a slice into a separate sibling PR) ─────────────
