@@ -48,6 +48,7 @@ import {
   type TesterServiceErrorKind,
 } from "../tester/services.js";
 import { getUserRecord } from "../userRegistry.js";
+import { getOwnerUserId, sendOwnerDm } from "../slack/ownerDm.js";
 import { buildClackTools } from "../tools/server.js";
 import { fetchPRReviewContext } from "./pr.js";
 import { defaultSpinoffGitOps } from "./spinoff.js";
@@ -123,6 +124,12 @@ export interface WorkflowDeps {
   loadTesterServices: typeof loadTesterServices;
   ensureTesterServices: typeof ensureServices;
   stopTesterServices: typeof stopServices;
+  getOwnerUserId: () => Promise<string | null>;
+  sendOwnerDm: (
+    ownerUserId: string,
+    text: string,
+    options?: { suppressUnfurls?: boolean },
+  ) => Promise<boolean>;
 }
 
 export const defaultWorkflowDeps: WorkflowDeps = {
@@ -151,6 +158,8 @@ export const defaultWorkflowDeps: WorkflowDeps = {
   loadTesterServices,
   ensureTesterServices: ensureServices,
   stopTesterServices: stopServices,
+  getOwnerUserId,
+  sendOwnerDm,
 };
 
 // ============================================================================
@@ -346,6 +355,9 @@ export async function startChangeWorkflow(
     if (isTest) {
       const provisioned = await provisionTesterServices(plan, config, deps);
       if (!provisioned.ok) {
+        // The owner may not be the requester — DM them so an infra failure (e.g. a
+        // service OOM-killed on boot) doesn't go unnoticed. Best-effort, never throws.
+        await notifyOwnerTesterServicesFailed(plan, provisioned.error, deps);
         return { success: false, error: provisioned.error };
       }
       testerServices = provisioned.services;
@@ -443,6 +455,25 @@ async function provisionTesterServices(
       ok: false,
       error: t("tester.services_provision_failed", { detail: errorMessage(err) }),
     };
+  }
+}
+
+/** Best-effort owner DM when tester-service provisioning fails. Never throws. */
+async function notifyOwnerTesterServicesFailed(
+  plan: ChangePlan,
+  detail: string,
+  deps: Pick<WorkflowDeps, "getOwnerUserId" | "sendOwnerDm">,
+): Promise<void> {
+  try {
+    const owner = await deps.getOwnerUserId();
+    if (!owner) return;
+    await deps.sendOwnerDm(
+      owner,
+      t("tester.services_owner_alert", { repo: plan.targetRepo, detail }),
+      { suppressUnfurls: true },
+    );
+  } catch (err) {
+    logger.warn(`Tester service owner alert failed: ${errorMessage(err)}`);
   }
 }
 

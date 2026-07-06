@@ -133,6 +133,8 @@ function makeDeps(overrides: Partial<WorkflowDeps> = {}): WorkflowDeps & { poolC
     loadTesterServices: vi.fn(() => ({ ok: true as const, services: null })),
     ensureTesterServices: vi.fn(async () => []),
     stopTesterServices: vi.fn(async () => {}),
+    getOwnerUserId: vi.fn(async () => "UOWNER"),
+    sendOwnerDm: vi.fn(async () => true),
     ...overrides,
   };
   return Object.assign(deps, { poolCalls });
@@ -373,6 +375,10 @@ describe("startChangeWorkflow — tester services", () => {
     assert.equal(deps.poolCalls.acquired, 0);
     assert.deepEqual(releaseTesterSlotMock.mock.calls[0], ["s1"]);
     assert.equal(vi.mocked(deps.stopTesterServices).mock.calls.length, 0);
+    // Owner is alerted even for a config-class failure.
+    const dmCall = vi.mocked(deps.sendOwnerDm).mock.calls[0];
+    assert.equal(dmCall?.[0], "UOWNER");
+    assert.ok(dmCall?.[1].includes("my-repo"));
   });
 
   it("aborts before acquisition when provisioning fails, without a teardown of its own", async () => {
@@ -391,6 +397,20 @@ describe("startChangeWorkflow — tester services", () => {
     assert.equal(deps.poolCalls.acquired, 0);
     assert.deepEqual(releaseTesterSlotMock.mock.calls[0], ["s1"]);
     assert.equal(vi.mocked(deps.stopTesterServices).mock.calls.length, 0);
+    const dmCall = vi.mocked(deps.sendOwnerDm).mock.calls[0];
+    assert.equal(dmCall?.[0], "UOWNER");
+    assert.ok(dmCall?.[1].includes("my-repo"));
+  });
+
+  it("does not DM the owner when provisioning succeeds", async () => {
+    const deps = makeDeps({
+      loadTesterServices: vi.fn(() => ({ ok: true as const, services: [MYSQL_SPEC] })),
+      ensureTesterServices: vi.fn(async () => STARTED),
+    });
+
+    await startChangeWorkflow(makeRequest(), makeTestPlan(), "s1", undefined, deps);
+
+    assert.equal(vi.mocked(deps.sendOwnerDm).mock.calls.length, 0);
   });
 
   it("stops services even when the execution fails", async () => {

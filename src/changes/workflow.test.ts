@@ -188,6 +188,8 @@ function makeDeps(): WorkflowDeps {
     loadTesterServices: vi.fn(() => ({ ok: true as const, services: null })),
     ensureTesterServices: vi.fn(async () => []),
     stopTesterServices: vi.fn(async () => {}),
+    getOwnerUserId: vi.fn(async () => null),
+    sendOwnerDm: vi.fn(async () => true),
   };
 }
 
