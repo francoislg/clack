@@ -356,8 +356,9 @@ export async function startChangeWorkflow(
       const provisioned = await provisionTesterServices(plan, config, deps);
       if (!provisioned.ok) {
         // The owner may not be the requester — DM them so an infra failure (e.g. a
-        // service OOM-killed on boot) doesn't go unnoticed. Best-effort, never throws.
-        await notifyOwnerTesterServicesFailed(plan, provisioned.error, deps);
+        // service OOM-killed on boot) doesn't go unnoticed. Skipped when the owner IS
+        // the requester (they already saw it in-thread). Best-effort, never throws.
+        await notifyOwnerTesterServicesFailed(plan, request.userId, provisioned.error, deps);
         return { success: false, error: provisioned.error };
       }
       testerServices = provisioned.services;
@@ -461,12 +462,13 @@ async function provisionTesterServices(
 /** Best-effort owner DM when tester-service provisioning fails. Never throws. */
 async function notifyOwnerTesterServicesFailed(
   plan: ChangePlan,
+  requesterUserId: string,
   detail: string,
   deps: Pick<WorkflowDeps, "getOwnerUserId" | "sendOwnerDm">,
 ): Promise<void> {
   try {
     const owner = await deps.getOwnerUserId();
-    if (!owner) return;
+    if (!owner || owner === requesterUserId) return;
     await deps.sendOwnerDm(
       owner,
       t("tester.services_owner_alert", { repo: plan.targetRepo, detail }),

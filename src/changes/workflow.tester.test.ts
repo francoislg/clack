@@ -413,6 +413,21 @@ describe("startChangeWorkflow — tester services", () => {
     assert.equal(vi.mocked(deps.sendOwnerDm).mock.calls.length, 0);
   });
 
+  it("skips the owner DM when the requester is the owner", async () => {
+    const deps = makeDeps({
+      loadTesterServices: vi.fn(() => ({ ok: true as const, services: [MYSQL_SPEC] })),
+      ensureTesterServices: vi.fn(async () => {
+        throw new TesterServiceError("readiness_timeout", "mysql never became ready");
+      }),
+      getOwnerUserId: vi.fn(async () => "U001"),
+    });
+
+    const result = await startChangeWorkflow(makeRequest(), makeTestPlan(), "s1", undefined, deps);
+
+    assert.equal(result.success, false);
+    assert.equal(vi.mocked(deps.sendOwnerDm).mock.calls.length, 0);
+  });
+
   it("stops services even when the execution fails", async () => {
     const deps = makeDeps({
       loadTesterServices: vi.fn(() => ({ ok: true as const, services: [MYSQL_SPEC] })),
