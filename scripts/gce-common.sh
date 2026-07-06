@@ -131,3 +131,49 @@ require_ar_repo() {
         --quiet
     echo -e "${GREEN}✓ Artifact Registry repo ready${NC}"
 }
+
+# Verify the container user (clack, uid 1001) can actually READ the given paths.
+# A push/sync can "succeed" yet leave files the app can't read — a source file in
+# a restrictive mode, or ownership the container uid doesn't match — which then
+# surfaces as an EACCES at prompt-build time (e.g. a cron fire failing hours
+# later). This checks read+traverse access as the container user itself, so it
+# catches the problem at deploy time regardless of cause.
+#
+# Args are CONTAINER-absolute paths (the data disk mounts at /app/data), e.g.
+#   verify_container_reads /app/data/config.json /app/data/default_configuration
+# Returns non-zero and lists the offenders if anything is unreadable. If the
+# container isn't running there is nothing to validate against, so it passes with
+# a note. The image is alpine/busybox, so this uses POSIX test, not `find -readable`.
+verify_container_reads() {
+    local paths="$*"
+    [ -z "$paths" ] && return 0
+
+    local out
+    out=$(gcloud compute ssh "$INSTANCE_NAME" --zone="$ZONE" --quiet --command="
+        docker ps --format '{{.Names}}' | grep -q '^clack\$' || { echo '__NOCONTAINER__'; exit 0; }
+        docker exec clack sh -c '
+            for p in $paths; do
+                [ -e \"\$p\" ] || continue
+                find \"\$p\" 2>/dev/null | while IFS= read -r e; do
+                    if [ -d \"\$e\" ]; then
+                        { [ -r \"\$e\" ] && [ -x \"\$e\" ]; } || echo \"\$e\"
+                    else
+                        [ -r \"\$e\" ] || echo \"\$e\"
+                    fi
+                done
+            done
+        '
+    " 2>/dev/null)
+
+    if printf '%s' "$out" | grep -q '__NOCONTAINER__'; then
+        echo -e "${YELLOW}  (clack container not running — skipped read-access check)${NC}"
+        return 0
+    fi
+    if [ -n "$out" ]; then
+        echo -e "${RED}  ✗ container user (uid 1001) cannot read these pushed paths:${NC}"
+        printf '%s\n' "$out" | while IFS= read -r line; do echo "      $line"; done
+        return 1
+    fi
+    echo -e "${GREEN}  ✓ container read-access verified${NC}"
+    return 0
+}
