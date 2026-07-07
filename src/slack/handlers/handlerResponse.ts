@@ -358,7 +358,7 @@ async function seedChannelReplyThreadHandoff(ctx: DeliveryContext): Promise<void
     const seeded = await ctx.deps.registerThreadSession(ctx.targetChannel, ctx.targetThread, {
       attentionLevel: "medium",
       ...(ctx.session.additionalSystemPrompt && {
-        followUpContext: ctx.session.additionalSystemPrompt,
+        creationContext: ctx.session.additionalSystemPrompt,
       }),
     });
     if (seeded) await appendToConversationLedger(ctx, seeded.sessionId);

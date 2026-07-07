@@ -8,7 +8,7 @@
  */
 /**
  * Canonical clarification carve-out examples. Shared by BOTH the trivia-check instruction
- * (where they bound what counts as cheating) AND the posted-question follow-up context
+ * (where they bound what counts as cheating) AND the posted-question creation context
  * (where they bound what a pending-question thread may answer), so the two cannot drift.
  */
 export const CLARIFICATION_ALLOWED_EXAMPLE =
@@ -96,7 +96,7 @@ Reserve these for the genuinely suspicious case. If it's an ordinary question, d
  * `sdk.engageThread`). Injected into the answer turn when a human replies in the thread. Uses the
  * same canonical examples as the trivia-check carve-out above so the two cannot drift.
  */
-export const PENDING_QUESTION_FOLLOWUP_CONTEXT = `This thread belongs to a posted trivia question. Before replying to anyone here, RE-READ the original question message at the top of the thread.
+export const PENDING_QUESTION_CREATION_CONTEXT = `This thread belongs to a posted trivia question. Before replying to anyone here, RE-READ the original question message at the top of the thread.
 
 While it still shows as PENDING (the answer has not been revealed or edited into it), you MAY answer a clarification of the question's wording — a public request for more detail is information shared with the whole game, not cheating. Give the asker the precision they need.
 

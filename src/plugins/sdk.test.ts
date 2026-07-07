@@ -505,12 +505,12 @@ describe("ClackSdk", () => {
   });
 
   describe("engageThread", () => {
-    it("forwards a non-off level + followUpContext to the core helper", async () => {
+    it("forwards a non-off level + creationContext to the core helper", async () => {
       const calls: {
         channel: string;
         threadRoot: string;
         attentionLevel: AttentionLevel;
-        followUpContext?: string;
+        creationContext?: string;
       }[] = [];
       const { sdk } = makeSdk("trivia", {
         registerThreadSession: async (channel, threadRoot, opts) => {
@@ -518,7 +518,7 @@ describe("ClackSdk", () => {
             channel,
             threadRoot,
             attentionLevel: opts.attentionLevel,
-            followUpContext: opts.followUpContext,
+            creationContext: opts.creationContext,
           });
           return null;
         },
@@ -526,14 +526,14 @@ describe("ClackSdk", () => {
 
       await sdk.engageThread("C1", "1700000000.000100", {
         attentionLevel: "high",
-        followUpContext: "ctx",
+        creationContext: "ctx",
       });
 
       assert.equal(calls.length, 1);
       assert.equal(calls[0].channel, "C1");
       assert.equal(calls[0].threadRoot, "1700000000.000100");
       assert.equal(calls[0].attentionLevel, "high");
-      assert.equal(calls[0].followUpContext, "ctx");
+      assert.equal(calls[0].creationContext, "ctx");
     });
 
     it("is a no-op for an omitted or off attention level", async () => {

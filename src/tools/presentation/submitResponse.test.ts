@@ -69,7 +69,7 @@ function makeDeps(
       threadTs?: string;
       payload: unknown;
       attentionLevel?: AttentionLevel;
-      followUpContext?: string;
+      creationContext?: string;
       deliveryMode?: DeliveryMode;
     }) => Promise<{ ok: true; ts?: string } | { ok: false; error: string }>;
     recordResponseTs: (ts: string) => Promise<void>;
@@ -207,7 +207,7 @@ interface CallToolRawArgs {
     channel?: string;
     thread_ts?: string;
     attention_level?: AttentionLevel;
-    follow_up_context?: string;
+    creation_context?: string;
     default_delivery_mode?: DeliveryMode;
     channel_attention_level?: "high" | "medium" | "low";
     response: {
@@ -345,6 +345,7 @@ describe("createSubmitResponseTool", () => {
     const entry = (channel: string, thread_ts?: string) => ({
       channel,
       ...(thread_ts && { thread_ts }),
+      creation_context: "why",
       response: { blocks: [block] },
     });
 
@@ -415,10 +416,10 @@ describe("createSubmitResponseTool", () => {
       assert.equal(tracker.skipCalls, 0);
     });
 
-    it("forwards attention_level and follow_up_context to the delivery adapter", async () => {
+    it("forwards attention_level and creation_context to the delivery adapter", async () => {
       const seen: {
         attentionLevel?: AttentionLevel;
-        followUpContext?: string;
+        creationContext?: string;
         threadTs?: string;
       }[] = [];
       const deliverToChannel = async (args: {
@@ -426,11 +427,11 @@ describe("createSubmitResponseTool", () => {
         threadTs?: string;
         payload: unknown;
         attentionLevel?: AttentionLevel;
-        followUpContext?: string;
+        creationContext?: string;
       }) => {
         seen.push({
           attentionLevel: args.attentionLevel,
-          followUpContext: args.followUpContext,
+          creationContext: args.creationContext,
           threadTs: args.threadTs,
         });
         return { ok: true as const, ts: `ts-${seen.length}` };
@@ -448,7 +449,7 @@ describe("createSubmitResponseTool", () => {
               channel: "C1",
               thread_ts: "1700000000.000100",
               attention_level: "high",
-              follow_up_context: "ctx",
+              creation_context: "ctx",
               response: { blocks: [block] },
             },
           ],
@@ -457,7 +458,7 @@ describe("createSubmitResponseTool", () => {
       assert.equal(parsed.delivered, true);
       assert.equal(seen.length, 1);
       assert.equal(seen[0].attentionLevel, "high");
-      assert.equal(seen[0].followUpContext, "ctx");
+      assert.equal(seen[0].creationContext, "ctx");
       assert.equal(seen[0].threadTs, "1700000000.000100");
     });
 
@@ -526,7 +527,7 @@ describe("createSubmitResponseTool", () => {
         threadTs?: string;
         payload: unknown;
         attentionLevel?: AttentionLevel;
-        followUpContext?: string;
+        creationContext?: string;
         deliveryMode?: DeliveryMode;
       }) => {
         seen.push({ deliveryMode: args.deliveryMode });
@@ -555,16 +556,16 @@ describe("createSubmitResponseTool", () => {
       assert.equal(seen[0].deliveryMode, "invisible");
     });
 
-    it("omits engagement fields when the entry has no attention_level", async () => {
-      const seen: { attentionLevel?: AttentionLevel; followUpContext?: string }[] = [];
+    it("omits the attention level when the entry has no attention_level (no seeding)", async () => {
+      const seen: { attentionLevel?: AttentionLevel; creationContext?: string }[] = [];
       const deliverToChannel = async (args: {
         channel: string;
         threadTs?: string;
         payload: unknown;
         attentionLevel?: AttentionLevel;
-        followUpContext?: string;
+        creationContext?: string;
       }) => {
-        seen.push({ attentionLevel: args.attentionLevel, followUpContext: args.followUpContext });
+        seen.push({ attentionLevel: args.attentionLevel, creationContext: args.creationContext });
         return { ok: true as const, ts: `ts-${seen.length}` };
       };
       const deps = makeDeps({
@@ -575,8 +576,9 @@ describe("createSubmitResponseTool", () => {
 
       parseToolResult(await callToolRawTopLevel(deps, { deliver_to: [entry("C1")] }));
       assert.equal(seen.length, 1);
+      // No attention_level ⇒ no seeding trigger, even though creation_context is always forwarded.
       assert.equal(seen[0].attentionLevel, undefined);
-      assert.equal(seen[0].followUpContext, undefined);
+      assert.equal(seen[0].creationContext, "why");
     });
 
     it("delivers multiple entries (different and same channels) in order", async () => {
@@ -772,22 +774,47 @@ describe("createSubmitResponseTool", () => {
     it("accepts a well-formed deliver_to entry", () => {
       const schema = z.object(shape);
       const result = schema.safeParse({
-        deliver_to: [{ channel: "C1", thread_ts: "1.2", response: { blocks: [block] } }],
+        deliver_to: [
+          {
+            channel: "C1",
+            thread_ts: "1.2",
+            creation_context: "why",
+            response: { blocks: [block] },
+          },
+        ],
       });
       assert.equal(result.success, true);
+    });
+
+    it("rejects a deliver_to entry missing creation_context", () => {
+      const schema = z.object(shape);
+      const result = schema.safeParse({
+        deliver_to: [{ channel: "C1", response: { blocks: [block] } }],
+      });
+      assert.equal(result.success, false);
     });
 
     it("accepts channel_attention_level on a deliver_to entry but rejects 'always'", () => {
       const schema = z.object(shape);
       const ok = schema.safeParse({
         deliver_to: [
-          { channel: "C1", channel_attention_level: "medium", response: { blocks: [block] } },
+          {
+            channel: "C1",
+            channel_attention_level: "medium",
+            creation_context: "why",
+            response: { blocks: [block] },
+          },
         ],
       });
       assert.equal(ok.success, true);
       const rejected = schema.safeParse({
         deliver_to: [
-          { channel: "C1", channel_attention_level: "always", response: { blocks: [block] } },
+          {
+            channel: "C1",
+            channel_attention_level: "always",
+            creation_context: "why",
+            response: { blocks: [block] },
+          },
         ],
       });
       assert.equal(rejected.success, false);
@@ -2347,6 +2374,19 @@ describe("createSubmitResponseTool", () => {
       assert.match(message, /Action type "definitely_not_real" is not supported/);
       assert.match(message, /Allowed action types:/);
     });
+
+    it("rejects a post_to action missing creation_context", () => {
+      const result = inputSchemaOf(makeDeps()).safeParse({
+        blocks: [{ type: "section", text: { type: "mrkdwn", text: "hi" } }],
+        actions: [
+          {
+            type: "post_to",
+            blocks: [{ type: "section", text: { type: "mrkdwn", text: "cross-post" } }],
+          },
+        ],
+      });
+      assert.equal(result.success, false);
+    });
   });
 
   // ---------------------------------------------------------------------------
@@ -2980,6 +3020,7 @@ describe("createSubmitResponseTool", () => {
         actions: [
           {
             type: "post_to",
+            creation_context: "why",
             blocks: [{ type: "section", text: { type: "mrkdwn", text: "cross-post" } }],
             additional_messages: [
               { blocks: [{ type: "section", text: { type: "mrkdwn", text: "follow" } }] },

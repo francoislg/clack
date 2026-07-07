@@ -71,7 +71,7 @@ describe("getResponseActionBlocks", () => {
 
   it("skips auto-executed post_to actions (no button needed)", () => {
     const actions: Action[] = [
-      { type: "post_to", auto: true, channel: "C1", blocks: [] },
+      { type: "post_to", auto: true, channel: "C1", creation_context: "why", blocks: [] },
       { type: "followup", label: "Continue", prompt: "go on" },
     ];
     const blocks = getResponseActionBlocks(actions, "s1");
@@ -105,7 +105,9 @@ describe("getResponseActionBlocks", () => {
   });
 
   it("sets 'primary' style on post_to buttons", () => {
-    const actions: Action[] = [{ type: "post_to", blocks: [{ type: "divider" }] }];
+    const actions: Action[] = [
+      { type: "post_to", creation_context: "why", blocks: [{ type: "divider" }] },
+    ];
     const [block] = getResponseActionBlocks(actions, "s1");
     const button = block.elements[0] as Button;
     assert.equal(button.style, "primary");
@@ -296,7 +298,7 @@ function actionWithDefaultLabel(type: Action["type"]): Action {
     case "choice":
       return { type, label: "", value: "v" };
     case "post_to":
-      return { type, blocks: [{ type: "divider" }] };
+      return { type, creation_context: "why", blocks: [{ type: "divider" }] };
     case "change":
     case "config_update":
     case "update":

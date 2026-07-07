@@ -283,6 +283,7 @@ describe("handleAutoExecuteActions — early returns", () => {
             {
               type: "post_to",
               auto: true,
+              creation_context: "why this was posted",
               blocks: [
                 {
                   type: "section",
@@ -304,7 +305,7 @@ describe("handleAutoExecuteActions — early returns", () => {
 });
 
 // ============================================================================
-// post_to thread engagement (attention_level / follow_up_context)
+// post_to thread engagement (attention_level / creation_context)
 // ============================================================================
 
 describe("handleAutoExecuteActions — post_to thread engagement", () => {
@@ -338,6 +339,7 @@ describe("handleAutoExecuteActions — post_to thread engagement", () => {
       auto: true,
       _snapshotId: SNAP_ID,
       channel: "C200",
+      creation_context: "why this was posted",
       blocks: [{ type: "section", text: { type: "mrkdwn", text: "auto" } }],
       ...extra,
     };
@@ -348,7 +350,7 @@ describe("handleAutoExecuteActions — post_to thread engagement", () => {
     mockPostAnswerToChannel.mockResolvedValue({ ok: true, ts: "1700000000.999999" });
     const params = makeBaseParams({
       response: makeResponseWithActions(
-        { blocks: [], actions: [postTo({ attention_level: "high", follow_up_context: "ctx" })] },
+        { blocks: [], actions: [postTo({ attention_level: "high", creation_context: "ctx" })] },
         {},
       ),
     });
@@ -359,7 +361,7 @@ describe("handleAutoExecuteActions — post_to thread engagement", () => {
     assert.deepEqual(mockRegisterThreadSession.mock.calls[0], [
       "C200",
       "1700000000.999999",
-      { attentionLevel: "high", followUpContext: "ctx" },
+      { attentionLevel: "high", creationContext: "ctx" },
     ]);
   });
 
@@ -381,6 +383,7 @@ describe("handleAutoExecuteActions — post_to thread engagement", () => {
     assert.equal(mockRegisterThreadSession.mock.calls.length, 1);
     assert.deepEqual(mockRegisterThreadSession.mock.calls[0][2], {
       attentionLevel: "high",
+      creationContext: "why this was posted",
       deliveryMode: "invisible",
     });
   });
@@ -438,7 +441,7 @@ describe("handleAutoExecuteActions — post_to thread engagement", () => {
       response: makeResponseWithActions(
         {
           blocks: [],
-          actions: [postTo({ channel_attention_level: "medium", follow_up_context: "ctx" })],
+          actions: [postTo({ channel_attention_level: "medium", creation_context: "ctx" })],
         },
         {},
       ),
@@ -452,7 +455,7 @@ describe("handleAutoExecuteActions — post_to thread engagement", () => {
       attentionLevel: "medium",
       sessionId: "session-1",
       anchorText: "x",
-      followUpContext: "ctx",
+      creationContext: "ctx",
     });
   });
 
@@ -1272,6 +1275,7 @@ describe("handleAutoExecuteActions — post_to auto-execute", () => {
             {
               type: "post_to" as const,
               auto: true,
+              creation_context: "why this was posted",
               blocks: [
                 {
                   type: "section" as const,
@@ -1338,6 +1342,7 @@ describe("handleAutoExecuteActions — post_to auto-execute", () => {
             {
               type: "post_to" as const,
               auto: true,
+              creation_context: "why this was posted",
               blocks: [
                 {
                   type: "section" as const,
@@ -1399,6 +1404,7 @@ describe("handleAutoExecuteActions — post_to auto-execute", () => {
             {
               type: "post_to" as const,
               auto: true,
+              creation_context: "why this was posted",
               blocks: [
                 {
                   type: "section" as const,
@@ -1469,6 +1475,7 @@ describe("handleAutoExecuteActions — post_to auto-execute", () => {
             {
               type: "post_to" as const,
               auto: true,
+              creation_context: "why this was posted",
               blocks: [
                 {
                   type: "section" as const,
@@ -1538,6 +1545,7 @@ describe("handleAutoExecuteActions — post_to auto-execute", () => {
             {
               type: "post_to" as const,
               auto: true,
+              creation_context: "why this was posted",
               blocks: [
                 {
                   type: "section" as const,
@@ -1571,6 +1579,7 @@ describe("handleAutoExecuteActions — post_to auto-execute", () => {
             {
               type: "post_to" as const,
               auto: true,
+              creation_context: "why this was posted",
               blocks: [
                 {
                   type: "section" as const,
@@ -1622,6 +1631,7 @@ describe("handleAutoExecuteActions — post_to auto-execute", () => {
             {
               type: "post_to" as const,
               auto: true,
+              creation_context: "why this was posted",
               blocks: [
                 {
                   type: "section" as const,
@@ -1683,6 +1693,7 @@ describe("handleAutoExecuteActions — post_to auto-execute", () => {
             {
               type: "post_to" as const,
               auto: true,
+              creation_context: "why this was posted",
               blocks: [
                 {
                   type: "section" as const,
@@ -1754,6 +1765,7 @@ describe("handleAutoExecuteActions — channelless context", () => {
             {
               type: "post_to" as const,
               auto: true,
+              creation_context: "why this was posted",
               channel: "C999",
               blocks: [
                 {

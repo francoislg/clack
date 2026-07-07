@@ -284,6 +284,7 @@ export async function runChannelContinuationPreAnalysis(
   channelName?: string,
   slackLink?: string,
   secondsSinceLastBotMessage?: number,
+  creationContext?: string,
   deps: PreAnalysisDeps = defaultPreAnalysisDeps,
 ): Promise<PreAnalysisResult | null> {
   const conversationContext = buildConversationContext(recentMessages);
@@ -295,7 +296,7 @@ A Slack bot named "${botName}" recently posted a top-level message in this chann
 
 THE BOT'S ANCHOR POST (judge relatedness against this, not just vibes):
 """${anchorText}"""
-
+${creationContext ? `\nWHY THE BOT POSTED (background, not shown to users — use it to judge relatedness):\n"""${creationContext}"""\n` : ""}
 HIGHEST-PRIORITY SIGNAL — DIRECT ADDRESS: if the message names ${botName} in plain text ("${botName}, ...", "hey ${botName}") or is an imperative or question that only makes sense aimed at ${botName}'s post, it is part of the conversation — "respond". (A passing mention like "I'll ask ${botName} later" is NOT direct address.)
 
 ${buildChannelContinuationPolicyBlock(botName, level)}

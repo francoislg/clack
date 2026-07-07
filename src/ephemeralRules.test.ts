@@ -15,7 +15,9 @@ import {
   appendSessionToEphemeralRule,
   deleteEphemeralRuleForChannel,
   getEphemeralRuleForChannel,
+  clearEphemeralRulesCache,
   isEphemeralRule,
+  loadEphemeralRules,
   ratchetEphemeralRule,
   renewEphemeralRule,
   seedEphemeralRule,
@@ -94,15 +96,66 @@ describe("ephemeralRules", () => {
       assert.equal(all.length, 1);
     });
 
-    it("stores followUpContext when provided", async () => {
+    it("stores creationContext when provided", async () => {
       const rule = await seedEphemeralRule({
         channel: "C1",
         attentionLevel: "medium",
         sessionId: "s",
         anchorText: "a",
-        followUpContext: "  be casual  ",
+        creationContext: "  be casual  ",
       });
-      assert.equal(rule.followUpContext, "be casual");
+      assert.equal(rule.creationContext, "be casual");
+    });
+
+    it("reads a legacy followUpContext field as creationContext on load", async () => {
+      const filePath = join(tempDir, "data", "state", "auto-respond-ephemeral.json");
+      await writeFile(
+        filePath,
+        JSON.stringify({
+          rules: [
+            {
+              id: "legacy1",
+              kind: "ephemeral",
+              channels: ["C9"],
+              attentionLevel: "medium",
+              expiresAt: NOW + 60_000,
+              sessionIds: ["s0"],
+              anchorText: "a",
+              followUpContext: "legacy guidance",
+              enabled: true,
+            },
+          ],
+        }),
+      );
+      clearEphemeralRulesCache();
+      const [rule] = await loadEphemeralRules();
+      assert.equal(rule.creationContext, "legacy guidance");
+    });
+
+    it("prefers creationContext over a legacy followUpContext when both are present", async () => {
+      const filePath = join(tempDir, "data", "state", "auto-respond-ephemeral.json");
+      await writeFile(
+        filePath,
+        JSON.stringify({
+          rules: [
+            {
+              id: "both1",
+              kind: "ephemeral",
+              channels: ["C9"],
+              attentionLevel: "medium",
+              expiresAt: NOW + 60_000,
+              sessionIds: ["s0"],
+              anchorText: "a",
+              creationContext: "new guidance",
+              followUpContext: "legacy guidance",
+              enabled: true,
+            },
+          ],
+        }),
+      );
+      clearEphemeralRulesCache();
+      const [rule] = await loadEphemeralRules();
+      assert.equal(rule.creationContext, "new guidance");
     });
   });
 

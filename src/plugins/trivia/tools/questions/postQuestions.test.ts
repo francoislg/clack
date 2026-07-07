@@ -7,7 +7,7 @@ const actionIdFn = (k: string): string => `plugin:trivia:${k}`;
 import { createInMemoryDataLayer, FIXTURE_GAME_NAME, fixtureGetGames } from "../../testHelpers.js";
 import { parseToolResult } from "../../../../tools/testHelpers.js";
 import type { ClackSdk, AttentionLevel } from "../../../sdk.js";
-import { PENDING_QUESTION_FOLLOWUP_CONTEXT } from "../../prompts/triviaCheckInstruction.js";
+import { PENDING_QUESTION_CREATION_CONTEXT } from "../../prompts/triviaCheckInstruction.js";
 import type { TriviaDataLayer, TriviaQuestion } from "../../core/types.js";
 import type { z } from "zod";
 import { BlockSchema } from "../../../../slack/blockSchema.js";
@@ -233,7 +233,7 @@ describe("post_questions tool", () => {
       channel: string;
       threadTs: string;
       attentionLevel?: AttentionLevel;
-      followUpContext?: string;
+      creationContext?: string;
     }[] = [];
     const sdk: Pick<ClackSdk, "getSlackClient" | "actionId" | "t" | "engageThread"> = {
       getSlackClient: () => null,
@@ -244,7 +244,7 @@ describe("post_questions tool", () => {
           channel,
           threadTs,
           attentionLevel: opts.attentionLevel,
-          followUpContext: opts.followUpContext,
+          creationContext: opts.creationContext,
         });
       },
     };
@@ -264,7 +264,7 @@ describe("post_questions tool", () => {
     assert.equal(engageCalls[0].channel, FIXTURE_CHANNEL);
     assert.equal(engageCalls[0].threadTs, "1700000000.123456");
     assert.notEqual(engageCalls[0].attentionLevel, "off");
-    assert.equal(engageCalls[0].followUpContext, PENDING_QUESTION_FOLLOWUP_CONTEXT);
+    assert.equal(engageCalls[0].creationContext, PENDING_QUESTION_CREATION_CONTEXT);
   });
 
   it("stamps liveAnswersVisible and revealResponses from the cascade default", async () => {

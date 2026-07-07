@@ -115,6 +115,34 @@ describe("resolveAutoRespondContext — auto-respond tracking", () => {
     assert.equal(preAnalysis.mock.calls.length, 1);
   });
 
+  it("surfaces the session's creationContext to the thread pre-analysis judge", async () => {
+    const preAnalysis = vi.fn<AutoRespondDeps["preAnalysis"]>(async () => "respond" as const);
+    const deps = makeDeps({
+      findSession: async () =>
+        session({ attentionLevel: "medium", creationContext: "nudge, never reveal the answer" }),
+      preAnalysis,
+    });
+
+    await call(deps);
+
+    assert.equal(preAnalysis.mock.calls.length, 1);
+    const contextArg = preAnalysis.mock.calls[0][3];
+    assert.ok(contextArg.includes("nudge, never reveal the answer"));
+  });
+
+  it("leaves the thread pre-analysis context unchanged when no creationContext is seeded", async () => {
+    const preAnalysis = vi.fn<AutoRespondDeps["preAnalysis"]>(async () => "respond" as const);
+    const deps = makeDeps({
+      findSession: async () => session({ attentionLevel: "medium" }),
+      preAnalysis,
+    });
+
+    await call(deps);
+
+    assert.equal(preAnalysis.mock.calls.length, 1);
+    assert.ok(!preAnalysis.mock.calls[0][3].includes("Why this conversation exists"));
+  });
+
   it("skips thread reply without pre-analysis when disengaged (attentionLevel off)", async () => {
     const preAnalysis = vi.fn(async () => "respond" as const);
     const deps = makeDeps({

@@ -215,6 +215,10 @@ export interface SessionContext {
   channelName?: string;
   /** Additional system prompt injected into the delivery context */
   additionalSystemPrompt?: string;
+  /** Provenance a Clack-seeded conversation carries (why it posted, facts to remember, reply
+   *  guidance). Kept distinct from `additionalSystemPrompt` so both the pre-analysis judge and the
+   *  answer turn can read it. */
+  creationContext?: string;
   /** DM-first delivery: the DM channel ID */
   dmChannel?: string;
   /** DM-first delivery: the root DM message timestamp (thread anchor) */
@@ -569,6 +573,7 @@ export interface CreateSessionOptions {
   username?: string;
   displayName?: string;
   additionalSystemPrompt?: string;
+  creationContext?: string;
   channelName?: string;
   /** Initial attention level seeded by the trigger source (cron/rule). Defaults to `"medium"`. */
   attentionLevel?: SettableAttentionLevel;
@@ -602,6 +607,7 @@ export async function createSession(opts: CreateSessionOptions): Promise<Session
     threadContext: opts.threadContext ?? [],
     triggerType: opts.trigger.type,
     additionalSystemPrompt: opts.additionalSystemPrompt,
+    creationContext: opts.creationContext,
     channelName: opts.channelName,
     errors: [],
     lastActivity: now,
@@ -627,8 +633,9 @@ const THREAD_ENGAGEMENT_USER_ID = "thread-engagement";
 export interface EngageThreadOptions {
   /** Attention level to seed onto the destination thread. `"off"` makes the call a no-op. */
   attentionLevel: AttentionLevel;
-  /** Guidance injected into the answer turn (stored as the session's `additionalSystemPrompt`). */
-  followUpContext?: string;
+  /** Provenance/background to seed onto the session's `creationContext` — read by both the
+   *  pre-analysis judge and the answer turn. */
+  creationContext?: string;
   /** Delivery mode to seed onto the destination thread. Omit to leave it default (`"streamer"`). */
   deliveryMode?: DeliveryMode;
 }
@@ -637,8 +644,8 @@ export interface EngageThreadOptions {
  * Seed a discoverable, engaged session for a destination `(channel, threadRoot)` so that human
  * replies in that thread are picked up by the existing thread auto-respond path. The seeded
  * session carries no messages — it exists only so `findSessionByThread` resolves it and
- * `isEngaged` passes; `followUpContext` rides along as `additionalSystemPrompt` and is injected
- * into the reply turn's prompt the same way an auto-respond rule's `extraContext` is.
+ * `isEngaged` passes; `creationContext` rides along as the session's `creationContext` field and
+ * reaches both the pre-analysis judge and the reply turn's prompt.
  *
  * `attentionLevel: "off"` is a no-op (today's fire-and-forget behavior). When a session already
  * exists for the thread it is left untouched — a real conversation already owns it.
@@ -664,7 +671,7 @@ export async function registerThreadSession(
     userId: THREAD_ENGAGEMENT_USER_ID,
     trigger: { type: "scheduled", prompt: "Seeded thread engagement (awaiting human reply)." },
     attentionLevel: opts.attentionLevel,
-    additionalSystemPrompt: opts.followUpContext,
+    creationContext: opts.creationContext,
     ...(opts.deliveryMode && { deliveryMode: opts.deliveryMode }),
   });
 }

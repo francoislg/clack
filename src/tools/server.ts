@@ -618,7 +618,7 @@ function buildQueryTools(ctx: QueryToolContext): ClackQueryToolsResult {
         threadTs,
         payload,
         attentionLevel,
-        followUpContext,
+        creationContext,
         deliveryMode,
         channelAttentionLevel,
       }) => {
@@ -653,7 +653,7 @@ function buildQueryTools(ctx: QueryToolContext): ClackQueryToolsResult {
               try {
                 await registerThreadSession(channel, root, {
                   attentionLevel,
-                  followUpContext,
+                  creationContext,
                   ...(deliveryMode && { deliveryMode }),
                 });
               } catch (err) {
@@ -680,7 +680,7 @@ function buildQueryTools(ctx: QueryToolContext): ClackQueryToolsResult {
                   attentionLevel: channelAttentionLevel,
                   sessionId: ctx.session.sessionId,
                   anchorText: extractDisplayText(payload.blocks),
-                  ...(followUpContext && { followUpContext }),
+                  ...(creationContext && { creationContext }),
                 });
               } catch (err) {
                 logger.warn(

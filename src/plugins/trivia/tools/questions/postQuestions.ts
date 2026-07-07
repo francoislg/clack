@@ -8,7 +8,7 @@ import { postStructuredMessage } from "../../../../slack/messagePoster.js";
 import type { SlackBlocks } from "../../../../slack/blocks.js";
 import { logger } from "../../../../logger.js";
 import type { ClackSdk } from "../../../sdk.js";
-import { PENDING_QUESTION_FOLLOWUP_CONTEXT } from "../../prompts/triviaCheckInstruction.js";
+import { PENDING_QUESTION_CREATION_CONTEXT } from "../../prompts/triviaCheckInstruction.js";
 import {
   defaultGetGames,
   defaultGetTriviaConfig,
@@ -374,7 +374,7 @@ export function createPostQuestionsTool(
           try {
             await sdk.engageThread(game.channel, ts, {
               attentionLevel: "high",
-              followUpContext: PENDING_QUESTION_FOLLOWUP_CONTEXT,
+              creationContext: PENDING_QUESTION_CREATION_CONTEXT,
             });
           } catch (err) {
             logger.warn(

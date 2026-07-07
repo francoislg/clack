@@ -2406,7 +2406,7 @@ describe("executeAndDeliver — seedChannelReplyThreadHandoff", () => {
     const registerArgs = mockRegisterThreadSession.mock.calls[0] as Parameters<
       typeof mockRegisterThreadSession
     >;
-    const options = registerArgs[2] as { attentionLevel: string; followUpContext?: string };
-    assert.equal(options.followUpContext, "extra context here");
+    const options = registerArgs[2] as { attentionLevel: string; creationContext?: string };
+    assert.equal(options.creationContext, "extra context here");
   });
 });

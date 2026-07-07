@@ -523,13 +523,14 @@ export interface ClackSdk {
   /**
    * Make the thread a message was posted into "engaged": seed a discoverable session for
    * `(channel, threadTs)` so human replies there are picked up by the thread auto-respond path,
-   * with `followUpContext` injected into the reply turn. `attentionLevel: "off"` (or omitted) is a
-   * no-op. This is the ONLY engagement path for plugins — never import core session modules.
+   * with `creationContext` surfaced to both the auto-respond judge and the reply turn.
+   * `attentionLevel: "off"` (or omitted) is a no-op. This is the ONLY engagement path for
+   * plugins — never import core session modules.
    */
   engageThread(
     channel: string,
     threadTs: string,
-    opts: { attentionLevel?: AttentionLevel; followUpContext?: string },
+    opts: { attentionLevel?: AttentionLevel; creationContext?: string },
   ): Promise<void>;
   /**
    * Lazily resolves the Slack WebClient at call time. Returns `null` when Slack
@@ -1378,14 +1379,14 @@ export function createClackSdk(
     async engageThread(
       channel: string,
       threadTs: string,
-      opts: { attentionLevel?: AttentionLevel; followUpContext?: string },
+      opts: { attentionLevel?: AttentionLevel; creationContext?: string },
     ): Promise<void> {
       if (!opts.attentionLevel || opts.attentionLevel === "off" || !deps.registerThreadSession) {
         return;
       }
       await deps.registerThreadSession(channel, threadTs, {
         attentionLevel: opts.attentionLevel,
-        ...(opts.followUpContext !== undefined && { followUpContext: opts.followUpContext }),
+        ...(opts.creationContext !== undefined && { creationContext: opts.creationContext }),
       });
     },
 

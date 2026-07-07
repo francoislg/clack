@@ -129,12 +129,16 @@ const threadEngagementAttentionField = z
       "`attention_level`, which governs the current session rather than this destination.",
   );
 
-const followUpContextField = z
+const creationContextField = z
   .string()
-  .optional()
+  .min(1)
   .describe(
-    "Optional guidance injected into the answer turn when a human replies in the destination thread " +
-      "(e.g. how to handle clarification requests). Only meaningful alongside a non-`off` `attention_level`.",
+    "REQUIRED. The hidden context this message is posted with — never shown to users. Record WHY " +
+      "you're posting it, any facts to remember for later, and how to handle replies. It is stored " +
+      "on the destination conversation and surfaced to BOTH the auto-respond judge (which decides " +
+      "whether to reply) and your own later answer turns there — so a conversation you start retains " +
+      "why it exists. Only takes effect on replies when paired with a non-`off` `attention_level` / " +
+      "`channel_attention_level`, but supply it regardless.",
   );
 
 const threadEngagementDeliveryModeField = z
@@ -184,7 +188,7 @@ const postToActionSchema = z.object({
       "Explicit target thread timestamp. Omit for a top-level channel post (e.g., 'in the channel').",
     ),
   attention_level: threadEngagementAttentionField,
-  follow_up_context: followUpContextField,
+  creation_context: creationContextField,
   default_delivery_mode: threadEngagementDeliveryModeField,
   channel_attention_level: channelAttentionLevelSeedField,
   suppress_unfurls: z
@@ -879,7 +883,7 @@ const deliverToEntrySchema = z
           "as a top-level message in `channel`.",
       ),
     attention_level: threadEngagementAttentionField,
-    follow_up_context: followUpContextField,
+    creation_context: creationContextField,
     default_delivery_mode: threadEngagementDeliveryModeField,
     channel_attention_level: channelAttentionLevelSeedField,
     response: deliverToResponseSchema,
@@ -1161,7 +1165,7 @@ export function createSubmitResponseTool(deps: SubmitResponseDeps) {
               ...(entry.thread_ts && { threadTs: entry.thread_ts }),
               payload: entry.response,
               ...(entry.attention_level && { attentionLevel: entry.attention_level }),
-              ...(entry.follow_up_context && { followUpContext: entry.follow_up_context }),
+              ...(entry.creation_context && { creationContext: entry.creation_context }),
               ...(entry.default_delivery_mode && { deliveryMode: entry.default_delivery_mode }),
               ...(entry.channel_attention_level && {
                 channelAttentionLevel: entry.channel_attention_level,

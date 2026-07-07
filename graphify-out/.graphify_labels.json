@@ -13,6 +13,7 @@
   "11": "gemini-image plugin",
   "12": "idler plugin",
   "13": "trivia plugin",
+  "14": "UserRole",
   "15": "src/slack: roles.ts",
   "16": "src/slack: fetchChannelMessages.ts",
   "17": "src/claude: index.ts",
@@ -49,6 +50,7 @@
   "48": "userRegistry: userRegistry.ts",
   "49": "trivia plugin",
   "50": "trivia plugin",
+  "51": "sdkMemory.ts",
   "52": "src/workers: Worker",
   "53": "sdk.ts plugin",
   "54": "registry.ts plugin",
@@ -173,7 +175,6 @@
   "173": "Asana Integration",
   "174": "GIPHY Plugin",
   "175": "Authentication",
-  "176": "state.ts",
   "177": "explore.md",
   "178": "MCP Server Setup",
   "179": "slackErrors.ts",
@@ -294,5 +295,6 @@
   "295": "archive.ts",
   "298": "recordAndUpload.ts",
   "299": "CLAUDE.md",
+  "300": "proposeSpinoff.ts",
   "302": "PostQuestionsSlackDeps"
 }

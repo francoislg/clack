@@ -34,7 +34,7 @@ describe("registerThreadSession", () => {
   it("is a no-op for attentionLevel 'off' — nothing is seeded", async () => {
     const result = await registerThreadSession("C100", "1700000000.000100", {
       attentionLevel: "off",
-      followUpContext: "should not be stored",
+      creationContext: "should not be stored",
     });
     assert.equal(result, null);
     assert.equal(await findSessionByThread("C100", "1700000000.000100"), null);
@@ -43,13 +43,13 @@ describe("registerThreadSession", () => {
   it("seeds a discoverable, engaged session for a non-off level", async () => {
     const seeded = await registerThreadSession("C101", "1700000000.000200", {
       attentionLevel: "high",
-      followUpContext: "Answer clarifications while pending.",
+      creationContext: "Answer clarifications while pending.",
     });
     assert.ok(seeded);
     assert.equal(seeded.channelId, "C101");
     assert.equal(seeded.threadTs, "1700000000.000200");
     assert.equal(seeded.attentionLevel, "high");
-    assert.equal(seeded.additionalSystemPrompt, "Answer clarifications while pending.");
+    assert.equal(seeded.creationContext, "Answer clarifications while pending.");
 
     const found = await findSessionByThread("C101", "1700000000.000200");
     assert.ok(found);
@@ -57,12 +57,12 @@ describe("registerThreadSession", () => {
     assert.ok(isEngaged(found));
   });
 
-  it("stores no additionalSystemPrompt when followUpContext is omitted", async () => {
+  it("stores no creationContext when it is omitted", async () => {
     const seeded = await registerThreadSession("C102", "1700000000.000300", {
       attentionLevel: "medium",
     });
     assert.ok(seeded);
-    assert.equal(seeded.additionalSystemPrompt, undefined);
+    assert.equal(seeded.creationContext, undefined);
   });
 
   it("seeds deliveryMode onto the engaged session when supplied", async () => {
@@ -103,7 +103,7 @@ describe("registerThreadSession", () => {
 
     const result = await registerThreadSession("C103", "1700000000.000400", {
       attentionLevel: "always",
-      followUpContext: "should be ignored",
+      creationContext: "should be ignored",
     });
 
     assert.ok(result);
