@@ -12,6 +12,7 @@ interface ActionFixture {
   value?: string;
   blocks?: { type: string }[];
   ref?: string;
+  creation_context?: string;
 }
 
 function makeAction(type: string, label: string): ActionFixture {
@@ -21,7 +22,7 @@ function makeAction(type: string, label: string): ActionFixture {
     case "choice":
       return { type, label, value: "v" };
     case "post_to":
-      return { type, label, blocks: [{ type: "divider" }] };
+      return { type, label, creation_context: "why", blocks: [{ type: "divider" }] };
     case "change":
     case "config_update":
     case "update":

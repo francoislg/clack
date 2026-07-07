@@ -90,6 +90,7 @@ function run(
     "general",
     undefined,
     secondsSinceLastBotMessage,
+    undefined,
     makeDeps(),
   );
 }
@@ -153,5 +154,31 @@ describe("runChannelContinuationPreAnalysis", () => {
     queuedMessages = [resultSuccess("skip")];
     await run("medium", 15 * 60 * 60);
     assert.ok(calls[0].prompt.includes("TIMING: this message arrived 15h after"));
+  });
+
+  it("surfaces the seed's creationContext to the judge when present", async () => {
+    queuedMessages = [resultSuccess("respond")];
+    await runChannelContinuationPreAnalysis(
+      "what about staging?",
+      "Alice",
+      "Clack",
+      "Deploy digest: 3 PRs shipped today",
+      "medium",
+      undefined,
+      undefined,
+      "general",
+      undefined,
+      undefined,
+      "You posted a riddle; nudge, never reveal the answer.",
+      makeDeps(),
+    );
+    assert.ok(calls[0].systemPrompt.includes("WHY THE BOT POSTED"));
+    assert.ok(calls[0].systemPrompt.includes("nudge, never reveal the answer"));
+  });
+
+  it("omits the creationContext section when none is seeded", async () => {
+    queuedMessages = [resultSuccess("skip")];
+    await run();
+    assert.ok(!calls[0].systemPrompt.includes("WHY THE BOT POSTED"));
   });
 });

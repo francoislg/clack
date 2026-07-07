@@ -111,8 +111,9 @@ export interface DeliverToEntry {
    * from the top-level `submit_response.attention_level` (which governs the current session).
    */
   attention_level?: AttentionLevel;
-  /** Optional guidance injected into the answer turn when a human replies in the destination thread. */
-  follow_up_context?: string;
+  /** REQUIRED hidden context the message is posted with (why posted, facts to remember, reply guidance);
+   *  stored on the destination conversation and read by both the auto-respond judge and later answer turns. */
+  creation_context: string;
   /** Optional delivery mode seeded onto the destination thread (only meaningful with a non-`"off"` level). */
   default_delivery_mode?: DeliveryMode;
   /** Optional: seed an ephemeral channel-conversation window on the destination channel.
@@ -132,8 +133,8 @@ export type DeliverToChannelFn = (args: {
   payload: DeliverToPayload;
   /** When set and non-`"off"`, seed an engaged session on the destination thread after delivery. */
   attentionLevel?: AttentionLevel;
-  /** Follow-up guidance stored on the seeded session (only meaningful with a non-`"off"` level). */
-  followUpContext?: string;
+  /** Creation context stored on the seeded session (read by the judge and later answer turns). */
+  creationContext?: string;
   /** Delivery mode seeded onto the engaged session (only meaningful with a non-`"off"` level). */
   deliveryMode?: DeliveryMode;
   /** When set on a top-level delivery, seed an ephemeral channel-conversation window after posting. */
@@ -531,8 +532,9 @@ export interface PostToAction {
    * thread auto-respond path. Absent / `"off"` ⇒ fire-and-forget. Mirrors the `deliver_to` entry field.
    */
   attention_level?: AttentionLevel;
-  /** Optional guidance injected into the answer turn when a human replies in the cross-posted thread. */
-  follow_up_context?: string;
+  /** REQUIRED hidden context the message is posted with (why posted, facts to remember, reply guidance);
+   *  stored on the destination conversation and read by both the auto-respond judge and later answer turns. */
+  creation_context: string;
   /** Optional delivery mode seeded onto the cross-posted thread (only meaningful with a non-`"off"` level). */
   default_delivery_mode?: DeliveryMode;
   /** Optional: seed an ephemeral channel-conversation window on the destination channel.

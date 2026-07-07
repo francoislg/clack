@@ -230,9 +230,9 @@ describe("resolveAutoRespondContext — ephemeral channel conversations", () => 
     assert.ok(result?.additionalSystemPrompt?.includes("find_sessions"));
   });
 
-  it("followUpContext from the seed lands in the prompt", async () => {
+  it("creationContext from the seed lands in the prompt", async () => {
     const deps = makeDeps({
-      getEphemeralRule: async () => rule({ followUpContext: "keep it playful" }),
+      getEphemeralRule: async () => rule({ creationContext: "keep it playful" }),
     });
 
     const result = await call(deps);

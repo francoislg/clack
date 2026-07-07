@@ -625,7 +625,7 @@ async function handlePostToAutoExecute(
           try {
             await deps.registerThreadSession(targetChannel, root, {
               attentionLevel: action.attention_level,
-              ...(action.follow_up_context && { followUpContext: action.follow_up_context }),
+              ...(action.creation_context && { creationContext: action.creation_context }),
               ...(action.default_delivery_mode && {
                 deliveryMode: action.default_delivery_mode,
               }),
@@ -649,7 +649,7 @@ async function handlePostToAutoExecute(
               attentionLevel: action.channel_attention_level,
               sessionId,
               anchorText: snapshot.text,
-              ...(action.follow_up_context && { followUpContext: action.follow_up_context }),
+              ...(action.creation_context && { creationContext: action.creation_context }),
             });
           } catch (err) {
             logger.warn(

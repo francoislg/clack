@@ -11,7 +11,7 @@ The system SHALL persist standing auto-respond rules in `data/state/auto-respond
 - **WHEN** rules are saved
 - **THEN** the standing file contains a JSON object with a `rules` array
 - **AND** each standing rule has: `id` (string), `channels` (string[]), `userFilters` (string[], optional), `keywords` (string[], optional), `extraContext` (string, optional), `preAnalysisContext` (string, optional), `enabled` (boolean)
-- **AND** each ephemeral rule additionally has `kind: "ephemeral"`, `expiresAt` (number), `attentionLevel`, `sessionIds` (string[]), `anchorText` (string), and optionally `followUpContext` (string)
+- **AND** each ephemeral rule additionally has `kind: "ephemeral"`, `expiresAt` (number), `attentionLevel`, `sessionIds` (string[]), `anchorText` (string), and optionally `creationContext` (string; a legacy `followUpContext` field on already-persisted rules is read as `creationContext`)
 
 #### Scenario: Load rules on first access
 - **WHEN** rules are accessed for the first time

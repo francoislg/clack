@@ -38,17 +38,24 @@ const EPHEMERAL_RATCHET_DOWN: Record<EphemeralAttentionLevel, EphemeralAttention
   low: null,
 };
 
-const ephemeralRuleZod = z.object({
-  id: z.string(),
-  kind: z.literal("ephemeral"),
-  channels: z.array(z.string()),
-  attentionLevel: z.enum(["high", "medium", "low"]),
-  expiresAt: z.number(),
-  sessionIds: z.array(z.string()),
-  anchorText: z.string(),
-  followUpContext: z.string().optional(),
-  enabled: z.boolean(),
-});
+const ephemeralRuleZod = z
+  .object({
+    id: z.string(),
+    kind: z.literal("ephemeral"),
+    channels: z.array(z.string()),
+    attentionLevel: z.enum(["high", "medium", "low"]),
+    expiresAt: z.number(),
+    sessionIds: z.array(z.string()),
+    anchorText: z.string(),
+    creationContext: z.string().optional(),
+    // Legacy alias for rules persisted before the creationContext rename; coalesced below.
+    followUpContext: z.string().optional(),
+    enabled: z.boolean(),
+  })
+  .transform(({ followUpContext, ...rule }) => ({
+    ...rule,
+    creationContext: rule.creationContext ?? followUpContext,
+  }));
 
 const ephemeralStateZod = z.object({
   rules: z.array(ephemeralRuleZod).optional(),
@@ -116,7 +123,7 @@ export interface SeedEphemeralRuleOptions {
   attentionLevel: EphemeralAttentionLevel;
   sessionId: string;
   anchorText: string;
-  followUpContext?: string;
+  creationContext?: string;
 }
 
 /** Create the channel's conversation window. Newest-wins: replaces any existing
@@ -131,7 +138,7 @@ export async function seedEphemeralRule(opts: SeedEphemeralRuleOptions): Promise
     expiresAt: Date.now() + EPHEMERAL_RULE_TTL_MS,
     sessionIds: [opts.sessionId],
     anchorText: opts.anchorText.slice(0, EPHEMERAL_ANCHOR_TEXT_MAX),
-    ...(opts.followUpContext?.trim() && { followUpContext: opts.followUpContext.trim() }),
+    ...(opts.creationContext?.trim() && { creationContext: opts.creationContext.trim() }),
     enabled: true,
   };
   const remaining = ephemeral.filter((r) => !r.channels.includes(opts.channel));

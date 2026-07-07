@@ -332,9 +332,12 @@ export async function resolveAutoRespondContext(
     const gateLevel: PreAnalysisLevel = level === "high" || level === "low" ? level : "medium";
 
     const sharedContext = deps.loadSharedContext();
-    const threadPreAnalysisContext = enrichment.historyUnavailable
+    const baseThreadContext = enrichment.historyUnavailable
       ? `${THREAD_PRE_ANALYSIS_CONTEXT} Note: message history could not be retrieved.`
       : THREAD_PRE_ANALYSIS_CONTEXT;
+    const threadPreAnalysisContext = session.creationContext
+      ? `${baseThreadContext}\n\nWhy this conversation exists: ${session.creationContext}`
+      : baseThreadContext;
 
     // Elapsed time since the bot's most recent in-thread message. A short gap is a strong
     // signal the incoming reply is aimed at the bot; the gate weighs it as a decaying lean.
@@ -512,7 +515,7 @@ export async function resolveAutoRespondContext(
   };
 }
 
-/** Prompt additions for a channelReply turn: the seed's follow-up guidance, the pull-based
+/** Prompt additions for a channelReply turn: the seed's creation context, the pull-based
  *  ledger hint, and placement guidance (quick beats top-level, depth moves to a thread). */
 function buildChannelReplyPrompt(rule: EphemeralRule): string {
   const parts: string[] = [
@@ -521,8 +524,8 @@ function buildChannelReplyPrompt(rule: EphemeralRule): string {
     "PLACEMENT: for a quick conversational beat, reply top-level in the channel (`post_top_level: true`) to keep the conversation flowing. " +
       "For anything substantive (detailed answers, code, multi-step help), reply WITHOUT `post_top_level` so your answer threads under the user's message.",
   ];
-  if (rule.followUpContext) {
-    parts.push(`FOLLOW-UP GUIDANCE: ${rule.followUpContext}`);
+  if (rule.creationContext) {
+    parts.push(`CREATION CONTEXT (why you posted; hidden from users): ${rule.creationContext}`);
   }
   if (rule.sessionIds.length > 1) {
     parts.push(
@@ -605,6 +608,7 @@ async function resolveEphemeralConversation(
     channelName,
     messageLink,
     secondsSinceLastBotMessage,
+    rule.creationContext,
   );
 
   const dormant = Date.now() > rule.expiresAt;

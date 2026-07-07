@@ -707,22 +707,22 @@ When `process_reveal_answers` returns a reveal entry whose question has `media`,
 
 ### Requirement: Posted Question Threads Engage Clarification Replies
 
-When `post_questions` posts a question message, it SHALL engage that message's thread via `sdk.engageThread` with a non-`"off"` attention level and a pending-aware clarification follow-up context.
+When `post_questions` posts a question message, it SHALL engage that message's thread via `sdk.engageThread` with a non-`"off"` attention level and a pending-aware clarification `creationContext`.
 
-The follow-up context SHALL instruct Clack, on each human reply in the thread, to:
+The `creationContext` SHALL instruct Clack, on each human reply in the thread, to:
 - re-read the ORIGINAL question message before responding;
 - while the original message still shows the question as PENDING (it has not yet been edited to reveal the answer), lean toward answering a clarification request with the extra precision the asker needs;
 - treat a PUBLIC request for more detail on a pending question as public information shared with the whole game — NOT cheating;
 - once the original message shows the revealed answer, stop helping.
 
-This follow-up context SHALL be consistent with the `trivia-cheating-detection` carve-out — both describe the same boundary (clarification of a pending question is allowed; fishing for the answer is cheating) using the same examples, so they cannot drift.
+This `creationContext` SHALL be consistent with the `trivia-cheating-detection` carve-out — both describe the same boundary (clarification of a pending question is allowed; fishing for the answer is cheating) using the same examples, so they cannot drift. Because `creationContext` now also reaches the thread's pre-analysis judge, the gate SHALL see this same pending-vs-revealed boundary when deciding whether to engage a reply.
 
 Posting SHALL remain functional when no engagement is desired: an attention level of `"off"` (or a deployment that does not opt in) leaves posting behavior unchanged.
 
 #### Scenario: Posting a question seeds an engaged thread
 
 - **WHEN** `post_questions` posts a question whose message timestamp is `1700000000.000500` in channel `C1`
-- **THEN** it calls `sdk.engageThread("C1", "1700000000.000500", { attentionLevel: <non-off>, followUpContext: <clarification context> })`
+- **THEN** it calls `sdk.engageThread("C1", "1700000000.000500", { attentionLevel: <non-off>, creationContext: <clarification context> })`
 
 #### Scenario: Pending-question clarification is answered
 

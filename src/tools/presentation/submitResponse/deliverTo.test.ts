@@ -10,7 +10,12 @@ import {
 } from "./deliverTo.js";
 
 const block: Block = { type: "section", text: { type: "mrkdwn", text: "hi" } };
-const postToAction: Action = { type: "post_to", channel: "C2", blocks: [block] };
+const postToAction: Action = {
+  type: "post_to",
+  channel: "C2",
+  creation_context: "why",
+  blocks: [block],
+};
 
 function makeDeps(overrides: Partial<ValidateDeliverToDeps> = {}): ValidateDeliverToDeps {
   const intentStore: IntentStore = {
@@ -32,6 +37,7 @@ function makeDeps(overrides: Partial<ValidateDeliverToDeps> = {}): ValidateDeliv
 function entry(response: Partial<DeliverToEntry["response"]> = {}): DeliverToEntry {
   return {
     channel: "C1",
+    creation_context: "why",
     response: { blocks: [block], ...response },
   };
 }

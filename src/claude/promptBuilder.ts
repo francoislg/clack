@@ -408,6 +408,14 @@ function buildDeliveryContext(session: SessionContext): string | null {
     lines.push(session.additionalSystemPrompt);
   }
 
+  if (session.creationContext) {
+    lines.push("");
+    lines.push(
+      "CREATION CONTEXT (why you posted the message that started this conversation — hidden from users; follow it):",
+    );
+    lines.push(session.creationContext);
+  }
+
   return lines.join("\n");
 }
 

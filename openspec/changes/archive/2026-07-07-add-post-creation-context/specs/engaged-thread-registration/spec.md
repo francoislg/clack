@@ -1,10 +1,9 @@
-# engaged-thread-registration Specification
+## RENAMED Requirements
 
-## Purpose
+- FROM: `### Requirement: followUpContext Reaches The Answer Turn`
+- TO: `### Requirement: creationContext Reaches The Judge And The Answer Turn`
 
-Enable plugins and Claude-authored code to seed engaged sessions for specific threads, allowing human replies in those threads to be answered with custom follow-up context without requiring a prior Q&A session.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Engaged-Thread Registration Primitive
 

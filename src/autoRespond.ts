@@ -39,8 +39,9 @@ export interface AutoRespondRule {
   sessionIds?: string[];
   /** Ephemeral only: the seeding post's text (truncated) for the continuation judge. */
   anchorText?: string;
-  /** Ephemeral only: guidance injected into responding turns (the standing `extraContext` slot). */
-  followUpContext?: string;
+  /** Ephemeral only: provenance the conversation was seeded with — injected into responding turns
+   *  and the continuation judge. */
+  creationContext?: string;
 }
 
 interface AutoRespondState {
