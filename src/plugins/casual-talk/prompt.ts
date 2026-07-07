@@ -98,6 +98,8 @@ export function buildPrompt(args: BuildPromptArgs): string {
     ``,
     `Before reacting, call \`find_emoji\` to discover custom workspace emoji that fit the channel's character and the message; if none fit, fall back to a standard emoji you already know. Calibrate the emoji to the channel — its \`hint:\` annotation, its \`channel_name\`, and its \`channel_purpose\`. To react, call \`add_reaction\` with the message's \`channel_id\` + \`message_ts\` (or its \`url\`) and the emoji name (no colons); call it once per emoji if you're adding more than one.`,
     ``,
+    `The message's existing reactions are in front of you (each candidate message carries its current \`reactions\`). When one already fits the vibe, prefer adding to an emoji that's already there — a natural +1 that reads as joining in — rather than always introducing a fresh one, which reads as standing apart. (Slack ignores a reaction you'd be duplicating, so only pile on where you're genuinely a new voice on that emoji.)`,
+    ``,
     `Keep reactions tasteful: focus on ONE or TWO messages this fire. If several recent messages are related, a single emoji on the best one is enough — don't blanket the channel. There's no fixed cap; use judgment.`,
     ``,
     `### Candidate channels`,
