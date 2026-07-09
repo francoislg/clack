@@ -1,4 +1,4 @@
-import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
+import type { SDKMessage, SDKRateLimitInfo } from "@anthropic-ai/claude-agent-sdk";
 import { truncate } from "../text.js";
 import type { StreamEvent } from "../streaming/types.js";
 import type { ToolCallRecord } from "../tools/types.js";
@@ -159,6 +159,7 @@ export class ClaudeMessageParser {
   private _lastAssistantText = "";
   private _result: ParsedResult | null = null;
   private _platformLimit: PlatformLimitInfo | null = null;
+  private _rateLimitSnapshot: SDKRateLimitInfo | null = null;
   private onEvent?: (event: StreamEvent) => void | Promise<void>;
   private pendingToolUses = new Map<string, PendingToolUse>();
 
@@ -179,12 +180,21 @@ export class ClaudeMessageParser {
     return this._platformLimit;
   }
 
+  /**
+   * The stream's most recent rate_limit_event payload, regardless of status. Carries the window
+   * utilization + reset time for the Home Tab usage panel; null until any such event is seen.
+   */
+  get rateLimitSnapshot(): SDKRateLimitInfo | null {
+    return this._rateLimitSnapshot;
+  }
+
   async process(message: SDKMessage): Promise<ParsedMessage> {
     const parsed: ParsedMessage = { toolUses: [], assistantText: null, completedToolCalls: [] };
 
     // rate_limit_event — "most recent event wins": a later "allowed" clears an earlier rejection
     if (message.type === "rate_limit_event") {
       const info = message.rate_limit_info;
+      this._rateLimitSnapshot = info;
       this._platformLimit =
         info.status === "rejected"
           ? { kind: "usage_limit", resetsAt: info.resetsAt, rateLimitType: info.rateLimitType }

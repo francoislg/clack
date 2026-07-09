@@ -175,6 +175,7 @@
   "173": "Asana Integration",
   "174": "GIPHY Plugin",
   "175": "Authentication",
+  "176": "seasonFormat.ts",
   "177": "explore.md",
   "178": "MCP Server Setup",
   "179": "slackErrors.ts",
@@ -188,6 +189,7 @@
   "187": "priority.ts",
   "188": "brave-image-search",
   "189": "commons-image-search",
+  "190": "trackedKinds.ts",
   "191": "extractDisplayText",
   "192": "AGENTS.md",
   "193": "Asana Personal Access Token",
@@ -293,8 +295,13 @@
   "293": "tester-smoke.sh",
   "294": "workerBashGuard.ts",
   "295": "archive.ts",
+  "296": "PluginLogger",
+  "297": "ClackSdkUserData",
   "298": "recordAndUpload.ts",
   "299": "CLAUDE.md",
   "300": "proposeSpinoff.ts",
-  "302": "PostQuestionsSlackDeps"
+  "301": "roundSummary.ts",
+  "302": "PostQuestionsSlackDeps",
+  "303": "PostQuestionsSlackDeps",
+  "304": "adminDescribeConfigFile.ts"
 }

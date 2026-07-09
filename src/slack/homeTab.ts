@@ -19,6 +19,7 @@ import { isEphemeralRule } from "../ephemeralRules.js";
 import { formatElapsedSeconds } from "../claude/preAnalysis.js";
 import { getJobs, getJobsByUser, type CronJob } from "../cronJobs.js";
 import { humanReadableSchedule } from "../cronFormatter.js";
+import { readUsageLimits, type UsageLimitsState, type UsageLimitWindow } from "../usageLimits.js";
 import { getSlackClient } from "./app.js";
 import { getUserInfo } from "./userCache.js";
 import { truncate } from "../text.js";
@@ -76,6 +77,7 @@ export interface HomeTabDeps {
     timezone: string,
     viewerTimezone?: string,
   ) => string;
+  getUsageLimits: () => Promise<UsageLimitsState>;
 }
 
 export const defaultHomeTabDeps: HomeTabDeps = {
@@ -113,6 +115,7 @@ export const defaultHomeTabDeps: HomeTabDeps = {
     return (await getUserInfo(client, userId))?.tz;
   },
   humanReadableSchedule,
+  getUsageLimits: readUsageLimits,
 };
 
 interface HomeViewOptions {
@@ -196,6 +199,11 @@ export async function buildHomeView(
 
   // Help section (visible to all)
   blocks.push(...buildHelpSection(deps));
+
+  // Usage limits section (admin only), at the bottom
+  if (userIsAdmin) {
+    blocks.push(...(await buildUsageLimitsSection(deps)));
+  }
 
   // Spacer to prevent Slack client from cutting off the last block
   // (known Slack bug: bottom UI chrome clips the last blocks of App Home views)
@@ -724,6 +732,98 @@ function emojiFor(status: string): string {
 
 function slackDate(d: Date): string {
   return `<!date^${Math.floor(d.getTime() / 1000)}^{date_short_pretty} at {time}|${d.toISOString()}>`;
+}
+
+// A reading whose `observedAt` is older than this is flagged "may be outdated".
+const USAGE_STALE_AFTER_MS = 30 * 60 * 1000;
+
+// Render order for the usage panel; any window type not listed follows, sorted, with a fallback label.
+const USAGE_WINDOW_ORDER: readonly string[] = [
+  "five_hour",
+  "seven_day",
+  "seven_day_opus",
+  "seven_day_sonnet",
+  "overage",
+];
+
+function usageWindowLabel(type: string): string {
+  switch (type) {
+    case "five_hour":
+      return t("home.usage.window_five_hour");
+    case "seven_day":
+      return t("home.usage.window_seven_day");
+    case "seven_day_opus":
+      return t("home.usage.window_seven_day_opus");
+    case "seven_day_sonnet":
+      return t("home.usage.window_seven_day_sonnet");
+    case "overage":
+      return t("home.usage.window_overage");
+    default:
+      return t("home.usage.window_unknown", { type });
+  }
+}
+
+function orderedUsageWindowTypes(state: UsageLimitsState): string[] {
+  const present = Object.keys(state);
+  const known = USAGE_WINDOW_ORDER.filter((type) => present.includes(type));
+  const unknown = present.filter((type) => !USAGE_WINDOW_ORDER.includes(type)).sort();
+  return [...known, ...unknown];
+}
+
+function usageRowText(type: string, window: UsageLimitWindow, now: number): string {
+  const segments: string[] = [];
+
+  if (typeof window.utilization === "number") {
+    const percent = Math.round(Math.max(0, Math.min(1, window.utilization)) * 100);
+    segments.push(t("home.usage.percent", { percent }));
+  } else {
+    segments.push(t("home.usage.percent_unavailable"));
+  }
+
+  if (typeof window.resetsAt === "number") {
+    segments.push(
+      t("home.usage.resets", { resetTime: slackDate(new Date(window.resetsAt * 1000)) }),
+    );
+  }
+
+  // observedAt may be absent on partial/legacy state — then we show no "as of" note at all.
+  if (typeof window.observedAt === "number") {
+    const asOf = t("home.usage.as_of", { observedTime: slackDate(new Date(window.observedAt)) });
+    const stale =
+      now - window.observedAt > USAGE_STALE_AFTER_MS ? ` · _${t("home.usage.stale")}_` : "";
+    segments.push(`${asOf}${stale}`);
+  }
+
+  return `• *${usageWindowLabel(type)}* — ${segments.join(" · ")}`;
+}
+
+/**
+ * Admin-only panel reflecting the latest Claude subscription rate-limit snapshot. The data only
+ * refreshes when a Claude run streams a rate_limit_event, so this is a point-in-time reading —
+ * the intro copy and the per-row "as of" note make that explicit.
+ */
+async function buildUsageLimitsSection(deps: HomeTabDeps): Promise<KnownBlock[]> {
+  const state = await deps.getUsageLimits();
+  const now = Date.now();
+
+  const blocks: KnownBlock[] = [
+    { type: "divider" },
+    {
+      type: "header",
+      text: { type: "plain_text", text: t("home.usage.header"), emoji: true },
+    },
+    { type: "context", elements: [{ type: "mrkdwn", text: t("home.usage.intro") }] },
+  ];
+
+  const types = orderedUsageWindowTypes(state);
+  if (types.length === 0) {
+    blocks.push({ type: "section", text: { type: "mrkdwn", text: t("home.usage.empty") } });
+    return blocks;
+  }
+
+  const lines = types.map((type) => usageRowText(type, state[type], now));
+  blocks.push({ type: "section", text: { type: "mrkdwn", text: lines.join("\n") } });
+  return blocks;
 }
 
 /**

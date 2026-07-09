@@ -72,6 +72,7 @@ const IDENTICAL_OK = new Set<StringKey>([
   "home.status.access_plus", // "{role}+"
   "home.status.skill_plugin_entry", // "• *{name}*{suffix}"
   "home.status.clack_plugin_error", // "{reasons}"
+  "home.usage.window_unknown", // "{type}" — echoes the raw SDK rate-limit type
 ]);
 
 const NON_EN_DICTIONARIES: ReadonlyArray<{

@@ -99,6 +99,24 @@ export const fr: Partial<Record<StringKey, string>> = {
   "home.status.trigger_dm": ":speech_balloon: Messages directs",
   "home.status.trigger_mention": ":mega: @Mentions",
 
+  // ─── Limites d'utilisation (admin) ─────────────────────────────────
+  "home.usage.header": "Limites d'utilisation Claude",
+  "home.usage.intro":
+    "_Instantané de la dernière exécution de Claude — actualisé à chaque exécution du bot._",
+  "home.usage.empty":
+    "_Aucune donnée d'utilisation pour l'instant. S'affiche après la prochaine exécution de Claude (authentification par abonnement uniquement)._",
+  "home.usage.window_five_hour": "Horaire",
+  "home.usage.window_seven_day": "Hebdomadaire",
+  "home.usage.window_seven_day_opus": "Hebdomadaire (Opus)",
+  "home.usage.window_seven_day_sonnet": "Hebdomadaire (Sonnet)",
+  "home.usage.window_overage": "Dépassement",
+  "home.usage.window_unknown": "{type}",
+  "home.usage.percent": "{percent} % utilisé",
+  "home.usage.percent_unavailable": "utilisation n/d",
+  "home.usage.resets": "réinitialisation {resetTime}",
+  "home.usage.as_of": "au {observedTime}",
+  "home.usage.stale": "peut être obsolète",
+
   // ─── Workers ───────────────────────────────────────────────────────
   "home.workers.header": "Workers",
   "home.workers.no_active_changes": "_Aucune demande de changement active._",
