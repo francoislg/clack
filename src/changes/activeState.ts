@@ -115,6 +115,14 @@ const activeChanges = new Map<string, ActiveChangeState>();
 /** Cached session references for persistence, keyed by session ID */
 const sessionRefs = new Map<string, SessionRef>();
 
+/**
+ * Sessions whose change was adopted into another conversation, mapped to the new
+ * home's ref. In-memory only: after a restart the old thread's buttons fall back
+ * to the generic no-active-change message, which is acceptable for a thread the
+ * user already moved away from.
+ */
+const adoptedAway = new Map<string, SessionRef>();
+
 // ============================================================================
 // Internal Helpers
 // ============================================================================
@@ -159,6 +167,75 @@ function buildChangeSessionForPersistence(
 
 export function getActiveChange(sessionId: string): ActiveChangeState | undefined {
   return activeChanges.get(sessionId);
+}
+
+export function getActiveChangeRef(sessionId: string): SessionRef | undefined {
+  return sessionRefs.get(sessionId);
+}
+
+export function findActiveChangeByBranch(
+  repo: string,
+  branch: string,
+): { sessionId: string; change: ActiveChangeState } | undefined {
+  for (const [sessionId, change] of activeChanges.entries()) {
+    if (change.repo === repo && change.branch === branch) {
+      return { sessionId, change };
+    }
+  }
+  return undefined;
+}
+
+export type ChangeSessionLiveness = "live" | "adoptable" | "orphan";
+
+/**
+ * Classify a change session's claim for cross-conversation continuation.
+ * "live" — a run is executing (or queued); the change must not be moved or detached.
+ * "adoptable" — the session exists but is parked (pr_created/failed/terminal, no run).
+ * "orphan" — no active change for this sessionId (expired or not restored).
+ */
+export function classifyChangeSession(sessionId: string): ChangeSessionLiveness {
+  const change = activeChanges.get(sessionId);
+  if (!change) return "orphan";
+  if (
+    change.handle !== undefined ||
+    change.waiting !== undefined ||
+    ACTIVELY_EXECUTING_STATUSES.includes(change.status)
+  ) {
+    return "live";
+  }
+  return "adoptable";
+}
+
+/**
+ * Re-home a change session into another conversation: the activeChange and its
+ * ref move to the new sessionId, the branch-keyed persisted session is rewritten
+ * with the new channel/threadTs (so restore rebinds after a restart), and the old
+ * sessionId gets a tombstone pointing at the new home.
+ */
+export function adoptActiveChange(
+  oldSessionId: string,
+  newSessionId: string,
+  newRef: SessionRef,
+): void {
+  const change = activeChanges.get(oldSessionId);
+  if (!change) return;
+  activeChanges.delete(oldSessionId);
+  sessionRefs.delete(oldSessionId);
+  activeChanges.set(newSessionId, change);
+  sessionRefs.set(newSessionId, newRef);
+  adoptedAway.set(oldSessionId, newRef);
+  adoptedAway.delete(newSessionId);
+  change.lastActivityAt = new Date();
+  const cs = buildChangeSessionForPersistence(newSessionId, change, newRef);
+  deps.writeSessionState(cs, `Adopted into ${newRef.channelId}`);
+  deps.appendExecutionLog(
+    change.branch,
+    `Session adopted: ${oldSessionId} -> ${newSessionId} (channel ${newRef.channelId})`,
+  );
+}
+
+export function getAdoptedAwayRef(sessionId: string): SessionRef | undefined {
+  return adoptedAway.get(sessionId);
 }
 
 export function setActiveChange(

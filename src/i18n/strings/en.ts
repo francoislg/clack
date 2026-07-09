@@ -307,6 +307,17 @@ export const en = {
   "changes.queue.queued_at":
     ":hourglass_flowing_sand: Queued at position {position} for a worker on `{repo}`.",
   "changes.create_workspace_failed": "Failed to create workspace: {error}",
+  "changes.adopt.live_in_channel":
+    ":no_entry: This change is actively being worked on in <#{channel}>. Continue it from that conversation, or wait for the current run to finish.",
+  "changes.adopt.live":
+    ":no_entry: This change is actively being worked on in another conversation. Wait for the current run to finish.",
+  "changes.adopt.owner_gated":
+    ":lock: This change belongs to <@{user}>. Ask them to continue it, or have an admin adopt it.",
+  "changes.adopt.continuing_here":
+    ":truck: Continuing the change from <#{channel}> here — its worker, PR state, and context moved with it. The previous thread now points here.",
+  "changes.moved_to_channel": ":truck: This change moved to <#{channel}> — continue it there.",
+  "changes.stale_claim_quarantined":
+    ":biohazard_sign: The workspace previously holding this branch had unverified local work and was quarantined. An admin can discard or restore it from the Home Tab.",
 
   // ─── Tester ("test this PR" runs) ────────────────────────────────────
   "tester.not_enabled":

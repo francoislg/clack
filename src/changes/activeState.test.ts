@@ -12,6 +12,11 @@ import {
   getActiveChangeBranches,
   snapshotRunningChanges,
   setActiveStateDeps,
+  getActiveChangeRef,
+  findActiveChangeByBranch,
+  classifyChangeSession,
+  adoptActiveChange,
+  getAdoptedAwayRef,
   type ActiveStateDeps,
   type ActiveChangeState,
   type SessionRef,
@@ -460,6 +465,143 @@ describe("getActiveChangeBranches", () => {
     assert.ok(branches.has("feat/active"));
     assert.ok(branches.has("feat/also-active"));
     assert.ok(!branches.has("feat/done"));
+  });
+});
+
+// ============================================================================
+// findActiveChangeByBranch / getActiveChangeRef
+// ============================================================================
+
+describe("findActiveChangeByBranch", () => {
+  it("finds the session holding a repo+branch", () => {
+    setActiveChange("session-1", makeChange({ repo: "org/a", branch: "feat/x" }), makeRef());
+    setActiveChange("session-2", makeChange({ repo: "org/b", branch: "feat/x" }), makeRef());
+
+    const result = findActiveChangeByBranch("org/b", "feat/x");
+    assert.ok(result);
+    assert.equal(result.sessionId, "session-2");
+    assert.equal(result.change.repo, "org/b");
+  });
+
+  it("returns undefined when no session holds the branch", () => {
+    setActiveChange("session-1", makeChange({ repo: "org/a", branch: "feat/x" }), makeRef());
+    assert.equal(findActiveChangeByBranch("org/a", "feat/other"), undefined);
+  });
+});
+
+describe("getActiveChangeRef", () => {
+  it("returns the session ref stored by setActiveChange", () => {
+    const ref = makeRef({ userId: "U042", channelId: "C042" });
+    setActiveChange("session-1", makeChange(), ref);
+    assert.deepEqual(getActiveChangeRef("session-1"), ref);
+  });
+
+  it("returns undefined for an unknown session", () => {
+    assert.equal(getActiveChangeRef("nonexistent"), undefined);
+  });
+});
+
+// ============================================================================
+// classifyChangeSession
+// ============================================================================
+
+describe("classifyChangeSession", () => {
+  it("classifies a missing session as orphan", () => {
+    assert.equal(classifyChangeSession("nonexistent"), "orphan");
+  });
+
+  it("classifies a change with a live handle as live", () => {
+    setActiveChange(
+      "session-1",
+      makeChange({ status: "pr_created", handle: makeFakeRunHandle("running") }),
+      makeRef(),
+    );
+    assert.equal(classifyChangeSession("session-1"), "live");
+  });
+
+  it("classifies actively-executing statuses as live", () => {
+    for (const status of ["executing", "reviewing", "merging"] as const) {
+      setActiveChange("session-1", makeChange({ status }), makeRef());
+      assert.equal(classifyChangeSession("session-1"), "live", status);
+    }
+  });
+
+  it("classifies a queued (waiting) change as live", () => {
+    setActiveChange(
+      "session-1",
+      makeChange({ status: "pr_created", waiting: { since: new Date("2026-01-01T00:00:00Z") } }),
+      makeRef(),
+    );
+    assert.equal(classifyChangeSession("session-1"), "live");
+  });
+
+  it("classifies parked statuses without a handle as adoptable", () => {
+    for (const status of ["pr_created", "failed", "completed", "cancelled"] as const) {
+      setActiveChange("session-1", makeChange({ status }), makeRef());
+      assert.equal(classifyChangeSession("session-1"), "adoptable", status);
+    }
+  });
+});
+
+// ============================================================================
+// adoptActiveChange / getAdoptedAwayRef
+// ============================================================================
+
+describe("adoptActiveChange", () => {
+  it("moves the change and ref to the new session id", () => {
+    const change = makeChange({ status: "pr_created", sdkSessionId: "sdk-123" });
+    setActiveChange("adopt-old-1", change, makeRef({ channelId: "C-OLD" }));
+    const newRef = makeRef({ channelId: "C-NEW", threadTs: "1700000001.000001" });
+
+    adoptActiveChange("adopt-old-1", "adopt-new-1", newRef);
+
+    assert.equal(getActiveChange("adopt-old-1"), undefined);
+    assert.equal(getActiveChangeRef("adopt-old-1"), undefined);
+    assert.equal(getActiveChange("adopt-new-1"), change);
+    assert.equal(getActiveChange("adopt-new-1")?.sdkSessionId, "sdk-123");
+    assert.deepEqual(getActiveChangeRef("adopt-new-1"), newRef);
+  });
+
+  it("persists the session under the new ref", () => {
+    const depsSpy = makeDeps();
+    setActiveStateDeps(depsSpy);
+    setActiveChange("adopt-old-2", makeChange({ status: "pr_created" }), makeRef());
+    const newRef = makeRef({ channelId: "C-NEW-2" });
+
+    adoptActiveChange("adopt-old-2", "adopt-new-2", newRef);
+
+    const writeCalls = (depsSpy.writeSessionState as ReturnType<typeof vi.fn>).mock.calls;
+    const lastWrite = writeCalls[writeCalls.length - 1];
+    assert.equal(lastWrite[0].id, "adopt-new-2");
+    assert.equal(lastWrite[0].channel, "C-NEW-2");
+  });
+
+  it("records a tombstone pointing at the new home", () => {
+    setActiveChange("adopt-old-3", makeChange({ status: "pr_created" }), makeRef());
+    const newRef = makeRef({ channelId: "C-NEW-3" });
+
+    adoptActiveChange("adopt-old-3", "adopt-new-3", newRef);
+
+    assert.deepEqual(getAdoptedAwayRef("adopt-old-3"), newRef);
+    assert.equal(getAdoptedAwayRef("adopt-new-3"), undefined);
+  });
+
+  it("clears the tombstone when a session is adopted back", () => {
+    setActiveChange("adopt-a", makeChange({ status: "pr_created" }), makeRef());
+    adoptActiveChange("adopt-a", "adopt-b", makeRef({ channelId: "C-B" }));
+    assert.ok(getAdoptedAwayRef("adopt-a"));
+
+    adoptActiveChange("adopt-b", "adopt-a", makeRef({ channelId: "C-A" }));
+
+    assert.equal(getAdoptedAwayRef("adopt-a"), undefined);
+    assert.ok(getAdoptedAwayRef("adopt-b"));
+    assert.ok(getActiveChange("adopt-a"));
+  });
+
+  it("is a no-op when the old session has no change", () => {
+    adoptActiveChange("adopt-missing", "adopt-target", makeRef());
+    assert.equal(getActiveChange("adopt-target"), undefined);
+    assert.equal(getAdoptedAwayRef("adopt-missing"), undefined);
   });
 });
 

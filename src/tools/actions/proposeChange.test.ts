@@ -6,6 +6,8 @@ import type { QueryToolContext } from "../types.js";
 import type { IntentStore } from "../server.js";
 import type { RepositoryConfig } from "../../config.js";
 import type { PersistedSessionState } from "../../changes/types.js";
+import type { ActiveChangeState, ChangeSessionLiveness } from "../../changes/activeState.js";
+import type { Worker } from "../../workers/types.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -23,10 +25,60 @@ function makeRepo(overrides?: Partial<RepositoryConfig>): RepositoryConfig {
 
 function makeDeps(overrides?: Partial<ProposeChangeDeps>): ProposeChangeDeps {
   return {
-    getExistingWorktree: vi.fn(() => null),
+    findWorkerByBranch: vi.fn(() => null),
     readSessionState: vi.fn(async () => null),
     canWriteRepo: vi.fn(() => true),
     getWritableRepos: vi.fn(() => [makeRepo()]),
+    findActiveChangeByBranch: vi.fn(() => undefined),
+    classifyChangeSession: vi.fn((): ChangeSessionLiveness => "orphan"),
+    getActiveChangeRef: vi.fn(() => undefined),
+    ...overrides,
+  };
+}
+
+function makeWorkerOnBranch(overrides?: Partial<Worker>): Worker {
+  return {
+    id: "worker-1",
+    repo: "my-repo",
+    worktreePath: "/tmp/worktrees/my-repo/worker-1",
+    currentBranch: "clack/fix/existing",
+    status: "busy",
+    setupComplete: true,
+    setupVersionHash: null,
+    claimedBy: "sess-old",
+    lastUsedAt: new Date("2025-06-15T09:00:00Z"),
+    createdAt: new Date("2025-01-01T00:00:00Z"),
+    ...overrides,
+  };
+}
+
+function makeChangeOnBranch(overrides?: Partial<ActiveChangeState>): ActiveChangeState {
+  return {
+    branch: "clack/fix/existing",
+    repo: "my-repo",
+    description: "Existing change",
+    status: "pr_created",
+    startedAt: new Date("2025-01-01T00:00:00Z"),
+    lastActivityAt: new Date("2025-01-01T00:00:00Z"),
+    ...overrides,
+  };
+}
+
+function makePersistedState(overrides?: Partial<PersistedSessionState>): PersistedSessionState {
+  return {
+    sessionId: "sess-old",
+    status: "executing",
+    phase: "executing",
+    branch: "clack/fix/existing",
+    repo: "my-repo",
+    userId: "U123",
+    description: "Existing change",
+    prUrl: null,
+    startedAt: "2025-01-01T00:00:00Z",
+    lastActivityAt: "2025-01-01T12:00:00Z",
+    lastMessage: "working",
+    channel: "C1",
+    threadTs: "1.0",
     ...overrides,
   };
 }
@@ -384,20 +436,14 @@ describe("proposeChange tool", () => {
     assert.ok(!("plan" in staged));
   });
 
-  it("includes existing worktree info when worktree exists", async () => {
+  it("includes existing worktree info when a worker holds the branch", async () => {
     deps = makeDeps({
-      getExistingWorktree: vi.fn(() => ({
-        repoName: "my-repo",
-        branchName: "clack/fix/existing",
-        worktreePath: "/tmp/worktrees/my-repo/clack-fix-existing",
-        createdAt: new Date("2025-01-01T00:00:00Z"),
-      })),
-      readSessionState: vi.fn(
-        async () =>
-          ({
-            status: "in_progress",
-            lastActivityAt: "2025-01-01T12:00:00Z",
-          }) as never as PersistedSessionState,
+      findWorkerByBranch: vi.fn(() => makeWorkerOnBranch()),
+      readSessionState: vi.fn(async () =>
+        makePersistedState({
+          status: "executing",
+          lastActivityAt: "2025-01-01T12:00:00Z",
+        }),
       ),
     });
 
@@ -418,19 +464,14 @@ describe("proposeChange tool", () => {
 
     const parsed = parseToolResult(result);
     assert.ok(parsed.existingWorktree);
-    assert.equal(parsed.existingWorktree.status, "in_progress");
+    assert.equal(parsed.existingWorktree.status, "executing");
     assert.equal(parsed.existingWorktree.lastActivity, "2025-01-01T12:00:00Z");
   });
 
-  it("falls back to worktree createdAt when session state is null", async () => {
-    const createdAt = new Date("2025-06-15T09:00:00Z");
+  it("falls back to the worker's lastUsedAt when session state is null", async () => {
+    const lastUsedAt = new Date("2025-06-15T09:00:00Z");
     deps = makeDeps({
-      getExistingWorktree: vi.fn(() => ({
-        repoName: "my-repo",
-        branchName: "clack/fix/old",
-        worktreePath: "/tmp/worktrees/my-repo/clack-fix-old",
-        createdAt,
-      })),
+      findWorkerByBranch: vi.fn(() => makeWorkerOnBranch({ lastUsedAt })),
       readSessionState: vi.fn(async () => null),
     });
 
@@ -452,7 +493,109 @@ describe("proposeChange tool", () => {
     const parsed = parseToolResult(result);
     assert.ok(parsed.existingWorktree);
     assert.equal(parsed.existingWorktree.status, "unknown");
-    assert.equal(parsed.existingWorktree.lastActivity, createdAt.toISOString());
+    assert.equal(parsed.existingWorktree.lastActivity, lastUsedAt.toISOString());
+  });
+
+  it("reports 'fresh' when a worker holds the branch but no session exists", async () => {
+    deps = makeDeps({ findWorkerByBranch: vi.fn(() => makeWorkerOnBranch()) });
+
+    const toolDef = createProposeChangeTool(makeCtx(), makeIntentStore(), deps);
+    const result = await toolDef.handler(
+      {
+        branch: "clack/fix/existing",
+        description: "Fix",
+        repo: "my-repo",
+        plan: undefined,
+        continue_existing_pr: true,
+      },
+      { sessionId: "test" },
+    );
+
+    const parsed = parseToolResult(result);
+    assert.equal(parsed.existingWorktree.continuation, "fresh");
+  });
+
+  it("reports 'resume-here' when the session belongs to this conversation", async () => {
+    deps = makeDeps({
+      findActiveChangeByBranch: vi.fn(() => ({
+        sessionId: "sess-1",
+        change: makeChangeOnBranch(),
+      })),
+    });
+
+    const toolDef = createProposeChangeTool(makeCtx(), makeIntentStore(), deps);
+    const result = await toolDef.handler(
+      {
+        branch: "clack/fix/existing",
+        description: "Fix",
+        repo: "my-repo",
+        plan: undefined,
+        continue_existing_pr: true,
+      },
+      { sessionId: "test" },
+    );
+
+    const parsed = parseToolResult(result);
+    assert.equal(parsed.existingWorktree.continuation, "resume-here");
+  });
+
+  it("reports 'adopt' with the owner when another conversation's session is idle", async () => {
+    deps = makeDeps({
+      findActiveChangeByBranch: vi.fn(() => ({
+        sessionId: "sess-old",
+        change: makeChangeOnBranch(),
+      })),
+      classifyChangeSession: vi.fn((): ChangeSessionLiveness => "adoptable"),
+      getActiveChangeRef: vi.fn(() => ({
+        userId: "U999",
+        channelId: "C-OLD",
+        threadTs: "1.0",
+        triggerType: "mentions",
+      })),
+    });
+
+    const toolDef = createProposeChangeTool(makeCtx(), makeIntentStore(), deps);
+    const result = await toolDef.handler(
+      {
+        branch: "clack/fix/existing",
+        description: "Fix",
+        repo: "my-repo",
+        plan: undefined,
+        continue_existing_pr: true,
+      },
+      { sessionId: "test" },
+    );
+
+    const parsed = parseToolResult(result);
+    assert.equal(parsed.existingWorktree.continuation, "adopt");
+    assert.equal(parsed.existingWorktree.owner, "U999");
+    assert.ok(parsed.existingWorktree.guidance.includes("MOVE"));
+  });
+
+  it("reports 'live' when another conversation's session is executing", async () => {
+    deps = makeDeps({
+      findActiveChangeByBranch: vi.fn(() => ({
+        sessionId: "sess-old",
+        change: makeChangeOnBranch({ status: "executing" }),
+      })),
+      classifyChangeSession: vi.fn((): ChangeSessionLiveness => "live"),
+    });
+
+    const toolDef = createProposeChangeTool(makeCtx(), makeIntentStore(), deps);
+    const result = await toolDef.handler(
+      {
+        branch: "clack/fix/existing",
+        description: "Fix",
+        repo: "my-repo",
+        plan: undefined,
+        continue_existing_pr: true,
+      },
+      { sessionId: "test" },
+    );
+
+    const parsed = parseToolResult(result);
+    assert.equal(parsed.existingWorktree.continuation, "live");
+    assert.ok(parsed.existingWorktree.guidance.includes("ACTIVELY EXECUTING"));
   });
 
   it("records the tool call on success", async () => {

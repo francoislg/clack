@@ -11,6 +11,7 @@ import type { ExecuteChangeOptions } from "./execution.js";
 import type { UserRecord } from "../userRegistry.js";
 import { createSdkMcpServer } from "@anthropic-ai/claude-agent-sdk";
 import { startChangeWorkflow, handleFollowUp, type WorkflowDeps } from "./workflow.js";
+import { AlreadyInFlight } from "../workers/errors.js";
 import type { ReleaseReason, Worker, WorkerPool } from "../workers/types.js";
 
 function buildMockPool(): WorkerPool {
@@ -145,6 +146,17 @@ const mockApplySlicePatch = vi.fn<(worktreePath: string, patchPath: string) => P
   async () => {},
 );
 const mockGetUserRecord = vi.fn<(userId: string) => Promise<UserRecord | null>>(async () => null);
+const mockFindActiveChangeByBranch = vi.fn<WorkflowDeps["findActiveChangeByBranch"]>(
+  () => undefined,
+);
+const mockClassifyChangeSession = vi.fn<WorkflowDeps["classifyChangeSession"]>(() => "orphan");
+const mockAdoptActiveChange = vi.fn<WorkflowDeps["adoptActiveChange"]>(() => {});
+const mockGetActiveChangeRef = vi.fn<WorkflowDeps["getActiveChangeRef"]>(() => undefined);
+const mockGetUserRole = vi.fn<WorkflowDeps["getUserRole"]>(async () => "dev");
+const mockReassignWorkerClaim = vi.fn<WorkflowDeps["reassignWorkerClaim"]>(() => true);
+const mockDetachStaleClaimedWorker = vi.fn<WorkflowDeps["detachStaleClaimedWorker"]>(
+  async () => "detached",
+);
 
 // Types for test assertions
 type ExecuteChangeCallArg = Omit<ExecuteChangeOptions, "plan"> & {
@@ -182,6 +194,13 @@ function makeDeps(): WorkflowDeps {
     buildClackTools: mockBuildClackTools,
     fetchPRReviewContext: mockFetchPRReviewContext,
     getSession: mockGetSession,
+    findActiveChangeByBranch: mockFindActiveChangeByBranch,
+    classifyChangeSession: mockClassifyChangeSession,
+    adoptActiveChange: mockAdoptActiveChange,
+    getActiveChangeRef: mockGetActiveChangeRef,
+    getUserRole: mockGetUserRole,
+    reassignWorkerClaim: mockReassignWorkerClaim,
+    detachStaleClaimedWorker: mockDetachStaleClaimedWorker,
     forceResetBranch: mockForceResetBranch,
     applySlicePatch: mockApplySlicePatch,
     getUserRecord: mockGetUserRecord,
@@ -302,8 +321,22 @@ function resetMocks(): void {
   mockFetchPRReviewContext.mockClear();
   mockGetSession.mockClear();
   mockForceResetBranch.mockClear();
+  mockFindActiveChangeByBranch.mockClear();
+  mockClassifyChangeSession.mockClear();
+  mockAdoptActiveChange.mockClear();
+  mockGetActiveChangeRef.mockClear();
+  mockGetUserRole.mockClear();
+  mockReassignWorkerClaim.mockClear();
+  mockDetachStaleClaimedWorker.mockClear();
 
   // Reset default implementations
+  mockFindActiveChangeByBranch.mockImplementation(() => undefined);
+  mockClassifyChangeSession.mockImplementation(() => "orphan");
+  mockAdoptActiveChange.mockImplementation(() => {});
+  mockGetActiveChangeRef.mockImplementation(() => undefined);
+  mockGetUserRole.mockImplementation(async () => "dev");
+  mockReassignWorkerClaim.mockImplementation(() => true);
+  mockDetachStaleClaimedWorker.mockImplementation(async () => "detached");
   mockForceResetBranch.mockImplementation(async () => {});
   mockGetConfig.mockImplementation(() => testConfig);
   mockGetActiveChangeForUser.mockImplementation(() => undefined);
@@ -1573,5 +1606,368 @@ describe("handleFollowUp", () => {
 
       assert.equal(mockBuildClackTools.mock.calls.length, 1);
     });
+  });
+});
+
+// ============================================================================
+// Change session adoption (cross-conversation continuation)
+// ============================================================================
+
+describe("startChangeWorkflow adoption", () => {
+  function makeAdoptableSetup(
+    overrides: {
+      change?: Partial<ActiveChangeState>;
+      ownerUserId?: string;
+      liveness?: "live" | "adoptable" | "orphan";
+    } = {},
+  ) {
+    const oldChange = makeActiveChangeState({
+      status: "pr_created",
+      sdkSessionId: "sdk-123",
+      ...overrides.change,
+    });
+    mockFindActiveChangeByBranch.mockImplementation(() => ({
+      sessionId: "session-old",
+      change: oldChange,
+    }));
+    mockClassifyChangeSession.mockImplementation(() => overrides.liveness ?? "adoptable");
+    mockGetActiveChangeRef.mockImplementation((sessionId) =>
+      sessionId === "session-old"
+        ? {
+            userId: overrides.ownerUserId ?? "U001",
+            channelId: "C-OLD",
+            threadTs: "1690000000.000001",
+            triggerType: "mentions",
+          }
+        : undefined,
+    );
+    // After adoption, the requesting session resolves with the moved change.
+    mockGetSession.mockImplementation(async (sessionId) =>
+      sessionId === "session-dm"
+        ? makeSessionContext({ sessionId: "session-dm", activeChange: oldChange })
+        : null,
+    );
+    return oldChange;
+  }
+
+  it("adopts a pr_created change from another conversation and resumes via follow-up", async () => {
+    makeAdoptableSetup();
+
+    const result = await startChangeWorkflow(
+      makeRequest({ channel: "C-DM", messageTs: "1710000000.000001" }),
+      makePlan({ resumeRemoteBranch: true }),
+      "session-dm",
+      undefined,
+      makeDeps(),
+    );
+
+    assert.equal(result.success, true);
+    assert.equal(mockAdoptActiveChange.mock.calls.length, 1);
+    const [oldId, newId, newRef] = mockAdoptActiveChange.mock.calls[0];
+    assert.equal(oldId, "session-old");
+    assert.equal(newId, "session-dm");
+    assert.equal(newRef.channelId, "C-DM");
+    assert.deepEqual(mockReassignWorkerClaim.mock.calls[0], [
+      "my-repo",
+      "feat/test-branch",
+      "session-old",
+      "session-dm",
+    ]);
+    // Continuation ran as an update follow-up resuming the adopted SDK session,
+    // not a fresh startChangeWorkflow execution.
+    assert.equal(mockExecuteChange.mock.calls.length, 1);
+    assert.equal(mockExecuteChange.mock.calls[0][0].sdkSessionId, "sdk-123");
+    assert.equal(mockSetActiveChange.mock.calls.length, 0);
+  });
+
+  it("refuses adoption while the owning session is live, naming its channel", async () => {
+    makeAdoptableSetup({ liveness: "live" });
+
+    const result = await startChangeWorkflow(
+      makeRequest({ channel: "C-DM" }),
+      makePlan({ resumeRemoteBranch: true }),
+      "session-dm",
+      undefined,
+      makeDeps(),
+    );
+
+    assert.equal(result.success, false);
+    assert.ok(result.error?.includes("C-OLD"));
+    assert.equal(mockAdoptActiveChange.mock.calls.length, 0);
+    assert.equal(mockReassignWorkerClaim.mock.calls.length, 0);
+  });
+
+  it("refuses adoption by a non-owner dev, naming the owner", async () => {
+    makeAdoptableSetup({ ownerUserId: "U999" });
+    mockGetUserRole.mockImplementation(async () => "dev");
+
+    const result = await startChangeWorkflow(
+      makeRequest({ userId: "U001", channel: "C-DM" }),
+      makePlan({ resumeRemoteBranch: true }),
+      "session-dm",
+      undefined,
+      makeDeps(),
+    );
+
+    assert.equal(result.success, false);
+    assert.ok(result.error?.includes("U999"));
+    assert.equal(mockAdoptActiveChange.mock.calls.length, 0);
+  });
+
+  it("allows an admin to adopt another user's change", async () => {
+    makeAdoptableSetup({ ownerUserId: "U999" });
+    mockGetUserRole.mockImplementation(async () => "admin");
+
+    const result = await startChangeWorkflow(
+      makeRequest({ userId: "U001", channel: "C-DM" }),
+      makePlan({ resumeRemoteBranch: true }),
+      "session-dm",
+      undefined,
+      makeDeps(),
+    );
+
+    assert.equal(result.success, true);
+    assert.equal(mockAdoptActiveChange.mock.calls.length, 1);
+  });
+
+  it("routes an adopted failed change through the continue recovery command", async () => {
+    makeAdoptableSetup({ change: { status: "failed", verificationAttempts: 2 } });
+
+    const result = await startChangeWorkflow(
+      makeRequest({ channel: "C-DM" }),
+      makePlan({ resumeRemoteBranch: true }),
+      "session-dm",
+      undefined,
+      makeDeps(),
+    );
+
+    // The recovery ladder is reachable from the new conversation (no
+    // "recovery actions only apply" guard error).
+    assert.equal(mockAdoptActiveChange.mock.calls.length, 1);
+    assert.notEqual(result.error, "Recovery actions only apply to a failed change.");
+  });
+
+  it("skips adoption for a terminal change and proceeds with the fresh path", async () => {
+    makeAdoptableSetup({ change: { status: "completed" } });
+
+    const result = await startChangeWorkflow(
+      makeRequest({ channel: "C-DM" }),
+      makePlan({ resumeRemoteBranch: true }),
+      "session-dm",
+      undefined,
+      makeDeps(),
+    );
+
+    assert.equal(mockAdoptActiveChange.mock.calls.length, 0);
+    assert.equal(result.success, true);
+    // Fresh path: a new active change slot was reserved.
+    assert.equal(mockSetActiveChange.mock.calls.length, 1);
+  });
+
+  it("never adopts for tester runs", async () => {
+    makeAdoptableSetup();
+
+    await startChangeWorkflow(
+      makeRequest({ channel: "C-DM" }),
+      makePlan({ resumeRemoteBranch: true, kind: "test" }),
+      "session-dm",
+      undefined,
+      makeDeps(),
+    );
+
+    assert.equal(mockAdoptActiveChange.mock.calls.length, 0);
+  });
+});
+
+// ============================================================================
+// Orphaned-claim fallback on acquire
+// ============================================================================
+
+describe("startChangeWorkflow orphaned-claim fallback", () => {
+  function makeCollidingDeps(opts: { failuresBeforeSuccess: number }): {
+    deps: WorkflowDeps;
+    acquireCalls: () => number;
+  } {
+    const deps = makeDeps();
+    let calls = 0;
+    const basePool = deps.pool;
+    deps.pool = {
+      ...basePool,
+      acquire: async (repo, branch, sessionId, options) => {
+        calls++;
+        if (calls <= opts.failuresBeforeSuccess) {
+          throw new AlreadyInFlight(repo.name, branch, "session-ghost");
+        }
+        return basePool.acquire(repo, branch, sessionId, options);
+      },
+    };
+    return { deps, acquireCalls: () => calls };
+  }
+
+  it("detaches an orphaned claim and retries the acquire once", async () => {
+    const { deps, acquireCalls } = makeCollidingDeps({ failuresBeforeSuccess: 1 });
+    mockClassifyChangeSession.mockImplementation(() => "orphan");
+    // The fresh path reports success only when the session shows a created PR.
+    mockGetSession.mockImplementation(async () =>
+      makeSessionContext({ activeChange: makeActiveChangeState() }),
+    );
+
+    const result = await startChangeWorkflow(
+      makeRequest(),
+      makePlan(),
+      "session-123",
+      undefined,
+      deps,
+    );
+
+    assert.equal(result.success, true);
+    assert.equal(acquireCalls(), 2);
+    assert.deepEqual(mockDetachStaleClaimedWorker.mock.calls[0], [
+      "my-repo",
+      "feat/test-branch",
+      "session-ghost",
+    ]);
+  });
+
+  it("surfaces the quarantine explanation when the stale worker is dirty", async () => {
+    const { deps } = makeCollidingDeps({ failuresBeforeSuccess: 1 });
+    mockClassifyChangeSession.mockImplementation(() => "orphan");
+    mockDetachStaleClaimedWorker.mockImplementation(async () => "quarantined");
+
+    const result = await startChangeWorkflow(
+      makeRequest(),
+      makePlan(),
+      "session-123",
+      undefined,
+      deps,
+    );
+
+    assert.equal(result.success, false);
+    assert.ok(result.error?.includes("quarantined"));
+  });
+
+  it("refuses without detaching when the colliding claim is not orphaned (race)", async () => {
+    const { deps } = makeCollidingDeps({ failuresBeforeSuccess: 1 });
+    mockClassifyChangeSession.mockImplementation(() => "live");
+    mockGetActiveChangeRef.mockImplementation(() => ({
+      userId: "U999",
+      channelId: "C-BUSY",
+      threadTs: "1.2",
+      triggerType: "mentions",
+    }));
+
+    const result = await startChangeWorkflow(
+      makeRequest(),
+      makePlan(),
+      "session-123",
+      undefined,
+      deps,
+    );
+
+    assert.equal(result.success, false);
+    assert.ok(result.error?.includes("C-BUSY"));
+    assert.equal(mockDetachStaleClaimedWorker.mock.calls.length, 0);
+  });
+
+  it("does not loop when the retried acquire collides again", async () => {
+    const { deps, acquireCalls } = makeCollidingDeps({ failuresBeforeSuccess: 99 });
+    mockClassifyChangeSession.mockImplementation(() => "orphan");
+
+    const result = await startChangeWorkflow(
+      makeRequest(),
+      makePlan(),
+      "session-123",
+      undefined,
+      deps,
+    );
+
+    assert.equal(result.success, false);
+    assert.ok(result.error?.includes("already in flight"));
+    assert.equal(acquireCalls(), 2);
+    assert.equal(mockDetachStaleClaimedWorker.mock.calls.length, 1);
+  });
+});
+
+// ============================================================================
+// Detached follow-up re-acquire resume mode
+// ============================================================================
+
+describe("handleFollowUp detached re-acquire resume mode", () => {
+  const reusableConfig: AppConfig = {
+    ...testConfig,
+    changesWorkflow: {
+      ...testConfig.changesWorkflow,
+      enabled: true,
+      reusableFolders: { enabled: true },
+    },
+  } as AppConfig;
+
+  type AcquireOptions = Parameters<WorkerPool["acquire"]>[3];
+
+  function captureAcquireOptions(deps: WorkflowDeps): () => AcquireOptions[] {
+    const captured: AcquireOptions[] = [];
+    const basePool = deps.pool;
+    deps.pool = {
+      ...basePool,
+      acquire: async (repo, branch, sessionId, options) => {
+        captured.push(options);
+        return basePool.acquire(repo, branch, sessionId, options);
+      },
+    };
+    return () => captured;
+  }
+
+  it("re-acquires a detached pr_created change in resume-from-remote-branch mode", async () => {
+    mockGetConfig.mockImplementation(() => reusableConfig);
+    const deps = makeDeps();
+    const getCaptured = captureAcquireOptions(deps);
+    const session = makeSessionContext({
+      activeChange: makeActiveChangeState({ status: "pr_created", worktree: undefined }),
+    });
+
+    await handleFollowUp(session, "update", "more work", undefined, deps);
+
+    const options = getCaptured();
+    assert.equal(options.length, 1);
+    assert.deepEqual(options[0], { resumeRemoteBranch: true });
+  });
+
+  it("re-acquires a failed non-PR change from the default branch", async () => {
+    mockGetConfig.mockImplementation(() => reusableConfig);
+    const deps = makeDeps();
+    const getCaptured = captureAcquireOptions(deps);
+    const session = makeSessionContext({
+      activeChange: makeActiveChangeState({
+        status: "failed",
+        prUrl: undefined,
+        worktree: undefined,
+      }),
+    });
+
+    await handleFollowUp(session, "continue", undefined, undefined, deps);
+
+    const options = getCaptured();
+    assert.equal(options.length, 1);
+    assert.deepEqual(options[0], { resumeRemoteBranch: false });
+  });
+
+  it("surfaces a remotely-deleted branch as the follow-up error", async () => {
+    mockGetConfig.mockImplementation(() => reusableConfig);
+    const deps = makeDeps();
+    const basePool = deps.pool;
+    deps.pool = {
+      ...basePool,
+      acquire: async () => {
+        throw new Error("Remote branch 'origin/feat/test-branch' was not found");
+      },
+    };
+    const session = makeSessionContext({
+      activeChange: makeActiveChangeState({ status: "pr_created", worktree: undefined }),
+    });
+
+    const result = await handleFollowUp(session, "update", "more work", undefined, deps);
+
+    assert.equal(result.success, false);
+    assert.ok(result.error?.includes("Remote branch"));
   });
 });

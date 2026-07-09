@@ -398,6 +398,31 @@ describe("runCompletionCheck", () => {
     assert.equal(mockClearActiveChange.mock.calls.length, 0);
   });
 
+  it("skips cleanup when the session's change moved mid-iteration (adoption)", async () => {
+    const mockUpdateStatus = vi.fn();
+    const mockClearActiveChange = vi.fn();
+    const getActiveWorkers: MonitorDeps["getActiveWorkers"] = () => [
+      makeWorker({ id: "sess-adopted", branch: "feat/test" }),
+    ];
+    const getPRStatus: MonitorDeps["getPRStatus"] = async () => ({ state: "MERGED" });
+    const updateActiveChangeStatus: MonitorDeps["updateActiveChangeStatus"] = mockUpdateStatus;
+    const clearActiveChange: MonitorDeps["clearActiveChange"] = mockClearActiveChange;
+    setMonitorDeps(
+      makeDeps({
+        getActiveWorkers,
+        getSession: sessionReturning(makeActiveChange({ branch: "feat/other" })),
+        getPRStatus,
+        updateActiveChangeStatus,
+        clearActiveChange,
+      }),
+    );
+
+    await runCompletionCheck();
+
+    assert.equal(mockUpdateStatus.mock.calls.length, 0);
+    assert.equal(mockClearActiveChange.mock.calls.length, 0);
+  });
+
   it("does not clean up when PR is still open", async () => {
     const activeChange = makeActiveChange();
     const mockUpdateStatus = vi.fn();
@@ -704,6 +729,42 @@ describe("runIdleSweep", () => {
 
     assert.equal(detachedWorker, worker);
     assert.deepEqual(detachCalls, ["session-1"]);
+  });
+
+  it("skips a worker whose claim moved to another session while getSession awaited", async () => {
+    const worker = makeWorkerRecord({ claimedBy: "session-1" });
+    let detachCalled = false;
+    const detached: string[] = [];
+    const detachStub: DetachFn = (s) => {
+      detached.push(s);
+    };
+    // Simulate an adoption interleaving with the sweep: the claim moves during
+    // the session fetch.
+    const getSession: SessionFn = async (sessionId) => {
+      worker.claimedBy = "session-2";
+      const base = sessionReturning(makeActiveChange({ status: "pr_created", handle: undefined }));
+      return base(sessionId);
+    };
+
+    setMonitorDeps(
+      makeDeps({
+        getReusablePool: () =>
+          makeSweepPool({
+            candidates: [worker],
+            detachIfClean: async () => {
+              detachCalled = true;
+              return true;
+            },
+          }),
+        getSession,
+        detachActiveChangeWorktree: detachStub,
+      }),
+    );
+
+    await runIdleSweep();
+
+    assert.equal(detachCalled, false);
+    assert.equal(detached.length, 0);
   });
 
   it("skips workers whose session is not pr_created (still executing)", async () => {

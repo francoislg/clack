@@ -3,26 +3,51 @@ import { tool } from "@anthropic-ai/claude-agent-sdk";
 import type { QueryToolContext } from "../types.js";
 import type { IntentStore } from "../server.js";
 import { textResult, errorResult } from "../helpers.js";
-import { getExistingWorktree, type WorktreeInfo } from "../../worktrees.js";
 import { readSessionState } from "../../changes/persistence.js";
 import type { PersistedSessionState } from "../../changes/types.js";
+import {
+  findActiveChangeByBranch,
+  classifyChangeSession,
+  getActiveChangeRef,
+} from "../../changes/activeState.js";
+import { lazyDefaultPool } from "../../workers/index.js";
+import type { Worker } from "../../workers/types.js";
 import { canWriteRepo, getWritableRepos } from "../../repoAccess.js";
 import type { RepositoryConfig } from "../../config.js";
 import type { UserRole } from "../../roles.js";
 import { BRANCH_PATTERN, BRANCH_TYPES, isProtectedBranchName } from "../../changes/branchNaming.js";
 
 export interface ProposeChangeDeps {
-  getExistingWorktree: (repo: RepositoryConfig, branchName: string) => WorktreeInfo | null;
+  /** Mode-agnostic branch lookup — works for reusable worker-N folders AND disposable worktrees. */
+  findWorkerByBranch: (repoName: string, branch: string) => Worker | null;
   readSessionState: (branchName: string) => Promise<PersistedSessionState | null>;
   canWriteRepo: (role: UserRole, repo: RepositoryConfig) => boolean;
   getWritableRepos: (role: UserRole, repos: RepositoryConfig[]) => RepositoryConfig[];
+  findActiveChangeByBranch: typeof findActiveChangeByBranch;
+  classifyChangeSession: typeof classifyChangeSession;
+  getActiveChangeRef: typeof getActiveChangeRef;
 }
 
 export const defaultProposeChangeDeps: ProposeChangeDeps = {
-  getExistingWorktree,
+  findWorkerByBranch: (repoName, branch) => lazyDefaultPool().findByBranch(repoName, branch),
   readSessionState,
   canWriteRepo,
   getWritableRepos,
+  findActiveChangeByBranch,
+  classifyChangeSession,
+  getActiveChangeRef,
+};
+
+export type ContinuationState = "resume-here" | "adopt" | "live" | "fresh";
+
+const CONTINUATION_GUIDANCE: Record<ContinuationState, string> = {
+  "resume-here":
+    "This branch's change session already belongs to this conversation — starting the change continues it in place.",
+  adopt:
+    "This branch's change session lives in ANOTHER conversation but is idle. Starting the change here will MOVE the session into this conversation (worker context, PR state, and follow-up buttons come along; the previous thread's buttons will point here). Tell the user this is a takeover-style continuation.",
+  live: "A run is ACTIVELY EXECUTING on this branch in another conversation. Starting a change here will be refused — suggest the user continue from that conversation or wait for the run to finish.",
+  fresh:
+    "Existing work was found for this branch but no live change session. Continuing will resume from the branch's current state.",
 };
 
 export function createProposeChangeTool(
@@ -87,14 +112,41 @@ export function createProposeChangeTool(
         );
       }
 
-      // Check for existing worktree
-      let existingWorktreeInfo: { status: string; lastActivity: string } | undefined;
-      const existingWorktree = deps.getExistingWorktree(repo, args.branch);
-      if (existingWorktree) {
+      // Existing-work detection: pool-based branch lookup (mode-agnostic) plus the
+      // live change-session registry, so Claude knows what continuation will do
+      // BEFORE any button is clicked. Advisory only — enforcement is at execution.
+      let existingWorktreeInfo:
+        | {
+            status: string;
+            lastActivity: string;
+            continuation: ContinuationState;
+            owner?: string;
+            guidance: string;
+          }
+        | undefined;
+      const existingSession = deps.findActiveChangeByBranch(args.repo, args.branch);
+      const workerOnBranch = deps.findWorkerByBranch(args.repo, args.branch);
+      if (existingSession || workerOnBranch) {
         const sessionState = await deps.readSessionState(args.branch);
+        let continuation: ContinuationState = "fresh";
+        let owner: string | undefined;
+        if (existingSession) {
+          if (existingSession.sessionId === ctx.session.sessionId) {
+            continuation = "resume-here";
+          } else {
+            const liveness = deps.classifyChangeSession(existingSession.sessionId);
+            continuation = liveness === "live" ? "live" : "adopt";
+            owner = deps.getActiveChangeRef(existingSession.sessionId)?.userId;
+          }
+        }
         existingWorktreeInfo = {
-          status: sessionState?.status ?? "unknown",
-          lastActivity: sessionState?.lastActivityAt ?? existingWorktree.createdAt.toISOString(),
+          status: sessionState?.status ?? existingSession?.change.status ?? "unknown",
+          lastActivity:
+            sessionState?.lastActivityAt ??
+            (workerOnBranch?.lastUsedAt ?? new Date()).toISOString(),
+          continuation,
+          ...(owner && { owner }),
+          guidance: CONTINUATION_GUIDANCE[continuation],
         };
       }
 
