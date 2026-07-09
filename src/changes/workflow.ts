@@ -17,7 +17,12 @@ import { getSession } from "../sessions.js";
 import { firstUserMessage } from "../sessions/selectors.js";
 import type { ActiveChangeState } from "./activeState.js";
 import type { ClaudeRunHandle } from "../claude/runHandle.js";
-import { lazyDefaultPool } from "../workers/index.js";
+import {
+  lazyDefaultPool,
+  reassignWorkerClaim,
+  detachStaleClaimedWorker,
+} from "../workers/index.js";
+import { AlreadyInFlight } from "../workers/errors.js";
 import { forceResetBranch } from "../workers/branchSwitch.js";
 import { poolWorkerForChange } from "./poolWorker.js";
 import { workerToWorktreeInfo, type Worker, type WorkerPool } from "../workers/types.js";
@@ -28,7 +33,13 @@ import {
   getActiveChangeForUser,
   countActiveChangesForUser,
   updateActiveChangeStatus,
+  findActiveChangeByBranch,
+  classifyChangeSession,
+  adoptActiveChange,
+  getActiveChangeRef,
 } from "./activeState.js";
+import { getRole } from "../roles.js";
+import { meetsMinimumRole } from "../permissions.js";
 import { appendExecutionLog, readSessionState } from "./persistence.js";
 import {
   executeChange,
@@ -118,6 +129,13 @@ export interface WorkflowDeps {
     prUrl: string,
   ) => Promise<{ ok: true; context: string } | { ok: false; error: string }>;
   getSession: (sessionId: string) => Promise<SessionContext | null>;
+  findActiveChangeByBranch: typeof findActiveChangeByBranch;
+  classifyChangeSession: typeof classifyChangeSession;
+  adoptActiveChange: typeof adoptActiveChange;
+  getActiveChangeRef: typeof getActiveChangeRef;
+  getUserRole: typeof getRole;
+  reassignWorkerClaim: typeof reassignWorkerClaim;
+  detachStaleClaimedWorker: typeof detachStaleClaimedWorker;
   forceResetBranch: (worker: Worker, repo: RepositoryConfig, branch: string) => Promise<void>;
   applySlicePatch: (worktreePath: string, patchPath: string) => Promise<void>;
   getUserRecord: typeof getUserRecord;
@@ -152,6 +170,13 @@ export const defaultWorkflowDeps: WorkflowDeps = {
   buildClackTools,
   fetchPRReviewContext,
   getSession,
+  findActiveChangeByBranch,
+  classifyChangeSession,
+  adoptActiveChange,
+  getActiveChangeRef,
+  getUserRole: getRole,
+  reassignWorkerClaim,
+  detachStaleClaimedWorker,
   forceResetBranch,
   applySlicePatch: defaultSpinoffGitOps.applySlicePatch,
   getUserRecord,
@@ -324,10 +349,25 @@ export async function startChangeWorkflow(
     };
   }
 
+  const isTest = plan.kind === "test";
+
+  // Cross-conversation continuation: when the branch's change session is alive under
+  // another conversation, re-home it here (adoption) instead of creating a parallel
+  // session — the worker's SDK conversation, PR state, and recovery counters move with
+  // it. Tester runs never adopt: they are terminal derived workers, not continuations.
+  if (plan.resumeRemoteBranch && !isTest) {
+    const adoption = await maybeAdoptChangeSession(request, plan, sessionId, deps, onAck);
+    if (adoption.kind === "refused") {
+      return { success: false, error: adoption.error };
+    }
+    if (adoption.kind === "adopted") {
+      return runAdoptedContinuation(plan, sessionId, deps, onEvent);
+    }
+  }
+
   // Tester gates: sidecar reachability is checked BEFORE any workspace is acquired or app
   // booted (fail fast, nothing to tear down), and the tester slot bounds concurrent runs
   // (each adds a browser + the app dev server on top of the worker and Claude).
-  const isTest = plan.kind === "test";
   if (isTest) {
     const tester = config.tester;
     if (!tester?.enabled || !tester.sidecarUrl) {
@@ -393,6 +433,127 @@ export async function startChangeWorkflow(
       }
     }
   }
+}
+
+/**
+ * Acquire a worker, recovering from a stale "already in flight" claim. When the
+ * claiming session no longer exists (orphan), the worker is detached via the idle
+ * sweep's clean-detach mechanics (unpushed commits quarantine — nothing can prove
+ * them safe) and the acquire retried exactly once. Adoption handles every case where
+ * the claiming session still exists BEFORE acquisition, so a non-orphan collision
+ * here means a race — surfaced as the live refusal, never retried in a loop.
+ */
+async function acquireWithStaleClaimFallback(
+  repo: RepositoryConfig,
+  branch: string,
+  sessionId: string,
+  deps: WorkflowDeps,
+  options?: Parameters<WorkerPool["acquire"]>[3],
+): Promise<Worker> {
+  try {
+    return await deps.pool.acquire(repo, branch, sessionId, options);
+  } catch (err) {
+    if (!(err instanceof AlreadyInFlight)) throw err;
+    if (deps.classifyChangeSession(err.claimedBy) !== "orphan") {
+      const ref = deps.getActiveChangeRef(err.claimedBy);
+      throw new Error(
+        ref
+          ? t("changes.adopt.live_in_channel", { channel: ref.channelId })
+          : t("changes.adopt.live"),
+      );
+    }
+    const outcome = await deps.detachStaleClaimedWorker(repo.name, branch, err.claimedBy);
+    if (outcome === "quarantined") {
+      throw new Error(t("changes.stale_claim_quarantined"));
+    }
+    if (outcome === "unavailable") throw err;
+    deps.appendExecutionLog(
+      branch,
+      `Detached stale claim (orphaned session ${err.claimedBy}) — retrying acquire`,
+    );
+    return await deps.pool.acquire(repo, branch, sessionId, options);
+  }
+}
+
+type AdoptionOutcome = { kind: "none" } | { kind: "refused"; error: string } | { kind: "adopted" };
+
+/**
+ * Try to re-home an existing change session for this branch into the requesting
+ * conversation. Returns "none" when there is nothing to adopt (no session, own
+ * session, terminal status, or a mid-check orphan) — the caller then proceeds with
+ * the normal fresh-continuation path.
+ */
+async function maybeAdoptChangeSession(
+  request: ChangeRequest,
+  plan: ChangePlan,
+  sessionId: string,
+  deps: WorkflowDeps,
+  onAck?: (text: string) => Promise<void>,
+): Promise<AdoptionOutcome> {
+  const existing = deps.findActiveChangeByBranch(plan.targetRepo, plan.branchName);
+  if (!existing || existing.sessionId === sessionId) return { kind: "none" };
+
+  const liveness = deps.classifyChangeSession(existing.sessionId);
+  if (liveness === "live") {
+    const ref = deps.getActiveChangeRef(existing.sessionId);
+    return {
+      kind: "refused",
+      error: ref
+        ? t("changes.adopt.live_in_channel", { channel: ref.channelId })
+        : t("changes.adopt.live"),
+    };
+  }
+  if (liveness === "orphan") return { kind: "none" };
+
+  // Terminal changes released their worker already; the fresh-continuation path
+  // handles them with no claim to move.
+  const terminalStatuses: ChangeStatus[] = ["completed", "cancelled"];
+  if (terminalStatuses.includes(existing.change.status)) return { kind: "none" };
+
+  const ownerRef = deps.getActiveChangeRef(existing.sessionId);
+  if (ownerRef && ownerRef.userId !== request.userId) {
+    const role = await deps.getUserRole(request.userId);
+    if (!meetsMinimumRole(role, "admin")) {
+      return {
+        kind: "refused",
+        error: t("changes.adopt.owner_gated", { user: ownerRef.userId }),
+      };
+    }
+  }
+
+  deps.adoptActiveChange(existing.sessionId, sessionId, {
+    userId: request.userId,
+    channelId: request.channel,
+    threadTs: request.messageTs,
+    triggerType: request.triggerType,
+  });
+  deps.reassignWorkerClaim(plan.targetRepo, plan.branchName, existing.sessionId, sessionId);
+  if (onAck && ownerRef) {
+    // Fire-and-forget: a Slack hiccup must not fail the adoption.
+    onAck(t("changes.adopt.continuing_here", { channel: ownerRef.channelId })).catch((err) =>
+      deps.appendExecutionLog(plan.branchName, `Adoption ack post failed: ${errorMessage(err)}`),
+    );
+  }
+  return { kind: "adopted" };
+}
+
+/**
+ * Execute an adopted continuation as a follow-up on the re-homed session, so the
+ * worker resumes its prior SDK conversation instead of starting a fresh run. A
+ * failed change routes through its recovery command; anything else is an update.
+ */
+async function runAdoptedContinuation(
+  plan: ChangePlan,
+  sessionId: string,
+  deps: WorkflowDeps,
+  onEvent?: (event: StreamEvent) => void | Promise<void>,
+): Promise<ChangeResult> {
+  const session = await deps.getSession(sessionId);
+  if (!session?.activeChange) {
+    return { success: false, error: "Adopted change session could not be loaded." };
+  }
+  const command: FollowUpCommand = session.activeChange.status === "failed" ? "continue" : "update";
+  return handleFollowUp(session, command, plan.description, onEvent, deps);
 }
 
 const TESTER_SERVICE_ERROR_KEYS: Record<
@@ -535,7 +696,7 @@ async function runAcquiredChangeWorkflow(
   }
 
   try {
-    worker = await deps.pool.acquire(repo, plan.branchName, sessionId, {
+    worker = await acquireWithStaleClaimFallback(repo, plan.branchName, sessionId, deps, {
       resumeRemoteBranch: plan.resumeRemoteBranch,
       onQueued: (position) => {
         activeChange.waiting = { since: new Date() };
@@ -708,7 +869,17 @@ export async function handleFollowUp(
       return { success: false, error: "No worktree exists for this change." };
     }
     try {
-      const worker = await deps.pool.acquire(repo, activeChange.branch, session.sessionId);
+      // A PR-backed change must re-acquire from its own remote head — rebuilding from
+      // origin/<default> would clobber the PR's commits in the worktree.
+      const resumeRemoteBranch =
+        activeChange.prUrl !== undefined || activeChange.status === "pr_created";
+      const worker = await acquireWithStaleClaimFallback(
+        repo,
+        activeChange.branch,
+        session.sessionId,
+        deps,
+        { resumeRemoteBranch },
+      );
       activeChange.worktree = workerToWorktreeInfo(worker);
     } catch (err) {
       return {

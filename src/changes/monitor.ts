@@ -211,6 +211,13 @@ export async function runIdleSweep(): Promise<void> {
       continue;
     }
 
+    // The claim can move to another session (adoption) while getSession awaited;
+    // re-check so the sweep never detaches a worker out from under its new owner.
+    if (worker.claimedBy !== sessionId) {
+      skipped++;
+      continue;
+    }
+
     try {
       // A failed session may hold committed-but-unpushed work (a pr_created one
       // cannot — the PR implies a pushed branch); quarantine instead of releasing
@@ -279,6 +286,12 @@ export async function runCompletionCheck(): Promise<void> {
     const currentSession = await deps.getSession(worker.id);
     if (!currentSession?.activeChange) {
       logger.debug(`Session ${worker.id} no longer has active change, skipping cleanup`);
+      continue;
+    }
+    // The snapshot can go stale mid-iteration (session adoption moves changes between
+    // sessionIds); only clean up when the session still holds the snapshot's change.
+    if (currentSession.activeChange.branch !== worker.branch) {
+      logger.debug(`Session ${worker.id} now holds a different change, skipping cleanup`);
       continue;
     }
 

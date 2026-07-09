@@ -22,11 +22,18 @@ export class DirtyWorkerQuarantined extends Error {
 }
 
 export class AlreadyInFlight extends Error {
+  readonly repo: string;
+  readonly branch: string;
+  readonly claimedBy: string;
+
   constructor(repo: string, branch: string, claimedBy: string) {
     super(
       `Branch '${branch}' on repo '${repo}' is already in flight (claimed by session ${claimedBy}).`,
     );
     this.name = "AlreadyInFlight";
+    this.repo = repo;
+    this.branch = branch;
+    this.claimedBy = claimedBy;
   }
 }
 

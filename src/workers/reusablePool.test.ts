@@ -308,6 +308,73 @@ describe("ReusablePool.release with 'discarded'", () => {
   });
 });
 
+describe("ReusablePool.reassignClaim", () => {
+  const originalCwd = process.cwd();
+
+  beforeEach(() => {
+    rmSync(tmpBase, { recursive: true, force: true });
+    mkdirSync(join(tmpDataDir, "repositories", "test-repo"), { recursive: true });
+    mkdirSync(tmpWorktreesDir, { recursive: true });
+    process.chdir(tmpBase);
+    gitState.dirtyFiles = "";
+    gitState.revListCount = "0";
+  });
+
+  afterEach(() => {
+    process.chdir(originalCwd);
+    rmSync(tmpBase, { recursive: true, force: true });
+  });
+
+  it("moves a busy worker's claim to the new session and persists", async () => {
+    const pool = makePool();
+    const worker = await pool.acquire(makeRepo(), "feat/x", "session-1");
+
+    const ok = pool.reassignClaim(worker, "session-2");
+
+    assert.equal(ok, true);
+    assert.equal(worker.claimedBy, "session-2");
+    const persisted = pool.findByBranch("test-repo", "feat/x");
+    assert.equal(persisted?.claimedBy, "session-2");
+  });
+
+  it("does not mutate branch, status, or worktree on reassign", async () => {
+    const pool = makePool();
+    const worker = await pool.acquire(makeRepo(), "feat/x", "session-1");
+    const priorPath = worker.worktreePath;
+
+    pool.reassignClaim(worker, "session-2");
+
+    assert.equal(worker.status, "busy");
+    assert.equal(worker.currentBranch, "feat/x");
+    assert.equal(worker.worktreePath, priorPath);
+  });
+
+  it("rejects reassignment for a non-busy worker", async () => {
+    const pool = makePool();
+    const worker = await pool.acquire(makeRepo(), "feat/x", "session-1");
+    await pool.release(worker, "discarded");
+    assert.equal(worker.status, "idle");
+
+    const ok = pool.reassignClaim(worker, "session-2");
+
+    assert.equal(ok, false);
+    assert.equal(worker.claimedBy, null);
+  });
+
+  it("rejects reassignment for a quarantined worker", async () => {
+    const pool = makePool();
+    const worker = await pool.acquire(makeRepo(), "feat/x", "session-1");
+    gitState.dirtyFiles = "src/a.ts\n";
+    await pool.release(worker, "discarded");
+    assert.equal(worker.status, "quarantined");
+
+    const ok = pool.reassignClaim(worker, "session-2");
+
+    assert.equal(ok, false);
+    assert.equal(worker.claimedBy, null);
+  });
+});
+
 describe("ReusablePool queue drain on idle-transitions", () => {
   const originalCwd = process.cwd();
 

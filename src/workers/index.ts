@@ -126,6 +126,46 @@ export function findLocalBranchSource(repo: string, branch: string): string | nu
   return worker?.worktreePath ?? null;
 }
 
+/**
+ * Move a busy worker's claim from one session to another (change-session adoption).
+ * Only applies when the worker currently holding `branch` is busy AND claimed by
+ * `fromSessionId` — anything else (disposable mode, no worker on the branch, a
+ * different claimant, quarantine) is a no-op returning false. Adoption proceeds
+ * regardless; the worker is simply re-acquired later via the detached-follow-up path.
+ */
+export function reassignWorkerClaim(
+  repo: string,
+  branch: string,
+  fromSessionId: string,
+  toSessionId: string,
+): boolean {
+  if (!cachedPool || !(cachedPool instanceof ReusablePool)) return false;
+  const worker = cachedPool.findByBranch(repo, branch);
+  if (!worker || worker.status !== "busy" || worker.claimedBy !== fromSessionId) return false;
+  return cachedPool.reassignClaim(worker, toSessionId);
+}
+
+export type StaleClaimDetachResult = "detached" | "quarantined" | "unavailable";
+
+/**
+ * Detach a busy worker whose claim is orphaned (its session no longer exists), so a
+ * new acquire on the branch can proceed. Unpushed commits are treated as dirty —
+ * with no session state to prove them safe, they are quarantined, never destroyed.
+ */
+export async function detachStaleClaimedWorker(
+  repo: string,
+  branch: string,
+  claimedBy: string,
+): Promise<StaleClaimDetachResult> {
+  if (!cachedPool || !(cachedPool instanceof ReusablePool)) return "unavailable";
+  const worker = cachedPool.findByBranch(repo, branch);
+  if (!worker || worker.status !== "busy" || worker.claimedBy !== claimedBy) {
+    return "unavailable";
+  }
+  const detached = await cachedPool.detachIfClean(worker, { treatUnpushedAsDirty: true });
+  return detached ? "detached" : "quarantined";
+}
+
 export type ClearQuarantineResult = { ok: true; worker: Worker } | { ok: false; reason: string };
 
 export interface WorkerPoolSnapshot {

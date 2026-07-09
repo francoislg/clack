@@ -17,7 +17,12 @@ import { decodeActionValue, getChangeRecoveryBlocks } from "../blocks.js";
 import { stripClickedButton } from "../stripClickedButton.js";
 import { activeSessions, type SessionInfo } from "../activeSessions.js";
 import { handleFollowUp } from "../../changes/workflow.js";
-import { getActiveChange, type ActiveChangeState } from "../../changes/activeState.js";
+import {
+  getActiveChange,
+  getAdoptedAwayRef,
+  type ActiveChangeState,
+  type SessionRef,
+} from "../../changes/activeState.js";
 import type { ChangeResult, FollowUpCommand } from "../../changes/types.js";
 import type { SlackDeliveryContext } from "./changeAction.js";
 import { SlackStreamer, finalizeStreamedWorkflow } from "../../streaming/slackStreamer.js";
@@ -62,6 +67,7 @@ export interface ChangeThreadActionsDeps {
     command: FollowUpCommand,
   ) => Promise<void>;
   getActiveChange: (sessionId: string) => ActiveChangeState | undefined;
+  getAdoptedAwayRef: (sessionId: string) => SessionRef | undefined;
 }
 
 export const defaultChangeThreadActionsDeps: ChangeThreadActionsDeps = {
@@ -75,9 +81,25 @@ export const defaultChangeThreadActionsDeps: ChangeThreadActionsDeps = {
   errorMessage,
   setAttentionLevel,
   getActiveChange,
+  getAdoptedAwayRef,
   createStreamer: (opts) => new SlackStreamer(opts),
   finalizeStreamedWorkflow: finalizeStreamedWorkflow as never,
 };
+
+/**
+ * The user-facing reply for a thread whose change is gone: a "moved to <channel>"
+ * pointer when the change was adopted into another conversation, the plain
+ * no-active-change error otherwise.
+ */
+function missingChangeText(
+  sessionId: string,
+  getRef: (sessionId: string) => SessionRef | undefined,
+): string {
+  const movedTo = getRef(sessionId);
+  return movedTo
+    ? t("changes.moved_to_channel", { channel: movedTo.channelId })
+    : t("errors.no_active_change_thread");
+}
 
 /**
  * Offer the recovery actions (Continue / Start over / Discard) under the failure
@@ -229,7 +251,7 @@ function registerFollowUpActionHandler(
           channel: sessionInfo.channelId,
           user: userId,
           thread_ts: sessionInfo.threadTs,
-          text: t("errors.no_active_change_thread"),
+          text: missingChangeText(sessionId, deps.getAdoptedAwayRef),
         });
         return;
       }
@@ -298,7 +320,7 @@ function registerRecoveryActionHandler(
           channel: sessionInfo.channelId,
           user: userId,
           thread_ts: sessionInfo.threadTs,
-          text: t("errors.no_active_change_thread"),
+          text: missingChangeText(sessionId, deps.getAdoptedAwayRef),
         });
         return;
       }

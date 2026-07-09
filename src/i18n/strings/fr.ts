@@ -315,6 +315,18 @@ export const fr: Partial<Record<StringKey, string>> = {
   "changes.queue.queued_at":
     ":hourglass_flowing_sand: En file (position {position}) pour un worker sur `{repo}`.",
   "changes.create_workspace_failed": "Échec de création du workspace : {error}",
+  "changes.adopt.live_in_channel":
+    ":no_entry: Ce changement est activement en cours dans <#{channel}>. Continuez-le depuis cette conversation, ou attendez la fin de l'exécution en cours.",
+  "changes.adopt.live":
+    ":no_entry: Ce changement est activement en cours dans une autre conversation. Attendez la fin de l'exécution en cours.",
+  "changes.adopt.owner_gated":
+    ":lock: Ce changement appartient à <@{user}>. Demandez-lui de le continuer, ou demandez à un admin de l'adopter.",
+  "changes.adopt.continuing_here":
+    ":truck: Le changement de <#{channel}> continue ici — son worker, l'état de la PR et le contexte ont suivi. L'ancien fil pointe maintenant ici.",
+  "changes.moved_to_channel":
+    ":truck: Ce changement a déménagé vers <#{channel}> — continuez-le là-bas.",
+  "changes.stale_claim_quarantined":
+    ":biohazard_sign: Le workspace qui détenait cette branche contenait du travail local non vérifié et a été mis en quarantaine. Un admin peut le rejeter ou le restaurer depuis l'onglet Accueil.",
 
   // ─── Tester ("test this PR" runs) ────────────────────────────────────
   "tester.not_enabled":

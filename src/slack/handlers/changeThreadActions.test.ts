@@ -60,6 +60,7 @@ const mockFinalizeStreamedWorkflow = vi.fn<ChangeThreadActionsDeps["finalizeStre
 );
 const mockSetAttentionLevel = vi.fn<ChangeThreadActionsDeps["setAttentionLevel"]>(async () => {});
 const mockGetActiveChange = vi.fn<ChangeThreadActionsDeps["getActiveChange"]>(() => undefined);
+const mockGetAdoptedAwayRef = vi.fn<ChangeThreadActionsDeps["getAdoptedAwayRef"]>(() => undefined);
 
 const mockPostEphemeralFn = vi.fn<
   (args: {
@@ -92,6 +93,7 @@ function makeDeps(): ChangeThreadActionsDeps {
     finalizeStreamedWorkflow: mockFinalizeStreamedWorkflow,
     setAttentionLevel: mockSetAttentionLevel,
     getActiveChange: mockGetActiveChange,
+    getAdoptedAwayRef: mockGetAdoptedAwayRef,
   };
 }
 
@@ -240,6 +242,8 @@ beforeEach(() => {
   mockSetAttentionLevel.mockClear();
   mockGetActiveChange.mockClear();
   mockGetActiveChange.mockImplementation(() => undefined);
+  mockGetAdoptedAwayRef.mockClear();
+  mockGetAdoptedAwayRef.mockImplementation(() => undefined);
 
   // Reset to defaults
   mockGetRole.mockImplementation(async () => "dev");
@@ -461,6 +465,39 @@ describe("registerChangeThreadActionHandlers — no active change", () => {
         "text" in msgArg &&
         typeof msgArg.text === "string" &&
         msgArg.text.includes("No active change"),
+    );
+  });
+
+  it("points to the new conversation when the change was adopted away", async () => {
+    const handler = getHandler("clack_review");
+    const intent: StagedIntent = {
+      type: "review",
+      sessionId: "s1",
+      instructions: "",
+    };
+    mockGetStagedIntent.mockImplementation(async () => intent);
+    mockFindSessionByThread.mockImplementation(async () =>
+      makeSession({ activeChange: undefined }),
+    );
+    mockGetAdoptedAwayRef.mockImplementation(() => ({
+      userId: "U001",
+      channelId: "C-NEW-HOME",
+      threadTs: "1710000000.000001",
+      triggerType: "directMessages",
+    }));
+    const args = makeHandlerArgs();
+
+    await handler(args);
+
+    assert.equal(mockGetAdoptedAwayRef.mock.calls[0]?.[0], "session-1");
+    assert.equal(mockPostEphemeralFn.mock.calls.length, 1);
+    const msgArg = mockPostEphemeralFn.mock.calls[0][0];
+    assert.ok(
+      msgArg &&
+        typeof msgArg === "object" &&
+        "text" in msgArg &&
+        typeof msgArg.text === "string" &&
+        msgArg.text.includes("C-NEW-HOME"),
     );
   });
 

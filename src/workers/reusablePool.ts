@@ -359,6 +359,22 @@ export class ReusablePool implements WorkerPool {
     return worker;
   }
 
+  /**
+   * Move a busy worker's claim to another session without releasing it — no status
+   * transition, branch switch, or install step. Used by change-session adoption.
+   * The pool stays agnostic of what a sessionId means; liveness and permission
+   * checks are the caller's responsibility.
+   */
+  reassignClaim(worker: Worker, newSessionId: string): boolean {
+    if (worker.status !== "busy") return false;
+    const previous = worker.claimedBy;
+    worker.claimedBy = newSessionId;
+    worker.lastUsedAt = new Date();
+    this.persist();
+    logger.info(`Worker ${worker.id} claim reassigned: ${previous ?? "?"} -> ${newSessionId}`);
+    return true;
+  }
+
   private async maybeRerunSetup(worker: Worker, repo: RepositoryConfig): Promise<void> {
     const currentHash = computeSetupVersionHash(repo.name);
     if (worker.setupVersionHash === currentHash) return;
