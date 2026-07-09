@@ -193,6 +193,45 @@ describe("ClaudeMessageParser rate_limit_event handling", () => {
     await parser.process(rateLimitEvent({ status: "allowed" }));
     assert.equal(parser.platformLimit, null);
   });
+
+  it("captures the snapshot of an allowed event (utilization + window), not just rejections", async () => {
+    const parser = new ClaudeMessageParser();
+    await parser.process(
+      rateLimitEvent({ status: "allowed", utilization: 0.4, rateLimitType: "five_hour" }),
+    );
+    assert.equal(parser.platformLimit, null);
+    assert.deepEqual(parser.rateLimitSnapshot, {
+      status: "allowed",
+      utilization: 0.4,
+      rateLimitType: "five_hour",
+    });
+  });
+
+  it("captures the snapshot AND sets platformLimit on a rejected event", async () => {
+    const parser = new ClaudeMessageParser();
+    await parser.process(
+      rateLimitEvent({ status: "rejected", resetsAt: 1783105200, rateLimitType: "seven_day" }),
+    );
+    assert.notEqual(parser.platformLimit, null);
+    assert.equal(parser.rateLimitSnapshot?.status, "rejected");
+    assert.equal(parser.rateLimitSnapshot?.rateLimitType, "seven_day");
+  });
+
+  it("retains the latest snapshot even when a later allowed event clears the rejection", async () => {
+    const parser = new ClaudeMessageParser();
+    await parser.process(rateLimitEvent({ status: "rejected", resetsAt: 1783105200 }));
+    await parser.process(
+      rateLimitEvent({ status: "allowed", utilization: 0.1, rateLimitType: "five_hour" }),
+    );
+    assert.equal(parser.platformLimit, null);
+    assert.equal(parser.rateLimitSnapshot?.status, "allowed");
+    assert.equal(parser.rateLimitSnapshot?.utilization, 0.1);
+  });
+
+  it("has a null snapshot until any rate_limit_event is seen", () => {
+    const parser = new ClaudeMessageParser();
+    assert.equal(parser.rateLimitSnapshot, null);
+  });
 });
 
 // ---------------------------------------------------------------------------

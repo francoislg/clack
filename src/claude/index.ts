@@ -21,6 +21,7 @@ import { logger } from "../logger.js";
 import type { UserRole } from "../roles.js";
 import type { SessionContext, AttentionLevel, DeliveryMode } from "../sessions.js";
 import { updateSession, addSessionUsage } from "../sessions.js";
+import { recordUsageLimit } from "../usageLimits.js";
 import type {
   SubmitResponsePayload,
   ToolCallRecord,
@@ -574,9 +575,9 @@ export async function askClaude(
   }
 
   async function driveRunToCompletion(): Promise<void> {
+    const parser = new ClaudeMessageParser(options?.onEvent);
     try {
       let answer = "";
-      const parser = new ClaudeMessageParser(options?.onEvent);
 
       for await (const message of run.messages) {
         const parsed = await parser.process(message);
@@ -665,6 +666,15 @@ export async function askClaude(
       // handleQueryError already builds a complete ClaudeResponse; settle with it directly
       // rather than re-converting via run.fail (which would lose the conversationTrace etc.).
       run.settle(response);
+    } finally {
+      // Persist the final rate-limit snapshot once per run (all exit paths), for the Home Tab
+      // usage panel. Fire-and-forget — a slow/failed write must never affect the run's outcome.
+      const snapshot = parser.rateLimitSnapshot;
+      if (snapshot) {
+        recordUsageLimit(snapshot).catch((err) =>
+          logger.warn(`Failed to persist usage-limit snapshot: ${errorMessage(err)}`),
+        );
+      }
     }
   }
   driveRunToCompletion().catch((err) => {

@@ -98,6 +98,23 @@ export const en = {
   "home.status.trigger_dm": ":speech_balloon: Direct Messages",
   "home.status.trigger_mention": ":mega: @Mentions",
 
+  // ─── Home Tab: usage limits section (admin only) ───────────────────
+  "home.usage.header": "Claude Usage Limits",
+  "home.usage.intro": "_Snapshot from the last Claude run — refreshes each time the bot runs._",
+  "home.usage.empty":
+    "_No usage data yet. This appears after the next Claude run (subscription auth only)._",
+  "home.usage.window_five_hour": "Hourly",
+  "home.usage.window_seven_day": "Weekly",
+  "home.usage.window_seven_day_opus": "Weekly (Opus)",
+  "home.usage.window_seven_day_sonnet": "Weekly (Sonnet)",
+  "home.usage.window_overage": "Overage",
+  "home.usage.window_unknown": "{type}",
+  "home.usage.percent": "{percent}% used",
+  "home.usage.percent_unavailable": "usage n/a",
+  "home.usage.resets": "resets {resetTime}",
+  "home.usage.as_of": "as of {observedTime}",
+  "home.usage.stale": "may be outdated",
+
   // ─── Home Tab: workers section ─────────────────────────────────────
   "home.workers.header": "Workers",
   "home.workers.no_active_changes": "_No active change requests._",

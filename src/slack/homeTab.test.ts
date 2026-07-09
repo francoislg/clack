@@ -26,6 +26,7 @@ import {
 } from "./homeTab.js";
 import type { AutoRespondRule } from "../autoRespond.js";
 import type { CronJob } from "../cronJobs.js";
+import type { UsageLimitsState } from "../usageLimits.js";
 
 // ============================================================================
 // Mocks
@@ -58,6 +59,7 @@ const mockGetJobsByUser = vi.fn<(userId: string) => Promise<CronJob[]>>();
 const mockGetUserTimezone = vi.fn<(userId: string) => Promise<string | undefined>>();
 const mockHumanReadableSchedule =
   vi.fn<(cronExpression: string, timezone: string, viewerTimezone?: string) => string>();
+const mockGetUsageLimits = vi.fn<() => Promise<UsageLimitsState>>(async () => ({}));
 
 function makeDeps(): HomeTabDeps {
   return {
@@ -86,6 +88,7 @@ function makeDeps(): HomeTabDeps {
     humanReadableSchedule: mockHumanReadableSchedule,
     getWorkerPoolSnapshot: () => ({ reusable: false, byRepo: [] }),
     getActiveTesterRuns: () => [],
+    getUsageLimits: mockGetUsageLimits,
   };
 }
 
@@ -179,6 +182,8 @@ function resetAllMocks() {
   mockGetJobsByUser.mockClear();
   mockGetUserTimezone.mockClear();
   mockHumanReadableSchedule.mockClear();
+  mockGetUsageLimits.mockClear();
+  mockGetUsageLimits.mockImplementation(async () => ({}));
 }
 
 function setDefaultMocks(role: UserRole = "member") {
@@ -2014,6 +2019,136 @@ describe("buildHomeView — channelless plugin schedules", () => {
     // a channelless row uses the same one — this change only affects channel rendering.
     if (row.type === "section") {
       assert.ok(row.accessory, "plugin row must have an accessory");
+    }
+  });
+});
+
+// ============================================================================
+// Usage limits section (admin only)
+// ============================================================================
+
+describe("buildHomeView — usage limits section", () => {
+  async function blocksFor(role: UserRole): Promise<KnownBlock[]> {
+    setDefaultMocks(role);
+    const view = await buildHomeView({ userId: "U001" }, makeDeps());
+    return view.blocks as KnownBlock[];
+  }
+
+  it("shows the panel with per-window rows for an admin", async () => {
+    mockGetUsageLimits.mockImplementation(async () => ({
+      five_hour: { status: "allowed", utilization: 0.42, resetsAt: 1783105200, observedAt: 1 },
+      seven_day: { status: "allowed", utilization: 0.1, resetsAt: 1783200000, observedAt: 1 },
+    }));
+    const blocks = await blocksFor("admin");
+
+    assert.ok(getHeaderTexts(blocks).includes("Claude Usage Limits"));
+    const text = getSectionTexts(blocks).join("\n");
+    assert.match(text, /Hourly/);
+    assert.match(text, /42% used/);
+    assert.match(text, /Weekly/);
+    assert.match(text, /10% used/);
+  });
+
+  it("is absent for a non-admin (member)", async () => {
+    mockGetUsageLimits.mockImplementation(async () => ({
+      five_hour: { status: "allowed", utilization: 0.42, resetsAt: 1783105200, observedAt: 1 },
+    }));
+    const blocks = await blocksFor("member");
+    assert.ok(!getHeaderTexts(blocks).includes("Claude Usage Limits"));
+  });
+
+  it("is absent for a dev", async () => {
+    const blocks = await blocksFor("dev");
+    assert.ok(!getHeaderTexts(blocks).includes("Claude Usage Limits"));
+  });
+
+  it("renders an empty state for an admin when no data has been observed", async () => {
+    const blocks = await blocksFor("admin");
+    assert.ok(getHeaderTexts(blocks).includes("Claude Usage Limits"));
+    assert.match(getSectionTexts(blocks).join("\n"), /No usage data yet/);
+  });
+
+  it("clamps utilization into 0–100%", async () => {
+    mockGetUsageLimits.mockImplementation(async () => ({
+      five_hour: { status: "allowed", utilization: 1.5, observedAt: 1 },
+      seven_day: { status: "allowed", utilization: -0.2, observedAt: 1 },
+    }));
+    const text = getSectionTexts(await blocksFor("admin")).join("\n");
+    assert.match(text, /100% used/);
+    assert.match(text, /0% used/);
+  });
+
+  it("renders an unknown rateLimitType with a fallback label", async () => {
+    mockGetUsageLimits.mockImplementation(async () => ({
+      five_hour_custom: { status: "allowed", utilization: 0.5, observedAt: 1 },
+    }));
+    const text = getSectionTexts(await blocksFor("admin")).join("\n");
+    assert.match(text, /five_hour_custom/);
+    assert.match(text, /50% used/);
+  });
+
+  it("omits the staleness note when observedAt is missing", async () => {
+    mockGetUsageLimits.mockImplementation(async () => ({
+      five_hour: { status: "allowed", utilization: 0.5, resetsAt: 1783105200 },
+    }));
+    const text = getSectionTexts(await blocksFor("admin")).join("\n");
+    assert.match(text, /50% used/);
+    assert.match(text, /resets/, "reset time still renders without observedAt");
+    assert.ok(!text.includes("as of"), "no observedAt → no 'as of' note");
+    assert.ok(!text.includes("may be outdated"));
+  });
+
+  it("renders 'usage n/a' for a minimal window with no utilization or resetsAt", async () => {
+    mockGetUsageLimits.mockImplementation(async () => ({
+      five_hour: { status: "allowed", observedAt: 1 },
+    }));
+    const text = getSectionTexts(await blocksFor("admin")).join("\n");
+    assert.match(text, /Hourly/);
+    assert.match(text, /usage n\/a/);
+  });
+
+  it("orders known windows in the fixed order regardless of input order", async () => {
+    mockGetUsageLimits.mockImplementation(async () => ({
+      overage: { status: "allowed", utilization: 0.3, observedAt: 1 },
+      seven_day: { status: "allowed", utilization: 0.2, observedAt: 1 },
+      five_hour: { status: "allowed", utilization: 0.1, observedAt: 1 },
+    }));
+    const text = getSectionTexts(await blocksFor("admin")).join("\n");
+    assert.ok(
+      text.indexOf("Hourly") < text.indexOf("Weekly") &&
+        text.indexOf("Weekly") < text.indexOf("Overage"),
+      "windows render in five_hour → seven_day → overage order",
+    );
+  });
+
+  it("flags a reading older than 30 minutes as possibly outdated", async () => {
+    vi.useFakeTimers();
+    try {
+      const now = new Date("2026-07-09T12:00:00.000Z").getTime();
+      vi.setSystemTime(new Date(now));
+      mockGetUsageLimits.mockImplementation(async () => ({
+        five_hour: { status: "allowed", utilization: 0.5, observedAt: now - 31 * 60 * 1000 },
+      }));
+      const text = getSectionTexts(await blocksFor("admin")).join("\n");
+      assert.match(text, /may be outdated/);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not flag a fresh reading as outdated", async () => {
+    vi.useFakeTimers();
+    try {
+      const now = new Date("2026-07-09T12:00:00.000Z").getTime();
+      vi.setSystemTime(new Date(now));
+      mockGetUsageLimits.mockImplementation(async () => ({
+        five_hour: { status: "allowed", utilization: 0.5, observedAt: now - 60 * 1000 },
+      }));
+      const text = getSectionTexts(await blocksFor("admin")).join("\n");
+      assert.match(text, /as of/, "a fresh reading still shows its 'as of' observation time");
+      assert.ok(!text.includes("may be outdated"));
+    } finally {
+      vi.useRealTimers();
     }
   });
 });
