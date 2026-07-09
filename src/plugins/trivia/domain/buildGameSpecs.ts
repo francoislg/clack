@@ -57,8 +57,8 @@ const LOCK_REQUIRED_TOOLS = ["mcp__trivia__lock_questions"];
 
 // Reveal required-tools list. `compute_answers` is the ONLY tool called on every reveal — it
 // scores and returns the payload even on an empty batch (`reveals: []`). `settle_question`
-// (predictions only), `update_answers_block` (skipped on an empty batch), `start_new_season`
-// (season's last fire only), and `update_question` (`includeRevealInQuestions: "yes"` only) are
+// (predictions only), `refresh_question_cards` (skipped on an empty batch), `start_new_season`
+// (season's last fire only), and `set_reveal_narrative` (`includeRevealInQuestions: "yes"` only) are
 // each conditional; gating on them force-calls a mutating tool with fabricated args on the runs
 // where they don't apply (observed in production), so they are excluded.
 const REVEAL_REQUIRED_TOOLS = ["mcp__trivia__compute_answers"];

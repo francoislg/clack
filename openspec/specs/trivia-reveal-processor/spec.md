@@ -8,7 +8,7 @@ The trivia plugin exposes a `compute_answers` MCP tool that computes scored answ
 
 The trivia plugin SHALL register the reveal-compute tool under the name `compute_answers` (callable as `mcp__trivia__compute_answers`), at the `admin` tier. It SHALL be the renamed successor of `process_reveal_answers`: every retained requirement in this capability — batch selection, reading scored rows from `answers.json`, the discriminated `voters` payload, the freeform per-answer judge, the leaderboard/`roundSummary`/`seasonStatus` payload, `processedAt` stamping, `asOf` handling, reprocess mode, and the idempotency of repeated default-mode calls — SHALL continue to describe `compute_answers` unchanged under the new name.
 
-Two responsibilities that previously lived inside the tool are removed (see the REMOVED requirements below): the tool SHALL NOT edit any Slack message (card edits move to `update_answers_block` in `trivia-card-projection`), and the tool SHALL NOT perform season rollover (rollover moves to `start_new_season`). The tool SHALL still **report** `seasonStatus` (including `isLastFireOfSeason`) so the caller can decide whether to invoke rollover.
+Two responsibilities that previously lived inside the tool are removed (see the REMOVED requirements below): the tool SHALL NOT edit any Slack message (card edits move to `refresh_question_cards` in `trivia-card-projection`), and the tool SHALL NOT perform season rollover (rollover moves to `start_new_season`). The tool SHALL still **report** `seasonStatus` (including `isLastFireOfSeason`) so the caller can decide whether to invoke rollover.
 
 For boolean and choice questions, the tool SHALL derive scored answers by **reading `games/<game>/answers.json` directly** (the rows already written by the button-click handlers); the tool SHALL NOT derive scoring from Slack message reactions. For freeform questions, the tool SHALL continue to read `answers.json` and assign verdicts via the per-answer reveal judge (see the "Freeform Reveal Invokes Per-Answer Judge" requirement).
 
@@ -341,7 +341,7 @@ When the targeted `(userId, questionId)` answer row does not exist, the tool SHA
 
 In both modes the raw submission (`answer` / `answerIndex` / `answerText`) SHALL NOT be modified.
 
-The tool result SHALL report that the verdict was overridden and SHALL indicate that the already-posted reveal card can be refreshed via the existing reprocess flow (`compute_answers` reprocess → `update_answers_block`).
+The tool result SHALL report that the verdict was overridden and SHALL indicate that the already-posted reveal card can be refreshed via the existing reprocess flow (`compute_answers` reprocess → `refresh_question_cards`).
 
 #### Scenario: Overriding a revealed freeform verdict captures the original
 
@@ -349,7 +349,7 @@ The tool result SHALL report that the verdict was overridden and SHALL indicate 
 - **WHEN** `override_answer({ game: "main", questionId: "Q1", userId: "U1", correct: true, reason: "Accepted — valid alternate spelling" })` is called by an admin
 - **THEN** the row becomes `{ correct: true, judgeReason: "Accepted — valid alternate spelling", originalVerdict: { correct: false, judgeReason: "too-broad" } }`
 - **AND** `answerText` is unchanged
-- **AND** the result indicates the reveal card can be refreshed via `compute_answers` reprocess → `update_answers_block`
+- **AND** the result indicates the reveal card can be refreshed via `compute_answers` reprocess → `refresh_question_cards`
 
 #### Scenario: Second override preserves the original machine verdict
 
@@ -401,7 +401,7 @@ The tool result SHALL report that the verdict was overridden and SHALL indicate 
 
 ### Requirement: Reprocess preserves manually-overridden verdicts
 
-In reprocess mode, for any retained `SubmittedAnswer` row that has `originalVerdict` set (i.e. it was manually overridden via `override_answer`), the tool SHALL NOT re-derive the verdict (no boolean/choice recompute against the key, no freeform re-judge). The row's stored `correct` and `judgeReason` SHALL be left in place. The row SHALL still be included in the projected reveal buckets using its stored verdict, so a subsequent `update_answers_block` renders the manual override rather than a re-derived value.
+In reprocess mode, for any retained `SubmittedAnswer` row that has `originalVerdict` set (i.e. it was manually overridden via `override_answer`), the tool SHALL NOT re-derive the verdict (no boolean/choice recompute against the key, no freeform re-judge). The row's stored `correct` and `judgeReason` SHALL be left in place. The row SHALL still be included in the projected reveal buckets using its stored verdict, so a subsequent `refresh_question_cards` renders the manual override rather than a re-derived value.
 
 Rows without `originalVerdict` (the default) SHALL be re-derived exactly as specified by the existing reprocess semantics.
 
@@ -430,17 +430,35 @@ Rows without `originalVerdict` (the default) SHALL be re-derived exactly as spec
 
 ### Requirement: Reprocess mode re-derives verdicts on retained answers (never deletes)
 
-The tool SHALL enter reprocess mode when EITHER `reprocessQuestionIds` is a non-empty array OR `reprocessBatchId` is a non-empty string. The set of targeted questions SHALL be the UNION of: every id listed in `reprocessQuestionIds`, and — when `reprocessBatchId` is set — every question whose `batchId` equals it (plus the single legacy row whose `id` equals it when no `batchId` matches, mirroring `update_answers_block`'s batch selection). For EACH targeted question, in `postedAt`-ascending order, the tool SHALL:
+The tool SHALL enter reprocess mode when EITHER `reprocessQuestionIds` is a non-empty array OR `reprocessBatchId` is a non-empty string. The set of targeted questions SHALL be the UNION of: every id listed in `reprocessQuestionIds`, and — when `reprocessBatchId` is set — every question whose `batchId` equals it (plus the single legacy row whose `id` equals it when no `batchId` matches, mirroring `refresh_question_cards`'s batch selection).
+
+Reprocess SHALL refuse any targeted question whose `processedAt` is unset: the question has never been revealed, so there is nothing to RE-process, and stamping `processedAt` on it would both leak its answer through the card projector and silently remove it from default-mode selection. Such a target SHALL be recorded as a per-id error ("not yet revealed — nothing to reprocess") and skipped WITHOUT any write (no re-stamp, no verdict change, no `processedAt`), while the remaining targets still process. Never-revealed questions are handled by the default-mode reveal flow instead.
+
+For EACH remaining targeted question, in `postedAt`-ascending order, the tool SHALL:
 
 1. Re-resolve the question's config-derived frozen fields from the LIVE cascade and re-stamp them on the question record BEFORE scoring: `revealResponses` for every answer format, and `judgeLeniency` for freeform questions only. The cascade context for each question SHALL be rebuilt from that question's OWN stamped `slot.index` and `season` (the identity `post_questions` used to stamp it) via `buildCascadeContext`; questions with no stamped `slot`/`season` resolve through the game/workspace tiers. A re-stamp whose resolved value equals the stamped value is a harmless overwrite. If context rebuild or resolution throws for a question, the tool SHALL record a per-id error and skip that question WITHOUT overwriting its stamped value or scoring it (reusing the per-id error path), and SHALL continue with the remaining targets.
 2. Bring the question's verdicts in line with its CURRENT key / config on EVERY retained `SubmittedAnswer` row whose `questionId` matches, written in place via `updateAnswer`:
    - boolean: `correct = (row.answer === question.isTrue)`;
    - choice: `correct = (row.answerIndex === question.correctIndex)`;
    - freeform: re-judge EVERY retained row via the per-answer reveal judge using the re-stamped `judgeLeniency`, overwriting each verdict in place (default reveal judges only never-judged `correct === undefined` rows).
-3. Stamp `processedAt = Date.now()` on the question (overwriting any prior value).
+3. Stamp `processedAt = Date.now()` on the question (overwriting the prior value).
 4. Include the resulting reveal in the returned `reveals[]` with `wasReprocessed: true`.
 
-The raw submission (`answer` / `answerIndex` / `answerText`) is the canonical record and SHALL NOT be deleted or modified by reprocess — only the derived `correct` verdict and the re-stamped `revealResponses` / `judgeLeniency` are recomputed. Boolean/choice re-derivation is a full assignment that flips a verdict in EITHER direction: a stale `correct: true` becomes `false` when the raw answer no longer matches the corrected key, and a stale `correct: false` becomes `true` when it does. The intent of reprocess mode is "bring an already-revealed question fully in line with the CURRENT answer key AND CURRENT config" — e.g. after an admin fixes a wrong `isTrue` / `correctIndex`, or changes `revealResponses` / `judgeLeniency` and wants the already-posted batch updated.
+The raw submission (`answer` / `answerIndex` / `answerText`) is the canonical record and SHALL NOT be deleted or modified by reprocess — only the derived `correct` verdict and the re-stamped `revealResponses` / `judgeLeniency` are recomputed. Boolean/choice re-derivation is a full assignment that flips a verdict in EITHER direction: a stale `correct: true` becomes `false` when the raw answer no longer matches the corrected key, and a stale `correct: false` becomes `true` when it does. The intent of reprocess mode is "bring an already-revealed question fully in line with the CURRENT answer key AND CURRENT config" — e.g. after an admin fixes a wrong `isTrue` / `correctIndex`, corrects a settled outcome, completes a reopen-recovery, or changes `revealResponses` / `judgeLeniency` and wants the already-posted batch updated.
+
+#### Scenario: Reprocess refuses a never-revealed question
+
+- **GIVEN** a posted, live question `Q1` with an answer key but no `processedAt`
+- **WHEN** `compute_answers({ game: "main", reprocessQuestionIds: ["Q1"] })` is called
+- **THEN** the result's `errors` array contains `{ questionId: "Q1", error: <not-yet-revealed message> }` (the same `Array<{ questionId, error }>` shape as a projection failure)
+- **AND** `Q1` gains no `processedAt`, no verdict is derived, and no stamped field is overwritten
+- **AND** `Q1` remains eligible for default-mode selection
+
+#### Scenario: Refused targets do not abort valid ones
+
+- **GIVEN** `Q1` never revealed and `Q2` already processed, both targeted by `reprocessQuestionIds`
+- **WHEN** reprocess runs
+- **THEN** `Q2` is reprocessed normally and `Q1` appears only in the per-id `errors`
 
 #### Scenario: Reprocess re-derives every row's verdict in both directions
 
@@ -465,7 +483,7 @@ The raw submission (`answer` / `answerIndex` / `answerText`) is the canonical re
 - **WHEN** `compute_answers({ game: "main", reprocessQuestionIds: ["Q1"] })` is called
 - **THEN** `Q1.revealResponses` is re-stamped to `"just-correctness"`
 - **AND** `reveals[0].voters.revealResponses === "just-correctness"`
-- **AND** a subsequent `update_answers_block` renders the card in `"just-correctness"` mode
+- **AND** a subsequent `refresh_question_cards` renders the card in `"just-correctness"` mode
 
 #### Scenario: Reprocess re-judges freeform with the re-stamped leniency
 
@@ -478,7 +496,7 @@ The raw submission (`answer` / `answerIndex` / `answerText`) is the canonical re
 
 #### Scenario: Reprocess by batchId targets the whole batch
 
-- **GIVEN** a posted batch with shared `batchId: "b-1"` covering questions `Q1`, `Q2`, `Q3`
+- **GIVEN** a posted, revealed batch with shared `batchId: "b-1"` covering questions `Q1`, `Q2`, `Q3`
 - **WHEN** `compute_answers({ game: "main", reprocessBatchId: "b-1" })` is called
 - **THEN** all three questions are reprocessed in `postedAt`-ascending order
 - **AND** each returned reveal has `wasReprocessed === true`
@@ -487,7 +505,7 @@ The raw submission (`answer` / `answerIndex` / `answerText`) is the canonical re
 
 - **GIVEN** a legacy question `Qx` with `batchId: undefined` and `id: "Qx"`, and no question whose `batchId` equals `"Qx"`
 - **WHEN** `compute_answers({ game: "main", reprocessBatchId: "Qx" })` is called
-- **THEN** `Qx` alone is reprocessed (the legacy id fallback, identical to `update_answers_block`'s selection)
+- **THEN** `Qx` alone is reprocessed (the legacy id fallback, identical to `refresh_question_cards`'s selection)
 
 #### Scenario: Reprocess by batchId matching nothing processes no questions
 
@@ -497,7 +515,7 @@ The raw submission (`answer` / `answerIndex` / `answerText`) is the canonical re
 
 #### Scenario: Both reprocess targets provided are unioned
 
-- **GIVEN** `Q1` (standalone) and a batch `b-1` covering `Q2`, `Q3`
+- **GIVEN** `Q1` (standalone, revealed) and a revealed batch `b-1` covering `Q2`, `Q3`
 - **WHEN** `compute_answers({ game: "main", reprocessQuestionIds: ["Q1"], reprocessBatchId: "b-1" })` is called
 - **THEN** the targeted set is the union `{Q1, Q2, Q3}`, each reprocessed in `postedAt`-ascending order
 - **AND** each returned reveal has `wasReprocessed === true`
@@ -753,13 +771,13 @@ For freeform reveal entries in the payload produced by `compute_answers`, every 
 
 ### Requirement: `compute_answers` performs no Slack write
 
-`compute_answers` SHALL NOT call any Slack write API (`chat.update`, `chat.postMessage`, `files.uploadV2`, etc.). It SHALL only read Slack message reactions as commentary signal (as today). All editing of already-posted question cards SHALL be performed by `update_answers_block` (`trivia-card-projection`). A failure to reach Slack for the reaction read SHALL degrade gracefully (empty reactions) and SHALL NOT block the scored payload.
+`compute_answers` SHALL NOT call any Slack write API (`chat.update`, `chat.postMessage`, `files.uploadV2`, etc.). It SHALL only read Slack message reactions as commentary signal (as today). All editing of already-posted question cards SHALL be performed by `refresh_question_cards` (`trivia-card-projection`). A failure to reach Slack for the reaction read SHALL degrade gracefully (empty reactions) and SHALL NOT block the scored payload.
 
 #### Scenario: No card edit occurs during compute
 
 - **WHEN** `compute_answers({ game })` processes a batch
 - **THEN** no question's Slack message is edited by this tool
-- **AND** the question cards retain their pre-reveal (interactive) state until `update_answers_block` runs
+- **AND** the question cards retain their pre-reveal (interactive) state until `refresh_question_cards` runs
 
 #### Scenario: Reaction-read failure does not block the payload
 
@@ -941,10 +959,10 @@ A question carrying `invalidated: true` SHALL be surfaced in the payload's `inva
 
 ### Requirement: Invalidated cards repaint as invalidated
 
-`update_answers_block` SHALL repaint an `invalidated` question's card into an "invalidated" state (the answer affordances removed, an "invalidated — <reason>" line appended) instead of a results footer, whether the question was invalidated before or after its reveal.
+`refresh_question_cards` SHALL repaint an `invalidated` question's card into an "invalidated" state (the answer affordances removed, an "invalidated — <reason>" line appended) instead of a results footer, whether the question was invalidated before or after its reveal.
 
 #### Scenario: invalidated card shows the invalidated state
 
-- **WHEN** `update_answers_block` runs over a batch containing an `invalidated` question
+- **WHEN** `refresh_question_cards` runs over a batch containing an `invalidated` question
 - **THEN** that question's card is repainted with the invalidated line and no results footer
 

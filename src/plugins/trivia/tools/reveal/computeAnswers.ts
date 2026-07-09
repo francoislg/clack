@@ -48,14 +48,14 @@ const PER_FORMAT_ANSWER_SHAPES = getAllAnswerTypeHandlers()
 
 const DESCRIPTION = `Score the trivia reveal for a game in one call and return the render payload — WITHOUT touching Slack and WITHOUT rolling over the season. Fetches the question's Slack message reactions (commentary only), excludes the bot + flagged cheaters, scores the stored button clicks (boolean/choice) and modal submissions (freeform, via the per-answer judge), persists scored answers, stamps \`processedAt\`, and returns the leaderboard, round summary, and (when seasons are enabled) the season status.
 
-This tool does NOT edit any Slack card and does NOT mutate season state. After calling it, the renderer SHALL: (a) call \`update_answers_block({ game, questionIds })\` passing \`reveals.map(r => r.questionId)\` to edit each revealed question's card into its final state; (b) on the season's last fire (\`seasonStatus.isLastFireOfSeason === true\`), call \`start_new_season({ game })\` to perform the (idempotent) rollover; (c) render the payload via \`submit_response\`.
+This tool does NOT edit any Slack card and does NOT mutate season state. After calling it, the renderer SHALL: (a) call \`refresh_question_cards({ game, questionIds })\` passing \`reveals.map(r => r.questionId)\` to edit each revealed question's card into its final state; (b) on the season's last fire (\`seasonStatus.isLastFireOfSeason === true\`), call \`start_new_season({ game })\` to perform the (idempotent) rollover; (c) render the payload via \`submit_response\`.
 
 DEFAULT BEHAVIOR (\`reprocessQuestionIds\` absent/empty AND \`reprocessBatchId\` absent): processes EVERY question in the OLDEST pending BATCH, where batches are groups of questions sharing the same \`batchId\` (stamped by \`post_questions\` per call; one cron-fire batch = one shared id). Questions with an undefined \`batchId\` (legacy rows) are each treated as their own singleton batch. The oldest batch is the one whose smallest \`postedAt\` is earliest; ties broken by lexicographic comparison of the group key. Stamps \`processedAt\` on each processed question before returning. Other pending batches stay pending — they drain one batch per fire on subsequent reveal runs. If no question is pending, returns \`reveals: []\` and a current leaderboard.
 
-REPROCESS MODE (entered when \`reprocessQuestionIds\` is non-empty OR \`reprocessBatchId\` is set; the targeted set is their UNION; targets sorted \`postedAt\`-ascending — NON-DESTRUCTIVE). Reprocess brings each targeted question fully in line with the CURRENT key AND CURRENT config: (1) re-resolves the question's frozen config axes from the live cascade (rebuilt from the question's own stamped slot/season) and re-stamps them — \`revealResponses\` for every format, \`judgeLeniency\` for freeform; (2) re-derives verdicts on RETAINED rows — boolean/choice from the current \`isTrue\`/\`correctIndex\` + cheats, freeform by re-judging every retained \`answerText\` row under the re-stamped \`judgeLeniency\` (overwriting prior verdicts in place). Raw submissions (clicks / \`answerText\`) are the canonical record and are NEVER deleted. Use after correcting a key OR after a \`revealResponses\`/\`judgeLeniency\` config change to apply it to an already-posted batch (then call \`update_answers_block\` to re-render). Stamps \`processedAt\` (overwriting prior values). Does NOT pick up unrelated pending questions.
+REPROCESS MODE (entered when \`reprocessQuestionIds\` is non-empty OR \`reprocessBatchId\` is set; the targeted set is their UNION; targets sorted \`postedAt\`-ascending — NON-DESTRUCTIVE). Reprocess brings each targeted question fully in line with the CURRENT key AND CURRENT config: (1) re-resolves the question's frozen config axes from the live cascade (rebuilt from the question's own stamped slot/season) and re-stamps them — \`revealResponses\` for every format, \`judgeLeniency\` for freeform; (2) re-derives verdicts on RETAINED rows — boolean/choice from the current \`isTrue\`/\`correctIndex\` + cheats, freeform by re-judging every retained \`answerText\` row under the re-stamped \`judgeLeniency\` (overwriting prior verdicts in place). Raw submissions (clicks / \`answerText\`) are the canonical record and are NEVER deleted. A targeted question that has NOT been revealed yet (no \`processedAt\`) is refused with a per-id error ("has not been revealed yet — nothing to reprocess") and skipped without any write — reprocess only touches already-revealed questions; let the default-mode reveal handle never-revealed ones. Use after correcting a key OR after a \`revealResponses\`/\`judgeLeniency\` config change to apply it to an already-posted batch (then call \`refresh_question_cards\` to re-render). Stamps \`processedAt\` (overwriting prior values). Does NOT pick up unrelated pending questions.
 
 PAYLOAD SHAPE (renderer contract):
-- \`reveals: Array<{ questionId, statement, category, emojis, messageLink, wasReprocessed, answer, voters, media? }>\` — pass \`reveals.map(r => r.questionId)\` to \`update_answers_block\` to repaint the cards. \`media\` is present ONLY on image-medium questions and carries \`{ title, attribution?, license? }\` for the reveal attribution line (no url/subjectId).
+- \`reveals: Array<{ questionId, statement, category, emojis, messageLink, wasReprocessed, answer, voters, media? }>\` — pass \`reveals.map(r => r.questionId)\` to \`refresh_question_cards\` to repaint the cards. \`media\` is present ONLY on image-medium questions and carries \`{ title, attribution?, license? }\` for the reveal attribution line (no url/subjectId).
   - \`answer\` (dispatched on \`type\`):
 ${PER_FORMAT_ANSWER_SHAPES}
   - \`voters\` is a DISCRIMINATED UNION keyed on the question's stamped \`revealResponses\` mode (one of four variants):
@@ -67,7 +67,7 @@ ${PER_FORMAT_ANSWER_SHAPES}
 - \`leaderboard\`: same shape as retrieve_scores' return.
 - \`roundSummary\` (ALWAYS present): \`{ totalQuestions, perPlayer: Array<{ userId, displayName, correct, answered, roundMvp?, perfectRound? }> }\` — the per-player round scoreboard, an AGGREGATE derived from the scored answers (same source as \`leaderboard\`), INDEPENDENT of every entry's \`revealResponses\`. \`perPlayer\` is empty only when nobody answered this round. Cheaters/bot are excluded. \`perfectRound: true\` marks a player who answered EVERY question correctly on a fire of >= 3 questions.
 - \`seasonStatus\` (only when seasons enabled): \`{ currentSlug, isLastFireOfSeason, seasonClosed, hasPriorSeasons, mvp? }\`. This tool REPORTS the status but performs NO rollover — \`seasonClosed\` is always \`false\` here and no continuation season is created. When \`isLastFireOfSeason\` is true, the renderer SHALL call \`start_new_season({ game })\` to perform the rollover.
-- \`invalidatedQuestions\` (optional): \`Array<{ questionId, statement, category, emojis, invalidatedReason? }>\` — questions in this batch marked INVALIDATED via \`settle_question({ invalidate: true })\`. Worth 0, never scored; render an "invalidated" line for each and (via \`update_answers_block\`) their cards repaint as invalidated. Absent when none.
+- \`invalidatedQuestions\` (optional): \`Array<{ questionId, statement, category, emojis, invalidatedReason? }>\` — questions in this batch marked INVALIDATED via \`settle_question({ invalidate: true })\`. Worth 0, never scored; render an "invalidated" line for each and (via \`refresh_question_cards\`) their cards repaint as invalidated. Absent when none.
 - \`instructions\` / \`additionalInstructions\` (optional): resolved guidance axes; honor verbatim. Absent → ignore.
 
 PREDICTION DECISION GATE (default mode): if any \`questionType: "prediction"\` in the oldest pending batch is still undecided (\`resolved: false\`), this tool REFUSES (returns \`code: "UNDECIDED_PREDICTIONS"\` + the ids) and scores nothing. Decide each first with \`settle_question\` — pass the real \`outcome\` to answer, or \`invalidate: true\` + \`invalidatedReason\` to drop it.`;
@@ -78,8 +78,8 @@ PREDICTION DECISION GATE (default mode): if any \`questionType: "prediction"\` i
  *
  * `compute_answers` uses `isAvailable()` + `fetchBotUserId()` + `fetchMessageReactions()` +
  * `fetchUserDisplayName()`; it does NOT call `updateMessage` (card edits live in
- * `update_answers_block`). `updateMessage` stays on the shared interface because
- * `update_answers_block` reuses the same dependency shape.
+ * `refresh_question_cards`). `updateMessage` stays on the shared interface because
+ * `refresh_question_cards` reuses the same dependency shape.
  */
 export interface RevealSlackDeps {
   isAvailable(): string | null;
@@ -92,7 +92,7 @@ export interface RevealSlackDeps {
    */
   fetchUserDisplayName(userId: string): Promise<string | null>;
   /**
-   * Replace a posted message's blocks (`chat.update`). Used by `update_answers_block`
+   * Replace a posted message's blocks (`chat.update`). Used by `refresh_question_cards`
    * to repaint each revealed question's card. Throws are caught by `editRevealIntoCard`
    * and treated as non-fatal.
    */
@@ -104,7 +104,7 @@ const SLACK_UNAVAILABLE_ERROR =
 
 /**
  * Resolve the bot's user ID, falling back to `""` (no bot exclusion) on failure.
- * Shared by `compute_answers` and `update_answers_block` so both degrade identically.
+ * Shared by `compute_answers` and `refresh_question_cards` so both degrade identically.
  */
 export async function resolveBotUserId(
   slackDeps: Pick<RevealSlackDeps, "fetchBotUserId">,
@@ -247,7 +247,7 @@ export function createComputeAnswersTool(
 
       // Each target's reveal scoring is owned by its answer-type handler — the
       // flow just iterates, calls `handler.processReveal`, and accumulates
-      // outcomes. No card editing happens here (that is `update_answers_block`).
+      // outcomes. No card editing happens here (that is `refresh_question_cards`).
       const entriesById = new Map<string, ProcessRevealEntry>();
       // Invalidated questions are worth 0 and never scored — surface them so the reveal
       // post can render an "invalidated" line, and stamp `processedAt` so they're done.
@@ -505,7 +505,23 @@ function selectReprocessTargets(
   if (reprocessBatchId !== undefined) {
     for (const q of selectBatch(questions, reprocessBatchId)) byId.set(q.id, q);
   }
-  return [...byId.values()].sort((a, b) => (a.postedAt ?? 0) - (b.postedAt ?? 0));
+  // A never-revealed target (no `processedAt`) has nothing to RE-process; stamping it
+  // would leak its answer via the projector and drop it from the pending-batch reveal
+  // flow. Refuse it with a per-id error (uniformly across both selection paths) and let
+  // the default-mode reveal handle it instead. Applied last so it also covers batchId
+  // members.
+  const targets: TriviaQuestion[] = [];
+  for (const q of [...byId.values()].sort((a, b) => (a.postedAt ?? 0) - (b.postedAt ?? 0))) {
+    if (q.processedAt === undefined) {
+      perIdErrors.push({
+        questionId: q.id,
+        error: "question has not been revealed yet — nothing to reprocess",
+      });
+      continue;
+    }
+    targets.push(q);
+  }
+  return targets;
 }
 
 /**

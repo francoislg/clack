@@ -1,6 +1,6 @@
 import { describe, it } from "vitest";
 import assert from "node:assert/strict";
-import { createUpdateQuestionTool } from "./updateQuestion.js";
+import { createSetRevealNarrativeTool } from "./setRevealNarrative.js";
 import { createInMemoryDataLayer, FIXTURE_GAME_NAME, fixtureGetGames } from "../../testHelpers.js";
 import { parseToolResult } from "../../../../tools/testHelpers.js";
 import type { TriviaQuestion } from "../../core/types.js";
@@ -40,10 +40,10 @@ function tool(
   data: ReturnType<typeof createInMemoryDataLayer>,
   mode: TriviaIncludeRevealInQuestions | undefined,
 ) {
-  return createUpdateQuestionTool(data, getGamesWith(mode), () => ({}));
+  return createSetRevealNarrativeTool(data, getGamesWith(mode), () => ({}));
 }
 
-describe("update_question", () => {
+describe("set_reveal_narrative", () => {
   it("persists revealBlocks when the axis resolves yes (no Slack write)", async () => {
     const data = createInMemoryDataLayer();
     const scoped = data.forGame(FIXTURE_GAME_NAME);

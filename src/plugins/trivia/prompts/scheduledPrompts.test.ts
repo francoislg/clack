@@ -382,32 +382,32 @@ describe("PROCESS_REVEAL_INSTRUCTIONS — renderer brief", () => {
     assert.ok(PROCESS_REVEAL_INSTRUCTIONS.length > 100);
   });
 
-  it("sequences compute_answers → update_answers_block → submit_response", () => {
+  it("sequences compute_answers → refresh_question_cards → submit_response", () => {
     assert.match(PROCESS_REVEAL_INSTRUCTIONS, /compute_answers/);
-    assert.match(PROCESS_REVEAL_INSTRUCTIONS, /update_answers_block/);
+    assert.match(PROCESS_REVEAL_INSTRUCTIONS, /refresh_question_cards/);
     assert.match(PROCESS_REVEAL_INSTRUCTIONS, /start_new_season/);
     assert.match(PROCESS_REVEAL_INSTRUCTIONS, /submit_response/);
     assert.doesNotMatch(PROCESS_REVEAL_INSTRUCTIONS, /process_reveal_answers/);
   });
 
-  it("orders the tool chain compute_answers → update_answers_block → start_new_season", () => {
+  it("orders the tool chain compute_answers → refresh_question_cards → start_new_season", () => {
     // The orchestration moved into this prompt — its ORDER is the runtime contract.
     // `sequences …` above only checks each name exists; this pins the actual sequence.
     const iCompute = PROCESS_REVEAL_INSTRUCTIONS.indexOf("compute_answers");
-    const iUpdate = PROCESS_REVEAL_INSTRUCTIONS.indexOf("update_answers_block");
+    const iUpdate = PROCESS_REVEAL_INSTRUCTIONS.indexOf("refresh_question_cards");
     const iSeason = PROCESS_REVEAL_INSTRUCTIONS.indexOf("start_new_season");
     assert.ok(iCompute >= 0 && iUpdate >= 0 && iSeason >= 0);
-    assert.ok(iCompute < iUpdate, "compute_answers must come before update_answers_block");
-    assert.ok(iUpdate < iSeason, "update_answers_block must come before start_new_season");
+    assert.ok(iCompute < iUpdate, "compute_answers must come before refresh_question_cards");
+    assert.ok(iUpdate < iSeason, "refresh_question_cards must come before start_new_season");
   });
 
-  it("threads the revealed questionIds from compute_answers into update_answers_block", () => {
-    // update_answers_block is keyed on questionIds; if the prompt stops telling Claude to
+  it("threads the revealed questionIds from compute_answers into refresh_question_cards", () => {
+    // refresh_question_cards is keyed on questionIds; if the prompt stops telling Claude to
     // pass the step-1 reveals[].questionId, the projector has nothing to repaint.
     assert.match(PROCESS_REVEAL_INSTRUCTIONS, /Note the `reveals\[\]\.questionId` values/);
     assert.match(
       PROCESS_REVEAL_INSTRUCTIONS,
-      /update_answers_block\(\{ game: "\{game\}", questionIds: <every reveals\[\]\.questionId from step 1> \}\)/,
+      /refresh_question_cards\(\{ game: "\{game\}", questionIds: <every reveals\[\]\.questionId from step 1> \}\)/,
     );
     // The batch handle must never be surfaced to Claude in the reveal flow.
     assert.doesNotMatch(PROCESS_REVEAL_INSTRUCTIONS, /batchId: <the batchId from step 1>/);
@@ -428,14 +428,14 @@ describe("PROCESS_REVEAL_INSTRUCTIONS — renderer brief", () => {
 
   it("branches on includeRevealInQuestions: yes authors per-card narrative, no does not", () => {
     assert.match(PROCESS_REVEAL_INSTRUCTIONS, /includeRevealInQuestions/);
-    // The "yes" branch instructs a per-question update_question call carrying revealBlocks,
-    // explicitly before update_answers_block (step 2).
+    // The "yes" branch instructs a per-question set_reveal_narrative call carrying revealBlocks,
+    // explicitly before refresh_question_cards (step 2).
     assert.match(PROCESS_REVEAL_INSTRUCTIONS, /AUTHOR PER-CARD NARRATIVE/);
-    assert.match(PROCESS_REVEAL_INSTRUCTIONS, /update_question\(/);
+    assert.match(PROCESS_REVEAL_INSTRUCTIONS, /set_reveal_narrative\(/);
     assert.match(PROCESS_REVEAL_INSTRUCTIONS, /revealBlocks/);
-    assert.match(PROCESS_REVEAL_INSTRUCTIONS, /BEFORE you call `update_answers_block` in step 2/);
+    assert.match(PROCESS_REVEAL_INSTRUCTIONS, /BEFORE you call `refresh_question_cards` in step 2/);
     // The "no" branch authors nothing.
-    assert.match(PROCESS_REVEAL_INSTRUCTIONS, /`"no"`: do NOT call `update_question`/);
+    assert.match(PROCESS_REVEAL_INSTRUCTIONS, /`"no"`: do NOT call `set_reveal_narrative`/);
   });
 
   it("does NOT enumerate the absorbed deterministic-step tools as required steps", () => {

@@ -602,6 +602,114 @@ describe("compute_answers —orchestrator", () => {
     assert.equal(u2?.correct, false, "U2 verdict flipped DOWN (true → false)");
   });
 
+  it("reprocess refuses a never-revealed target and leaves it eligible for default mode", async () => {
+    const data = createInMemoryDataLayer();
+    const scoped = data.forGame(FIXTURE_GAME_NAME);
+    // Posted, keyed, but not yet scored (no processedAt).
+    await scoped.saveQuestion(makeQuestion({ id: "q1", batchId: "B", postedAt: 1_000 }));
+    await scoped.saveAnswer({
+      userId: "U1",
+      questionId: "q1",
+      answer: true,
+      correct: undefined,
+      timestamp: 500,
+    });
+    const tool = createComputeAnswersTool(data, fakeSdk(), fixtureGetGames, fakeSlackDeps());
+
+    const res = parseToolResult(
+      await tool.handler(
+        { game: FIXTURE_GAME_NAME, reprocessQuestionIds: ["q1"], reprocessBatchId: undefined },
+        SESSION,
+      ),
+    );
+
+    assert.equal(res.reveals.length, 0, "not reprocessed");
+    assert.ok(
+      res.errors?.some(
+        (e: { questionId: string; error: string }) =>
+          e.questionId === "q1" && /not been revealed/.test(e.error),
+      ),
+      "refused with a per-id error",
+    );
+    const after = (await scoped.loadQuestions()).find((q) => q.id === "q1");
+    assert.equal(after?.processedAt, undefined, "no processedAt stamped");
+
+    // Still eligible for the default-mode reveal.
+    const def = parseToolResult(
+      await tool.handler(
+        { game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined, reprocessBatchId: undefined },
+        SESSION,
+      ),
+    );
+    assert.equal(def.reveals.length, 1);
+    assert.equal(def.reveals[0].questionId, "q1");
+  });
+
+  it("reprocess handles a mixed batch: valid target processed, unprocessed one refused", async () => {
+    const data = createInMemoryDataLayer();
+    const scoped = data.forGame(FIXTURE_GAME_NAME);
+    await scoped.saveQuestion(
+      makeQuestion({ id: "q_done", batchId: "B", postedAt: 1_000, processedAt: 9_000 }),
+    );
+    await scoped.saveQuestion(makeQuestion({ id: "q_live", batchId: "B", postedAt: 1_001 }));
+    await scoped.saveAnswer({
+      userId: "U1",
+      questionId: "q_done",
+      answer: true,
+      correct: false,
+      timestamp: 500,
+    });
+    const tool = createComputeAnswersTool(data, fakeSdk(), fixtureGetGames, fakeSlackDeps());
+
+    const res = parseToolResult(
+      await tool.handler(
+        {
+          game: FIXTURE_GAME_NAME,
+          reprocessQuestionIds: ["q_done", "q_live"],
+          reprocessBatchId: undefined,
+        },
+        SESSION,
+      ),
+    );
+
+    assert.deepEqual(
+      res.reveals.map((r: { questionId: string }) => r.questionId),
+      ["q_done"],
+    );
+    assert.ok(
+      res.errors?.some((e: { questionId: string }) => e.questionId === "q_live"),
+      "q_live refused",
+    );
+    const after = (await scoped.loadQuestions()).find((q) => q.id === "q_live");
+    assert.equal(after?.processedAt, undefined);
+  });
+
+  it("reprocess refuses an unposted target (no postedAt/messageLink) with a per-id error", async () => {
+    const data = createInMemoryDataLayer();
+    const scoped = data.forGame(FIXTURE_GAME_NAME);
+    // A staged question that was never posted to Slack.
+    await scoped.saveQuestion(
+      makeQuestion({ id: "q1", postedAt: undefined, messageLink: undefined }),
+    );
+    const tool = createComputeAnswersTool(data, fakeSdk(), fixtureGetGames, fakeSlackDeps());
+
+    const res = parseToolResult(
+      await tool.handler(
+        { game: FIXTURE_GAME_NAME, reprocessQuestionIds: ["q1"], reprocessBatchId: undefined },
+        SESSION,
+      ),
+    );
+
+    assert.equal(res.reveals.length, 0);
+    assert.ok(
+      res.errors?.some(
+        (e: { questionId: string; error: string }) =>
+          e.questionId === "q1" && /postedAt\/messageLink/.test(e.error),
+      ),
+      "refused with the unposted per-id error",
+    );
+  });
+
   it("reprocess skips re-derivation for hand-overridden rows but still re-derives the rest", async () => {
     const data = createInMemoryDataLayer();
     const scoped = data.forGame(FIXTURE_GAME_NAME);
@@ -1192,7 +1300,7 @@ function postedBooleanBlocks(questionId: string) {
   ];
 }
 
-describe("compute_answers — does not edit cards (projection moved to update_answers_block)", () => {
+describe("compute_answers — does not edit cards (projection moved to refresh_question_cards)", () => {
   it("never calls updateMessage during a successful reveal", async () => {
     const data = createInMemoryDataLayer();
     const scoped = data.forGame(FIXTURE_GAME_NAME);

@@ -222,7 +222,7 @@ The tool SHALL decrement the global `cheatAttempts` counter on the cheater's rec
 
 When no entry matches `(cheaterUserId, questionId)`, the tool SHALL return a structured "no matching cheat" result and SHALL mutate neither `cheats.json` nor the counter (idempotent, safe to retry).
 
-The tool result SHALL report the number of reports removed and the cheater's new `cheatAttempts` total. Because cheats filter scoring at reveal time, when the affected question has already been revealed the result SHALL indicate that the posted reveal card can be refreshed via the existing reprocess flow (`compute_answers` reprocess → `update_answers_block`).
+The tool result SHALL report the number of reports removed and the cheater's new `cheatAttempts` total. Because cheats filter scoring at reveal time, when the affected question has already been revealed the result SHALL indicate that the posted reveal card can be refreshed via the existing reprocess flow (`compute_answers` reprocess → `refresh_question_cards`).
 
 Removal SHALL NOT emit any Slack message (no inverse of the `save_cheating` owner DM).
 

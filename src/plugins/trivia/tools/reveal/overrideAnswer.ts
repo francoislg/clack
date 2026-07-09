@@ -12,7 +12,7 @@ Two mutually-exclusive call shapes:
 - OVERRIDE: pass \`correct\` (the verdict to set) and \`reason\` (a short explanation, stored on the row). Use when the reveal judge got a freeform answer wrong, or to grant a one-off exception.
 - RESTORE: pass \`restore: true\` (omit \`correct\`/\`reason\`). Undoes a prior override — puts the machine's original verdict back and lets future reprocess re-derive this row normally.
 
-The question MUST already be revealed (its reveal has been posted); there is nothing to override before that. Overriding stamps the original machine verdict onto the row so it survives reprocess and can be restored later. To make the already-posted reveal card reflect the new verdict, follow with the refresh flow: \`compute_answers\` reprocess → \`update_answers_block\`.
+The question MUST already be revealed (its reveal has been posted); there is nothing to override before that. Overriding stamps the original machine verdict onto the row so it survives reprocess and can be restored later. To make the already-posted reveal card reflect the new verdict, follow with the refresh flow: \`compute_answers\` reprocess → \`refresh_question_cards\`.
 
 For BOOLEAN / CHOICE questions a wrong verdict is usually a wrong answer KEY — prefer fixing \`isTrue\` / \`correctIndex\` (via the question, then reprocess) so every player is corrected at once. Use override here only for a deliberate per-player exception.`;
 

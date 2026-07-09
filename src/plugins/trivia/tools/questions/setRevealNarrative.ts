@@ -13,19 +13,19 @@ import { requireWritableGame } from "../../core/gamesRegistry.js";
 import { resolveIncludeRevealInQuestions } from "../../domain/includeRevealInQuestions.js";
 import type { TriviaDataLayer } from "../../core/types.js";
 
-const DESCRIPTION = `Persist Claude-authored reveal NARRATIVE blocks onto a trivia question's record (\`games/<game>/questions.json\`). This is a pure JSON write — NO Slack message is edited (\`update_answers_block\` remains the sole card editor, and it appends these blocks below the deterministic results footer at projection time). Re-calling is idempotent: it REPLACES the stored \`revealBlocks\`, never appends.
+const DESCRIPTION = `Persist Claude-authored reveal NARRATIVE blocks onto a trivia question's record (\`games/<game>/questions.json\`). This is a pure JSON write — NO Slack message is edited (\`refresh_question_cards\` remains the sole card editor, and it appends these blocks below the deterministic results footer at projection time). Re-calling is idempotent: it REPLACES the stored \`revealBlocks\`, never appends.
 
-\`revealBlocks\` SHALL carry ONLY narrative (the verdict prose, the WHY explanation, the fun-fact comment, and the expanded "nobody cracked it" teaching when nobody got it right) — NEVER the deterministic Answer/Correct/Incorrect facts, which \`update_answers_block\` always renders from \`answers.json\`.
+\`revealBlocks\` SHALL carry ONLY narrative (the verdict prose, the WHY explanation, the fun-fact comment, and the expanded "nobody cracked it" teaching when nobody got it right) — NEVER the deterministic Answer/Correct/Incorrect facts, which \`refresh_question_cards\` always renders from \`answers.json\`.
 
-This tool is rejected (writes nothing) when the game's resolved \`includeRevealInQuestions\` is \`"no"\` — in that mode cards stay facts-only and narrative lives in the summary. Call it only on the reveal's \`"yes"\` branch, once per revealed question, BEFORE \`update_answers_block\`.`;
+This tool is rejected (writes nothing) when the game's resolved \`includeRevealInQuestions\` is \`"no"\` — in that mode cards stay facts-only and narrative lives in the summary. Call it only on the reveal's \`"yes"\` branch, once per revealed question, BEFORE \`refresh_question_cards\`.`;
 
-export function createUpdateQuestionTool(
+export function createSetRevealNarrativeTool(
   data: TriviaDataLayer,
   getGamesFn: GetGamesFn = defaultGetGames,
   getTriviaConfigFn: GetTriviaConfigFn = defaultGetTriviaConfig,
 ) {
   return tool(
-    "update_question",
+    "set_reveal_narrative",
     DESCRIPTION,
     {
       game: z
@@ -52,7 +52,7 @@ export function createUpdateQuestionTool(
       const resolved = resolveIncludeRevealInQuestions(gameEntry, getTriviaConfigFn());
       if (resolved === "no") {
         return errorResult(
-          `update_question is rejected: game "${args.game}" resolves includeRevealInQuestions: "no", so cards stay facts-only and carry no authored narrative. Nothing was written.`,
+          `set_reveal_narrative is rejected: game "${args.game}" resolves includeRevealInQuestions: "no", so cards stay facts-only and carry no authored narrative. Nothing was written.`,
         );
       }
 

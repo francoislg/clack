@@ -5,7 +5,7 @@ import { defaultGetGames, type GetGamesFn } from "../../core/configBridge.js";
 import { requireWritableGame } from "../../core/gamesRegistry.js";
 import { getAnswerTypeHandler } from "../../answerTypes/registry.js";
 import { repaintHint, reprocessThenRepaintHint } from "../../core/refreshHint.js";
-import type { ScopedTriviaDataLayer, TriviaDataLayer } from "../../core/types.js";
+import type { ScopedTriviaDataLayer, TriviaDataLayer, TriviaQuestion } from "../../core/types.js";
 
 // Drops `correct` verdicts so the next compute_answers rescores from scratch; raw picks kept.
 async function clearVerdicts(scoped: ScopedTriviaDataLayer, questionId: string): Promise<number> {
@@ -19,18 +19,20 @@ async function clearVerdicts(scoped: ScopedTriviaDataLayer, questionId: string):
   return cleared;
 }
 
-const DESCRIPTION = `Decide a question's fate: ANSWER a pending prediction with its now-known result, OR SKIP a question — marking it INVALIDATED (worth 0 points, shown as "invalidated, no result"). Use at reveal time for predictions whose outcome is known (answer) or unknowable (skip); skipping also works any time, before OR after a reveal, to drop a bad question.
+const DESCRIPTION = `Decide a question's fate. Pass EXACTLY ONE of \`outcome\` (answer), \`invalidate\` (drop), or \`reopen\` (undo a drop).
 
-ANSWER (pass \`outcome\`): stamps the answer key + \`resolved: true\` + \`resolvedOutcome\` onto a PREDICTION saved without a key. Then run compute_answers — it scores the settled prediction like any other question.
+ANSWER (pass \`outcome\`): stamps the answer key + \`resolved: true\` + \`resolvedOutcome\` + \`resolvedAt\` onto a PREDICTION saved without a key. Then run compute_answers — it scores the settled prediction like any other question.
 - boolean → the boolean truth value (\`true\` / \`false\`).
 - choice → the winning option's 0-based index (number) OR its exact text (string).
 - freeform → the canonical answer text (string). Optionally also pass \`acceptableAnswers\` / \`gradingNotes\` to give the reveal judge the full spec.
 
-SKIP (pass \`skip: true\` + \`skippedReason\`): marks the question INVALIDATED — sets \`skipped: true\` + the reason — and clears any verdicts on its answers so it scores 0 for everyone. Works for ANY format/type, even an already-answered or already-revealed question. A skipped prediction counts as decided for the reveal gate. The result carries a \`refreshHint\` — call exactly that to repaint the now-invalidated card.
+INVALIDATE (pass \`invalidate: true\` + \`invalidatedReason\`): marks the question INVALIDATED — sets \`invalidated: true\` + the reason — and clears any verdicts on its answers so it scores 0 for everyone. Works for ANY format/type, even an already-answered or already-revealed question. An invalidated prediction counts as decided for the reveal gate. The result carries a \`refreshHint\` — call exactly that to repaint the now-invalidated card.
+
+REOPEN (pass \`reopen: true\`): reverses a prior invalidation (the inverse of INVALIDATE); errors if the question is not currently \`invalidated\`. Clears \`invalidated\` + \`invalidatedReason\`; if the question has NO answer key yet (a never-settled prediction) it also returns to pending (\`resolved: false\`, clears \`resolvedAt\`/\`resolvedOutcome\`), otherwise its settled key is kept. Leaves \`processedAt\`, \`answerLocked\`, and all answer rows untouched. The result carries a \`refreshHint\` to repaint the restored (live/locked) card. To finish recovering an already-revealed question: settle it (\`outcome\`), then compute_answers (reprocess this question), then repaint.
 
 RE-SETTLE (pass \`outcome\` + \`override: true\`): fixes a question already answered with the WRONG outcome. Re-stamps the answer key and clears stale verdicts so the next compute_answers rescores everyone against the corrected result. Without \`override\`, answering an already-keyed question errors.
 
-Pass EXACTLY ONE of \`outcome\` or \`skip\`. Errors when: the question is missing; \`outcome\` targets a question that already has an answer key (unless \`override: true\`); or the outcome does not match the answer format. On error, makes NO change.`;
+Errors when: not EXACTLY ONE of \`outcome\`/\`invalidate\`/\`reopen\` is provided; the question is missing; \`outcome\` targets a question that already has an answer key (unless \`override: true\`); \`reopen\` targets a question that is not invalidated; or the outcome does not match the answer format. On error, makes NO change.`;
 
 export function createSettleQuestionTool(
   data: TriviaDataLayer,
@@ -48,7 +50,7 @@ export function createSettleQuestionTool(
         .union([z.boolean(), z.number().int(), z.string()])
         .optional()
         .describe(
-          "ANSWER mode (mutually exclusive with `skip`). The real-world result. boolean → true/false. choice → the winning option's 0-based index or exact text. freeform → the canonical answer text.",
+          "ANSWER mode (mutually exclusive with `invalidate` and `reopen`). The real-world result. boolean → true/false. choice → the winning option's 0-based index or exact text. freeform → the canonical answer text.",
         ),
       override: z
         .boolean()
@@ -60,7 +62,13 @@ export function createSettleQuestionTool(
         .boolean()
         .optional()
         .describe(
-          "SKIP mode (mutually exclusive with `outcome`). Pass `true` to mark the question invalidated (0 points).",
+          "INVALIDATE mode (mutually exclusive with `outcome` and `reopen`). Pass `true` to mark the question invalidated (0 points).",
+        ),
+      reopen: z
+        .boolean()
+        .optional()
+        .describe(
+          "REOPEN mode (mutually exclusive with `outcome` and `invalidate`). Pass `true` to reverse a prior invalidation: clears `invalidated`/`invalidatedReason`, and returns a keyless prediction to pending. Errors if the question is not currently invalidated.",
         ),
       invalidatedReason: z
         .string()
@@ -88,9 +96,11 @@ export function createSettleQuestionTool(
         return errorResult(err instanceof Error ? err.message : String(err));
       }
 
+      const answering = args.outcome !== undefined;
       const invalidating = args.invalidate === true;
-      if (invalidating === (args.outcome !== undefined)) {
-        return errorResult("Pass EXACTLY ONE of `outcome` (answer) or `invalidate`.");
+      const reopening = args.reopen === true;
+      if (Number(answering) + Number(invalidating) + Number(reopening) !== 1) {
+        return errorResult("Pass EXACTLY ONE of `outcome` (answer), `invalidate`, or `reopen`.");
       }
 
       const scoped = data.forGame(args.game);
@@ -123,6 +133,32 @@ export function createSettleQuestionTool(
           cleared,
           // The card needs repainting to show its invalidated state (whether mid-window
           // or after reveal). No posted card → nothing to refresh.
+          ...(question.messageLink !== undefined ? { refreshHint: repaintHint(question.id) } : {}),
+        });
+      }
+
+      if (reopening) {
+        if (question.invalidated !== true) {
+          return errorResult(
+            `Question "${args.questionId}" is not invalidated — nothing to reopen.`,
+          );
+        }
+        // A never-settled (keyless) prediction returns to pending so the undecided
+        // gate applies to it again; a settled question keeps its key. `processedAt`,
+        // `answerLocked`, and answer rows are deliberately untouched.
+        const keyless = !getAnswerTypeHandler(question.answersFormat).hasAnswerKey(question);
+        const patch: Partial<TriviaQuestion> = {
+          invalidated: undefined,
+          invalidatedReason: undefined,
+          ...(keyless
+            ? { resolved: false, resolvedAt: undefined, resolvedOutcome: undefined }
+            : {}),
+        };
+        await scoped.updateQuestion(question.id, patch);
+        return textResult({
+          reopened: true,
+          questionId: question.id,
+          returnedToPending: keyless,
           ...(question.messageLink !== undefined ? { refreshHint: repaintHint(question.id) } : {}),
         });
       }

@@ -95,7 +95,7 @@ export async function editRevealIntoCard(params: EditRevealParams): Promise<void
     question.tagPlayers ?? true,
   );
 
-  // When `includeRevealInQuestions: "yes"`, `update_question` has stored authored
+  // When `includeRevealInQuestions: "yes"`, `set_reveal_narrative` has stored authored
   // narrative on the record; append it BELOW the deterministic facts footer (and
   // above the post-game buttons). Absent → facts-only, today's behavior.
   const narrativeBlocks = question.revealBlocks ?? [];
@@ -124,7 +124,7 @@ export async function editRevealIntoCard(params: EditRevealParams): Promise<void
 /**
  * Repaint an INVALIDATED question's card: drop the answer buttons and append a single
  * "invalidated" context line (with the reason). No results footer, no post-game buttons —
- * the question scored 0 and has no result. Used by `update_answers_block` for any question
+ * the question scored 0 and has no result. Used by `refresh_question_cards` for any question
  * carrying `invalidated: true`, whether invalidated before or after its reveal.
  */
 export async function editInvalidatedIntoCard(params: {
