@@ -10,7 +10,7 @@ import { createAddCategoriesTool } from "./tools/categories/addCategories.js";
 import { createRemoveCategoriesTool } from "./tools/categories/removeCategories.js";
 import { createGetIdeasTool } from "./tools/questions/getIdeas.js";
 import { createSaveQuestionTool } from "./tools/questions/saveQuestion.js";
-import { createUpdateQuestionTool } from "./tools/questions/updateQuestion.js";
+import { createSetRevealNarrativeTool } from "./tools/questions/setRevealNarrative.js";
 import { createPostQuestionsTool } from "./tools/questions/postQuestions.js";
 import { createFindPreviousQuestionsTool } from "./tools/questions/findPreviousQuestions.js";
 import { createFindPreviousSubjectsTool } from "./tools/visual/findPreviousSubjects.js";
@@ -28,7 +28,7 @@ import { createDeleteSeasonTool } from "./tools/seasons/deleteSeason.js";
 import { createListSeasonsTool } from "./tools/seasons/listSeasons.js";
 import { createStartNewSeasonTool } from "./tools/seasons/startNewSeason.js";
 import { createComputeAnswersTool } from "./tools/reveal/computeAnswers.js";
-import { createUpdateAnswersBlockTool } from "./tools/reveal/updateAnswersBlock.js";
+import { createRefreshQuestionCardsTool } from "./tools/reveal/refreshQuestionCards.js";
 import { createOverrideAnswerTool } from "./tools/reveal/overrideAnswer.js";
 import { createSettleQuestionTool } from "./tools/reveal/settleQuestion.js";
 import { createLockQuestionsTool } from "./tools/lock/lockQuestions.js";
@@ -118,7 +118,11 @@ export const triviaPlugin: ClackPlugin = async (sdk: ClackSdk) => {
   );
   sdk.registerTool("admin", createGetIdeasTool(data), sdk.t("label.get_ideas"));
   sdk.registerTool("admin", createSaveQuestionTool(data), sdk.t("label.save_question"));
-  sdk.registerTool("admin", createUpdateQuestionTool(data), sdk.t("label.update_question"));
+  sdk.registerTool(
+    "admin",
+    createSetRevealNarrativeTool(data),
+    sdk.t("label.set_reveal_narrative"),
+  );
   sdk.registerTool("admin", createPostQuestionsTool(data, sdk), sdk.t("label.post_questions"));
   sdk.registerTool("admin", createLockQuestionsTool(data, sdk), sdk.t("label.lock_questions"));
   sdk.registerTool("member", createFindPreviousQuestionsTool(data), sdk.t("label.find_previous"));
@@ -132,8 +136,8 @@ export const triviaPlugin: ClackPlugin = async (sdk: ClackSdk) => {
   sdk.registerTool("admin", createComputeAnswersTool(data, sdk), sdk.t("label.compute_answers"));
   sdk.registerTool(
     "admin",
-    createUpdateAnswersBlockTool(data, sdk),
-    sdk.t("label.update_answers_block"),
+    createRefreshQuestionCardsTool(data, sdk),
+    sdk.t("label.refresh_question_cards"),
   );
   sdk.registerTool("admin", createOverrideAnswerTool(data), sdk.t("label.override_answer"));
   sdk.registerTool("admin", createRemoveCheatTool(data), sdk.t("label.remove_cheat"));

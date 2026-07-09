@@ -1,7 +1,7 @@
 import { describe, it } from "vitest";
 import assert from "node:assert/strict";
 import { createComputeAnswersTool, type RevealSlackDeps } from "./tools/reveal/computeAnswers.js";
-import { createUpdateAnswersBlockTool } from "./tools/reveal/updateAnswersBlock.js";
+import { createRefreshQuestionCardsTool } from "./tools/reveal/refreshQuestionCards.js";
 import { createStartNewSeasonTool } from "./tools/seasons/startNewSeason.js";
 import { createInMemoryDataLayer, FIXTURE_GAME_NAME, fixtureGetGames } from "./testHelpers.js";
 import { parseToolResult } from "../../tools/testHelpers.js";
@@ -10,11 +10,11 @@ import type { TriviaQuestion } from "./core/types.js";
 
 /**
  * INTEGRATION test for the reveal flow. Unlike the per-tool unit files
- * (`computeAnswers.test.ts`, `updateAnswersBlock.test.ts`, `startNewSeason.test.ts`),
+ * (`computeAnswers.test.ts`, `refreshQuestionCards.test.ts`, `startNewSeason.test.ts`),
  * this wires all three real tools against ONE shared in-memory data layer and ONE
  * shared Slack seam — exactly as the scheduled reveal prompt chains them:
  *
- *   compute_answers → update_answers_block(questionIds) → start_new_season (last fire only)
+ *   compute_answers → refresh_question_cards(questionIds) → start_new_season (last fire only)
  *
  * It is the end-to-end safety net the refactor's design called for: the split must
  * reproduce the old monolith's observable result (cards edited, leaderboard/round
@@ -45,7 +45,7 @@ interface UpdateCall {
   blockIds: string[];
 }
 
-/** One Slack seam shared by compute_answers AND update_answers_block, capturing every chat.update. */
+/** One Slack seam shared by compute_answers AND refresh_question_cards, capturing every chat.update. */
 function capturingSlackDeps(): { deps: RevealSlackDeps; updates: UpdateCall[] } {
   const updates: UpdateCall[] = [];
   const deps: RevealSlackDeps = {
@@ -114,7 +114,7 @@ function tools(data: Data, deps: RevealSlackDeps, revealCron: string) {
   const noConfig = () => ({});
   return {
     compute: createComputeAnswersTool(data, sdk, getGames, deps, noConfig),
-    update: createUpdateAnswersBlockTool(data, sdk, getGames, deps, noConfig),
+    update: createRefreshQuestionCardsTool(data, sdk, getGames, deps, noConfig),
     startNewSeason: createStartNewSeasonTool(data, getGames),
   };
 }
@@ -178,7 +178,7 @@ describe("reveal flow integration — compute → update → start_new_season", 
     const afterCompute = await scoped.loadQuestions();
     assert.notEqual(afterCompute.find((q) => q.id === "q1")?.processedAt, undefined);
 
-    // ── Step 2: update_answers_block (the projector) ──────────────────────
+    // ── Step 2: refresh_question_cards (the projector) ──────────────────────
     const edited = parseToolResult(
       await update.handler(
         {

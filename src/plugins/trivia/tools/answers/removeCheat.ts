@@ -10,7 +10,7 @@ const DESCRIPTION = `Remove a cheat report against a player on a trivia question
 
 Drops every cheat entry matching (cheaterUserId, questionId) from the game's cheats.json and decrements the player's cumulative cheat counter by the number removed (floored at 0). Use when a cheat was recorded wrongly or against the wrong person. A no-match call changes nothing (safe to retry).
 
-Cheats filter scoring at reveal time, so if the affected question was already revealed, refresh the posted card afterward: \`compute_answers\` (reprocess this question) → \`update_answers_block\`.`;
+Cheats filter scoring at reveal time, so if the affected question was already revealed, refresh the posted card afterward: \`compute_answers\` (reprocess this question) → \`refresh_question_cards\`.`;
 
 export function createRemoveCheatTool(
   data: TriviaDataLayer,

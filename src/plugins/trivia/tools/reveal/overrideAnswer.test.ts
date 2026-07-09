@@ -182,7 +182,7 @@ describe("override_answer tool", () => {
     );
     assert.equal(body.action, "overridden");
     // Standardized repaint call names questionIds with the affected id, never a batchId.
-    assert.match(body.refreshHint, /update_answers_block\(game, questionIds: \["q1"\]\)/);
+    assert.match(body.refreshHint, /refresh_question_cards\(game, questionIds: \["q1"\]\)/);
     assert.doesNotMatch(body.refreshHint, /batchId/);
 
     const row = await findRow(data);

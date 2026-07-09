@@ -114,7 +114,7 @@ describe("remove_cheat tool", () => {
     );
     assert.match(body.refreshHint, /compute_answers/);
     // Standardized repaint call names questionIds with the affected id, never a batchId.
-    assert.match(body.refreshHint, /update_answers_block\(game, questionIds: \["q1"\]\)/);
+    assert.match(body.refreshHint, /refresh_question_cards\(game, questionIds: \["q1"\]\)/);
     assert.doesNotMatch(body.refreshHint, /batchId/);
   });
 

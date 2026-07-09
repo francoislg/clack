@@ -78,8 +78,8 @@ describe("buildGameSpecs", () => {
       "mcp__trivia__save_question",
       "mcp__trivia__find_previous_subjects",
       "mcp__trivia__settle_question",
-      "mcp__trivia__update_question",
-      "mcp__trivia__update_answers_block",
+      "mcp__trivia__set_reveal_narrative",
+      "mcp__trivia__refresh_question_cards",
       "mcp__trivia__start_new_season",
     ];
     const games: TriviaGame[] = [
@@ -132,12 +132,12 @@ describe("buildGameSpecs", () => {
     assert.ok(!reveal.requiredTools.includes("mcp__trivia__post_questions"));
     // Conditional reveal tools — excluded so the gate doesn't force-call them on runs where the
     // prompt skips them: settle_question (no predictions), start_new_season (not the season's last
-    // fire), update_question (only when includeRevealInQuestions is "yes"), update_answers_block
+    // fire), set_reveal_narrative (only when includeRevealInQuestions is "yes"), refresh_question_cards
     // (skipped on an empty batch).
     assert.ok(!reveal.requiredTools.includes("mcp__trivia__settle_question"));
-    assert.ok(!reveal.requiredTools.includes("mcp__trivia__update_answers_block"));
+    assert.ok(!reveal.requiredTools.includes("mcp__trivia__refresh_question_cards"));
     assert.ok(!reveal.requiredTools.includes("mcp__trivia__start_new_season"));
-    assert.ok(!reveal.requiredTools.includes("mcp__trivia__update_question"));
+    assert.ok(!reveal.requiredTools.includes("mcp__trivia__set_reveal_narrative"));
   });
 
   it("question prompt is non-empty and contains the boolean+choice path text", () => {
@@ -150,7 +150,7 @@ describe("buildGameSpecs", () => {
   it("reveal prompt is a renderer brief sequencing compute → project → render", () => {
     const [, reveal] = buildGameSpecs([baseGame]);
     assert.match(reveal.prompt, /compute_answers/);
-    assert.match(reveal.prompt, /update_answers_block/);
+    assert.match(reveal.prompt, /refresh_question_cards/);
     assert.doesNotMatch(reveal.prompt, /Call submit_answers/);
     assert.doesNotMatch(reveal.prompt, /Call retrieve_scores/);
   });

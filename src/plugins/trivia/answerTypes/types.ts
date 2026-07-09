@@ -340,7 +340,7 @@ export interface AnswerTypeHandler {
    * Assemble the reveal entry (answer descriptor + voter buckets) for one
    * question from its ALREADY-SCORED answers, performing NO writes — no
    * judging, no `processedAt` stamp, no row deletion. Used by
-   * `update_answers_block` to re-project a card deterministically from file
+   * `refresh_question_cards` to re-project a card deterministically from file
    * state. `processReveal` delegates here after it finishes its writes, so the
    * two share one bucket-assembly path. Returns the same `ProcessRevealOutcome`
    * shape; `wasReprocessed` is `false` (projection is not a reprocess).

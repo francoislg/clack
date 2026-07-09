@@ -303,5 +303,10 @@
   "301": "roundSummary.ts",
   "302": "PostQuestionsSlackDeps",
   "303": "PostQuestionsSlackDeps",
-  "304": "adminDescribeConfigFile.ts"
+  "304": "adminDescribeConfigFile.ts",
+  "305": "ClackSdkUserData",
+  "306": "RevealSlackDeps",
+  "307": "roundSummary.ts",
+  "308": "ToolCallRecord",
+  "309": "ClackSdkMemoryData"
 }

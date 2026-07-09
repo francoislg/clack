@@ -1,7 +1,7 @@
 import { describe, it } from "vitest";
 import assert from "node:assert/strict";
 import type { KnownBlock } from "@slack/types";
-import { createUpdateAnswersBlockTool } from "./updateAnswersBlock.js";
+import { createRefreshQuestionCardsTool } from "./refreshQuestionCards.js";
 import type { RevealSlackDeps } from "./computeAnswers.js";
 import { createInMemoryDataLayer, FIXTURE_GAME_NAME, fixtureGetGames } from "../../testHelpers.js";
 import { parseToolResult } from "../../../../tools/testHelpers.js";
@@ -9,7 +9,7 @@ import type { ClackSdk } from "../../../sdk.js";
 import type { TriviaQuestion } from "../../core/types.js";
 
 /**
- * Tests for `update_answers_block` — the deterministic projector that edits
+ * Tests for `refresh_question_cards` — the deterministic projector that edits
  * revealed question cards from file state. Card-editing behavior lives here;
  * `computeAnswers.test.ts` asserts that `compute_answers` no longer edits.
  */
@@ -34,6 +34,10 @@ function makeQuestion(overrides: Partial<TriviaQuestion>): TriviaQuestion {
     emojis: ["🎯"],
     createdAt: 0,
     postedAt: 1000,
+    // Default fixture represents a SCORED question (compute_answers stamps this before
+    // a revealed-card repaint) so the projector paints the revealed footer. Live/locked
+    // and keyless cases override it to `undefined`.
+    processedAt: 2000,
     messageLink: "https://x.slack.com/archives/C100000000/p1700000000000000",
     revealResponses: "yes",
     ...overrides,
@@ -87,10 +91,10 @@ function postedBooleanBlocks(questionId: string) {
 }
 
 function makeTool(data: ReturnType<typeof createInMemoryDataLayer>, deps: RevealSlackDeps) {
-  return createUpdateAnswersBlockTool(data, fakeSdk(), fixtureGetGames, deps);
+  return createRefreshQuestionCardsTool(data, fakeSdk(), fixtureGetGames, deps);
 }
 
-describe("update_answers_block — deterministic card projection", () => {
+describe("refresh_question_cards — deterministic card projection", () => {
   it("edits the named question's card once", async () => {
     const data = createInMemoryDataLayer();
     const scoped = data.forGame(FIXTURE_GAME_NAME);
@@ -398,7 +402,7 @@ describe("update_answers_block — deterministic card projection", () => {
     const tool = makeTool(data, deps);
     await tool.handler({ game: FIXTURE_GAME_NAME, questionIds: ["q1"] }, SESSION);
 
-    // Re-author the narrative (as update_question would), then re-project.
+    // Re-author the narrative (as set_reveal_narrative would), then re-project.
     await scoped.updateQuestion("q1", {
       revealBlocks: [
         { type: "section", block_id: "narrative-v2:q1", text: { type: "mrkdwn", text: "v2" } },
@@ -425,7 +429,7 @@ describe("update_answers_block — deterministic card projection", () => {
     );
 
     const { deps, updates } = capturingSlackDeps();
-    const tool = createUpdateAnswersBlockTool(data, fakeSdk(), fixtureGetGames, deps, () => ({
+    const tool = createRefreshQuestionCardsTool(data, fakeSdk(), fixtureGetGames, deps, () => ({
       tellMeMore: { enabled: true },
     }));
     await tool.handler({ game: FIXTURE_GAME_NAME, questionIds: ["q1"] }, SESSION);
@@ -448,5 +452,121 @@ describe("update_answers_block — deterministic card projection", () => {
       group.elements.map((el) => (el.type === "button" ? el.action_id : null)),
       ["plugin:trivia:reveal-see-answer:q1", "plugin:trivia:tell-me-more:q1"],
     );
+  });
+});
+
+describe("refresh_question_cards — state-complete projection", () => {
+  it("paints a reopened unlocked pending prediction as LIVE (buttons, no footer)", async () => {
+    const data = createInMemoryDataLayer();
+    const scoped = data.forGame(FIXTURE_GAME_NAME);
+    // Keyless (reopened prediction), unprocessed, unlocked.
+    await scoped.saveQuestion(
+      makeQuestion({
+        id: "q1",
+        isTrue: undefined,
+        processedAt: undefined,
+        postedBlocks: postedBooleanBlocks("q1"),
+      }),
+    );
+    const { deps, updates } = capturingSlackDeps();
+    const res = parseToolResult(
+      await makeTool(data, deps).handler({ game: FIXTURE_GAME_NAME, questionIds: ["q1"] }, SESSION),
+    );
+
+    assert.deepEqual(res.edited, ["q1"]);
+    const ids = updates[0].blockIds;
+    assert.ok(ids.includes("vote-actions:q1"), "vote buttons restored");
+    assert.ok(!ids.some((id) => id.startsWith("reveal-results:")), "no results footer");
+    assert.ok(!ids.some((id) => id.startsWith("locked-notice:")), "not locked");
+  });
+
+  it("never paints the footer on a keyed-but-unprocessed question (no leak)", async () => {
+    const data = createInMemoryDataLayer();
+    const scoped = data.forGame(FIXTURE_GAME_NAME);
+    // Keyed (isTrue set) but not yet scored, unlocked.
+    await scoped.saveQuestion(
+      makeQuestion({
+        id: "q1",
+        isTrue: true,
+        processedAt: undefined,
+        postedBlocks: postedBooleanBlocks("q1"),
+      }),
+    );
+    const { deps, updates } = capturingSlackDeps();
+    const res = parseToolResult(
+      await makeTool(data, deps).handler({ game: FIXTURE_GAME_NAME, questionIds: ["q1"] }, SESSION),
+    );
+
+    assert.deepEqual(res.edited, ["q1"]);
+    const ids = updates[0].blockIds;
+    assert.ok(!ids.some((id) => id.startsWith("reveal-results:")), "answer stays secret");
+    assert.ok(ids.includes("vote-actions:q1"), "still live");
+  });
+
+  it("paints a reopened LOCKED pending prediction as locked (notice, no buttons, no footer)", async () => {
+    const data = createInMemoryDataLayer();
+    const scoped = data.forGame(FIXTURE_GAME_NAME);
+    await scoped.saveQuestion(
+      makeQuestion({
+        id: "q1",
+        isTrue: undefined,
+        processedAt: undefined,
+        answerLocked: true,
+        postedBlocks: postedBooleanBlocks("q1"),
+      }),
+    );
+    const { deps, updates } = capturingSlackDeps();
+    const res = parseToolResult(
+      await makeTool(data, deps).handler({ game: FIXTURE_GAME_NAME, questionIds: ["q1"] }, SESSION),
+    );
+
+    assert.deepEqual(res.edited, ["q1"]);
+    const ids = updates[0].blockIds;
+    assert.ok(ids.includes("locked-notice:q1"), "locked notice shown");
+    assert.ok(!ids.includes("vote-actions:q1"), "buttons removed");
+    assert.ok(!ids.some((id) => id.startsWith("reveal-results:")), "no footer");
+  });
+
+  it("paints a reopened-after-reveal question (keyless + processedAt) as live, not revealed", async () => {
+    const data = createInMemoryDataLayer();
+    const scoped = data.forGame(FIXTURE_GAME_NAME);
+    // Was revealed-as-invalidated then reopened: keyless again, processedAt retained.
+    await scoped.saveQuestion(
+      makeQuestion({
+        id: "q1",
+        isTrue: undefined,
+        processedAt: 2000,
+        postedBlocks: postedBooleanBlocks("q1"),
+      }),
+    );
+    const { deps, updates } = capturingSlackDeps();
+    const res = parseToolResult(
+      await makeTool(data, deps).handler({ game: FIXTURE_GAME_NAME, questionIds: ["q1"] }, SESSION),
+    );
+
+    assert.deepEqual(res.edited, ["q1"]);
+    const ids = updates[0].blockIds;
+    assert.ok(!ids.some((id) => id.startsWith("reveal-results:")), "no footer while keyless");
+    assert.ok(ids.includes("vote-actions:q1"), "live card");
+  });
+
+  it("skips a staged/legacy row with no postedBlocks", async () => {
+    const data = createInMemoryDataLayer();
+    const scoped = data.forGame(FIXTURE_GAME_NAME);
+    await scoped.saveQuestion(
+      makeQuestion({
+        id: "q1",
+        isTrue: undefined,
+        processedAt: undefined,
+        postedBlocks: undefined,
+      }),
+    );
+    const { deps, updates } = capturingSlackDeps();
+    const res = parseToolResult(
+      await makeTool(data, deps).handler({ game: FIXTURE_GAME_NAME, questionIds: ["q1"] }, SESSION),
+    );
+
+    assert.equal(updates.length, 0);
+    assert.deepEqual(res.edited, []);
   });
 });

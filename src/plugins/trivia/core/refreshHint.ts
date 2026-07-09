@@ -3,9 +3,9 @@
  * mutator points Claude at the SAME repaint path with identical wording (never a batchId).
  */
 
-/** The exact `update_answers_block` call that repaints the named card. */
+/** The exact `refresh_question_cards` call that repaints the named card. */
 export function repaintHint(questionId: string): string {
-  return `update_answers_block(game, questionIds: ["${questionId}"])`;
+  return `refresh_question_cards(game, questionIds: ["${questionId}"])`;
 }
 
 /**

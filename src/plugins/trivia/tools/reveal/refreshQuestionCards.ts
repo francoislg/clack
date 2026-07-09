@@ -11,6 +11,7 @@ import {
 import { requireWritableGame } from "../../core/gamesRegistry.js";
 import { getAnswerTypeHandler } from "../../answerTypes/registry.js";
 import { editRevealIntoCard, editInvalidatedIntoCard } from "../../revealCards/editCard.js";
+import { resolveLiveOrLockedCard } from "../../freeform/roster.js";
 import type { ClackSdk } from "../../../sdk.js";
 import type { TriviaDataLayer, TriviaQuestion } from "../../core/types.js";
 import {
@@ -19,13 +20,20 @@ import {
   type RevealSlackDeps,
 } from "./computeAnswers.js";
 
-const DESCRIPTION = `Deterministically edit already-posted trivia question card(s) into their revealed (or invalidated) state. Reads the CURRENT \`questions.json\` + \`answers.json\` and rebuilds each NAMED card from its stored \`postedBlocks\` (drop the vote buttons, append the results footer, append the "See your answer" button). This is the SOLE editor of posted question cards.
+const DESCRIPTION = `Deterministically edit already-posted trivia question card(s) into whatever state their record is currently in. Reads the CURRENT \`questions.json\` + \`answers.json\` and rebuilds each NAMED card from its stored \`postedBlocks\`. This is the SOLE editor of posted question cards in the reveal flow.
 
-Call this AFTER \`compute_answers\`, passing the question ids it revealed — \`reveals.map(r => r.questionId)\`. It performs NO scoring, NO freeform judging, NO season rollover, and posts NO new message — it only brings each named card in line with the scored answers on disk. It is idempotent (safe to re-run) and reconciling (re-run it after a re-score to refresh a card). A per-card \`chat.update\` failure (deleted message, rate limit) is logged and does not abort the rest.
+Per card, the state is chosen from the record (first match wins):
+- INVALIDATED (\`invalidated: true\`) → the "❌ Invalidated" line, no results footer.
+- REVEALED (has an answer key AND \`processedAt\` is set) → drop the vote buttons, append the results footer + any authored narrative + the "See your answer" button.
+- LOCKED (\`answerLocked: true\`) → the locked notice, buttons removed.
+- LIVE (otherwise) → the vote/answer buttons restored from \`postedBlocks\` + the current live roster.
+The results footer is NEVER painted while \`processedAt\` is unset, so a keyed-but-unrevealed card repaints live/locked and its answer stays secret.
 
-\`questionIds\` is the set of cards to repaint, keyed by each question's own id. Every card is rebuilt INDEPENDENTLY, so name EXACTLY the cards you want changed and live siblings stay untouched: pass every \`reveals[].questionId\` for a normal full reveal, or a single id to repaint just one card (e.g. one invalidated mid-window, or one corrected by \`override_answer\`/\`settle_question\` — each mutator's \`refreshHint\` tells you the id to pass). A card whose question was invalidated (\`settle_question\` invalidate) repaints into its "❌ Invalidated" state automatically; one with no answer key yet is left untouched. Duplicate ids are de-duplicated; ids matching no question are reported in \`notFound\`.`;
+Call this AFTER \`compute_answers\`, passing the question ids it revealed — \`reveals.map(r => r.questionId)\`. It performs NO scoring, NO freeform judging, NO season rollover, and posts NO new message — it only brings each named card in line with disk. It is idempotent (safe to re-run) and reconciling (re-run it after a re-score, an invalidate, or a reopen to refresh a card). A per-card \`chat.update\` failure (deleted message, rate limit) is logged and does not abort the rest.
 
-export function createUpdateAnswersBlockTool(
+\`questionIds\` is the set of cards to repaint, keyed by each question's own id. Every card is rebuilt INDEPENDENTLY, so name EXACTLY the cards you want changed and live siblings stay untouched: pass every \`reveals[].questionId\` for a normal full reveal, or a single id to repaint just one card (e.g. one invalidated mid-window, or one corrected by \`override_answer\`/\`settle_question\` — each mutator's \`refreshHint\` tells you the id to pass). A staged or legacy row with no \`postedBlocks\`/\`messageLink\` is skipped. Duplicate ids are de-duplicated; ids matching no question are reported in \`notFound\`.`;
+
+export function createRefreshQuestionCardsTool(
   data: TriviaDataLayer,
   sdk: Pick<ClackSdk, "getSlackClient" | "actionId">,
   getGamesFn: GetGamesFn = defaultGetGames,
@@ -33,7 +41,7 @@ export function createUpdateAnswersBlockTool(
   getTriviaConfigFn: GetTriviaConfigFn = defaultGetTriviaConfig,
 ) {
   return tool(
-    "update_answers_block",
+    "refresh_question_cards",
     DESCRIPTION,
     {
       game: z
@@ -80,7 +88,7 @@ export function createUpdateAnswersBlockTool(
       // Repaint in posted order for deterministic card edits.
       batch.sort((a, b) => (a.postedAt ?? 0) - (b.postedAt ?? 0));
 
-      const botUserId = await resolveBotUserId(slackDeps, "update_answers_block");
+      const botUserId = await resolveBotUserId(slackDeps, "refresh_question_cards");
 
       const users = await data.loadUsers();
       const game = getGamesFn().find((g) => g.name === args.game) ?? null;
@@ -100,8 +108,12 @@ export function createUpdateAnswersBlockTool(
         // Per-card isolation: a projection or edit failure (I/O, parse) records an
         // error and moves on — it must never abort the rest of the batch.
         try {
-          // Invalidated → repaint the card as "invalidated" (no results footer). Works
-          // whether it was invalidated before or after its reveal.
+          // State precedence (first match wins), all rebuilt from stored postedBlocks:
+          //   1. invalidated → the ❌ invalidated line (no results footer).
+          //   2. keyed AND processed → the revealed results footer + narrative.
+          //   3. otherwise → LIVE or LOCKED (resolveLiveOrLockedCard honors answerLocked).
+          // The footer is NEVER painted while processedAt is unset — a keyed-but-unrevealed
+          // question repaints live/locked, so its answer stays secret.
           if (question.invalidated === true) {
             await editInvalidatedIntoCard({
               updateMessage: (channel, ts, blocks) => slackDeps.updateMessage(channel, ts, blocks),
@@ -111,27 +123,33 @@ export function createUpdateAnswersBlockTool(
             continue;
           }
           const handler = getAnswerTypeHandler(question.answersFormat);
-          // A deferred prediction with no answer key yet — leave its card untouched
-          // so its vote buttons stay live for picks until it is settled and revealed.
-          if (!handler.hasAnswerKey(question)) continue;
-          const outcome = await handler.projectReveal(question, projectDeps);
-          if (!outcome.ok) {
-            errors.push({ questionId: question.id, error: outcome.error });
+          if (handler.hasAnswerKey(question) && question.processedAt !== undefined) {
+            const outcome = await handler.projectReveal(question, projectDeps);
+            if (!outcome.ok) {
+              errors.push({ questionId: question.id, error: outcome.error });
+              continue;
+            }
+            await editRevealIntoCard({
+              updateMessage: (channel, ts, blocks) => slackDeps.updateMessage(channel, ts, blocks),
+              question,
+              entry: outcome.entry,
+              actionId: sdk.actionId,
+              game,
+              config,
+            });
+            edited.push(question.id);
             continue;
           }
-          await editRevealIntoCard({
-            updateMessage: (channel, ts, blocks) => slackDeps.updateMessage(channel, ts, blocks),
-            question,
-            entry: outcome.entry,
-            actionId: sdk.actionId,
-            game,
-            config,
-          });
+          // LIVE / LOCKED — returns null (skips) for a staged/legacy row with no
+          // postedBlocks/messageLink, matching the prior untouched behavior.
+          const resolved = await resolveLiveOrLockedCard({ scoped, data, question, handler });
+          if (resolved === null) continue;
+          await slackDeps.updateMessage(resolved.channel, resolved.ts, resolved.blocks);
           edited.push(question.id);
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);
           logger.warn(
-            `update_answers_block: projecting question ${question.id} failed: ${message}`,
+            `refresh_question_cards: projecting question ${question.id} failed: ${message}`,
           );
           errors.push({ questionId: question.id, error: message });
         }

@@ -724,7 +724,7 @@ These facts let an admin reason about replay eligibility, top-up, and "fix the l
 
 `find_previous_questions` SHALL expose a question's stored `revealBlocks` ONLY when the caller opts in — either by requesting specific question ids OR by passing an `includeRevealBlocks: true` flag — and SHALL NOT include `revealBlocks` in its default/broad list response. Because `revealBlocks` narrative reveals the answer, the field SHALL be returned only for questions that have already been revealed (`processedAt` set); for not-yet-revealed questions the field SHALL be omitted even when opted in, preserving the existing "response excludes the answer key" guarantee for live questions.
 
-This serves the re-emit/repair path: when a revealed card was deleted, Claude can fetch the already-authored `revealBlocks` and re-emit them via `submit_response` without regenerating the narrative. It is distinct from `update_answers_block`, which re-projects to the original message.
+This serves the re-emit/repair path: when a revealed card was deleted, Claude can fetch the already-authored `revealBlocks` and re-emit them via `submit_response` without regenerating the narrative. It is distinct from `refresh_question_cards`, which re-projects to the original message.
 
 #### Scenario: Default list omits revealBlocks
 

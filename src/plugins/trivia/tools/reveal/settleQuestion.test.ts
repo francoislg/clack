@@ -30,6 +30,7 @@ function args(o: Partial<Args> & { questionId: string }): Args {
     outcome: undefined,
     override: undefined,
     invalidate: undefined,
+    reopen: undefined,
     invalidatedReason: undefined,
     acceptableAnswers: undefined,
     gradingNotes: undefined,
@@ -101,7 +102,7 @@ describe("settle_question — answer a prediction", () => {
     assert.equal(res.reSettled, true);
     assert.equal(res.rescored, 2);
     // Re-settling a revealed question changes scored verdicts → repaint after reprocess.
-    assert.match(res.refreshHint, /update_answers_block\(game, questionIds: \["p1"\]\)/);
+    assert.match(res.refreshHint, /refresh_question_cards\(game, questionIds: \["p1"\]\)/);
     const after = (await scoped.loadQuestions()).find((q) => q.id === "p1");
     assert.equal(after?.isTrue, false);
     assert.equal(after?.resolvedOutcome, false);
@@ -179,7 +180,7 @@ describe("settle_question — invalidate", () => {
     assert.equal(res.invalidated, true);
     assert.equal(res.cleared, 2);
     // Standardized repaint call names questionIds with the affected id, never a batchId.
-    assert.match(res.refreshHint, /update_answers_block\(game, questionIds: \["p1"\]\)/);
+    assert.match(res.refreshHint, /refresh_question_cards\(game, questionIds: \["p1"\]\)/);
     assert.doesNotMatch(res.refreshHint, /batchId/);
 
     const after = (await scoped.loadQuestions()).find((q) => q.id === "p1");
@@ -229,5 +230,134 @@ describe("settle_question — invalidate", () => {
       await tool.handler(args({ questionId: "nope", outcome: true }), SESSION),
     );
     assert.match(res.error, /not found/);
+  });
+});
+
+describe("settle_question — reopen", () => {
+  let data: TriviaDataLayer;
+  beforeEach(() => {
+    data = createInMemoryDataLayer();
+  });
+
+  it("clears invalidation and returns a keyless prediction to pending", async () => {
+    const scoped = data.forGame(FIXTURE_GAME_NAME);
+    await scoped.saveQuestion(
+      makePrediction({
+        isTrue: undefined,
+        resolved: true,
+        resolvedAt: 5,
+        resolvedOutcome: false,
+        invalidated: true,
+        invalidatedReason: "result not known yet",
+        messageLink: "https://x.slack.com/archives/C1/p1700000000000000",
+      }),
+    );
+    const tool = createSettleQuestionTool(data, fixtureGetGames);
+    const res = parseToolResult(
+      await tool.handler(args({ questionId: "p1", reopen: true }), SESSION),
+    );
+
+    assert.equal(res.reopened, true);
+    assert.equal(res.returnedToPending, true);
+    assert.match(res.refreshHint, /refresh_question_cards\(game, questionIds: \["p1"\]\)/);
+
+    const after = (await scoped.loadQuestions()).find((q) => q.id === "p1");
+    assert.equal(after?.invalidated, undefined);
+    assert.equal(after?.invalidatedReason, undefined);
+    assert.equal(after?.resolved, false);
+    assert.equal(after?.resolvedAt, undefined);
+    assert.equal(after?.resolvedOutcome, undefined);
+
+    // After reopen it settles like any pending prediction — no override needed.
+    const settle = parseToolResult(
+      await tool.handler(args({ questionId: "p1", outcome: true }), SESSION),
+    );
+    assert.equal(settle.settled, true);
+  });
+
+  it("keeps the settled key when reopening a keyed question", async () => {
+    const scoped = data.forGame(FIXTURE_GAME_NAME);
+    await scoped.saveQuestion(
+      makePrediction({
+        questionType: "fact",
+        isTrue: true,
+        resolved: true,
+        resolvedAt: 5,
+        resolvedOutcome: true,
+        invalidated: true,
+        invalidatedReason: "voided by mistake",
+      }),
+    );
+    const tool = createSettleQuestionTool(data, fixtureGetGames);
+    const res = parseToolResult(
+      await tool.handler(args({ questionId: "p1", reopen: true }), SESSION),
+    );
+
+    assert.equal(res.reopened, true);
+    assert.equal(res.returnedToPending, false);
+
+    const after = (await scoped.loadQuestions()).find((q) => q.id === "p1");
+    assert.equal(after?.invalidated, undefined);
+    assert.equal(after?.isTrue, true);
+    assert.equal(after?.resolved, true);
+    assert.equal(after?.resolvedAt, 5);
+    assert.equal(after?.resolvedOutcome, true);
+  });
+
+  it("errors when the question is not invalidated", async () => {
+    const scoped = data.forGame(FIXTURE_GAME_NAME);
+    await scoped.saveQuestion(makePrediction({}));
+    const tool = createSettleQuestionTool(data, fixtureGetGames);
+    const res = parseToolResult(
+      await tool.handler(args({ questionId: "p1", reopen: true }), SESSION),
+    );
+    assert.match(res.error, /not invalidated/);
+  });
+
+  it("leaves processedAt, answerLocked, and answer rows untouched", async () => {
+    const scoped = data.forGame(FIXTURE_GAME_NAME);
+    await scoped.saveQuestion(
+      makePrediction({
+        isTrue: undefined,
+        resolved: true,
+        invalidated: true,
+        invalidatedReason: "was voided",
+        processedAt: 999,
+        answerLocked: true,
+      }),
+    );
+    await scoped.saveAnswer({
+      userId: "U1",
+      questionId: "p1",
+      answer: true,
+      correct: undefined,
+      timestamp: 1,
+    });
+    const tool = createSettleQuestionTool(data, fixtureGetGames);
+    await tool.handler(args({ questionId: "p1", reopen: true }), SESSION);
+
+    const after = (await scoped.loadQuestions()).find((q) => q.id === "p1");
+    assert.equal(after?.processedAt, 999);
+    assert.equal(after?.answerLocked, true);
+    const answers = await scoped.loadAnswers();
+    assert.equal(answers.length, 1);
+    assert.equal(answers[0].userId, "U1");
+  });
+
+  it("rejects passing reopen with outcome or invalidate", async () => {
+    const scoped = data.forGame(FIXTURE_GAME_NAME);
+    await scoped.saveQuestion(makePrediction({ invalidated: true, invalidatedReason: "x" }));
+    const tool = createSettleQuestionTool(data, fixtureGetGames);
+    const both = parseToolResult(
+      await tool.handler(args({ questionId: "p1", reopen: true, outcome: true }), SESSION),
+    );
+    assert.match(both.error, /EXACTLY ONE/);
+    const withInvalidate = parseToolResult(
+      await tool.handler(
+        args({ questionId: "p1", reopen: true, invalidate: true, invalidatedReason: "y" }),
+        SESSION,
+      ),
+    );
+    assert.match(withInvalidate.error, /EXACTLY ONE/);
   });
 });

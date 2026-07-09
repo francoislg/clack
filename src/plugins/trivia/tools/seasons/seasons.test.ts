@@ -2065,12 +2065,12 @@ describe("save_question validates against active pool", () => {
 // =============================================================================
 
 describe("scheduled prompt variants", () => {
-  // The reveal prompt is a thin renderer brief: compute_answers scores, update_answers_block
+  // The reveal prompt is a thin renderer brief: compute_answers scores, refresh_question_cards
   // edits the cards, start_new_season rolls over on the last fire. The prompt's content is
   // identical regardless of `trivia.seasons.enabled`.
-  it("PROCESS_REVEAL sequences compute_answers / update_answers_block / start_new_season", () => {
+  it("PROCESS_REVEAL sequences compute_answers / refresh_question_cards / start_new_season", () => {
     assert.ok(PROCESS_REVEAL_INSTRUCTIONS.includes("compute_answers"));
-    assert.ok(PROCESS_REVEAL_INSTRUCTIONS.includes("update_answers_block"));
+    assert.ok(PROCESS_REVEAL_INSTRUCTIONS.includes("refresh_question_cards"));
     assert.ok(PROCESS_REVEAL_INSTRUCTIONS.includes("start_new_season"));
     assert.ok(!PROCESS_REVEAL_INSTRUCTIONS.includes("process_reveal_answers"));
     // The absorbed read tools must not appear as required-step verbs.

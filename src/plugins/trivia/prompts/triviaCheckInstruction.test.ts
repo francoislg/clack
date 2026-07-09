@@ -57,7 +57,7 @@ describe("TRIVIA_MANAGEMENT_INSTRUCTION — correcting an already-posted batch",
     "Correcting an already-posted batch",
     "compute_answers",
     "reprocessQuestionIds",
-    "update_answers_block",
+    "refresh_question_cards",
     "run_scheduled_message_now",
   ];
 

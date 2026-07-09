@@ -1,80 +1,16 @@
-# trivia-card-projection
+## REMOVED Requirements
 
-## Purpose
+### Requirement: `update_answers_block` MCP tool projects file state onto posted cards
 
-The trivia plugin registers an `refresh_question_cards` MCP tool that projects file state onto already-posted question cards by reading current game data (`questions.json`, `answers.json`) and editing each question's original Slack message into its revealed state. The tool is the sole editor of question cards and owns all Slack `chat.update` calls in the reveal flow. It is deterministic, idempotent, and safe to retry or re-run after answer file changes (e.g., re-scoring).
-## Requirements
-### Requirement: Projection is idempotent and reconciling
+**Reason**: The tool is renamed `refresh_question_cards` (the old name described a Block Kit implementation detail, not the contract) and its projection becomes state-complete instead of revealed-state-only.
+**Migration**: Covered in full by "`refresh_question_cards` MCP tool projects file state onto posted cards" and "Projection is state-complete" below.
 
-`refresh_question_cards` SHALL be safe to call repeatedly. Each card SHALL be rebuilt deterministically from the question's stored `postedBlocks` plus the state-appropriate footer derived from current file state (never from the message's current Slack state), so repeated calls converge to the same final card and cannot accumulate stale blocks. Running the tool again after the record or `answers.json` has changed (e.g. a re-score, a disclosure re-stamp, an invalidation, or a reopen) SHALL reconcile the card to the new state. A `chat.update` failure for one card (deleted message, rate limit) SHALL be logged, SHALL NOT abort the rest of the named set, and SHALL leave the run retryable.
+### Requirement: `update_answers_block` appends stored `revealBlocks` when present
 
-#### Scenario: Repeated projection converges
+**Reason**: Tool renamed to `refresh_question_cards`; behavior unchanged.
+**Migration**: Covered by "`refresh_question_cards` appends stored `revealBlocks` when present" below.
 
-- **WHEN** `refresh_question_cards` is called twice in a row with no intervening file change
-- **THEN** the second call produces a card identical to the first (rebuilt from `postedBlocks`, not from current Slack state)
-
-#### Scenario: Re-projection after a re-score reconciles the card
-
-- **GIVEN** a card already projected, then `answers.json` is corrected by a re-run of `compute_answers`
-- **WHEN** `refresh_question_cards` is called again for the question
-- **THEN** the card's results footer reflects the corrected verdicts
-
-#### Scenario: Projection round-trips through invalidate and reopen
-
-- **GIVEN** a live question that is invalidated, repainted, then reopened
-- **WHEN** `refresh_question_cards` is called after each mutation
-- **THEN** the card converges to the invalidated state after the invalidation and back to its live/locked state after the reopen, with no leftover blocks from the previous state
-
-#### Scenario: One card's chat.update failure does not abort the set
-
-- **GIVEN** three named questions `Q1`, `Q2`, `Q3` where the `chat.update` for `Q2` fails (deleted message or rate limit)
-- **WHEN** `refresh_question_cards` runs
-- **THEN** `Q1` and `Q3` are still projected
-- **AND** the `Q2` failure is logged and swallowed by the card editor, the call still returns, and the run remains retryable (a re-run reconciles `Q2`)
-
-#### Scenario: A projection failure is reported in `errors`
-
-- **GIVEN** a named question whose target state cannot be built (e.g. a choice question with an invalid `correctIndex`)
-- **WHEN** `refresh_question_cards` runs
-- **THEN** no card is edited for it and the result's `errors` contains `{ questionId, error }` for that question
-
-#### Scenario: Repair primitive after partial failure
-
-- **GIVEN** a reveal where `compute_answers` succeeded but the card edits failed midway
-- **WHEN** an admin re-runs `refresh_question_cards({ game, questionIds })` with the revealed ids
-- **THEN** all named cards are reconciled to current file state without re-scoring
-
-### Requirement: Content-mutating tools surface a uniform repaint hint
-
-Every trivia tool that mutates already-posted question or answer state — `settle_question` (invalidate, re-settle, reopen), `override_answer`, `remove_cheat` — SHALL include in its successful result a `refreshHint` **string** naming the exact repaint call to make next, in the literal format `refresh_question_cards(game, questionIds: ["<questionId>"])` for the affected question(s). The hint SHALL reference the question `id`(s) the tool just acted on and SHALL NOT reference a `batchId`. This is the single, uniform repaint path; the mutators never call `chat.update` themselves (no auto-repaint).
-
-When a mutation needs a re-score before the card is accurate — `override_answer`, and `settle_question` re-settle (a corrected `outcome` on an already-keyed, already-revealed question) — the hint follows the tool's documented `compute_answers` reprocess step. When the affected question is NOT yet revealed (e.g. answering a still-pending prediction), there is no posted card to refresh and the tool MAY omit the hint.
-
-#### Scenario: `settle_question` invalidate returns the repaint hint
-
-- **WHEN** `settle_question({ game, questionId: "Q1", invalidate: true, invalidatedReason: "bad" })` succeeds
-- **THEN** the result includes a `refreshHint` naming `refresh_question_cards(game, questionIds: ["Q1"])`
-
-#### Scenario: `settle_question` reopen returns the repaint hint
-
-- **WHEN** `settle_question({ game, questionId: "Q1", reopen: true })` succeeds for a question with a posted card
-- **THEN** the result includes a `refreshHint` naming `refresh_question_cards(game, questionIds: ["Q1"])`
-
-#### Scenario: `settle_question` re-settle of a revealed question returns the repaint hint
-
-- **GIVEN** an already-revealed, already-keyed question `Q1`
-- **WHEN** `settle_question({ game, questionId: "Q1", outcome: <corrected>, override: true })` succeeds
-- **THEN** the result includes a `refreshHint` naming `refresh_question_cards(game, questionIds: ["Q1"])` (after the `compute_answers` reprocess step)
-
-#### Scenario: `override_answer` returns the repaint hint
-
-- **WHEN** `override_answer({ game, questionId: "Q1", userId, correct: true, reason })` succeeds
-- **THEN** the result includes a `refreshHint` naming `refresh_question_cards(game, questionIds: ["Q1"])` (after any reprocess step)
-
-#### Scenario: `remove_cheat` returns the repaint hint
-
-- **WHEN** `remove_cheat({ game, cheaterUserId, questionId: "Q1" })` succeeds
-- **THEN** the result includes a `refreshHint` naming `refresh_question_cards(game, questionIds: ["Q1"])`
+## ADDED Requirements
 
 ### Requirement: `refresh_question_cards` MCP tool projects file state onto posted cards
 
@@ -213,3 +149,76 @@ When projecting a question in its REVEALED state whose record carries `revealBlo
 - **WHEN** `refresh_question_cards` is re-run for the question
 - **THEN** the card shows v2 narrative beneath the re-derived footer
 
+## MODIFIED Requirements
+
+### Requirement: Content-mutating tools surface a uniform repaint hint
+
+Every trivia tool that mutates already-posted question or answer state — `settle_question` (invalidate, re-settle, reopen), `override_answer`, `remove_cheat` — SHALL include in its successful result a `refreshHint` **string** naming the exact repaint call to make next, in the literal format `refresh_question_cards(game, questionIds: ["<questionId>"])` for the affected question(s). The hint SHALL reference the question `id`(s) the tool just acted on and SHALL NOT reference a `batchId`. This is the single, uniform repaint path; the mutators never call `chat.update` themselves (no auto-repaint).
+
+When a mutation needs a re-score before the card is accurate — `override_answer`, and `settle_question` re-settle (a corrected `outcome` on an already-keyed, already-revealed question) — the hint follows the tool's documented `compute_answers` reprocess step. When the affected question is NOT yet revealed (e.g. answering a still-pending prediction), there is no posted card to refresh and the tool MAY omit the hint.
+
+#### Scenario: `settle_question` invalidate returns the repaint hint
+
+- **WHEN** `settle_question({ game, questionId: "Q1", invalidate: true, invalidatedReason: "bad" })` succeeds
+- **THEN** the result includes a `refreshHint` naming `refresh_question_cards(game, questionIds: ["Q1"])`
+
+#### Scenario: `settle_question` reopen returns the repaint hint
+
+- **WHEN** `settle_question({ game, questionId: "Q1", reopen: true })` succeeds for a question with a posted card
+- **THEN** the result includes a `refreshHint` naming `refresh_question_cards(game, questionIds: ["Q1"])`
+
+#### Scenario: `settle_question` re-settle of a revealed question returns the repaint hint
+
+- **GIVEN** an already-revealed, already-keyed question `Q1`
+- **WHEN** `settle_question({ game, questionId: "Q1", outcome: <corrected>, override: true })` succeeds
+- **THEN** the result includes a `refreshHint` naming `refresh_question_cards(game, questionIds: ["Q1"])` (after the `compute_answers` reprocess step)
+
+#### Scenario: `override_answer` returns the repaint hint
+
+- **WHEN** `override_answer({ game, questionId: "Q1", userId, correct: true, reason })` succeeds
+- **THEN** the result includes a `refreshHint` naming `refresh_question_cards(game, questionIds: ["Q1"])` (after any reprocess step)
+
+#### Scenario: `remove_cheat` returns the repaint hint
+
+- **WHEN** `remove_cheat({ game, cheaterUserId, questionId: "Q1" })` succeeds
+- **THEN** the result includes a `refreshHint` naming `refresh_question_cards(game, questionIds: ["Q1"])`
+
+### Requirement: Projection is idempotent and reconciling
+
+`refresh_question_cards` SHALL be safe to call repeatedly. Each card SHALL be rebuilt deterministically from the question's stored `postedBlocks` plus the state-appropriate footer derived from current file state (never from the message's current Slack state), so repeated calls converge to the same final card and cannot accumulate stale blocks. Running the tool again after the record or `answers.json` has changed (e.g. a re-score, a disclosure re-stamp, an invalidation, or a reopen) SHALL reconcile the card to the new state. A `chat.update` failure for one card (deleted message, rate limit) SHALL be logged, SHALL NOT abort the rest of the named set, and SHALL leave the run retryable.
+
+#### Scenario: Repeated projection converges
+
+- **WHEN** `refresh_question_cards` is called twice in a row with no intervening file change
+- **THEN** the second call produces a card identical to the first (rebuilt from `postedBlocks`, not from current Slack state)
+
+#### Scenario: Re-projection after a re-score reconciles the card
+
+- **GIVEN** a card already projected, then `answers.json` is corrected by a re-run of `compute_answers`
+- **WHEN** `refresh_question_cards` is called again for the question
+- **THEN** the card's results footer reflects the corrected verdicts
+
+#### Scenario: Projection round-trips through invalidate and reopen
+
+- **GIVEN** a live question that is invalidated, repainted, then reopened
+- **WHEN** `refresh_question_cards` is called after each mutation
+- **THEN** the card converges to the invalidated state after the invalidation and back to its live/locked state after the reopen, with no leftover blocks from the previous state
+
+#### Scenario: One card's chat.update failure does not abort the set
+
+- **GIVEN** three named questions `Q1`, `Q2`, `Q3` where the `chat.update` for `Q2` fails (deleted message or rate limit)
+- **WHEN** `refresh_question_cards` runs
+- **THEN** `Q1` and `Q3` are still projected
+- **AND** the `Q2` failure is logged and swallowed by the card editor, the call still returns, and the run remains retryable (a re-run reconciles `Q2`)
+
+#### Scenario: A projection failure is reported in `errors`
+
+- **GIVEN** a named question whose target state cannot be built (e.g. a choice question with an invalid `correctIndex`)
+- **WHEN** `refresh_question_cards` runs
+- **THEN** no card is edited for it and the result's `errors` contains `{ questionId, error }` for that question
+
+#### Scenario: Repair primitive after partial failure
+
+- **GIVEN** a reveal where `compute_answers` succeeded but the card edits failed midway
+- **WHEN** an admin re-runs `refresh_question_cards({ game, questionIds })` with the revealed ids
+- **THEN** all named cards are reconciled to current file state without re-scoring

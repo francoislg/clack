@@ -207,27 +207,42 @@ export interface EditRosterParams {
 }
 
 /**
- * Repaint the question card with the latest answered-roster footer. Caller
- * already ack'd the action; every failure path here just logs and returns —
- * never throws back into the handler.
+ * Resolve the live-or-locked card for a question: its `chat.update` target
+ * (channel + ts from `messageLink`) plus the rebuilt block array. Returns `null`
+ * (after a warning) for a staged/legacy row with no `postedBlocks`/`messageLink`
+ * or an unparseable link. This is the SINGLE implementation of the live and
+ * locked card renders — shared by the live roster editor (`editRosterIntoCard`)
+ * and the state-complete projector (`refresh_question_cards`).
  *
- * Cheater filter applies here: flagged-cheater rows are stripped from the
- * answer list before grouping so they don't surface in the public footer.
+ * Always rebuilds from `postedBlocks` — never from the current Slack state — so
+ * edits can't accumulate stale roster blocks. A locked card drops the answer
+ * buttons and shows the lock notice; whether a roster follows is driven by the
+ * stamped `revealResponses` ("yes" → grouped votes, "just-*" → who-voted only,
+ * "no" → none). An unlocked card keeps the buttons (they live inside
+ * `postedBlocks`) and a `liveAnswersVisible`-driven live roster.
+ *
+ * Cheater filter applies here: flagged-cheater rows are stripped from the answer
+ * list before grouping so they don't surface in the public footer.
  */
-export async function editRosterIntoCard(params: EditRosterParams): Promise<void> {
-  const { client, scoped, data, question, handler } = params;
+export async function resolveLiveOrLockedCard(params: {
+  scoped: ScopedTriviaDataLayer;
+  data: Pick<TriviaDataLayer, "loadUsers">;
+  question: TriviaQuestion;
+  handler: AnswerTypeHandler;
+}): Promise<{ channel: string; ts: string; blocks: KnownBlock[] } | null> {
+  const { scoped, data, question, handler } = params;
 
   if (question.postedBlocks === undefined) {
     logger.warn(
       `[trivia:freeform] roster edit skipped — question ${question.id} has no postedBlocks (legacy row)`,
     );
-    return;
+    return null;
   }
   if (!question.messageLink) {
     logger.warn(
       `[trivia:freeform] roster edit skipped — question ${question.id} has no messageLink`,
     );
-    return;
+    return null;
   }
   const ts = parseTsFromPermalink(question.messageLink);
   const channel = parseChannelFromPermalink(question.messageLink);
@@ -235,21 +250,15 @@ export async function editRosterIntoCard(params: EditRosterParams): Promise<void
     logger.warn(
       `[trivia:freeform] roster edit skipped — could not parse ts/channel for question ${question.id}: ${question.messageLink}`,
     );
-    return;
+    return null;
   }
 
-  // Always rebuild from postedBlocks — never from the current Slack state — so
-  // edits can't accumulate stale roster blocks. A locked card drops the answer
-  // buttons and shows the lock notice; whether a roster follows is driven by the
-  // stamped `revealResponses` ("yes" → grouped votes, "just-*" → who-voted only,
-  // "no" → none). An unlocked card keeps the buttons (they live inside
-  // postedBlocks) and a `liveAnswersVisible`-driven live roster.
   const locked = question.answerLocked === true;
   const revealResponses = question.revealResponses ?? "yes";
 
-  let updatedBlocks: KnownBlock[];
+  let blocks: KnownBlock[];
   if (locked && revealResponses === "no") {
-    updatedBlocks = [...stripAnswerButtons(question.postedBlocks), buildLockedNotice(question.id)];
+    blocks = [...stripAnswerButtons(question.postedBlocks), buildLockedNotice(question.id)];
   } else {
     const allAnswers = await scoped.loadAnswers();
     const forThisQuestion = allAnswers.filter((a) => a.questionId === question.id);
@@ -269,7 +278,7 @@ export async function editRosterIntoCard(params: EditRosterParams): Promise<void
       // applies. "yes" discloses the full grouped distribution; the correctness
       // modes can't partition pre-outcome and degrade to participation-only.
       const mode: RosterDisclosureMode = revealResponses === "yes" ? "grouped" : "flat";
-      updatedBlocks = [
+      blocks = [
         ...stripAnswerButtons(question.postedBlocks),
         buildLockedNotice(question.id),
         buildRosterDivider(question.id),
@@ -277,7 +286,7 @@ export async function editRosterIntoCard(params: EditRosterParams): Promise<void
       ];
     } else {
       const mode: RosterDisclosureMode = question.liveAnswersVisible === false ? "flat" : "grouped";
-      updatedBlocks = [
+      blocks = [
         ...question.postedBlocks,
         buildRosterDivider(question.id),
         buildRosterBlock(filtered, question, handler, nameOf, mode),
@@ -285,8 +294,26 @@ export async function editRosterIntoCard(params: EditRosterParams): Promise<void
     }
   }
 
+  return { channel, ts, blocks };
+}
+
+/**
+ * Repaint the question card with the latest answered-roster footer. Caller
+ * already ack'd the action; every failure path here just logs and returns —
+ * never throws back into the handler.
+ */
+export async function editRosterIntoCard(params: EditRosterParams): Promise<void> {
+  const { client, scoped, data, question, handler } = params;
+
+  const resolved = await resolveLiveOrLockedCard({ scoped, data, question, handler });
+  if (resolved === null) return;
+
   try {
-    await client.chat.update({ channel, ts, blocks: updatedBlocks });
+    await client.chat.update({
+      channel: resolved.channel,
+      ts: resolved.ts,
+      blocks: resolved.blocks,
+    });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     logger.warn(`[trivia:freeform] roster chat.update failed for question ${question.id}: ${msg}`);

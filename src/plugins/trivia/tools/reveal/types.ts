@@ -133,7 +133,7 @@ export interface ProcessRevealResult {
   /**
    * Resolved `includeRevealInQuestions` axis (cascade `game → workspace → "no"`)
    * at reveal time. Always present. `"yes"` tells the reveal prompt to author
-   * per-card narrative via `update_question` before `update_answers_block`
+   * per-card narrative via `set_reveal_narrative` before `refresh_question_cards`
    * projects the cards; `"no"` keeps cards facts-only (narrative in the summary).
    */
   includeRevealInQuestions: TriviaIncludeRevealInQuestions;
@@ -168,7 +168,7 @@ export interface ProcessRevealResult {
    * Questions in the reveal batch that were INVALIDATED (`settle_question` with
    * `invalidate`). Present only when non-empty. Worth 0 points, never scored; the
    * reveal prompt renders each as an "invalidated" line (with its reason) and
-   * `update_answers_block` repaints the card as invalidated.
+   * `refresh_question_cards` repaints the card as invalidated.
    */
   invalidatedQuestions?: Array<{
     questionId: string;

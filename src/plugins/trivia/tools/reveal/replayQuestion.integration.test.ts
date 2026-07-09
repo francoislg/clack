@@ -8,7 +8,7 @@ import {
 } from "../questions/postQuestions.js";
 import { createSettleQuestionTool } from "./settleQuestion.js";
 import { createComputeAnswersTool, type RevealSlackDeps } from "./computeAnswers.js";
-import { createUpdateAnswersBlockTool } from "./updateAnswersBlock.js";
+import { createRefreshQuestionCardsTool } from "./refreshQuestionCards.js";
 import { createInMemoryDataLayer, FIXTURE_GAME_NAME, fixtureGetGames } from "../../testHelpers.js";
 import { parseToolResult } from "../../../../tools/testHelpers.js";
 import type { ClackSdk } from "../../../sdk.js";
@@ -17,8 +17,8 @@ import type { BlockSchema } from "../../../../slack/blockSchema.js";
 
 /**
  * Integration test for the "replay a bad question" process — exercises the REAL
- * settle_question → update_answers_block(filtered) → post_questions(append) →
- * compute_answers → update_answers_block(full) chain over ONE shared in-memory
+ * settle_question → refresh_question_cards(filtered) → post_questions(append) →
+ * compute_answers → refresh_question_cards(full) chain over ONE shared in-memory
  * data layer. Unit-level behavior of each tool lives in its own *.test.ts; this
  * file asserts only the cross-tool wiring of the documented replay sequence.
  */
@@ -154,6 +154,7 @@ describe("replay a bad question — mid-window invalidate + replace + reveal", (
           questionId: "q_bad",
           invalidate: true,
           invalidatedReason: "ambiguous answer",
+          reopen: undefined,
           outcome: undefined,
           override: undefined,
           acceptableAnswers: undefined,
@@ -167,7 +168,7 @@ describe("replay a bad question — mid-window invalidate + replace + reveal", (
 
     // 3. Repaint ONLY the dead card mid-window; the live sibling keeps its buttons.
     const { deps: midDeps, updates: midUpdates } = revealSlackDeps();
-    const updateMid = createUpdateAnswersBlockTool(data, fakeSdk(), fixtureGetGames, midDeps);
+    const updateMid = createRefreshQuestionCardsTool(data, fakeSdk(), fixtureGetGames, midDeps);
     await updateMid.handler({ game: FIXTURE_GAME_NAME, questionIds: ["q_bad"] }, SESSION);
     assert.equal(midUpdates.length, 1, "only the invalidated card is repainted");
     // Invalidated repaint: content WAS sent, with no vote buttons and no reveal-results footer.
@@ -216,7 +217,7 @@ describe("replay a bad question — mid-window invalidate + replace + reveal", (
 
     // 6. At reveal, repaint the two revealed cards (q_bad was already repainted mid-window).
     const { deps: finalDeps, updates: finalUpdates } = revealSlackDeps();
-    const updateFinal = createUpdateAnswersBlockTool(data, fakeSdk(), fixtureGetGames, finalDeps);
+    const updateFinal = createRefreshQuestionCardsTool(data, fakeSdk(), fixtureGetGames, finalDeps);
     await updateFinal.handler(
       {
         game: FIXTURE_GAME_NAME,
@@ -282,6 +283,7 @@ describe("replay a bad question — mid-window invalidate + replace + reveal", (
         questionId: "q_void",
         invalidate: true,
         invalidatedReason: "wrong on review",
+        reopen: undefined,
         outcome: undefined,
         override: undefined,
         acceptableAnswers: undefined,
@@ -308,7 +310,12 @@ describe("replay a bad question — mid-window invalidate + replace + reveal", (
     assert.equal((await scoped.loadQuestions()).length, 2);
 
     const { deps: repaintDeps, updates: repaintUpdates } = revealSlackDeps();
-    const updateVoid = createUpdateAnswersBlockTool(data, fakeSdk(), fixtureGetGames, repaintDeps);
+    const updateVoid = createRefreshQuestionCardsTool(
+      data,
+      fakeSdk(),
+      fixtureGetGames,
+      repaintDeps,
+    );
     // Case B repaints only the voided card; the sibling's results are unaffected by the void.
     await updateVoid.handler({ game: FIXTURE_GAME_NAME, questionIds: ["q_void"] }, SESSION);
     assert.equal(repaintUpdates.length, 1);
