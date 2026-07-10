@@ -224,6 +224,7 @@ All runtime data lives in `data/` (mostly gitignored):
 - `state/` — roles, user preferences, migration version, `workers.json` (reusable pool state)
 - `default_configuration/` — shipped instruction defaults
 - `configuration/` — user instruction overrides (gitignored)
+- `backups/` — daily state snapshots at `backups/{YYYY-MM-DD}/state/*.json`, written at local midnight by the state-backup scheduler (`src/stateBackup.ts`, config `backup.{enabled,folders,timezone}`). Additive (never pruned); restore by copying a dated `state/` back over `data/state/` (stop the process first). Which folders are captured is config-driven (`backup.folders`, default `["state"]`).
 
 ### Trivia plugin: optional pre-staging (`prepCron`)
 

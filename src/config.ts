@@ -288,6 +288,28 @@ export interface CronCatchUpConfig {
 }
 
 /**
+ * Daily state-backup settings. A dedicated midnight scheduler (independent of the cron-job
+ * system) copies the configured `folders` into `data/backups/{YYYY-MM-DD}/<folder>/`. Fully
+ * inert when `enabled` is false. See {@link getBackupConfig} and `src/stateBackup.ts`.
+ *
+ * - `enabled` (default `true`) gates the whole feature — no scheduler, no writes when false.
+ * - `folders` (default `["state"]`) are paths relative to `data/`. The copy routine iterates
+ *   the list, so backing up additional folders later is a config change, not a code change.
+ * - `timezone` (default `"America/Montreal"`) sets both the midnight fire and the `{date}` label.
+ *
+ * Fail-fast at boot (see `backupZod`): an invalid IANA `timezone` or an unsafe `folders` entry
+ * (`""`, `"."`, absolute, or resolving into the backup tree) throws rather than degrading.
+ */
+export interface BackupConfig {
+  enabled: boolean;
+  folders: string[];
+  timezone: string;
+}
+
+export const DEFAULT_BACKUP_TIMEZONE = "America/Montreal";
+export const DEFAULT_BACKUP_FOLDERS: readonly string[] = ["state"];
+
+/**
  * Tester feature ("test this PR" runs). Fully inert when absent or `enabled: false`:
  * the `run_test` action tool is not registered, no tester toolbelt exists, and no
  * Home Tab surface renders. When enabled, a tester run drives the app under test via
@@ -360,6 +382,8 @@ export interface Config {
    * migration rewrites them on first start). See {@link CronConfig}.
    */
   cron?: CronConfig;
+  /** Daily state-backup settings. Always populated by validateConfig; see {@link BackupConfig}. */
+  backup?: BackupConfig;
   /** Auto-respond to thread replies in existing sessions (default: true) */
   threadAutoRespond?: boolean;
   /** Disengage thread auto-respond if the triggering message is older than this many minutes (default: 60) */
@@ -577,6 +601,24 @@ export function getWorktreeSessionsDir(): string {
 
 export function getStateDir(): string {
   return resolve(getDataDir(), "state");
+}
+
+export function getBackupsDir(): string {
+  return resolve(getDataDir(), "backups");
+}
+
+/**
+ * Resolved daily-backup config, or built-in defaults when config is unloaded or the section
+ * is absent. Null-safe (does not throw) so the scheduler and tests can call it in any context.
+ */
+export function getBackupConfig(): BackupConfig {
+  return (
+    cachedConfig?.backup ?? {
+      enabled: true,
+      folders: [...DEFAULT_BACKUP_FOLDERS],
+      timezone: DEFAULT_BACKUP_TIMEZONE,
+    }
+  );
 }
 
 /**

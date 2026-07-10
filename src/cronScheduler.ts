@@ -13,6 +13,7 @@ import { processMessage } from "./slack/handlers/core.js";
 import { findSessionByMessage } from "./sessions.js";
 import { logger } from "./logger.js";
 import { getConfig } from "./config.js";
+import { dateKeysInTimezone } from "./dateKeys.js";
 import { registerArgEnricher, type ToolArgs } from "./streaming/toolMappingLoader.js";
 import { resolveChannelLabel, slackLink } from "./slack/logContext.js";
 import { openDmChannel } from "./slack/channelResolver.js";
@@ -235,21 +236,6 @@ export function matchesCron(
 // ============================================================================
 // Skip-Date Matching
 // ============================================================================
-
-/**
- * Format `now` in `timezone` using `en-CA` (which emits `YYYY-MM-DD`), then return the
- * `YYYY-MM-DD` and `MM-DD` slices used for skip-date comparison.
- */
-function dateKeysInTimezone(now: Date, timezone: string): { ymd: string; md: string } {
-  const formatter = new Intl.DateTimeFormat("en-CA", {
-    timeZone: timezone,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  });
-  const ymd = formatter.format(now);
-  return { ymd, md: ymd.slice(5) };
-}
 
 /**
  * Return the first {@link SkipDate} entry that matches `now` in `timezone`, or `null` if no

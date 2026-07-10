@@ -180,10 +180,13 @@
   "178": "MCP Server Setup",
   "179": "slackErrors.ts",
   "180": "updateUser.ts",
+  "181": "extractDisplayText",
+  "182": "PostQuestionsSlackDeps",
   "183": "Plugin Hard Rules",
   "184": "Status by surface",
   "185": "ClackSdkMemory",
   "186": "McpServerManager",
+  "187": "ClackSdkMemoryData",
   "188": "brave-image-search",
   "189": "commons-image-search",
   "190": "trackedKinds.ts",
@@ -293,9 +296,6 @@
   "294": "workerBashGuard.ts",
   "297": "ClackSdkUserData",
   "299": "CLAUDE.md",
-  "300": "proposeSpinoff.ts",
-  "301": "roundSummary.ts",
-  "305": "ClackSdkUserData",
   "307": "roundSummary.ts",
   "308": "ToolCallRecord"
 }

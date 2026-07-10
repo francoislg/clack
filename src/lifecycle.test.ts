@@ -112,6 +112,8 @@ function createMockDeps(): {
     startConfigWatcher: mockStartConfigWatcher as Function as LifecycleDeps["startConfigWatcher"],
     startCronScheduler: mockStartCronScheduler,
     stopCronScheduler: mockStopCronScheduler,
+    startStateBackupScheduler: () => {},
+    stopStateBackupScheduler: () => {},
     armDelayedBootDispatch: mockArmDelayedBootDispatch,
     cancelDelayedBootDispatch: mockCancelDelayedBootDispatch,
     clearDelayedBootHandlers: mockClearDelayedBootHandlers,

@@ -1,8 +1,10 @@
+import { isAbsolute, normalize } from "node:path";
 import { z } from "zod";
 import type { UserRole } from "./roles.js";
 import type {
   Config,
   CronConfig,
+  BackupConfig,
   JsonObject,
   JsonValue,
   ThinkingFeedbackConfig,
@@ -579,6 +581,106 @@ export const cronCatchUpZod = z.unknown().transform((raw, ctx): CronConfig["catc
   return {
     ...(delayMinutes !== undefined && { delayMinutes }),
   };
+});
+
+// Defaults inlined (not imported) to keep this a value-import leaf — see the file-head note.
+const BACKUP_DEFAULT_FOLDERS = ["state"];
+const BACKUP_DEFAULT_TIMEZONE = "America/Montreal";
+
+function isValidTimeZone(tz: string): boolean {
+  try {
+    new Intl.DateTimeFormat("en-CA", { timeZone: tz });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Reason a `backup.folders` entry is unsafe, or `null` when it is a safe relative path that
+ * cannot resolve to the backup tree or an ancestor of `data/`. Guards against `""`, `"."`,
+ * absolute paths, `..`-escapes, and any path targeting `backups/`.
+ */
+function unsafeBackupFolderReason(folder: string): string | null {
+  if (folder.trim() === "" || folder === ".") return "must be a non-empty relative path";
+  if (isAbsolute(folder)) return "must not be an absolute path";
+  const norm = normalize(folder).replace(/\/+$/, "");
+  if (norm === "" || norm === ".") return "must be a non-empty relative path";
+  if (norm === ".." || norm.startsWith("../")) return "must not escape the data directory";
+  if (norm.split("/")[0] === "backups") return "must not target the backups directory";
+  return null;
+}
+
+export const backupZod = z.unknown().transform((raw, ctx): BackupConfig => {
+  const defaults: BackupConfig = {
+    enabled: true,
+    folders: [...BACKUP_DEFAULT_FOLDERS],
+    timezone: BACKUP_DEFAULT_TIMEZONE,
+  };
+  if (raw === undefined) return defaults;
+  if (!isPlainObject(raw as JsonValue)) {
+    ctx.addIssue({ code: "custom", message: "Config 'backup' must be an object" });
+    return z.NEVER;
+  }
+  const obj = raw as JsonObject;
+  for (const key of Object.keys(obj)) {
+    if (key !== "enabled" && key !== "folders" && key !== "timezone") {
+      ctx.addIssue({ code: "custom", message: `Config 'backup' contains unknown key '${key}'` });
+      return z.NEVER;
+    }
+  }
+
+  let enabled = defaults.enabled;
+  if (obj.enabled !== undefined) {
+    if (typeof obj.enabled !== "boolean") {
+      ctx.addIssue({ code: "custom", message: "Config 'backup.enabled' must be a boolean" });
+      return z.NEVER;
+    }
+    enabled = obj.enabled;
+  }
+
+  let folders = defaults.folders;
+  if (obj.folders !== undefined) {
+    if (!Array.isArray(obj.folders) || !obj.folders.every((f) => typeof f === "string")) {
+      ctx.addIssue({
+        code: "custom",
+        message: "Config 'backup.folders' must be an array of strings",
+      });
+      return z.NEVER;
+    }
+    if (obj.folders.length === 0) {
+      ctx.addIssue({
+        code: "custom",
+        message: "Config 'backup.folders' must be a non-empty array",
+      });
+      return z.NEVER;
+    }
+    for (const f of obj.folders as string[]) {
+      const reason = unsafeBackupFolderReason(f);
+      if (reason) {
+        ctx.addIssue({
+          code: "custom",
+          message: `Config 'backup.folders' entry ${JSON.stringify(f)} ${reason}`,
+        });
+        return z.NEVER;
+      }
+    }
+    folders = [...(obj.folders as string[])];
+  }
+
+  let timezone = defaults.timezone;
+  if (obj.timezone !== undefined) {
+    if (typeof obj.timezone !== "string" || !isValidTimeZone(obj.timezone)) {
+      ctx.addIssue({
+        code: "custom",
+        message: `Config 'backup.timezone' must be a valid IANA timezone (got ${JSON.stringify(obj.timezone)})`,
+      });
+      return z.NEVER;
+    }
+    timezone = obj.timezone;
+  }
+
+  return { enabled, folders, timezone };
 });
 
 export const submitResponseZod = z.unknown().transform((raw, ctx): Config["submitResponse"] => {

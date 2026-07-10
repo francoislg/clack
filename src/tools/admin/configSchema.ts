@@ -397,6 +397,35 @@ export const CONFIG_SCHEMA: SchemaFor<Config> = {
         },
       },
     },
+    backup: {
+      type: "object",
+      description:
+        "Daily state backup. At local midnight a dedicated scheduler copies the configured folders into data/backups/{YYYY-MM-DD}/. Additive (never pruned).",
+      required: false,
+      fields: {
+        enabled: {
+          type: "boolean",
+          description: "Master switch. When false, no scheduler is armed and nothing is written.",
+          default: true,
+          required: false,
+        },
+        folders: {
+          type: "array",
+          description:
+            "Folders (relative to data/) to snapshot. Extensible; unsafe entries (empty, '.', absolute, or targeting the backups tree) are rejected at boot.",
+          items: { type: "string", description: "A data/-relative folder name, e.g. 'state'." },
+          default: ["state"],
+          required: false,
+        },
+        timezone: {
+          type: "string",
+          description:
+            "IANA timezone for the midnight fire and the {date} label. Invalid zones fail boot.",
+          default: "America/Montreal",
+          required: false,
+        },
+      },
+    },
     threadAutoRespond: {
       type: "boolean",
       description: "Auto-respond to thread replies in existing sessions.",
