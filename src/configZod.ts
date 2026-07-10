@@ -19,6 +19,7 @@ import {
   submitResponseZod,
   testerZod,
   cronCatchUpZod,
+  backupZod,
 } from "./configSchemas.js";
 
 const DEFAULT_TASK_CARD_MAX_DETAILS = 5;
@@ -271,6 +272,7 @@ export function validateConfig(config: unknown, slackAuth: SlackAuthConfig): Con
         }
       : undefined,
     cron: cronConfig,
+    backup: parseOrThrow(backupZod, c.backup),
     threadAutoRespond: optBool(c.threadAutoRespond),
     threadAutoRespondMaxAgeMinutes: optNum(c.threadAutoRespondMaxAgeMinutes),
     plugins: Array.isArray(c.plugins)

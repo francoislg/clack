@@ -17,6 +17,7 @@ import { startCompletionMonitor, stopCompletionMonitor } from "./changes/monitor
 import { validateInstructionFiles } from "./instructions.js";
 import { startConfigWatcher } from "./configWatcher.js";
 import { startCronScheduler, stopCronScheduler, executeJob } from "./cronScheduler.js";
+import { startStateBackupScheduler, stopStateBackupScheduler } from "./stateBackup.js";
 import {
   armDelayedBootDispatch,
   cancelDelayedBootDispatch,
@@ -61,6 +62,8 @@ export interface LifecycleDeps {
   startConfigWatcher: typeof startConfigWatcher;
   startCronScheduler: typeof startCronScheduler;
   stopCronScheduler: typeof stopCronScheduler;
+  startStateBackupScheduler: typeof startStateBackupScheduler;
+  stopStateBackupScheduler: typeof stopStateBackupScheduler;
   armDelayedBootDispatch: typeof armDelayedBootDispatch;
   cancelDelayedBootDispatch: typeof cancelDelayedBootDispatch;
   clearDelayedBootHandlers: typeof clearDelayedBootHandlers;
@@ -98,6 +101,8 @@ export const defaultLifecycleDeps: LifecycleDeps = {
   startConfigWatcher,
   startCronScheduler,
   stopCronScheduler,
+  startStateBackupScheduler,
+  stopStateBackupScheduler,
   armDelayedBootDispatch,
   cancelDelayedBootDispatch,
   clearDelayedBootHandlers,
@@ -173,6 +178,9 @@ function startSchedulers(deps: LifecycleDeps = defaultLifecycleDeps): void {
       deps.armDelayedBootDispatch(deps.getCronCatchUpDelayMinutes());
     }
   }
+
+  // Daily state backup runs on its own timer, independent of the cron system it protects.
+  deps.startStateBackupScheduler();
 }
 
 function stopSchedulers(deps: LifecycleDeps = defaultLifecycleDeps): void {
@@ -180,6 +188,7 @@ function stopSchedulers(deps: LifecycleDeps = defaultLifecycleDeps): void {
   stopConfigWatcherFn = undefined;
   deps.cancelDelayedBootDispatch();
   deps.stopCronScheduler();
+  deps.stopStateBackupScheduler();
   deps.stopCompletionMonitor();
   deps.stopSyncScheduler();
   deps.stopCleanupScheduler();
