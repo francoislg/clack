@@ -1,8 +1,9 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { logger } from "./logger.js";
+import { errorMessage } from "./errors.js";
 import { fileExists } from "./fs.js";
 import { getCronMaxRunHistory } from "./config.js";
 import type { SettableAttentionLevel } from "./sessions.js";
@@ -178,15 +179,65 @@ export interface CronJob {
 
 interface CronJobState {
   jobs: CronJob[];
+  /**
+   * Jobs that failed per-element validation, preserved VERBATIM (raw `unknown`) so a single bad
+   * job never wipes the collection and a repair is always possible. Never scheduled (structurally
+   * isolated — the scheduler only ever iterates {@link jobs}). Round-tripped untouched by every
+   * {@link saveState} write, so an unrelated save (e.g. plugin reconcile on boot) can't overwrite
+   * a quarantined job out of existence — the mechanism that made the 2026-07-06 loss permanent.
+   */
+  quarantinedJobs?: unknown[];
+}
+
+/** One quarantined job as surfaced to the owner DM and the Home Tab panel. */
+export interface CronQuarantineEntry {
+  /** Job `id` if present in the raw object, else its `name`, else a positional `#index`. */
+  id: string;
+  /** Failing zod field path (e.g. `timezone`), or `(root)` when unattributable. */
+  field: string;
+  /** The validation error message. */
+  error: string;
+}
+
+/** What the load path reports to the registered notifier. */
+export interface CronQuarantineReport {
+  /** Newly-quarantined jobs this load (empty on a freeze-only report). */
+  quarantined: CronQuarantineEntry[];
+  /** Present when a total parse failure froze persistence; names the snapshot (or null if it couldn't be written). */
+  frozen?: { snapshotPath: string | null };
 }
 
 // ============================================================================
 // Storage
 // ============================================================================
 
-const DEFAULT_STATE: CronJobState = { jobs: [] };
-
 let cached: CronJobState | null = null;
+
+/**
+ * Set true when the persisted file could not be parsed at all (total failure). While set,
+ * {@link saveState} refuses to write so the running process never overwrites the corrupt-but-
+ * recoverable original. In-memory only and resets to false on process restart (or a
+ * {@link clearCronJobsCache}); a still-corrupt file then re-triggers the freeze on the fresh
+ * load, so the original is never overwritten across restarts. Within a single process the
+ * result is cached, so a repaired file is only re-read after the cache is cleared. Cleared on
+ * the next successful full load.
+ */
+let persistenceFrozen = false;
+
+/**
+ * Registered, best-effort owner-notification sink (set by app wiring via
+ * {@link setCronQuarantineNotifier}). Kept as an injected callback rather than a static import
+ * so `cronJobs.ts` — imported very early — never pulls in the Slack layer (avoids an import cycle).
+ * The callback itself is synchronous and fires-and-forgets its async DM internally.
+ */
+let onQuarantine: ((report: CronQuarantineReport) => void) | null = null;
+
+/** Wire (or clear, with `null`) the owner-notification sink for quarantine/freeze events. */
+export function setCronQuarantineNotifier(
+  fn: ((report: CronQuarantineReport) => void) | null,
+): void {
+  onQuarantine = fn;
+}
 
 const cronRunZod = z.object({
   executedAt: z.string(),
@@ -232,8 +283,11 @@ const cronJobZod = z.object({
   runs: z.array(cronRunZod).optional(),
 });
 
-const cronJobStateZod = z.object({
-  jobs: z.array(cronJobZod).optional(),
+// Top-level file gate ONLY — jobs are per-element parsed (below) so one bad job never rejects the
+// whole array. `quarantinedJobs` is preserved verbatim, so both arrays are intentionally unknown[].
+const cronJobFileZod = z.object({
+  jobs: z.array(z.unknown()).optional(),
+  quarantinedJobs: z.array(z.unknown()).optional(),
 });
 
 function getStateDir(): string {
@@ -244,6 +298,58 @@ function getFilePath(): string {
   return resolve(getStateDir(), "cron-jobs.json");
 }
 
+// Permissive label extractor for a quarantined raw object — a non-string/absent id or name
+// coerces to undefined rather than throwing, so any shape yields a usable summary.
+const quarantineLabelZod = z.object({
+  id: z.string().optional().catch(undefined),
+  name: z.string().optional().catch(undefined),
+});
+
+/** Build the owner/Home-Tab summary for a raw job that failed `cronJobZod`. */
+function describeQuarantine(raw: unknown, index: number, error: z.ZodError): CronQuarantineEntry {
+  const parsed = quarantineLabelZod.safeParse(raw);
+  const label = parsed.success ? parsed.data : {};
+  const id = label.id || label.name || `#${index}`;
+  const issue = error.issues[0];
+  return {
+    id,
+    field: issue && issue.path.length > 0 ? issue.path.join(".") : "(root)",
+    error: issue?.message ?? error.message,
+  };
+}
+
+/**
+ * Total parse failure: snapshot the unreadable file and freeze persistence so the running process
+ * never overwrites the original. The freeze is set even if the snapshot copy fails.
+ */
+async function freezeOnTotalFailure(
+  filePath: string,
+  content: string | null,
+  error: unknown,
+): Promise<void> {
+  persistenceFrozen = true;
+  logger.error("cron-jobs: unreadable state file — freezing persistence to protect it:", error);
+
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+  let snapshotPath: string | null = resolve(
+    getStateDir(),
+    `cron-jobs.corrupt-${stamp}-${randomUUID().slice(0, 8)}.json`,
+  );
+  try {
+    if (content !== null) {
+      await writeFile(snapshotPath, content);
+    } else {
+      await copyFile(filePath, snapshotPath);
+    }
+    logger.error(`cron-jobs: corrupt file snapshotted to ${snapshotPath}`);
+  } catch (copyErr) {
+    logger.error("cron-jobs: failed to write corrupt snapshot (freeze still active):", copyErr);
+    snapshotPath = null;
+  }
+
+  onQuarantine?.({ quarantined: [], frozen: { snapshotPath } });
+}
+
 export async function loadJobs(): Promise<CronJob[]> {
   if (cached) {
     return cached.jobs;
@@ -252,28 +358,67 @@ export async function loadJobs(): Promise<CronJob[]> {
   const filePath = getFilePath();
 
   if (!(await fileExists(filePath))) {
-    cached = { ...DEFAULT_STATE, jobs: [] };
+    cached = { jobs: [] };
     return cached.jobs;
   }
 
+  let content: string | null = null;
+  let parsed: z.infer<typeof cronJobFileZod>;
   try {
-    const content = await readFile(filePath, "utf-8");
-    const parsed = cronJobStateZod.safeParse(JSON.parse(content));
-    if (!parsed.success) {
-      logger.error("cron-jobs state has unexpected shape; using empty:", parsed.error.message);
-      cached = { ...DEFAULT_STATE, jobs: [] };
+    content = await readFile(filePath, "utf-8");
+    const raw = cronJobFileZod.safeParse(JSON.parse(content));
+    if (!raw.success) {
+      // Top-level shape unusable — treat like a total failure, not a null-to-empty.
+      await freezeOnTotalFailure(filePath, content, raw.error);
+      cached = { jobs: [] };
       return cached.jobs;
     }
-    cached = { jobs: parsed.data.jobs ?? [] };
-    return cached.jobs;
+    parsed = raw.data;
   } catch (error) {
-    logger.error("Failed to load cron jobs:", error);
-    cached = { ...DEFAULT_STATE, jobs: [] };
+    await freezeOnTotalFailure(filePath, content, error);
+    cached = { jobs: [] };
     return cached.jobs;
   }
+
+  const valid: CronJob[] = [];
+  const quarantined: unknown[] = [...(parsed.quarantinedJobs ?? [])];
+  const newlyQuarantined: CronQuarantineEntry[] = [];
+  const rawJobs = parsed.jobs ?? [];
+  for (let i = 0; i < rawJobs.length; i++) {
+    const result = cronJobZod.safeParse(rawJobs[i]);
+    if (result.success) {
+      valid.push(result.data);
+    } else {
+      quarantined.push(rawJobs[i]);
+      newlyQuarantined.push(describeQuarantine(rawJobs[i], i, result.error));
+    }
+  }
+
+  // A successful full parse clears any freeze left by a prior corrupt load.
+  persistenceFrozen = false;
+  cached = { jobs: valid, ...(quarantined.length > 0 ? { quarantinedJobs: quarantined } : {}) };
+
+  if (newlyQuarantined.length > 0) {
+    logger.error(`cron-jobs: quarantined ${newlyQuarantined.length} invalid job(s) — preserved`);
+    // Persist the move so the invalid jobs leave the `jobs` array on disk and later loads carry
+    // them from `quarantinedJobs` silently — otherwise the owner would be re-DMed on every boot.
+    // Best-effort: a write failure must not break loading.
+    try {
+      await saveState(cached);
+    } catch (err) {
+      logger.error("cron-jobs: failed to persist quarantine after load:", err);
+    }
+    onQuarantine?.({ quarantined: newlyQuarantined });
+  }
+  return cached.jobs;
 }
 
 async function saveState(state: CronJobState): Promise<void> {
+  if (persistenceFrozen) {
+    logger.error("cron-jobs: persistence frozen (corrupt file) — refusing to overwrite on disk");
+    return;
+  }
+
   const stateDir = getStateDir();
   const filePath = getFilePath();
 
@@ -281,8 +426,15 @@ async function saveState(state: CronJobState): Promise<void> {
     await mkdir(stateDir, { recursive: true });
   }
 
-  await writeFile(filePath, JSON.stringify(state, null, 2));
-  cached = state;
+  // Round-trip the quarantine on EVERY write. Callers pass only `{ jobs }`, so pull the
+  // quarantine from the cache when the caller didn't supply it — otherwise an unrelated save
+  // (e.g. plugin reconcile) would drop the quarantined jobs, exactly the 2026-07-06 failure.
+  const quarantinedJobs = state.quarantinedJobs ?? cached?.quarantinedJobs ?? [];
+  const serialized =
+    quarantinedJobs.length > 0 ? { jobs: state.jobs, quarantinedJobs } : { jobs: state.jobs };
+
+  await writeFile(filePath, JSON.stringify(serialized, null, 2));
+  cached = { jobs: state.jobs, ...(quarantinedJobs.length > 0 ? { quarantinedJobs } : {}) };
 }
 
 // ============================================================================
@@ -600,9 +752,79 @@ export async function updateJobRunStatus(
   await saveState({ jobs });
 }
 
-// Clear cache (useful for testing)
+// Clear cache (useful for testing). Also resets the freeze flag, matching a fresh process:
+// the next load re-reads the file and re-freezes if it is still corrupt.
 export function clearCronJobsCache(): void {
   cached = null;
+  persistenceFrozen = false;
+}
+
+/** True while persistence is frozen after a total load failure (see {@link freezeOnTotalFailure}). */
+export function isCronPersistenceFrozen(): boolean {
+  return persistenceFrozen;
+}
+
+/** A quarantined job summary keyed by its stable positional `index` (the action-button value). */
+export type CronQuarantineSummary = CronQuarantineEntry & { index: number };
+
+/** Quarantined jobs as displayable summaries, each keyed by its stable positional `index`. */
+export async function getQuarantinedJobSummaries(): Promise<CronQuarantineSummary[]> {
+  await loadJobs();
+  const quarantined = cached?.quarantinedJobs ?? [];
+  return quarantined.map((raw, index) => {
+    const result = cronJobZod.safeParse(raw);
+    if (result.success) {
+      // A quarantined raw that now validates (schema loosened / hand-repaired) — still parked here
+      // until an admin clicks Retry, so surface it clearly rather than as a phantom error.
+      const label = quarantineLabelZod.safeParse(raw);
+      const id = (label.success ? label.data.id || label.data.name : undefined) || `#${index}`;
+      return { index, id, field: "—", error: "revalidated — click Retry to restore" };
+    }
+    return { index, ...describeQuarantine(raw, index, result.error) };
+  });
+}
+
+/**
+ * Re-validate a quarantined job (after a hand-repair or a loosened schema). On success it moves
+ * from `quarantinedJobs` into the live `jobs` and is persisted; on failure it stays quarantined
+ * and the current error is returned. The in-memory move only commits once `saveState` succeeds.
+ */
+export async function retryQuarantinedJob(index: number): Promise<{ ok: boolean; error?: string }> {
+  await loadJobs();
+  const quarantined = cached?.quarantinedJobs ?? [];
+  if (index < 0 || index >= quarantined.length) return { ok: false, error: "not found" };
+
+  const result = cronJobZod.safeParse(quarantined[index]);
+  if (!result.success) {
+    const issue = result.error.issues[0];
+    return { ok: false, error: issue?.message ?? result.error.message };
+  }
+
+  const remaining = quarantined.filter((_, i) => i !== index);
+  try {
+    await saveState({ jobs: [...(cached?.jobs ?? []), result.data], quarantinedJobs: remaining });
+  } catch (err) {
+    return { ok: false, error: errorMessage(err) };
+  }
+  logger.info(`cron-jobs: quarantined job ${result.data.id} re-validated and restored`);
+  return { ok: true };
+}
+
+/** Explicit, owner/admin-gated removal — the ONLY path that drops a quarantined job. */
+export async function deleteQuarantinedJob(index: number): Promise<boolean> {
+  await loadJobs();
+  const quarantined = cached?.quarantinedJobs ?? [];
+  if (index < 0 || index >= quarantined.length) return false;
+
+  const remaining = quarantined.filter((_, i) => i !== index);
+  try {
+    await saveState({ jobs: cached?.jobs ?? [], quarantinedJobs: remaining });
+  } catch (err) {
+    logger.error(`cron-jobs: failed to remove quarantined job #${index}:`, err);
+    return false;
+  }
+  logger.info(`cron-jobs: quarantined job #${index} removed by explicit action`);
+  return true;
 }
 
 /**

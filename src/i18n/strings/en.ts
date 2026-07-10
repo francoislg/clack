@@ -296,6 +296,29 @@ export const en = {
     'The worker is excluded from acquire until cleared. Discard the changes via the Home Tab "Discard & restore" button (or remove `.clack-quarantine.json` from `{path}` manually) once you\'ve decided what to do.',
   "changes.quarantine.branch_detached": "(detached)",
 
+  // ─── Cron quarantine / freeze owner DM ─────────────────────────────
+  "cron.quarantine.dm_title": ":warning: {count} scheduled job(s) quarantined",
+  "cron.quarantine.dm_job": "• `{id}` — field `{field}`: {error}",
+  "cron.quarantine.dm_footer":
+    "These jobs were preserved (never deleted) and will NOT run. Review them in the Home Tab under *Quarantined schedules*.",
+  "cron.quarantine.freeze_title":
+    ":rotating_light: Cron scheduling paused — `cron-jobs.json` could not be loaded",
+  "cron.quarantine.freeze_snapshot": "A snapshot of the file was saved to `{path}`.",
+  "cron.quarantine.freeze_no_snapshot":
+    "The file could not be snapshotted, but it has been left untouched on disk.",
+  "cron.quarantine.freeze_footer":
+    "No schedules will run until the file is repaired. The original file has NOT been overwritten.",
+
+  // ─── Cron quarantine Home Tab panel ────────────────────────────────
+  "home.cron_quarantine.header": "Quarantined schedules",
+  "home.cron_quarantine.hint":
+    "These schedules failed validation. They are preserved and never run. Retry re-validates; Delete removes permanently.",
+  "home.cron_quarantine.entry": "*{id}* — field `{field}`: {error}",
+  "home.cron_quarantine.retry": "Retry",
+  "home.cron_quarantine.delete": "Delete",
+  "home.cron_quarantine.freeze_banner":
+    ":rotating_light: *Scheduling paused* — `cron-jobs.json` is corrupt and could not be loaded. No schedules will run until it is repaired on disk.",
+
   // ─── Owner escalation DM (submit_response.escalate_to_owner) ────────
   "owner_escalation.header": ":rotating_light: Clack hit a problem and notified you",
   "owner_escalation.context": "From *{user}* in {channel}",

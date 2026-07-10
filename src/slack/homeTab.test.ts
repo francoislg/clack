@@ -25,7 +25,7 @@ import {
   type ClackPluginSummary,
 } from "./homeTab.js";
 import type { AutoRespondRule } from "../autoRespond.js";
-import type { CronJob } from "../cronJobs.js";
+import type { CronJob, CronQuarantineSummary } from "../cronJobs.js";
 import type { UsageLimitsState } from "../usageLimits.js";
 
 // ============================================================================
@@ -56,6 +56,8 @@ const mockGetLoadedClackPlugins = vi.fn<() => ClackPluginSummary[]>();
 const mockGetRules = vi.fn<() => Promise<AutoRespondRule[]>>();
 const mockGetJobs = vi.fn<() => Promise<CronJob[]>>();
 const mockGetJobsByUser = vi.fn<(userId: string) => Promise<CronJob[]>>();
+const mockGetQuarantinedJobSummaries = vi.fn<() => Promise<CronQuarantineSummary[]>>();
+const mockIsCronPersistenceFrozen = vi.fn<() => boolean>();
 const mockGetUserTimezone = vi.fn<(userId: string) => Promise<string | undefined>>();
 const mockHumanReadableSchedule =
   vi.fn<(cronExpression: string, timezone: string, viewerTimezone?: string) => string>();
@@ -84,6 +86,8 @@ function makeDeps(): HomeTabDeps {
     getRules: mockGetRules,
     getJobs: mockGetJobs,
     getJobsByUser: mockGetJobsByUser,
+    getQuarantinedJobSummaries: mockGetQuarantinedJobSummaries,
+    isCronPersistenceFrozen: mockIsCronPersistenceFrozen,
     getUserTimezone: mockGetUserTimezone,
     humanReadableSchedule: mockHumanReadableSchedule,
     getWorkerPoolSnapshot: () => ({ reusable: false, byRepo: [] }),
@@ -180,6 +184,8 @@ function resetAllMocks() {
   mockGetRules.mockClear();
   mockGetJobs.mockClear();
   mockGetJobsByUser.mockClear();
+  mockGetQuarantinedJobSummaries.mockClear();
+  mockIsCronPersistenceFrozen.mockClear();
   mockGetUserTimezone.mockClear();
   mockHumanReadableSchedule.mockClear();
   mockGetUsageLimits.mockClear();
@@ -216,6 +222,8 @@ function setDefaultMocks(role: UserRole = "member") {
   mockGetRules.mockImplementation(async () => []);
   mockGetJobs.mockImplementation(async () => []);
   mockGetJobsByUser.mockImplementation(async () => []);
+  mockGetQuarantinedJobSummaries.mockImplementation(async () => []);
+  mockIsCronPersistenceFrozen.mockImplementation(() => false);
   mockGetUserTimezone.mockImplementation(async () => undefined);
   mockHumanReadableSchedule.mockImplementation(() => "Every day at 9:00 AM");
 }
@@ -2150,5 +2158,82 @@ describe("buildHomeView — usage limits section", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+// ============================================================================
+// Quarantined-schedules panel + freeze banner
+// ============================================================================
+
+describe("buildHomeView — cron quarantine panel", () => {
+  const oneEntry: CronQuarantineSummary[] = [
+    { index: 0, id: "bad-job", field: "timezone", error: "Required" },
+  ];
+
+  function quarantineActionIds(blocks: KnownBlock[]): string[] {
+    return blocks
+      .filter(isActionBlock)
+      .flatMap((b) => b.elements.map((e) => (e as { action_id?: string }).action_id ?? ""))
+      .filter((id) => id.startsWith("cron_quarantine_"));
+  }
+
+  it("hides the panel when nothing is quarantined", async () => {
+    setDefaultMocks("admin");
+    mockGetQuarantinedJobSummaries.mockImplementation(async () => []);
+    const view = await buildHomeView({ userId: "U001" }, makeDeps());
+    const headers = getHeaderTexts(view.blocks as KnownBlock[]);
+    assert.ok(!headers.some((h) => h.includes("Quarantined schedules")));
+  });
+
+  it("renders each entry with id/field/error and Retry + Delete buttons for admins", async () => {
+    setDefaultMocks("admin");
+    mockGetQuarantinedJobSummaries.mockImplementation(async () => oneEntry);
+    const view = await buildHomeView({ userId: "U001" }, makeDeps());
+    const blocks = view.blocks as KnownBlock[];
+
+    assert.ok(getHeaderTexts(blocks).some((h) => h.includes("Quarantined schedules")));
+    const entryText = getSectionTexts(blocks).find((t) => t.includes("bad-job"));
+    assert.ok(entryText);
+    assert.ok(entryText.includes("timezone"));
+    assert.deepEqual(quarantineActionIds(blocks), [
+      "cron_quarantine_retry",
+      "cron_quarantine_delete",
+    ]);
+  });
+
+  it("does not render the panel for non-admins even when jobs are quarantined", async () => {
+    setDefaultMocks("dev");
+    mockGetQuarantinedJobSummaries.mockImplementation(async () => oneEntry);
+    const view = await buildHomeView({ userId: "U001" }, makeDeps());
+    assert.equal(quarantineActionIds(view.blocks as KnownBlock[]).length, 0);
+  });
+
+  it("shows the freeze banner to admins when persistence is frozen", async () => {
+    setDefaultMocks("admin");
+    mockIsCronPersistenceFrozen.mockImplementation(() => true);
+    const view = await buildHomeView({ userId: "U001" }, makeDeps());
+    const text = getSectionTexts(view.blocks as KnownBlock[]).join("\n");
+    assert.ok(text.includes("cron-jobs.json"));
+  });
+
+  it("shows no freeze banner when persistence is healthy", async () => {
+    setDefaultMocks("admin");
+    mockIsCronPersistenceFrozen.mockImplementation(() => false);
+    const view = await buildHomeView({ userId: "U001" }, makeDeps());
+    const text = getSectionTexts(view.blocks as KnownBlock[]).join("\n");
+    assert.ok(!text.includes("Scheduling paused"));
+  });
+
+  // A real total-parse-failure yields an empty quarantine (freeze returns before the per-job walk),
+  // so the two states don't co-occur in practice — but the render layer resolves them independently,
+  // so it must handle both being present without dropping either.
+  it("renders both the freeze banner and the panel when both are present", async () => {
+    setDefaultMocks("admin");
+    mockIsCronPersistenceFrozen.mockImplementation(() => true);
+    mockGetQuarantinedJobSummaries.mockImplementation(async () => oneEntry);
+    const view = await buildHomeView({ userId: "U001" }, makeDeps());
+    const blocks = view.blocks as KnownBlock[];
+    assert.ok(getSectionTexts(blocks).join("\n").includes("cron-jobs.json"));
+    assert.ok(getHeaderTexts(blocks).some((h) => h.includes("Quarantined schedules")));
   });
 });

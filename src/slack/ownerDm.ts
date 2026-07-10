@@ -6,6 +6,19 @@ import { openDmChannel } from "./channelResolver.js";
 import { unfurlOptions } from "./unfurlOptions.js";
 
 /**
+ * Injected owner-DM hooks shared by every best-effort owner notifier (worker quarantine, cron
+ * quarantine, …). Injected so tests can stub without patching read-only ESM namespaces.
+ */
+export interface OwnerNotifierDeps {
+  getOwnerUserId: () => Promise<string | null>;
+  sendOwnerDm: (
+    ownerUserId: string,
+    text: string,
+    options?: { suppressUnfurls?: boolean },
+  ) => Promise<boolean>;
+}
+
+/**
  * Slack user id of the workspace owner, or null when none is configured (or
  * roles can't be loaded). Never throws — a null owner means "nobody to notify".
  */

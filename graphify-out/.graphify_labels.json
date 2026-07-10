@@ -294,8 +294,22 @@
   "292": "Zod Validation",
   "293": "tester-smoke.sh",
   "294": "workerBashGuard.ts",
+  "295": "proposeSpinoff.ts",
+  "296": "getArchived.ts",
   "297": "ClackSdkUserData",
+  "298": "buildGameSpecs.ts",
   "299": "CLAUDE.md",
+  "300": "ClackSdkDeps",
+  "301": "cronQuarantineNotifier.ts",
+  "302": "slack.ts",
+  "303": "proposeConfigUpdate.testHelpers.ts",
+  "304": "state.ts",
+  "305": "t.ts",
+  "306": "ClackSdkMemory",
   "307": "roundSummary.ts",
-  "308": "ToolCallRecord"
+  "308": "ToolCallRecord",
+  "309": "slackErrors.ts",
+  "310": "recall.ts",
+  "311": "remember.ts",
+  "312": "languages.ts"
 }

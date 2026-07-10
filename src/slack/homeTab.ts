@@ -17,7 +17,14 @@ import { buildUserSkillsSection } from "./userSkillsHomeTab.js";
 import { getRules, type AutoRespondRule } from "../autoRespond.js";
 import { isEphemeralRule } from "../ephemeralRules.js";
 import { formatElapsedSeconds } from "../claude/preAnalysis.js";
-import { getJobs, getJobsByUser, type CronJob } from "../cronJobs.js";
+import {
+  getJobs,
+  getJobsByUser,
+  getQuarantinedJobSummaries,
+  isCronPersistenceFrozen,
+  type CronJob,
+  type CronQuarantineSummary,
+} from "../cronJobs.js";
 import { humanReadableSchedule } from "../cronFormatter.js";
 import { readUsageLimits, type UsageLimitsState, type UsageLimitWindow } from "../usageLimits.js";
 import { getSlackClient } from "./app.js";
@@ -71,6 +78,8 @@ export interface HomeTabDeps {
   getRules: () => Promise<AutoRespondRule[]>;
   getJobs: () => Promise<CronJob[]>;
   getJobsByUser: (userId: string) => Promise<CronJob[]>;
+  getQuarantinedJobSummaries: () => Promise<CronQuarantineSummary[]>;
+  isCronPersistenceFrozen: () => boolean;
   getUserTimezone: (userId: string) => Promise<string | undefined>;
   humanReadableSchedule: (
     cronExpression: string,
@@ -109,6 +118,8 @@ export const defaultHomeTabDeps: HomeTabDeps = {
   getRules,
   getJobs,
   getJobsByUser,
+  getQuarantinedJobSummaries,
+  isCronPersistenceFrozen,
   getUserTimezone: async (userId) => {
     const client = getSlackClient();
     if (!client) return undefined;
@@ -168,6 +179,11 @@ export async function buildHomeView(
   const scheduledBlocks = await buildScheduledMessagesSection(userId, userIsAdmin, deps);
   if (scheduledBlocks.length > 0) {
     blocks.push(...scheduledBlocks);
+  }
+
+  // Quarantined schedules + freeze banner (admin only; renders only when something needs recovery)
+  if (userIsAdmin) {
+    blocks.push(...(await buildCronQuarantineSection(deps)));
   }
 
   // Configuration & preferences section (config editing for admins, preferences for all)
@@ -1896,6 +1912,73 @@ async function buildScheduledMessagesSection(
         },
       });
     }
+  }
+
+  return blocks;
+}
+
+/**
+ * Admin-only recovery surface: a banner when cron persistence is frozen (a corrupt file could not
+ * be loaded) and a "Quarantined schedules" panel listing each job that failed validation, with
+ * Retry (re-validate → rejoin live jobs) and Delete (explicit removal) buttons. Both the banner and
+ * the panel render only when there is something to surface, so a healthy workspace sees nothing.
+ */
+async function buildCronQuarantineSection(deps: HomeTabDeps): Promise<(KnownBlock | Block)[]> {
+  const blocks: (KnownBlock | Block)[] = [];
+
+  if (deps.isCronPersistenceFrozen()) {
+    blocks.push({
+      type: "section",
+      text: { type: "mrkdwn", text: t("home.cron_quarantine.freeze_banner") },
+    });
+  }
+
+  const summaries = await deps.getQuarantinedJobSummaries();
+  if (summaries.length === 0) return blocks;
+
+  blocks.push(
+    { type: "divider" },
+    {
+      type: "header",
+      text: {
+        type: "plain_text",
+        text: `:warning: ${t("home.cron_quarantine.header")}`,
+        emoji: true,
+      },
+    },
+    { type: "context", elements: [{ type: "mrkdwn", text: t("home.cron_quarantine.hint") }] },
+  );
+
+  for (const entry of summaries) {
+    blocks.push({
+      type: "section",
+      text: {
+        type: "mrkdwn",
+        text: t("home.cron_quarantine.entry", {
+          id: escapeMrkdwn(entry.id),
+          field: entry.field,
+          error: entry.error,
+        }),
+      },
+    });
+    blocks.push({
+      type: "actions",
+      elements: [
+        {
+          type: "button",
+          text: { type: "plain_text", text: t("home.cron_quarantine.retry"), emoji: true },
+          action_id: "cron_quarantine_retry",
+          value: String(entry.index),
+        },
+        {
+          type: "button",
+          style: "danger",
+          text: { type: "plain_text", text: t("home.cron_quarantine.delete"), emoji: true },
+          action_id: "cron_quarantine_delete",
+          value: String(entry.index),
+        },
+      ],
+    });
   }
 
   return blocks;

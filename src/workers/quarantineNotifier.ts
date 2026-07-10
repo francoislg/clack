@@ -1,5 +1,5 @@
 import { logger } from "../logger.js";
-import { getOwnerUserId, sendOwnerDm } from "../slack/ownerDm.js";
+import { getOwnerUserId, sendOwnerDm, type OwnerNotifierDeps } from "../slack/ownerDm.js";
 import { t } from "../i18n/t.js";
 import type { QuarantineEvent } from "./reusablePool.js";
 
@@ -14,23 +14,7 @@ function triggerLabel(trigger: QuarantineEvent["trigger"]): string {
   }
 }
 
-/**
- * Hooks the notifier needs. Both are injected so tests can stub them without
- * touching read-only ESM namespaces (which `mock.method` cannot patch).
- *
- * - `getOwnerUserId()` returns the Slack user id of the workspace owner, or
- *   null when no owner is configured.
- * - `sendOwnerDm(text)` opens a DM with that owner and posts the text.
- *   Returns true on success, false on any failure. The notifier never throws.
- */
-export interface QuarantineNotifierDeps {
-  getOwnerUserId: () => Promise<string | null>;
-  sendOwnerDm: (
-    ownerUserId: string,
-    text: string,
-    options?: { suppressUnfurls?: boolean },
-  ) => Promise<boolean>;
-}
+export type QuarantineNotifierDeps = OwnerNotifierDeps;
 
 export const defaultQuarantineNotifierDeps: QuarantineNotifierDeps = {
   getOwnerUserId,

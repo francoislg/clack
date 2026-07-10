@@ -35,7 +35,15 @@ import {
 } from "../../configurationFiles.js";
 import { setUserPreference } from "../../userPreferences.js";
 import type { ReactionDelivery } from "../../userPreferences.js";
-import { toggleJob, deleteJob, getJob, updateJob, MAX_JITTER_MINUTES } from "../../cronJobs.js";
+import {
+  toggleJob,
+  deleteJob,
+  getJob,
+  updateJob,
+  retryQuarantinedJob,
+  deleteQuarantinedJob,
+  MAX_JITTER_MINUTES,
+} from "../../cronJobs.js";
 import { runJobNow } from "../../cronScheduler.js";
 import { openDmChannel } from "../channelResolver.js";
 import { getUserInfo } from "../userCache.js";
@@ -92,6 +100,8 @@ export interface HomeTabDeps {
   deleteJob: typeof deleteJob;
   getJob: typeof getJob;
   updateJob: typeof updateJob;
+  retryQuarantinedJob: typeof retryQuarantinedJob;
+  deleteQuarantinedJob: typeof deleteQuarantinedJob;
   runJobNow: typeof runJobNow;
   getRole: typeof getRole;
   clearQuarantinedWorker: typeof clearQuarantinedWorker;
@@ -131,6 +141,8 @@ export const defaultHomeTabDeps: HomeTabDeps = {
   deleteJob,
   getJob,
   updateJob,
+  retryQuarantinedJob,
+  deleteQuarantinedJob,
   runJobNow,
   getRole,
   clearQuarantinedWorker,
@@ -1137,9 +1149,8 @@ export function registerHomeTabHandler(app: App, deps: HomeTabDeps = defaultHome
   app.action<BlockAction>("clack_clear_quarantine", async ({ ack, body, client, action }) => {
     await ack();
     try {
-      const role = await deps.getRole(body.user.id);
-      if (!deps.userCanEditConfig(role)) {
-        logger.warn(`clack_clear_quarantine: user ${body.user.id} (role=${role}) lacks permission`);
+      if (!(await deps.userCanEditConfig(body.user.id))) {
+        logger.warn(`clack_clear_quarantine: user ${body.user.id} lacks edit permission`);
         return;
       }
 
@@ -1164,4 +1175,62 @@ export function registerHomeTabHandler(app: App, deps: HomeTabDeps = defaultHome
       logger.error("Failed to clear quarantine:", error);
     }
   });
+
+  // Retry a quarantined cron job: re-validate its raw object; on success it rejoins the live jobs.
+  // Owner/admin-gated, same gate as the worker quarantine controls.
+  app.action<BlockAction>("cron_quarantine_retry", async ({ ack, body, client, action }) => {
+    await ack();
+    try {
+      if (!(await deps.userCanEditConfig(body.user.id))) {
+        logger.warn(`cron_quarantine_retry: user ${body.user.id} lacks edit permission`);
+        return;
+      }
+      const index = parseQuarantineIndex(action as { value?: string });
+      if (index === null) return;
+
+      const result = await deps.retryQuarantinedJob(index);
+      if (!result.ok) {
+        logger.warn(`cron_quarantine_retry: #${index} still invalid — ${result.error}`);
+      } else {
+        logger.info(`cron_quarantine_retry: #${index} restored by ${body.user.id}`);
+      }
+      await publishHomeView(client, body.user.id, deps);
+    } catch (error) {
+      logger.error("Failed to retry quarantined cron job:", error);
+    }
+  });
+
+  // Remove a quarantined cron job (the ONLY removal path — explicit, owner/admin-gated).
+  app.action<BlockAction>("cron_quarantine_delete", async ({ ack, body, client, action }) => {
+    await ack();
+    try {
+      if (!(await deps.userCanEditConfig(body.user.id))) {
+        logger.warn(`cron_quarantine_delete: user ${body.user.id} lacks edit permission`);
+        return;
+      }
+      const index = parseQuarantineIndex(action as { value?: string });
+      if (index === null) return;
+
+      const removed = await deps.deleteQuarantinedJob(index);
+      logger.info(`cron_quarantine_delete: #${index} removed=${removed} by ${body.user.id}`);
+      await publishHomeView(client, body.user.id, deps);
+    } catch (error) {
+      logger.error("Failed to remove quarantined cron job:", error);
+    }
+  });
+}
+
+/** Read the non-negative integer index a quarantine action button carries in its `value`. */
+function parseQuarantineIndex(action: { value?: string }): number | null {
+  const raw = action.value;
+  if (raw === undefined) {
+    logger.warn(`cron quarantine action: missing value`);
+    return null;
+  }
+  const index = Number.parseInt(raw, 10);
+  if (!Number.isInteger(index) || index < 0) {
+    logger.warn(`cron quarantine action: malformed index value: ${raw}`);
+    return null;
+  }
+  return index;
 }
