@@ -88,6 +88,10 @@ const mockUpdateJob = vi.fn<
   (jobId: string, params: Record<string, string | number>) => Promise<null>
 >(async () => null);
 const mockRunJobNow = vi.fn<(jobId: string, tz: string) => Promise<void>>(async () => {});
+const mockRetryQuarantinedJob = vi.fn<(index: number) => Promise<{ ok: boolean; error?: string }>>(
+  async () => ({ ok: true }),
+);
+const mockDeleteQuarantinedJob = vi.fn<(index: number) => Promise<boolean>>(async () => true);
 
 function makeDeps(): HomeTabDeps {
   return {
@@ -126,6 +130,8 @@ function makeDeps(): HomeTabDeps {
     deleteJob: mockDeleteJob as Function as HomeTabDeps["deleteJob"],
     getJob: mockGetJob,
     getRole: async () => "member",
+    retryQuarantinedJob: mockRetryQuarantinedJob,
+    deleteQuarantinedJob: mockDeleteQuarantinedJob,
     clearQuarantinedWorker: async () => ({ ok: false, reason: "stubbed in tests" }),
     updateJob: mockUpdateJob as Function as HomeTabDeps["updateJob"],
     runJobNow: mockRunJobNow as Function as HomeTabDeps["runJobNow"],
@@ -251,6 +257,8 @@ function resetAllMocks() {
   mockWriteInstructionFile.mockClear();
   mockDeleteInstructionFile.mockClear();
   mockGetEffectiveContentLength.mockClear();
+  mockRetryQuarantinedJob.mockClear();
+  mockDeleteQuarantinedJob.mockClear();
 
   capturedEventHandlers.clear();
   capturedActionHandlers.clear();
@@ -1367,5 +1375,112 @@ describe("ai_stop_following action", () => {
       action: { action_id: "ai_stop_following:my-rule-id" },
     });
     assert.equal(mockDeleteRule.mock.calls[0]![0], "my-rule-id");
+  });
+});
+
+describe("registerHomeTabHandler — cron quarantine actions", () => {
+  it("retry delegates to retryQuarantinedJob with the parsed index and refreshes the Home Tab", async () => {
+    const client = makeClient();
+    const handler = getActionHandler("cron_quarantine_retry")!;
+    await handler({
+      ack: async () => {},
+      body: { user: { id: "U_ADMIN1" }, trigger_id: "t1" },
+      client,
+      action: { value: "0", action_id: "cron_quarantine_retry" },
+    });
+    assert.equal(mockRetryQuarantinedJob.mock.calls.length, 1);
+    assert.equal(mockRetryQuarantinedJob.mock.calls[0]![0], 0);
+    assert.equal(client.views.publish.mock.calls.length, 1);
+  });
+
+  it("removal delegates to deleteQuarantinedJob with the parsed index", async () => {
+    const client = makeClient();
+    const handler = getActionHandler("cron_quarantine_delete")!;
+    await handler({
+      ack: async () => {},
+      body: { user: { id: "U_ADMIN1" }, trigger_id: "t1" },
+      client,
+      action: { value: "2", action_id: "cron_quarantine_delete" },
+    });
+    assert.equal(mockDeleteQuarantinedJob.mock.calls.length, 1);
+    assert.equal(mockDeleteQuarantinedJob.mock.calls[0]![0], 2);
+  });
+
+  it("ignores a malformed index value", async () => {
+    const client = makeClient();
+    const handler = getActionHandler("cron_quarantine_retry")!;
+    await handler({
+      ack: async () => {},
+      body: { user: { id: "U_ADMIN1" }, trigger_id: "t1" },
+      client,
+      action: { value: "abc", action_id: "cron_quarantine_retry" },
+    });
+    assert.equal(mockRetryQuarantinedJob.mock.calls.length, 0);
+  });
+
+  it("rejects retry when the user lacks edit permission", async () => {
+    mockUserCanEditConfig.mockImplementation(async () => false);
+    const client = makeClient();
+    const handler = getActionHandler("cron_quarantine_retry")!;
+    await handler({
+      ack: async () => {},
+      body: { user: { id: "U_MEMBER" }, trigger_id: "t1" },
+      client,
+      action: { value: "0", action_id: "cron_quarantine_retry" },
+    });
+    assert.equal(mockRetryQuarantinedJob.mock.calls.length, 0);
+  });
+
+  it("rejects removal when the user lacks edit permission", async () => {
+    mockUserCanEditConfig.mockImplementation(async () => false);
+    const client = makeClient();
+    const handler = getActionHandler("cron_quarantine_delete")!;
+    await handler({
+      ack: async () => {},
+      body: { user: { id: "U_MEMBER" }, trigger_id: "t1" },
+      client,
+      action: { value: "0", action_id: "cron_quarantine_delete" },
+    });
+    assert.equal(mockDeleteQuarantinedJob.mock.calls.length, 0);
+  });
+
+  it("still refreshes the Home Tab when retry reports the job is still invalid", async () => {
+    mockRetryQuarantinedJob.mockImplementation(async () => ({ ok: false, error: "still bad" }));
+    const client = makeClient();
+    const handler = getActionHandler("cron_quarantine_retry")!;
+    await handler({
+      ack: async () => {},
+      body: { user: { id: "U_ADMIN1" }, trigger_id: "t1" },
+      client,
+      action: { value: "0", action_id: "cron_quarantine_retry" },
+    });
+    assert.equal(mockRetryQuarantinedJob.mock.calls.length, 1);
+    assert.equal(client.views.publish.mock.calls.length, 1);
+  });
+
+  it("still refreshes the Home Tab when removal reports no matching entry", async () => {
+    mockDeleteQuarantinedJob.mockImplementation(async () => false);
+    const client = makeClient();
+    const handler = getActionHandler("cron_quarantine_delete")!;
+    await handler({
+      ack: async () => {},
+      body: { user: { id: "U_ADMIN1" }, trigger_id: "t1" },
+      client,
+      action: { value: "9", action_id: "cron_quarantine_delete" },
+    });
+    assert.equal(mockDeleteQuarantinedJob.mock.calls.length, 1);
+    assert.equal(client.views.publish.mock.calls.length, 1);
+  });
+
+  it("ignores a retry action that carries no value", async () => {
+    const client = makeClient();
+    const handler = getActionHandler("cron_quarantine_retry")!;
+    await handler({
+      ack: async () => {},
+      body: { user: { id: "U_ADMIN1" }, trigger_id: "t1" },
+      client,
+      action: { action_id: "cron_quarantine_retry" },
+    });
+    assert.equal(mockRetryQuarantinedJob.mock.calls.length, 0);
   });
 });

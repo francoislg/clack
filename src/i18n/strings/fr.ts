@@ -304,6 +304,29 @@ export const fr: Partial<Record<StringKey, string>> = {
     "Le worker est exclu des acquisitions jusqu'à résolution. Annulez les changements via le bouton « Annuler & restaurer » de l'onglet Accueil (ou retirez `.clack-quarantine.json` de `{path}` manuellement) une fois votre décision prise.",
   "changes.quarantine.branch_detached": "(détaché)",
 
+  // ─── Cron quarantine / freeze owner DM ─────────────────────────────
+  "cron.quarantine.dm_title": ":warning: {count} tâche(s) planifiée(s) mise(s) en quarantaine",
+  "cron.quarantine.dm_job": "• `{id}` — champ `{field}` : {error}",
+  "cron.quarantine.dm_footer":
+    "Ces tâches ont été préservées (jamais supprimées) et ne s'exécuteront PAS. Consultez-les dans l'onglet Accueil, section *Planifications en quarantaine*.",
+  "cron.quarantine.freeze_title":
+    ":rotating_light: Planification cron suspendue — impossible de charger `cron-jobs.json`",
+  "cron.quarantine.freeze_snapshot": "Une copie du fichier a été enregistrée dans `{path}`.",
+  "cron.quarantine.freeze_no_snapshot":
+    "Le fichier n'a pas pu être copié, mais il a été laissé intact sur le disque.",
+  "cron.quarantine.freeze_footer":
+    "Aucune planification ne s'exécutera tant que le fichier n'est pas réparé. Le fichier d'origine n'a PAS été écrasé.",
+
+  // ─── Cron quarantine Home Tab panel ────────────────────────────────
+  "home.cron_quarantine.header": "Planifications en quarantaine",
+  "home.cron_quarantine.hint":
+    "Ces planifications ont échoué à la validation. Elles sont préservées et ne s'exécutent jamais. Réessayer revalide ; Supprimer les retire définitivement.",
+  "home.cron_quarantine.entry": "*{id}* — champ `{field}` : {error}",
+  "home.cron_quarantine.retry": "Réessayer",
+  "home.cron_quarantine.delete": "Supprimer",
+  "home.cron_quarantine.freeze_banner":
+    ":rotating_light: *Planification suspendue* — `cron-jobs.json` est corrompu et n'a pas pu être chargé. Aucune planification ne s'exécutera tant qu'il n'est pas réparé sur le disque.",
+
   // ─── Owner escalation DM (submit_response.escalate_to_owner) ────────
   "owner_escalation.header": ":rotating_light: Clack a rencontré un problème et vous a prévenu",
   "owner_escalation.context": "De *{user}* dans {channel}",

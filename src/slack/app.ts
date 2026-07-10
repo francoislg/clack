@@ -25,6 +25,7 @@ import { registerDmActionHandlers } from "./handlers/dmActions.js";
 import { registerMessageChangedHandler } from "./handlers/messageChanged.js";
 import { registerAutoRespondHandler } from "./handlers/autoRespond.js";
 import { registerStopReactionHandler } from "./handlers/stopReaction.js";
+import { registerCronQuarantineNotifier } from "../cronQuarantineNotifier.js";
 
 export interface AppDeps {
   App: new (config: ConstructorParameters<typeof App>[0]) => App;
@@ -48,6 +49,7 @@ export interface AppDeps {
   registerMessageChangedHandler: typeof registerMessageChangedHandler;
   registerAutoRespondHandler: typeof registerAutoRespondHandler;
   registerStopReactionHandler: typeof registerStopReactionHandler;
+  registerCronQuarantineNotifier: typeof registerCronQuarantineNotifier;
 }
 
 export const defaultAppDeps: AppDeps = {
@@ -72,6 +74,7 @@ export const defaultAppDeps: AppDeps = {
   registerMessageChangedHandler,
   registerAutoRespondHandler,
   registerStopReactionHandler,
+  registerCronQuarantineNotifier,
 };
 
 let app: App | null = null;
@@ -88,6 +91,9 @@ export function createSlackApp(deps: AppDeps = defaultAppDeps): App {
 
   // Home tab handler (always enabled for role management)
   deps.registerHomeTabHandler(app);
+
+  // Wire owner DMs for cron-job quarantine / persistence-freeze events (best-effort).
+  deps.registerCronQuarantineNotifier();
 
   // Reaction mode handlers (always enabled)
   deps.registerNewQueryHandler(app);
