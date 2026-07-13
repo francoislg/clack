@@ -18,8 +18,10 @@ The system SHALL provide a `git_push` MCP tool that pushes the current branch to
 #### Scenario: Lease-only force push
 
 - **WHEN** Claude calls `git_push` with `force: true`
-- **THEN** the tool first runs `git fetch origin <branch>` (the current branch) so the lease's remote-tracking ref is fresh and not rejected as stale
-- **AND** pushes with `--force-with-lease --force-if-includes`
+- **THEN** the tool first runs `git fetch origin <branch>` (the current branch) and resolves the fetched remote tip via `FETCH_HEAD`
+- **AND** pushes with an explicit lease `--force-with-lease=<branch>:<fetched-sha>` — the implicit `--force-with-lease` is unusable here because single-branch (shallow) clones have a fetch refspec that never maps feature branches, making git expect the remote branch to not exist and reject every push as "stale info"
+- **AND** when the fetch reports the remote branch missing, leases against its absence (`--force-with-lease=<branch>:`)
+- **AND** when the fetch fails for any other reason (auth, network), returns a structured error WITHOUT pushing
 - **AND** NEVER uses a bare `--force`
 
 #### Scenario: Refuses to push to a protected branch

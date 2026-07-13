@@ -15,6 +15,7 @@ function makeDeps(opts: { pushImpl?: (args: string[]) => Promise<void> } = {}) {
   const mockPush = vi.fn<(args: string[]) => Promise<void>>(
     opts.pushImpl ?? (async () => undefined),
   );
+  const mockRevparse = vi.fn<(args: string[]) => Promise<string>>(async () => "abc123\n");
   const mockGetAuthenticatedCloneUrl = vi.fn<GitPushDeps["getAuthenticatedCloneUrl"]>(
     async () => "https://x-access-token:tok@github.com/org/my-repo.git",
   );
@@ -23,6 +24,7 @@ function makeDeps(opts: { pushImpl?: (args: string[]) => Promise<void> } = {}) {
     remote: mockRemote,
     fetch: mockFetch,
     push: mockPush,
+    revparse: mockRevparse,
   }));
 
   const deps: GitPushDeps = {
@@ -32,7 +34,7 @@ function makeDeps(opts: { pushImpl?: (args: string[]) => Promise<void> } = {}) {
     simpleGit: mockSimpleGit,
   };
 
-  return { deps, mockAppendExecutionLog, mockRemote, mockFetch, mockPush };
+  return { deps, mockAppendExecutionLog, mockRemote, mockFetch, mockPush, mockRevparse };
 }
 
 // ---------------------------------------------------------------------------
@@ -60,24 +62,24 @@ describe("gitPush tool", () => {
     assert.equal(mockFetch.mock.calls.length, 0);
   });
 
-  it("force-pushes with lease (+ --force-if-includes) after a pre-fetch, never bare --force", async () => {
-    const { deps, mockFetch, mockPush } = makeDeps();
+  it("force-pushes with an explicit lease on the fetched tip, never bare --force", async () => {
+    const { deps, mockFetch, mockPush, mockRevparse } = makeDeps();
     const ctx = makeWorkerCtx();
     const result = await createGitPushTool(ctx, deps).handler({ force: true }, { sessionId: "t" });
 
     assert.equal(parseToolResult(result).success, true);
     assert.deepEqual(mockFetch.mock.calls[0]![0], ["origin", ctx.branchName]);
+    assert.deepEqual(mockRevparse.mock.calls[0]![0], ["FETCH_HEAD"]);
     const pushArgs = mockPush.mock.calls[0]![0] as string[];
     assert.deepEqual(pushArgs, [
       "origin",
       ctx.branchName,
-      "--force-with-lease",
-      "--force-if-includes",
+      `--force-with-lease=${ctx.branchName}:abc123`,
     ]);
     assert.ok(!pushArgs.includes("--force"));
   });
 
-  it("force-pushes even when the pre-fetch fails", async () => {
+  it("leases against branch absence when the remote branch does not exist", async () => {
     const { deps, mockFetch, mockPush } = makeDeps();
     mockFetch.mockRejectedValueOnce(new Error("couldn't find remote ref"));
     const ctx = makeWorkerCtx();
@@ -85,6 +87,19 @@ describe("gitPush tool", () => {
 
     assert.equal(parseToolResult(result).success, true);
     assert.equal(mockPush.mock.calls.length, 1);
+    const pushArgs = mockPush.mock.calls[0]![0] as string[];
+    assert.ok(pushArgs.includes(`--force-with-lease=${ctx.branchName}:`));
+  });
+
+  it("returns a structured error without pushing when the lease fetch fails", async () => {
+    const { deps, mockFetch, mockPush } = makeDeps();
+    mockFetch.mockRejectedValueOnce(new Error("could not resolve host: github.com"));
+    const ctx = makeWorkerCtx();
+    const result = await createGitPushTool(ctx, deps).handler({ force: true }, { sessionId: "t" });
+
+    assert.equal(result.isError, true);
+    assert.match(toolResultText(result), /could not fetch origin\//);
+    assert.equal(mockPush.mock.calls.length, 0);
   });
 
   it("refuses to push to a hardcoded protected branch (master) without pushing", async () => {
@@ -150,7 +165,7 @@ describe("gitPush tool", () => {
     assert.equal(result.isError, true);
     assert.equal(mockPush.mock.calls.length, 1);
     const pushArgs = mockPush.mock.calls[0]![0] as string[];
-    assert.ok(pushArgs.includes("--force-with-lease"));
+    assert.ok(pushArgs.some((arg) => arg.startsWith("--force-with-lease=")));
     assert.ok(!pushArgs.includes("--force"));
   });
 });

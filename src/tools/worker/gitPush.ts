@@ -7,6 +7,7 @@ import { appendExecutionLog } from "../../changes/persistence.js";
 import { findRepoByName, type Config, type RepositoryConfig } from "../../config.js";
 import { errorMessage } from "../../errors.js";
 import { isProtectedBranchName } from "../../changes/branchNaming.js";
+import { isMissingRemoteRef } from "../../workers/branchSwitch.js";
 import { simpleGit } from "simple-git";
 
 /**
@@ -18,6 +19,7 @@ export interface MinimalGit {
   remote(args: string[]): Promise<void>;
   fetch(args: string[]): Promise<void>;
   push(args: string[]): Promise<void>;
+  revparse(args: string[]): Promise<string>;
 }
 
 export interface GitPushDeps {
@@ -42,6 +44,9 @@ export const defaultGitPushDeps: GitPushDeps = {
       },
       push: async (args: string[]): Promise<void> => {
         await git.push(args);
+      },
+      revparse: async (args: string[]): Promise<string> => {
+        return await git.revparse(args);
       },
     };
   },
@@ -78,17 +83,34 @@ export function createGitPushTool(ctx: WorkerToolContext, deps: GitPushDeps = de
         await git.remote(["set-url", "origin", authenticatedUrl]);
 
         if (args.force) {
-          // Refresh the remote-tracking ref first so --force-with-lease isn't
-          // rejected as "stale info" in a fresh or reused worktree.
+          // The implicit --force-with-lease resolves its expected value through
+          // the remote's configured fetch refspec. Shallow clones are
+          // single-branch, so feature branches never map and git rejects every
+          // implicit lease as "stale info". Fetch the remote tip and lease
+          // against it explicitly instead.
+          let expectedSha: string;
           try {
             await git.fetch(["origin", ctx.branchName]);
+            expectedSha = (await git.revparse(["FETCH_HEAD"])).trim();
           } catch (fetchError) {
-            deps.appendExecutionLog(
-              ctx.branchName,
-              `git_push: pre-fetch failed (continuing) - ${errorMessage(fetchError)}`,
-            );
+            if (!isMissingRemoteRef(fetchError)) {
+              deps.appendExecutionLog(
+                ctx.branchName,
+                `git_push: lease fetch failed - ${errorMessage(fetchError)}`,
+              );
+              return errorResult(
+                `push failed: could not fetch origin/${ctx.branchName} ` +
+                  `to establish the lease: ${errorMessage(fetchError)}`,
+              );
+            }
+            // Branch absent on the remote: lease against its absence.
+            expectedSha = "";
           }
-          await git.push(["origin", ctx.branchName, "--force-with-lease", "--force-if-includes"]);
+          await git.push([
+            "origin",
+            ctx.branchName,
+            `--force-with-lease=${ctx.branchName}:${expectedSha}`,
+          ]);
         } else {
           await git.push(["-u", "origin", ctx.branchName]);
         }
