@@ -103,7 +103,7 @@ export async function resolveRemoteBase(
 }
 
 /** Git's error text when a fetched ref simply doesn't exist on the remote. */
-function isMissingRemoteRef(err: unknown): boolean {
+export function isMissingRemoteRef(err: unknown): boolean {
   return /couldn't find remote ref|no such ref|not found in upstream/i.test(errorMessage(err));
 }
 
