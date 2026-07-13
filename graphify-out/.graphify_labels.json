@@ -311,5 +311,11 @@
   "309": "slackErrors.ts",
   "310": "recall.ts",
   "311": "remember.ts",
-  "312": "languages.ts"
+  "312": "languages.ts",
+  "313": "MemoryEntryNotFoundError",
+  "314": "github.ts",
+  "315": "updateJob",
+  "316": "slackErrors.ts",
+  "317": "userSkillsBodyCache.ts",
+  "318": "renderHint.ts"
 }

@@ -25,7 +25,8 @@ import { registerDmActionHandlers } from "./handlers/dmActions.js";
 import { registerMessageChangedHandler } from "./handlers/messageChanged.js";
 import { registerAutoRespondHandler } from "./handlers/autoRespond.js";
 import { registerStopReactionHandler } from "./handlers/stopReaction.js";
-import { registerCronQuarantineNotifier } from "../cronQuarantineNotifier.js";
+import { registerStateQuarantineNotifier } from "../state/stateQuarantineNotifier.js";
+import { registerCronQuarantineStore } from "../state/cronQuarantineAdapter.js";
 
 export interface AppDeps {
   App: new (config: ConstructorParameters<typeof App>[0]) => App;
@@ -49,7 +50,8 @@ export interface AppDeps {
   registerMessageChangedHandler: typeof registerMessageChangedHandler;
   registerAutoRespondHandler: typeof registerAutoRespondHandler;
   registerStopReactionHandler: typeof registerStopReactionHandler;
-  registerCronQuarantineNotifier: typeof registerCronQuarantineNotifier;
+  registerStateQuarantineNotifier: typeof registerStateQuarantineNotifier;
+  registerCronQuarantineStore: typeof registerCronQuarantineStore;
 }
 
 export const defaultAppDeps: AppDeps = {
@@ -74,7 +76,8 @@ export const defaultAppDeps: AppDeps = {
   registerMessageChangedHandler,
   registerAutoRespondHandler,
   registerStopReactionHandler,
-  registerCronQuarantineNotifier,
+  registerStateQuarantineNotifier,
+  registerCronQuarantineStore,
 };
 
 let app: App | null = null;
@@ -92,8 +95,10 @@ export function createSlackApp(deps: AppDeps = defaultAppDeps): App {
   // Home tab handler (always enabled for role management)
   deps.registerHomeTabHandler(app);
 
-  // Wire owner DMs for cron-job quarantine / persistence-freeze events (best-effort).
-  deps.registerCronQuarantineNotifier();
+  // Wire owner DMs for state-quarantine / persistence-freeze events, and register the resilient
+  // stores (cron + the migrated collection loaders self-register at module load) into the panel.
+  deps.registerStateQuarantineNotifier();
+  deps.registerCronQuarantineStore();
 
   // Reaction mode handlers (always enabled)
   deps.registerNewQueryHandler(app);

@@ -304,28 +304,28 @@ export const fr: Partial<Record<StringKey, string>> = {
     "Le worker est exclu des acquisitions jusqu'à résolution. Annulez les changements via le bouton « Annuler & restaurer » de l'onglet Accueil (ou retirez `.clack-quarantine.json` de `{path}` manuellement) une fois votre décision prise.",
   "changes.quarantine.branch_detached": "(détaché)",
 
-  // ─── Cron quarantine / freeze owner DM ─────────────────────────────
-  "cron.quarantine.dm_title": ":warning: {count} tâche(s) planifiée(s) mise(s) en quarantaine",
-  "cron.quarantine.dm_job": "• `{id}` — champ `{field}` : {error}",
-  "cron.quarantine.dm_footer":
-    "Ces tâches ont été préservées (jamais supprimées) et ne s'exécuteront PAS. Consultez-les dans l'onglet Accueil, section *Planifications en quarantaine*.",
-  "cron.quarantine.freeze_title":
-    ":rotating_light: Planification cron suspendue — impossible de charger `cron-jobs.json`",
-  "cron.quarantine.freeze_snapshot": "Une copie du fichier a été enregistrée dans `{path}`.",
-  "cron.quarantine.freeze_no_snapshot":
+  // ─── State quarantine / freeze owner DM ────────────────────────────
+  "state.quarantine.dm_title": ":warning: {count} en quarantaine dans {source}",
+  "state.quarantine.dm_entry": "• `{key}` — champ `{field}` : {error}",
+  "state.quarantine.dm_footer":
+    "Ces entrées ont été préservées (jamais supprimées) et ne seront PAS utilisées. Consultez-les dans l'onglet Accueil, section *État en quarantaine*.",
+  "state.quarantine.freeze_title":
+    ":rotating_light: {source} suspendu — impossible de charger son fichier d'état",
+  "state.quarantine.freeze_snapshot": "Une copie du fichier a été enregistrée dans `{path}`.",
+  "state.quarantine.freeze_no_snapshot":
     "Le fichier n'a pas pu être copié, mais il a été laissé intact sur le disque.",
-  "cron.quarantine.freeze_footer":
-    "Aucune planification ne s'exécutera tant que le fichier n'est pas réparé. Le fichier d'origine n'a PAS été écrasé.",
+  "state.quarantine.freeze_footer":
+    "Ce magasin est suspendu tant que le fichier n'est pas réparé. Le fichier d'origine n'a PAS été écrasé.",
 
-  // ─── Cron quarantine Home Tab panel ────────────────────────────────
-  "home.cron_quarantine.header": "Planifications en quarantaine",
-  "home.cron_quarantine.hint":
-    "Ces planifications ont échoué à la validation. Elles sont préservées et ne s'exécutent jamais. Réessayer revalide ; Supprimer les retire définitivement.",
-  "home.cron_quarantine.entry": "*{id}* — champ `{field}` : {error}",
-  "home.cron_quarantine.retry": "Réessayer",
-  "home.cron_quarantine.delete": "Supprimer",
-  "home.cron_quarantine.freeze_banner":
-    ":rotating_light: *Planification suspendue* — `cron-jobs.json` est corrompu et n'a pas pu être chargé. Aucune planification ne s'exécutera tant qu'il n'est pas réparé sur le disque.",
+  // ─── État en quarantaine — panneau de l'onglet Accueil ─────────────
+  "home.state_quarantine.header": "État en quarantaine",
+  "home.state_quarantine.hint":
+    "Ces entrées ont échoué à la validation. Elles sont préservées et jamais utilisées. Réessayer revalide ; Supprimer les retire définitivement.",
+  "home.state_quarantine.entry": "*{source}* · `{key}` — champ `{field}` : {error}",
+  "home.state_quarantine.retry": "Réessayer",
+  "home.state_quarantine.delete": "Supprimer",
+  "home.state_quarantine.freeze_banner":
+    ":rotating_light: *Persistance d'état suspendue* — impossible de charger {stores} ; {count} magasin(s) ne sont plus écrits. Réparez le(s) fichier(s) sur le disque pour reprendre.",
 
   // ─── Owner escalation DM (submit_response.escalate_to_owner) ────────
   "owner_escalation.header": ":rotating_light: Clack a rencontré un problème et vous a prévenu",
