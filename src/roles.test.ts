@@ -17,6 +17,8 @@ import {
   type RolesConfig,
   type RolesDeps,
 } from "./roles.js";
+import { setStateQuarantineSink } from "./state/stateQuarantineRegistry.js";
+import type { QuarantineReport } from "./state/resilientCollection.js";
 import type { App } from "@slack/bolt";
 
 // ---------------------------------------------------------------------------
@@ -140,6 +142,27 @@ describe("loadRoles", () => {
     assert.equal(roles.owner, null);
     assert.deepEqual(roles.admins, []);
     assert.deepEqual(roles.devs, []);
+  });
+
+  it("freezes on a corrupt file, notifies via the sink, and refuses to overwrite the original", async () => {
+    const reports: QuarantineReport[] = [];
+    setStateQuarantineSink((r) => reports.push(r));
+    try {
+      mockFileExists.mockImplementation(async () => true);
+      mockReadFile.mockImplementation(async () => "not-json{");
+
+      await loadRoles();
+      assert.ok(
+        reports.some((r) => r.frozen),
+        "owner is notified of the freeze",
+      );
+
+      // A save while frozen must NOT write the original file.
+      await saveRoles({ owner: "U_NEW", admins: [], devs: [] });
+      assert.equal(mockWriteFile.mock.calls.length, 0);
+    } finally {
+      setStateQuarantineSink(null);
+    }
   });
 });
 

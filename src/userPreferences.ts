@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 import { z } from "zod";
 import { logger } from "./logger.js";
 import { fileExists } from "./fs.js";
-import { zodErrorToResult } from "./plugins/zodResult.js";
+import { createRecordStore } from "./state/resilientStore.js";
 
 // ============================================================================
 // Dependency Injection
@@ -50,68 +50,36 @@ const DEFAULT_PREFERENCES: UserPreferences = {
 type PreferencesMap = Record<string, Partial<UserPreferences>>;
 
 /**
- * Schema for `user-preferences.json`. The deprecated `dmOptOut` is accepted on
- * disk but NOT modeled here, so zod strips it — it never reaches the runtime map.
+ * Per-user entry schema for `user-preferences.json`. The deprecated `dmOptOut` is accepted on disk
+ * but NOT modeled here, so zod strips it — it never reaches the runtime map. One malformed user's
+ * value is quarantined by the shared record store; the rest load.
  */
-const preferencesMapZod = z.record(
-  z.string(),
-  z.object({
-    reactionDelivery: z.enum(["dm", "thread"]).optional(),
-    notifyOnResponse: z.boolean().optional(),
-  }),
-);
+const preferencesEntryZod = z.object({
+  reactionDelivery: z.enum(["dm", "thread"]).optional(),
+  notifyOnResponse: z.boolean().optional(),
+});
 
-let cachedPreferences: PreferencesMap | null = null;
-
-function getStateDir(): string {
-  return resolve(process.cwd(), "data", "state");
-}
-
-function getPreferencesPath(): string {
-  return resolve(getStateDir(), "user-preferences.json");
-}
+// Standing prefs ride the shared resilient RECORD store (per-user quarantine + freeze). The store
+// deps read the live `deps` binding so `setUserPreferencesDeps` overrides at runtime are honored.
+const store = createRecordStore<Partial<UserPreferences>>({
+  storeId: "user-preferences",
+  label: "user preferences",
+  getPath: () => resolve(process.cwd(), "data", "state", "user-preferences.json"),
+  entrySchema: preferencesEntryZod,
+  deps: {
+    readFile: (path) => deps.readFile(path, "utf-8"),
+    writeFile: (path, data) => deps.writeFile(path, data),
+    fileExists: (path) => deps.fileExists(path),
+    mkdir: (path, opts) => deps.mkdir(path, opts),
+  },
+});
 
 export async function loadPreferences(): Promise<PreferencesMap> {
-  if (cachedPreferences) {
-    return cachedPreferences;
-  }
-
-  const prefsPath = getPreferencesPath();
-
-  if (!(await deps.fileExists(prefsPath))) {
-    cachedPreferences = {};
-    return cachedPreferences;
-  }
-
-  try {
-    const content = await deps.readFile(prefsPath, "utf-8");
-    const result = preferencesMapZod.safeParse(JSON.parse(content));
-    if (!result.success) {
-      logger.warn(
-        `user-preferences.json has unexpected shape; using empty: ${zodErrorToResult(result.error, "preferences").error}`,
-      );
-      cachedPreferences = {};
-      return cachedPreferences;
-    }
-    cachedPreferences = result.data;
-    return cachedPreferences;
-  } catch (error) {
-    logger.error("Failed to load user preferences:", error);
-    cachedPreferences = {};
-    return cachedPreferences;
-  }
+  return store.load();
 }
 
 export async function savePreferences(prefs: PreferencesMap): Promise<void> {
-  const stateDir = getStateDir();
-  const prefsPath = getPreferencesPath();
-
-  if (!(await deps.fileExists(stateDir))) {
-    await deps.mkdir(stateDir, { recursive: true });
-  }
-
-  await deps.writeFile(prefsPath, JSON.stringify(prefs, null, 2));
-  cachedPreferences = prefs;
+  await store.save(prefs);
   logger.debug("User preferences saved");
 }
 
@@ -150,5 +118,5 @@ export function getReactionDelivery(userId: string): Promise<ReactionDelivery> {
 
 // Clear cache (useful for testing)
 export function clearPreferencesCache(): void {
-  cachedPreferences = null;
+  store.clearCache();
 }

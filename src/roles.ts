@@ -5,6 +5,8 @@ import type { App } from "@slack/bolt";
 import { logger } from "./logger.js";
 import { fileExists } from "./fs.js";
 import { zodErrorToResult } from "./plugins/zodResult.js";
+import { freezeAndSnapshot, isFrozen, clearFreeze } from "./state/resilientCollection.js";
+import { emitStateQuarantine, registerQuarantineStore } from "./state/stateQuarantineRegistry.js";
 
 // ============================================================================
 // Dependency Injection
@@ -66,6 +68,30 @@ function getRolesPath(): string {
   return resolve(getStateDir(), "roles.json");
 }
 
+// roles.json is a SINGLE object, not a collection — per-element quarantine doesn't apply. But a
+// total parse/shape failure must NOT null-to-empty (that would silently blank every role
+// assignment). It gets the freeze half of the shared machinery: snapshot + freeze + owner DM, and
+// serve the last-known-good in memory. The freeze names "roles" in the Home Tab banner (no rows).
+async function freezeRoles(
+  rolesPath: string,
+  content: string | null,
+  error: unknown,
+): Promise<void> {
+  const snapshotPath = await freezeAndSnapshot(rolesPath, content, error);
+  logger.error("roles.json unreadable — freezing to avoid blanking role assignments");
+  emitStateQuarantine({ source: "roles", quarantined: [], frozen: { snapshotPath } });
+}
+
+// Single-object store: contributes only the freeze banner (no quarantine rows).
+registerQuarantineStore({
+  storeId: "roles",
+  label: "roles",
+  getSummaries: async () => [],
+  retry: async () => ({ ok: false, error: "roles is not a collection" }),
+  remove: async () => false,
+  isFrozen: () => isFrozen(getRolesPath()),
+});
+
 export async function loadRoles(): Promise<RolesConfig> {
   if (cachedRoles) {
     return cachedRoles;
@@ -78,28 +104,34 @@ export async function loadRoles(): Promise<RolesConfig> {
     return cachedRoles;
   }
 
+  let content: string | null = null;
   try {
-    const content = await deps.readFile(rolesPath, "utf-8");
+    content = await deps.readFile(rolesPath, "utf-8");
     const result = rolesConfigZod.safeParse(JSON.parse(content));
-    if (!result.success) {
-      logger.warn(
-        `roles.json has unexpected shape; using defaults: ${zodErrorToResult(result.error, "roles").error}`,
-      );
-      cachedRoles = { ...DEFAULT_ROLES };
+    if (result.success) {
+      clearFreeze(rolesPath);
+      cachedRoles = result.data;
       return cachedRoles;
     }
-    cachedRoles = result.data;
-    return cachedRoles;
+    await freezeRoles(rolesPath, content, new Error(zodErrorToResult(result.error, "roles").error));
   } catch (error) {
-    logger.error("Failed to load roles:", error);
-    cachedRoles = { ...DEFAULT_ROLES };
-    return cachedRoles;
+    await freezeRoles(rolesPath, content, error);
   }
+
+  // Frozen: serve the last-known-good (or defaults), cached so we don't re-read/re-DM. Never
+  // written back to the corrupt file while frozen.
+  if (!cachedRoles) cachedRoles = { ...DEFAULT_ROLES };
+  return cachedRoles;
 }
 
 export async function saveRoles(roles: RolesConfig): Promise<void> {
   const stateDir = getStateDir();
   const rolesPath = getRolesPath();
+
+  if (isFrozen(rolesPath)) {
+    logger.error("roles.json is frozen (corrupt) — refusing to overwrite the original");
+    return;
+  }
 
   // Ensure state directory exists
   if (!(await deps.fileExists(stateDir))) {
@@ -279,7 +311,8 @@ export async function transferOwnership(
   return { success: true };
 }
 
-// Clear cache (useful for testing)
+// Clear cache (useful for testing). Also clears any freeze, matching a fresh process.
 export function clearRolesCache(): void {
   cachedRoles = null;
+  clearFreeze(getRolesPath());
 }

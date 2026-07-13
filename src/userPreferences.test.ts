@@ -138,6 +138,7 @@ describe("savePreferences", () => {
 
   it("writes JSON and updates cache", async () => {
     mockFileExists.mockImplementation(async () => true);
+    mockReadFile.mockImplementation(async () => "{}");
     mockWriteFile.mockImplementation(async () => {});
 
     const prefs = { U1: { notifyOnResponse: true as const } };
@@ -145,7 +146,7 @@ describe("savePreferences", () => {
 
     assert.equal(mockWriteFile.mock.calls.length, 1);
     const writeArgs = mockWriteFile.mock.calls[0];
-    assert.equal(writeArgs[1], JSON.stringify(prefs, null, 2));
+    assert.equal(writeArgs[1], JSON.stringify({ entries: prefs }, null, 2));
 
     // Cache should be updated — next loadPreferences should not read from disk
     mockReadFile.mockClear();
@@ -228,7 +229,7 @@ describe("setUserPreference", () => {
 
     assert.equal(mockWriteFile.mock.calls.length, 1);
     const written = JSON.parse(mockWriteFile.mock.calls[0][1] as string);
-    assert.deepEqual(written, { U_NEW: { reactionDelivery: "thread" } });
+    assert.deepEqual(written, { entries: { U_NEW: { reactionDelivery: "thread" } } });
   });
 
   it("updates existing user entry", async () => {
@@ -242,7 +243,7 @@ describe("setUserPreference", () => {
     assert.equal(mockWriteFile.mock.calls.length, 1);
     const written = JSON.parse(mockWriteFile.mock.calls[0][1] as string);
     assert.deepEqual(written, {
-      U1: { reactionDelivery: "dm", notifyOnResponse: true },
+      entries: { U1: { reactionDelivery: "dm", notifyOnResponse: true } },
     });
   });
 });

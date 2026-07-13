@@ -1,9 +1,8 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { logger } from "./logger.js";
-import { fileExists } from "./fs.js";
+import { createArrayStore } from "./state/resilientStore.js";
 import {
   loadEphemeralRules,
   deleteEphemeralRuleById,
@@ -44,10 +43,6 @@ export interface AutoRespondRule {
   creationContext?: string;
 }
 
-interface AutoRespondState {
-  rules: AutoRespondRule[];
-}
-
 // Lenient on load: matches the on-disk shape real rules carry (written by addRule)
 // without rejecting any saved rule. Per-field strictness lives at the mutation boundary.
 const autoRespondRuleZod = z.object({
@@ -61,53 +56,20 @@ const autoRespondRuleZod = z.object({
   enabled: z.boolean(),
 });
 
-const autoRespondStateZod = z.object({
-  rules: z.array(autoRespondRuleZod).optional(),
+// ============================================================================
+// Storage — standing rules ride the shared resilient array store (per-rule quarantine + freeze).
+// ============================================================================
+
+const store = createArrayStore<AutoRespondRule>({
+  storeId: "auto-respond",
+  label: "auto-respond rules",
+  getPath: () => resolve(process.cwd(), "data", "state", "auto-respond.json"),
+  collectionKey: "rules",
+  entrySchema: autoRespondRuleZod,
 });
 
-// ============================================================================
-// Storage
-// ============================================================================
-
-const DEFAULT_STATE: AutoRespondState = { rules: [] };
-
-let cached: AutoRespondState | null = null;
-
-function getStateDir(): string {
-  return resolve(process.cwd(), "data", "state");
-}
-
-function getFilePath(): string {
-  return resolve(getStateDir(), "auto-respond.json");
-}
-
 async function loadStandingRules(): Promise<AutoRespondRule[]> {
-  if (cached) {
-    return cached.rules;
-  }
-
-  const filePath = getFilePath();
-
-  if (!(await fileExists(filePath))) {
-    cached = { ...DEFAULT_STATE, rules: [] };
-    return cached.rules;
-  }
-
-  try {
-    const content = await readFile(filePath, "utf-8");
-    const parsed = autoRespondStateZod.safeParse(JSON.parse(content));
-    if (!parsed.success) {
-      logger.error("auto-respond state has unexpected shape; using empty:", parsed.error.message);
-      cached = { ...DEFAULT_STATE, rules: [] };
-      return cached.rules;
-    }
-    cached = { rules: parsed.data.rules ?? [] };
-    return cached.rules;
-  } catch (error) {
-    logger.error("Failed to load auto-respond rules:", error);
-    cached = { ...DEFAULT_STATE, rules: [] };
-    return cached.rules;
-  }
+  return store.load();
 }
 
 /** Merged view, ephemeral first — ephemeral windows outrank standing rules everywhere. */
@@ -116,16 +78,8 @@ export async function loadRules(): Promise<AutoRespondRule[]> {
   return [...ephemeral, ...standing];
 }
 
-async function saveState(state: AutoRespondState): Promise<void> {
-  const stateDir = getStateDir();
-  const filePath = getFilePath();
-
-  if (!(await fileExists(stateDir))) {
-    await mkdir(stateDir, { recursive: true });
-  }
-
-  await writeFile(filePath, JSON.stringify(state, null, 2));
-  cached = state;
+async function saveState(state: { rules: AutoRespondRule[] }): Promise<void> {
+  await store.save(state.rules);
 }
 
 // ============================================================================
@@ -315,6 +269,6 @@ export async function findMatchingRule(
 
 // Clear cache (useful for testing)
 export function clearAutoRespondCache(): void {
-  cached = null;
+  store.clearCache();
   clearEphemeralRulesCache();
 }

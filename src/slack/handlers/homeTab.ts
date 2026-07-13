@@ -35,15 +35,8 @@ import {
 } from "../../configurationFiles.js";
 import { setUserPreference } from "../../userPreferences.js";
 import type { ReactionDelivery } from "../../userPreferences.js";
-import {
-  toggleJob,
-  deleteJob,
-  getJob,
-  updateJob,
-  retryQuarantinedJob,
-  deleteQuarantinedJob,
-  MAX_JITTER_MINUTES,
-} from "../../cronJobs.js";
+import { toggleJob, deleteJob, getJob, updateJob, MAX_JITTER_MINUTES } from "../../cronJobs.js";
+import { getQuarantineStore } from "../../state/stateQuarantineRegistry.js";
 import { runJobNow } from "../../cronScheduler.js";
 import { openDmChannel } from "../channelResolver.js";
 import { getUserInfo } from "../userCache.js";
@@ -100,8 +93,6 @@ export interface HomeTabDeps {
   deleteJob: typeof deleteJob;
   getJob: typeof getJob;
   updateJob: typeof updateJob;
-  retryQuarantinedJob: typeof retryQuarantinedJob;
-  deleteQuarantinedJob: typeof deleteQuarantinedJob;
   runJobNow: typeof runJobNow;
   getRole: typeof getRole;
   clearQuarantinedWorker: typeof clearQuarantinedWorker;
@@ -141,8 +132,6 @@ export const defaultHomeTabDeps: HomeTabDeps = {
   deleteJob,
   getJob,
   updateJob,
-  retryQuarantinedJob,
-  deleteQuarantinedJob,
   runJobNow,
   getRole,
   clearQuarantinedWorker,
@@ -1176,61 +1165,75 @@ export function registerHomeTabHandler(app: App, deps: HomeTabDeps = defaultHome
     }
   });
 
-  // Retry a quarantined cron job: re-validate its raw object; on success it rejoins the live jobs.
-  // Owner/admin-gated, same gate as the worker quarantine controls.
-  app.action<BlockAction>("cron_quarantine_retry", async ({ ack, body, client, action }) => {
+  // Retry a quarantined state entry: re-validate its raw value; on success it rejoins the live set.
+  // Owner/admin-gated, same gate as the worker quarantine controls. Routes to the right store.
+  app.action<BlockAction>("state_quarantine_retry", async ({ ack, body, client, action }) => {
     await ack();
     try {
       if (!(await deps.userCanEditConfig(body.user.id))) {
-        logger.warn(`cron_quarantine_retry: user ${body.user.id} lacks edit permission`);
+        logger.warn(`state_quarantine_retry: user ${body.user.id} lacks edit permission`);
         return;
       }
-      const index = parseQuarantineIndex(action as { value?: string });
-      if (index === null) return;
+      const target = parseQuarantineTarget(action as { value?: string });
+      if (!target) return;
+      const store = getQuarantineStore(target.storeId);
+      if (!store) {
+        logger.warn(`state_quarantine_retry: unknown store ${target.storeId}`);
+        return;
+      }
 
-      const result = await deps.retryQuarantinedJob(index);
+      const result = await store.retry(target.key);
       if (!result.ok) {
-        logger.warn(`cron_quarantine_retry: #${index} still invalid — ${result.error}`);
+        logger.warn(
+          `state_quarantine_retry: ${target.storeId}/${target.key} still invalid — ${result.error}`,
+        );
       } else {
-        logger.info(`cron_quarantine_retry: #${index} restored by ${body.user.id}`);
+        logger.info(
+          `state_quarantine_retry: ${target.storeId}/${target.key} restored by ${body.user.id}`,
+        );
       }
       await publishHomeView(client, body.user.id, deps);
     } catch (error) {
-      logger.error("Failed to retry quarantined cron job:", error);
+      logger.error("Failed to retry quarantined state entry:", error);
     }
   });
 
-  // Remove a quarantined cron job (the ONLY removal path — explicit, owner/admin-gated).
-  app.action<BlockAction>("cron_quarantine_delete", async ({ ack, body, client, action }) => {
+  // Remove a quarantined state entry (the ONLY removal path — explicit, owner/admin-gated).
+  app.action<BlockAction>("state_quarantine_delete", async ({ ack, body, client, action }) => {
     await ack();
     try {
       if (!(await deps.userCanEditConfig(body.user.id))) {
-        logger.warn(`cron_quarantine_delete: user ${body.user.id} lacks edit permission`);
+        logger.warn(`state_quarantine_delete: user ${body.user.id} lacks edit permission`);
         return;
       }
-      const index = parseQuarantineIndex(action as { value?: string });
-      if (index === null) return;
+      const target = parseQuarantineTarget(action as { value?: string });
+      if (!target) return;
+      const store = getQuarantineStore(target.storeId);
+      if (!store) {
+        logger.warn(`state_quarantine_delete: unknown store ${target.storeId}`);
+        return;
+      }
 
-      const removed = await deps.deleteQuarantinedJob(index);
-      logger.info(`cron_quarantine_delete: #${index} removed=${removed} by ${body.user.id}`);
+      const removed = await store.remove(target.key);
+      logger.info(
+        `state_quarantine_delete: ${target.storeId}/${target.key} removed=${removed} by ${body.user.id}`,
+      );
       await publishHomeView(client, body.user.id, deps);
     } catch (error) {
-      logger.error("Failed to remove quarantined cron job:", error);
+      logger.error("Failed to remove quarantined state entry:", error);
     }
   });
 }
 
-/** Read the non-negative integer index a quarantine action button carries in its `value`. */
-function parseQuarantineIndex(action: { value?: string }): number | null {
+/** Read the `storeId::key` a quarantine action button carries in its `value`. */
+function parseQuarantineTarget(action: {
+  value?: string;
+}): { storeId: string; key: string } | null {
   const raw = action.value;
-  if (raw === undefined) {
-    logger.warn(`cron quarantine action: missing value`);
+  if (raw === undefined || !raw.includes("::")) {
+    logger.warn(`state quarantine action: missing or malformed value: ${raw}`);
     return null;
   }
-  const index = Number.parseInt(raw, 10);
-  if (!Number.isInteger(index) || index < 0) {
-    logger.warn(`cron quarantine action: malformed index value: ${raw}`);
-    return null;
-  }
-  return index;
+  const sep = raw.indexOf("::");
+  return { storeId: raw.slice(0, sep), key: raw.slice(sep + 2) };
 }

@@ -105,7 +105,8 @@ function makeDeps(): AppDeps {
     registerMessageChangedHandler: mockRegisterMessageChangedHandler,
     registerAutoRespondHandler: mockRegisterAutoRespondHandler,
     registerStopReactionHandler: mockRegisterStopReactionHandler,
-    registerCronQuarantineNotifier: vi.fn(() => {}),
+    registerStateQuarantineNotifier: vi.fn(() => {}),
+    registerCronQuarantineStore: vi.fn(() => {}),
   };
 }
 

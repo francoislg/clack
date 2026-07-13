@@ -17,14 +17,12 @@ import { buildUserSkillsSection } from "./userSkillsHomeTab.js";
 import { getRules, type AutoRespondRule } from "../autoRespond.js";
 import { isEphemeralRule } from "../ephemeralRules.js";
 import { formatElapsedSeconds } from "../claude/preAnalysis.js";
+import { getJobs, getJobsByUser, type CronJob } from "../cronJobs.js";
 import {
-  getJobs,
-  getJobsByUser,
-  getQuarantinedJobSummaries,
-  isCronPersistenceFrozen,
-  type CronJob,
-  type CronQuarantineSummary,
-} from "../cronJobs.js";
+  getQuarantineStores,
+  type QuarantineStoreDescriptor,
+} from "../state/stateQuarantineRegistry.js";
+import type { QuarantineEntry } from "../state/resilientCollection.js";
 import { humanReadableSchedule } from "../cronFormatter.js";
 import { readUsageLimits, type UsageLimitsState, type UsageLimitWindow } from "../usageLimits.js";
 import { getSlackClient } from "./app.js";
@@ -78,8 +76,6 @@ export interface HomeTabDeps {
   getRules: () => Promise<AutoRespondRule[]>;
   getJobs: () => Promise<CronJob[]>;
   getJobsByUser: (userId: string) => Promise<CronJob[]>;
-  getQuarantinedJobSummaries: () => Promise<CronQuarantineSummary[]>;
-  isCronPersistenceFrozen: () => boolean;
   getUserTimezone: (userId: string) => Promise<string | undefined>;
   humanReadableSchedule: (
     cronExpression: string,
@@ -118,8 +114,6 @@ export const defaultHomeTabDeps: HomeTabDeps = {
   getRules,
   getJobs,
   getJobsByUser,
-  getQuarantinedJobSummaries,
-  isCronPersistenceFrozen,
   getUserTimezone: async (userId) => {
     const client = getSlackClient();
     if (!client) return undefined;
@@ -183,7 +177,7 @@ export async function buildHomeView(
 
   // Quarantined schedules + freeze banner (admin only; renders only when something needs recovery)
   if (userIsAdmin) {
-    blocks.push(...(await buildCronQuarantineSection(deps)));
+    blocks.push(...(await buildStateQuarantineSection()));
   }
 
   // Configuration & preferences section (config editing for admins, preferences for all)
@@ -1918,23 +1912,36 @@ async function buildScheduledMessagesSection(
 }
 
 /**
- * Admin-only recovery surface: a banner when cron persistence is frozen (a corrupt file could not
- * be loaded) and a "Quarantined schedules" panel listing each job that failed validation, with
- * Retry (re-validate → rejoin live jobs) and Delete (explicit removal) buttons. Both the banner and
- * the panel render only when there is something to surface, so a healthy workspace sees nothing.
+ * Admin-only recovery surface spanning every resilient store (cron + the migrated collection
+ * loaders): a banner naming any store whose persistence is frozen (a corrupt file could not be
+ * loaded) and a "Quarantined state" panel listing each entry that failed validation, with Retry
+ * (re-validate → rejoin the live set) and Delete (explicit removal) buttons. A frozen store shows
+ * only the banner (a freeze yields an empty quarantine). Renders nothing when everything is healthy.
  */
-async function buildCronQuarantineSection(deps: HomeTabDeps): Promise<(KnownBlock | Block)[]> {
+async function buildStateQuarantineSection(): Promise<(KnownBlock | Block)[]> {
   const blocks: (KnownBlock | Block)[] = [];
+  const stores = getQuarantineStores();
 
-  if (deps.isCronPersistenceFrozen()) {
+  const frozen = stores.filter((s) => s.isFrozen());
+  if (frozen.length > 0) {
     blocks.push({
       type: "section",
-      text: { type: "mrkdwn", text: t("home.cron_quarantine.freeze_banner") },
+      text: {
+        type: "mrkdwn",
+        text: t("home.state_quarantine.freeze_banner", {
+          stores: frozen.map((s) => s.label).join(", "),
+          count: frozen.length,
+        }),
+      },
     });
   }
 
-  const summaries = await deps.getQuarantinedJobSummaries();
-  if (summaries.length === 0) return blocks;
+  const rows: { store: QuarantineStoreDescriptor; entry: QuarantineEntry }[] = [];
+  for (const store of stores) {
+    if (store.isFrozen()) continue;
+    for (const entry of await store.getSummaries()) rows.push({ store, entry });
+  }
+  if (rows.length === 0) return blocks;
 
   blocks.push(
     { type: "divider" },
@@ -1942,20 +1949,22 @@ async function buildCronQuarantineSection(deps: HomeTabDeps): Promise<(KnownBloc
       type: "header",
       text: {
         type: "plain_text",
-        text: `:warning: ${t("home.cron_quarantine.header")}`,
+        text: `:warning: ${t("home.state_quarantine.header")}`,
         emoji: true,
       },
     },
-    { type: "context", elements: [{ type: "mrkdwn", text: t("home.cron_quarantine.hint") }] },
+    { type: "context", elements: [{ type: "mrkdwn", text: t("home.state_quarantine.hint") }] },
   );
 
-  for (const entry of summaries) {
+  for (const { store, entry } of rows) {
+    const value = `${store.storeId}::${entry.key}`;
     blocks.push({
       type: "section",
       text: {
         type: "mrkdwn",
-        text: t("home.cron_quarantine.entry", {
-          id: escapeMrkdwn(entry.id),
+        text: t("home.state_quarantine.entry", {
+          source: store.label,
+          key: escapeMrkdwn(entry.key),
           field: entry.field,
           error: entry.error,
         }),
@@ -1966,16 +1975,16 @@ async function buildCronQuarantineSection(deps: HomeTabDeps): Promise<(KnownBloc
       elements: [
         {
           type: "button",
-          text: { type: "plain_text", text: t("home.cron_quarantine.retry"), emoji: true },
-          action_id: "cron_quarantine_retry",
-          value: String(entry.index),
+          text: { type: "plain_text", text: t("home.state_quarantine.retry"), emoji: true },
+          action_id: "state_quarantine_retry",
+          value,
         },
         {
           type: "button",
           style: "danger",
-          text: { type: "plain_text", text: t("home.cron_quarantine.delete"), emoji: true },
-          action_id: "cron_quarantine_delete",
-          value: String(entry.index),
+          text: { type: "plain_text", text: t("home.state_quarantine.delete"), emoji: true },
+          action_id: "state_quarantine_delete",
+          value,
         },
       ],
     });

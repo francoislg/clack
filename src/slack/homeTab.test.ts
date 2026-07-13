@@ -1,4 +1,4 @@
-import { describe, it, vi, beforeEach } from "vitest";
+import { describe, it, vi, beforeEach, afterEach } from "vitest";
 import assert from "node:assert/strict";
 import type { UserRole, RolesConfig } from "../roles.js";
 import type { RepositoryConfig, Config } from "../config.js";
@@ -25,8 +25,13 @@ import {
   type ClackPluginSummary,
 } from "./homeTab.js";
 import type { AutoRespondRule } from "../autoRespond.js";
-import type { CronJob, CronQuarantineSummary } from "../cronJobs.js";
+import type { CronJob } from "../cronJobs.js";
 import type { UsageLimitsState } from "../usageLimits.js";
+import {
+  registerQuarantineStore,
+  clearQuarantineStores,
+} from "../state/stateQuarantineRegistry.js";
+import type { QuarantineEntry } from "../state/resilientCollection.js";
 
 // ============================================================================
 // Mocks
@@ -56,8 +61,6 @@ const mockGetLoadedClackPlugins = vi.fn<() => ClackPluginSummary[]>();
 const mockGetRules = vi.fn<() => Promise<AutoRespondRule[]>>();
 const mockGetJobs = vi.fn<() => Promise<CronJob[]>>();
 const mockGetJobsByUser = vi.fn<(userId: string) => Promise<CronJob[]>>();
-const mockGetQuarantinedJobSummaries = vi.fn<() => Promise<CronQuarantineSummary[]>>();
-const mockIsCronPersistenceFrozen = vi.fn<() => boolean>();
 const mockGetUserTimezone = vi.fn<(userId: string) => Promise<string | undefined>>();
 const mockHumanReadableSchedule =
   vi.fn<(cronExpression: string, timezone: string, viewerTimezone?: string) => string>();
@@ -86,8 +89,6 @@ function makeDeps(): HomeTabDeps {
     getRules: mockGetRules,
     getJobs: mockGetJobs,
     getJobsByUser: mockGetJobsByUser,
-    getQuarantinedJobSummaries: mockGetQuarantinedJobSummaries,
-    isCronPersistenceFrozen: mockIsCronPersistenceFrozen,
     getUserTimezone: mockGetUserTimezone,
     humanReadableSchedule: mockHumanReadableSchedule,
     getWorkerPoolSnapshot: () => ({ reusable: false, byRepo: [] }),
@@ -184,8 +185,6 @@ function resetAllMocks() {
   mockGetRules.mockClear();
   mockGetJobs.mockClear();
   mockGetJobsByUser.mockClear();
-  mockGetQuarantinedJobSummaries.mockClear();
-  mockIsCronPersistenceFrozen.mockClear();
   mockGetUserTimezone.mockClear();
   mockHumanReadableSchedule.mockClear();
   mockGetUsageLimits.mockClear();
@@ -222,8 +221,6 @@ function setDefaultMocks(role: UserRole = "member") {
   mockGetRules.mockImplementation(async () => []);
   mockGetJobs.mockImplementation(async () => []);
   mockGetJobsByUser.mockImplementation(async () => []);
-  mockGetQuarantinedJobSummaries.mockImplementation(async () => []);
-  mockIsCronPersistenceFrozen.mockImplementation(() => false);
   mockGetUserTimezone.mockImplementation(async () => undefined);
   mockHumanReadableSchedule.mockImplementation(() => "Every day at 9:00 AM");
 }
@@ -2162,78 +2159,108 @@ describe("buildHomeView — usage limits section", () => {
 });
 
 // ============================================================================
-// Quarantined-schedules panel + freeze banner
+// Unified "Quarantined state" panel + freeze banner (registry-driven)
 // ============================================================================
 
-describe("buildHomeView — cron quarantine panel", () => {
-  const oneEntry: CronQuarantineSummary[] = [
-    { index: 0, id: "bad-job", field: "timezone", error: "Required" },
-  ];
+describe("buildHomeView — state quarantine panel", () => {
+  const oneEntry: QuarantineEntry[] = [{ key: "bad-job", field: "timezone", error: "Required" }];
+
+  function registerStore(opts: {
+    summaries?: QuarantineEntry[];
+    frozen?: boolean;
+    label?: string;
+    storeId?: string;
+  }) {
+    registerQuarantineStore({
+      storeId: opts.storeId ?? "cron",
+      label: opts.label ?? "cron schedules",
+      getSummaries: async () => opts.summaries ?? [],
+      retry: async () => ({ ok: true }),
+      remove: async () => true,
+      isFrozen: () => opts.frozen ?? false,
+    });
+  }
 
   function quarantineActionIds(blocks: KnownBlock[]): string[] {
     return blocks
       .filter(isActionBlock)
       .flatMap((b) => b.elements.map((e) => (e as { action_id?: string }).action_id ?? ""))
-      .filter((id) => id.startsWith("cron_quarantine_"));
+      .filter((id) => id.startsWith("state_quarantine_"));
   }
+
+  beforeEach(() => clearQuarantineStores());
+  afterEach(() => clearQuarantineStores());
 
   it("hides the panel when nothing is quarantined", async () => {
     setDefaultMocks("admin");
-    mockGetQuarantinedJobSummaries.mockImplementation(async () => []);
+    registerStore({ summaries: [] });
     const view = await buildHomeView({ userId: "U001" }, makeDeps());
     const headers = getHeaderTexts(view.blocks as KnownBlock[]);
-    assert.ok(!headers.some((h) => h.includes("Quarantined schedules")));
+    assert.ok(!headers.some((h) => h.includes("Quarantined state")));
   });
 
-  it("renders each entry with id/field/error and Retry + Delete buttons for admins", async () => {
+  it("renders each entry with source/key/field/error and Retry + Delete buttons for admins", async () => {
     setDefaultMocks("admin");
-    mockGetQuarantinedJobSummaries.mockImplementation(async () => oneEntry);
+    registerStore({ summaries: oneEntry });
     const view = await buildHomeView({ userId: "U001" }, makeDeps());
     const blocks = view.blocks as KnownBlock[];
 
-    assert.ok(getHeaderTexts(blocks).some((h) => h.includes("Quarantined schedules")));
+    assert.ok(getHeaderTexts(blocks).some((h) => h.includes("Quarantined state")));
     const entryText = getSectionTexts(blocks).find((t) => t.includes("bad-job"));
     assert.ok(entryText);
     assert.ok(entryText.includes("timezone"));
+    assert.ok(entryText.includes("cron schedules"));
     assert.deepEqual(quarantineActionIds(blocks), [
-      "cron_quarantine_retry",
-      "cron_quarantine_delete",
+      "state_quarantine_retry",
+      "state_quarantine_delete",
     ]);
   });
 
-  it("does not render the panel for non-admins even when jobs are quarantined", async () => {
+  it("encodes storeId::key in the action value", async () => {
+    setDefaultMocks("admin");
+    registerStore({ summaries: oneEntry, storeId: "memory", label: "memory" });
+    const view = await buildHomeView({ userId: "U001" }, makeDeps());
+    const values = (view.blocks as KnownBlock[])
+      .filter(isActionBlock)
+      .flatMap((b) => b.elements.map((e) => (e as { value?: string }).value ?? ""));
+    assert.ok(values.includes("memory::bad-job"));
+  });
+
+  it("does not render the panel for non-admins even when entries are quarantined", async () => {
     setDefaultMocks("dev");
-    mockGetQuarantinedJobSummaries.mockImplementation(async () => oneEntry);
+    registerStore({ summaries: oneEntry });
     const view = await buildHomeView({ userId: "U001" }, makeDeps());
     assert.equal(quarantineActionIds(view.blocks as KnownBlock[]).length, 0);
   });
 
-  it("shows the freeze banner to admins when persistence is frozen", async () => {
+  it("shows the freeze banner naming a frozen store, with no action rows for it", async () => {
     setDefaultMocks("admin");
-    mockIsCronPersistenceFrozen.mockImplementation(() => true);
-    const view = await buildHomeView({ userId: "U001" }, makeDeps());
-    const text = getSectionTexts(view.blocks as KnownBlock[]).join("\n");
-    assert.ok(text.includes("cron-jobs.json"));
-  });
-
-  it("shows no freeze banner when persistence is healthy", async () => {
-    setDefaultMocks("admin");
-    mockIsCronPersistenceFrozen.mockImplementation(() => false);
-    const view = await buildHomeView({ userId: "U001" }, makeDeps());
-    const text = getSectionTexts(view.blocks as KnownBlock[]).join("\n");
-    assert.ok(!text.includes("Scheduling paused"));
-  });
-
-  // A real total-parse-failure yields an empty quarantine (freeze returns before the per-job walk),
-  // so the two states don't co-occur in practice — but the render layer resolves them independently,
-  // so it must handle both being present without dropping either.
-  it("renders both the freeze banner and the panel when both are present", async () => {
-    setDefaultMocks("admin");
-    mockIsCronPersistenceFrozen.mockImplementation(() => true);
-    mockGetQuarantinedJobSummaries.mockImplementation(async () => oneEntry);
+    registerStore({ frozen: true, summaries: oneEntry, label: "cron schedules" });
     const view = await buildHomeView({ userId: "U001" }, makeDeps());
     const blocks = view.blocks as KnownBlock[];
-    assert.ok(getSectionTexts(blocks).join("\n").includes("cron-jobs.json"));
-    assert.ok(getHeaderTexts(blocks).some((h) => h.includes("Quarantined schedules")));
+    assert.ok(getSectionTexts(blocks).join("\n").includes("cron schedules"));
+    assert.equal(quarantineActionIds(blocks).length, 0);
+  });
+
+  it("shows no freeze banner when every store is healthy", async () => {
+    setDefaultMocks("admin");
+    registerStore({ summaries: oneEntry });
+    const view = await buildHomeView({ userId: "U001" }, makeDeps());
+    const text = getSectionTexts(view.blocks as KnownBlock[]).join("\n");
+    assert.ok(!text.includes("persistence paused"));
+  });
+
+  it("spans multiple stores in one panel", async () => {
+    setDefaultMocks("admin");
+    registerStore({ storeId: "cron", label: "cron schedules", summaries: oneEntry });
+    registerStore({
+      storeId: "prefs",
+      label: "user preferences",
+      summaries: [{ key: "U9", field: "dmType", error: "bad" }],
+    });
+    const view = await buildHomeView({ userId: "U001" }, makeDeps());
+    const text = getSectionTexts(view.blocks as KnownBlock[]).join("\n");
+    assert.ok(text.includes("cron schedules"));
+    assert.ok(text.includes("user preferences"));
   });
 });

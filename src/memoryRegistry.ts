@@ -4,7 +4,7 @@ import { z } from "zod";
 import { logger } from "./logger.js";
 import { fileExists } from "./fs.js";
 import type { JsonObject, JsonValue } from "./config.js";
-import { zodErrorToResult } from "./plugins/zodResult.js";
+import { createRecordStore } from "./state/resilientStore.js";
 
 // ============================================================================
 // Dependency Injection
@@ -188,8 +188,6 @@ const memoryEntryZod = z.object({
   plugins: z.record(z.string(), jsonObjectZod).optional(),
 });
 
-const memoryStoreZod = z.record(z.string(), memoryEntryZod);
-
 interface MemoryStore {
   [id: string]: MemoryEntry;
 }
@@ -203,8 +201,6 @@ const archivedMemoryZod = z.object({
   link: z.string().optional(),
   archivedAt: z.string().default(""),
 });
-
-const archiveStoreZod = z.record(z.string(), archivedMemoryZod);
 
 interface ArchiveStore {
   [id: string]: ArchivedMemory;
@@ -243,9 +239,6 @@ export function clearBeforeExpireHooks(): void {
 // Load / persist
 // ============================================================================
 
-let cached: MemoryStore | null = null;
-let archiveCached: ArchiveStore | null = null;
-
 // All mutations funnel through this promise chain so concurrent read-modify-write from core
 // (remember/recall tools) and plugins (namespace merges) can't lose updates. The archive store
 // shares this chain (it lives in this module) so an `archive` op's active-removal and
@@ -264,84 +257,46 @@ function getArchivePath(): string {
   return resolve(getStateDir(), "memory-archive.json");
 }
 
+// Both memory files ride the shared resilient RECORD store (per-entry quarantine + freeze — one bad
+// entry can no longer wipe the whole knowledge base). Store deps read the live `deps` binding so
+// `setMemoryRegistryDeps` overrides at runtime are honored.
+const liveStoreDeps = {
+  readFile: (path: string) => deps.readFile(path, "utf-8"),
+  writeFile: (path: string, data: string) => deps.writeFile(path, data),
+  fileExists: (path: string) => deps.fileExists(path),
+  mkdir: (path: string, opts: { recursive: boolean }) => deps.mkdir(path, opts),
+};
+
+const memStore = createRecordStore<MemoryEntry>({
+  storeId: "memory",
+  label: "memory",
+  getPath: getStorePath,
+  entrySchema: memoryEntryZod,
+  deps: liveStoreDeps,
+});
+
+const archStore = createRecordStore<ArchivedMemory>({
+  storeId: "memory-archive",
+  label: "memory archive",
+  getPath: getArchivePath,
+  entrySchema: archivedMemoryZod,
+  deps: liveStoreDeps,
+});
+
 export async function loadMemoryStore(): Promise<MemoryStore> {
-  if (cached) {
-    return cached;
-  }
-
-  const path = getStorePath();
-
-  if (!(await deps.fileExists(path))) {
-    cached = {};
-    return cached;
-  }
-
-  try {
-    const content = await deps.readFile(path, "utf-8");
-    const result = memoryStoreZod.safeParse(JSON.parse(content));
-    if (!result.success) {
-      logger.warn(
-        `memory.json has unexpected shape; using empty: ${zodErrorToResult(result.error, "memory").error}`,
-      );
-      cached = {};
-      return cached;
-    }
-    cached = result.data;
-    return cached;
-  } catch (error) {
-    logger.error("Failed to load memory store:", error);
-    cached = {};
-    return cached;
-  }
+  return memStore.load();
 }
 
 async function persist(store: MemoryStore): Promise<void> {
-  const stateDir = getStateDir();
-  if (!(await deps.fileExists(stateDir))) {
-    await deps.mkdir(stateDir, { recursive: true });
-  }
-  await deps.writeFile(getStorePath(), JSON.stringify(store, null, 2));
-  cached = store;
+  await memStore.save(store);
 }
 
 export async function loadArchiveStore(): Promise<ArchiveStore> {
-  if (archiveCached) {
-    return archiveCached;
-  }
-
-  const path = getArchivePath();
-
-  if (!(await deps.fileExists(path))) {
-    archiveCached = {};
-    return archiveCached;
-  }
-
-  try {
-    const content = await deps.readFile(path, "utf-8");
-    const result = archiveStoreZod.safeParse(JSON.parse(content));
-    if (!result.success) {
-      logger.warn(
-        `memory-archive.json has unexpected shape; using empty: ${zodErrorToResult(result.error, "memory-archive").error}`,
-      );
-      archiveCached = {};
-      return archiveCached;
-    }
-    archiveCached = result.data;
-    return archiveCached;
-  } catch (error) {
-    logger.error("Failed to load memory archive:", error);
-    archiveCached = {};
-    return archiveCached;
-  }
+  return archStore.load();
 }
 
 async function persistArchive(store: ArchiveStore): Promise<void> {
-  const stateDir = getStateDir();
-  if (!(await deps.fileExists(stateDir))) {
-    await deps.mkdir(stateDir, { recursive: true });
-  }
-  await deps.writeFile(getArchivePath(), JSON.stringify(store, null, 2));
-  archiveCached = store;
+  await archStore.save(store);
 }
 
 function serialize<T>(fn: () => Promise<T>): Promise<T> {
@@ -683,7 +638,7 @@ export async function pruneExpired(now: Date = deps.now()): Promise<string[]> {
 
 // Clear caches (useful for testing). Resets both stores' caches and the shared write chain.
 export function clearMemoryCache(): void {
-  cached = null;
-  archiveCached = null;
+  memStore.clearCache();
+  archStore.clearCache();
   writeChain = Promise.resolve();
 }

@@ -4,6 +4,10 @@ import type { App } from "@slack/bolt";
 import type { View } from "@slack/types";
 import type { HomeTabDeps } from "./homeTab.js";
 import { registerHomeTabHandler } from "./homeTab.js";
+import {
+  registerQuarantineStore,
+  clearQuarantineStores,
+} from "../../state/stateQuarantineRegistry.js";
 import type { AutoRespondRule } from "../../autoRespond.js";
 
 // ============================================================================
@@ -88,10 +92,12 @@ const mockUpdateJob = vi.fn<
   (jobId: string, params: Record<string, string | number>) => Promise<null>
 >(async () => null);
 const mockRunJobNow = vi.fn<(jobId: string, tz: string) => Promise<void>>(async () => {});
-const mockRetryQuarantinedJob = vi.fn<(index: number) => Promise<{ ok: boolean; error?: string }>>(
-  async () => ({ ok: true }),
+const mockStoreRetry = vi.fn<(key: string) => Promise<{ ok: boolean; error?: string }>>(
+  async () => ({
+    ok: true,
+  }),
 );
-const mockDeleteQuarantinedJob = vi.fn<(index: number) => Promise<boolean>>(async () => true);
+const mockStoreRemove = vi.fn<(key: string) => Promise<boolean>>(async () => true);
 
 function makeDeps(): HomeTabDeps {
   return {
@@ -130,8 +136,6 @@ function makeDeps(): HomeTabDeps {
     deleteJob: mockDeleteJob as Function as HomeTabDeps["deleteJob"],
     getJob: mockGetJob,
     getRole: async () => "member",
-    retryQuarantinedJob: mockRetryQuarantinedJob,
-    deleteQuarantinedJob: mockDeleteQuarantinedJob,
     clearQuarantinedWorker: async () => ({ ok: false, reason: "stubbed in tests" }),
     updateJob: mockUpdateJob as Function as HomeTabDeps["updateJob"],
     runJobNow: mockRunJobNow as Function as HomeTabDeps["runJobNow"],
@@ -257,8 +261,9 @@ function resetAllMocks() {
   mockWriteInstructionFile.mockClear();
   mockDeleteInstructionFile.mockClear();
   mockGetEffectiveContentLength.mockClear();
-  mockRetryQuarantinedJob.mockClear();
-  mockDeleteQuarantinedJob.mockClear();
+  mockStoreRetry.mockClear();
+  mockStoreRemove.mockClear();
+  clearQuarantineStores();
 
   capturedEventHandlers.clear();
   capturedActionHandlers.clear();
@@ -1378,109 +1383,122 @@ describe("ai_stop_following action", () => {
   });
 });
 
-describe("registerHomeTabHandler — cron quarantine actions", () => {
-  it("retry delegates to retryQuarantinedJob with the parsed index and refreshes the Home Tab", async () => {
+describe("registerHomeTabHandler — state quarantine actions", () => {
+  function registerCron() {
+    registerQuarantineStore({
+      storeId: "cron",
+      label: "cron schedules",
+      getSummaries: async () => [],
+      retry: mockStoreRetry,
+      remove: mockStoreRemove,
+      isFrozen: () => false,
+    });
+  }
+
+  it("retry routes to the store's retry with the parsed key and refreshes the Home Tab", async () => {
+    registerCron();
     const client = makeClient();
-    const handler = getActionHandler("cron_quarantine_retry")!;
+    const handler = getActionHandler("state_quarantine_retry")!;
     await handler({
       ack: async () => {},
       body: { user: { id: "U_ADMIN1" }, trigger_id: "t1" },
       client,
-      action: { value: "0", action_id: "cron_quarantine_retry" },
+      action: { value: "cron::5", action_id: "state_quarantine_retry" },
     });
-    assert.equal(mockRetryQuarantinedJob.mock.calls.length, 1);
-    assert.equal(mockRetryQuarantinedJob.mock.calls[0]![0], 0);
+    assert.equal(mockStoreRetry.mock.calls.length, 1);
+    assert.equal(mockStoreRetry.mock.calls[0]![0], "5");
     assert.equal(client.views.publish.mock.calls.length, 1);
   });
 
-  it("removal delegates to deleteQuarantinedJob with the parsed index", async () => {
+  it("removal routes to the store's remove with the parsed key", async () => {
+    registerCron();
     const client = makeClient();
-    const handler = getActionHandler("cron_quarantine_delete")!;
+    const handler = getActionHandler("state_quarantine_delete")!;
     await handler({
       ack: async () => {},
       body: { user: { id: "U_ADMIN1" }, trigger_id: "t1" },
       client,
-      action: { value: "2", action_id: "cron_quarantine_delete" },
+      action: { value: "cron::2", action_id: "state_quarantine_delete" },
     });
-    assert.equal(mockDeleteQuarantinedJob.mock.calls.length, 1);
-    assert.equal(mockDeleteQuarantinedJob.mock.calls[0]![0], 2);
+    assert.equal(mockStoreRemove.mock.calls.length, 1);
+    assert.equal(mockStoreRemove.mock.calls[0]![0], "2");
   });
 
-  it("ignores a malformed index value", async () => {
+  it("only routes to the named store, not another registered store", async () => {
+    registerCron();
+    const otherRetry = vi.fn<(key: string) => Promise<{ ok: boolean }>>(async () => ({ ok: true }));
+    registerQuarantineStore({
+      storeId: "memory",
+      label: "memory",
+      getSummaries: async () => [],
+      retry: otherRetry,
+      remove: async () => true,
+      isFrozen: () => false,
+    });
     const client = makeClient();
-    const handler = getActionHandler("cron_quarantine_retry")!;
+    const handler = getActionHandler("state_quarantine_retry")!;
     await handler({
       ack: async () => {},
       body: { user: { id: "U_ADMIN1" }, trigger_id: "t1" },
       client,
-      action: { value: "abc", action_id: "cron_quarantine_retry" },
+      action: { value: "memory::U9", action_id: "state_quarantine_retry" },
     });
-    assert.equal(mockRetryQuarantinedJob.mock.calls.length, 0);
+    assert.equal(otherRetry.mock.calls.length, 1);
+    assert.equal(mockStoreRetry.mock.calls.length, 0);
+  });
+
+  it("ignores an unknown store id", async () => {
+    registerCron();
+    const client = makeClient();
+    const handler = getActionHandler("state_quarantine_retry")!;
+    await handler({
+      ack: async () => {},
+      body: { user: { id: "U_ADMIN1" }, trigger_id: "t1" },
+      client,
+      action: { value: "ghost::x", action_id: "state_quarantine_retry" },
+    });
+    assert.equal(mockStoreRetry.mock.calls.length, 0);
+  });
+
+  it("ignores a malformed value with no separator", async () => {
+    registerCron();
+    const client = makeClient();
+    const handler = getActionHandler("state_quarantine_retry")!;
+    await handler({
+      ack: async () => {},
+      body: { user: { id: "U_ADMIN1" }, trigger_id: "t1" },
+      client,
+      action: { value: "noseparator", action_id: "state_quarantine_retry" },
+    });
+    assert.equal(mockStoreRetry.mock.calls.length, 0);
   });
 
   it("rejects retry when the user lacks edit permission", async () => {
     mockUserCanEditConfig.mockImplementation(async () => false);
+    registerCron();
     const client = makeClient();
-    const handler = getActionHandler("cron_quarantine_retry")!;
+    const handler = getActionHandler("state_quarantine_retry")!;
     await handler({
       ack: async () => {},
       body: { user: { id: "U_MEMBER" }, trigger_id: "t1" },
       client,
-      action: { value: "0", action_id: "cron_quarantine_retry" },
+      action: { value: "cron::0", action_id: "state_quarantine_retry" },
     });
-    assert.equal(mockRetryQuarantinedJob.mock.calls.length, 0);
+    assert.equal(mockStoreRetry.mock.calls.length, 0);
   });
 
-  it("rejects removal when the user lacks edit permission", async () => {
-    mockUserCanEditConfig.mockImplementation(async () => false);
+  it("still refreshes the Home Tab when retry reports the entry is still invalid", async () => {
+    mockStoreRetry.mockImplementation(async () => ({ ok: false, error: "still bad" }));
+    registerCron();
     const client = makeClient();
-    const handler = getActionHandler("cron_quarantine_delete")!;
-    await handler({
-      ack: async () => {},
-      body: { user: { id: "U_MEMBER" }, trigger_id: "t1" },
-      client,
-      action: { value: "0", action_id: "cron_quarantine_delete" },
-    });
-    assert.equal(mockDeleteQuarantinedJob.mock.calls.length, 0);
-  });
-
-  it("still refreshes the Home Tab when retry reports the job is still invalid", async () => {
-    mockRetryQuarantinedJob.mockImplementation(async () => ({ ok: false, error: "still bad" }));
-    const client = makeClient();
-    const handler = getActionHandler("cron_quarantine_retry")!;
+    const handler = getActionHandler("state_quarantine_retry")!;
     await handler({
       ack: async () => {},
       body: { user: { id: "U_ADMIN1" }, trigger_id: "t1" },
       client,
-      action: { value: "0", action_id: "cron_quarantine_retry" },
+      action: { value: "cron::0", action_id: "state_quarantine_retry" },
     });
-    assert.equal(mockRetryQuarantinedJob.mock.calls.length, 1);
+    assert.equal(mockStoreRetry.mock.calls.length, 1);
     assert.equal(client.views.publish.mock.calls.length, 1);
-  });
-
-  it("still refreshes the Home Tab when removal reports no matching entry", async () => {
-    mockDeleteQuarantinedJob.mockImplementation(async () => false);
-    const client = makeClient();
-    const handler = getActionHandler("cron_quarantine_delete")!;
-    await handler({
-      ack: async () => {},
-      body: { user: { id: "U_ADMIN1" }, trigger_id: "t1" },
-      client,
-      action: { value: "9", action_id: "cron_quarantine_delete" },
-    });
-    assert.equal(mockDeleteQuarantinedJob.mock.calls.length, 1);
-    assert.equal(client.views.publish.mock.calls.length, 1);
-  });
-
-  it("ignores a retry action that carries no value", async () => {
-    const client = makeClient();
-    const handler = getActionHandler("cron_quarantine_retry")!;
-    await handler({
-      ack: async () => {},
-      body: { user: { id: "U_ADMIN1" }, trigger_id: "t1" },
-      client,
-      action: { action_id: "cron_quarantine_retry" },
-    });
-    assert.equal(mockRetryQuarantinedJob.mock.calls.length, 0);
   });
 });
