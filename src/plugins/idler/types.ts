@@ -49,6 +49,11 @@ export interface IdlerConfig {
   workHours: IdlerWindow;
   /** When sync (ledger priming) runs. Absent ⇒ the complement of `workHours`. */
   syncHours?: IdlerWindow;
+  /**
+   * Sync cadence in hours within its window (1 = every hour). Thinning walks backwards from the
+   * hour just before the work window opens, so the ledger-priming handoff fire is always kept.
+   */
+  syncEveryHours: number;
   /** Repos the idler may act on. Empty ⇒ the plugin does nothing (safety default). */
   repoAllowlist: string[];
   /** What and where the idler reports. Absent `channel` ⇒ idler dormant. */

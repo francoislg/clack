@@ -1,11 +1,14 @@
 import { describe, it } from "vitest";
 import assert from "node:assert/strict";
 import {
-  buildComplementCron,
+  buildDeepSyncCron,
+  buildLightSyncCron,
   buildSummaryCron,
   buildWindowCron,
   complementHours,
   compressToCronField,
+  syncSchedule,
+  thinHours,
   windowHours,
 } from "./heuristic.js";
 import type { IdlerWindow } from "./types.js";
@@ -42,12 +45,32 @@ describe("windowHours / complementHours", () => {
   });
 });
 
+describe("thinHours", () => {
+  it("returns the hours unchanged at step 1", () => {
+    assert.deepEqual(thinHours([9, 10, 11], 1, 11), [9, 10, 11]);
+  });
+
+  it("keeps the anchor and every 2nd hour walking backwards from it", () => {
+    assert.deepEqual(thinHours([9, 10, 11, 12, 13, 14, 15, 16, 17], 2, 17), [9, 11, 13, 15, 17]);
+  });
+
+  it("walks chronologically across midnight in a wrapped complement", () => {
+    assert.deepEqual(
+      thinHours(complementHours(evening), 2, 18),
+      [0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22],
+    );
+  });
+});
+
 describe("compressToCronField", () => {
   it("compresses consecutive runs into ranges", () => {
     assert.equal(compressToCronField([0, 1, 2, 18, 19]), "0-2,18-19");
   });
   it("keeps singletons", () => {
     assert.equal(compressToCronField([0, 6]), "0,6");
+  });
+  it("returns a lone hour as-is", () => {
+    assert.equal(compressToCronField([5]), "5");
   });
   it("handles empty", () => {
     assert.equal(compressToCronField([]), "");
@@ -69,22 +92,80 @@ describe("buildWindowCron", () => {
   });
 });
 
-describe("buildComplementCron", () => {
-  it("fires outside the work window on its days, at the given minute", () => {
-    assert.equal(buildComplementCron(overnight, "45"), "45 9-17 * * 1,2,3,4,5");
+describe("syncSchedule", () => {
+  it("uses the complement of the work window, anchored on the hour before work opens", () => {
+    const s = syncSchedule(overnight);
+    assert.deepEqual(s.hours, [9, 10, 11, 12, 13, 14, 15, 16, 17]);
+    assert.equal(s.anchor, 17);
+    assert.deepEqual(s.days, [1, 2, 3, 4, 5]);
   });
 
-  it("is disjoint from the work window (no shared hour)", () => {
-    assert.equal(buildWindowCron(overnight, "*/15"), "*/15 0-8,18-23 * * 1,2,3,4,5");
-    assert.equal(buildComplementCron(overnight, "45"), "45 9-17 * * 1,2,3,4,5");
+  it("uses an explicit sync window, anchored on its own last hour", () => {
+    const sync: IdlerWindow = { start: 9, end: 18, tz: "UTC", days: [1, 2, 3, 4, 5] };
+    const s = syncSchedule(overnight, sync);
+    assert.deepEqual(s.hours, [9, 10, 11, 12, 13, 14, 15, 16, 17]);
+    assert.equal(s.anchor, 17);
+    assert.deepEqual(s.days, [1, 2, 3, 4, 5]);
   });
 
-  it("returns null when the window covers every hour", () => {
-    assert.equal(buildComplementCron({ ...overnight, start: 0, end: 24 }, "45"), null);
+  it("anchors chronologically for an interior (wrapped-complement) work window", () => {
+    const s = syncSchedule(evening);
+    assert.equal(s.anchor, 18);
+    assert.ok(s.hours.includes(18));
+  });
+
+  it("carries the explicit sync window's own days, even when they differ from workHours", () => {
+    const sync: IdlerWindow = { start: 9, end: 18, tz: "UTC", days: [6, 0] };
+    assert.deepEqual(syncSchedule(overnight, sync).days, [6, 0]);
+  });
+});
+
+describe("buildDeepSyncCron", () => {
+  it("fires once at the anchor hour on the schedule's days", () => {
+    assert.equal(buildDeepSyncCron(syncSchedule(overnight), "45"), "45 17 * * 1,2,3,4,5");
+  });
+
+  it("returns null when the work window covers every hour", () => {
+    assert.equal(buildDeepSyncCron(syncSchedule({ ...overnight, start: 0, end: 24 }), "45"), null);
   });
 
   it("returns null when no days are set", () => {
-    assert.equal(buildComplementCron({ ...overnight, days: [] }, "45"), null);
+    assert.equal(buildDeepSyncCron(syncSchedule({ ...overnight, days: [] }), "45"), null);
+  });
+});
+
+describe("buildLightSyncCron", () => {
+  it("thins to every 2nd hour and excludes the anchor (deep owns it)", () => {
+    assert.equal(
+      buildLightSyncCron(syncSchedule(overnight), "45", 2),
+      "45 9,11,13,15 * * 1,2,3,4,5",
+    );
+  });
+
+  it("fires every non-anchor hour at cadence 1", () => {
+    assert.equal(buildLightSyncCron(syncSchedule(overnight), "45", 1), "45 9-16 * * 1,2,3,4,5");
+  });
+
+  it("thins to every 4th hour at a wider cadence", () => {
+    assert.equal(buildLightSyncCron(syncSchedule(overnight), "45", 4), "45 9,13 * * 1,2,3,4,5");
+  });
+
+  it("light ∪ {anchor} equals the thinned sync schedule", () => {
+    const s = syncSchedule(overnight);
+    const light = buildLightSyncCron(s, "45", 2)!.split(" ")[1].split(",").map(Number);
+    assert.deepEqual(
+      [...light, s.anchor].sort((a, b) => a - b),
+      thinHours(s.hours, 2, s.anchor),
+    );
+  });
+
+  it("returns null for a single-hour sync window (only the deep fire remains)", () => {
+    const sync: IdlerWindow = { start: 8, end: 9, tz: "UTC", days: [1, 2, 3, 4, 5] };
+    assert.equal(buildLightSyncCron(syncSchedule(overnight, sync), "45", 2), null);
+  });
+
+  it("returns null when no days are set", () => {
+    assert.equal(buildLightSyncCron(syncSchedule({ ...overnight, days: [] }), "45", 2), null);
   });
 });
 

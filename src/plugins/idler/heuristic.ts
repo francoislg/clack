@@ -41,23 +41,75 @@ export function compressToCronField(values: number[]): string {
 }
 
 /**
+ * Keep every `step`-th hour, walking chronologically backwards from `anchorHour` (always kept).
+ * Anchoring on the hour that matters most (the one just before the work window opens) means the
+ * fires dropped by a sparser cadence are always the least important ones.
+ */
+export function thinHours(hours: number[], step: number, anchorHour: number): number[] {
+  if (step <= 1) return hours;
+  return hours.filter((h) => ((((anchorHour - h) % 24) + 24) % 24) % step === 0);
+}
+
+/**
  * Cron firing at `minuteField` during the hours INSIDE the window, on its days. Used for the work
- * window (fire every 15 min while working) and for an explicitly-configured sync window.
+ * window (fire every 15 min while working).
  */
 export function buildWindowCron(w: IdlerWindow, minuteField: string): string {
   return `${minuteField} ${compressToCronField(windowHours(w))} * * ${w.days.join(",")}`;
 }
 
 /**
- * Cron firing at `minuteField` during the hours OUTSIDE the window, on its days. Drives sync when no
- * explicit sync window is set: it primes the ledger throughout the non-work hours, and the last fire
- * before the work window opens hands off to the first work fire. `null` when the window covers every
- * hour (nothing left to sync) or no days are set.
+ * The hours the sync task may fire, its anchor hour, and its days — resolved from config. When an
+ * explicit `syncHours` window is set, sync runs inside it and the anchor is its own last hour;
+ * otherwise sync runs in the complement of `workHours` and the anchor is the hour just before work
+ * opens (the handoff fire that primes the ledger for the first work fire). The anchor is always a
+ * member of `hours` unless `hours` is empty (a work window covering every hour).
  */
-export function buildComplementCron(w: IdlerWindow, minuteField: string): string | null {
-  const hours = complementHours(w);
-  if (hours.length === 0 || w.days.length === 0) return null;
-  return `${minuteField} ${compressToCronField(hours)} * * ${w.days.join(",")}`;
+export interface SyncSchedule {
+  hours: number[];
+  anchor: number;
+  days: number[];
+}
+
+export function syncSchedule(workHours: IdlerWindow, syncHours?: IdlerWindow): SyncSchedule {
+  if (syncHours) {
+    return {
+      hours: windowHours(syncHours),
+      anchor: (syncHours.end - 1 + 24) % 24,
+      days: syncHours.days,
+    };
+  }
+  return {
+    hours: complementHours(workHours),
+    anchor: (workHours.start - 1 + 24) % 24,
+    days: workHours.days,
+  };
+}
+
+/**
+ * The deep sync cron — the full-maintenance fire that runs once per sync-window day at the anchor
+ * hour, right before the work window opens. `null` when the schedule has no days or no hours (a
+ * work window covering every hour leaves nothing to sync).
+ */
+export function buildDeepSyncCron(s: SyncSchedule, minuteField: string): string | null {
+  if (s.days.length === 0 || !s.hours.includes(s.anchor)) return null;
+  return `${minuteField} ${s.anchor} * * ${s.days.join(",")}`;
+}
+
+/**
+ * The light sync cron — the cheap memory-triage fire firing every `stepHours` across the sync
+ * window, EXCLUDING the anchor hour (which the deep fire owns). Thinning is anchored on that same
+ * hour, so light ∪ {anchor} equals the thinned sync schedule and the remaining fires keep their
+ * chronological spacing. `null` when nothing remains (a single-hour sync window) or no days are set.
+ */
+export function buildLightSyncCron(
+  s: SyncSchedule,
+  minuteField: string,
+  stepHours: number,
+): string | null {
+  const hours = thinHours(s.hours, stepHours, s.anchor).filter((h) => h !== s.anchor);
+  if (hours.length === 0 || s.days.length === 0) return null;
+  return `${minuteField} ${compressToCronField(hours)} * * ${s.days.join(",")}`;
 }
 
 /** Summary fires once on the window's days — a morning digest. */

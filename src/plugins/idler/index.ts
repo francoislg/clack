@@ -1,9 +1,15 @@
 import type { ClackSdk, ClackPlugin, CronJobSpec } from "../sdk.js";
 import { isOperational, loadConfig } from "./config.js";
-import { buildComplementCron, buildWindowCron, buildSummaryCron } from "./heuristic.js";
+import {
+  buildDeepSyncCron,
+  buildLightSyncCron,
+  buildSummaryCron,
+  buildWindowCron,
+  syncSchedule,
+} from "./heuristic.js";
 import { loadFetchInstructions } from "./fetchInstructions.js";
 import { BEHAVIOR_INSTRUCTION } from "./instructions.js";
-import { buildSyncPrompt } from "./prompts/sync.js";
+import { buildSyncDeepPrompt, buildSyncLightPrompt } from "./prompts/sync.js";
 import { buildWorkPrompt } from "./prompts/work.js";
 import { buildSummaryPrompt } from "./prompts/summary.js";
 import { en as idlerEn, fr as idlerFr } from "./i18n/strings.js";
@@ -111,16 +117,30 @@ export const idlerPlugin: ClackPlugin = async (sdk: ClackSdk) => {
     const tz = config.workHours.tz;
     const specs: CronJobSpec[] = [];
 
-    const syncCron = config.syncHours
-      ? buildWindowCron(config.syncHours, "45")
-      : buildComplementCron(config.workHours, "45");
-    if (syncCron) {
+    const schedule = syncSchedule(config.workHours, config.syncHours);
+    const syncTz = config.syncHours?.tz ?? tz;
+
+    const deepSyncCron = buildDeepSyncCron(schedule, "45");
+    if (deepSyncCron) {
       specs.push({
         specKey: "sync",
-        cronExpression: syncCron,
-        prompt: buildSyncPrompt(config, fetchInstructions),
-        timezone: config.syncHours?.tz ?? tz,
-        name: "Idler sync",
+        cronExpression: deepSyncCron,
+        prompt: buildSyncDeepPrompt(config, fetchInstructions),
+        timezone: syncTz,
+        name: "Idler deep sync",
+        submitResponseMode: "skipped",
+        attachedTopics: [TOPIC],
+      });
+    }
+
+    const lightSyncCron = buildLightSyncCron(schedule, "45", config.syncEveryHours);
+    if (lightSyncCron) {
+      specs.push({
+        specKey: "sync-light",
+        cronExpression: lightSyncCron,
+        prompt: buildSyncLightPrompt(config),
+        timezone: syncTz,
+        name: "Idler light sync",
         submitResponseMode: "skipped",
         attachedTopics: [TOPIC],
       });
