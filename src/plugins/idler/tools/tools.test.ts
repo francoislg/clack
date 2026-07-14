@@ -217,6 +217,7 @@ function cfgArgs(o: Partial<CfgArgs>): CfgArgs {
     summaryHour: o.summaryHour,
     maxActionsPerFire: o.maxActionsPerFire,
     maxActionsPerNight: o.maxActionsPerNight,
+    syncEveryHours: o.syncEveryHours,
     trackerSource: o.trackerSource,
     ownPrsSource: o.ownPrsSource,
   };

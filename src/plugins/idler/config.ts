@@ -4,7 +4,7 @@ import type { IdlerConfig } from "./types.js";
 
 const CONFIG_PATH = "config.json";
 
-const SLACK_CHANNEL_ID = /^[CGD][A-Z0-9]+$/;
+export const SLACK_CHANNEL_ID = /^[CGD][A-Z0-9]+$/;
 
 function isValidTimezone(tz: string): boolean {
   if (typeof tz !== "string" || tz.length === 0) return false;
@@ -48,6 +48,7 @@ const baseConfigSchema = z.object({
   enabled: z.boolean(),
   workHours: windowSchema,
   syncHours: windowSchema.optional(),
+  syncEveryHours: z.number().int().min(1).max(12).default(2),
   repoAllowlist: z.array(z.string().min(1)).default([]),
   reporting: reportingSchema.default({ tickUpdates: "none", summary: true }),
   maxActionsPerFire: z.number().int().min(1).max(20).default(1),
@@ -79,6 +80,7 @@ export const idlerConfigSchema = z.preprocess((raw) => {
 export const DEFAULT_CONFIG: IdlerConfig = {
   enabled: false,
   workHours: { start: 18, end: 9, tz: "UTC", days: [1, 2, 3, 4, 5] },
+  syncEveryHours: 2,
   repoAllowlist: [],
   reporting: { tickUpdates: "none", summary: true },
   maxActionsPerFire: 1,

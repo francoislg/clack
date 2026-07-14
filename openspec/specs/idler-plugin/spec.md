@@ -112,15 +112,36 @@ The idler SHALL persist its per-unit work-state in the core memory faculty under
 - **WHEN** the idler logs an action for the morning digest
 - **THEN** it appends to its own `activity.json`, not to a core memory entry
 
-### Requirement: Three cooperating scheduled tasks
+### Requirement: Four cooperating scheduled tasks
 
-The plugin SHALL own up to three distinct cron specs — a **sync** task (hourly), a **work** task (every ~15 minutes), and a **summary** task (end of window) — each with its own prompt and `requiredTools`. The work task's `requiredTools` SHALL include the change-proposing and review tools; the sync and summary tasks SHALL NOT include change-proposing tools and SHALL NOT acquire a worktree. The work task SHALL be reconciled with its destination channel set to `reporting.channel`. When `reporting.tickUpdates` is `"none"`, the work task SHALL be marked silent so it produces no Slack output while still executing changes; when `"optional"`, it SHALL post per-tick progress as before. The summary task SHALL be reconciled only when `reporting.summary` is true.
+The plugin SHALL own up to four distinct cron specs — a **light sync** task (specKey `sync-light`), a **deep sync** task (specKey `sync`), a **work** task (every ~15 minutes inside `workHours`), and a **summary** task (end of window) — each with its own prompt and `requiredTools`. The work task's `requiredTools` SHALL include the change-proposing and review tools; the sync and summary tasks SHALL NOT include change-proposing tools and SHALL NOT acquire a worktree. Both sync specs SHALL be channelless with `submitResponseMode: "skipped"`.
 
-#### Scenario: Sync task refreshes the backlog read-only
+The **deep sync** task SHALL fire exactly once per sync-window day, at the **anchor hour**: the last sync-window hour before the work window opens — `(workHours.start - 1) mod 24` when the sync window is the derived complement of `workHours`, or the window's own last hour `(syncHours.end - 1) mod 24` when an explicit `syncHours` window is configured. The **light sync** task SHALL fire at the `syncEveryHours` cadence (integer 1–12, default 2) across the remaining sync-window hours, with thinning anchored on the anchor hour and the anchor hour itself excluded, so the union of light and deep fire hours equals the thinned sync schedule. When the sync window contains only the anchor hour, only the deep spec SHALL be reconciled.
 
-- **WHEN** the sync task fires
-- **THEN** it discovers and re-polls work units
-- **AND** it does not acquire a worktree or push any code
+The work task SHALL be reconciled with its destination channel set to `reporting.channel`. When `reporting.tickUpdates` is `"none"`, the work task SHALL be marked silent so it produces no Slack output while still executing changes; when `"optional"`, it SHALL post per-tick progress as before. The summary task SHALL be reconciled only when `reporting.summary` is true.
+
+#### Scenario: Deep sync fires once per window-day at the anchor hour
+
+- **GIVEN** `workHours` 18→6 with no explicit `syncHours`
+- **WHEN** the plugin reconciles
+- **THEN** the deep sync spec's cron fires only at hour 17 (the last complement hour before 18:00)
+
+#### Scenario: Light sync excludes the anchor hour and honors the cadence
+
+- **GIVEN** `workHours` 18→6 and `syncEveryHours: 2`
+- **WHEN** the plugin reconciles
+- **THEN** the light sync spec fires at hours 7, 9, 11, 13, and 15 (every 2nd complement hour walking back from the anchor, anchor excluded)
+
+#### Scenario: Single-hour sync window reconciles only the deep spec
+
+- **GIVEN** a sync window containing exactly one hour
+- **WHEN** the plugin reconciles
+- **THEN** only the deep sync spec is created and no light sync spec exists
+
+#### Scenario: Sync tasks are read-only
+
+- **WHEN** a light or deep sync task fires
+- **THEN** it does not acquire a worktree and does not push any code
 
 #### Scenario: Work task advances exactly one unit per fire
 
@@ -153,59 +174,57 @@ The plugin SHALL own up to three distinct cron specs — a **sync** task (hourly
 - **WHEN** the summary task fires
 - **THEN** it reads the activity log and posts a digest to `reporting.channel`
 
-### Requirement: Every-fire memory-maintenance pass
+### Requirement: Light sync fire is memory-triage-only with early exit
 
-Every sync run SHALL perform an unconditional memory-maintenance pass — independent of the external-discovery round-robin and run on every fire — that keeps the idler's adopted units and recently-changed memory current. The pass SHALL, in order: (a) **close resolved units** — for each tracked unit whose references' `howToRead` shows its surface resolved/merged/closed, close it (`open:false` with a short grace `staleAfter`, ~2 days), the same close move the work fire uses; (b) **triage recently-changed memory** — adopt or ignore candidates from a recency-ordered page (per "Recently-updated memory scan during sync"); and (c) **recompute priority** for open units (per the `idler-ideas-ledger` "Sync-recomputed priority" requirement). Step (b) SHALL be gated by `sources.scanMemory`; steps (a) and (c) SHALL run regardless of `sources.scanMemory`. The pass SHALL NOT introduce new persisted state and SHALL NOT add a new tool. The pass SHALL NOT modify the unit the work fire is actively advancing (the existing work-task authority rule continues to apply).
+The light sync fire SHALL perform ONLY the recently-updated memory triage: read one recency-ordered `recall` page (no query, newest `updatedAt` first), classify the whole page from each entry's idler slice markers, and adopt or ignore up to a small number of candidates per the existing triage rules. When classification yields NO candidates, the fire SHALL end immediately via `skip_response`, framed in the prompt as the expected common outcome. The light fire SHALL NOT list pull requests, SHALL NOT re-run tracked units' reference recipes, SHALL NOT run the coldest-unit rotation, and SHALL NOT perform external discovery. The light sync prompt SHALL NOT embed the admin fetch-instructions document; the behavior topic remains attached.
 
-#### Scenario: Maintenance runs every fire regardless of the round-robin
+#### Scenario: Nothing new ends the fire immediately
 
-- **WHEN** any sync fire runs
-- **THEN** the close-resolved, triage-new, and recompute steps all execute that fire
-- **AND** they do not consume or depend on the external-discovery round-robin slot
+- **GIVEN** every entry on the recall page is already triaged (tracked slice, or `ignoredAt` equal to `updatedAt`)
+- **WHEN** a light sync fire runs
+- **THEN** it calls `skip_response` right after classification, with no PR probes, no discovery, and no coldest-unit reads
 
-#### Scenario: Resolved tracked unit is closed during sync
+#### Scenario: Newly-remembered work is adopted mid-day
 
-- **GIVEN** a tracked open unit whose `howToRead` now shows its PR merged (or its source issue resolved)
-- **WHEN** the sync fire runs its maintenance pass
+- **GIVEN** a Q&A session remembered an actionable, allowlist-repo work item since the previous sync fire
+- **WHEN** the next light sync fire runs
+- **THEN** the entry is adopted as a work unit (with `get_archived` enrichment and stable-id keying), within the configured cadence latency
+
+#### Scenario: Light prompt carries no fetch instructions
+
+- **WHEN** the light sync prompt is built
+- **THEN** it does not interpolate `fetch-instructions.md`
+- **AND** it still carries the repo allowlist needed for triage classification
+
+### Requirement: Deep sync fire runs the full maintenance pass before the work window
+
+The deep sync fire SHALL run the full maintenance pass: (a) **quick-fetch + close resolved** — list open Clack-authored pull requests on each allowlisted repo and re-run each tracked unit's references' `howToRead` (PR references per the canonical PR review check), closing units whose surface reads resolved/merged/closed (`open:false` with a short grace `staleAfter`, ~2 days); (b) **coldest-unit re-verification, stale parking, and priority recompute** for open units (per the `idler-ideas-ledger` "Sync-recomputed priority", "Coldest-first ordering", and "Concierge parks stale units" requirements, all of which resolve to the deep fire); (c) **memory triage** (per "Recently-updated memory scan during sync"); and (d) **external discovery covering ALL enabled sources** (channels, tracker, own PRs) in the same fire — not a round-robin — since the deep fire is the only fire that scans. The pass SHALL NOT modify the unit the work fire is actively advancing.
+
+#### Scenario: Resolved tracked unit is closed during the deep fire
+
+- **GIVEN** a tracked open unit whose PR is now merged
+- **WHEN** the deep sync fire runs its quick-fetch
 - **THEN** the unit is closed (`open:false`) with a short grace `staleAfter`
 - **AND** it is no longer selectable by the work fire
 
-#### Scenario: Maintenance still runs when discovery is gated off
+#### Scenario: All enabled discovery sources are scanned each deep fire
 
-- **GIVEN** `sources.scanMemory` is `false`
-- **WHEN** the sync fire runs
-- **THEN** resolved tracked units are still closed and open units are still re-prioritized
-- **AND** only the triage/adoption of newly-changed memory entries is skipped
+- **GIVEN** a discovery channel, the tracker source, and the own-PRs source are all enabled
+- **WHEN** the deep sync fire runs
+- **THEN** all three sources are scanned in that fire rather than rotated across fires
 
-#### Scenario: Close-resolved respects work-task authority
+#### Scenario: Mid-day external events are discovered by the deep fire
+
+- **GIVEN** a Sentry alert posted to a discovery channel during light-sync hours
+- **WHEN** the deep sync fire runs at the anchor hour
+- **THEN** the alert is discovered and keyed as a unit before the work window opens
+
+#### Scenario: Deep pass respects work-task authority
 
 - **GIVEN** the work fire is actively advancing unit `X`
-- **WHEN** the sync maintenance pass runs and `X`'s surface now reads resolved
-- **THEN** the sync pass does NOT close `X` (the work-task authority rule protects the in-flight unit)
-- **AND** a later sync fire (or the work fire itself) closes `X` once it is no longer being advanced
-
-### Requirement: Layered incremental sync
-
-The sync task SHALL perform a cheap quick-fetch on every run — listing open Clack-authored pull requests (filtered by author login and/or branch prefix) and re-polling each tracked unit's references via their `howToRead` — and SHALL spread deeper **external** discovery (channel scans, tracker polls, own-PR inspection) across runs rather than re-scanning every external source every run. Memory maintenance is NOT part of this rotation: closing resolved units, triaging new memory, and recomputing priority run on every fire (see "Every-fire memory-maintenance pass"), not as a round-robin arm.
-
-#### Scenario: Quick-fetch every run
-
-- **WHEN** the sync task fires
-- **THEN** it lists open Clack PRs and refreshes their references' status
-- **AND** advances per-reference cursors for any new activity
-
-#### Scenario: External discovery is incremental
-
-- **GIVEN** multiple configured external discovery sources (channels, tracker, own PRs)
-- **WHEN** successive sync runs fire through the window
-- **THEN** external discovery is rotated across runs (round-robin over the configured external sources) rather than re-scanning all of them on every run
-- **AND** each configured external source is discovered at least once per off-hours window
-
-#### Scenario: Memory maintenance is not rotated
-
-- **WHEN** successive sync runs fire through the window
-- **THEN** the memory-maintenance pass runs on each fire
-- **AND** it is never deferred to a later fire by the external round-robin
+- **WHEN** the deep sync pass runs and `X`'s surface now reads resolved
+- **THEN** the deep pass does NOT close `X`
+- **AND** a later fire closes `X` once it is no longer being advanced
 
 ### Requirement: Graceful degradation when a source MCP is absent
 
@@ -531,30 +550,36 @@ The plugin SHALL support sourcing candidate work from: configured Slack channels
 
 ### Requirement: Recently-updated memory scan during sync
 
-When `sources.scanMemory` is enabled, the sync task's memory-maintenance pass SHALL, on **every fire** (not as one round-robin arm), triage recently-changed memory — reading a generous recency-ordered page via the existing `recall` tool (no query, newest `updatedAt` first), classifying the whole page from each entry's idler slice, and THEN taking up to a small number of candidates (classify-then-take, so it slides past already-triaged newest entries to reach older untriaged ones). A candidate SHALL be adopted as a work unit via `upsert_idea` — keyed by its existing stable id, with the same `getArchived` regression-enrichment as other sources — only when it is clearly actionable AND concerns an allowlisted repo; otherwise the sync SHALL mark it as not-idler-work rather than adopt it. Because `remember` stamps the current time on every content write, newly-remembered or re-remembered entries sort to the top of the page, so an every-fire scan reliably catches new memory without a persisted cursor. The scan SHALL NOT introduce a new tool and SHALL NOT modify the core `recall` or `remember` tools.
+When `sources.scanMemory` is enabled, EVERY sync fire — light and deep — SHALL triage recently-changed memory: reading a generous recency-ordered page via the existing `recall` tool (no query, newest `updatedAt` first), classifying the whole page from each entry's idler slice, and THEN taking up to a small number of candidates (classify-then-take, so it slides past already-triaged newest entries to reach older untriaged ones). A candidate SHALL be adopted as a work unit via `upsert_idea` — keyed by its existing stable id, with the same `getArchived` regression-enrichment as other sources — only when it is clearly actionable AND concerns an allowlisted repo; otherwise the sync SHALL mark it as not-idler-work rather than adopt it. On a LIGHT fire, an empty candidate set SHALL end the fire immediately (per "Light sync fire is memory-triage-only with early exit"); on a DEEP fire, the rest of the maintenance pass proceeds regardless. Because `remember` stamps the current time on every content write, newly-remembered or re-remembered entries sort to the top of the page, so the scan reliably catches new memory without a persisted cursor. The scan SHALL NOT introduce a new tool and SHALL NOT modify the core `recall` or `remember` tools.
 
 #### Scenario: Actionable memory entry is adopted
 
 - **GIVEN** `sources.scanMemory` is enabled and a recently-updated untriaged memory entry keyed `sentry:1234` describes a fixable error in an allowlisted repo
-- **WHEN** the sync maintenance pass runs
+- **WHEN** any sync fire's triage runs
 - **THEN** a work unit is created (or the existing entry adopted) via `upsert_idea` keyed by `sentry:1234`, enriched with any archived prior outcome
 
 #### Scenario: Non-work memory entry is marked not-idler-work
 
 - **GIVEN** an untriaged memory entry that is a user preference or note, not actionable work
-- **WHEN** the sync maintenance pass runs
+- **WHEN** any sync fire's triage runs
 - **THEN** it is marked as not-idler-work and no work unit is created for it
 
 #### Scenario: Out-of-allowlist entry is not adopted
 
 - **GIVEN** an untriaged memory entry describing work in a repo not on the allowlist
-- **WHEN** the sync maintenance pass runs
+- **WHEN** any sync fire's triage runs
 - **THEN** it is not adopted as an actionable unit
 
 #### Scenario: Unchanged not-work entries are not re-triaged
 
 - **GIVEN** a memory entry previously marked not-idler-work, whose `ignoredAt` still equals its `updatedAt` (the ignore write did not advance `updatedAt`)
-- **WHEN** the sync maintenance pass scans the page on a later fire
+- **WHEN** a later sync fire scans the page
 - **THEN** that entry is classified as a non-candidate and not re-triaged
 - **AND** it re-qualifies only once a genuine content write advances its `updatedAt` past `ignoredAt`
+
+#### Scenario: Triage runs on both tiers
+
+- **WHEN** a light sync fire and, later, the deep sync fire run in the same window
+- **THEN** both perform the memory triage step
+- **AND** only the deep fire continues into quick-fetch, coldest rotation, and discovery
 

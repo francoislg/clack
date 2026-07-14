@@ -128,6 +128,96 @@ describe("idler plugin reconcile", () => {
     assert.equal(byKey(store, "summary"), undefined, "no summary spec when summary: false");
   });
 
+  it("reconciles four specs: deep sync (anchor hour), light sync (cadence, no anchor), work, summary", async () => {
+    const store = makeFakeStore();
+    const { sdk } = buildSdk(store);
+    await saveConfig(
+      sdk,
+      operationalConfig({ channel: "C123", tickUpdates: "none", summary: true }),
+    );
+    await idlerPlugin(sdk);
+
+    const deep = byKey(store, "sync");
+    assert.ok(deep, "deep sync spec must be reconciled under specKey 'sync'");
+    assert.equal(deep.cronExpression, "45 17 * * 1,2,3,4,5");
+    assert.equal(deep.submitResponseMode, "skipped");
+    assert.equal(deep.channel, undefined, "deep sync is channelless");
+    assert.deepEqual(deep.attachedTopics, ["idler"]);
+
+    const light = byKey(store, "sync-light");
+    assert.ok(light, "light sync spec must be reconciled under specKey 'sync-light'");
+    assert.equal(light.cronExpression, "45 9,11,13,15 * * 1,2,3,4,5");
+    assert.equal(light.submitResponseMode, "skipped");
+    assert.equal(light.channel, undefined, "light sync is channelless");
+    assert.deepEqual(light.attachedTopics, ["idler"]);
+
+    assert.ok(byKey(store, "work"), "work spec present");
+    assert.ok(byKey(store, "summary"), "summary spec present");
+    assert.equal(store.createCalls.length, 4);
+  });
+
+  it("cadence 1 fires light sync every non-anchor hour", async () => {
+    const store = makeFakeStore();
+    const { sdk } = buildSdk(store);
+    await saveConfig(sdk, {
+      ...operationalConfig({ channel: "C123", tickUpdates: "none", summary: true }),
+      syncEveryHours: 1,
+    });
+    await idlerPlugin(sdk);
+
+    const light = byKey(store, "sync-light");
+    assert.ok(light);
+    assert.equal(light.cronExpression, "45 9-16 * * 1,2,3,4,5");
+  });
+
+  it("single-hour sync window produces only the deep sync spec (no light)", async () => {
+    const store = makeFakeStore();
+    const { sdk } = buildSdk(store);
+    await saveConfig(sdk, {
+      ...operationalConfig({ channel: "C123", tickUpdates: "none", summary: true }),
+      syncHours: { start: 8, end: 9, tz: "UTC", days: [1, 2, 3, 4, 5] },
+    });
+    await idlerPlugin(sdk);
+
+    const deep = byKey(store, "sync");
+    assert.ok(deep, "deep sync spec present");
+    assert.equal(deep.cronExpression, "45 8 * * 1,2,3,4,5");
+    assert.equal(byKey(store, "sync-light"), undefined, "no light sync for a single-hour window");
+    assert.equal(store.createCalls.length, 3);
+  });
+
+  it("both sync specs inherit the explicit sync window's timezone", async () => {
+    const store = makeFakeStore();
+    const { sdk } = buildSdk(store);
+    await saveConfig(sdk, {
+      ...operationalConfig({ channel: "C123", tickUpdates: "none", summary: true }),
+      syncHours: { start: 9, end: 18, tz: "Europe/London", days: [1, 2, 3, 4, 5] },
+    });
+    await idlerPlugin(sdk);
+
+    assert.equal(byKey(store, "sync")?.timezone, "Europe/London");
+    assert.equal(byKey(store, "sync-light")?.timezone, "Europe/London");
+  });
+
+  it("reconciles no sync specs when the work window covers every hour", async () => {
+    const store = makeFakeStore();
+    const { sdk } = buildSdk(store);
+    await saveConfig(sdk, {
+      ...operationalConfig({ channel: "C123", tickUpdates: "none", summary: true }),
+      workHours: { start: 0, end: 24, tz: "UTC", days: [1, 2, 3, 4, 5] },
+    });
+    await idlerPlugin(sdk);
+
+    assert.equal(byKey(store, "sync"), undefined, "no deep sync when there is no complement");
+    assert.equal(
+      byKey(store, "sync-light"),
+      undefined,
+      "no light sync when there is no complement",
+    );
+    assert.ok(byKey(store, "work"), "work spec still present");
+    assert.equal(store.createCalls.length, 2, "only work + summary");
+  });
+
   it("fully silent (none + summary off): work spec silent, no summary spec", async () => {
     const store = makeFakeStore();
     const { sdk } = buildSdk(store);

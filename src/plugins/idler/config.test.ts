@@ -19,6 +19,7 @@ describe("idlerConfigSchema", () => {
     });
     assert.equal(parsed.maxActionsPerFire, 1);
     assert.equal(parsed.maxActionsPerNight, 5);
+    assert.equal(parsed.syncEveryHours, 2);
     assert.deepEqual(parsed.repoAllowlist, []);
     assert.equal(parsed.sources.ownPrs, true);
     assert.equal(parsed.sources.scanMemory, true);
@@ -73,6 +74,13 @@ describe("idlerConfigSchema", () => {
       summaryHour: 24,
     });
     assert.equal(bad.success, false);
+  });
+
+  it("accepts an explicit syncEveryHours and rejects out-of-range values", () => {
+    const minimal = { enabled: true, workHours: { start: 18, end: 9, tz: "UTC", days: [1] } };
+    assert.equal(idlerConfigSchema.parse({ ...minimal, syncEveryHours: 4 }).syncEveryHours, 4);
+    assert.equal(idlerConfigSchema.safeParse({ ...minimal, syncEveryHours: 0 }).success, false);
+    assert.equal(idlerConfigSchema.safeParse({ ...minimal, syncEveryHours: 13 }).success, false);
   });
 
   it("rejects a malformed channel id", () => {

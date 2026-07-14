@@ -31,6 +31,15 @@ export function createSetConfigTool(sdk: ClackSdk) {
         .describe("Hour [0..23] the morning digest fires; defaults to 9 (AM)"),
       maxActionsPerFire: z.number().int().min(1).max(20).optional(),
       maxActionsPerNight: z.number().int().min(1).max(100).optional(),
+      syncEveryHours: z
+        .number()
+        .int()
+        .min(1)
+        .max(12)
+        .optional()
+        .describe(
+          "Sync cadence in hours (1 = hourly, default 2). The fire just before the work window opens is always kept.",
+        ),
       trackerSource: z.boolean().optional().describe("Enable/disable the external-tracker source"),
       ownPrsSource: z.boolean().optional().describe("Enable/disable the own-PRs source"),
     },
@@ -48,6 +57,7 @@ export function createSetConfigTool(sdk: ClackSdk) {
         },
         maxActionsPerFire: args.maxActionsPerFire ?? config.maxActionsPerFire,
         maxActionsPerNight: args.maxActionsPerNight ?? config.maxActionsPerNight,
+        syncEveryHours: args.syncEveryHours ?? config.syncEveryHours,
         sources: {
           ...config.sources,
           tracker: args.trackerSource ?? config.sources.tracker,
@@ -73,7 +83,7 @@ export function createSetConfigTool(sdk: ClackSdk) {
 export function createSetWorkHoursTool(sdk: ClackSdk) {
   return tool(
     "set_idler_work_hours",
-    "Set the idler's work window — when it makes autonomous progress. It fires INSIDE this window. Use start > end for an overnight window (e.g. start 18, end 9 = 6 PM–9 AM); end is exclusive. Sync runs hourly outside this window unless an explicit sync window is set.",
+    "Set the idler's work window — when it makes autonomous progress. It fires INSIDE this window. Use start > end for an overnight window (e.g. start 18, end 9 = 6 PM–9 AM); end is exclusive. Outside this window (unless an explicit sync window is set) sync runs in two tiers: a light triage-only fire every syncEveryHours hours (default 2), plus one deep full-maintenance fire in the hour just before the work window opens.",
     {
       start: z.number().int().min(0).max(23),
       end: z.number().int().min(1).max(24),
@@ -99,7 +109,7 @@ export function createSetWorkHoursTool(sdk: ClackSdk) {
 export function createSetSyncHoursTool(sdk: ClackSdk) {
   return tool(
     "set_idler_sync_hours",
-    "Set the idler's sync (ledger-priming) window — read-only discovery fires INSIDE it. Pass clear: true to remove it, so sync is derived automatically as the complement of the work window. tz/days default to the work window's when omitted.",
+    "Set the idler's sync (ledger-priming) window — read-only fires run INSIDE it: a light triage-only fire every syncEveryHours hours plus one deep full-maintenance fire in the window's last hour. Pass clear: true to remove it, so sync is derived automatically as the complement of the work window. tz/days default to the work window's when omitted.",
     {
       start: z.number().int().min(0).max(23).optional(),
       end: z.number().int().min(1).max(24).optional(),
@@ -215,16 +225,19 @@ export function createViewIdeasTool(sdk: ClackSdk) {
     {},
     async () => {
       const entries = await sdk.memory.list();
-      const ideas = entries
-        .map((entry) => ({ entry, slot: parseSlot(entry.plugins?.idler) }))
-        .filter((e) => e.slot !== null)
-        .map(({ entry, slot }) => ({
-          id: entry.id,
-          what: entry.what,
-          open: slot!.open,
-          priority: slot!.priority,
-          whereWeAre: slot!.whereWeAre,
-        }));
+      const ideas = entries.flatMap((entry) => {
+        const slot = parseSlot(entry.plugins?.idler);
+        if (!slot) return [];
+        return [
+          {
+            id: entry.id,
+            what: entry.what,
+            open: slot.open,
+            priority: slot.priority,
+            whereWeAre: slot.whereWeAre,
+          },
+        ];
+      });
       return textResult({ count: ideas.length, ideas });
     },
   );
