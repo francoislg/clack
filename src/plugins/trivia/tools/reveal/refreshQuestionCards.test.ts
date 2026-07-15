@@ -3,9 +3,13 @@ import assert from "node:assert/strict";
 import type { KnownBlock } from "@slack/types";
 import { createRefreshQuestionCardsTool } from "./refreshQuestionCards.js";
 import type { RevealSlackDeps } from "./computeAnswers.js";
-import { createInMemoryDataLayer, FIXTURE_GAME_NAME, fixtureGetGames } from "../../testHelpers.js";
+import {
+  createFakeSdk,
+  createInMemoryDataLayer,
+  FIXTURE_GAME_NAME,
+  fixtureGetGames,
+} from "../../testHelpers.js";
 import { parseToolResult } from "../../../../tools/testHelpers.js";
-import type { ClackSdk } from "../../../sdk.js";
 import type { TriviaQuestion } from "../../core/types.js";
 
 /**
@@ -15,13 +19,6 @@ import type { TriviaQuestion } from "../../core/types.js";
  */
 
 const SESSION = { sessionId: "test" };
-
-function fakeSdk(): Pick<ClackSdk, "getSlackClient" | "actionId"> {
-  return {
-    getSlackClient: () => null,
-    actionId: (key: string) => `plugin:trivia:${key}`,
-  };
-}
 
 function makeQuestion(overrides: Partial<TriviaQuestion>): TriviaQuestion {
   return {
@@ -82,7 +79,7 @@ function postedBooleanBlocks(questionId: string) {
       elements: [
         {
           type: "button" as const,
-          action_id: `plugin:trivia:vote:${questionId}:true`,
+          action_id: `plugin:test:vote:${questionId}:true`,
           text: { type: "plain_text" as const, text: "👍 TRUE" },
         },
       ],
@@ -91,7 +88,7 @@ function postedBooleanBlocks(questionId: string) {
 }
 
 function makeTool(data: ReturnType<typeof createInMemoryDataLayer>, deps: RevealSlackDeps) {
-  return createRefreshQuestionCardsTool(data, fakeSdk(), fixtureGetGames, deps);
+  return createRefreshQuestionCardsTool(data, createFakeSdk(), fixtureGetGames, deps);
 }
 
 describe("refresh_question_cards — deterministic card projection", () => {
@@ -429,9 +426,15 @@ describe("refresh_question_cards — deterministic card projection", () => {
     );
 
     const { deps, updates } = capturingSlackDeps();
-    const tool = createRefreshQuestionCardsTool(data, fakeSdk(), fixtureGetGames, deps, () => ({
-      tellMeMore: { enabled: true },
-    }));
+    const tool = createRefreshQuestionCardsTool(
+      data,
+      createFakeSdk(),
+      fixtureGetGames,
+      deps,
+      () => ({
+        tellMeMore: { enabled: true },
+      }),
+    );
     await tool.handler({ game: FIXTURE_GAME_NAME, questionIds: ["q1"] }, SESSION);
 
     const ids = updates[0].blockIds;
@@ -450,7 +453,7 @@ describe("refresh_question_cards — deterministic card projection", () => {
     assert.ok(group?.type === "actions");
     assert.deepEqual(
       group.elements.map((el) => (el.type === "button" ? el.action_id : null)),
-      ["plugin:trivia:reveal-see-answer:q1", "plugin:trivia:tell-me-more:q1"],
+      ["plugin:test:reveal-see-answer:q1", "plugin:test:tell-me-more:q1"],
     );
   });
 });

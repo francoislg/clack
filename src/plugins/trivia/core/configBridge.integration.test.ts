@@ -24,7 +24,7 @@ import {
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { relocateTriviaConfig } from "../../../migrations/022-trivia-config-to-plugin.js";
-import { fakeSdkUsers, fakeSdkMemory } from "../testHelpers.js";
+import { createFakeSdk } from "../testHelpers.js";
 import {
   _resetTriviaConfigBridge,
   defaultGetGames,
@@ -41,19 +41,7 @@ import type { ClackSdk } from "../../sdk.js";
 const SESSION = { sessionId: "test" };
 
 function makeSdkOverRealDir(pluginDataDir: string): ClackSdk {
-  return {
-    logger: { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} },
-    capabilities: { crons: true },
-    error: () => {},
-    addInstruction: () => {},
-    addTopicInstruction: () => {},
-    registerTool: () => {},
-    mcpServer: { fullName: "test", registerTool: () => {}, addTopicInstruction: () => {} },
-    registerMcpServer: () => ({
-      fullName: "test",
-      registerTool: () => {},
-      addTopicInstruction: () => {},
-    }),
+  return createFakeSdk({
     readFile: async (path) => {
       const full = join(pluginDataDir, path);
       if (!existsSync(full)) return null;
@@ -65,12 +53,6 @@ function makeSdkOverRealDir(pluginDataDir: string): ClackSdk {
       if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
       writeFileSync(full, content, "utf-8");
     },
-    readFileOrSeed: async function (path, defaultContent) {
-      const existing = await this.readFile(path);
-      if (existing !== null) return existing;
-      await this.writeFile(path, defaultContent);
-      return defaultContent;
-    },
     watchFile: (path): FSWatcher => {
       // Watch the real file in the temp dir. The bridge passes a relative
       // path; the SDK resolves it under the plugin's data dir.
@@ -78,31 +60,7 @@ function makeSdkOverRealDir(pluginDataDir: string): ClackSdk {
       if (!existsSync(full)) writeFileSync(full, "{}", "utf-8");
       return fsWatch(full);
     },
-    reconcileCronJobs: async () => {},
-    findOwnedCronJobs: async () => [],
-    onDelayedBoot: () => {},
-    missedRuns: async () => ({ lastExpectedRuns: [] }),
-    runCronJobNow: async () => {},
-    dmOwner: async () => ({ ok: true as const }),
-    getSlackClient: () => null,
-    sendMessage: async () => ({ ok: true as const, ts: "1", channel: "C" }),
-    engageThread: async () => {},
-    startThreadConversation: async () => {},
-    registerAction: () => {},
-    registerView: () => {},
-    actionId: (key: string) => `plugin:test:${key}`,
-    viewCallbackId: (key: string) => `plugin:test:${key}`,
-    askClaude: async () => ({
-      text: "",
-      stopReason: "end_turn",
-      usage: { inputTokens: 0, outputTokens: 0 },
-    }),
-    requestSoftRestart: () => {},
-    registerDictionary: () => {},
-    t: (key: string) => key,
-    users: fakeSdkUsers(),
-    memory: fakeSdkMemory(),
-  };
+  });
 }
 
 interface OnDiskPluginConfigShape {

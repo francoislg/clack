@@ -3,9 +3,13 @@ import assert from "node:assert/strict";
 import { createComputeAnswersTool, type RevealSlackDeps } from "./tools/reveal/computeAnswers.js";
 import { createRefreshQuestionCardsTool } from "./tools/reveal/refreshQuestionCards.js";
 import { createStartNewSeasonTool } from "./tools/seasons/startNewSeason.js";
-import { createInMemoryDataLayer, FIXTURE_GAME_NAME, fixtureGetGames } from "./testHelpers.js";
+import {
+  createFakeSdk,
+  createInMemoryDataLayer,
+  FIXTURE_GAME_NAME,
+  fixtureGetGames,
+} from "./testHelpers.js";
 import { parseToolResult } from "../../tools/testHelpers.js";
-import type { ClackSdk } from "../sdk.js";
 import type { TriviaQuestion } from "./core/types.js";
 
 /**
@@ -26,18 +30,6 @@ import type { TriviaQuestion } from "./core/types.js";
 
 const SESSION = { sessionId: "test" };
 const DAY = 86_400_000;
-
-function fakeSdk(): Pick<ClackSdk, "getSlackClient" | "askClaude" | "actionId"> {
-  return {
-    getSlackClient: () => null,
-    askClaude: async () => ({
-      text: "",
-      stopReason: "end_turn",
-      usage: { inputTokens: 0, outputTokens: 0 },
-    }),
-    actionId: (key: string) => `plugin:trivia:${key}`,
-  };
-}
 
 interface UpdateCall {
   channel: string;
@@ -81,7 +73,7 @@ function postedBooleanBlocks(questionId: string) {
       elements: [
         {
           type: "button" as const,
-          action_id: `plugin:trivia:vote:${questionId}:true`,
+          action_id: `plugin:test:vote:${questionId}:true`,
           text: { type: "plain_text" as const, text: "👍 TRUE" },
         },
       ],
@@ -109,7 +101,7 @@ function makeQuestion(overrides: Partial<TriviaQuestion>): TriviaQuestion {
 type Data = ReturnType<typeof createInMemoryDataLayer>;
 
 function tools(data: Data, deps: RevealSlackDeps, revealCron: string) {
-  const sdk = fakeSdk();
+  const sdk = createFakeSdk();
   const getGames = getGamesWithCron(revealCron);
   const noConfig = () => ({});
   return {

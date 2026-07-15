@@ -1,6 +1,7 @@
 import { describe, it, beforeEach } from "vitest";
 import assert from "node:assert/strict";
 import {
+  createFakeSdk,
   createInMemoryDataLayer,
   FIXTURE_GAME_NAME,
   fixtureGetGames,
@@ -16,16 +17,6 @@ import {
 } from "./tools/questions/postQuestions.js";
 import { parseToolResult } from "../../tools/testHelpers.js";
 import type { TriviaConfig } from "./core/configTypes.js";
-import type { ClackSdk } from "../sdk.js";
-
-function fakeSdk(): Pick<ClackSdk, "getSlackClient" | "actionId" | "t" | "engageThread"> {
-  return {
-    getSlackClient: () => null,
-    actionId: (key: string) => `plugin:trivia:${key}`,
-    t: (key: string) => key,
-    engageThread: async () => {},
-  };
-}
 
 function postQuestionsDeps(): PostQuestionsSlackDeps {
   let counter = 0;
@@ -110,7 +101,7 @@ describe("choice-questions end-to-end flow", () => {
     // 3. post_questions stamps postedAt + messageLink on the question record
     const postQuestions = createPostQuestionsTool(
       data,
-      fakeSdk(),
+      createFakeSdk(),
       fixtureGetGames,
       postQuestionsDeps(),
     );

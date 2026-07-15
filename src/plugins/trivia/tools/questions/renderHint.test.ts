@@ -3,15 +3,10 @@ import assert from "node:assert/strict";
 import type { ActionsBlock, Button, ContextBlock } from "@slack/types";
 import type { SlackBlocks } from "../../../../slack/blocks.js";
 import type { TriviaQuestion } from "../../core/types.js";
+import { createFakeSdk } from "../../testHelpers.js";
 import { applyHintRendering } from "./renderHint.js";
 
-const sdk = {
-  t: (key: string, vars?: Record<string, string>): string => {
-    if (vars?.text !== undefined) return `${key}:${vars.text}`;
-    return key;
-  },
-  actionId: (key: string): string => `plugin:trivia:${key}`,
-};
+const sdk = createFakeSdk();
 
 function makeQuestion(overrides: Partial<TriviaQuestion> = {}): TriviaQuestion {
   return {
@@ -46,7 +41,7 @@ describe("applyHintRendering — button mode", () => {
     const actions = result[result.length - 1] as ActionsBlock;
     assert.equal(actions.elements.length, 3);
     const last = actions.elements[2] as Button;
-    assert.equal(last.action_id, "plugin:trivia:hint:Q1");
+    assert.equal(last.action_id, "plugin:test:hint:Q1");
     assert.equal(last.style, undefined);
   });
 
@@ -60,7 +55,7 @@ describe("applyHintRendering — button mode", () => {
     const actions = result[result.length - 1] as ActionsBlock;
     assert.equal(actions.elements.length, 5);
     const last = actions.elements[4] as Button;
-    assert.equal(last.action_id, "plugin:trivia:hint:Q1");
+    assert.equal(last.action_id, "plugin:test:hint:Q1");
   });
 
   it("preserves the answer-button order", () => {

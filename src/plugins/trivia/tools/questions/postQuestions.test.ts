@@ -4,9 +4,14 @@ import { createPostQuestionsTool, type PostQuestionsSlackDeps } from "./postQues
 import { getAnswerTypeHandler } from "../../answerTypes/registry.js";
 
 const actionIdFn = (k: string): string => `plugin:trivia:${k}`;
-import { createInMemoryDataLayer, FIXTURE_GAME_NAME, fixtureGetGames } from "../../testHelpers.js";
+import {
+  createFakeSdk,
+  createInMemoryDataLayer,
+  FIXTURE_GAME_NAME,
+  fixtureGetGames,
+} from "../../testHelpers.js";
 import { parseToolResult } from "../../../../tools/testHelpers.js";
-import type { ClackSdk, AttentionLevel } from "../../../sdk.js";
+import type { AttentionLevel } from "../../../sdk.js";
 import { PENDING_QUESTION_CREATION_CONTEXT } from "../../prompts/triviaCheckInstruction.js";
 import type { TriviaDataLayer, TriviaQuestion } from "../../core/types.js";
 import type { z } from "zod";
@@ -17,15 +22,6 @@ type ZodBlock = z.infer<typeof BlockSchema>;
 
 const SESSION = { sessionId: "test" };
 const FIXTURE_CHANNEL = "C100000000";
-
-function fakeSdk(): Pick<ClackSdk, "getSlackClient" | "actionId" | "t" | "engageThread"> {
-  return {
-    getSlackClient: () => null,
-    actionId: (key: string) => `plugin:trivia:${key}`,
-    t: (key: string) => key,
-    engageThread: async () => {},
-  };
-}
 
 interface FakeSlackOpts {
   postResults?: Array<{ ts: string; permalink: string } | { error: string }>;
@@ -196,7 +192,7 @@ describe("post_questions tool", () => {
     const { deps, calls } = fakeSlackDeps({
       postResults: [{ ts: "1700000000.123456", permalink: "https://x.slack.com/p1" }],
     });
-    const tool = createPostQuestionsTool(data, fakeSdk(), fixtureGetGames, deps);
+    const tool = createPostQuestionsTool(data, createFakeSdk(), fixtureGetGames, deps);
 
     const result = await tool.handler(
       {
@@ -235,10 +231,7 @@ describe("post_questions tool", () => {
       attentionLevel?: AttentionLevel;
       creationContext?: string;
     }[] = [];
-    const sdk: Pick<ClackSdk, "getSlackClient" | "actionId" | "t" | "engageThread"> = {
-      getSlackClient: () => null,
-      actionId: (key: string) => `plugin:trivia:${key}`,
-      t: (key: string) => key,
+    const sdk = createFakeSdk({
       engageThread: async (channel, threadTs, opts) => {
         engageCalls.push({
           channel,
@@ -247,7 +240,7 @@ describe("post_questions tool", () => {
           creationContext: opts.creationContext,
         });
       },
-    };
+    });
     const tool = createPostQuestionsTool(data, sdk, fixtureGetGames, deps);
 
     await tool.handler(
@@ -272,7 +265,7 @@ describe("post_questions tool", () => {
     await seedQuestion(data, { id: "Q1" });
 
     const { deps } = fakeSlackDeps();
-    const tool = createPostQuestionsTool(data, fakeSdk(), fixtureGetGames, deps);
+    const tool = createPostQuestionsTool(data, createFakeSdk(), fixtureGetGames, deps);
 
     await tool.handler(
       {
@@ -296,7 +289,7 @@ describe("post_questions tool", () => {
 
     const { deps } = fakeSlackDeps();
     const getGames = () => fixtureGetGames().map((g) => ({ ...g, tagPlayers: false }));
-    const tool = createPostQuestionsTool(data, fakeSdk(), getGames, deps);
+    const tool = createPostQuestionsTool(data, createFakeSdk(), getGames, deps);
 
     await tool.handler(
       {
@@ -318,7 +311,7 @@ describe("post_questions tool", () => {
     await seedQuestion(data, { id: "Q2" });
 
     const { deps, calls } = fakeSlackDeps();
-    const tool = createPostQuestionsTool(data, fakeSdk(), fixtureGetGames, deps);
+    const tool = createPostQuestionsTool(data, createFakeSdk(), fixtureGetGames, deps);
 
     const result = await tool.handler(
       {
@@ -349,7 +342,7 @@ describe("post_questions tool", () => {
     });
 
     const { deps, calls } = fakeSlackDeps();
-    const tool = createPostQuestionsTool(data, fakeSdk(), fixtureGetGames, deps);
+    const tool = createPostQuestionsTool(data, createFakeSdk(), fixtureGetGames, deps);
 
     const result = await tool.handler(
       {
@@ -373,7 +366,7 @@ describe("post_questions tool", () => {
   it("rejects an unknown game", async () => {
     const data = createInMemoryDataLayer();
     const { deps, calls } = fakeSlackDeps();
-    const tool = createPostQuestionsTool(data, fakeSdk(), fixtureGetGames, deps);
+    const tool = createPostQuestionsTool(data, createFakeSdk(), fixtureGetGames, deps);
 
     const result = await tool.handler(
       {
@@ -395,7 +388,7 @@ describe("post_questions tool", () => {
     await seedQuestion(data, { id: "Q1" });
 
     const { deps, calls } = fakeSlackDeps({ unavailableError: "Slack disconnected" });
-    const tool = createPostQuestionsTool(data, fakeSdk(), fixtureGetGames, deps);
+    const tool = createPostQuestionsTool(data, createFakeSdk(), fixtureGetGames, deps);
 
     const result = await tool.handler(
       {
@@ -418,7 +411,7 @@ describe("post_questions tool", () => {
     await seedQuestion(data, { id: "Q2" });
 
     const { deps } = fakeSlackDeps();
-    const tool = createPostQuestionsTool(data, fakeSdk(), fixtureGetGames, deps);
+    const tool = createPostQuestionsTool(data, createFakeSdk(), fixtureGetGames, deps);
 
     await tool.handler(
       {
@@ -480,7 +473,7 @@ describe("post_questions is medium-agnostic for images", () => {
     const data = createInMemoryDataLayer();
     await seedQuestion(data, { id: "IMG1", promptMedium: "image" });
     const { deps, calls } = fakeSlackDeps();
-    const tool = createPostQuestionsTool(data, fakeSdk(), fixtureGetGames, deps);
+    const tool = createPostQuestionsTool(data, createFakeSdk(), fixtureGetGames, deps);
 
     const parsed = parseToolResult(
       await tool.handler(postItem("IMG1", CARD_BLOCKS_WITH_IMAGE), SESSION),
@@ -508,7 +501,7 @@ describe("post_questions is medium-agnostic for images", () => {
     // the tool does NOT compensate — it posts exactly what it was given.
     await seedQuestion(data, { id: "IMG2", promptMedium: "image" });
     const { deps, calls } = fakeSlackDeps();
-    const tool = createPostQuestionsTool(data, fakeSdk(), fixtureGetGames, deps);
+    const tool = createPostQuestionsTool(data, createFakeSdk(), fixtureGetGames, deps);
 
     const parsed = parseToolResult(await tool.handler(postItem("IMG2", SAMPLE_BLOCKS), SESSION));
     assert.equal(parsed.results[0].ok, true);
@@ -535,7 +528,7 @@ describe("post_questions scroll-to-top trailing message", () => {
     await seedQuestion(data, { id: "Q2" });
 
     const { deps, calls } = fakeSlackDeps();
-    const tool = createPostQuestionsTool(data, fakeSdk(), scrollEnabledGames, deps);
+    const tool = createPostQuestionsTool(data, createFakeSdk(), scrollEnabledGames, deps);
 
     await tool.handler(
       {
@@ -568,7 +561,7 @@ describe("post_questions scroll-to-top trailing message", () => {
     await seedQuestion(data, { id: "Q1" });
 
     const { deps, calls } = fakeSlackDeps();
-    const tool = createPostQuestionsTool(data, fakeSdk(), scrollEnabledGames, deps);
+    const tool = createPostQuestionsTool(data, createFakeSdk(), scrollEnabledGames, deps);
 
     await tool.handler(
       {
@@ -589,7 +582,7 @@ describe("post_questions scroll-to-top trailing message", () => {
     await seedQuestion(data, { id: "Q2" });
 
     const { deps, calls } = fakeSlackDeps();
-    const tool = createPostQuestionsTool(data, fakeSdk(), fixtureGetGames, deps);
+    const tool = createPostQuestionsTool(data, createFakeSdk(), fixtureGetGames, deps);
 
     await tool.handler(
       {
@@ -619,7 +612,7 @@ describe("post_questions scroll-to-top trailing message", () => {
         { error: "Slack rate-limited" },
       ],
     });
-    const tool = createPostQuestionsTool(data, fakeSdk(), scrollEnabledGames, deps);
+    const tool = createPostQuestionsTool(data, createFakeSdk(), scrollEnabledGames, deps);
 
     const result = await tool.handler(
       {
@@ -649,7 +642,7 @@ describe("post_questions scroll-to-top trailing message", () => {
     await seedQuestion(data, { id: "Q3" });
 
     const { deps, calls } = fakeSlackDeps();
-    const tool = createPostQuestionsTool(data, fakeSdk(), scrollEnabledGames, deps);
+    const tool = createPostQuestionsTool(data, createFakeSdk(), scrollEnabledGames, deps);
 
     // Fresh batch: Q1, Q2.
     await tool.handler(
