@@ -1,27 +1,14 @@
 import { describe, it, beforeEach } from "vitest";
 import assert from "node:assert/strict";
-import { createInMemoryDataLayer, type InMemoryDataLayer } from "../testHelpers.js";
+import { createFakeSdk, createInMemoryDataLayer, type InMemoryDataLayer } from "../testHelpers.js";
 import { createGetIdeasTool } from "./questions/getIdeas.js";
 import { createSaveQuestionTool } from "./questions/saveQuestion.js";
 import { createExplainCascadeTool } from "./games/explainCascade.js";
 import { createComputeAnswersTool, type RevealSlackDeps } from "./reveal/computeAnswers.js";
 import { parseToolResult } from "../../../tools/testHelpers.js";
-import type { ClackSdk } from "../../sdk.js";
 import type { TriviaConfig, TriviaGame } from "../core/configTypes.js";
 
 const SESSION = { sessionId: "test" };
-
-function fakeSdk(): Pick<ClackSdk, "getSlackClient" | "askClaude" | "actionId"> {
-  return {
-    getSlackClient: () => null,
-    askClaude: async () => ({
-      text: "",
-      stopReason: "end_turn",
-      usage: { inputTokens: 0, outputTokens: 0 },
-    }),
-    actionId: (key: string) => `plugin:trivia:${key}`,
-  };
-}
 
 function fakeSlackDeps(): RevealSlackDeps {
   return {
@@ -195,7 +182,13 @@ describe("cascade parity — explain_cascade ≡ get_ideas ≡ save_question (ga
       timestamp: 500,
     });
 
-    const reveal = createComputeAnswersTool(data, fakeSdk(), getGames, fakeSlackDeps(), getConfig);
+    const reveal = createComputeAnswersTool(
+      data,
+      createFakeSdk(),
+      getGames,
+      fakeSlackDeps(),
+      getConfig,
+    );
     const res = parseToolResult(
       await reveal.handler(
         {

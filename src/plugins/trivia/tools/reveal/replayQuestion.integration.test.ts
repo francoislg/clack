@@ -9,9 +9,13 @@ import {
 import { createSettleQuestionTool } from "./settleQuestion.js";
 import { createComputeAnswersTool, type RevealSlackDeps } from "./computeAnswers.js";
 import { createRefreshQuestionCardsTool } from "./refreshQuestionCards.js";
-import { createInMemoryDataLayer, FIXTURE_GAME_NAME, fixtureGetGames } from "../../testHelpers.js";
+import {
+  createFakeSdk,
+  createInMemoryDataLayer,
+  FIXTURE_GAME_NAME,
+  fixtureGetGames,
+} from "../../testHelpers.js";
 import { parseToolResult } from "../../../../tools/testHelpers.js";
-import type { ClackSdk } from "../../../sdk.js";
 import type { TriviaDataLayer, TriviaQuestion } from "../../core/types.js";
 import type { BlockSchema } from "../../../../slack/blockSchema.js";
 
@@ -27,24 +31,6 @@ const SESSION = { sessionId: "test" };
 const SAMPLE_BLOCKS: Array<z.infer<typeof BlockSchema>> = [
   { type: "section", text: { type: "mrkdwn", text: "Q?" } },
 ];
-
-function fakeSdk(): Pick<
-  ClackSdk,
-  "getSlackClient" | "actionId" | "t" | "engageThread" | "askClaude"
-> {
-  return {
-    getSlackClient: () => null,
-    actionId: (key: string) => `plugin:trivia:${key}`,
-    t: (key: string) => key,
-    engageThread: async () => {},
-    // Never reached on the boolean reveal path; present only to satisfy the type.
-    askClaude: async () => ({
-      text: "",
-      stopReason: "end_turn",
-      usage: { inputTokens: 0, outputTokens: 0 },
-    }),
-  };
-}
 
 function postSlackDeps(): { deps: PostQuestionsSlackDeps } {
   let i = 0;
@@ -111,7 +97,7 @@ describe("replay a bad question — mid-window invalidate + replace + reveal", (
     const data = createInMemoryDataLayer();
     const scoped = data.forGame(FIXTURE_GAME_NAME);
     const { deps: postDeps } = postSlackDeps();
-    const postTool = createPostQuestionsTool(data, fakeSdk(), fixtureGetGames, postDeps);
+    const postTool = createPostQuestionsTool(data, createFakeSdk(), fixtureGetGames, postDeps);
     const settleTool = createSettleQuestionTool(data, fixtureGetGames);
 
     // 1. Post a two-question batch and take some votes (still live, unrevealed).
@@ -168,7 +154,12 @@ describe("replay a bad question — mid-window invalidate + replace + reveal", (
 
     // 3. Repaint ONLY the dead card mid-window; the live sibling keeps its buttons.
     const { deps: midDeps, updates: midUpdates } = revealSlackDeps();
-    const updateMid = createRefreshQuestionCardsTool(data, fakeSdk(), fixtureGetGames, midDeps);
+    const updateMid = createRefreshQuestionCardsTool(
+      data,
+      createFakeSdk(),
+      fixtureGetGames,
+      midDeps,
+    );
     await updateMid.handler({ game: FIXTURE_GAME_NAME, questionIds: ["q_bad"] }, SESSION);
     assert.equal(midUpdates.length, 1, "only the invalidated card is repainted");
     // Invalidated repaint: content WAS sent, with no vote buttons and no reveal-results footer.
@@ -198,7 +189,12 @@ describe("replay a bad question — mid-window invalidate + replace + reveal", (
 
     // 5. Reveal the batch — the dead question is skipped, the replacement is scored.
     const { deps: revealDeps } = revealSlackDeps();
-    const computeTool = createComputeAnswersTool(data, fakeSdk(), fixtureGetGames, revealDeps);
+    const computeTool = createComputeAnswersTool(
+      data,
+      createFakeSdk(),
+      fixtureGetGames,
+      revealDeps,
+    );
     const reveal = parseToolResult(
       await computeTool.handler(
         { game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined, reprocessBatchId: undefined },
@@ -217,7 +213,12 @@ describe("replay a bad question — mid-window invalidate + replace + reveal", (
 
     // 6. At reveal, repaint the two revealed cards (q_bad was already repainted mid-window).
     const { deps: finalDeps, updates: finalUpdates } = revealSlackDeps();
-    const updateFinal = createRefreshQuestionCardsTool(data, fakeSdk(), fixtureGetGames, finalDeps);
+    const updateFinal = createRefreshQuestionCardsTool(
+      data,
+      createFakeSdk(),
+      fixtureGetGames,
+      finalDeps,
+    );
     await updateFinal.handler(
       {
         game: FIXTURE_GAME_NAME,
@@ -232,10 +233,15 @@ describe("replay a bad question — mid-window invalidate + replace + reveal", (
     const data = createInMemoryDataLayer();
     const scoped = data.forGame(FIXTURE_GAME_NAME);
     const { deps: postDeps } = postSlackDeps();
-    const postTool = createPostQuestionsTool(data, fakeSdk(), fixtureGetGames, postDeps);
+    const postTool = createPostQuestionsTool(data, createFakeSdk(), fixtureGetGames, postDeps);
     const settleTool = createSettleQuestionTool(data, fixtureGetGames);
     const { deps: revealDeps } = revealSlackDeps();
-    const computeTool = createComputeAnswersTool(data, fakeSdk(), fixtureGetGames, revealDeps);
+    const computeTool = createComputeAnswersTool(
+      data,
+      createFakeSdk(),
+      fixtureGetGames,
+      revealDeps,
+    );
 
     // Post and score a two-question batch (U1 right on q1, U2 right on q_void).
     await seedBoolean(data, "q1", true, 1);
@@ -312,7 +318,7 @@ describe("replay a bad question — mid-window invalidate + replace + reveal", (
     const { deps: repaintDeps, updates: repaintUpdates } = revealSlackDeps();
     const updateVoid = createRefreshQuestionCardsTool(
       data,
-      fakeSdk(),
+      createFakeSdk(),
       fixtureGetGames,
       repaintDeps,
     );

@@ -1,6 +1,11 @@
 import { describe, it, beforeEach } from "vitest";
 import assert from "node:assert/strict";
-import { createInMemoryDataLayer, FIXTURE_GAME_NAME, fixtureGetGames } from "./testHelpers.js";
+import {
+  createFakeSdk,
+  createInMemoryDataLayer,
+  FIXTURE_GAME_NAME,
+  fixtureGetGames,
+} from "./testHelpers.js";
 import { createUpsertSeasonTool } from "./tools/seasons/upsertSeason.js";
 import { createGetIdeasTool } from "./tools/questions/getIdeas.js";
 import { createSaveQuestionTool } from "./tools/questions/saveQuestion.js";
@@ -11,17 +16,7 @@ import {
 import { parseToolResult } from "../../tools/testHelpers.js";
 import type { TriviaConfig } from "./core/configTypes.js";
 import type { TriviaDataLayer } from "./core/types.js";
-import type { ClackSdk } from "../sdk.js";
 import { applySeasonRollover } from "./tools/reveal/rollover.js";
-
-function fakeSdk(): Pick<ClackSdk, "getSlackClient" | "actionId" | "t" | "engageThread"> {
-  return {
-    getSlackClient: () => null,
-    actionId: (key: string) => `plugin:trivia:${key}`,
-    t: (key: string) => key,
-    engageThread: async () => {},
-  };
-}
 
 const SESSION = { sessionId: "test" };
 const DAY = 24 * 60 * 60 * 1000;
@@ -243,7 +238,7 @@ describe("Trivia question-format end-to-end flow", () => {
     // 6. post_questions with both items
     const postQuestions = createPostQuestionsTool(
       data,
-      fakeSdk(),
+      createFakeSdk(),
       fixtureGetGames,
       postQuestionsDeps(),
     );
