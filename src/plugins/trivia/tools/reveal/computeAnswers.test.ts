@@ -1416,6 +1416,66 @@ describe("compute_answers —image-medium attribution", () => {
   });
 });
 
+describe("compute_answers — points", () => {
+  async function revealOne(points?: number) {
+    const data = createInMemoryDataLayer();
+    const scoped = data.forGame(FIXTURE_GAME_NAME);
+    await scoped.saveQuestion(
+      makeQuestion({
+        id: "q1",
+        batchId: "B",
+        postedAt: 1_000,
+        ...(points !== undefined ? { points } : {}),
+      }),
+    );
+    await scoped.saveAnswer({
+      userId: "U1",
+      questionId: "q1",
+      answer: true,
+      correct: true,
+      timestamp: 1_500,
+    });
+    await scoped.saveAnswer({
+      userId: "U2",
+      questionId: "q1",
+      answer: false,
+      correct: false,
+      timestamp: 1_500,
+    });
+    const tool = createComputeAnswersTool(data, createFakeSdk(), fixtureGetGames, fakeSlackDeps());
+    return parseToolResult(
+      await tool.handler(
+        { game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined, reprocessBatchId: undefined },
+        SESSION,
+      ),
+    );
+  }
+
+  it("surfaces points on the reveal entry and pays them on the leaderboard", async () => {
+    const res = await revealOne(2);
+    assert.equal(res.reveals[0].points, 2);
+    const winner = res.leaderboard.find((e: { userId: string }) => e.userId === "U1");
+    assert.equal(winner.totalPoints, 2);
+    assert.equal(winner.totalCorrect, 1);
+  });
+
+  it("omits points on a question worth 1 and still pays 1", async () => {
+    const res = await revealOne();
+    assert.equal(res.reveals[0].points, undefined);
+    const winner = res.leaderboard.find((e: { userId: string }) => e.userId === "U1");
+    assert.equal(winner.totalPoints, 1);
+  });
+
+  it("carries points into the round summary", async () => {
+    const res = await revealOne(3);
+    const alice = res.roundSummary.perPlayer.find((p: { userId: string }) => p.userId === "U1");
+    const bob = res.roundSummary.perPlayer.find((p: { userId: string }) => p.userId === "U2");
+    assert.equal(alice.points, 3);
+    assert.equal(alice.roundMvp, true);
+    assert.equal(bob.points, 0);
+  });
+});
+
 describe("compute_answers — includeRevealInQuestions axis", () => {
   function toolWith(data: ReturnType<typeof createInMemoryDataLayer>, mode?: "yes" | "no") {
     const getGames = () =>

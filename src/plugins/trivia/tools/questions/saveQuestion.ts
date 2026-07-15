@@ -335,6 +335,25 @@ export function createSaveQuestionTool(
       const resolvedChoiceBounds = resolveCascade("choices", cascadeCtx).value;
       const resolvedChoiceEmojiStyle = resolveCascade("choiceEmojiStyle", cascadeCtx).value;
 
+      // points axis: format-agnostic, so it validates and stamps here rather than through
+      // an answer-type handler. A value of 1 is stored as absence, keeping fresh 1-point
+      // rows byte-identical to legacy ones.
+      const resolvedPointsMax = resolveCascade("points", cascadeCtx).value.max;
+      let storedPoints: number | undefined;
+      if (args.points !== undefined) {
+        if (resolvedPointsMax === 1) {
+          return errorResult(
+            "`points` is not accepted here: the variable-points axis is off for this slot (resolved max is 1, so every question is worth 1). Omit the field.",
+          );
+        }
+        if (args.points < 1 || args.points > resolvedPointsMax) {
+          return errorResult(
+            `\`points\` must be an integer in [1, ${resolvedPointsMax}] (the cascade-resolved cap) — got ${args.points}.`,
+          );
+        }
+        if (args.points > 1) storedPoints = args.points;
+      }
+
       const currentSeasonSlug = currentSeasonEntry?.slug ?? null;
       const slotStamp =
         effectiveFormat !== null && args.slot !== undefined
@@ -359,6 +378,7 @@ export function createSaveQuestionTool(
           ? { suggestedDifficulty: args.suggestedDifficulty }
           : {}),
         ...(args.difficulty !== undefined ? { difficulty: args.difficulty } : {}),
+        ...(storedPoints !== undefined ? { points: storedPoints } : {}),
         ...(storedContext !== null ? { context: storedContext } : {}),
         ...(normalizedHint !== undefined ? { hint: normalizedHint } : {}),
         ...questionTypeOutcome.recordExtras,

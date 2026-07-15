@@ -16,6 +16,7 @@ import type {
   JsonValue,
   RevealResponsesMode,
   TriviaChoicesConfig,
+  TriviaPointsConfig,
   TriviaConfig,
   TriviaGame,
   TriviaHintConfig,
@@ -34,11 +35,13 @@ import {
   triviaDifficultyRatioZod,
   triviaChoiceEmojiStyleZod,
   triviaChoicesZod,
+  triviaPointsZod,
   triviaHintZod,
   triviaJudgeLeniencyZod,
   triviaTellMeMoreZod,
   validateHintConfig,
   validateTriviaChoicesConfig,
+  validateTriviaPoints,
   type ParseIssue,
 } from "../../core/configParsers/axes.js";
 import {
@@ -206,6 +209,12 @@ const structuralFieldsSchema = {
     .optional()
     .describe(
       'Per-game tier of the choice-button emoji-style axis. One of `"numbers"` | `"themed"`. `"numbers"` (the built-in default) prefixes choice vote buttons with 1️⃣ 2️⃣ 3️⃣ 4️⃣; `"themed"` lets Claude pick one topic-matching Unicode emoji per option at generation time (stamped on the record, shown on buttons and the live answer roster). Purely cosmetic — never affects scoring. Cascade: `slot → season → game → workspace → "numbers"`. Whole-value replace per tier. On UPDATE: explicit null clears the field.',
+    ),
+  points: triviaPointsZod
+    .nullable()
+    .optional()
+    .describe(
+      'Per-game tier of the variable-points axis. Object shape `{ max: integer 1–10, guidance?: string }`. `max` (REQUIRED) is the ceiling on what one question may be worth; `guidance` is free text steering the pick (e.g. "difficulty drives points: easy 1, hard 3"). GUIDANCE IS THE SWITCH: a cap ALONE never makes questions worth more than 1 — `{ max: 3 }` with no guidance simply ALLOWS an admin to later reclass a question up to 3 via `override_question`, while generation ignores the axis entirely. Only when BOTH `max > 1` AND `guidance` are set does `get_ideas` surface them, and Claude then picks the value at generation time (no server-side roll — the pick can weigh the difficulty it actually landed on), which `save_question` validates and stamps on the question. Cascade: `slot → season → game → workspace → { max: 1 }`. WHOLE-OBJECT replace per tier — a tier setting `guidance` must restate `max`. Lowering `max` later never re-prices already-posed questions. On UPDATE: explicit null clears the field.',
     ),
   tellMeMore: triviaTellMeMoreZod
     .nullable()
@@ -464,6 +473,12 @@ export function createUpsertGameTool(
         if (!r.ok) issues.push({ field: "choices", error: r.error });
         else parsedChoices = r.value;
       }
+      let parsedPoints: TriviaPointsConfig | undefined;
+      if (args.points !== undefined && args.points !== null) {
+        const r = validateTriviaPoints(args.points, "points");
+        if (!r.ok) issues.push({ field: "points", error: r.error });
+        else parsedPoints = r.value;
+      }
 
       if (issues.length > 0) {
         return errorResult(issues.map((i) => `${i.field}: ${i.error}`).join("; "));
@@ -547,6 +562,7 @@ export function createUpsertGameTool(
         ...(existing?.choiceEmojiStyle !== undefined
           ? { choiceEmojiStyle: existing.choiceEmojiStyle }
           : {}),
+        ...(existing?.points !== undefined ? { points: existing.points } : {}),
       };
       if (args.format === null) delete mergedStructural.format;
       else if (parsedFormat !== undefined) mergedStructural.format = parsedFormat;
@@ -585,6 +601,8 @@ export function createUpsertGameTool(
       if (args.choiceEmojiStyle === null) mergedStructural.choiceEmojiStyle = undefined;
       else if (args.choiceEmojiStyle !== undefined)
         mergedStructural.choiceEmojiStyle = args.choiceEmojiStyle;
+      if (args.points === null) mergedStructural.points = undefined;
+      else if (parsedPoints !== undefined) mergedStructural.points = parsedPoints;
 
       const enabled = args.enabled ?? existing?.enabled ?? true;
 
@@ -624,6 +642,7 @@ export function createUpsertGameTool(
       if (wrote(args.judgeLeniency)) writtenFields.push("judgeLeniency");
       if (wrote(args.choices)) writtenFields.push("choices");
       if (wrote(args.choiceEmojiStyle)) writtenFields.push("choiceEmojiStyle");
+      if (wrote(args.points)) writtenFields.push("points");
       if (wrote(args.instructions)) writtenFields.push("instructions");
       if (wrote(args.additionalInstructions)) writtenFields.push("additionalInstructions");
       if (wrote(args.liveAnswersVisible)) writtenFields.push("liveAnswersVisible");
@@ -657,6 +676,7 @@ export function createUpsertGameTool(
         hasJudgeLeniency: mergedStructural.judgeLeniency !== undefined,
         hasChoices: mergedStructural.choices !== undefined,
         hasChoiceEmojiStyle: mergedStructural.choiceEmojiStyle !== undefined,
+        hasPoints: mergedStructural.points !== undefined,
         hasAllTimeRow: mergedStructural.allTimeRow !== undefined,
         hasTagPlayers: mergedStructural.tagPlayers !== undefined,
         hasScrollToTop: mergedStructural.scrollToTop !== undefined,

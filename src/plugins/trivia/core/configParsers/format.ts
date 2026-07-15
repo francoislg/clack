@@ -18,6 +18,7 @@ import {
   promptMediumZod,
   triviaChoiceEmojiStyleZod,
   triviaChoicesZod,
+  triviaPointsZod,
   triviaDifficultyRatioZod,
   triviaHintZod,
   triviaJudgeLeniencyZod,
@@ -30,6 +31,7 @@ import {
   validateQuestionTypeMap,
   validatePromptMediumMap,
   validateTriviaChoicesConfig,
+  validateTriviaPoints,
   validateTriviaDifficultyMap,
   validateTriviaDifficultyRatioMap,
 } from "./axes.js";
@@ -119,6 +121,7 @@ interface RawSlot {
   judgeLeniency?: unknown | null;
   choices?: unknown | null;
   choiceEmojiStyle?: unknown | null;
+  points?: unknown | null;
 }
 
 interface RawFormat {
@@ -299,6 +302,11 @@ export function validateSlotConfig(slot: RawSlot, slotLabel: string): Result<Sea
     if (!validated.ok) return validated;
     out.choiceEmojiStyle = validated.value;
   }
+  if (slot.points !== undefined && slot.points !== null) {
+    const validated = validateTriviaPoints(slot.points, `${slotLabel}.points`);
+    if (!validated.ok) return validated;
+    out.points = validated.value;
+  }
   return { ok: true, value: out };
 }
 
@@ -349,6 +357,7 @@ const seasonFormatSlotZod = z.object({
   judgeLeniency: triviaJudgeLeniencyZod.optional(),
   choices: triviaChoicesZod.optional(),
   choiceEmojiStyle: triviaChoiceEmojiStyleZod.optional(),
+  points: triviaPointsZod.optional(),
 });
 
 /**

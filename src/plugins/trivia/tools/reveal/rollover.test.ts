@@ -4,16 +4,29 @@ import { pickSeasonMvp, deriveNextMonthSlug, applySeasonRollover } from "./rollo
 import type { LeaderboardEntry } from "../../domain/computeLeaderboard.js";
 import type { SeasonsState } from "../../core/types.js";
 
+/**
+ * Defaults model a UNIFORM 1-point history: points mirror the correct counts unless a
+ * case overrides them. That keeps the count-era expectations below meaningful as
+ * legacy-equivalence checks, and lets the weighted cases state points explicitly.
+ */
 function entry(
   overrides: Partial<LeaderboardEntry> & Pick<LeaderboardEntry, "userId">,
 ): LeaderboardEntry {
-  return {
+  const totalCorrect = overrides.totalCorrect ?? 0;
+  const base: LeaderboardEntry = {
+    userId: overrides.userId,
     displayName: overrides.userId,
-    totalCorrect: 0,
+    totalCorrect,
     totalAnswered: 0,
+    totalPoints: totalCorrect,
     accuracy: 0,
-    ...overrides,
-  } satisfies LeaderboardEntry;
+  };
+  const merged: LeaderboardEntry = { ...base, ...overrides };
+  if (overrides.totalPoints === undefined) merged.totalPoints = merged.totalCorrect;
+  if (overrides.currentSeasonPoints === undefined && merged.currentSeasonCorrect !== undefined) {
+    merged.currentSeasonPoints = merged.currentSeasonCorrect;
+  }
+  return merged;
 }
 
 describe("pickSeasonMvp", () => {
@@ -55,6 +68,39 @@ describe("pickSeasonMvp", () => {
       entry({ userId: "U2" }), // no currentSeasonCorrect field
     ];
     assert.equal(pickSeasonMvp(board)?.userId, "U1");
+  });
+
+  it("picks by points, not by correct count, on a weighted season", () => {
+    const board: LeaderboardEntry[] = [
+      entry({
+        userId: "U1",
+        displayName: "Alice",
+        currentSeasonCorrect: 3,
+        currentSeasonPoints: 5,
+        totalCorrect: 3,
+        totalPoints: 5,
+      }),
+      entry({
+        userId: "U2",
+        displayName: "Bob",
+        currentSeasonCorrect: 4,
+        currentSeasonPoints: 4,
+        totalCorrect: 4,
+        totalPoints: 4,
+      }),
+    ];
+    const mvp = pickSeasonMvp(board);
+    assert.equal(mvp?.userId, "U1", "5 points beats 4 despite one fewer correct");
+    assert.equal(mvp?.currentSeasonPoints, 5);
+    assert.equal(mvp?.currentSeasonCorrect, 3, "the count rides along for context");
+  });
+
+  it("ties on points resolved by all-time totalPoints descending", () => {
+    const board: LeaderboardEntry[] = [
+      entry({ userId: "U1", currentSeasonPoints: 6, currentSeasonCorrect: 3, totalPoints: 20 }),
+      entry({ userId: "U2", currentSeasonPoints: 6, currentSeasonCorrect: 6, totalPoints: 50 }),
+    ];
+    assert.equal(pickSeasonMvp(board)?.userId, "U2");
   });
 });
 

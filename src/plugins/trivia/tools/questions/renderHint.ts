@@ -1,7 +1,8 @@
-import type { ActionsBlock, Button, ContextBlock } from "@slack/types";
+import type { ActionsBlock, Button } from "@slack/types";
 import type { SlackBlocks } from "../../../../slack/blocks.js";
 import type { TriviaQuestion } from "../../core/types.js";
 import type { ClackSdk } from "../../../sdk.js";
+import { insertBeforeActions, isActionsBlock, mrkdwnContext } from "./cardLayout.js";
 
 /**
  * Apply hint rendering to a block list that already has the per-format
@@ -39,22 +40,8 @@ export function applyHintRendering(
   }
 
   // mode === "inline"
-  const inlineBlock: ContextBlock = {
-    type: "context",
-    elements: [
-      {
-        type: "mrkdwn",
-        text: sdk.t("hint.inline_prefix", { text: question.hint.text }),
-      },
-    ],
-  };
-  const last = blocks[blocks.length - 1];
-  if (isActionsBlock(last)) {
-    return [...blocks.slice(0, -1), inlineBlock, last];
-  }
-  return [...blocks, inlineBlock];
-}
-
-function isActionsBlock(block: SlackBlocks[number] | undefined): block is ActionsBlock {
-  return block !== undefined && "type" in block && block.type === "actions";
+  return insertBeforeActions(
+    blocks,
+    mrkdwnContext(sdk.t("hint.inline_prefix", { text: question.hint.text })),
+  );
 }

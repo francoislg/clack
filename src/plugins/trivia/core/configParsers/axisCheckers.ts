@@ -248,6 +248,38 @@ export function enumCheck(raw: unknown, keys: readonly string[]): CheckIssue | n
   return null;
 }
 
+/**
+ * `points` axis. `max` is REQUIRED (whole-object replace per tier means a tier
+ * value without a cap would silently mask a lower tier's cap); `guidance` is
+ * optional free text.
+ */
+export function pointsCheck(
+  raw: unknown,
+  bounds: { max: number; guidanceMaxLength: number },
+): CheckIssue | null {
+  if (!isJsonObject(raw)) return { path: [], message: "must be an object" };
+  const { max, guidance } = raw;
+  if (max === undefined) return { path: ["max"], message: "is required" };
+  if (typeof max !== "number" || !Number.isInteger(max) || max < 1 || max > bounds.max) {
+    return {
+      path: ["max"],
+      message: `must be an integer in [1, ${bounds.max}] (got ${JSON.stringify(max)})`,
+    };
+  }
+  if (guidance !== undefined) {
+    if (typeof guidance !== "string" || guidance.trim().length === 0) {
+      return { path: ["guidance"], message: "must be a non-empty string when set" };
+    }
+    if (guidance.trim().length > bounds.guidanceMaxLength) {
+      return {
+        path: ["guidance"],
+        message: `must be at most ${bounds.guidanceMaxLength} characters (got ${guidance.trim().length})`,
+      };
+    }
+  }
+  return null;
+}
+
 export function choicesCheck(
   raw: unknown,
   defaults: { min: number; max: number },

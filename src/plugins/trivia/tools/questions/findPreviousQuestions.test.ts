@@ -287,6 +287,81 @@ describe("find_previous_questions response shape (single game)", () => {
   });
 });
 
+interface PointsRow {
+  id: string;
+  points?: number;
+  difficulty?: number;
+  overriddenFrom?: { points?: number; difficulty?: number | null };
+}
+
+describe("find_previous_questions — points and override originals", () => {
+  let data: TriviaDataLayer;
+
+  beforeEach(async () => {
+    data = createInMemoryDataLayer();
+    const scoped = data.forGame(FIXTURE_GAME_NAME);
+    await scoped.saveQuestion({
+      id: "weighted",
+      category: "Science",
+      statement: "A weighted question",
+      isTrue: true,
+      emojis: ["⭐"],
+      createdAt: 1,
+      points: 3,
+    });
+    await scoped.saveQuestion({
+      id: "ordinary",
+      category: "Science",
+      statement: "An ordinary question",
+      isTrue: true,
+      emojis: ["🔬"],
+      createdAt: 2,
+    });
+    await scoped.saveQuestion({
+      id: "reclassed",
+      category: "Science",
+      statement: "A reclassed question",
+      isTrue: true,
+      emojis: ["🛠️"],
+      createdAt: 3,
+      points: 2,
+      difficulty: 8,
+      overriddenFrom: { points: 1, difficulty: null },
+    });
+  });
+
+  async function findById(id: string): Promise<PointsRow> {
+    const tool = createFindPreviousQuestionsTool(data, fixtureGetGames);
+    const parsed = parseToolResult(
+      await tool.handler(fullArgs({ games: [FIXTURE_GAME_NAME] }), SESSION),
+    );
+    const row = parsed.questions.find((q: PointsRow) => q.id === id);
+    assert.ok(row, `question ${id} missing from results`);
+    return row;
+  }
+
+  it("surfaces the stamped points on a weighted question", async () => {
+    assert.equal((await findById("weighted")).points, 3);
+  });
+
+  it("omits points on a 1-point question, since absence reads as 1", async () => {
+    const row = await findById("ordinary");
+    assert.equal(Object.prototype.hasOwnProperty.call(row, "points"), false);
+  });
+
+  it("surfaces captured originals so the generation-time value stays auditable", async () => {
+    const row = await findById("reclassed");
+    assert.equal(row.points, 2);
+    assert.equal(row.difficulty, 8);
+    assert.deepEqual(row.overriddenFrom, { points: 1, difficulty: null });
+  });
+
+  it("omits overriddenFrom on a question that was never overridden", async () => {
+    const row = await findById("weighted");
+    assert.equal(Object.prototype.hasOwnProperty.call(row, "overriddenFrom"), false);
+  });
+});
+
 describe("find_previous_questions per-format response shape", () => {
   let data: TriviaDataLayer;
 

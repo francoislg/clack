@@ -1,7 +1,10 @@
 import { describe, test } from "vitest";
 import { strict as assert } from "node:assert";
-import { computeLeaderboard } from "./computeLeaderboard.js";
-import type { SubmittedAnswer, TriviaUser } from "../core/types.js";
+import { buildQuestionPointsMap, computeLeaderboard } from "./computeLeaderboard.js";
+import type { SubmittedAnswer, TriviaQuestion, TriviaUser } from "../core/types.js";
+
+/** No question is worth more than 1 — every id falls through to the `?? 1` default. */
+const ALL_ONE_POINT = new Map<string, number>();
 
 function makeAnswer(
   overrides: Partial<SubmittedAnswer> & Pick<SubmittedAnswer, "userId">,
@@ -20,7 +23,7 @@ function makeUser(userId: string, displayName: string): [string, TriviaUser] {
 
 describe("computeLeaderboard", () => {
   test("returns empty leaderboard when there are no answers", () => {
-    const result = computeLeaderboard([], new Map(), {
+    const result = computeLeaderboard([], new Map(), ALL_ONE_POINT, {
       sortBy: "totalCorrect",
       primaryFilterSeason: null,
       currentSeasonSlug: null,
@@ -36,7 +39,7 @@ describe("computeLeaderboard", () => {
       makeAnswer({ userId: "U1", correct: true }),
     ];
     const users = new Map([makeUser("U1", "Alice")]);
-    const { leaderboard } = computeLeaderboard(answers, users, {
+    const { leaderboard } = computeLeaderboard(answers, users, ALL_ONE_POINT, {
       sortBy: "totalCorrect",
       primaryFilterSeason: null,
       currentSeasonSlug: null,
@@ -62,7 +65,7 @@ describe("computeLeaderboard", () => {
       makeUser("U_B", "Bob"),
       makeUser("U_C", "Carol"),
     ]);
-    const { leaderboard } = computeLeaderboard(answers, users, {
+    const { leaderboard } = computeLeaderboard(answers, users, ALL_ONE_POINT, {
       sortBy: "totalCorrect",
       primaryFilterSeason: null,
       currentSeasonSlug: null,
@@ -87,7 +90,7 @@ describe("computeLeaderboard", () => {
       makeUser("U_B", "Bob"),
       makeUser("U_C", "Carol"),
     ]);
-    const { leaderboard } = computeLeaderboard(answers, users, {
+    const { leaderboard } = computeLeaderboard(answers, users, ALL_ONE_POINT, {
       sortBy: "accuracy",
       primaryFilterSeason: null,
       currentSeasonSlug: null,
@@ -110,7 +113,7 @@ describe("computeLeaderboard", () => {
         answers.push(makeAnswer({ userId: uid, correct: true }));
       }
     }
-    const { leaderboard, totalPlayers } = computeLeaderboard(answers, users, {
+    const { leaderboard, totalPlayers } = computeLeaderboard(answers, users, ALL_ONE_POINT, {
       sortBy: "totalCorrect",
       limit: 5,
       primaryFilterSeason: null,
@@ -151,7 +154,7 @@ describe("computeLeaderboard", () => {
       ),
     ];
     const users = new Map([makeUser("U_A", "Alice"), makeUser("U_B", "Bob")]);
-    const { leaderboard } = computeLeaderboard(answers, users, {
+    const { leaderboard } = computeLeaderboard(answers, users, ALL_ONE_POINT, {
       sortBy: "totalCorrect",
       primaryFilterSeason: "s-now",
       currentSeasonSlug: "s-now",
@@ -182,7 +185,7 @@ describe("computeLeaderboard", () => {
       ),
     ];
     const users = new Map([makeUser("U_A", "Alice"), makeUser("U_B", "Bob")]);
-    const { leaderboard, totalPlayers } = computeLeaderboard(answers, users, {
+    const { leaderboard, totalPlayers } = computeLeaderboard(answers, users, ALL_ONE_POINT, {
       sortBy: "totalCorrect",
       primaryFilterSeason: "s-now",
       currentSeasonSlug: "s-now",
@@ -195,7 +198,7 @@ describe("computeLeaderboard", () => {
   test("seasons disabled — currentSeasonCorrect/Answered fields are absent", () => {
     const answers = [makeAnswer({ userId: "U1", correct: true })];
     const users = new Map([makeUser("U1", "Alice")]);
-    const { leaderboard } = computeLeaderboard(answers, users, {
+    const { leaderboard } = computeLeaderboard(answers, users, ALL_ONE_POINT, {
       sortBy: "totalCorrect",
       primaryFilterSeason: null,
       currentSeasonSlug: null,
@@ -206,7 +209,7 @@ describe("computeLeaderboard", () => {
 
   test("missing user falls back to userId as displayName", () => {
     const answers = [makeAnswer({ userId: "U_unknown", correct: true })];
-    const { leaderboard } = computeLeaderboard(answers, new Map(), {
+    const { leaderboard } = computeLeaderboard(answers, new Map(), ALL_ONE_POINT, {
       sortBy: "totalCorrect",
       primaryFilterSeason: null,
       currentSeasonSlug: null,
@@ -225,7 +228,7 @@ describe("computeLeaderboard", () => {
       ),
     ];
     const users = new Map([makeUser("U_A", "Alice")]);
-    const { leaderboard } = computeLeaderboard(answers, users, {
+    const { leaderboard } = computeLeaderboard(answers, users, ALL_ONE_POINT, {
       sortBy: "totalCorrect",
       primaryFilterSeason: "s-now",
       currentSeasonSlug: "s-now",
@@ -234,5 +237,172 @@ describe("computeLeaderboard", () => {
     assert.equal(leaderboard[0].accuracy, 50);
     // totalCorrect remains the all-time count
     assert.equal(leaderboard[0].totalCorrect, 11);
+  });
+});
+
+function makeQuestion(id: string, points?: number): TriviaQuestion {
+  return {
+    id,
+    category: "Science",
+    statement: "...",
+    answersFormat: "boolean",
+    questionType: "fact",
+    emojis: ["🔬"],
+    createdAt: 0,
+    ...(points !== undefined ? { points } : {}),
+  };
+}
+
+describe("buildQuestionPointsMap", () => {
+  test("enters only questions worth more than 1", () => {
+    const map = buildQuestionPointsMap([
+      makeQuestion("q1", 3),
+      makeQuestion("q2"),
+      makeQuestion("q3", 1),
+    ]);
+    assert.equal(map.get("q1"), 3);
+    assert.equal(map.get("q2"), undefined);
+    assert.equal(map.get("q3"), undefined, "an explicit 1 is indistinguishable from absence");
+    assert.equal(map.size, 1);
+  });
+});
+
+describe("computeLeaderboard — points", () => {
+  test("a correct answer pays its question's stamped points", () => {
+    // Alice: one 2-point question. Bob: two 1-point questions. Equal points, unequal counts.
+    const answers = [
+      makeAnswer({ userId: "U1", questionId: "q-heavy", correct: true }),
+      makeAnswer({ userId: "U2", questionId: "q-a", correct: true }),
+      makeAnswer({ userId: "U2", questionId: "q-b", correct: true }),
+    ];
+    const users = new Map([makeUser("U1", "Alice"), makeUser("U2", "Bob")]);
+    const points = buildQuestionPointsMap([makeQuestion("q-heavy", 2)]);
+
+    const { leaderboard } = computeLeaderboard(answers, users, points, {
+      sortBy: "totalCorrect",
+      primaryFilterSeason: null,
+      currentSeasonSlug: null,
+    });
+
+    const alice = leaderboard.find((e) => e.userId === "U1");
+    const bob = leaderboard.find((e) => e.userId === "U2");
+    assert.equal(alice?.totalPoints, 2);
+    assert.equal(alice?.totalCorrect, 1);
+    assert.equal(bob?.totalPoints, 2);
+    assert.equal(bob?.totalCorrect, 2);
+  });
+
+  test("an incorrect answer on a high-value question pays nothing", () => {
+    const answers = [makeAnswer({ userId: "U1", questionId: "q-heavy", correct: false })];
+    const users = new Map([makeUser("U1", "Alice")]);
+    const points = buildQuestionPointsMap([makeQuestion("q-heavy", 3)]);
+
+    const { leaderboard } = computeLeaderboard(answers, users, points, {
+      sortBy: "totalCorrect",
+      primaryFilterSeason: null,
+      currentSeasonSlug: null,
+    });
+    assert.equal(leaderboard[0].totalPoints, 0);
+    assert.equal(leaderboard[0].totalAnswered, 1);
+  });
+
+  test("pending freeform rows stay excluded from points", () => {
+    const answers = [
+      makeAnswer({ userId: "U1", questionId: "q-heavy", correct: undefined, answerText: "guess" }),
+    ];
+    const users = new Map([makeUser("U1", "Alice")]);
+    const points = buildQuestionPointsMap([makeQuestion("q-heavy", 3)]);
+
+    const { leaderboard } = computeLeaderboard(answers, users, points, {
+      sortBy: "totalCorrect",
+      primaryFilterSeason: null,
+      currentSeasonSlug: null,
+    });
+    assert.deepEqual(leaderboard, []);
+  });
+
+  test("ranking is points-primary — fewer correct can outrank more", () => {
+    const answers = [
+      makeAnswer({ userId: "U1", questionId: "q-heavy", correct: true }),
+      makeAnswer({ userId: "U2", questionId: "q-a", correct: true }),
+      makeAnswer({ userId: "U2", questionId: "q-b", correct: true }),
+    ];
+    const users = new Map([makeUser("U1", "Alice"), makeUser("U2", "Bob")]);
+    const points = buildQuestionPointsMap([makeQuestion("q-heavy", 5)]);
+
+    const { leaderboard } = computeLeaderboard(answers, users, points, {
+      sortBy: "totalCorrect",
+      primaryFilterSeason: null,
+      currentSeasonSlug: null,
+    });
+    assert.equal(leaderboard[0].userId, "U1", "5 points beats 2 despite half the correct count");
+    assert.equal(leaderboard[1].userId, "U2");
+  });
+
+  test("uniform 1-point history — totalPoints tracks totalCorrect exactly", () => {
+    const answers = [
+      makeAnswer({ userId: "U1", questionId: "q-a", correct: true }),
+      makeAnswer({ userId: "U1", questionId: "q-b", correct: true }),
+      makeAnswer({ userId: "U1", questionId: "q-c", correct: false }),
+      makeAnswer({ userId: "U2", questionId: "q-a", correct: true }),
+    ];
+    const users = new Map([makeUser("U1", "Alice"), makeUser("U2", "Bob")]);
+    const { leaderboard } = computeLeaderboard(answers, users, ALL_ONE_POINT, {
+      sortBy: "totalCorrect",
+      primaryFilterSeason: null,
+      currentSeasonSlug: null,
+    });
+    for (const entry of leaderboard) {
+      assert.equal(entry.totalPoints, entry.totalCorrect, `${entry.displayName} diverged`);
+    }
+    assert.deepEqual(
+      leaderboard.map((e) => e.userId),
+      ["U1", "U2"],
+      "ordering matches the pre-points behavior",
+    );
+  });
+
+  test("currentSeasonPoints is scoped to the current season", () => {
+    const answers = [
+      makeAnswer({ userId: "U1", questionId: "q-heavy", correct: true, season: "s-now" }),
+      makeAnswer({ userId: "U1", questionId: "q-old", correct: true, season: "s-old" }),
+    ];
+    const users = new Map([makeUser("U1", "Alice")]);
+    const points = buildQuestionPointsMap([makeQuestion("q-heavy", 2), makeQuestion("q-old", 4)]);
+
+    const { leaderboard } = computeLeaderboard(answers, users, points, {
+      sortBy: "totalCorrect",
+      primaryFilterSeason: "s-now",
+      currentSeasonSlug: "s-now",
+    });
+    assert.equal(leaderboard[0].currentSeasonPoints, 2);
+    assert.equal(leaderboard[0].totalPoints, 6, "all-time spans both seasons");
+  });
+
+  test("flipping a verdict re-prices through the join with no answer-row change", () => {
+    const users = new Map([makeUser("U1", "Alice")]);
+    const points = buildQuestionPointsMap([makeQuestion("q-heavy", 2)]);
+    const options = {
+      sortBy: "totalCorrect" as const,
+      primaryFilterSeason: null,
+      currentSeasonSlug: null,
+    };
+
+    const before = computeLeaderboard(
+      [makeAnswer({ userId: "U1", questionId: "q-heavy", correct: false })],
+      users,
+      points,
+      options,
+    );
+    assert.equal(before.leaderboard[0].totalPoints, 0);
+
+    // The only mutation an override performs: the row's `correct` verdict.
+    const after = computeLeaderboard(
+      [makeAnswer({ userId: "U1", questionId: "q-heavy", correct: true })],
+      users,
+      points,
+      options,
+    );
+    assert.equal(after.leaderboard[0].totalPoints, 2);
   });
 });

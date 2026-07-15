@@ -34,6 +34,7 @@ function baseArgs(slug: string, future: number) {
     judgeLeniency: undefined,
     choices: undefined,
     choiceEmojiStyle: undefined,
+    points: undefined,
   };
 }
 

@@ -5,21 +5,24 @@ import type { SeasonsState, SeasonEntry } from "../../core/types.js";
 import type { SeasonStatusOut } from "./types.js";
 
 /**
- * Pick the season MVP — the player with the highest `currentSeasonCorrect` count
- * from the supplied leaderboard. Ties broken by `totalCorrect`. Returns undefined
+ * Pick the season MVP — the player with the most `currentSeasonPoints` from the
+ * supplied leaderboard. Ties broken by all-time `totalPoints`. Returns undefined
  * when no leaderboard entry has positive current-season participation.
+ *
+ * On a season where every question was worth 1, points equal correct counts, so
+ * this picks exactly who the pre-points count-based rule would have.
  */
 export function pickSeasonMvp(leaderboard: LeaderboardEntry[]): SeasonStatusOut["mvp"] | undefined {
   let best: LeaderboardEntry | undefined;
   for (const entry of leaderboard) {
-    const cs = entry.currentSeasonCorrect ?? 0;
+    const cs = entry.currentSeasonPoints ?? 0;
     if (cs <= 0) continue;
     if (best === undefined) {
       best = entry;
       continue;
     }
-    const bestCs = best.currentSeasonCorrect ?? 0;
-    if (cs > bestCs || (cs === bestCs && entry.totalCorrect > best.totalCorrect)) {
+    const bestCs = best.currentSeasonPoints ?? 0;
+    if (cs > bestCs || (cs === bestCs && entry.totalPoints > best.totalPoints)) {
       best = entry;
     }
   }
@@ -28,6 +31,7 @@ export function pickSeasonMvp(leaderboard: LeaderboardEntry[]): SeasonStatusOut[
     userId: best.userId,
     displayName: best.displayName,
     currentSeasonCorrect: best.currentSeasonCorrect ?? 0,
+    currentSeasonPoints: best.currentSeasonPoints ?? 0,
   };
 }
 

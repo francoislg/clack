@@ -35,6 +35,7 @@ const BASE = {
   freeformAnswerShape: undefined,
   suggestedDifficulty: undefined,
   difficulty: undefined,
+  points: undefined,
   slot: undefined,
   hint: undefined,
   media: undefined,

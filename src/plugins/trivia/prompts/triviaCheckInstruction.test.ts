@@ -4,6 +4,7 @@ import {
   TRIVIA_MANAGEMENT_DESCRIPTION,
   TRIVIA_MANAGEMENT_INSTRUCTION,
   TRIVIA_CHECK_INSTRUCTION,
+  TRIVIA_GAMES_ADMIN_INSTRUCTION,
   PENDING_QUESTION_CREATION_CONTEXT,
   CLARIFICATION_ALLOWED_EXAMPLE,
   CLARIFICATION_CHEATING_EXAMPLE,
@@ -24,6 +25,43 @@ describe("clarification carve-out (anti-cheat ⇄ creation context consistency)"
   it("the creation context directs re-reading the original message and stopping after reveal", () => {
     assert.match(PENDING_QUESTION_CREATION_CONTEXT, /RE-READ the original question message/);
     assert.match(PENDING_QUESTION_CREATION_CONTEXT, /REVEALED answer/);
+  });
+});
+
+describe("TRIVIA_GAMES_ADMIN_INSTRUCTION — correction-tool dispatch", () => {
+  const DISPATCH_TARGETS = [
+    "override_answer",
+    "settle_question",
+    "remove_cheat",
+    "override_question",
+  ];
+
+  for (const name of DISPATCH_TARGETS) {
+    it(`routes to ${name}`, () => {
+      assert.ok(
+        TRIVIA_GAMES_ADMIN_INSTRUCTION.includes(name),
+        `the dispatch heuristic must name ${name} so Claude picks the right correction tool`,
+      );
+    });
+  }
+
+  it("scopes override_question to points/difficulty and away from verdicts and keys", () => {
+    assert.match(
+      TRIVIA_GAMES_ADMIN_INSTRUCTION,
+      /Do NOT reach for `override_question` to fix a verdict or an answer key/,
+    );
+  });
+
+  it("states the override is bounded by the absolute range, not the configured cap", () => {
+    assert.match(TRIVIA_GAMES_ADMIN_INSTRUCTION, /NOT by the game's configured `points\.max`/);
+  });
+
+  it("directs no reprocess after a points override (the aggregation join re-prices)", () => {
+    assert.match(TRIVIA_GAMES_ADMIN_INSTRUCTION, /Nothing else — do NOT reprocess/);
+  });
+
+  it("keeps suggestedDifficulty un-overridable", () => {
+    assert.match(TRIVIA_GAMES_ADMIN_INSTRUCTION, /cannot touch `suggestedDifficulty`/);
   });
 });
 

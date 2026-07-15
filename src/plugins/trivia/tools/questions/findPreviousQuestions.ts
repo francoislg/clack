@@ -6,7 +6,11 @@ import type { JsonValue } from "../../core/configTypes.js";
 import { findCurrentSeason } from "../../core/seasonTimeline.js";
 import { defaultGetGames, type GetGamesFn } from "../../core/configBridge.js";
 import { UnknownGameError } from "../../core/gamesRegistry.js";
-import type { TriviaDataLayer, TriviaQuestion } from "../../core/types.js";
+import type {
+  TriviaDataLayer,
+  TriviaQuestion,
+  QuestionOverrideOriginals,
+} from "../../core/types.js";
 import { mediaToJson } from "../../domain/mediaJson.js";
 import { blocksToJson } from "../../domain/blocksToJson.js";
 
@@ -28,6 +32,18 @@ function keywordHaystackFor(q: TriviaQuestion): string[] {
   }
   parts.push(...getAnswerTypeHandler(q.answersFormat).keywordHaystack(q));
   return parts.map((s) => s.toLowerCase());
+}
+
+/**
+ * Pre-override values captured by `override_question`, as a plain JSON object.
+ * `difficulty: null` is meaningful — it records a question that was never rated,
+ * as distinct from one whose original rating is simply not captured yet.
+ */
+function originalsToJson(originals: QuestionOverrideOriginals): JsonValue {
+  const out: Record<string, JsonValue> = {};
+  if (originals.points !== undefined) out.points = originals.points;
+  if (originals.difficulty !== undefined) out.difficulty = originals.difficulty;
+  return out;
 }
 
 function toSearchResult(
@@ -60,6 +76,9 @@ function toSearchResult(
   if (q.slot !== undefined) result.slot = q.slot;
   if (q.suggestedDifficulty !== undefined) result.suggestedDifficulty = q.suggestedDifficulty;
   if (q.difficulty !== undefined) result.difficulty = q.difficulty;
+  // Absence reads as 1, so only a weighted question carries the field.
+  if (q.points !== undefined) result.points = q.points;
+  if (q.overriddenFrom !== undefined) result.overriddenFrom = originalsToJson(q.overriddenFrom);
   if (q.context !== undefined) result.context = q.context;
   if (q.judgeLeniency !== undefined) result.judgeLeniency = q.judgeLeniency;
   if (q.sourceUrl !== undefined) result.sourceUrl = q.sourceUrl;

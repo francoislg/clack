@@ -16,6 +16,7 @@ import {
   parseTriviaAxisBag,
   validateAllTimeRowMode,
   validateChoiceEmojiStyle,
+  validateTriviaPoints,
   validateHintConfig,
   validateFinalRevealSummary,
   validateIncludeRevealInQuestions,
@@ -223,6 +224,12 @@ function parseTriviaConfigObject(raw: JsonObject, logger: PluginLogger): TriviaC
     const r = validateChoiceEmojiStyle(raw.choiceEmojiStyle, "trivia.choiceEmojiStyle");
     if (r.ok) out.choiceEmojiStyle = r.value;
     else allIssues.push({ field: "trivia.choiceEmojiStyle", error: r.error });
+  }
+
+  if (raw.points !== undefined && raw.points !== null) {
+    const r = validateTriviaPoints(raw.points, "trivia.points");
+    if (r.ok) out.points = r.value;
+    else allIssues.push({ field: "trivia.points", error: r.error });
   }
 
   if (raw.instructions !== undefined && raw.instructions !== null) {

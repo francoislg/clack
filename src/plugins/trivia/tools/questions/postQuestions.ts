@@ -25,6 +25,7 @@ import { getAllAnswerTypeHandlers, getAnswerTypeHandler } from "../../answerType
 import type { TriviaDataLayer, TriviaQuestion } from "../../core/types.js";
 import type { TriviaGame } from "../../core/configTypes.js";
 import { applyHintRendering } from "./renderHint.js";
+import { applyPointsRendering } from "./renderPoints.js";
 
 const PER_FORMAT_AFFORDANCES = getAllAnswerTypeHandlers()
   .map((h) => `  - ${h.actionAffordanceDescription}`)
@@ -331,7 +332,9 @@ export function createPostQuestionsTool(
           const baseBlocks = item.blocks as SlackBlocks;
           const handler = getAnswerTypeHandler(question.answersFormat);
           const blocksWithButtons = handler.appendActionsBlock(baseBlocks, sdk.actionId, question);
-          const blocksToPost = applyHintRendering(blocksWithButtons, question, sdk);
+          // Points before hint so an inline hint keeps its slot adjacent to the buttons.
+          const blocksWithPoints = applyPointsRendering(blocksWithButtons, question, sdk);
+          const blocksToPost = applyHintRendering(blocksWithPoints, question, sdk);
 
           const { ts, permalink } = await slackDeps.postBlocks({
             channel: game.channel,

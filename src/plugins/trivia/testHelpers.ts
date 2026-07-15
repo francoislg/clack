@@ -140,7 +140,12 @@ export function createFakeSdk(overrides: Partial<ClackSdk> = {}): ClackSdk {
     }),
     requestSoftRestart: () => {},
     registerDictionary: () => {},
-    t: (key: string) => key,
+    // Mirrors the real `t`'s two observable behaviors — a key resolves to a string,
+    // and interpolated vars land in it — without coupling tests to dictionary text.
+    // Renders as `key` bare, or `key:value[:value…]` when vars are supplied, so a
+    // test can assert that a value actually reached the string.
+    t: (key: string, vars?: Record<string, string | number>) =>
+      vars === undefined ? key : `${key}:${Object.values(vars).join(":")}`,
     users: fakeSdkUsers(),
     memory: fakeSdkMemory(),
     ...overrides,

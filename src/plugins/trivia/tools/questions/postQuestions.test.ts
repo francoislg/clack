@@ -218,6 +218,55 @@ describe("post_questions tool", () => {
     assert.equal(last?.type, "actions");
   });
 
+  it("renders the worth-points line above the buttons and stamps it into postedBlocks", async () => {
+    const data = createInMemoryDataLayer();
+    await seedQuestion(data, { id: "Q1", points: 2 });
+
+    const { deps } = fakeSlackDeps({
+      postResults: [{ ts: "1700000000.123456", permalink: "https://x.slack.com/p1" }],
+    });
+    const tool = createPostQuestionsTool(data, createFakeSdk(), fixtureGetGames, deps);
+
+    await tool.handler(
+      {
+        game: FIXTURE_GAME_NAME,
+        items: [{ questionId: "Q1", blocks: SAMPLE_BLOCKS }],
+        appendToPreviousBatch: undefined,
+        suppress_unfurls: undefined,
+      },
+      SESSION,
+    );
+
+    const stored = (await data.forGame(FIXTURE_GAME_NAME).loadQuestions())[0];
+    const blocks = stored.postedBlocks ?? [];
+    assert.equal(blocks[blocks.length - 1]?.type, "actions", "buttons stay last");
+    assert.equal(blocks[blocks.length - 2]?.type, "context", "worth line sits directly above them");
+  });
+
+  it("posts no worth-points line for a question worth 1", async () => {
+    const data = createInMemoryDataLayer();
+    await seedQuestion(data, { id: "Q1" });
+
+    const { deps } = fakeSlackDeps({
+      postResults: [{ ts: "1700000000.123456", permalink: "https://x.slack.com/p1" }],
+    });
+    const tool = createPostQuestionsTool(data, createFakeSdk(), fixtureGetGames, deps);
+
+    await tool.handler(
+      {
+        game: FIXTURE_GAME_NAME,
+        items: [{ questionId: "Q1", blocks: SAMPLE_BLOCKS }],
+        appendToPreviousBatch: undefined,
+        suppress_unfurls: undefined,
+      },
+      SESSION,
+    );
+
+    const stored = (await data.forGame(FIXTURE_GAME_NAME).loadQuestions())[0];
+    const contexts = (stored.postedBlocks ?? []).filter((b) => b.type === "context");
+    assert.equal(contexts.length, 0);
+  });
+
   it("engages the posted question thread with high attention + the clarification context", async () => {
     const data = createInMemoryDataLayer();
     await seedQuestion(data, { id: "Q1" });

@@ -23,10 +23,12 @@ import {
   triviaDifficultyRatioZod,
   triviaHintZod,
   triviaChoiceEmojiStyleZod,
+  triviaPointsZod,
   triviaJudgeLeniencyZod,
   triviaTellMeMoreZod,
   validateHintConfig,
   validateTriviaChoicesConfig,
+  validateTriviaPoints,
   type ParseIssue,
 } from "../../core/configParsers/axes.js";
 import { parseOffDays } from "../../core/configParsers/games.js";
@@ -70,6 +72,12 @@ export function createSetWorkspaceConfigTool() {
         .nullable()
         .optional()
         .describe("Choice question option-count bounds. null clears (falls back to {4,4})."),
+      points: triviaPointsZod
+        .nullable()
+        .optional()
+        .describe(
+          'Workspace tier of the variable-points axis. `{ max: integer 1–10, guidance?: string }`. GUIDANCE IS THE SWITCH: a bare `{ max: 3 }` never makes Claude spend points — it only ALLOWS an admin to reclass a question up to 3 via override_question. Set `guidance` (e.g. "difficulty drives points: easy 1, hard 3") to turn on generation-time picking. Whole-object replace per tier. null clears (falls back to { max: 1 } — every question worth 1).',
+        ),
       offDays: z
         .array(z.object({ date: z.string(), label: z.string() }))
         .nullable()
@@ -258,6 +266,19 @@ export function createSetWorkspaceConfigTool() {
         else {
           next.choices = r.value;
           updatedFields.push("choices");
+        }
+      }
+
+      // points: validate + apply
+      if (args.points === null) {
+        next.points = undefined;
+        updatedFields.push("points (cleared)");
+      } else if (args.points !== undefined) {
+        const r = validateTriviaPoints(args.points, "set_workspace_config.points");
+        if (!r.ok) issues.push({ field: "points", error: r.error });
+        else {
+          next.points = r.value;
+          updatedFields.push("points");
         }
       }
 

@@ -54,6 +54,13 @@ const COMMON_SAVE_FIELDS = {
     .max(10)
     .optional()
     .describe("Your 1–10 self-rating from the difficulty gate."),
+  points: z
+    .number()
+    .int()
+    .optional()
+    .describe(
+      "OPTIONAL: what this question is worth. Include IFF `get_ideas` returned `maxPoints` — then pass an integer in `[1, maxPoints]` chosen per `pointsGuidance` (pass 1, or omit, when the guidance doesn't call for more). MUST BE OMITTED when `get_ideas` returned no `maxPoints` (the axis is off — the question is worth 1). Rejected when it exceeds the cascade-resolved cap. A value of 1 is stored as absence.",
+    ),
   emojis: z.array(z.string()).describe("1-4 topic-relevant emojis"),
   slot: z
     .object({

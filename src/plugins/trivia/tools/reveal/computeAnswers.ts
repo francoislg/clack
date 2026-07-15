@@ -10,7 +10,7 @@ import {
   type GetTriviaConfigFn,
 } from "../../core/configBridge.js";
 import { requireWritableGame } from "../../core/gamesRegistry.js";
-import { computeLeaderboard } from "../../domain/computeLeaderboard.js";
+import { buildQuestionPointsMap, computeLeaderboard } from "../../domain/computeLeaderboard.js";
 import { resolveAllTimeRow, shouldShowAllTimeRow } from "../../domain/allTimeRow.js";
 import { resolveTagPlayers } from "../../domain/tagPlayers.js";
 import { resolveIncludeRevealInQuestions } from "../../domain/includeRevealInQuestions.js";
@@ -321,10 +321,10 @@ export function createComputeAnswersTool(
         if (outcome.ok) {
           // Image-medium questions carry attribution for the reveal's "📷 Image: …"
           // line. Stamp it centrally; expose only title/attribution/license.
-          const entry: ProcessRevealEntry =
-            question.media !== undefined
+          const entry: ProcessRevealEntry = {
+            ...outcome.entry,
+            ...(question.media !== undefined
               ? {
-                  ...outcome.entry,
                   media: {
                     title: question.media.title,
                     ...(question.media.attribution !== undefined
@@ -335,7 +335,11 @@ export function createComputeAnswersTool(
                       : {}),
                   },
                 }
-              : outcome.entry;
+              : {}),
+            ...(question.points !== undefined && question.points > 1
+              ? { points: question.points }
+              : {}),
+          };
           entriesById.set(question.id, entry);
         } else {
           perIdErrors.push({ questionId: question.id, error: outcome.error });
@@ -354,7 +358,10 @@ export function createComputeAnswersTool(
       const currentSlugForBoard = await scoped.getCurrentSeasonSlug();
       const seasonsEnabled = currentSlugForBoard !== null;
 
-      const { leaderboard } = computeLeaderboard(refreshedAnswers, refreshedUsers, {
+      // Re-read questions so the points join reflects any stamp written during this run.
+      const questionPoints = buildQuestionPointsMap(await scoped.loadQuestions());
+
+      const { leaderboard } = computeLeaderboard(refreshedAnswers, refreshedUsers, questionPoints, {
         sortBy: "totalCorrect",
         primaryFilterSeason: seasonsEnabled ? currentSlugForBoard : null,
         currentSeasonSlug: currentSlugForBoard,
@@ -402,6 +409,7 @@ export function createComputeAnswersTool(
         revealedQuestionIds,
         scoredRoundAnswers,
         (userId) => refreshedUsers.get(userId)?.displayName ?? userId,
+        questionPoints,
       );
 
       // Resolve the two free-form guidance axes for this reveal.

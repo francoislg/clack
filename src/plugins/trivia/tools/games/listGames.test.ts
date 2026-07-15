@@ -524,6 +524,28 @@ describe("list_games — per-game axisOverrides", () => {
     assert.equal(entry.axisOverrides.difficulty, undefined);
   });
 
+  it("surfaces points on the game entry and in workspaceDefaults", async () => {
+    const games: readonly TriviaGame[] = [
+      { ...baseGame, points: { max: 3, guidance: "hard = 3" } },
+    ];
+    const tool = createListGamesTool(
+      () => games,
+      () => ({ points: { max: 2 } }),
+    );
+    const parsed = parseToolResult(await tool.handler({ includeDisabled: undefined }, SESSION));
+    assert.deepEqual(parsed.games[0].axisOverrides.points, { max: 3, guidance: "hard = 3" });
+    assert.deepEqual(parsed.workspaceDefaults.points, { max: 2 });
+  });
+
+  it("omits points from axisOverrides when the game does not set it", async () => {
+    const tool = createListGamesTool(
+      () => [baseGame],
+      () => ({}),
+    );
+    const parsed = parseToolResult(await tool.handler({ includeDisabled: undefined }, SESSION));
+    assert.equal(parsed.games[0].axisOverrides.points, undefined);
+  });
+
   it("description references the four-tier cascade", () => {
     const tool = createListGamesTool(
       () => [],

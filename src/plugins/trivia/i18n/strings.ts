@@ -73,6 +73,9 @@ export const en = {
   "hint.missing": "No hint available for this question.",
   "hint.modal_title": "💡 Hint",
 
+  // Variable-points card line — rendered only above 1 point (see `trivia-question-points`).
+  "points.worth": "⭐ Worth {count} points",
+
   // Freeform modal — shared.
   "modal.question_header": "Question ({category})",
 
@@ -120,6 +123,7 @@ export const en = {
   "label.compute_answers": "Scoring trivia reveal — {game}",
   "label.refresh_question_cards": "Refreshing trivia question cards — {game}",
   "label.override_answer": "Overriding trivia answer — {game}",
+  "label.override_question": "Overriding trivia question — {game}",
   "label.remove_cheat": "Removing trivia cheat report — {game}",
   "label.start_new_season": "Rolling over trivia season — {game}",
   "label.retrieve_scores": "Retrieving trivia scores — {game}",
@@ -179,6 +183,8 @@ export const fr: Partial<Record<keyof typeof en, string>> = {
   "hint.missing": "Aucun indice disponible pour cette question.",
   "hint.modal_title": "💡 Indice",
 
+  "points.worth": "⭐ Vaut {count} points",
+
   "modal.question_header": "Question ({category})",
 
   "modal.title_active": "Trivia — votre réponse",
@@ -223,6 +229,7 @@ export const fr: Partial<Record<keyof typeof en, string>> = {
   "label.compute_answers": "Calcul des réponses trivia — {game}",
   "label.refresh_question_cards": "Rafraîchissement des cartes de questions trivia — {game}",
   "label.override_answer": "Correction d'une réponse trivia — {game}",
+  "label.override_question": "Correction d'une question trivia — {game}",
   "label.remove_cheat": "Retrait d'un signalement de triche trivia — {game}",
   "label.start_new_season": "Clôture de la saison trivia — {game}",
   "label.retrieve_scores": "Récupération des scores trivia — {game}",
