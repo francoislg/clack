@@ -33,6 +33,7 @@ function baseArgs(slug: string, startedAt: number) {
     judgeLeniency: undefined,
     choices: undefined,
     choiceEmojiStyle: undefined,
+    points: undefined,
   };
 }
 

@@ -31,6 +31,7 @@ const CHOICE_ARGS = {
   freeformAnswerShape: undefined,
   suggestedDifficulty: undefined,
   difficulty: undefined,
+  points: undefined,
   slot: undefined,
   hint: undefined,
   emojis: ["🌍"],

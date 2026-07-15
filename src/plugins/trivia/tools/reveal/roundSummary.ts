@@ -1,4 +1,5 @@
 import type { RoundSummary, RoundSummaryEntry } from "./types.js";
+import type { QuestionPointsMap } from "../../domain/computeLeaderboard.js";
 
 /** Minimum question count for a clean sweep to earn `perfectRound`. */
 export const PERFECT_ROUND_MIN_QUESTIONS = 3;
@@ -23,21 +24,26 @@ export interface RoundAnswer {
  * - `correct` counts revealed questions the player answered correctly.
  * - `answered` counts revealed questions the player submitted a scored answer
  *   to (correct or incorrect). Reactors-who-didn't-answer don't count.
+ * - `points` sums each correctly-answered question's stamped worth via
+ *   `questionPoints` (absent = 1), so it equals `correct` on a uniform fire.
  * - Cheaters/bot/pending rows are excluded UPSTREAM (caller filters with
  *   `isScoredAnswer`) — cheating handling is orthogonal to the reveal.
  * - Players with `answered === 0` are omitted.
- * - Sorted by `correct` descending, then `displayName` ascending
+ * - Sorted by `points` descending, then `displayName` ascending
  *   (case-insensitive, locale-sensitive comparison).
- * - `roundMvp: true` is set on every player tied for the highest `correct`
+ * - `roundMvp: true` is set on every player tied for the highest `points`
  *   value, IFF that highest value is > 0.
  * - `perfectRound: true` is set on every player who answered all `totalQuestions`
  *   correctly, IFF the fire had at least `PERFECT_ROUND_MIN_QUESTIONS` questions
- *   (a sweep of a 1- or 2-question fire is not noteworthy).
+ *   (a sweep of a 1- or 2-question fire is not noteworthy). Weights play no part:
+ *   perfection is about completeness, so on a weighted fire the MVP (top points)
+ *   and the perfect player can be different people.
  */
 export function computeRoundSummary(
   revealedQuestionIds: readonly string[],
   scoredAnswers: readonly RoundAnswer[],
   displayNameFor: (userId: string) => string,
+  questionPoints: QuestionPointsMap,
 ): RoundSummary {
   const revealed = new Set(revealedQuestionIds);
 
@@ -54,35 +60,40 @@ export function computeRoundSummary(
     users.set(a.userId, (users.get(a.userId) ?? false) || a.correct);
   }
 
-  const byUser = new Map<string, { correct: number; answered: number }>();
-  for (const users of perQuestion.values()) {
+  const byUser = new Map<string, { correct: number; answered: number; points: number }>();
+  for (const [questionId, users] of perQuestion) {
+    const worth = questionPoints.get(questionId) ?? 1;
     for (const [userId, isCorrect] of users) {
-      const tally = byUser.get(userId) ?? { correct: 0, answered: 0 };
+      const tally = byUser.get(userId) ?? { correct: 0, answered: 0, points: 0 };
       tally.answered += 1;
-      if (isCorrect) tally.correct += 1;
+      if (isCorrect) {
+        tally.correct += 1;
+        tally.points += worth;
+      }
       byUser.set(userId, tally);
     }
   }
 
   const base = [...byUser.entries()]
-    .map(([userId, { correct, answered }]) => ({
+    .map(([userId, { correct, answered, points }]) => ({
       userId,
       displayName: displayNameFor(userId),
       correct,
       answered,
+      points,
     }))
     .sort((a, b) => {
-      if (a.correct !== b.correct) return b.correct - a.correct;
+      if (a.points !== b.points) return b.points - a.points;
       return a.displayName.localeCompare(b.displayName, undefined, { sensitivity: "base" });
     });
 
   const totalQuestions = revealedQuestionIds.length;
-  const topCorrect = base.reduce((max, e) => Math.max(max, e.correct), 0);
+  const topPoints = base.reduce((max, e) => Math.max(max, e.points), 0);
   const perfectEligible = totalQuestions >= PERFECT_ROUND_MIN_QUESTIONS;
 
   const perPlayer: RoundSummaryEntry[] = base.map((e) => ({
     ...e,
-    ...(topCorrect > 0 && e.correct === topCorrect ? { roundMvp: true } : {}),
+    ...(topPoints > 0 && e.points === topPoints ? { roundMvp: true } : {}),
     ...(perfectEligible && e.correct === totalQuestions ? { perfectRound: true } : {}),
   }));
 

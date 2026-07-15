@@ -24,6 +24,7 @@ import {
   DEFAULT_JUDGE_LENIENCY,
   DEFAULT_TRIVIA_CHOICES,
   DEFAULT_CHOICE_EMOJI_STYLE,
+  DEFAULT_TRIVIA_POINTS,
 } from "../core/configTypes.js";
 import type {
   AxisDef,
@@ -231,6 +232,7 @@ export const AXIS_REGISTRY: AxisRegistry = {
   judgeLeniency: makeFirstWins("judgeLeniency", DEFAULT_JUDGE_LENIENCY),
   choices: makeFirstWins("choices", DEFAULT_TRIVIA_CHOICES),
   choiceEmojiStyle: makeFirstWins("choiceEmojiStyle", DEFAULT_CHOICE_EMOJI_STYLE),
+  points: makeFirstWins("points", DEFAULT_TRIVIA_POINTS),
   instructions: makeFirstWins("instructions", null),
   liveAnswersVisible: makeFirstWins("liveAnswersVisible", true),
   revealResponses: makeFirstWins("revealResponses", "yes"),
@@ -254,6 +256,7 @@ export const AXIS_KEYS: readonly (keyof CascadeAxes)[] = [
   "judgeLeniency",
   "choices",
   "choiceEmojiStyle",
+  "points",
   "instructions",
   "liveAnswersVisible",
   "revealResponses",

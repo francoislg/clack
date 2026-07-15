@@ -9,6 +9,7 @@ import {
   DEFAULT_HINT_CONFIG,
   DEFAULT_JUDGE_LENIENCY,
   DEFAULT_TRIVIA_CHOICES,
+  DEFAULT_TRIVIA_POINTS,
   DEFAULT_DIFFICULTY_RANGES,
   DEFAULT_DIFFICULTY_RATIO,
 } from "../core/configTypes.js";
@@ -157,6 +158,60 @@ describe("resolveCascade — choices precedence (slot → season → game → wo
   });
 });
 
+describe("resolveCascade — points precedence (slot → season → game → workspace → default)", () => {
+  const config: TriviaConfig = { points: { max: 2, guidance: "workspace rule" } };
+  const game: TriviaGame = { ...baseGame, points: { max: 3 } };
+
+  it("default { max: 1 } when nothing is set", () => {
+    const r = resolveCascade("points", ctx(null, null, null, null));
+    expect(r.tier).toBe("default");
+    expect(r.value).toEqual(DEFAULT_TRIVIA_POINTS);
+  });
+
+  it("workspace beats default", () => {
+    const r = resolveCascade("points", ctx(null, null, null, config));
+    expect(r.tier).toBe("workspace");
+    expect(r.value).toEqual({ max: 2, guidance: "workspace rule" });
+  });
+
+  it("game beats workspace with whole-object replace (guidance does not leak through)", () => {
+    const r = resolveCascade("points", ctx(null, null, game, config));
+    expect(r.tier).toBe("game");
+    expect(r.value).toEqual({ max: 3 });
+  });
+
+  it("gameSlot (per-slot stakes via game format) beats game", () => {
+    const g: TriviaGame = {
+      ...game,
+      format: { questions: [{}, { points: { max: 5, guidance: "finale" } }] },
+    };
+    const slot0 = resolveCascade("points", ctx(null, 0, g, config));
+    expect(slot0.tier).toBe("game");
+    expect(slot0.value).toEqual({ max: 3 });
+    const slot1 = resolveCascade("points", ctx(null, 1, g, config));
+    expect(slot1.tier).toBe("gameSlot");
+    expect(slot1.value).toEqual({ max: 5, guidance: "finale" });
+  });
+
+  it("season beats game", () => {
+    const withSeason = season({ points: { max: 4 } });
+    const r = resolveCascade("points", ctx(withSeason, null, game, config));
+    expect(r.tier).toBe("season");
+    expect(r.value).toEqual({ max: 4 });
+  });
+
+  it("seasonSlot (slotOverrides) beats everything", () => {
+    const g: TriviaGame = { ...game, format: { questions: [{ points: { max: 2 } }] } };
+    const withOverride = season({
+      points: { max: 4 },
+      slotOverrides: { 0: { points: { max: 6, guidance: "high stakes" } } },
+    });
+    const r = resolveCascade("points", ctx(withOverride, 0, g, config));
+    expect(r.tier).toBe("seasonSlot");
+    expect(r.value).toEqual({ max: 6, guidance: "high stakes" });
+  });
+});
+
 describe("resolveCascade — custom provenance", () => {
   it("additionalInstructions reports merged when >1 tier contributes", () => {
     const config: TriviaConfig = { additionalInstructions: "ws" };
@@ -236,6 +291,7 @@ describe("AXIS_REGISTRY", () => {
     expect(resolveCascade("hint", empty).value).toEqual(DEFAULT_HINT_CONFIG);
     expect(resolveCascade("judgeLeniency", empty).value).toEqual(DEFAULT_JUDGE_LENIENCY);
     expect(resolveCascade("choices", empty).value).toEqual(DEFAULT_TRIVIA_CHOICES);
+    expect(resolveCascade("points", empty).value).toEqual(DEFAULT_TRIVIA_POINTS);
     expect(resolveCascade("liveAnswersVisible", empty).value).toBe(true);
     expect(resolveCascade("revealResponses", empty).value).toBe("yes");
     expect(resolveCascade("contexts", empty).value).toBeNull();
@@ -266,7 +322,7 @@ describe("AXIS_REGISTRY", () => {
     ).toEqual({ easy: 7, medium: 2, hard: 1 });
   });
 
-  it("has exactly the 15 cascade-axis keys", () => {
+  it("has exactly the 16 cascade-axis keys", () => {
     expect(Object.keys(AXIS_REGISTRY).sort()).toEqual(
       [
         "additionalInstructions",
@@ -281,6 +337,7 @@ describe("AXIS_REGISTRY", () => {
         "instructions",
         "judgeLeniency",
         "liveAnswersVisible",
+        "points",
         "promptMedium",
         "questionType",
         "revealResponses",

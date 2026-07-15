@@ -39,6 +39,7 @@ describe("cascade parity — parser accepts every registry axis", () => {
       judgeLeniency: "lenient",
       choices: { min: 2, max: 4 },
       choiceEmojiStyle: "themed",
+      points: { max: 3, guidance: "harder questions pay more" },
       instructions: "do this",
       liveAnswersVisible: false,
       revealResponses: "no",

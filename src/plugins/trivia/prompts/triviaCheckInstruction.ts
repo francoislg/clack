@@ -148,7 +148,14 @@ When an admin asks **which trivia games exist** or **what's running where**: cal
 
 ## Admin: overriding a result after the reveal
 
-When an admin judges a result differently than the reveal did ("mark Alice's answer correct", "that should have counted", "override the result for Bob") — follow the EXACT sequence below. The question MUST already be revealed; there is nothing to override before that. The shape depends on WHY the verdict is wrong — first decide whether it's ONE player or EVERYONE.
+When an admin judges a result differently than the reveal did ("mark Alice's answer correct", "that should have counted", "override the result for Bob") — follow the EXACT sequence below. Dispatch on WHAT is actually wrong:
+
+- ONE player's verdict → \`override_answer\` (Case 1)
+- the answer KEY everyone was scored against → \`settle_question\` (Case 2)
+- a cheat flag recorded by mistake → \`remove_cheat\` (Case 3)
+- the question's OWN stamped \`points\` / \`difficulty\` → \`override_question\` (Case 4)
+
+Cases 1–3 all require the question to be REVEALED — there is no verdict to override before that. Case 4 is the exception: it re-prices or re-rates the question itself, so it works at any stage.
 
 **Case 1 — One player, freeform answer the judge got wrong (the usual "override the result" ask):**
 
@@ -169,6 +176,14 @@ To UNDO an override later: \`override_answer(game, questionId, userId, restore: 
 1. \`remove_cheat(game, cheaterUserId, questionId)\` — drops the cheat and rolls back that player's cheat counter.
 2. \`compute_answers(game, reprocessQuestionIds: [questionId])\` — rescores the question now that the player is no longer excluded.
 3. \`refresh_question_cards(game, questionIds: [questionId])\` — repaints the card (the reprocess result's \`refreshHint\` is this exact call).
+
+**Case 4 — The question's own \`points\` or \`difficulty\` was stamped wrong:** nobody's answer is misjudged — the question was mis-priced or mis-rated. \`override_question\` is the ONLY tool for this: both values were PICKED by Claude at generation (the cascade supplies only bounds and guidance), so no reprocess can re-derive them.
+
+1. \`override_question(game, questionId, points?: <1-10>, difficulty?: <1-10>)\` — pass at least one. Works on a STAGED, LIVE, or REVEALED question. \`points\` is bounded by the ABSOLUTE 1–10, NOT by the game's configured \`points.max\`: that cap governs what Claude may pick at generation and must never retroactively cap a question already posed. \`points: 1\` makes it an ordinary question again. The FIRST override of each field captures its pre-override value, returned as \`originals\`, so the generation-time fact survives repeated overrides.
+2. \`refresh_question_cards(game, questionIds: [questionId])\` — ONLY when \`points\` changed on an already-posted question, to repaint the "⭐ Worth N points" line. The tool hands you this exact call as its \`refreshHint\`; a \`difficulty\`-only override returns no hint and needs no repaint (difficulty is never rendered on the card).
+3. Nothing else — do NOT reprocess. Scoring joins the question's points at aggregation time, so standings re-price by themselves on the next \`compute_answers\` / \`retrieve_scores\`. Answer rows are untouched: verdicts, cheat flags, and earlier \`override_answer\` locks all survive.
+
+Do NOT reach for \`override_question\` to fix a verdict or an answer key — those are Cases 1 and 2. It cannot edit the statement, the answer format, or the answer key, and it deliberately cannot touch \`suggestedDifficulty\` (that records what the server ROLLED at generation — an audit fact).
 
 ## Admin: replaying a bad question
 

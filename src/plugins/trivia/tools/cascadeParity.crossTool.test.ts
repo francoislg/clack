@@ -80,6 +80,7 @@ function makeSaveArgs(overrides: Partial<SaveArgs>): SaveArgs {
     correctIndex: undefined,
     suggestedDifficulty: undefined,
     difficulty: undefined,
+    points: undefined,
     slot: undefined,
     hint: undefined,
     promptMedium: undefined,

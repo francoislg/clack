@@ -55,6 +55,7 @@ Always returns:
 - \`contextPriority\` (optional): freshly-rolled weighted-random ordering of every configured lens. Present only when \`trivia.contexts\` is configured at any cascade tier. Claude tries \`contextPriority[0]\` first; descends the list only when the current lens yields no usable question.
 - \`suggestedHintMode\`: \`"none" | "button" | "inline"\` — resolved from the cascade \`slot.hint → season.hint → game.hint → workspace.hint → { mode: "none" }\` (whole-object replace per tier). When the resolved \`hint.minDifficulty\` is set and the rolled \`suggestedDifficulty\` bucket falls below it, the effective mode is forced to \`"none"\`. When \`"button"\` or \`"inline"\`, write a hint and pass it to \`save_question\` (see \`hintGuidance\`); when \`"none"\`, do NOT include the \`hint\` field on \`save_question\`.
 - \`hintGuidance\` (optional string): present only when \`suggestedHintMode !== "none"\`. Carries the hint-drafting + self-review instructions Claude must honor when writing the hint.
+- \`maxPoints\` (optional integer) and \`pointsGuidance\` (optional string): the variable-points axis, resolved from the cascade \`slot.points → season → game → workspace → { max: 1 }\` (whole-object replace per tier). BOTH are present, or NEITHER is — they appear only when the resolved \`max > 1\` AND admin \`guidance\` is set. When present, pick an integer in \`[1, maxPoints]\` for this question following \`pointsGuidance\` verbatim, and pass it to \`save_question\` as \`points\`; pick \`1\` whenever the guidance does not call for more (1 is always a valid, unremarkable answer). When ABSENT, the axis is off for this slot: OMIT \`points\` on \`save_question\` entirely and the question is worth 1 like every other. A configured cap with NO guidance deliberately surfaces nothing — it only reserves headroom for an admin to reclass the question later, and is not an invitation to spend points.
 
 When suggestedAnswersFormat is \`"boolean"\`, also returns:
 - \`suggestedAnswer\` (boolean): the truth value the statement MUST have
@@ -228,6 +229,14 @@ export function createGetIdeasTool(
           ? "Write ONE concise hint (≤140 chars) that nudges toward the answer WITHOUT stating or paraphrasing it. After drafting, self-review: if the draft reveals the answer outright or restates it in different words, rewrite as a softer semantic-neighborhood nudge. Pass the final text to save_question as `hint: { mode: suggestedHintMode, text }`. If no useful nudge exists for this question, OMIT the hint field on save_question rather than ship a weak one."
           : undefined;
 
+      // Guidance is the switch: a bare cap grants an admin room to reclass via
+      // override_question but must never make Claude spend points, so surface the
+      // axis only when both halves are present.
+      const resolvedPoints = resolveCascade("points", cascadeCtx).value;
+      const pointsActive = resolvedPoints.max > 1 && resolvedPoints.guidance !== undefined;
+      const maxPoints = pointsActive ? resolvedPoints.max : undefined;
+      const pointsGuidance = pointsActive ? resolvedPoints.guidance : undefined;
+
       const base = {
         format: formatMeta,
         slot: slotArg,
@@ -249,6 +258,8 @@ export function createGetIdeasTool(
         ...(additionalInstructions !== undefined ? { additionalInstructions } : {}),
         ...(contextPriority !== null ? { contextPriority } : {}),
         ...(hintGuidance !== undefined ? { hintGuidance } : {}),
+        ...(maxPoints !== undefined ? { maxPoints } : {}),
+        ...(pointsGuidance !== undefined ? { pointsGuidance } : {}),
       };
 
       // Per-format suggestion rolling lives in the handler: boolean returns

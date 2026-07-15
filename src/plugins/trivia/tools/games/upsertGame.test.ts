@@ -86,6 +86,7 @@ function args(overrides: Partial<UpsertGameArgs> & Pick<UpsertGameArgs, "name">)
     finalRevealSummary: undefined,
     judgeLeniency: undefined,
     choiceEmojiStyle: undefined,
+    points: undefined,
     tellMeMore: undefined,
     choices: undefined,
     initialSeason: undefined,
@@ -838,6 +839,102 @@ describe("upsert_game — choices", () => {
     );
     assert.equal(cleared.hasChoices, false);
     assert.equal(loadTriviaConfig()?.games?.[0]?.choices, undefined);
+  });
+});
+
+describe("upsert_game — points", () => {
+  beforeEach(() => {
+    _resetTriviaConfigBridge();
+  });
+
+  it("creates a game carrying a points override", async () => {
+    primeBridge({ games: [] });
+    const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
+    const result = parseToolResult(
+      await tool.handler(
+        args({
+          name: "stakes-game",
+          channel: "C1",
+          questionCron: "0 9 * * *",
+          revealCron: "0 17 * * *",
+          timezone: "UTC",
+          points: { max: 3, guidance: "hard questions pay 3" },
+        }),
+        SESSION,
+      ),
+    );
+    assert.equal(result.hasPoints, true);
+    assert.deepEqual(loadTriviaConfig()?.games?.[0]?.points, {
+      max: 3,
+      guidance: "hard questions pay 3",
+    });
+  });
+
+  it("accepts a bare cap — an allowance for admin reclassing, no guidance needed", async () => {
+    primeBridge({ games: [] });
+    const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
+    const result = parseToolResult(
+      await tool.handler(
+        args({
+          name: "allowance-game",
+          channel: "C1",
+          questionCron: "0 9 * * *",
+          revealCron: "0 17 * * *",
+          timezone: "UTC",
+          points: { max: 3 },
+        }),
+        SESSION,
+      ),
+    );
+    assert.equal(result.hasPoints, true);
+    assert.deepEqual(loadTriviaConfig()?.games?.[0]?.points, { max: 3 });
+  });
+
+  it("rejects an out-of-range cap", async () => {
+    primeBridge({ games: [] });
+    const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
+    const result = parseToolResult(
+      await tool.handler(
+        args({
+          name: "bad-game",
+          channel: "C1",
+          questionCron: "0 9 * * *",
+          revealCron: "0 17 * * *",
+          timezone: "UTC",
+          points: { max: 99 },
+        }),
+        SESSION,
+      ),
+    );
+    assert.ok(result.error || result.isError);
+  });
+
+  it("updates and then clears points on an existing game", async () => {
+    primeBridge({
+      games: [
+        {
+          name: "g",
+          channel: "C1",
+          questionCron: "0 9 * * *",
+          revealCron: "0 17 * * *",
+          timezone: "UTC",
+          enabled: true,
+          points: { max: 2, guidance: "old rule" },
+        },
+      ],
+    });
+    const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
+
+    await tool.handler(args({ name: "g", points: { max: 4 } }), SESSION);
+    assert.deepEqual(
+      loadTriviaConfig()?.games?.[0]?.points,
+      { max: 4 },
+      "whole-object replace — the old guidance does not survive",
+    );
+
+    const cleared = parseToolResult(await tool.handler(args({ name: "g", points: null }), SESSION));
+    assert.equal(cleared.hasPoints, false);
+    assert.equal(loadTriviaConfig()?.games?.[0]?.points, undefined);
   });
 });
 

@@ -100,6 +100,31 @@ export interface TriviaChoicesConfig {
 }
 
 /**
+ * Variable-points configuration. A first-wins cascade axis resolving
+ * `slot → season → game → workspace → DEFAULT_TRIVIA_POINTS`, whole-object
+ * replace per tier.
+ *
+ * `max` is the hard ceiling on what one question can be worth (`1 <= max <= 10`);
+ * `max: 1` (the default) means the axis is inert — nothing is surfaced to Claude
+ * and nothing is stamped. Unlike the weighted axes there is NO server-side roll:
+ * when `max > 1`, `get_ideas` surfaces the cap plus `guidance`, and Claude picks
+ * the concrete value at generation time so it can weigh it against the difficulty
+ * it actually landed on. `save_question` validates the pick against the resolved
+ * `max` and stamps it on the record.
+ */
+export interface TriviaPointsConfig {
+  max: number;
+  /** Admin free text steering the pick (e.g. "difficulty drives points"). */
+  guidance?: string;
+}
+
+/** Max length of `TriviaPointsConfig.guidance`, enforced by the validator. */
+export const TRIVIA_POINTS_GUIDANCE_MAX_LENGTH = 500;
+
+/** Absolute ceiling for `TriviaPointsConfig.max` and any stamped question `points`. */
+export const TRIVIA_POINTS_MAX = 10;
+
+/**
  * Inclusive integer range on the 1–10 difficulty self-rating scale. Tuple `[min, max]`
  * with `1 <= min <= max <= 10`.
  */
@@ -499,6 +524,9 @@ export interface TriviaConfig extends CascadeAxes {
 
 /** Defaults applied when `choices` is absent or only partially specified. */
 export const DEFAULT_TRIVIA_CHOICES: TriviaChoicesConfig = { min: 4, max: 4 };
+
+/** Built-in fallback when no `points` is set at any cascade tier: every question worth 1. */
+export const DEFAULT_TRIVIA_POINTS: TriviaPointsConfig = { max: 1 };
 
 /** Built-in fallback when no `questionType` weights are set at any cascade tier. */
 export const DEFAULT_QUESTION_TYPE_WEIGHTS: TriviaQuestionTypeWeights = {

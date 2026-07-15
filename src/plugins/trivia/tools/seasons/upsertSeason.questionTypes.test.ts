@@ -45,6 +45,7 @@ describe("upsert_season — answersFormat argument", () => {
         judgeLeniency: undefined,
         choices: undefined,
         choiceEmojiStyle: undefined,
+        points: undefined,
       },
       SESSION,
     );
@@ -86,6 +87,7 @@ describe("upsert_season — answersFormat argument", () => {
         judgeLeniency: undefined,
         choices: undefined,
         choiceEmojiStyle: undefined,
+        points: undefined,
       },
       SESSION,
     );
@@ -126,6 +128,7 @@ describe("upsert_season — answersFormat argument", () => {
         judgeLeniency: undefined,
         choices: undefined,
         choiceEmojiStyle: undefined,
+        points: undefined,
       },
       SESSION,
     );
@@ -155,6 +158,7 @@ describe("upsert_season — answersFormat argument", () => {
         judgeLeniency: undefined,
         choices: undefined,
         choiceEmojiStyle: undefined,
+        points: undefined,
       },
       SESSION,
     );
@@ -196,6 +200,7 @@ describe("upsert_season — answersFormat argument", () => {
         judgeLeniency: undefined,
         choices: undefined,
         choiceEmojiStyle: undefined,
+        points: undefined,
       },
       SESSION,
     );
@@ -225,6 +230,7 @@ describe("upsert_season — answersFormat argument", () => {
         judgeLeniency: undefined,
         choices: undefined,
         choiceEmojiStyle: undefined,
+        points: undefined,
       },
       SESSION,
     );
@@ -265,6 +271,7 @@ describe("upsert_season — answersFormat argument", () => {
         judgeLeniency: undefined,
         choices: undefined,
         choiceEmojiStyle: undefined,
+        points: undefined,
       },
       SESSION,
     );
@@ -295,6 +302,7 @@ describe("upsert_season — answersFormat argument", () => {
         judgeLeniency: undefined,
         choices: undefined,
         choiceEmojiStyle: undefined,
+        points: undefined,
       },
       SESSION,
     );
@@ -335,6 +343,7 @@ describe("upsert_season — answersFormat argument", () => {
         judgeLeniency: undefined,
         choices: undefined,
         choiceEmojiStyle: undefined,
+        points: undefined,
       },
       SESSION,
     );
@@ -391,6 +400,7 @@ describe("upsert_season — answersFormat argument", () => {
         judgeLeniency: undefined,
         choices: undefined,
         choiceEmojiStyle: undefined,
+        points: undefined,
       },
       SESSION,
     );

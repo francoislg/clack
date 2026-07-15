@@ -57,3 +57,23 @@ describe("prompt content — invalidation recovery is taught", () => {
     assert.match(TRIVIA_GAMES_ADMIN_INSTRUCTION, /refresh_question_cards/);
   });
 });
+
+describe("prompt content — the POINTS GATE gates on maxPoints and defaults to 1", () => {
+  const GENERATION_PROMPTS: Array<[string, string]> = [
+    ["SEND_QUESTIONS_INSTRUCTIONS", SEND_QUESTIONS_INSTRUCTIONS],
+    ["PREP_QUESTIONS_INSTRUCTIONS", PREP_QUESTIONS_INSTRUCTIONS],
+    ["POST_QUESTIONS_INSTRUCTIONS", POST_QUESTIONS_INSTRUCTIONS],
+  ];
+
+  for (const [name, text] of GENERATION_PROMPTS) {
+    it(`${name} carries the gate, keyed off maxPoints`, () => {
+      assert.match(text, /POINTS GATE/, `${name} is missing the POINTS GATE`);
+      assert.match(text, /maxPoints/, `${name} never mentions maxPoints`);
+      // The whole point of the axis's design: a cap is a ceiling, never a target,
+      // and no maxPoints means omit the field entirely.
+      assert.match(text, /DEFAULT TO 1/, `${name} does not teach the default-to-1 rule`);
+      assert.match(text, /ceiling, not a target/, `${name} does not frame the cap as a ceiling`);
+      assert.match(text, /OMIT the `points` field/, `${name} does not teach omission`);
+    });
+  }
+});

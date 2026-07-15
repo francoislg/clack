@@ -28,6 +28,7 @@ const emptyArgs = {
   difficultyRatio: undefined,
   choices: undefined,
   choiceEmojiStyle: undefined,
+  points: undefined,
   offDays: undefined,
   seasons: undefined,
   liveAnswersVisible: undefined,
@@ -65,6 +66,37 @@ describe("set_workspace_config", () => {
     const tool = createSetWorkspaceConfigTool();
     await tool.handler({ ...emptyArgs, answersFormat: null }, SESSION);
     assert.equal(loadTriviaConfig()?.answersFormat, undefined);
+  });
+
+  it("sets and clears workspace points", async () => {
+    primeBridge({});
+    const tool = createSetWorkspaceConfigTool();
+    const set = parseToolResult(
+      await tool.handler({ ...emptyArgs, points: { max: 3, guidance: "hard = 3" } }, SESSION),
+    );
+    assert.ok(set.updatedFields.includes("points"));
+    assert.deepEqual(loadTriviaConfig()?.points, { max: 3, guidance: "hard = 3" });
+
+    const cleared = parseToolResult(await tool.handler({ ...emptyArgs, points: null }, SESSION));
+    assert.ok(cleared.updatedFields.includes("points (cleared)"));
+    assert.equal(loadTriviaConfig()?.points, undefined);
+  });
+
+  it("accepts a bare workspace points cap as an admin-override allowance", async () => {
+    primeBridge({});
+    const tool = createSetWorkspaceConfigTool();
+    await tool.handler({ ...emptyArgs, points: { max: 2 } }, SESSION);
+    assert.deepEqual(loadTriviaConfig()?.points, { max: 2 });
+  });
+
+  it("rejects an out-of-range workspace points cap", async () => {
+    primeBridge({});
+    const tool = createSetWorkspaceConfigTool();
+    const result = parseToolResult(
+      await tool.handler({ ...emptyArgs, points: { max: 15 } }, SESSION),
+    );
+    assert.ok(result.error || result.isError);
+    assert.equal(loadTriviaConfig()?.points, undefined);
   });
 
   it("sets and clears workspace tellMeMore", async () => {

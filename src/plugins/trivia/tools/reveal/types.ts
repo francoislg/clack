@@ -86,6 +86,11 @@ export interface ProcessRevealEntry {
    * aren't needed for rendering and would widen the leak surface.
    */
   media?: { title: string; attribution?: string; license?: string };
+  /**
+   * What this question paid, present iff its stamped `points` exceeds 1 — so the
+   * reveal narrative can call out the stakes. Absent means the ordinary 1 point.
+   */
+  points?: number;
 }
 
 export interface SeasonStatusOut {
@@ -93,7 +98,13 @@ export interface SeasonStatusOut {
   isLastFireOfSeason: boolean;
   seasonClosed: boolean;
   newSeasonStarted?: { slug: string; expectedEndAt: number };
-  mvp?: { userId: string; displayName: string; currentSeasonCorrect: number };
+  /** Picked by `currentSeasonPoints`; `currentSeasonCorrect` rides along for context. */
+  mvp?: {
+    userId: string;
+    displayName: string;
+    currentSeasonCorrect: number;
+    currentSeasonPoints: number;
+  };
   /**
    * True iff any persisted answer belongs to a season other than `currentSlug`.
    * When false, "All Time" totals equal "Current Season" totals — the renderer
@@ -109,7 +120,12 @@ export interface RoundSummaryEntry {
   correct: number;
   /** Count of revealed questions this player submitted a scored answer to. */
   answered: number;
-  /** Present iff this player is tied for the highest `correct` count (and that count is > 0). */
+  /**
+   * Points earned this fire — each correct question pays its stamped `points`
+   * (absent = 1), so this equals `correct` when every revealed question is worth 1.
+   */
+  points: number;
+  /** Present iff this player is tied for the highest `points` total (and that total is > 0). */
   roundMvp?: true;
   /** Present iff the fire had >= 3 questions AND this player answered every one correctly. */
   perfectRound?: true;

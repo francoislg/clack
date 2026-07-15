@@ -43,11 +43,13 @@ import {
   promptMediumZod,
   triviaDifficultyRatioZod,
   triviaChoiceEmojiStyleZod,
+  triviaPointsZod,
   triviaChoicesZod,
   triviaHintZod,
   triviaJudgeLeniencyZod,
   validateHintConfig,
   validateTriviaChoicesConfig,
+  validateTriviaPoints,
 } from "../../core/configParsers/axes.js";
 import type {
   ChoiceEmojiStyle,
@@ -61,6 +63,7 @@ import type {
   TriviaFreeformAnswerShapeWeights,
   TriviaContextEntry,
   TriviaChoicesConfig,
+  TriviaPointsConfig,
   TriviaDifficultyConfig,
   TriviaDifficultyRatioConfig,
   TriviaHintConfig,
@@ -226,6 +229,12 @@ export function createUpsertSeasonTool(
         .describe(
           'Per-season tier of the choice-button emoji-style axis. One of `"numbers"` | `"themed"`. `"numbers"` (the built-in default) prefixes choice vote buttons with 1️⃣ 2️⃣ 3️⃣ 4️⃣; `"themed"` lets Claude pick one topic-matching Unicode emoji per option at generation time (stamped on the record, shown on buttons and the live answer roster). Purely cosmetic — never affects scoring. Cascade: `slot → season → game → workspace → "numbers"`. Whole-value replace per tier. On UPDATE: passing `null` clears the field. Mid-season mutation permitted.',
         ),
+      points: triviaPointsZod
+        .nullable()
+        .optional()
+        .describe(
+          "Per-season tier of the variable-points axis. Object shape `{ max: integer 1–10, guidance?: string }`. `max` (REQUIRED) caps what one question may be worth; `guidance` is free text steering the pick. GUIDANCE IS THE SWITCH: a bare `{ max: 3 }` never makes Claude spend points — it only ALLOWS an admin to reclass a question up to 3 via override_question. Both set → get_ideas surfaces them and Claude picks `1..max` at generation, stamped by save_question. Cascade: `slot → season → game → workspace → { max: 1 }`. Whole-object replace per tier — a tier setting `guidance` must restate `max`. Already-posed questions keep their stamped value if this changes. On UPDATE: passing `null` clears the field. Mid-season mutation permitted.",
+        ),
     },
     async (args) => {
       try {
@@ -381,6 +390,13 @@ export function createUpsertSeasonTool(
             ? undefined
             : args.choiceEmojiStyle;
 
+        let points: TriviaPointsConfig | undefined;
+        if (args.points !== undefined && args.points !== null) {
+          const validated = validateTriviaPoints(args.points, "points");
+          if (!validated.ok) return errorResult(validated.error);
+          points = validated.value;
+        }
+
         const liveAnswersVisible: boolean | undefined =
           args.liveAnswersVisible === undefined || args.liveAnswersVisible === null
             ? undefined
@@ -417,6 +433,7 @@ export function createUpsertSeasonTool(
           ...(judgeLeniency !== undefined ? { judgeLeniency } : {}),
           ...(choices !== undefined ? { choices } : {}),
           ...(choiceEmojiStyle !== undefined ? { choiceEmojiStyle } : {}),
+          ...(points !== undefined ? { points } : {}),
         };
 
         try {
@@ -456,6 +473,7 @@ export function createUpsertSeasonTool(
           hasJudgeLeniency: entry.judgeLeniency !== undefined,
           hasChoices: entry.choices !== undefined,
           hasChoiceEmojiStyle: entry.choiceEmojiStyle !== undefined,
+          hasPoints: entry.points !== undefined,
         });
       }
 
@@ -647,6 +665,15 @@ export function createUpsertSeasonTool(
         updatedChoiceEmojiStyle = args.choiceEmojiStyle;
       }
 
+      let updatedPoints: TriviaPointsConfig | undefined = existing.points;
+      if (args.points === null) {
+        updatedPoints = undefined;
+      } else if (args.points !== undefined) {
+        const validated = validateTriviaPoints(args.points, "points");
+        if (!validated.ok) return errorResult(validated.error);
+        updatedPoints = validated.value;
+      }
+
       const updated: SeasonEntry = {
         slug: existing.slug,
         startedAt: args.startedAt ?? existing.startedAt,
@@ -687,6 +714,7 @@ export function createUpsertSeasonTool(
         ...(updatedChoiceEmojiStyle !== undefined
           ? { choiceEmojiStyle: updatedChoiceEmojiStyle }
           : {}),
+        ...(updatedPoints !== undefined ? { points: updatedPoints } : {}),
       };
 
       const effectiveEnd = updated.endedAt ?? updated.expectedEndAt;
@@ -733,6 +761,7 @@ export function createUpsertSeasonTool(
         hasJudgeLeniency: updated.judgeLeniency !== undefined,
         hasChoices: updated.choices !== undefined,
         hasChoiceEmojiStyle: updated.choiceEmojiStyle !== undefined,
+        hasPoints: updated.points !== undefined,
       });
     },
   );

@@ -24,6 +24,7 @@ import type {
   TriviaAllTimeRowMode,
   TriviaAnswersFormatWeights,
   TriviaChoicesConfig,
+  TriviaPointsConfig,
   TriviaContextEntry,
   TriviaDifficultyConfig,
   TriviaDifficultyRatioConfig,
@@ -39,6 +40,8 @@ import {
   ALL_TIME_ROW_KEYS,
   CHOICE_EMOJI_STYLE_KEYS,
   DEFAULT_TRIVIA_CHOICES,
+  TRIVIA_POINTS_MAX,
+  TRIVIA_POINTS_GUIDANCE_MAX_LENGTH,
   FINAL_REVEAL_SUMMARY_KEYS,
   INCLUDE_REVEAL_IN_QUESTIONS_KEYS,
   JUDGE_LENIENCY_KEYS,
@@ -46,6 +49,7 @@ import {
 import { type Result } from "../../../zodResult.js";
 import {
   choicesCheck,
+  pointsCheck,
   contextsCheck,
   enumCheck,
   hintCheck,
@@ -344,6 +348,25 @@ export function validateTriviaChoicesConfig(
   return safeParseToResult(choicesSchema, raw, fieldLabel);
 }
 
+function normalizePoints(raw: unknown): TriviaPointsConfig {
+  const obj = isJsonObject(raw) ? raw : {};
+  const guidance = typeof obj.guidance === "string" ? obj.guidance.trim() : undefined;
+  return { max: obj.max as number, ...(guidance !== undefined ? { guidance } : {}) };
+}
+
+const pointsSchema: z.ZodType<TriviaPointsConfig> = schemaFromChecker(
+  (raw) =>
+    pointsCheck(raw, {
+      max: TRIVIA_POINTS_MAX,
+      guidanceMaxLength: TRIVIA_POINTS_GUIDANCE_MAX_LENGTH,
+    }),
+  normalizePoints,
+);
+
+export function validateTriviaPoints(raw: unknown, fieldLabel: string): Result<TriviaPointsConfig> {
+  return safeParseToResult(pointsSchema, raw, fieldLabel);
+}
+
 /**
  * The 5 cascading axes that every tier (workspace / game / season / slot) supports.
  * Each field is optional.
@@ -542,6 +565,12 @@ export const triviaChoiceEmojiStyleZod = z.enum(
 export const triviaChoicesZod = z.object({
   min: z.number().int(),
   max: z.number().int(),
+});
+
+/** Shared zod schema for the `points` axis (structural; bounds + guidance rules in `validateTriviaPoints`). */
+export const triviaPointsZod = z.object({
+  max: z.number().int(),
+  guidance: z.string().optional(),
 });
 
 /**

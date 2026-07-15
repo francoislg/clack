@@ -30,6 +30,7 @@ import { createStartNewSeasonTool } from "./tools/seasons/startNewSeason.js";
 import { createComputeAnswersTool } from "./tools/reveal/computeAnswers.js";
 import { createRefreshQuestionCardsTool } from "./tools/reveal/refreshQuestionCards.js";
 import { createOverrideAnswerTool } from "./tools/reveal/overrideAnswer.js";
+import { createOverrideQuestionTool } from "./tools/questions/overrideQuestion.js";
 import { createSettleQuestionTool } from "./tools/reveal/settleQuestion.js";
 import { createLockQuestionsTool } from "./tools/lock/lockQuestions.js";
 import { createUnlockQuestionsTool } from "./tools/lock/unlockQuestions.js";
@@ -140,6 +141,11 @@ export const triviaPlugin: ClackPlugin = async (sdk: ClackSdk) => {
     sdk.t("label.refresh_question_cards"),
   );
   sdk.registerTool("admin", createOverrideAnswerTool(data), sdk.t("label.override_answer"));
+  sdk.registerTool(
+    "admin",
+    createOverrideQuestionTool(data, sdk),
+    sdk.t("label.override_question"),
+  );
   sdk.registerTool("admin", createRemoveCheatTool(data), sdk.t("label.remove_cheat"));
   sdk.registerTool("admin", createStartNewSeasonTool(data), sdk.t("label.start_new_season"));
   sdk.registerTool("member", createRetrieveScoresTool(data), sdk.t("label.retrieve_scores"));

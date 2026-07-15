@@ -3,7 +3,7 @@ import { tool } from "@anthropic-ai/claude-agent-sdk";
 import { textResult, errorResult } from "../../../../tools/helpers.js";
 import { defaultGetGames, type GetGamesFn } from "../../core/configBridge.js";
 import { requireGame } from "../../core/gamesRegistry.js";
-import { computeLeaderboard } from "../../domain/computeLeaderboard.js";
+import { buildQuestionPointsMap, computeLeaderboard } from "../../domain/computeLeaderboard.js";
 import type { TriviaDataLayer } from "../../core/types.js";
 
 export function createRetrieveScoresTool(
@@ -55,17 +55,23 @@ export function createRetrieveScoresTool(
             ? currentSlug
             : seasonArg;
 
-      const { leaderboard, totalPlayers } = computeLeaderboard(allAnswers, users, {
-        sortBy: args.sortBy ?? "totalCorrect",
-        limit: args.limit ?? 10,
-        primaryFilterSeason,
-        currentSeasonSlug: currentSlug,
-      });
+      const questions = await scoped.loadQuestions();
+      const { leaderboard, totalPlayers } = computeLeaderboard(
+        allAnswers,
+        users,
+        buildQuestionPointsMap(questions),
+        {
+          sortBy: args.sortBy ?? "totalCorrect",
+          limit: args.limit ?? 10,
+          primaryFilterSeason,
+          currentSeasonSlug: currentSlug,
+        },
+      );
 
       return textResult({
         leaderboard,
         totalPlayers,
-        totalQuestions: (await scoped.loadQuestions()).length,
+        totalQuestions: questions.length,
         ...(seasonsEnabled ? { currentSeason: currentSlug, seasonFilter: seasonArg } : {}),
       });
     },

@@ -8,6 +8,7 @@
 import { CronExpressionParser } from "cron-parser";
 import type {
   ChoiceEmojiStyle,
+  TriviaPointsConfig,
   JsonObject,
   JsonValue,
   OffDay,
@@ -26,6 +27,7 @@ import {
   parseTriviaAxisBag,
   validateAllTimeRowMode,
   validateChoiceEmojiStyle,
+  validateTriviaPoints,
   validateFinalRevealSummary,
   validateHintConfig,
   validateIncludeRevealInQuestions,
@@ -369,6 +371,13 @@ export function parseTriviaGame(
     else issues.push({ field: `${fieldPrefix}.choiceEmojiStyle`, error: r.error });
   }
 
+  let points: TriviaPointsConfig | undefined;
+  if (e.points !== undefined && e.points !== null) {
+    const r = validateTriviaPoints(e.points, `${fieldPrefix}.points`);
+    if (r.ok) points = r.value;
+    else issues.push({ field: `${fieldPrefix}.points`, error: r.error });
+  }
+
   seenNames.add(name);
   return {
     game: {
@@ -392,6 +401,7 @@ export function parseTriviaGame(
       ...(judgeLeniency !== undefined ? { judgeLeniency } : {}),
       ...(choices !== undefined ? { choices } : {}),
       ...(choiceEmojiStyle !== undefined ? { choiceEmojiStyle } : {}),
+      ...(points !== undefined ? { points } : {}),
       ...(allTimeRow !== undefined ? { allTimeRow } : {}),
       ...(tagPlayers !== undefined ? { tagPlayers } : {}),
       ...(scrollToTop !== undefined ? { scrollToTop } : {}),

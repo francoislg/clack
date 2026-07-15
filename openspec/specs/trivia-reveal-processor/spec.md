@@ -559,7 +559,8 @@ roundSummary: {
     displayName: string;
     correct: number; // count of revealed questions this player answered correctly
     answered: number; // count of revealed questions this player submitted a scored answer to (correct or incorrect)
-    roundMvp?: true; // present iff this player is tied for the highest `correct` count this fire
+    points: number; // sum of stamped per-question points over this player's correct rows this fire (a question with no stamped `points` pays 1)
+    roundMvp?: true; // present iff this player is tied for the highest `points` value this fire
     perfectRound?: true; // present iff totalQuestions >= 3 AND this player answered every revealed question correctly
   }>;
 }
@@ -571,11 +572,11 @@ The scoring filter SHALL be identical to the leaderboard's: cheaters (per the qu
 
 `perPlayer` SHALL include only players with `answered >= 1` — players who did not answer any revealed question this fire SHALL NOT be present.
 
-`perPlayer` SHALL be sorted by `correct` descending, ties broken by `displayName` ascending (case-insensitive, locale-sensitive comparison).
+`perPlayer` SHALL be sorted by `points` descending, ties broken by `displayName` ascending (case-insensitive, locale-sensitive comparison). When every revealed question is worth 1 point, `points` equals `correct` for every player, so the ordering is identical to the pre-points sort.
 
-`roundMvp: true` SHALL be set on EVERY player tied for the highest `correct` value in `perPlayer`. When no player has `correct > 0`, `roundMvp` SHALL be absent from all entries.
+`roundMvp: true` SHALL be set on EVERY player tied for the highest `points` value in `perPlayer`. When no player has `points > 0`, `roundMvp` SHALL be absent from all entries. When every revealed question is worth 1 point this reduces exactly to the pre-points highest-`correct` rule.
 
-`perfectRound: true` SHALL be set on a player's entry IFF `roundSummary.totalQuestions >= 3` AND that player's `correct === totalQuestions` (they answered every revealed question correctly). When `totalQuestions < 3`, `perfectRound` SHALL be absent from ALL entries, regardless of any player's correctness. `perfectRound` is orthogonal to `roundMvp`: a perfect-round player is necessarily an MVP (they hold the top `correct` value), but the MVP set may include non-perfect players (e.g. a 2/3 tie) that carry `roundMvp` without `perfectRound`.
+`perfectRound: true` SHALL be set on a player's entry IFF `roundSummary.totalQuestions >= 3` AND that player's `correct === totalQuestions` (they answered every revealed question correctly) — point weights play no role in perfection. When `totalQuestions < 3`, `perfectRound` SHALL be absent from ALL entries, regardless of any player's correctness. `perfectRound` is orthogonal to `roundMvp`: a perfect-round player is necessarily an MVP under uniform weights, but on a weighted fire a non-perfect player holding a high-value question may out-point a perfect player — `roundMvp` follows `points`, `perfectRound` follows completeness.
 
 #### Scenario: roundSummary present in every mode, computed from scored answers
 
@@ -603,16 +604,24 @@ The scoring filter SHALL be identical to the leaderboard's: cheaters (per the qu
 
 #### Scenario: Length-3 reveal aggregates per player
 
-- **GIVEN** three revealed questions (any modes)
+- **GIVEN** three revealed 1-point questions (any modes)
 - **AND** alice answered correctly on Q1 and Q2, incorrectly on Q3
 - **AND** bob answered correctly on Q1, did not answer Q2, answered correctly on Q3
 - **AND** carol answered correctly on all three
 - **WHEN** `compute_answers` returns
 - **THEN** `roundSummary.totalQuestions` equals `3`
-- **AND** alice has `correct: 2, answered: 3`
-- **AND** bob has `correct: 2, answered: 2`
-- **AND** carol has `correct: 3, answered: 3, roundMvp: true`
+- **AND** alice has `correct: 2, answered: 3, points: 2`
+- **AND** bob has `correct: 2, answered: 2, points: 2`
+- **AND** carol has `correct: 3, answered: 3, points: 3, roundMvp: true`
 - **AND** neither alice nor bob carries `roundMvp`
+
+#### Scenario: Weighted question pays its stamp into points
+
+- **GIVEN** a 2-question fire where Q1 is stamped `points: 3` and Q2 carries no `points` field
+- **AND** alice answered only Q1 correctly and bob answered only Q2 correctly
+- **WHEN** `compute_answers` returns
+- **THEN** alice has `correct: 1, points: 3, roundMvp: true`
+- **AND** bob has `correct: 1, points: 1` without `roundMvp`
 
 #### Scenario: Player who answered zero questions is omitted
 
@@ -623,7 +632,7 @@ The scoring filter SHALL be identical to the leaderboard's: cheaters (per the qu
 
 #### Scenario: Round MVPs share the title on a tie
 
-- **GIVEN** four players all scoring 2/3 correct on a 3-question fire
+- **GIVEN** four players all scoring 2/3 correct on a 3-question uniform-weight fire
 - **WHEN** `compute_answers` returns
 - **THEN** all four entries in `roundSummary.perPlayer` carry `roundMvp: true`
 
@@ -631,7 +640,7 @@ The scoring filter SHALL be identical to the leaderboard's: cheaters (per the qu
 
 - **GIVEN** a fire where every player answered incorrectly on every question
 - **WHEN** `compute_answers` returns
-- **THEN** every entry in `roundSummary.perPlayer` has `correct: 0`
+- **THEN** every entry in `roundSummary.perPlayer` has `correct: 0` and `points: 0`
 - **AND** no entry carries `roundMvp`
 
 #### Scenario: Cheaters do not appear in roundSummary
@@ -671,6 +680,15 @@ The scoring filter SHALL be identical to the leaderboard's: cheaters (per the qu
 - **AND** alice and bob each answered all four correctly
 - **WHEN** `compute_answers` returns
 - **THEN** both alice's and bob's entries carry `perfectRound: true` and `roundMvp: true`
+
+#### Scenario: Weighted fire can split perfectRound and roundMvp
+
+- **GIVEN** a 3-question fire where Q1 is stamped `points: 3` and Q2/Q3 carry no `points` field
+- **AND** alice answered all three correctly (`correct: 3, points: 5`)
+- **AND** bob answered only Q1 correctly out of three attempts (`correct: 1, answered: 3, points: 3`)
+- **WHEN** `compute_answers` returns
+- **THEN** alice carries `perfectRound: true` and `roundMvp: true` (5 is the top `points`)
+- **AND** bob carries neither
 
 ### Requirement: `processedAt` field on TriviaQuestion
 
@@ -965,4 +983,21 @@ A question carrying `invalidated: true` SHALL be surfaced in the payload's `inva
 
 - **WHEN** `refresh_question_cards` runs over a batch containing an `invalidated` question
 - **THEN** that question's card is repainted with the invalidated line and no results footer
+
+### Requirement: Leaderboard and reveal payload carry point totals
+
+The `leaderboard` field of `ProcessRevealResult` SHALL carry `totalPoints` and (when a current season is set) `currentSeasonPoints` on every entry, computed by the shared `computeLeaderboard` helper's points join (questionId → stamped `points`, absence reads 1). Each reveal entry SHALL include `points: number` when its question's stamped value exceeds 1 and omit the field otherwise, and the reveal-prompt directives SHALL document both additions and instruct rendering point totals in the leaderboard table's score cells.
+
+#### Scenario: Leaderboard entries expose point totals
+
+- **GIVEN** answer history containing a correct answer on a question stamped `points: 2`
+- **WHEN** `compute_answers` returns
+- **THEN** that player's leaderboard entry carries `totalPoints` including the 2
+- **AND** `retrieve_scores` returns the same totals for the same game (shared-helper parity)
+
+#### Scenario: High-stakes reveal entry names its worth
+
+- **GIVEN** a pending question stamped `points: 2` and another with no `points` field
+- **WHEN** `compute_answers` reveals the batch
+- **THEN** the first reveal entry includes `points: 2` and the second includes no `points` field
 

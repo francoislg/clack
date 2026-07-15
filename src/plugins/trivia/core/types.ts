@@ -61,6 +61,22 @@ export interface QuestionMedia {
   attribution?: string;
 }
 
+/**
+ * The pre-override originals `override_question` captures. Deliberately mirrors the
+ * tool's field allowlist — widening it means widening what admins may rewrite.
+ *
+ * A key is present IFF that field has been overridden at least once, so "not yet
+ * captured" MUST be encoded as an absent key and never as an explicit `undefined`:
+ * `JSON.stringify` drops undefined values, which would make a re-read look
+ * uncaptured and let a second override overwrite the true original. Hence a field
+ * that was originally UNSET is recorded as its semantic original instead — `points`
+ * as `1` (absence reads as 1 everywhere), `difficulty` as `null` (never rated).
+ */
+export interface QuestionOverrideOriginals {
+  points?: number;
+  difficulty?: number | null;
+}
+
 export interface TriviaQuestion {
   id: string;
   category: string;
@@ -117,6 +133,21 @@ export interface TriviaQuestion {
   suggestedDifficulty?: "Easy" | "Medium" | "Hard";
   /** Claude's 1–10 self-rating from the difficulty gate. Absent on legacy rows. */
   difficulty?: number;
+  /**
+   * What this question is worth on every scoring surface. Stamped by `save_question`
+   * (and rewritable by `override_question`) only when greater than 1, so legacy rows
+   * and 1-point rows are identical on disk — absence SHALL be read as 1 everywhere.
+   * Stamping severs the value from later config edits: a question is worth what it
+   * was posed at, whatever the `points` cascade says today.
+   */
+  points?: number;
+  /**
+   * Pre-override values captured by `override_question`, one entry per field the
+   * FIRST time that field is overridden — so the generation-time fact survives any
+   * number of later corrections. Absent entirely on every question that has never
+   * been overridden.
+   */
+  overriddenFrom?: QuestionOverrideOriginals;
   emojis: string[];
   createdAt: number;
   postedAt?: number;
