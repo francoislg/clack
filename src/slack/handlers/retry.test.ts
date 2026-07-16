@@ -128,7 +128,7 @@ beforeEach(() => {
       }) as never as Config,
   );
 
-  const app = makeApp(makeDeps());
+  makeApp(makeDeps());
 });
 
 // ============================================================================
