@@ -1,7 +1,7 @@
 import { describe, it, vi } from "vitest";
 import assert from "node:assert/strict";
 import { createCancelReminderTool } from "./cancelReminder.js";
-import { parseToolResult, toolResultText } from "../testHelpers.js";
+import { parseToolResult } from "../testHelpers.js";
 import type { QueryToolContext } from "../types.js";
 
 function makeContext(overrides?: Partial<QueryToolContext>): QueryToolContext {

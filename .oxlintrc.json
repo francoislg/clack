@@ -14,7 +14,7 @@
       "files": ["**/*.test.ts"],
       "plugins": ["vitest"],
       "rules": {
-        "no-unused-vars": "off",
+        "no-unused-vars": "error",
         "vitest/require-mock-type-parameters": "off",
         "no-restricted-globals": [
           "error",

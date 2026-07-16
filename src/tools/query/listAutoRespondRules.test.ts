@@ -1,4 +1,4 @@
-import { describe, it, beforeEach, afterEach } from "vitest";
+import { describe, it, beforeEach, afterEach, vi } from "vitest";
 import assert from "node:assert/strict";
 import { mkdtemp, rm, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -6,7 +6,11 @@ import { join } from "node:path";
 import { createListAutoRespondRulesTool } from "./listAutoRespondRules.js";
 import type { QueryToolContext } from "../types.js";
 import { addRule, clearAutoRespondCache } from "../../autoRespond.js";
-import { seedEphemeralRule, clearEphemeralRulesCache } from "../../ephemeralRules.js";
+import {
+  seedEphemeralRule,
+  clearEphemeralRulesCache,
+  EPHEMERAL_RULE_TTL_MS,
+} from "../../ephemeralRules.js";
 
 const originalCwd = process.cwd;
 
@@ -111,27 +115,31 @@ describe("list_auto_respond_rules tool — ephemeral rules projection", () => {
   });
 
   it("marks ephemeral rule as dormant when expiresAt < now", async () => {
-    const futureExpiry = Date.now() + 10_000;
-    await seedEphemeralRule({
-      channel: "C_EPHEMERAL",
-      attentionLevel: "medium",
-      sessionId: "s1",
-      anchorText: "test message",
-    });
+    vi.useFakeTimers();
+    try {
+      await seedEphemeralRule({
+        channel: "C_EPHEMERAL",
+        attentionLevel: "medium",
+        sessionId: "s1",
+        anchorText: "test message",
+      });
+      // Jump past the rule's TTL so its expiresAt is now in the past.
+      vi.setSystemTime(Date.now() + EPHEMERAL_RULE_TTL_MS + 1);
 
-    const tool = createListAutoRespondRulesTool(buildCtx());
-    const result: ToolHandlerResult = await tool.handler(
-      { _placeholder: undefined },
-      { sessionId: "test" },
-    );
-    const parsed = JSON.parse(textAt(result, 0));
+      const tool = createListAutoRespondRulesTool(buildCtx());
+      const result: ToolHandlerResult = await tool.handler(
+        { _placeholder: undefined },
+        { sessionId: "test" },
+      );
+      const parsed = JSON.parse(textAt(result, 0));
 
-    assert.equal(parsed.rules.length, 1);
-    const ephemeralRule = parsed.rules[0];
-    assert.equal(ephemeralRule.kind, "ephemeral");
-    const now = Date.now();
-    const isDormant = ephemeralRule.expiresAt < now;
-    assert.equal(ephemeralRule.dormant, isDormant);
+      assert.equal(parsed.rules.length, 1);
+      const ephemeralRule = parsed.rules[0];
+      assert.equal(ephemeralRule.kind, "ephemeral");
+      assert.equal(ephemeralRule.dormant, true);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("marks ephemeral rule as NOT dormant when expiresAt > now", async () => {

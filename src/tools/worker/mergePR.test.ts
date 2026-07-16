@@ -23,11 +23,6 @@ function makeCtx(overrides?: Partial<WorkerToolContext>): WorkerToolContext {
   };
 }
 
-interface ToolResult {
-  content: Array<{ text: string }>;
-  isError?: true;
-}
-
 function makeDeps() {
   const mockGetSession = vi.fn<(...args: unknown[]) => Promise<unknown>>(async () => ({
     activeChange: { prUrl: "https://github.com/org/my-repo/pull/42" },

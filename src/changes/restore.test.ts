@@ -1,4 +1,4 @@
-import { describe, it, beforeEach, vi } from "vitest";
+import { describe, it, vi } from "vitest";
 import assert from "node:assert/strict";
 import type { PersistedSessionState, ChangeStatus } from "./types.js";
 import type { RepositoryConfig } from "../config.js";
@@ -87,9 +87,6 @@ type FakeConfig = {
   changesWorkflow?: { reusableFolders?: { enabled: boolean } };
 };
 const fakeConfigBox: { value: FakeConfig } = { value: { repositories: mockRepositories } };
-function setFakeConfig(c: FakeConfig): void {
-  fakeConfigBox.value = c;
-}
 
 function makeDeps(overrides: Partial<RestoreDeps> = {}): RestoreDeps {
   const mockGetAllPersistedSessions: RestoreDeps["getAllPersistedSessions"] = vi.fn(async () => []);

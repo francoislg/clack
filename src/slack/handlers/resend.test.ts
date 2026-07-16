@@ -107,7 +107,7 @@ beforeEach(() => {
   mockGetStructuredResponseBlocks.mockClear();
   mockAsSlackBlocks.mockClear();
 
-  const app = makeApp(makeDeps());
+  makeApp(makeDeps());
 });
 
 // ============================================================================

@@ -28,16 +28,6 @@ interface PostMessageArgs {
   text: string;
 }
 
-interface PostMessageMock {
-  mock: {
-    callCount(): number;
-    calls: Array<{ arguments: [PostMessageArgs] }>;
-    resetCalls(): void;
-    mockImplementation(fn: (args: PostMessageArgs) => Promise<{ ok: boolean }>): void;
-  };
-  (args: PostMessageArgs): Promise<{ ok: boolean }>;
-}
-
 const mockWriteInstructionFile = vi.fn<(filename: string, content: string) => void>();
 const mockDeleteInstructionFile = vi.fn<(filepath: string) => void>();
 const mockReadInstructionFile = vi.fn<
@@ -91,9 +81,6 @@ const mockResolveOrigin = vi.fn<
     sessionInfo: SessionInfo,
   ) => { originChannel: string | undefined; originThreadTs: string | undefined }
 >(() => ({ originChannel: undefined, originThreadTs: undefined }));
-const mockRestoreSession = vi.fn<(sessionId: string) => Promise<SessionInfo | null>>(
-  async () => null,
-);
 const mockSeedEphemeralRule = vi.fn<AutoExecuteDeps["seedEphemeralRule"]>(async (opts) => ({
   id: "eph-1",
   kind: "ephemeral",
