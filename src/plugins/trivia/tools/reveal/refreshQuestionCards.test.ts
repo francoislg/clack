@@ -2,13 +2,9 @@ import { describe, it } from "vitest";
 import assert from "node:assert/strict";
 import type { KnownBlock } from "@slack/types";
 import { createRefreshQuestionCardsTool } from "./refreshQuestionCards.js";
-import type { RevealSlackDeps } from "./computeAnswers.js";
-import {
-  createFakeSdk,
-  createInMemoryDataLayer,
-  FIXTURE_GAME_NAME,
-  fixtureGetGames,
-} from "../../testHelpers.js";
+import { type RevealSlackDeps } from "./computeAnswers.js";
+import { createFakeSdk, createFakeRevealSlackDeps } from "../../testHelpers.fakeSdk.js";
+import { createInMemoryDataLayer, FIXTURE_GAME_NAME, fixtureGetGames } from "../../testHelpers.js";
 import { parseToolResult } from "../../../../tools/testHelpers.js";
 import type { TriviaQuestion } from "../../core/types.js";
 
@@ -48,22 +44,16 @@ interface UpdateCall {
   blocks: KnownBlock[];
 }
 
-function capturingSlackDeps(opts: { throwOnUpdate?: boolean } = {}): {
-  deps: RevealSlackDeps;
-  updates: UpdateCall[];
-} {
+function capturingSlackDeps(opts: { throwOnUpdate?: boolean } = {}) {
   const updates: UpdateCall[] = [];
-  const deps: RevealSlackDeps = {
-    isAvailable: () => null,
-    fetchBotUserId: async () => "UBOT",
-    fetchMessageReactions: async () => [],
-    fetchUserDisplayName: async () => null,
-    updateMessage: async (channel, ts, blocks) => {
-      if (opts.throwOnUpdate) throw new Error("rate limited");
-      updates.push({ channel, ts, blockIds: blocks.map((b) => b.block_id ?? ""), blocks });
-    },
+  const updateMessage = async (channel: string, ts: string, blocks: KnownBlock[]) => {
+    if (opts.throwOnUpdate) throw new Error("rate limited");
+    updates.push({ channel, ts, blockIds: blocks.map((b) => b.block_id ?? ""), blocks });
   };
-  return { deps, updates };
+  return {
+    deps: createFakeRevealSlackDeps({ updateMessage }),
+    updates,
+  };
 }
 
 function postedBooleanBlocks(questionId: string) {
@@ -88,7 +78,7 @@ function postedBooleanBlocks(questionId: string) {
 }
 
 function makeTool(data: ReturnType<typeof createInMemoryDataLayer>, deps: RevealSlackDeps) {
-  return createRefreshQuestionCardsTool(data, createFakeSdk(), fixtureGetGames, deps);
+  return createRefreshQuestionCardsTool(data, createFakeSdk().sdk, fixtureGetGames, deps);
 }
 
 describe("refresh_question_cards — deterministic card projection", () => {
@@ -428,7 +418,7 @@ describe("refresh_question_cards — deterministic card projection", () => {
     const { deps, updates } = capturingSlackDeps();
     const tool = createRefreshQuestionCardsTool(
       data,
-      createFakeSdk(),
+      createFakeSdk().sdk,
       fixtureGetGames,
       deps,
       () => ({
@@ -610,7 +600,7 @@ describe("refresh_question_cards — teams mode footer", () => {
         g.name === FIXTURE_GAME_NAME ? { ...g, teams: ROSTER, teamsEnabled: true } : g,
       );
     const { deps, updates } = capturingSlackDeps();
-    const tool = createRefreshQuestionCardsTool(data, createFakeSdk(), getGames, deps);
+    const tool = createRefreshQuestionCardsTool(data, createFakeSdk().sdk, getGames, deps);
     await tool.handler({ game: FIXTURE_GAME_NAME, questionIds: ["q1"] }, SESSION);
 
     const text = footerText(updates);

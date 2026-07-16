@@ -3,12 +3,8 @@ import assert from "node:assert/strict";
 import { createComputeAnswersTool, type RevealSlackDeps } from "./tools/reveal/computeAnswers.js";
 import { createRefreshQuestionCardsTool } from "./tools/reveal/refreshQuestionCards.js";
 import { createStartNewSeasonTool } from "./tools/seasons/startNewSeason.js";
-import {
-  createFakeSdk,
-  createInMemoryDataLayer,
-  FIXTURE_GAME_NAME,
-  fixtureGetGames,
-} from "./testHelpers.js";
+import { createInMemoryDataLayer, FIXTURE_GAME_NAME, fixtureGetGames } from "./testHelpers.js";
+import { createFakeSdk, createFakeRevealSlackDeps } from "./testHelpers.fakeSdk.js";
 import { parseToolResult } from "../../tools/testHelpers.js";
 import type { TriviaQuestion } from "./core/types.js";
 
@@ -37,19 +33,18 @@ interface UpdateCall {
   blockIds: string[];
 }
 
-/** One Slack seam shared by compute_answers AND refresh_question_cards, capturing every chat.update. */
-function capturingSlackDeps(): { deps: RevealSlackDeps; updates: UpdateCall[] } {
-  const updates: UpdateCall[] = [];
-  const deps: RevealSlackDeps = {
-    isAvailable: () => null,
-    fetchBotUserId: async () => "UBOT",
-    fetchMessageReactions: async () => [],
-    fetchUserDisplayName: async () => null,
-    updateMessage: async (channel, ts, blocks) => {
-      updates.push({ channel, ts, blockIds: blocks.map((b) => b.block_id ?? "") });
-    },
-  };
-  return { deps, updates };
+/** One Slack seam shared by compute_answers AND refresh_question_cards. */
+function capturingSlackDeps() {
+  return createFakeRevealSlackDeps({ fetchBotUserId: async () => "UBOT" });
+}
+
+/** Every chat.update the tools issued, projected from the mock's call history. */
+function updatesOf(deps: ReturnType<typeof createFakeRevealSlackDeps>): UpdateCall[] {
+  return deps.updateMessage.mock.calls.map(([channel, ts, blocks]) => ({
+    channel,
+    ts,
+    blockIds: blocks.map((b) => b.block_id ?? ""),
+  }));
 }
 
 /** Game fixture with a tunable revealCron — the axis that drives isLastFireOfSeason. */
@@ -101,7 +96,7 @@ function makeQuestion(overrides: Partial<TriviaQuestion>): TriviaQuestion {
 type Data = ReturnType<typeof createInMemoryDataLayer>;
 
 function tools(data: Data, deps: RevealSlackDeps, revealCron: string) {
-  const sdk = createFakeSdk();
+  const { sdk } = createFakeSdk();
   const getGames = getGamesWithCron(revealCron);
   const noConfig = () => ({});
   return {
@@ -143,7 +138,7 @@ describe("reveal flow integration — compute → update → start_new_season", 
       season: "s1",
     });
 
-    const { deps, updates } = capturingSlackDeps();
+    const deps = capturingSlackDeps();
     const { compute, update } = tools(data, deps, "* * * * *");
 
     // ── Step 1: compute_answers (the scorer) ──────────────────────────────
@@ -166,7 +161,7 @@ describe("reveal flow integration — compute → update → start_new_season", 
     assert.equal(u1.totalCorrect, 1);
     assert.equal(u2.totalCorrect, 0);
     // compute is the WRITER: it stamps processedAt — but it touches NO Slack card.
-    assert.equal(updates.length, 0);
+    assert.equal(updatesOf(deps).length, 0);
     const afterCompute = await scoped.loadQuestions();
     assert.notEqual(afterCompute.find((q) => q.id === "q1")?.processedAt, undefined);
 
@@ -181,9 +176,9 @@ describe("reveal flow integration — compute → update → start_new_season", 
       ),
     );
     assert.deepEqual(edited.edited, ["q1"]);
-    assert.equal(updates.length, 1);
-    assert.ok(!updates[0].blockIds.includes("vote-actions:q1"));
-    assert.ok(updates[0].blockIds.includes("reveal-results:q1"));
+    assert.equal(updatesOf(deps).length, 1);
+    assert.ok(!updatesOf(deps)[0].blockIds.includes("vote-actions:q1"));
+    assert.ok(updatesOf(deps)[0].blockIds.includes("reveal-results:q1"));
 
     // ── No rollover on a mid-season fire: season s1 stays open. ───────────
     const state = await scoped.loadSeasonsState();
@@ -206,7 +201,7 @@ describe("reveal flow integration — compute → update → start_new_season", 
       timestamp: 1,
     });
 
-    const { deps, updates } = capturingSlackDeps();
+    const deps = capturingSlackDeps();
     const { compute, update, startNewSeason } = tools(data, deps, "0 0 1 1 *");
 
     const computed = parseToolResult(
@@ -234,7 +229,7 @@ describe("reveal flow integration — compute → update → start_new_season", 
       },
       SESSION,
     );
-    assert.equal(updates.length, 1);
+    assert.equal(updatesOf(deps).length, 1);
 
     // ── Step 3: start_new_season (the only step that mutates season state) ─
     const rolled = parseToolResult(
@@ -267,7 +262,7 @@ describe("reveal flow integration — compute → update → start_new_season", 
       timestamp: 1,
     });
 
-    const { deps, updates } = capturingSlackDeps();
+    const deps = capturingSlackDeps();
     const { compute, update, startNewSeason } = tools(data, deps, "0 0 1 1 *");
 
     const computed = parseToolResult(
@@ -302,8 +297,8 @@ describe("reveal flow integration — compute → update → start_new_season", 
       },
       SESSION,
     );
-    assert.equal(updates.length, 2);
-    assert.deepEqual(updates[0].blockIds, updates[1].blockIds);
+    assert.equal(updatesOf(deps).length, 2);
+    assert.deepEqual(updatesOf(deps)[0].blockIds, updatesOf(deps)[1].blockIds);
 
     // Re-run rollover: s1's close stamp is irreversible-once — never re-applied.
     await startNewSeason.handler({ game: FIXTURE_GAME_NAME, force: undefined }, SESSION);
@@ -333,7 +328,7 @@ describe("reveal flow integration — compute → update → start_new_season", 
       }),
     );
 
-    const { deps, updates } = capturingSlackDeps();
+    const deps = capturingSlackDeps();
     const { compute, update } = tools(data, deps, "* * * * *");
 
     // Fire 1 drains the oldest batch (B1) only.
@@ -383,7 +378,7 @@ describe("reveal flow integration — compute → update → start_new_season", 
     );
 
     assert.deepEqual(
-      updates.map((u) => u.blockIds.find((b) => b.startsWith("reveal-results:"))),
+      updatesOf(deps).map((u) => u.blockIds.find((b) => b.startsWith("reveal-results:"))),
       ["reveal-results:q1", "reveal-results:q2"],
     );
 

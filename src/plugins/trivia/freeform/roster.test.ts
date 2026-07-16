@@ -1,4 +1,4 @@
-import { describe, it, afterEach } from "vitest";
+import { describe, it, afterEach, vi } from "vitest";
 import assert from "node:assert/strict";
 import {
   buildRosterBlock,
@@ -281,24 +281,27 @@ describe("editRosterIntoCard", () => {
 
   // The mock satisfies `RosterEditClient.chat.update` (the narrow `Pick` exposed
   // by roster.ts) — args use Slack's `ChatUpdateArguments` discriminated union,
-  // but we only inspect the three fields editRosterIntoCard sets.
+  // but we only inspect the three fields editRosterIntoCard sets. `calls` is a
+  // projection of the mock's call history, not a separate capture.
+  type UpdateFn = (
+    args: Parameters<RosterEditClient["chat"]["update"]>[0],
+  ) => Promise<ChatUpdateResponse>;
+
   function fakeClient(): {
     chat: RosterEditClient["chat"];
     calls: CapturedCall[];
   } {
-    const calls: CapturedCall[] = [];
+    const update = vi.fn<UpdateFn>(async () => ({ ok: true }));
     return {
-      calls,
-      chat: {
-        async update(args) {
+      chat: { update },
+      get calls(): CapturedCall[] {
+        return update.mock.calls.map(([args]) => {
           // Slack's ChatUpdateArguments is a discriminated union; the variant
           // editRosterIntoCard uses is ChannelAndBlocks. Narrow via field probe.
           const blocks =
             "blocks" in args && Array.isArray(args.blocks) ? (args.blocks as BlockShape[]) : [];
-          calls.push({ channel: args.channel, ts: args.ts, blocks });
-          const response: ChatUpdateResponse = { ok: true };
-          return response;
-        },
+          return { channel: args.channel, ts: args.ts, blocks };
+        });
       },
     };
   }

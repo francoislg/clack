@@ -1,7 +1,8 @@
-import { describe, it } from "vitest";
+import { describe, it, beforeEach, vi } from "vitest";
 import assert from "node:assert/strict";
 import { createLockQuestionsTool, type LockSlackDeps } from "./lockQuestions.js";
 import { createInMemoryDataLayer, FIXTURE_GAME_NAME, fixtureGetGames } from "../../testHelpers.js";
+import { createFakeLockSlackDeps } from "../../testHelpers.fakeSdk.js";
 import { parseToolResult } from "../../../../tools/testHelpers.js";
 import type { RosterEditClient } from "../../freeform/roster.js";
 import type { KnownBlock } from "@slack/types";
@@ -13,19 +14,6 @@ interface LockResult {
   locked?: string[];
   errors?: Array<{ questionId: string; error: string }>;
   error?: string;
-}
-
-/** Fake Slack client capturing chat.update ts values; `throwOnUpdate` forces failure. */
-function fakeSdk(throwOnUpdate = false): { sdk: LockSlackDeps; updateCalls: string[] } {
-  const updateCalls: string[] = [];
-  const chat: RosterEditClient["chat"] = {
-    async update(args) {
-      updateCalls.push("ts" in args && typeof args.ts === "string" ? args.ts : "");
-      if (throwOnUpdate) throw new Error("slack down");
-      return { ok: true };
-    },
-  };
-  return { sdk: { getSlackClient: () => ({ chat }) }, updateCalls };
 }
 
 function posted(overrides: Partial<TriviaQuestion>): TriviaQuestion {
@@ -60,12 +48,14 @@ describe("lock_questions", () => {
     const scoped = data.forGame(FIXTURE_GAME_NAME);
     await scoped.saveQuestion(posted({ id: "a" }));
     await scoped.saveQuestion(posted({ id: "b" }));
-    const { sdk, updateCalls } = fakeSdk();
+
+    const chat = { update: vi.fn<RosterEditClient["chat"]["update"]>(async () => ({ ok: true })) };
+    const sdk = createFakeLockSlackDeps({ getSlackClient: () => ({ chat }) });
 
     const res = await run(data, sdk);
 
     assert.deepEqual(res.locked?.sort(), ["a", "b"]);
-    assert.equal(updateCalls.length, 2, "both cards repainted");
+    assert.equal(chat.update.mock.calls.length, 2, "both cards repainted");
     const after = await scoped.loadQuestions();
     assert.ok(after.every((q) => q.answerLocked === true));
   });
@@ -76,7 +66,8 @@ describe("lock_questions", () => {
     await scoped.saveQuestion(posted({ id: "open" }));
     await scoped.saveQuestion(posted({ id: "revealed", processedAt: 2000 }));
     await scoped.saveQuestion(posted({ id: "alreadyLocked", answerLocked: true }));
-    const { sdk } = fakeSdk();
+    const chat = { update: vi.fn<RosterEditClient["chat"]["update"]>(async () => ({ ok: true })) };
+    const sdk = createFakeLockSlackDeps({ getSlackClient: () => ({ chat }) });
 
     const res = await run(data, sdk);
 
@@ -89,7 +80,8 @@ describe("lock_questions", () => {
     const data = createInMemoryDataLayer();
     const scoped = data.forGame(FIXTURE_GAME_NAME);
     await scoped.saveQuestion(posted({ id: "staged", postedAt: undefined }));
-    const { sdk } = fakeSdk();
+    const chat = { update: vi.fn<RosterEditClient["chat"]["update"]>(async () => ({ ok: true })) };
+    const sdk = createFakeLockSlackDeps({ getSlackClient: () => ({ chat }) });
 
     const res = await run(data, sdk);
     assert.deepEqual(res.locked, []);
@@ -99,7 +91,8 @@ describe("lock_questions", () => {
     const data = createInMemoryDataLayer();
     const scoped = data.forGame(FIXTURE_GAME_NAME);
     await scoped.saveQuestion(posted({ id: "a" }));
-    const { sdk } = fakeSdk();
+    const chat = { update: vi.fn<RosterEditClient["chat"]["update"]>(async () => ({ ok: true })) };
+    const sdk = createFakeLockSlackDeps({ getSlackClient: () => ({ chat }) });
 
     const first = await run(data, sdk);
     assert.deepEqual(first.locked, ["a"]);
@@ -112,21 +105,26 @@ describe("lock_questions", () => {
     const scoped = data.forGame(FIXTURE_GAME_NAME);
     await scoped.saveQuestion(posted({ id: "a" }));
     await scoped.saveQuestion(posted({ id: "b" }));
-    const { sdk, updateCalls } = fakeSdk(true); // chat.update throws
+    const chat = {
+      update: vi.fn<RosterEditClient["chat"]["update"]>(async () => {
+        throw new Error("slack down");
+      }),
+    };
+    const sdk = createFakeLockSlackDeps({ getSlackClient: () => ({ chat }) });
 
     const res = await run(data, sdk);
 
     // editRosterIntoCard swallows chat.update failures, so both questions are still
     // flagged and both repaints were attempted — one card's failure never aborts the rest.
     assert.deepEqual(res.locked?.sort(), ["a", "b"]);
-    assert.equal(updateCalls.length, 2);
+    assert.equal(chat.update.mock.calls.length, 2);
     const after = await scoped.loadQuestions();
     assert.ok(after.every((q) => q.answerLocked === true));
   });
 
   it("errors when the game is unknown", async () => {
     const data = createInMemoryDataLayer();
-    const { sdk } = fakeSdk();
+    const sdk = createFakeLockSlackDeps();
     const tool = createLockQuestionsTool(data, sdk, fixtureGetGames);
     const res: LockResult = parseToolResult(await tool.handler({ game: "nope" }, SESSION));
     assert.ok(res.error);

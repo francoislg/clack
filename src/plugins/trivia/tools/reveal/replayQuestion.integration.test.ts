@@ -7,14 +7,14 @@ import {
   type PostQuestionsSlackDeps,
 } from "../questions/postQuestions.js";
 import { createSettleQuestionTool } from "./settleQuestion.js";
-import { createComputeAnswersTool, type RevealSlackDeps } from "./computeAnswers.js";
+import { createComputeAnswersTool } from "./computeAnswers.js";
 import { createRefreshQuestionCardsTool } from "./refreshQuestionCards.js";
+import { createInMemoryDataLayer, FIXTURE_GAME_NAME, fixtureGetGames } from "../../testHelpers.js";
 import {
   createFakeSdk,
-  createInMemoryDataLayer,
-  FIXTURE_GAME_NAME,
-  fixtureGetGames,
-} from "../../testHelpers.js";
+  createFakeRevealSlackDeps,
+  createFakePostQuestionsSlackDeps,
+} from "../../testHelpers.fakeSdk.js";
 import { parseToolResult } from "../../../../tools/testHelpers.js";
 import type { TriviaDataLayer, TriviaQuestion } from "../../core/types.js";
 import type { BlockSchema } from "../../../../slack/blockSchema.js";
@@ -33,19 +33,7 @@ const SAMPLE_BLOCKS: Array<z.infer<typeof BlockSchema>> = [
 ];
 
 function postSlackDeps(): { deps: PostQuestionsSlackDeps } {
-  let i = 0;
-  const deps: PostQuestionsSlackDeps = {
-    isAvailable: () => null,
-    async postBlocks(args) {
-      i++;
-      const suffix = String(i).padStart(3, "0");
-      return {
-        ts: `1700000${suffix}.000000`,
-        permalink: `https://x.slack.com/archives/${args.channel}/p1700000${suffix}000000`,
-      };
-    },
-  };
-  return { deps };
+  return { deps: createFakePostQuestionsSlackDeps() };
 }
 
 interface CardUpdate {
@@ -53,18 +41,16 @@ interface CardUpdate {
   blockIds: string[];
 }
 
-function revealSlackDeps(): { deps: RevealSlackDeps; updates: CardUpdate[] } {
-  const updates: CardUpdate[] = [];
-  const deps: RevealSlackDeps = {
-    isAvailable: () => null,
-    fetchBotUserId: async () => "UBOT",
-    fetchMessageReactions: async () => [],
-    fetchUserDisplayName: async () => null,
-    updateMessage: async (_channel: string, ts: string, blocks: KnownBlock[]) => {
-      updates.push({ ts, blockIds: blocks.map((b) => b.block_id ?? "") });
-    },
-  };
-  return { deps, updates };
+function revealSlackDeps() {
+  return createFakeRevealSlackDeps({ fetchBotUserId: async () => "UBOT" });
+}
+
+/** Every chat.update the tools issued, projected from the mock's call history. */
+function updatesOf(deps: ReturnType<typeof createFakeRevealSlackDeps>): CardUpdate[] {
+  return deps.updateMessage.mock.calls.map(([, ts, blocks]) => ({
+    ts,
+    blockIds: blocks.map((b: KnownBlock) => b.block_id ?? ""),
+  }));
 }
 
 function seedBoolean(
@@ -97,7 +83,7 @@ describe("replay a bad question — mid-window invalidate + replace + reveal", (
     const data = createInMemoryDataLayer();
     const scoped = data.forGame(FIXTURE_GAME_NAME);
     const { deps: postDeps } = postSlackDeps();
-    const postTool = createPostQuestionsTool(data, createFakeSdk(), fixtureGetGames, postDeps);
+    const postTool = createPostQuestionsTool(data, createFakeSdk().sdk, fixtureGetGames, postDeps);
     const settleTool = createSettleQuestionTool(data, fixtureGetGames);
 
     // 1. Post a two-question batch and take some votes (still live, unrevealed).
@@ -153,19 +139,22 @@ describe("replay a bad question — mid-window invalidate + replace + reveal", (
     assert.equal(settleRes.cleared, 1);
 
     // 3. Repaint ONLY the dead card mid-window; the live sibling keeps its buttons.
-    const { deps: midDeps, updates: midUpdates } = revealSlackDeps();
+    const midDeps = revealSlackDeps();
     const updateMid = createRefreshQuestionCardsTool(
       data,
-      createFakeSdk(),
+      createFakeSdk().sdk,
       fixtureGetGames,
       midDeps,
     );
     await updateMid.handler({ game: FIXTURE_GAME_NAME, questionIds: ["q_bad"] }, SESSION);
-    assert.equal(midUpdates.length, 1, "only the invalidated card is repainted");
+    assert.equal(updatesOf(midDeps).length, 1, "only the invalidated card is repainted");
     // Invalidated repaint: content WAS sent, with no vote buttons and no reveal-results footer.
-    assert.ok(midUpdates[0].blockIds.length > 0, "the dead card was repainted with content");
-    assert.ok(!midUpdates[0].blockIds.some((id) => id.startsWith("vote-actions:")));
-    assert.ok(!midUpdates[0].blockIds.some((id) => id.startsWith("reveal-results:")));
+    assert.ok(
+      updatesOf(midDeps)[0].blockIds.length > 0,
+      "the dead card was repainted with content",
+    );
+    assert.ok(!updatesOf(midDeps)[0].blockIds.some((id) => id.startsWith("vote-actions:")));
+    assert.ok(!updatesOf(midDeps)[0].blockIds.some((id) => id.startsWith("reveal-results:")));
 
     // 4. Generate a replacement and APPEND it to the same (still-unrevealed) batch.
     await seedBoolean(data, "q_new", true, 3);
@@ -188,10 +177,10 @@ describe("replay a bad question — mid-window invalidate + replace + reveal", (
     });
 
     // 5. Reveal the batch — the dead question is skipped, the replacement is scored.
-    const { deps: revealDeps } = revealSlackDeps();
+    const revealDeps = revealSlackDeps();
     const computeTool = createComputeAnswersTool(
       data,
-      createFakeSdk(),
+      createFakeSdk().sdk,
       fixtureGetGames,
       revealDeps,
     );
@@ -212,10 +201,10 @@ describe("replay a bad question — mid-window invalidate + replace + reveal", (
     assert.ok(u2 === undefined || u2.score === 0, "invalidated votes do not score");
 
     // 6. At reveal, repaint the two revealed cards (q_bad was already repainted mid-window).
-    const { deps: finalDeps, updates: finalUpdates } = revealSlackDeps();
+    const finalDeps = revealSlackDeps();
     const updateFinal = createRefreshQuestionCardsTool(
       data,
-      createFakeSdk(),
+      createFakeSdk().sdk,
       fixtureGetGames,
       finalDeps,
     );
@@ -226,19 +215,19 @@ describe("replay a bad question — mid-window invalidate + replace + reveal", (
       },
       SESSION,
     );
-    assert.equal(finalUpdates.length, 2);
+    assert.equal(updatesOf(finalDeps).length, 2);
   });
 
   it("after the reveal, voiding a scored question strips its points and adds no replacement", async () => {
     const data = createInMemoryDataLayer();
     const scoped = data.forGame(FIXTURE_GAME_NAME);
     const { deps: postDeps } = postSlackDeps();
-    const postTool = createPostQuestionsTool(data, createFakeSdk(), fixtureGetGames, postDeps);
+    const postTool = createPostQuestionsTool(data, createFakeSdk().sdk, fixtureGetGames, postDeps);
     const settleTool = createSettleQuestionTool(data, fixtureGetGames);
-    const { deps: revealDeps } = revealSlackDeps();
+    const revealDeps = revealSlackDeps();
     const computeTool = createComputeAnswersTool(
       data,
-      createFakeSdk(),
+      createFakeSdk().sdk,
       fixtureGetGames,
       revealDeps,
     );
@@ -315,15 +304,15 @@ describe("replay a bad question — mid-window invalidate + replace + reveal", (
     // Void only — the round shrinks, no new question is added.
     assert.equal((await scoped.loadQuestions()).length, 2);
 
-    const { deps: repaintDeps, updates: repaintUpdates } = revealSlackDeps();
+    const repaintDeps = revealSlackDeps();
     const updateVoid = createRefreshQuestionCardsTool(
       data,
-      createFakeSdk(),
+      createFakeSdk().sdk,
       fixtureGetGames,
       repaintDeps,
     );
     // Case B repaints only the voided card; the sibling's results are unaffected by the void.
     await updateVoid.handler({ game: FIXTURE_GAME_NAME, questionIds: ["q_void"] }, SESSION);
-    assert.equal(repaintUpdates.length, 1);
+    assert.equal(updatesOf(repaintDeps).length, 1);
   });
 });

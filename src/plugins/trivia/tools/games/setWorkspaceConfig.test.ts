@@ -1,23 +1,11 @@
-import { describe, it, beforeEach } from "vitest";
+import { describe, it } from "vitest";
 import assert from "node:assert/strict";
 import { createSetWorkspaceConfigTool } from "./setWorkspaceConfig.js";
-import {
-  _resetTriviaConfigBridge,
-  _setTriviaConfigForTests,
-  _setTriviaConfigSdkForTests,
-  loadTriviaConfig,
-} from "../../core/configBridge.js";
+import { loadTriviaConfig } from "../../core/configBridge.js";
 import { parseToolResult } from "../../../../tools/testHelpers.js";
-import { createFakeSdk } from "../../testHelpers.js";
-import type { TriviaConfig } from "../../core/configTypes.js";
+import { createFakeSdk, primeTriviaConfig } from "../../testHelpers.fakeSdk.js";
 
 const SESSION = { sessionId: "test" };
-
-function primeBridge(initial: TriviaConfig | null): void {
-  _resetTriviaConfigBridge();
-  _setTriviaConfigSdkForTests(createFakeSdk());
-  _setTriviaConfigForTests(initial);
-}
 
 const emptyArgs = {
   answersFormat: undefined,
@@ -50,12 +38,9 @@ const emptyArgs = {
 };
 
 describe("set_workspace_config", () => {
-  beforeEach(() => {
-    _resetTriviaConfigBridge();
-  });
-
   it("sets workspace answersFormat", async () => {
-    primeBridge({});
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk, {});
     const tool = createSetWorkspaceConfigTool();
     const result = parseToolResult(
       await tool.handler({ ...emptyArgs, answersFormat: { boolean: 2, choice: 1 } }, SESSION),
@@ -66,14 +51,16 @@ describe("set_workspace_config", () => {
   });
 
   it("clears workspace field with null", async () => {
-    primeBridge({ answersFormat: { boolean: 1, choice: 1, freeform: 0 } });
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk, { answersFormat: { boolean: 1, choice: 1, freeform: 0 } });
     const tool = createSetWorkspaceConfigTool();
     await tool.handler({ ...emptyArgs, answersFormat: null }, SESSION);
     assert.equal(loadTriviaConfig()?.answersFormat, undefined);
   });
 
   it("sets and clears workspace points", async () => {
-    primeBridge({});
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk, {});
     const tool = createSetWorkspaceConfigTool();
     const set = parseToolResult(
       await tool.handler({ ...emptyArgs, points: { max: 3, guidance: "hard = 3" } }, SESSION),
@@ -87,14 +74,16 @@ describe("set_workspace_config", () => {
   });
 
   it("accepts a bare workspace points cap as an admin-override allowance", async () => {
-    primeBridge({});
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk, {});
     const tool = createSetWorkspaceConfigTool();
     await tool.handler({ ...emptyArgs, points: { max: 2 } }, SESSION);
     assert.deepEqual(loadTriviaConfig()?.points, { max: 2 });
   });
 
   it("rejects an out-of-range workspace points cap", async () => {
-    primeBridge({});
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk, {});
     const tool = createSetWorkspaceConfigTool();
     const result = parseToolResult(
       await tool.handler({ ...emptyArgs, points: { max: 15 } }, SESSION),
@@ -104,7 +93,8 @@ describe("set_workspace_config", () => {
   });
 
   it("sets and clears workspace tellMeMore", async () => {
-    primeBridge({});
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk, {});
     const tool = createSetWorkspaceConfigTool();
     const set = parseToolResult(
       await tool.handler({ ...emptyArgs, tellMeMore: { enabled: true } }, SESSION),
@@ -117,7 +107,8 @@ describe("set_workspace_config", () => {
   });
 
   it("sets and clears workspace includeRevealInQuestions", async () => {
-    primeBridge({});
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk, {});
     const tool = createSetWorkspaceConfigTool();
     const set = parseToolResult(
       await tool.handler({ ...emptyArgs, includeRevealInQuestions: "yes" }, SESSION),
@@ -130,7 +121,8 @@ describe("set_workspace_config", () => {
   });
 
   it("sets and clears workspace tagPlayers", async () => {
-    primeBridge({});
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk, {});
     const tool = createSetWorkspaceConfigTool();
     const set = parseToolResult(await tool.handler({ ...emptyArgs, tagPlayers: false }, SESSION));
     assert.ok(set.updatedFields.includes("tagPlayers"));
@@ -141,7 +133,8 @@ describe("set_workspace_config", () => {
   });
 
   it("sets and clears workspace finalRevealSummary", async () => {
-    primeBridge({});
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk, {});
     const tool = createSetWorkspaceConfigTool();
     const set = parseToolResult(
       await tool.handler({ ...emptyArgs, finalRevealSummary: "in-thread" }, SESSION),
@@ -154,7 +147,8 @@ describe("set_workspace_config", () => {
   });
 
   it("sets and clears workspace judgeLeniency", async () => {
-    primeBridge({});
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk, {});
     const tool = createSetWorkspaceConfigTool();
     const set = parseToolResult(
       await tool.handler({ ...emptyArgs, judgeLeniency: "lenient" }, SESSION),
@@ -167,7 +161,8 @@ describe("set_workspace_config", () => {
   });
 
   it("omit-to-keep preserves untouched fields", async () => {
-    primeBridge({
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk, {
       answersFormat: { boolean: 1, choice: 0, freeform: 0 },
       choices: { min: 3, max: 4 },
     });
@@ -180,14 +175,16 @@ describe("set_workspace_config", () => {
   });
 
   it("rejects empty update", async () => {
-    primeBridge({});
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk, {});
     const tool = createSetWorkspaceConfigTool();
     const result = parseToolResult(await tool.handler(emptyArgs, SESSION));
     assert.match(result.error, /no fields to update/);
   });
 
   it("rejects invalid choices (min > max)", async () => {
-    primeBridge({});
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk, {});
     const tool = createSetWorkspaceConfigTool();
     const result = parseToolResult(
       await tool.handler({ ...emptyArgs, choices: { min: 4, max: 2 } }, SESSION),
@@ -196,7 +193,8 @@ describe("set_workspace_config", () => {
   });
 
   it("rejects invalid axis (all-zero weights)", async () => {
-    primeBridge({});
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk, {});
     const tool = createSetWorkspaceConfigTool();
     const result = parseToolResult(
       await tool.handler(
@@ -208,7 +206,8 @@ describe("set_workspace_config", () => {
   });
 
   it("toggles seasons feature on", async () => {
-    primeBridge({});
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk, {});
     const tool = createSetWorkspaceConfigTool();
     await tool.handler(
       { ...emptyArgs, seasons: { enabled: true, prompt: "Monthly themed seasons" } },
@@ -221,7 +220,8 @@ describe("set_workspace_config", () => {
   });
 
   it("rejects enabling seasons with empty prompt", async () => {
-    primeBridge({});
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk, {});
     const tool = createSetWorkspaceConfigTool();
     const result = parseToolResult(
       await tool.handler({ ...emptyArgs, seasons: { enabled: true, prompt: "   " } }, SESSION),
@@ -230,7 +230,8 @@ describe("set_workspace_config", () => {
   });
 
   it("updates multiple fields atomically", async () => {
-    primeBridge({});
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk, {});
     const tool = createSetWorkspaceConfigTool();
     const result = parseToolResult(
       await tool.handler(
@@ -248,7 +249,8 @@ describe("set_workspace_config", () => {
   });
 
   it("rejects malformed offDays entries", async () => {
-    primeBridge({});
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk, {});
     const tool = createSetWorkspaceConfigTool();
     const result = parseToolResult(
       await tool.handler(
@@ -260,7 +262,8 @@ describe("set_workspace_config", () => {
   });
 
   it("accepts valid offDays", async () => {
-    primeBridge({});
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk, {});
     const tool = createSetWorkspaceConfigTool();
     const result = parseToolResult(
       await tool.handler(
@@ -280,7 +283,8 @@ describe("set_workspace_config", () => {
 
   describe("instructions and additionalInstructions", () => {
     it("sets both workspace-tier fields", async () => {
-      primeBridge({});
+      const { sdk } = createFakeSdk();
+      primeTriviaConfig(sdk, {});
       const tool = createSetWorkspaceConfigTool();
       await tool.handler(
         {
@@ -296,7 +300,11 @@ describe("set_workspace_config", () => {
     });
 
     it("null clears the named field, preserves the other", async () => {
-      primeBridge({ instructions: "Be funny.", additionalInstructions: "Avoid politics." });
+      const { sdk } = createFakeSdk();
+      primeTriviaConfig(sdk, {
+        instructions: "Be funny.",
+        additionalInstructions: "Avoid politics.",
+      });
       const tool = createSetWorkspaceConfigTool();
       await tool.handler({ ...emptyArgs, instructions: null }, SESSION);
       const cfg = loadTriviaConfig();
@@ -305,7 +313,8 @@ describe("set_workspace_config", () => {
     });
 
     it("omit-to-keep — only the passed field changes", async () => {
-      primeBridge({ instructions: "Be funny." });
+      const { sdk } = createFakeSdk();
+      primeTriviaConfig(sdk, { instructions: "Be funny." });
       const tool = createSetWorkspaceConfigTool();
       await tool.handler({ ...emptyArgs, additionalInstructions: "Avoid politics." }, SESSION);
       const cfg = loadTriviaConfig();
@@ -314,7 +323,8 @@ describe("set_workspace_config", () => {
     });
 
     it("rejects empty / whitespace-only strings", async () => {
-      primeBridge({});
+      const { sdk } = createFakeSdk();
+      primeTriviaConfig(sdk, {});
       const tool = createSetWorkspaceConfigTool();
       const result = parseToolResult(
         await tool.handler({ ...emptyArgs, instructions: "   " }, SESSION),
@@ -323,7 +333,8 @@ describe("set_workspace_config", () => {
     });
 
     it("trims input on the way in", async () => {
-      primeBridge({});
+      const { sdk } = createFakeSdk();
+      primeTriviaConfig(sdk, {});
       const tool = createSetWorkspaceConfigTool();
       await tool.handler({ ...emptyArgs, instructions: "  Be dry.  " }, SESSION);
       assert.equal(loadTriviaConfig()?.instructions, "Be dry.");
@@ -337,7 +348,8 @@ describe("set_workspace_config", () => {
     ];
 
     it("sets and clears the workspace roster", async () => {
-      primeBridge({});
+      const { sdk } = createFakeSdk();
+      primeTriviaConfig(sdk, {});
       const tool = createSetWorkspaceConfigTool();
       const set = parseToolResult(await tool.handler({ ...emptyArgs, teams: ROSTER }, SESSION));
       assert.ok(set.updatedFields.includes("teams"));
@@ -349,7 +361,8 @@ describe("set_workspace_config", () => {
     });
 
     it("sets teamsEnabled, teamsFinaleIndividuals, and teamsScoring", async () => {
-      primeBridge({});
+      const { sdk } = createFakeSdk();
+      primeTriviaConfig(sdk, {});
       const tool = createSetWorkspaceConfigTool();
       const result = parseToolResult(
         await tool.handler(
@@ -372,7 +385,8 @@ describe("set_workspace_config", () => {
     });
 
     it("rejects an invalid roster without writing", async () => {
-      primeBridge({});
+      const { sdk } = createFakeSdk();
+      primeTriviaConfig(sdk, {});
       const tool = createSetWorkspaceConfigTool();
       const result = parseToolResult(
         await tool.handler(

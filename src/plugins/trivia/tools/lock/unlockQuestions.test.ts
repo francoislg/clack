@@ -1,8 +1,9 @@
-import { describe, it } from "vitest";
+import { describe, it, vi } from "vitest";
 import assert from "node:assert/strict";
 import { createUnlockQuestionsTool } from "./unlockQuestions.js";
 import { type LockSlackDeps } from "./lockQuestions.js";
 import { createInMemoryDataLayer, FIXTURE_GAME_NAME, fixtureGetGames } from "../../testHelpers.js";
+import { createFakeLockSlackDeps } from "../../testHelpers.fakeSdk.js";
 import { parseToolResult } from "../../../../tools/testHelpers.js";
 import type { RosterEditClient } from "../../freeform/roster.js";
 import type { KnownBlock } from "@slack/types";
@@ -14,17 +15,6 @@ interface UnlockResult {
   unlocked?: string[];
   errors?: Array<{ questionId: string; error: string }>;
   error?: string;
-}
-
-function fakeSdk(): { sdk: LockSlackDeps; updateCalls: string[] } {
-  const updateCalls: string[] = [];
-  const chat: RosterEditClient["chat"] = {
-    async update(args) {
-      updateCalls.push("ts" in args && typeof args.ts === "string" ? args.ts : "");
-      return { ok: true };
-    },
-  };
-  return { sdk: { getSlackClient: () => ({ chat }) }, updateCalls };
 }
 
 function locked(overrides: Partial<TriviaQuestion>): TriviaQuestion {
@@ -60,12 +50,13 @@ describe("unlock_questions", () => {
     const scoped = data.forGame(FIXTURE_GAME_NAME);
     await scoped.saveQuestion(locked({ id: "a" }));
     await scoped.saveQuestion(locked({ id: "b" }));
-    const { sdk, updateCalls } = fakeSdk();
+    const chat = { update: vi.fn<RosterEditClient["chat"]["update"]>(async () => ({ ok: true })) };
+    const sdk = createFakeLockSlackDeps({ getSlackClient: () => ({ chat }) });
 
     const res = await run(data, sdk);
 
     assert.deepEqual(res.unlocked?.sort(), ["a", "b"]);
-    assert.equal(updateCalls.length, 2);
+    assert.equal(chat.update.mock.calls.length, 2);
     const after = await scoped.loadQuestions();
     assert.ok(after.every((q) => q.answerLocked === false));
   });
@@ -74,7 +65,8 @@ describe("unlock_questions", () => {
     const data = createInMemoryDataLayer();
     const scoped = data.forGame(FIXTURE_GAME_NAME);
     await scoped.saveQuestion(locked({ id: "revealed", processedAt: 2000 }));
-    const { sdk } = fakeSdk();
+    const chat = { update: vi.fn<RosterEditClient["chat"]["update"]>(async () => ({ ok: true })) };
+    const sdk = createFakeLockSlackDeps({ getSlackClient: () => ({ chat }) });
 
     const res = await run(data, sdk);
 
@@ -87,7 +79,8 @@ describe("unlock_questions", () => {
     const data = createInMemoryDataLayer();
     const scoped = data.forGame(FIXTURE_GAME_NAME);
     await scoped.saveQuestion(locked({ id: "open", answerLocked: undefined }));
-    const { sdk } = fakeSdk();
+    const chat = { update: vi.fn<RosterEditClient["chat"]["update"]>(async () => ({ ok: true })) };
+    const sdk = createFakeLockSlackDeps({ getSlackClient: () => ({ chat }) });
 
     const res = await run(data, sdk);
     assert.deepEqual(res.unlocked, []);

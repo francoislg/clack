@@ -1,12 +1,8 @@
 import { describe, it } from "vitest";
 import assert from "node:assert/strict";
-import { createComputeAnswersTool, type RevealSlackDeps } from "./computeAnswers.js";
-import {
-  createFakeSdk,
-  createInMemoryDataLayer,
-  FIXTURE_GAME_NAME,
-  fixtureGetGames,
-} from "../../testHelpers.js";
+import { createComputeAnswersTool } from "./computeAnswers.js";
+import { createFakeSdk, createFakeRevealSlackDeps } from "../../testHelpers.fakeSdk.js";
+import { createInMemoryDataLayer, FIXTURE_GAME_NAME, fixtureGetGames } from "../../testHelpers.js";
 import { parseToolResult } from "../../../../tools/testHelpers.js";
 import type { TriviaQuestion } from "../../core/types.js";
 import type { TeamDef, TriviaGame } from "../../core/configTypes.js";
@@ -18,16 +14,6 @@ const ROSTER: TeamDef[] = [
   { name: "Red", userIds: ["U_R1", "U_R2"] },
   { name: "Blue", userIds: ["U_B1"] },
 ];
-
-function fakeSlackDeps(): RevealSlackDeps {
-  return {
-    isAvailable: () => null,
-    fetchBotUserId: async () => "UBOT",
-    fetchMessageReactions: async () => [],
-    fetchUserDisplayName: async () => null,
-    updateMessage: async () => {},
-  };
-}
 
 function makeQuestion(overrides: Partial<TriviaQuestion>): TriviaQuestion {
   return {
@@ -56,7 +42,13 @@ function toolWith(
     fixtureGetGames().map((g) =>
       g.name === FIXTURE_GAME_NAME ? { ...g, revealCron, timezone: "UTC", ...gamePatch } : g,
     );
-  return createComputeAnswersTool(data, createFakeSdk(), getGames, fakeSlackDeps(), () => ({}));
+  return createComputeAnswersTool(
+    data,
+    createFakeSdk().sdk,
+    getGames,
+    createFakeRevealSlackDeps(),
+    () => ({}),
+  );
 }
 
 async function run(tool: ReturnType<typeof createComputeAnswersTool>) {

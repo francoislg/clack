@@ -4,14 +4,9 @@ import { createPostQuestionsTool, type PostQuestionsSlackDeps } from "./postQues
 import { getAnswerTypeHandler } from "../../answerTypes/registry.js";
 
 const actionIdFn = (k: string): string => `plugin:trivia:${k}`;
-import {
-  createFakeSdk,
-  createInMemoryDataLayer,
-  FIXTURE_GAME_NAME,
-  fixtureGetGames,
-} from "../../testHelpers.js";
+import { createInMemoryDataLayer, FIXTURE_GAME_NAME, fixtureGetGames } from "../../testHelpers.js";
+import { createFakeSdk, createFakePostQuestionsSlackDeps } from "../../testHelpers.fakeSdk.js";
 import { parseToolResult } from "../../../../tools/testHelpers.js";
-import type { AttentionLevel } from "../../../sdk.js";
 import { PENDING_QUESTION_CREATION_CONTEXT } from "../../prompts/triviaCheckInstruction.js";
 import type { TriviaDataLayer, TriviaQuestion } from "../../core/types.js";
 import type { z } from "zod";
@@ -36,31 +31,35 @@ interface FakeSlackCalls {
   }>;
 }
 
+/** Wraps the canonical fake with per-call scripted results; `calls` projects its mock history. */
 function fakeSlackDeps(opts: FakeSlackOpts = {}): {
   deps: PostQuestionsSlackDeps;
   calls: FakeSlackCalls;
 } {
-  const calls: FakeSlackCalls = { postBlocksCalls: [] };
-  let postIdx = 0;
-  const deps: PostQuestionsSlackDeps = {
-    isAvailable() {
-      return opts.unavailableError ?? null;
-    },
-    async postBlocks(args) {
-      calls.postBlocksCalls.push(args);
+  const deps = createFakePostQuestionsSlackDeps(
+    opts.unavailableError === undefined ? {} : { isAvailable: () => opts.unavailableError ?? null },
+  );
+  if (opts.postResults !== undefined) {
+    let postIdx = 0;
+    deps.postBlocks.mockImplementation(async ({ channel }) => {
       const result = opts.postResults?.[postIdx];
       postIdx++;
       if (result === undefined) {
-        const idx = calls.postBlocksCalls.length;
+        const suffix = String(postIdx).padStart(3, "0");
         return {
-          ts: `1700000${String(idx).padStart(3, "0")}.000000`,
-          permalink: `https://test.slack.com/archives/${args.channel}/p1700000${String(idx).padStart(3, "0")}000000`,
+          ts: `1700000${suffix}.000000`,
+          permalink: `https://test.slack.com/archives/${channel}/p1700000${suffix}000000`,
         };
       }
       if ("error" in result) {
         throw new Error(result.error);
       }
       return result;
+    });
+  }
+  const calls: FakeSlackCalls = {
+    get postBlocksCalls() {
+      return deps.postBlocks.mock.calls.map(([args]) => args);
     },
   };
   return { deps, calls };
@@ -192,7 +191,7 @@ describe("post_questions tool", () => {
     const { deps, calls } = fakeSlackDeps({
       postResults: [{ ts: "1700000000.123456", permalink: "https://x.slack.com/p1" }],
     });
-    const tool = createPostQuestionsTool(data, createFakeSdk(), fixtureGetGames, deps);
+    const tool = createPostQuestionsTool(data, createFakeSdk().sdk, fixtureGetGames, deps);
 
     const result = await tool.handler(
       {
@@ -225,7 +224,7 @@ describe("post_questions tool", () => {
     const { deps } = fakeSlackDeps({
       postResults: [{ ts: "1700000000.123456", permalink: "https://x.slack.com/p1" }],
     });
-    const tool = createPostQuestionsTool(data, createFakeSdk(), fixtureGetGames, deps);
+    const tool = createPostQuestionsTool(data, createFakeSdk().sdk, fixtureGetGames, deps);
 
     await tool.handler(
       {
@@ -250,7 +249,7 @@ describe("post_questions tool", () => {
     const { deps } = fakeSlackDeps({
       postResults: [{ ts: "1700000000.123456", permalink: "https://x.slack.com/p1" }],
     });
-    const tool = createPostQuestionsTool(data, createFakeSdk(), fixtureGetGames, deps);
+    const tool = createPostQuestionsTool(data, createFakeSdk().sdk, fixtureGetGames, deps);
 
     await tool.handler(
       {
@@ -274,22 +273,7 @@ describe("post_questions tool", () => {
     const { deps } = fakeSlackDeps({
       postResults: [{ ts: "1700000000.123456", permalink: "https://x.slack.com/p1" }],
     });
-    const engageCalls: {
-      channel: string;
-      threadTs: string;
-      attentionLevel?: AttentionLevel;
-      creationContext?: string;
-    }[] = [];
-    const sdk = createFakeSdk({
-      engageThread: async (channel, threadTs, opts) => {
-        engageCalls.push({
-          channel,
-          threadTs,
-          attentionLevel: opts.attentionLevel,
-          creationContext: opts.creationContext,
-        });
-      },
-    });
+    const { sdk } = createFakeSdk();
     const tool = createPostQuestionsTool(data, sdk, fixtureGetGames, deps);
 
     await tool.handler(
@@ -302,11 +286,12 @@ describe("post_questions tool", () => {
       SESSION,
     );
 
-    assert.equal(engageCalls.length, 1);
-    assert.equal(engageCalls[0].channel, FIXTURE_CHANNEL);
-    assert.equal(engageCalls[0].threadTs, "1700000000.123456");
-    assert.notEqual(engageCalls[0].attentionLevel, "off");
-    assert.equal(engageCalls[0].creationContext, PENDING_QUESTION_CREATION_CONTEXT);
+    assert.equal(sdk.engageThread.mock.calls.length, 1);
+    const [channel, threadTs, opts] = sdk.engageThread.mock.calls[0];
+    assert.equal(channel, FIXTURE_CHANNEL);
+    assert.equal(threadTs, "1700000000.123456");
+    assert.notEqual(opts.attentionLevel, "off");
+    assert.equal(opts.creationContext, PENDING_QUESTION_CREATION_CONTEXT);
   });
 
   it("stamps liveAnswersVisible and revealResponses from the cascade default", async () => {
@@ -314,7 +299,7 @@ describe("post_questions tool", () => {
     await seedQuestion(data, { id: "Q1" });
 
     const { deps } = fakeSlackDeps();
-    const tool = createPostQuestionsTool(data, createFakeSdk(), fixtureGetGames, deps);
+    const tool = createPostQuestionsTool(data, createFakeSdk().sdk, fixtureGetGames, deps);
 
     await tool.handler(
       {
@@ -338,7 +323,7 @@ describe("post_questions tool", () => {
 
     const { deps } = fakeSlackDeps();
     const getGames = () => fixtureGetGames().map((g) => ({ ...g, tagPlayers: false }));
-    const tool = createPostQuestionsTool(data, createFakeSdk(), getGames, deps);
+    const tool = createPostQuestionsTool(data, createFakeSdk().sdk, getGames, deps);
 
     await tool.handler(
       {
@@ -360,7 +345,7 @@ describe("post_questions tool", () => {
     await seedQuestion(data, { id: "Q2" });
 
     const { deps, calls } = fakeSlackDeps();
-    const tool = createPostQuestionsTool(data, createFakeSdk(), fixtureGetGames, deps);
+    const tool = createPostQuestionsTool(data, createFakeSdk().sdk, fixtureGetGames, deps);
 
     const result = await tool.handler(
       {
@@ -391,7 +376,7 @@ describe("post_questions tool", () => {
     });
 
     const { deps, calls } = fakeSlackDeps();
-    const tool = createPostQuestionsTool(data, createFakeSdk(), fixtureGetGames, deps);
+    const tool = createPostQuestionsTool(data, createFakeSdk().sdk, fixtureGetGames, deps);
 
     const result = await tool.handler(
       {
@@ -415,7 +400,7 @@ describe("post_questions tool", () => {
   it("rejects an unknown game", async () => {
     const data = createInMemoryDataLayer();
     const { deps, calls } = fakeSlackDeps();
-    const tool = createPostQuestionsTool(data, createFakeSdk(), fixtureGetGames, deps);
+    const tool = createPostQuestionsTool(data, createFakeSdk().sdk, fixtureGetGames, deps);
 
     const result = await tool.handler(
       {
@@ -437,7 +422,7 @@ describe("post_questions tool", () => {
     await seedQuestion(data, { id: "Q1" });
 
     const { deps, calls } = fakeSlackDeps({ unavailableError: "Slack disconnected" });
-    const tool = createPostQuestionsTool(data, createFakeSdk(), fixtureGetGames, deps);
+    const tool = createPostQuestionsTool(data, createFakeSdk().sdk, fixtureGetGames, deps);
 
     const result = await tool.handler(
       {
@@ -460,7 +445,7 @@ describe("post_questions tool", () => {
     await seedQuestion(data, { id: "Q2" });
 
     const { deps } = fakeSlackDeps();
-    const tool = createPostQuestionsTool(data, createFakeSdk(), fixtureGetGames, deps);
+    const tool = createPostQuestionsTool(data, createFakeSdk().sdk, fixtureGetGames, deps);
 
     await tool.handler(
       {
@@ -522,7 +507,7 @@ describe("post_questions is medium-agnostic for images", () => {
     const data = createInMemoryDataLayer();
     await seedQuestion(data, { id: "IMG1", promptMedium: "image" });
     const { deps, calls } = fakeSlackDeps();
-    const tool = createPostQuestionsTool(data, createFakeSdk(), fixtureGetGames, deps);
+    const tool = createPostQuestionsTool(data, createFakeSdk().sdk, fixtureGetGames, deps);
 
     const parsed = parseToolResult(
       await tool.handler(postItem("IMG1", CARD_BLOCKS_WITH_IMAGE), SESSION),
@@ -550,7 +535,7 @@ describe("post_questions is medium-agnostic for images", () => {
     // the tool does NOT compensate — it posts exactly what it was given.
     await seedQuestion(data, { id: "IMG2", promptMedium: "image" });
     const { deps, calls } = fakeSlackDeps();
-    const tool = createPostQuestionsTool(data, createFakeSdk(), fixtureGetGames, deps);
+    const tool = createPostQuestionsTool(data, createFakeSdk().sdk, fixtureGetGames, deps);
 
     const parsed = parseToolResult(await tool.handler(postItem("IMG2", SAMPLE_BLOCKS), SESSION));
     assert.equal(parsed.results[0].ok, true);
@@ -577,7 +562,7 @@ describe("post_questions scroll-to-top trailing message", () => {
     await seedQuestion(data, { id: "Q2" });
 
     const { deps, calls } = fakeSlackDeps();
-    const tool = createPostQuestionsTool(data, createFakeSdk(), scrollEnabledGames, deps);
+    const tool = createPostQuestionsTool(data, createFakeSdk().sdk, scrollEnabledGames, deps);
 
     await tool.handler(
       {
@@ -610,7 +595,7 @@ describe("post_questions scroll-to-top trailing message", () => {
     await seedQuestion(data, { id: "Q1" });
 
     const { deps, calls } = fakeSlackDeps();
-    const tool = createPostQuestionsTool(data, createFakeSdk(), scrollEnabledGames, deps);
+    const tool = createPostQuestionsTool(data, createFakeSdk().sdk, scrollEnabledGames, deps);
 
     await tool.handler(
       {
@@ -631,7 +616,7 @@ describe("post_questions scroll-to-top trailing message", () => {
     await seedQuestion(data, { id: "Q2" });
 
     const { deps, calls } = fakeSlackDeps();
-    const tool = createPostQuestionsTool(data, createFakeSdk(), fixtureGetGames, deps);
+    const tool = createPostQuestionsTool(data, createFakeSdk().sdk, fixtureGetGames, deps);
 
     await tool.handler(
       {
@@ -661,7 +646,7 @@ describe("post_questions scroll-to-top trailing message", () => {
         { error: "Slack rate-limited" },
       ],
     });
-    const tool = createPostQuestionsTool(data, createFakeSdk(), scrollEnabledGames, deps);
+    const tool = createPostQuestionsTool(data, createFakeSdk().sdk, scrollEnabledGames, deps);
 
     const result = await tool.handler(
       {
@@ -691,7 +676,7 @@ describe("post_questions scroll-to-top trailing message", () => {
     await seedQuestion(data, { id: "Q3" });
 
     const { deps, calls } = fakeSlackDeps();
-    const tool = createPostQuestionsTool(data, createFakeSdk(), scrollEnabledGames, deps);
+    const tool = createPostQuestionsTool(data, createFakeSdk().sdk, scrollEnabledGames, deps);
 
     // Fresh batch: Q1, Q2.
     await tool.handler(

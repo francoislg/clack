@@ -1,12 +1,12 @@
 import { describe, it, beforeEach } from "vitest";
 import assert from "node:assert/strict";
 import {
-  createFakeSdk,
   createInMemoryDataLayer,
   FIXTURE_GAME_NAME,
   fixtureGetGames,
   type InMemoryDataLayer,
 } from "./testHelpers.js";
+import { createFakeSdk, createFakePostQuestionsSlackDeps } from "./testHelpers.fakeSdk.js";
 import { createGetIdeasTool } from "./tools/questions/getIdeas.js";
 import { createSaveQuestionTool } from "./tools/questions/saveQuestion.js";
 import { createFindPreviousQuestionsTool } from "./tools/questions/findPreviousQuestions.js";
@@ -19,20 +19,7 @@ import { parseToolResult } from "../../tools/testHelpers.js";
 import type { TriviaConfig } from "./core/configTypes.js";
 
 function postQuestionsDeps(): PostQuestionsSlackDeps {
-  let counter = 0;
-  return {
-    isAvailable() {
-      return null;
-    },
-    async postBlocks(args) {
-      counter++;
-      const ts = `170000000${counter}.000000`;
-      return {
-        ts,
-        permalink: `https://test.slack.com/archives/${args.channel}/p170000000${counter}000000`,
-      };
-    },
-  };
+  return createFakePostQuestionsSlackDeps();
 }
 
 const SESSION = { sessionId: "test" };
@@ -102,7 +89,7 @@ describe("choice-questions end-to-end flow", () => {
     // 3. post_questions stamps postedAt + messageLink on the question record
     const postQuestions = createPostQuestionsTool(
       data,
-      createFakeSdk(),
+      createFakeSdk().sdk,
       fixtureGetGames,
       postQuestionsDeps(),
     );

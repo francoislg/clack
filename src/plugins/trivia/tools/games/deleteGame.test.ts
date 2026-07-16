@@ -1,23 +1,12 @@
-import { describe, it, beforeEach } from "vitest";
+import { describe, it } from "vitest";
 import assert from "node:assert/strict";
 import { createDeleteGameTool } from "./deleteGame.js";
-import {
-  _resetTriviaConfigBridge,
-  _setTriviaConfigForTests,
-  _setTriviaConfigSdkForTests,
-  loadTriviaConfig,
-} from "../../core/configBridge.js";
+import { loadTriviaConfig } from "../../core/configBridge.js";
 import { parseToolResult } from "../../../../tools/testHelpers.js";
-import { createFakeSdk } from "../../testHelpers.js";
-import type { TriviaConfig, TriviaGame } from "../../core/configTypes.js";
+import { createFakeSdk, primeTriviaConfig } from "../../testHelpers.fakeSdk.js";
+import type { TriviaGame } from "../../core/configTypes.js";
 
 const SESSION = { sessionId: "test" };
-
-function primeBridge(initial: TriviaConfig | null): void {
-  _resetTriviaConfigBridge();
-  _setTriviaConfigSdkForTests(createFakeSdk());
-  _setTriviaConfigForTests(initial);
-}
 
 const baseGame: TriviaGame = {
   name: "main",
@@ -29,12 +18,9 @@ const baseGame: TriviaGame = {
 };
 
 describe("delete_game", () => {
-  beforeEach(() => {
-    _resetTriviaConfigBridge();
-  });
-
   it("removes a registered game", async () => {
-    primeBridge({ games: [baseGame, { ...baseGame, name: "other", channel: "C2" }] });
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk, { games: [baseGame, { ...baseGame, name: "other", channel: "C2" }] });
     const tool = createDeleteGameTool(() => loadTriviaConfig()?.games ?? []);
     const result = parseToolResult(await tool.handler({ name: "main" }, SESSION));
     assert.equal(result.name, "main");
@@ -46,7 +32,8 @@ describe("delete_game", () => {
   });
 
   it("rejects unknown game", async () => {
-    primeBridge({ games: [baseGame] });
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk, { games: [baseGame] });
     const tool = createDeleteGameTool(() => loadTriviaConfig()?.games ?? []);
     const result = parseToolResult(await tool.handler({ name: "ghost" }, SESSION));
     assert.match(result.error, /Unknown game/);
@@ -56,7 +43,8 @@ describe("delete_game", () => {
   });
 
   it("rejects unknown game when registry is empty", async () => {
-    primeBridge({ games: [] });
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk, { games: [] });
     const tool = createDeleteGameTool(() => loadTriviaConfig()?.games ?? []);
     const result = parseToolResult(await tool.handler({ name: "anything" }, SESSION));
     assert.match(result.error, /Unknown game/);

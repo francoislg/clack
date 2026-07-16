@@ -1,8 +1,7 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect } from "vitest";
 import { installCatchUp } from "./catchUp.js";
-import { createFakeSdk } from "./testHelpers.js";
+import { createFakeSdk, type FakeSdk, type FakeSdkOverrides } from "./testHelpers.fakeSdk.js";
 import type { TriviaGame } from "./core/configTypes.js";
-import type { ClackSdk } from "../sdk.js";
 
 function makeGame(overrides: Partial<TriviaGame> = {}): TriviaGame {
   return {
@@ -18,48 +17,38 @@ function makeGame(overrides: Partial<TriviaGame> = {}): TriviaGame {
 
 interface Harness {
   run: () => Promise<void>;
-  runCronJobNow: ReturnType<typeof vi.fn<ClackSdk["runCronJobNow"]>>;
-  dmOwner: ReturnType<typeof vi.fn<ClackSdk["dmOwner"]>>;
-  missedRuns: ReturnType<typeof vi.fn<(specKey: string) => Promise<{ lastExpectedRuns: Date[] }>>>;
-  sdk: ClackSdk;
+  sdk: FakeSdk;
 }
 
 /**
- * Install the catch-up handler against a fake SDK whose interaction points are
- * all vi.fn mocks — tests assert on the mock instances. `run` dispatches the
- * handler captured by the `onDelayedBoot` mock. `missedBySpecKey` maps a
- * specKey to its missed occurrences; unlisted specKeys report none. Overrides
- * supply implementations; the recording mocks stay in front of them.
+ * Install the catch-up handler against the canonical fake SDK — tests assert on
+ * its member mocks directly (`sdk.runCronJobNow`, `sdk.dmOwner`, `sdk.missedRuns`).
+ * `run` dispatches the handler captured by the `onDelayedBoot` mock.
+ * `missedBySpecKey` maps a specKey to its missed occurrences; unlisted specKeys
+ * report none.
  */
 function makeHarness(
   games: TriviaGame[],
   now: Date,
   missedBySpecKey: Record<string, Date[]>,
-  overrides: Partial<ClackSdk> = {},
+  overrides: FakeSdkOverrides = {},
 ): Harness {
-  const onDelayedBoot = vi.fn<ClackSdk["onDelayedBoot"]>();
-  const missedRuns = vi.fn(async (specKey: string) => ({
-    lastExpectedRuns: missedBySpecKey[specKey] ?? [],
-  }));
-  const runCronJobNow = vi.fn<ClackSdk["runCronJobNow"]>(
-    overrides.runCronJobNow ?? (async () => {}),
-  );
-  const dmOwner = vi.fn<ClackSdk["dmOwner"]>(
-    overrides.dmOwner ?? (async () => ({ ok: true as const })),
-  );
-  const sdk = createFakeSdk({ ...overrides, onDelayedBoot, missedRuns, runCronJobNow, dmOwner });
+  const { sdk } = createFakeSdk({
+    missedRuns: async (specKey) => ({ lastExpectedRuns: missedBySpecKey[specKey] ?? [] }),
+    ...overrides,
+  });
   installCatchUp(
     sdk,
     () => games,
     () => now,
   );
-  const handler = onDelayedBoot.mock.calls[0]?.[0];
+  const handler = sdk.onDelayedBoot.mock.calls[0]?.[0];
   if (!handler) throw new Error("installCatchUp did not register a delayed-boot handler");
-  return { run: () => Promise.resolve(handler()), runCronJobNow, dmOwner, missedRuns, sdk };
+  return { run: () => Promise.resolve(handler()), sdk };
 }
 
 function firedKeys(h: Harness): string[] {
-  return h.runCronJobNow.mock.calls.map((c) => c[0]);
+  return h.sdk.runCronJobNow.mock.calls.map((c) => c[0]);
 }
 
 const RECOVERABLE_NOW = new Date("2026-06-10T10:33:00.000Z");
@@ -100,7 +89,7 @@ describe("trivia boot catch-up", () => {
     await h.run();
 
     expect(firedKeys(h)).toEqual([]);
-    const queried = h.missedRuns.mock.calls.map((c) => c[0]);
+    const queried = h.sdk.missedRuns.mock.calls.map((c) => c[0]);
     expect(queried).not.toContain("daily:prep");
   });
 
@@ -109,7 +98,7 @@ describe("trivia boot catch-up", () => {
 
     await h.run();
 
-    const queried = h.missedRuns.mock.calls.map((c) => c[0]);
+    const queried = h.sdk.missedRuns.mock.calls.map((c) => c[0]);
     expect(queried).toEqual(["daily:reveal", "daily:question"]);
   });
 
@@ -121,7 +110,7 @@ describe("trivia boot catch-up", () => {
     await h.run();
 
     expect(firedKeys(h)).toEqual([]);
-    expect(h.missedRuns).not.toHaveBeenCalled();
+    expect(h.sdk.missedRuns).not.toHaveBeenCalled();
   });
 
   it("fires a missed question inside the recovery window, without a DM", async () => {
@@ -132,7 +121,7 @@ describe("trivia boot catch-up", () => {
     await h.run();
 
     expect(firedKeys(h)).toEqual(["daily:question"]);
-    expect(h.dmOwner).not.toHaveBeenCalled();
+    expect(h.sdk.dmOwner).not.toHaveBeenCalled();
   });
 
   it("fires at most once even when several question slots were missed", async () => {
@@ -160,7 +149,7 @@ describe("trivia boot catch-up", () => {
     await h.run();
 
     expect(firedKeys(h)).toEqual([]);
-    expect(h.dmOwner.mock.calls).toEqual([["catchup.quiz_lost:daily:2026-06-09"]]);
+    expect(h.sdk.dmOwner.mock.calls).toEqual([["catchup.quiz_lost:daily:2026-06-09"]]);
   });
 
   it("skips and DMs the owner when less than 2h remain before the deadline", async () => {
@@ -170,7 +159,7 @@ describe("trivia boot catch-up", () => {
     await h.run();
 
     expect(firedKeys(h)).toEqual([]);
-    expect(h.dmOwner.mock.calls).toEqual([["catchup.quiz_lost:daily:2026-06-10"]]);
+    expect(h.sdk.dmOwner.mock.calls).toEqual([["catchup.quiz_lost:daily:2026-06-10"]]);
   });
 
   it("names every distinct lost day in the owner DM", async () => {
@@ -186,7 +175,7 @@ describe("trivia boot catch-up", () => {
     await h.run();
 
     expect(firedKeys(h)).toEqual([]);
-    expect(h.dmOwner.mock.calls).toEqual([["catchup.quiz_lost:daily:2026-06-08, 2026-06-09"]]);
+    expect(h.sdk.dmOwner.mock.calls).toEqual([["catchup.quiz_lost:daily:2026-06-08, 2026-06-09"]]);
   });
 
   it("uses revealCron as the deadline when lockCron is absent", async () => {
@@ -212,7 +201,7 @@ describe("trivia boot catch-up", () => {
     await h.run();
 
     expect(firedKeys(h)).toEqual(["daily:lock", "daily:reveal"]);
-    expect(h.dmOwner).not.toHaveBeenCalled();
+    expect(h.sdk.dmOwner).not.toHaveBeenCalled();
   });
 
   it("skips question catch-up on an unparseable deadline cron and continues to the next game", async () => {
@@ -226,14 +215,13 @@ describe("trivia boot catch-up", () => {
     await h.run();
 
     expect(firedKeys(h)).toEqual(["healthy:question"]);
-    expect(h.dmOwner).not.toHaveBeenCalled();
+    expect(h.sdk.dmOwner).not.toHaveBeenCalled();
   });
 
   it("logs and continues to the next game when the owner DM fails", async () => {
     const now = new Date("2026-06-10T14:33:00.000Z");
     const lostA = makeGame({ name: "aaa" });
     const recoverable = makeGame({ name: "bbb" });
-    const errors: unknown[][] = [];
     const h = makeHarness(
       [lostA, recoverable],
       now,
@@ -242,21 +230,13 @@ describe("trivia boot catch-up", () => {
         "bbb:lock": [new Date("2026-06-10T14:00:00.000Z")],
       },
       {
-        dmOwner: async () => ({ ok: false as const, error: "owner not configured" }),
-        logger: {
-          debug: () => {},
-          info: () => {},
-          warn: () => {},
-          error: (...args: unknown[]) => {
-            errors.push(args);
-          },
-        },
+        dmOwner: async () => ({ ok: false, error: "owner not configured" }),
       },
     );
 
     await h.run();
 
-    expect(errors.flat().join(" ")).toContain("owner not configured");
+    expect(h.sdk.logger.error.mock.calls.flat().join(" ")).toContain("owner not configured");
     expect(firedKeys(h)).toEqual(["bbb:lock"]);
   });
 
@@ -277,8 +257,8 @@ describe("trivia boot catch-up", () => {
 
     await h.run();
 
-    expect(h.dmOwner).not.toHaveBeenCalled();
-    const queried = h.missedRuns.mock.calls.map((c) => c[0]);
+    expect(h.sdk.dmOwner).not.toHaveBeenCalled();
+    const queried = h.sdk.missedRuns.mock.calls.map((c) => c[0]);
     expect(queried).toContain("daily:question");
   });
 });

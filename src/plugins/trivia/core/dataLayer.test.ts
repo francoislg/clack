@@ -1,31 +1,8 @@
 import { describe, it, beforeEach } from "vitest";
 import assert from "node:assert/strict";
 import { createSdkDataLayer } from "./dataLayer.js";
-import {
-  _resetTriviaConfigBridge,
-  _setTriviaConfigForTests,
-  _setTriviaConfigSdkForTests,
-} from "./configBridge.js";
-import { createFakeSdk } from "../testHelpers.js";
-import type { ClackSdk } from "../../sdk.js";
-import type { TriviaConfig } from "./configTypes.js";
-
-function makeMemorySdk(files: Map<string, string>): ClackSdk {
-  return createFakeSdk({
-    readFile: async (path) => files.get(path) ?? null,
-    writeFile: async (path, content) => {
-      files.set(path, content);
-    },
-  });
-}
-
-function primeConfig(config: TriviaConfig | null): Map<string, string> {
-  const files = new Map<string, string>();
-  _resetTriviaConfigBridge();
-  _setTriviaConfigSdkForTests(makeMemorySdk(files));
-  _setTriviaConfigForTests(config);
-  return files;
-}
+import { _resetTriviaConfigBridge } from "./configBridge.js";
+import { createFakeSdk, primeTriviaConfig } from "../testHelpers.fakeSdk.js";
 
 describe("dataLayer — fallback season seed", () => {
   beforeEach(() => {
@@ -33,8 +10,9 @@ describe("dataLayer — fallback season seed", () => {
   });
 
   it("seeds a season-YYYY-MM starter (no axis fields) for a config-edited game with no seasons.json", async () => {
-    const files = primeConfig({ games: [], seasons: { enabled: true, prompt: "p" } });
-    const data = createSdkDataLayer(makeMemorySdk(files));
+    const { sdk, testHelpers } = createFakeSdk();
+    primeTriviaConfig(sdk, { games: [], seasons: { enabled: true, prompt: "p" } });
+    const data = createSdkDataLayer(sdk);
 
     const state = await data.forGame("staging").loadSeasonsState();
 
@@ -47,21 +25,23 @@ describe("dataLayer — fallback season seed", () => {
     assert.equal(entry.format, undefined);
     assert.equal(entry.answersFormat, undefined);
     assert.equal(entry.theme, undefined);
-    assert.ok(files.has("games/staging/seasons.json"));
+    assert.ok(testHelpers.files.has("games/staging/seasons.json"));
   });
 
   it("returns null and writes nothing when seasons are disabled", async () => {
-    const files = primeConfig({ games: [] });
-    const data = createSdkDataLayer(makeMemorySdk(files));
+    const { sdk, testHelpers } = createFakeSdk();
+    primeTriviaConfig(sdk);
+
+    const data = createSdkDataLayer(sdk);
 
     assert.equal(await data.forGame("staging").loadSeasonsState(), null);
-    assert.equal(files.has("games/staging/seasons.json"), false);
+    assert.equal(testHelpers.files.has("games/staging/seasons.json"), false);
   });
 
   it("does not re-seed when a seasons.json already exists", async () => {
-    const files = primeConfig({ games: [], seasons: { enabled: true, prompt: "p" } });
-    const sdk = makeMemorySdk(files);
-    files.set(
+    const { sdk, testHelpers } = createFakeSdk();
+    primeTriviaConfig(sdk, { games: [], seasons: { enabled: true, prompt: "p" } });
+    testHelpers.files.set(
       "games/staging/seasons.json",
       JSON.stringify({ seasons: [{ slug: "kickoff-2026", startedAt: 1, expectedEndAt: 2 }] }),
     );
@@ -75,8 +55,8 @@ describe("dataLayer — fallback season seed", () => {
   });
 
   it("loads legacy entries and teams-stamped entries side by side, unchanged", async () => {
-    const files = primeConfig({ games: [], seasons: { enabled: true, prompt: "p" } });
-    const sdk = makeMemorySdk(files);
+    const { sdk, testHelpers } = createFakeSdk();
+    primeTriviaConfig(sdk, { games: [], seasons: { enabled: true, prompt: "p" } });
     const stamped = {
       slug: "season-2026-06",
       startedAt: 1,
@@ -88,7 +68,10 @@ describe("dataLayer — fallback season seed", () => {
       },
     };
     const legacy = { slug: "season-2026-05", startedAt: 0, expectedEndAt: 1, endedAt: 1 };
-    files.set("games/staging/seasons.json", JSON.stringify({ seasons: [legacy, stamped] }));
+    testHelpers.files.set(
+      "games/staging/seasons.json",
+      JSON.stringify({ seasons: [legacy, stamped] }),
+    );
     const data = createSdkDataLayer(sdk);
 
     const state = await data.forGame("staging").loadSeasonsState();
@@ -104,29 +87,31 @@ describe("dataLayer — graceful JSON reads", () => {
   });
 
   it("falls back to empty on malformed JSON", async () => {
-    const files = new Map<string, string>([["games/g/questions.json", "{ not json"]]);
-    const data = createSdkDataLayer(makeMemorySdk(files));
+    const { sdk, testHelpers } = createFakeSdk();
+    testHelpers.files.set("games/g/questions.json", "{ not json");
+    const data = createSdkDataLayer(sdk);
     assert.deepEqual(await data.forGame("g").loadQuestions(), []);
   });
 
   it("falls back to empty when the shape is wrong (missing load-bearing field)", async () => {
-    const files = new Map<string, string>([
-      ["games/g/answers.json", JSON.stringify([{ userId: "U1" }])], // no questionId
-    ]);
-    const data = createSdkDataLayer(makeMemorySdk(files));
+    const { sdk, testHelpers } = createFakeSdk();
+    testHelpers.files.set("games/g/answers.json", JSON.stringify([{ userId: "U1" }])); // no questionId
+    const data = createSdkDataLayer(sdk);
     assert.deepEqual(await data.forGame("g").loadAnswers(), []);
   });
 
   it("returns records untouched when the load-bearing fields are present, preserving extra fields", async () => {
     const stored = [{ id: "q1", statement: "S", answersFormat: "boolean", futureField: 7 }];
-    const files = new Map<string, string>([["games/g/questions.json", JSON.stringify(stored)]]);
-    const data = createSdkDataLayer(makeMemorySdk(files));
+    const { sdk, testHelpers } = createFakeSdk();
+    testHelpers.files.set("games/g/questions.json", JSON.stringify(stored));
+    const data = createSdkDataLayer(sdk);
     assert.deepEqual(await data.forGame("g").loadQuestions(), stored);
   });
 
   it("falls back to empty when categories.json is not an array of strings", async () => {
-    const files = new Map<string, string>([["categories.json", JSON.stringify({ bad: true })]]);
-    const data = createSdkDataLayer(makeMemorySdk(files));
+    const { sdk, testHelpers } = createFakeSdk();
+    testHelpers.files.set("categories.json", JSON.stringify({ bad: true }));
+    const data = createSdkDataLayer(sdk);
     assert.deepEqual(await data.loadCategories(), []);
   });
 });
