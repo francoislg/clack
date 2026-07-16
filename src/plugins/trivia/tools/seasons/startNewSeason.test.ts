@@ -1,7 +1,13 @@
 import { describe, it, beforeEach, afterEach, vi } from "vitest";
 import assert from "node:assert/strict";
 import { createStartNewSeasonTool } from "./startNewSeason.js";
-import { createInMemoryDataLayer, FIXTURE_GAME_NAME, fixtureGetGames } from "../../testHelpers.js";
+import {
+  createTriviaDataLayer,
+  FIXTURE_GAME_NAME,
+  fixtureGetGames,
+  type FakeTriviaDataLayer,
+} from "../../testHelpers.js";
+import { createFakeSdk, primeTriviaConfig } from "../../testHelpers.fakeSdk.js";
 import { parseToolResult } from "../../../../tools/testHelpers.js";
 
 /**
@@ -32,13 +38,15 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-function makeTool(data: ReturnType<typeof createInMemoryDataLayer>) {
+function makeTool(data: FakeTriviaDataLayer) {
   return createStartNewSeasonTool(data, fixtureGetGames);
 }
 
 describe("start_new_season", () => {
   it("closes the current season and creates a continuation", async () => {
-    const data = createInMemoryDataLayer();
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk);
+    const { dataLayer: data } = createTriviaDataLayer(sdk);
     const scoped = data.forGame(FIXTURE_GAME_NAME);
     const now = Date.now();
     await scoped.saveSeasonsState({
@@ -60,7 +68,9 @@ describe("start_new_season", () => {
   });
 
   it("honors an already-queued future continuation without duplicating it", async () => {
-    const data = createInMemoryDataLayer();
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk);
+    const { dataLayer: data } = createTriviaDataLayer(sdk);
     const scoped = data.forGame(FIXTURE_GAME_NAME);
     const now = Date.now();
     await scoped.saveSeasonsState({
@@ -87,7 +97,9 @@ describe("start_new_season", () => {
   });
 
   it("is a no-op when there is no current season (a gap)", async () => {
-    const data = createInMemoryDataLayer();
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk);
+    const { dataLayer: data } = createTriviaDataLayer(sdk);
     const scoped = data.forGame(FIXTURE_GAME_NAME);
     const now = Date.now();
     await scoped.saveSeasonsState({
@@ -106,7 +118,9 @@ describe("start_new_season", () => {
   });
 
   it("errors when seasons are not initialized", async () => {
-    const data = createInMemoryDataLayer();
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk);
+    const { dataLayer: data } = createTriviaDataLayer(sdk);
     const out = await makeTool(data).handler(
       { game: FIXTURE_GAME_NAME, force: undefined },
       SESSION,
@@ -115,7 +129,9 @@ describe("start_new_season", () => {
   });
 
   it("confirmation guard: does NOT roll over when it is not the season's last fire", async () => {
-    const data = createInMemoryDataLayer();
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk);
+    const { dataLayer: data } = createTriviaDataLayer(sdk);
     const scoped = data.forGame(FIXTURE_GAME_NAME);
     const now = Date.now();
     // expectedEndAt is weeks past the next reveal fire → NOT the last fire.
@@ -138,7 +154,9 @@ describe("start_new_season", () => {
   });
 
   it("force: true overrides the guard for a deliberate mid-season rollover", async () => {
-    const data = createInMemoryDataLayer();
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk);
+    const { dataLayer: data } = createTriviaDataLayer(sdk);
     const scoped = data.forGame(FIXTURE_GAME_NAME);
     const now = Date.now();
     await scoped.saveSeasonsState({

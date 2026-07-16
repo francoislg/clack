@@ -1,9 +1,15 @@
 import { describe, it, beforeEach } from "vitest";
 import assert from "node:assert/strict";
 import { createSettleQuestionTool } from "./settleQuestion.js";
-import { createInMemoryDataLayer, FIXTURE_GAME_NAME, fixtureGetGames } from "../../testHelpers.js";
+import {
+  createTriviaDataLayer,
+  FIXTURE_GAME_NAME,
+  fixtureGetGames,
+  type FakeTriviaDataLayer,
+} from "../../testHelpers.js";
+import { createFakeSdk, primeTriviaConfig } from "../../testHelpers.fakeSdk.js";
 import { parseToolResult } from "../../../../tools/testHelpers.js";
-import type { TriviaDataLayer, TriviaQuestion } from "../../core/types.js";
+import type { TriviaQuestion } from "../../core/types.js";
 
 const SESSION = { sessionId: "test" };
 
@@ -39,9 +45,14 @@ function args(o: Partial<Args> & { questionId: string }): Args {
 }
 
 describe("settle_question — answer a prediction", () => {
-  let data: TriviaDataLayer;
+  let data: FakeTriviaDataLayer;
+  let sdk: ReturnType<typeof createFakeSdk>["sdk"];
   beforeEach(() => {
-    data = createInMemoryDataLayer();
+    const result = createFakeSdk();
+    sdk = result.sdk;
+    primeTriviaConfig(sdk);
+    const result2 = createTriviaDataLayer(sdk);
+    data = result2.dataLayer;
   });
 
   it("stamps the boolean key + resolved:true and reports the outcome", async () => {
@@ -139,9 +150,14 @@ describe("settle_question — answer a prediction", () => {
 });
 
 describe("settle_question — invalidate", () => {
-  let data: TriviaDataLayer;
+  let data: FakeTriviaDataLayer;
+  let sdk: ReturnType<typeof createFakeSdk>["sdk"];
   beforeEach(() => {
-    data = createInMemoryDataLayer();
+    const result = createFakeSdk();
+    sdk = result.sdk;
+    primeTriviaConfig(sdk);
+    const result2 = createTriviaDataLayer(sdk);
+    data = result2.dataLayer;
   });
 
   it("marks invalidated + reason and clears existing verdicts", async () => {
@@ -234,9 +250,14 @@ describe("settle_question — invalidate", () => {
 });
 
 describe("settle_question — reopen", () => {
-  let data: TriviaDataLayer;
+  let data: FakeTriviaDataLayer;
+  let sdk: ReturnType<typeof createFakeSdk>["sdk"];
   beforeEach(() => {
-    data = createInMemoryDataLayer();
+    const result = createFakeSdk();
+    sdk = result.sdk;
+    primeTriviaConfig(sdk);
+    const result2 = createTriviaDataLayer(sdk);
+    data = result2.dataLayer;
   });
 
   it("clears invalidation and returns a keyless prediction to pending", async () => {

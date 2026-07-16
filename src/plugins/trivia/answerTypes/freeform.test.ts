@@ -3,7 +3,8 @@ import assert from "node:assert/strict";
 import { freeformAnswerHandler } from "./freeform.js";
 import { isClickableHandler } from "./registry.js";
 import { composeWithKey } from "../questionTypes/compose.js";
-import { createInMemoryDataLayer, FIXTURE_GAME_NAME } from "../testHelpers.js";
+import { createTriviaDataLayer, FIXTURE_GAME_NAME } from "../testHelpers.js";
+import { createFakeSdk, primeTriviaConfig } from "../testHelpers.fakeSdk.js";
 import type { TriviaQuestion } from "../core/types.js";
 import type { ProcessRevealDeps } from "./types.js";
 
@@ -186,15 +187,14 @@ describe("freeformAnswerHandler", () => {
   });
 
   describe("processReveal", () => {
-    // The judge now runs ONE call per submission. `judge` maps a typed answer to
-    // the raw judge text; the default treats "Paris" as correct, anything else
-    // incorrect. Pass a string to force the same text for every submission.
     function makeDeps(
       judge: string | ((answerText: string) => string) = (a) =>
         JSON.stringify(a.toLowerCase() === "paris" ? { correct: true } : { correct: false }),
       overrides: Partial<ProcessRevealDeps> = {},
     ): ProcessRevealDeps {
-      const data = createInMemoryDataLayer();
+      const { sdk } = createFakeSdk();
+      primeTriviaConfig(sdk);
+      const { dataLayer: data } = createTriviaDataLayer(sdk);
       const judgeFn = typeof judge === "string" ? () => judge : judge;
       return {
         scoped: data.forGame(FIXTURE_GAME_NAME),
@@ -203,9 +203,9 @@ describe("freeformAnswerHandler", () => {
         botUserId: "",
         fetchMessageReactions: async () => [],
         askClaude: async (opts) => {
-          // The per-answer prompt embeds the typed text as JSON; recover it.
           const match = opts.messages[0].content.match(/Player's typed answer: (".*")\n/);
-          const answerText = match ? (JSON.parse(match[1]) as string) : "";
+          const parsed: unknown = match ? JSON.parse(match[1]) : "";
+          const answerText = typeof parsed === "string" ? parsed : "";
           return {
             text: judgeFn(answerText),
             stopReason: "end_turn",

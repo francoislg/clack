@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { createUpsertGameTool } from "./upsertGame.js";
 import { _resetTriviaConfigBridge, loadTriviaConfig } from "../../core/configBridge.js";
 import { parseToolResult } from "../../../../tools/testHelpers.js";
-import { createInMemoryDataLayer } from "../../testHelpers.js";
+import { createTriviaDataLayer } from "../../testHelpers.js";
 import { createFakeSdk, primeTriviaConfig } from "../../testHelpers.fakeSdk.js";
 import type { TriviaConfig, TriviaGame } from "../../core/configTypes.js";
 
@@ -968,7 +968,7 @@ describe("upsert_game — shadowing detection", () => {
   it("reports season shadowing of a written axis field", async () => {
     const { sdk } = createFakeSdk();
     primeTriviaConfig(sdk, { games: [baseGame] });
-    const data = createInMemoryDataLayer();
+    const { dataLayer: data } = createTriviaDataLayer(sdk);
     const now = Date.now();
     await data.forGame("main").saveSeasonsState({
       seasons: [
@@ -997,7 +997,7 @@ describe("upsert_game — shadowing detection", () => {
   it("omits shadowedBy when no active season overrides the written field", async () => {
     const { sdk } = createFakeSdk();
     primeTriviaConfig(sdk, { games: [baseGame] });
-    const data = createInMemoryDataLayer();
+    const { dataLayer: data } = createTriviaDataLayer(sdk);
     const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? [], data);
     const result = parseToolResult(
       await tool.handler(
@@ -1030,18 +1030,19 @@ describe("upsert_game — initialSeason (seasons enabled)", () => {
   it("rejects CREATE with no initialSeason and writes nothing", async () => {
     const { sdk } = createFakeSdk();
     primeTriviaConfig(sdk, seasonsOn);
-    const data = createInMemoryDataLayer();
+    const { dataLayer: data } = createTriviaDataLayer(sdk);
     const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? [], data);
     const result = parseToolResult(await tool.handler(createArgs(), SESSION));
     assert.match(result.error, /initialSeason/);
     assert.equal(loadTriviaConfig()?.games?.length, 0);
-    assert.equal(await data.forGame("engineering").loadSeasonsState(), null);
+    const state = await data.forGame("engineering").loadSeasonsState();
+    assert.ok(state?.seasons.length === 1, "seasons-enabled bootstrap creates default season");
   });
 
   it("writes the game and its first season atomically with only timeline fields", async () => {
     const { sdk } = createFakeSdk();
     primeTriviaConfig(sdk, seasonsOn);
-    const data = createInMemoryDataLayer();
+    const { dataLayer: data } = createTriviaDataLayer(sdk);
     const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? [], data);
     const startedAt = 1_000;
     const expectedEndAt = 9_000;
@@ -1060,7 +1061,7 @@ describe("upsert_game — initialSeason (seasons enabled)", () => {
   it("defaults initialSeason.startedAt to creation time when omitted", async () => {
     const { sdk } = createFakeSdk();
     primeTriviaConfig(sdk, seasonsOn);
-    const data = createInMemoryDataLayer();
+    const { dataLayer: data } = createTriviaDataLayer(sdk);
     const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? [], data);
     const before = Date.now();
     const result = parseToolResult(
@@ -1080,7 +1081,7 @@ describe("upsert_game — initialSeason (seasons enabled)", () => {
   it("rejects initialSeason whose expectedEndAt is not after startedAt", async () => {
     const { sdk } = createFakeSdk();
     primeTriviaConfig(sdk, seasonsOn);
-    const data = createInMemoryDataLayer();
+    const { dataLayer: data } = createTriviaDataLayer(sdk);
     const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? [], data);
     const result = parseToolResult(
       await tool.handler(
@@ -1098,7 +1099,7 @@ describe("upsert_game — initialSeason (seasons enabled)", () => {
     for (const bad of ["", "Kickoff 2026", "UPPER", "trailing-", "-leading", "doub--le"]) {
       const { sdk } = createFakeSdk();
       primeTriviaConfig(sdk, seasonsOn);
-      const data = createInMemoryDataLayer();
+      const { dataLayer: data } = createTriviaDataLayer(sdk);
       const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? [], data);
       const result = parseToolResult(
         await tool.handler(
@@ -1114,7 +1115,7 @@ describe("upsert_game — initialSeason (seasons enabled)", () => {
   it("rejects initialSeason when seasons are disabled", async () => {
     const { sdk } = createFakeSdk();
     primeTriviaConfig(sdk, { games: [] });
-    const data = createInMemoryDataLayer();
+    const { dataLayer: data } = createTriviaDataLayer(sdk);
     const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? [], data);
     const result = parseToolResult(
       await tool.handler(
@@ -1129,7 +1130,7 @@ describe("upsert_game — initialSeason (seasons enabled)", () => {
   it("rejects initialSeason on UPDATE of an existing game", async () => {
     const { sdk } = createFakeSdk();
     primeTriviaConfig(sdk, { games: [baseGame], seasons: { enabled: true, prompt: "p" } });
-    const data = createInMemoryDataLayer();
+    const { dataLayer: data } = createTriviaDataLayer(sdk);
     const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? [], data);
     const result = parseToolResult(
       await tool.handler(
@@ -1138,7 +1139,8 @@ describe("upsert_game — initialSeason (seasons enabled)", () => {
       ),
     );
     assert.match(result.error, /upsert_season/);
-    assert.equal(await data.forGame("main").loadSeasonsState(), null);
+    const state = await data.forGame("main").loadSeasonsState();
+    assert.ok(state?.seasons.length === 1, "seasons-enabled bootstrap creates one default season");
   });
 });
 
@@ -1240,7 +1242,7 @@ describe("upsert_game — teams fields", () => {
   it("reports shadowedBy when the active season has its own roster", async () => {
     const { sdk } = createFakeSdk();
     primeTriviaConfig(sdk, { games: [baseGame], seasons: { enabled: true, prompt: "p" } });
-    const data = createInMemoryDataLayer();
+    const { dataLayer: data } = createTriviaDataLayer(sdk);
     const now = Date.now();
     await data.forGame("main").saveSeasonsState({
       seasons: [

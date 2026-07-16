@@ -3,7 +3,12 @@ import assert from "node:assert/strict";
 import type { KnownBlock } from "@slack/types";
 import { installPostGameButtons } from "./postGameButtons.js";
 import { tellMeMoreButton } from "./tellMeMoreButton.js";
-import { createInMemoryDataLayer, FIXTURE_GAME_NAME } from "../testHelpers.js";
+import {
+  createTriviaDataLayer,
+  FIXTURE_GAME_NAME,
+  type FakeTriviaDataLayer,
+} from "../testHelpers.js";
+import { createFakeSdk, primeTriviaConfig } from "../testHelpers.fakeSdk.js";
 import type { PluginActionHandler, SettableAttentionLevel } from "../../sdk.js";
 import type { TriviaQuestion } from "../core/types.js";
 
@@ -133,7 +138,7 @@ function clickBody(blocks: KnownBlock[], userId = "U1"): ActionArgs["body"] {
   };
 }
 
-function install(sdk: FakeSdk, data: ReturnType<typeof createInMemoryDataLayer>): Handler {
+function install(sdk: FakeSdk, data: FakeTriviaDataLayer): Handler {
   installPostGameButtons(sdk, [tellMeMoreButton], {
     data,
     getGameNames: () => [FIXTURE_GAME_NAME],
@@ -144,14 +149,19 @@ function install(sdk: FakeSdk, data: ReturnType<typeof createInMemoryDataLayer>)
 describe("tellMeMoreButton", () => {
   it("registers exactly one regex action handler", () => {
     const sdk = fakeSdk();
-    install(sdk, createInMemoryDataLayer());
+    const { sdk: fakeSDK } = createFakeSdk();
+    primeTriviaConfig(fakeSDK);
+    const { dataLayer } = createTriviaDataLayer(fakeSDK);
+    install(sdk, dataLayer);
     assert.equal(sdk.registrations.length, 1);
     assert.ok(sdk.registrations[0].pattern instanceof RegExp);
   });
 
   it("removes the button, posts a tagging intro, and starts a thread conversation", async () => {
     const sdk = fakeSdk();
-    const data = createInMemoryDataLayer();
+    const { sdk: fakeSDK } = createFakeSdk();
+    primeTriviaConfig(fakeSDK);
+    const { dataLayer: data } = createTriviaDataLayer(fakeSDK);
     await data.forGame(FIXTURE_GAME_NAME).saveQuestion(makeQuestion());
     const handler = install(sdk, data);
 
@@ -185,7 +195,9 @@ describe("tellMeMoreButton", () => {
 
   it("is a no-op when the button is already gone (race / double-click)", async () => {
     const sdk = fakeSdk();
-    const data = createInMemoryDataLayer();
+    const { sdk: fakeSDK } = createFakeSdk();
+    primeTriviaConfig(fakeSDK);
+    const { dataLayer: data } = createTriviaDataLayer(fakeSDK);
     await data.forGame(FIXTURE_GAME_NAME).saveQuestion(makeQuestion());
     const handler = install(sdk, data);
 
@@ -202,7 +214,9 @@ describe("tellMeMoreButton", () => {
 
   it("does nothing when the Slack client is not connected", async () => {
     const sdk = fakeSdk({ client: false });
-    const data = createInMemoryDataLayer();
+    const { sdk: fakeSDK } = createFakeSdk();
+    primeTriviaConfig(fakeSDK);
+    const { dataLayer: data } = createTriviaDataLayer(fakeSDK);
     await data.forGame(FIXTURE_GAME_NAME).saveQuestion(makeQuestion());
     const handler = install(sdk, data);
 
@@ -218,7 +232,9 @@ describe("tellMeMoreButton", () => {
 
   it("does nothing for an unparseable action_id", async () => {
     const sdk = fakeSdk();
-    const data = createInMemoryDataLayer();
+    const { sdk: fakeSDK } = createFakeSdk();
+    primeTriviaConfig(fakeSDK);
+    const { dataLayer: data } = createTriviaDataLayer(fakeSDK);
     await data.forGame(FIXTURE_GAME_NAME).saveQuestion(makeQuestion());
     const handler = install(sdk, data);
 

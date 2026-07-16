@@ -3,7 +3,12 @@ import assert from "node:assert/strict";
 import type { ModalView, ViewsOpenResponse } from "@slack/web-api";
 import { installPostGameButtons } from "./postGameButtons.js";
 import { seeAnswerButton } from "./seeAnswerButton.js";
-import { createInMemoryDataLayer, FIXTURE_GAME_NAME } from "../testHelpers.js";
+import {
+  createTriviaDataLayer,
+  FIXTURE_GAME_NAME,
+  type FakeTriviaDataLayer,
+} from "../testHelpers.js";
+import { createFakeSdk, primeTriviaConfig } from "../testHelpers.fakeSdk.js";
 import type { PluginActionHandler } from "../../sdk.js";
 import type { TriviaQuestion } from "../core/types.js";
 
@@ -76,7 +81,7 @@ function makeQuestion(overrides: Partial<TriviaQuestion> = {}): TriviaQuestion {
   };
 }
 
-function install(sdk: FakeSdk, data: ReturnType<typeof createInMemoryDataLayer>): Handler {
+function install(sdk: FakeSdk, data: FakeTriviaDataLayer): Handler {
   installPostGameButtons(sdk, [seeAnswerButton], {
     data,
     getGameNames: () => [FIXTURE_GAME_NAME],
@@ -87,14 +92,19 @@ function install(sdk: FakeSdk, data: ReturnType<typeof createInMemoryDataLayer>)
 describe("seeAnswerButton", () => {
   it("registers exactly one regex action handler", () => {
     const sdk = fakeSdk();
-    install(sdk, createInMemoryDataLayer());
+    const { sdk: fakeSDK } = createFakeSdk();
+    primeTriviaConfig(fakeSDK);
+    const { dataLayer } = createTriviaDataLayer(fakeSDK);
+    install(sdk, dataLayer);
     assert.equal(sdk.registrations.length, 1);
     assert.ok(sdk.registrations[0].pattern instanceof RegExp);
   });
 
   it("opens a modal with the clicking user's answer and writes nothing", async () => {
     const sdk = fakeSdk();
-    const data = createInMemoryDataLayer();
+    const { sdk: fakeSDK } = createFakeSdk();
+    primeTriviaConfig(fakeSDK);
+    const { dataLayer: data } = createTriviaDataLayer(fakeSDK);
     const scoped = data.forGame(FIXTURE_GAME_NAME);
     await scoped.saveQuestion(makeQuestion());
     await scoped.saveAnswer({
@@ -125,7 +135,9 @@ describe("seeAnswerButton", () => {
 
   it('shows "did not answer" for a user with no row', async () => {
     const sdk = fakeSdk();
-    const data = createInMemoryDataLayer();
+    const { sdk: fakeSDK } = createFakeSdk();
+    primeTriviaConfig(fakeSDK);
+    const { dataLayer: data } = createTriviaDataLayer(fakeSDK);
     await data.forGame(FIXTURE_GAME_NAME).saveQuestion(makeQuestion());
     const handler = install(sdk, data);
 

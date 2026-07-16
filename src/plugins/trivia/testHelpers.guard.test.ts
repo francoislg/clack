@@ -37,7 +37,8 @@ const COLLABORATOR_TYPES = [
   "PostQuestionsSlackDeps",
   "TriviaDataLayer",
   "ScopedTriviaDataLayer",
-  "InMemoryDataLayer",
+  "FakeTriviaDataLayer",
+  "FakeScopedTriviaDataLayer",
 ].join("|");
 
 // A function or const whose declared type is a collaborator interface:
@@ -58,7 +59,7 @@ const CAPTURE_ARRAY = /^\s*(const|let)\s+\w*[Cc]alls?\w*\s*(:\s*[^=]+)?=\s*\[\]\
  * accepts a match with a factory call within a few lines on either side.
  */
 const CANONICAL_FACTORIES =
-  /\b(createFakeSdk|createFakeRevealSlackDeps|createFakeLockSlackDeps|createFakePostQuestionsSlackDeps|createInMemoryDataLayer|createSdkDataLayer)\s*\(/;
+  /\b(createFakeSdk|createFakeRevealSlackDeps|createFakeLockSlackDeps|createFakePostQuestionsSlackDeps|createTriviaDataLayer|createSdkDataLayer)\s*\(/;
 
 const SANCTIONED_WINDOW_LINES = 15;
 

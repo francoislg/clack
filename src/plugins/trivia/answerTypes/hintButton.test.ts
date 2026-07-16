@@ -1,55 +1,20 @@
-import { describe, it, beforeEach } from "vitest";
+import { describe, it, beforeEach, vi } from "vitest";
+import type { Mock } from "vitest";
 import assert from "node:assert/strict";
 import type { ModalView, ViewsOpenResponse } from "@slack/web-api";
 import { extractQuestionIdFromActionId, installHintButtonHandler } from "./hintButton.js";
-import { createInMemoryDataLayer, FIXTURE_GAME_NAME } from "../testHelpers.js";
+import {
+  createTriviaDataLayer,
+  FIXTURE_GAME_NAME,
+  type FakeTriviaDataLayer,
+} from "../testHelpers.js";
+import { createFakeSdk, primeTriviaConfig, type FakeSdk } from "../testHelpers.fakeSdk.js";
 import type { PluginActionHandler } from "../../sdk.js";
-import type { TriviaDataLayer, TriviaQuestion } from "../core/types.js";
-
-interface CapturedRegistration {
-  pattern: string | RegExp;
-  handler: PluginActionHandler;
-}
+import type { TriviaQuestion } from "../core/types.js";
 
 interface ViewsOpenCall {
   trigger_id: string;
   view: ModalView;
-}
-
-interface FakeSdk {
-  registrations: CapturedRegistration[];
-  opened: ViewsOpenCall[];
-  registerAction(pattern: string | RegExp, handler: PluginActionHandler): void;
-  getSlackClient(): {
-    views: { open: (call: ViewsOpenCall) => Promise<ViewsOpenResponse> };
-  };
-  t(key: string, vars?: Record<string, string>): string;
-}
-
-function fakeSdk(): FakeSdk {
-  const registrations: CapturedRegistration[] = [];
-  const opened: ViewsOpenCall[] = [];
-  return {
-    registrations,
-    opened,
-    registerAction(pattern, handler) {
-      registrations.push({ pattern, handler });
-    },
-    getSlackClient() {
-      return {
-        views: {
-          open: async (call: ViewsOpenCall): Promise<ViewsOpenResponse> => {
-            opened.push(call);
-            return { ok: true };
-          },
-        },
-      };
-    },
-    t(key, vars) {
-      if (vars?.text !== undefined) return `${key}:${vars.text}`;
-      return key;
-    },
-  };
 }
 
 interface MinimalActionArgs {
@@ -66,7 +31,7 @@ interface MinimalActionArgs {
 type MinimalActionHandler = (args: MinimalActionArgs) => Promise<void> | void;
 
 async function invokeAction(
-  reg: CapturedRegistration,
+  handler: PluginActionHandler,
   opts: { questionId: string; userId: string; triggerId?: string | null },
 ): Promise<{ ackCalled: boolean }> {
   let ackCalled = false;
@@ -83,7 +48,7 @@ async function invokeAction(
     },
     action: { action_id: `plugin:trivia:hint:${opts.questionId}` },
   };
-  const narrowed = reg.handler as MinimalActionHandler;
+  const narrowed = handler as MinimalActionHandler;
   await narrowed(args);
   return { ackCalled };
 }
@@ -125,20 +90,44 @@ describe("extractQuestionIdFromActionId", () => {
 });
 
 describe("installHintButtonHandler — button-mode hint", () => {
-  let data: TriviaDataLayer;
+  let data: FakeTriviaDataLayer;
   let sdk: FakeSdk;
+  let viewsOpen: Mock<(call: ViewsOpenCall) => Promise<ViewsOpenResponse>>;
+
+  /** The action handler the installer registered, read from the mock's history. */
+  function registeredHandler(): PluginActionHandler {
+    return sdk.registerAction.mock.calls[0][1];
+  }
+
+  function openedCall(index: number): ViewsOpenCall {
+    return viewsOpen.mock.calls[index][0];
+  }
 
   beforeEach(async () => {
-    data = createInMemoryDataLayer();
+    ({ sdk } = createFakeSdk());
+    primeTriviaConfig(sdk);
+    ({ dataLayer: data } = createTriviaDataLayer(sdk));
     await data.saveCategories(["Science"]);
-    sdk = fakeSdk();
-    installHintButtonHandler(sdk, { data, getGameNames: () => [FIXTURE_GAME_NAME] });
+
+    viewsOpen = vi.fn<(call: ViewsOpenCall) => Promise<ViewsOpenResponse>>(async () => ({
+      ok: true,
+    }));
+    // The installer types getSlackClient against its own narrow views.open subset,
+    // so the test threads the canonical sdk's members plus a mock client through it.
+    installHintButtonHandler(
+      {
+        registerAction: sdk.registerAction,
+        t: sdk.t,
+        getSlackClient: () => ({ views: { open: viewsOpen } }),
+      },
+      { data, getGameNames: () => [FIXTURE_GAME_NAME] },
+    );
   });
 
   it("acknowledges before doing async work", async () => {
     const scoped = data.forGame(FIXTURE_GAME_NAME);
     await scoped.saveQuestion(makeQuestion({ hint: { mode: "button", text: "A primary color." } }));
-    const result = await invokeAction(sdk.registrations[0], {
+    const result = await invokeAction(registeredHandler(), {
       questionId: "QH1",
       userId: "U1",
     });
@@ -148,9 +137,9 @@ describe("installHintButtonHandler — button-mode hint", () => {
   it("first click opens a modal and adds user to clickedBy", async () => {
     const scoped = data.forGame(FIXTURE_GAME_NAME);
     await scoped.saveQuestion(makeQuestion({ hint: { mode: "button", text: "A primary color." } }));
-    await invokeAction(sdk.registrations[0], { questionId: "QH1", userId: "U1" });
-    assert.equal(sdk.opened.length, 1);
-    const call = sdk.opened[0];
+    await invokeAction(registeredHandler(), { questionId: "QH1", userId: "U1" });
+    assert.equal(viewsOpen.mock.calls.length, 1);
+    const call = openedCall(0);
     assert.equal(call.trigger_id, "trig.123");
     assert.equal(call.view.type, "modal");
     assert.match(modalText(call.view), /A primary color/);
@@ -163,8 +152,8 @@ describe("installHintButtonHandler — button-mode hint", () => {
     await scoped.saveQuestion(
       makeQuestion({ hint: { mode: "button", text: "A primary color.", clickedBy: ["U1"] } }),
     );
-    await invokeAction(sdk.registrations[0], { questionId: "QH1", userId: "U1" });
-    assert.equal(sdk.opened.length, 1);
+    await invokeAction(registeredHandler(), { questionId: "QH1", userId: "U1" });
+    assert.equal(viewsOpen.mock.calls.length, 1);
     const updated = (await scoped.loadQuestions()).find((q) => q.id === "QH1");
     assert.deepEqual(updated?.hint?.clickedBy, ["U1"]);
   });
@@ -174,7 +163,7 @@ describe("installHintButtonHandler — button-mode hint", () => {
     await scoped.saveQuestion(
       makeQuestion({ hint: { mode: "button", text: "A primary color.", clickedBy: ["U1"] } }),
     );
-    await invokeAction(sdk.registrations[0], { questionId: "QH1", userId: "U2" });
+    await invokeAction(registeredHandler(), { questionId: "QH1", userId: "U2" });
     const updated = (await scoped.loadQuestions()).find((q) => q.id === "QH1");
     assert.deepEqual(updated?.hint?.clickedBy?.sort(), ["U1", "U2"]);
   });
@@ -182,9 +171,9 @@ describe("installHintButtonHandler — button-mode hint", () => {
   it("missing-hint fallback opens a no-hint modal and skips clickedBy update", async () => {
     const scoped = data.forGame(FIXTURE_GAME_NAME);
     await scoped.saveQuestion(makeQuestion({}));
-    await invokeAction(sdk.registrations[0], { questionId: "QH1", userId: "U1" });
-    assert.equal(sdk.opened.length, 1);
-    assert.match(modalText(sdk.opened[0].view), /hint\.missing/);
+    await invokeAction(registeredHandler(), { questionId: "QH1", userId: "U1" });
+    assert.equal(viewsOpen.mock.calls.length, 1);
+    assert.match(modalText(openedCall(0).view), /hint\.missing/);
     const updated = (await scoped.loadQuestions()).find((q) => q.id === "QH1");
     assert.equal(updated?.hint, undefined);
   });
@@ -192,8 +181,8 @@ describe("installHintButtonHandler — button-mode hint", () => {
   it("question text precedes hint label in the modal body", async () => {
     const scoped = data.forGame(FIXTURE_GAME_NAME);
     await scoped.saveQuestion(makeQuestion({ hint: { mode: "button", text: "A primary color." } }));
-    await invokeAction(sdk.registrations[0], { questionId: "QH1", userId: "U1" });
-    const lines = modalText(sdk.opened[0].view).split("\n");
+    await invokeAction(registeredHandler(), { questionId: "QH1", userId: "U1" });
+    const lines = modalText(openedCall(0).view).split("\n");
     assert.match(lines[0], /Water boils/);
     assert.match(lines[lines.length - 1], /A primary color/);
   });
@@ -201,13 +190,13 @@ describe("installHintButtonHandler — button-mode hint", () => {
   it("missing trigger_id — warns and returns without opening a modal", async () => {
     const scoped = data.forGame(FIXTURE_GAME_NAME);
     await scoped.saveQuestion(makeQuestion({ hint: { mode: "button", text: "A primary color." } }));
-    const result = await invokeAction(sdk.registrations[0], {
+    const result = await invokeAction(registeredHandler(), {
       questionId: "QH1",
       userId: "U1",
       triggerId: null,
     });
     assert.equal(result.ackCalled, true);
-    assert.equal(sdk.opened.length, 0);
+    assert.equal(viewsOpen.mock.calls.length, 0);
     const updated = (await scoped.loadQuestions()).find((q) => q.id === "QH1");
     assert.deepEqual(updated?.hint?.clickedBy, undefined);
   });

@@ -1,6 +1,12 @@
 import { describe, it } from "vitest";
 import assert from "node:assert/strict";
-import { createInMemoryDataLayer, FIXTURE_GAME_NAME, fixtureGetGames } from "../../testHelpers.js";
+import {
+  createTriviaDataLayer,
+  FIXTURE_GAME_NAME,
+  fixtureGetGames,
+  type FakeTriviaDataLayer,
+} from "../../testHelpers.js";
+import { createFakeSdk, primeTriviaConfig } from "../../testHelpers.fakeSdk.js";
 import { createOverrideAnswerTool } from "./overrideAnswer.js";
 import { parseToolResult } from "../../../../tools/testHelpers.js";
 import type { SubmittedAnswer, TriviaQuestion } from "../../core/types.js";
@@ -26,7 +32,7 @@ function freeformQuestion(overrides: Partial<TriviaQuestion> = {}): TriviaQuesti
 }
 
 async function seedRevealedAnswer(
-  data: ReturnType<typeof createInMemoryDataLayer>,
+  data: FakeTriviaDataLayer,
   row: Partial<SubmittedAnswer> = {},
   question: TriviaQuestion = freeformQuestion(),
 ): Promise<void> {
@@ -43,18 +49,16 @@ async function seedRevealedAnswer(
   });
 }
 
-async function findRow(
-  data: ReturnType<typeof createInMemoryDataLayer>,
-  userId = "U1",
-  questionId = "q1",
-) {
+async function findRow(data: FakeTriviaDataLayer, userId = "U1", questionId = "q1") {
   const rows = await data.forGame(FIXTURE_GAME_NAME).loadAnswers();
   return rows.find((a) => a.userId === userId && a.questionId === questionId);
 }
 
 describe("override_answer tool", () => {
   it("override mode requires `correct`", async () => {
-    const data = createInMemoryDataLayer();
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk);
+    const { dataLayer: data } = createTriviaDataLayer(sdk);
     await seedRevealedAnswer(data);
     const tool = createOverrideAnswerTool(data, fixtureGetGames);
 
@@ -76,7 +80,9 @@ describe("override_answer tool", () => {
   });
 
   it("override mode requires a non-empty `reason`", async () => {
-    const data = createInMemoryDataLayer();
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk);
+    const { dataLayer: data } = createTriviaDataLayer(sdk);
     await seedRevealedAnswer(data);
     const tool = createOverrideAnswerTool(data, fixtureGetGames);
 
@@ -97,7 +103,9 @@ describe("override_answer tool", () => {
   });
 
   it("refuses before the question is revealed (post-reveal gate)", async () => {
-    const data = createInMemoryDataLayer();
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk);
+    const { dataLayer: data } = createTriviaDataLayer(sdk);
     await seedRevealedAnswer(
       data,
       { correct: undefined },
@@ -122,7 +130,9 @@ describe("override_answer tool", () => {
   });
 
   it("errors when the question does not exist", async () => {
-    const data = createInMemoryDataLayer();
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk);
+    const { dataLayer: data } = createTriviaDataLayer(sdk);
     const tool = createOverrideAnswerTool(data, fixtureGetGames);
 
     const body = parseToolResult(
@@ -142,7 +152,9 @@ describe("override_answer tool", () => {
   });
 
   it("errors when the answer row does not exist", async () => {
-    const data = createInMemoryDataLayer();
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk);
+    const { dataLayer: data } = createTriviaDataLayer(sdk);
     await data.forGame(FIXTURE_GAME_NAME).saveQuestion(freeformQuestion());
     const tool = createOverrideAnswerTool(data, fixtureGetGames);
 
@@ -163,7 +175,9 @@ describe("override_answer tool", () => {
   });
 
   it("captures the original verdict on the first override and sets the new verdict", async () => {
-    const data = createInMemoryDataLayer();
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk);
+    const { dataLayer: data } = createTriviaDataLayer(sdk);
     await seedRevealedAnswer(data);
     const tool = createOverrideAnswerTool(data, fixtureGetGames);
 
@@ -193,7 +207,9 @@ describe("override_answer tool", () => {
   });
 
   it("a second override preserves the original machine verdict", async () => {
-    const data = createInMemoryDataLayer();
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk);
+    const { dataLayer: data } = createTriviaDataLayer(sdk);
     await seedRevealedAnswer(data, {
       correct: true,
       judgeReason: "manual A",
@@ -224,7 +240,9 @@ describe("override_answer tool", () => {
   });
 
   it("restore puts the machine verdict back and drops the lock", async () => {
-    const data = createInMemoryDataLayer();
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk);
+    const { dataLayer: data } = createTriviaDataLayer(sdk);
     await seedRevealedAnswer(data, {
       correct: true,
       judgeReason: "manual",
@@ -255,7 +273,9 @@ describe("override_answer tool", () => {
   });
 
   it("restore errors when the row was never overridden", async () => {
-    const data = createInMemoryDataLayer();
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk);
+    const { dataLayer: data } = createTriviaDataLayer(sdk);
     await seedRevealedAnswer(data);
     const tool = createOverrideAnswerTool(data, fixtureGetGames);
 

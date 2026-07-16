@@ -1,10 +1,16 @@
 import { describe, it, beforeEach } from "vitest";
 import assert from "node:assert/strict";
-import { createInMemoryDataLayer, FIXTURE_GAME_NAME, fixtureGetGames } from "../../testHelpers.js";
+import {
+  createTriviaDataLayer,
+  FIXTURE_GAME_NAME,
+  fixtureGetGames,
+  type FakeTriviaDataLayer,
+} from "../../testHelpers.js";
+import { createFakeSdk, primeTriviaConfig } from "../../testHelpers.fakeSdk.js";
 import { createSaveQuestionTool } from "./saveQuestion.js";
 import { parseToolResult } from "../../../../tools/testHelpers.js";
 import type { TriviaConfig } from "../../core/configTypes.js";
-import type { TriviaDataLayer, SeasonEntry } from "../../core/types.js";
+import type { SeasonEntry } from "../../core/types.js";
 
 const SESSION = { sessionId: "test" };
 const DAY = 24 * 60 * 60 * 1000;
@@ -18,7 +24,7 @@ const SEASONS_ON = makeConfig({
 });
 
 async function seedSeason(
-  data: TriviaDataLayer,
+  data: FakeTriviaDataLayer,
   overrides: Partial<SeasonEntry> = {},
 ): Promise<SeasonEntry> {
   const now = Date.now();
@@ -60,10 +66,13 @@ const BASE_ARGS = {
 };
 
 describe("save_question — slot binding", () => {
-  let data: TriviaDataLayer;
+  let data: FakeTriviaDataLayer;
 
   beforeEach(async () => {
-    data = createInMemoryDataLayer();
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk, { games: [], seasons: { enabled: true, prompt: "Monthly" } });
+    const { dataLayer } = createTriviaDataLayer(sdk);
+    data = dataLayer;
     await data.saveCategories(["Science", "History", "Geography"]);
   });
 
@@ -229,10 +238,13 @@ describe("save_question — slot binding", () => {
 
 describe("save_question — game-tier categories cascade", () => {
   const SEASONS_OFF = makeConfig({ seasons: { enabled: false, prompt: "" } });
-  let data: TriviaDataLayer;
+  let data: FakeTriviaDataLayer;
 
   beforeEach(async () => {
-    data = createInMemoryDataLayer();
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk);
+    const { dataLayer } = createTriviaDataLayer(sdk);
+    data = dataLayer;
     await data.saveCategories(["Science", "History", "Geography"]);
   });
 

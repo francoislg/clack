@@ -1,7 +1,11 @@
 import { describe, it, beforeEach } from "vitest";
 import assert from "node:assert/strict";
-import { createFakeSdk, createFakeRevealSlackDeps } from "../testHelpers.fakeSdk.js";
-import { createInMemoryDataLayer, type InMemoryDataLayer } from "../testHelpers.js";
+import {
+  createFakeSdk,
+  createFakeRevealSlackDeps,
+  primeTriviaConfig,
+} from "../testHelpers.fakeSdk.js";
+import { createTriviaDataLayer, type FakeTriviaDataLayer } from "../testHelpers.js";
 import { createGetIdeasTool } from "./questions/getIdeas.js";
 import { createSaveQuestionTool } from "./questions/saveQuestion.js";
 import { createExplainCascadeTool } from "./games/explainCascade.js";
@@ -83,10 +87,14 @@ function makeSaveArgs(overrides: Partial<SaveArgs>): SaveArgs {
 }
 
 describe("cascade parity — explain_cascade ≡ get_ideas ≡ save_question (game format, no season)", () => {
-  let data: InMemoryDataLayer;
+  let data: FakeTriviaDataLayer;
+  let sdk: ReturnType<typeof createFakeSdk>["sdk"];
+  let testHelpers: ReturnType<typeof createFakeSdk>["testHelpers"];
 
   beforeEach(async () => {
-    data = createInMemoryDataLayer();
+    ({ sdk, testHelpers } = createFakeSdk());
+    primeTriviaConfig(sdk);
+    ({ dataLayer: data } = createTriviaDataLayer(sdk));
     await data.saveCategories(["Science", "History"]);
   });
 
@@ -165,7 +173,7 @@ describe("cascade parity — explain_cascade ≡ get_ideas ≡ save_question (ga
       revealResponses: "yes",
       slot: { index: 0 },
     });
-    await data.saveUser({ userId: "U1", displayName: "Alice", joinedAt: 0 }); // seeding userData namespace
+    testHelpers.saveUser({ userId: "U1", displayName: "Alice" });
     await scoped.saveAnswer({
       userId: "U1",
       questionId: "q1",
@@ -176,7 +184,7 @@ describe("cascade parity — explain_cascade ≡ get_ideas ≡ save_question (ga
 
     const reveal = createComputeAnswersTool(
       data,
-      createFakeSdk().sdk,
+      sdk,
       getGames,
       createFakeRevealSlackDeps(),
       getConfig,

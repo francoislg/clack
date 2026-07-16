@@ -1,7 +1,8 @@
 import { describe, it } from "vitest";
 import assert from "node:assert/strict";
-import { createInMemoryDataLayer, FIXTURE_GAME_NAME, fixtureGetGames } from "../../testHelpers.js";
-import { createFakeSdk } from "../../testHelpers.fakeSdk.js";
+import { z } from "zod";
+import { createTriviaDataLayer, FIXTURE_GAME_NAME, fixtureGetGames } from "../../testHelpers.js";
+import { createFakeSdk, primeTriviaConfig } from "../../testHelpers.fakeSdk.js";
 import { createSaveCheatingTool } from "./saveCheating.js";
 import { parseToolResult } from "../../../../tools/testHelpers.js";
 
@@ -9,8 +10,9 @@ const SESSION = { sessionId: "test" };
 
 describe("save_cheating tool", () => {
   it("first cheat initializes cheatAttempts counter to 1 and DMs the owner", async () => {
-    const data = createInMemoryDataLayer();
     const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk);
+    const { dataLayer: data } = createTriviaDataLayer(sdk);
     const tool = createSaveCheatingTool(data, sdk, fixtureGetGames);
 
     const result = await tool.handler(
@@ -29,7 +31,9 @@ describe("save_cheating tool", () => {
     assert.equal(body.totalAttempts, 1);
     assert.equal(body.ownerNotified, true);
 
-    const userData = await data.getUserData("U123");
+    const userData = await sdk.users
+      .data(z.object({ cheatAttempts: z.number().optional() }))
+      .get("U123");
     assert.equal(userData?.cheatAttempts, 1);
 
     const cheats = await data.forGame(FIXTURE_GAME_NAME).loadCheats();
@@ -47,11 +51,12 @@ describe("save_cheating tool", () => {
 
   it("reports an owner-notification failure without losing the saved report", async () => {
     const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk);
     sdk.dmOwner.mockResolvedValue({
       ok: false,
       error: "No owner is configured (set one via the Home Tab)",
     });
-    const data = createInMemoryDataLayer();
+    const { dataLayer: data } = createTriviaDataLayer(sdk);
     const tool = createSaveCheatingTool(data, sdk, fixtureGetGames);
 
     const result = await tool.handler(
@@ -75,8 +80,9 @@ describe("save_cheating tool", () => {
   });
 
   it("subsequent cheats increment the counter", async () => {
-    const data = createInMemoryDataLayer();
     const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk);
+    const { dataLayer: data } = createTriviaDataLayer(sdk);
     const tool = createSaveCheatingTool(data, sdk, fixtureGetGames);
 
     await tool.handler(
@@ -103,7 +109,9 @@ describe("save_cheating tool", () => {
     const body = parseToolResult(result);
     assert.equal(body.totalAttempts, 2);
 
-    const userData = await data.getUserData("U123");
+    const userData = await sdk.users
+      .data(z.object({ cheatAttempts: z.number().optional() }))
+      .get("U123");
     assert.equal(userData?.cheatAttempts, 2);
 
     const cheats = await data.forGame(FIXTURE_GAME_NAME).loadCheats();
@@ -111,8 +119,9 @@ describe("save_cheating tool", () => {
   });
 
   it("appends each report in order", async () => {
-    const data = createInMemoryDataLayer();
     const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk);
+    const { dataLayer: data } = createTriviaDataLayer(sdk);
     const tool = createSaveCheatingTool(data, sdk, fixtureGetGames);
 
     await tool.handler(
@@ -155,8 +164,9 @@ describe("save_cheating tool", () => {
   });
 
   it("rejects empty reason and does not DM the owner", async () => {
-    const data = createInMemoryDataLayer();
     const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk);
+    const { dataLayer: data } = createTriviaDataLayer(sdk);
     const tool = createSaveCheatingTool(data, sdk, fixtureGetGames);
 
     const result = await tool.handler(
@@ -179,13 +189,13 @@ describe("save_cheating tool", () => {
   });
 
   it("preserves existing user fields when incrementing counter", async () => {
-    const data = createInMemoryDataLayer();
-    await data.saveUser({
-      userId: "U99",
-      displayName: "Alice",
-      joinedAt: 1_700_000_000_000,
-    });
-    const { sdk } = createFakeSdk();
+    const { sdk, testHelpers } = createFakeSdk();
+    primeTriviaConfig(sdk);
+    testHelpers.saveUser({ userId: "U99", displayName: "Alice" });
+    await sdk.users
+      .data(z.object({ joinedAt: z.number().optional(), cheatAttempts: z.number().optional() }))
+      .merge("U99", { joinedAt: 1_700_000_000_000 });
+    const { dataLayer: data } = createTriviaDataLayer(sdk);
     const tool = createSaveCheatingTool(data, sdk, fixtureGetGames);
 
     await tool.handler(
@@ -199,10 +209,9 @@ describe("save_cheating tool", () => {
       SESSION,
     );
 
-    const users = await data.loadUsers();
-    const u = users.get("U99");
-    assert.equal(u?.displayName, "Alice");
-    const uData = await data.getUserData("U99");
+    const uData = await sdk.users
+      .data(z.object({ joinedAt: z.number().optional(), cheatAttempts: z.number().optional() }))
+      .get("U99");
     assert.equal(uData?.joinedAt, 1_700_000_000_000);
     assert.equal(uData?.cheatAttempts, 1);
   });

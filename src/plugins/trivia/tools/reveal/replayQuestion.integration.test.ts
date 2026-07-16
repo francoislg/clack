@@ -9,14 +9,20 @@ import {
 import { createSettleQuestionTool } from "./settleQuestion.js";
 import { createComputeAnswersTool } from "./computeAnswers.js";
 import { createRefreshQuestionCardsTool } from "./refreshQuestionCards.js";
-import { createInMemoryDataLayer, FIXTURE_GAME_NAME, fixtureGetGames } from "../../testHelpers.js";
+import {
+  createTriviaDataLayer,
+  FIXTURE_GAME_NAME,
+  fixtureGetGames,
+  type FakeTriviaDataLayer,
+} from "../../testHelpers.js";
 import {
   createFakeSdk,
   createFakeRevealSlackDeps,
   createFakePostQuestionsSlackDeps,
+  primeTriviaConfig,
 } from "../../testHelpers.fakeSdk.js";
 import { parseToolResult } from "../../../../tools/testHelpers.js";
-import type { TriviaDataLayer, TriviaQuestion } from "../../core/types.js";
+import type { TriviaQuestion } from "../../core/types.js";
 import type { BlockSchema } from "../../../../slack/blockSchema.js";
 
 /**
@@ -54,7 +60,7 @@ function updatesOf(deps: ReturnType<typeof createFakeRevealSlackDeps>): CardUpda
 }
 
 function seedBoolean(
-  data: TriviaDataLayer,
+  data: FakeTriviaDataLayer,
   id: string,
   isTrue: boolean,
   createdAt: number,
@@ -72,7 +78,7 @@ function seedBoolean(
   return data.forGame(FIXTURE_GAME_NAME).saveQuestion(q);
 }
 
-async function batchIdOf(data: TriviaDataLayer, id: string): Promise<string> {
+async function batchIdOf(data: FakeTriviaDataLayer, id: string): Promise<string> {
   const q = (await data.forGame(FIXTURE_GAME_NAME).loadQuestions()).find((x) => x.id === id);
   assert.ok(q?.batchId, `expected ${id} to carry a batchId after posting`);
   return q.batchId;
@@ -80,10 +86,12 @@ async function batchIdOf(data: TriviaDataLayer, id: string): Promise<string> {
 
 describe("replay a bad question — mid-window invalidate + replace + reveal", () => {
   it("invalidates one live card, replaces it in the same batch, and the reveal ignores the dead one", async () => {
-    const data = createInMemoryDataLayer();
+    const { sdk: sdk_ } = createFakeSdk();
+    primeTriviaConfig(sdk_);
+    const { dataLayer: data } = createTriviaDataLayer(sdk_);
     const scoped = data.forGame(FIXTURE_GAME_NAME);
     const { deps: postDeps } = postSlackDeps();
-    const postTool = createPostQuestionsTool(data, createFakeSdk().sdk, fixtureGetGames, postDeps);
+    const postTool = createPostQuestionsTool(data, sdk_, fixtureGetGames, postDeps);
     const settleTool = createSettleQuestionTool(data, fixtureGetGames);
 
     // 1. Post a two-question batch and take some votes (still live, unrevealed).
@@ -140,12 +148,7 @@ describe("replay a bad question — mid-window invalidate + replace + reveal", (
 
     // 3. Repaint ONLY the dead card mid-window; the live sibling keeps its buttons.
     const midDeps = revealSlackDeps();
-    const updateMid = createRefreshQuestionCardsTool(
-      data,
-      createFakeSdk().sdk,
-      fixtureGetGames,
-      midDeps,
-    );
+    const updateMid = createRefreshQuestionCardsTool(data, sdk_, fixtureGetGames, midDeps);
     await updateMid.handler({ game: FIXTURE_GAME_NAME, questionIds: ["q_bad"] }, SESSION);
     assert.equal(updatesOf(midDeps).length, 1, "only the invalidated card is repainted");
     // Invalidated repaint: content WAS sent, with no vote buttons and no reveal-results footer.
@@ -178,12 +181,7 @@ describe("replay a bad question — mid-window invalidate + replace + reveal", (
 
     // 5. Reveal the batch — the dead question is skipped, the replacement is scored.
     const revealDeps = revealSlackDeps();
-    const computeTool = createComputeAnswersTool(
-      data,
-      createFakeSdk().sdk,
-      fixtureGetGames,
-      revealDeps,
-    );
+    const computeTool = createComputeAnswersTool(data, sdk_, fixtureGetGames, revealDeps);
     const reveal = parseToolResult(
       await computeTool.handler(
         { game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined, reprocessBatchId: undefined },
@@ -202,12 +200,7 @@ describe("replay a bad question — mid-window invalidate + replace + reveal", (
 
     // 6. At reveal, repaint the two revealed cards (q_bad was already repainted mid-window).
     const finalDeps = revealSlackDeps();
-    const updateFinal = createRefreshQuestionCardsTool(
-      data,
-      createFakeSdk().sdk,
-      fixtureGetGames,
-      finalDeps,
-    );
+    const updateFinal = createRefreshQuestionCardsTool(data, sdk_, fixtureGetGames, finalDeps);
     await updateFinal.handler(
       {
         game: FIXTURE_GAME_NAME,
@@ -219,18 +212,15 @@ describe("replay a bad question — mid-window invalidate + replace + reveal", (
   });
 
   it("after the reveal, voiding a scored question strips its points and adds no replacement", async () => {
-    const data = createInMemoryDataLayer();
+    const { sdk: sdk_ } = createFakeSdk();
+    primeTriviaConfig(sdk_);
+    const { dataLayer: data } = createTriviaDataLayer(sdk_);
     const scoped = data.forGame(FIXTURE_GAME_NAME);
     const { deps: postDeps } = postSlackDeps();
-    const postTool = createPostQuestionsTool(data, createFakeSdk().sdk, fixtureGetGames, postDeps);
+    const postTool = createPostQuestionsTool(data, sdk_, fixtureGetGames, postDeps);
     const settleTool = createSettleQuestionTool(data, fixtureGetGames);
     const revealDeps = revealSlackDeps();
-    const computeTool = createComputeAnswersTool(
-      data,
-      createFakeSdk().sdk,
-      fixtureGetGames,
-      revealDeps,
-    );
+    const computeTool = createComputeAnswersTool(data, sdk_, fixtureGetGames, revealDeps);
 
     // Post and score a two-question batch (U1 right on q1, U2 right on q_void).
     await seedBoolean(data, "q1", true, 1);
@@ -305,12 +295,7 @@ describe("replay a bad question — mid-window invalidate + replace + reveal", (
     assert.equal((await scoped.loadQuestions()).length, 2);
 
     const repaintDeps = revealSlackDeps();
-    const updateVoid = createRefreshQuestionCardsTool(
-      data,
-      createFakeSdk().sdk,
-      fixtureGetGames,
-      repaintDeps,
-    );
+    const updateVoid = createRefreshQuestionCardsTool(data, sdk_, fixtureGetGames, repaintDeps);
     // Case B repaints only the voided card; the sibling's results are unaffected by the void.
     await updateVoid.handler({ game: FIXTURE_GAME_NAME, questionIds: ["q_void"] }, SESSION);
     assert.equal(updatesOf(repaintDeps).length, 1);

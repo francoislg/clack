@@ -1,10 +1,19 @@
 import { describe, it } from "vitest";
 import assert from "node:assert/strict";
-import { createComputeAnswersTool, type RevealSlackDeps } from "./computeAnswers.js";
-import { createFakeSdk, createFakeRevealSlackDeps } from "../../testHelpers.fakeSdk.js";
-import { createInMemoryDataLayer, FIXTURE_GAME_NAME, fixtureGetGames } from "../../testHelpers.js";
+import { createComputeAnswersTool } from "./computeAnswers.js";
+import {
+  createFakeSdk,
+  createFakeRevealSlackDeps,
+  primeTriviaConfig,
+} from "../../testHelpers.fakeSdk.js";
+import {
+  createTriviaDataLayer,
+  FIXTURE_GAME_NAME,
+  fixtureGetGames,
+  type FakeTriviaDataLayer,
+} from "../../testHelpers.js";
 import { parseToolResult } from "../../../../tools/testHelpers.js";
-import type { TriviaDataLayer, TriviaQuestion } from "../../core/types.js";
+import type { TriviaQuestion } from "../../core/types.js";
 
 /**
  * Orchestrator-level tests for `process_reveal_answers`. Per-handler reveal behavior
@@ -35,10 +44,15 @@ function makeQuestion(overrides: Partial<TriviaQuestion>): TriviaQuestion {
 
 const DAY = 86_400_000;
 
-async function seedCurrentSeason(
-  data: ReturnType<typeof createInMemoryDataLayer>,
-  expectedEndAt: number,
-): Promise<void> {
+/** One sdk threading through the data layer and the tool, primed with the default config. */
+function makeData() {
+  const { sdk, testHelpers } = createFakeSdk();
+  primeTriviaConfig(sdk);
+  const { dataLayer } = createTriviaDataLayer(sdk);
+  return { sdk, dataLayer, testHelpers };
+}
+
+async function seedCurrentSeason(data: FakeTriviaDataLayer, expectedEndAt: number): Promise<void> {
   await data.forGame(FIXTURE_GAME_NAME).saveSeasonsState({
     seasons: [{ slug: "s1", startedAt: Date.now() - DAY, expectedEndAt }],
   });
@@ -50,7 +64,8 @@ describe("compute_answers —showAllTimeRow", () => {
   // next fire lands far after expectedEndAt → IS the last fire. Sourced from the
   // game's own config, never from the bot-core cron-job registry.
   function toolWith(
-    data: ReturnType<typeof createInMemoryDataLayer>,
+    data: FakeTriviaDataLayer,
+    sdk: ReturnType<typeof createFakeSdk>["sdk"],
     allTimeRow: "always" | "never" | "end-of-season-only",
     revealCron = "* * * * *",
   ) {
@@ -58,15 +73,9 @@ describe("compute_answers —showAllTimeRow", () => {
       fixtureGetGames().map((g) =>
         g.name === FIXTURE_GAME_NAME ? { ...g, revealCron, timezone: "UTC" } : g,
       );
-    return createComputeAnswersTool(
-      data,
-      createFakeSdk().sdk,
-      getGames,
-      createFakeRevealSlackDeps(),
-      () => ({
-        allTimeRow,
-      }),
-    );
+    return createComputeAnswersTool(data, sdk, getGames, createFakeRevealSlackDeps(), () => ({
+      allTimeRow,
+    }));
   }
 
   async function run(tool: ReturnType<typeof createComputeAnswersTool>) {
@@ -83,39 +92,39 @@ describe("compute_answers —showAllTimeRow", () => {
   }
 
   it("is absent when seasons are disabled (no current season)", async () => {
-    const data = createInMemoryDataLayer();
-    const res = await run(toolWith(data, "always"));
+    const { sdk, dataLayer: data } = makeData();
+    const res = await run(toolWith(data, sdk, "always"));
     assert.equal("seasonStatus" in res, false);
     assert.equal("showAllTimeRow" in res, false);
   });
 
   it("always → true regardless of last fire", async () => {
-    const data = createInMemoryDataLayer();
+    const { sdk, dataLayer: data } = makeData();
     await seedCurrentSeason(data, Date.now() + DAY);
-    const res = await run(toolWith(data, "always"));
+    const res = await run(toolWith(data, sdk, "always"));
     assert.equal(res.showAllTimeRow, true);
   });
 
   it("never → false regardless of last fire", async () => {
-    const data = createInMemoryDataLayer();
+    const { sdk, dataLayer: data } = makeData();
     await seedCurrentSeason(data, Date.now() + DAY);
-    const res = await run(toolWith(data, "never"));
+    const res = await run(toolWith(data, sdk, "never"));
     assert.equal(res.showAllTimeRow, false);
   });
 
   it("end-of-season-only → false on a non-last fire (no reveal job)", async () => {
-    const data = createInMemoryDataLayer();
+    const { sdk, dataLayer: data } = makeData();
     await seedCurrentSeason(data, Date.now() + DAY);
-    const res = await run(toolWith(data, "end-of-season-only"));
+    const res = await run(toolWith(data, sdk, "end-of-season-only"));
     assert.equal(res.showAllTimeRow, false);
   });
 
   it("end-of-season-only → true on the season's last fire", async () => {
-    const data = createInMemoryDataLayer();
+    const { sdk, dataLayer: data } = makeData();
     // Season ends shortly; the game's revealCron next fires far in the future
     // (yearly), so its next fire lands AFTER expectedEndAt → this is the last fire.
     await seedCurrentSeason(data, Date.now() + 60_000);
-    const res = await run(toolWith(data, "end-of-season-only", "0 0 1 1 *"));
+    const res = await run(toolWith(data, sdk, "end-of-season-only", "0 0 1 1 *"));
     assert.equal(res.seasonStatus.isLastFireOfSeason, true);
     assert.equal(res.showAllTimeRow, true);
   });
@@ -123,13 +132,8 @@ describe("compute_answers —showAllTimeRow", () => {
 
 describe("compute_answers —orchestrator", () => {
   it("returns reveals: [] when no question is pending", async () => {
-    const data = createInMemoryDataLayer();
-    const tool = createComputeAnswersTool(
-      data,
-      createFakeSdk().sdk,
-      fixtureGetGames,
-      createFakeRevealSlackDeps(),
-    );
+    const { sdk, dataLayer: data } = makeData();
+    const tool = createComputeAnswersTool(data, sdk, fixtureGetGames, createFakeRevealSlackDeps());
 
     const res = parseToolResult(
       await tool.handler(
@@ -146,7 +150,7 @@ describe("compute_answers —orchestrator", () => {
   });
 
   it("processes only the oldest pending batch and leaves later batches alone", async () => {
-    const data = createInMemoryDataLayer();
+    const { sdk, dataLayer: data } = makeData();
     const scoped = data.forGame(FIXTURE_GAME_NAME);
     // Batch A: older. Batch B: newer.
     await scoped.saveQuestion(
@@ -159,12 +163,7 @@ describe("compute_answers —orchestrator", () => {
       makeQuestion({ id: "b1", postedAt: 3_000, batchId: "batch-B", statement: "B1" }),
     );
 
-    const tool = createComputeAnswersTool(
-      data,
-      createFakeSdk().sdk,
-      fixtureGetGames,
-      createFakeRevealSlackDeps(),
-    );
+    const tool = createComputeAnswersTool(data, sdk, fixtureGetGames, createFakeRevealSlackDeps());
 
     const res = parseToolResult(
       await tool.handler(
@@ -188,7 +187,7 @@ describe("compute_answers —orchestrator", () => {
   });
 
   it("includes top-level `roundSummary` when every reveal entry is revealResponses: 'yes'", async () => {
-    const data = createInMemoryDataLayer();
+    const { sdk, dataLayer: data, testHelpers } = makeData();
     const scoped = data.forGame(FIXTURE_GAME_NAME);
     await scoped.saveQuestion(
       makeQuestion({ id: "q1", batchId: "B", postedAt: 1_000, revealResponses: "yes" }),
@@ -196,7 +195,7 @@ describe("compute_answers —orchestrator", () => {
     await scoped.saveQuestion(
       makeQuestion({ id: "q2", batchId: "B", postedAt: 1_001, revealResponses: "yes" }),
     );
-    await data.saveUser({ userId: "U1", displayName: "Alice", joinedAt: 0 });
+    testHelpers.saveUser({ userId: "U1", displayName: "Alice" });
     await scoped.saveAnswer({
       userId: "U1",
       questionId: "q1",
@@ -212,12 +211,7 @@ describe("compute_answers —orchestrator", () => {
       timestamp: 600,
     });
 
-    const tool = createComputeAnswersTool(
-      data,
-      createFakeSdk().sdk,
-      fixtureGetGames,
-      createFakeRevealSlackDeps(),
-    );
+    const tool = createComputeAnswersTool(data, sdk, fixtureGetGames, createFakeRevealSlackDeps());
 
     const res = parseToolResult(
       await tool.handler(
@@ -238,10 +232,7 @@ describe("compute_answers —orchestrator", () => {
   });
 
   it("includes `roundSummary` in EVERY reveal mode, aggregating scored answers regardless of mode", async () => {
-    // revealResponses governs only per-question display — it must NOT touch the
-    // scoreboard. A batch spanning yes / no / just-winners still tallies all
-    // scored answers across all three questions.
-    const data = createInMemoryDataLayer();
+    const { sdk, dataLayer: data, testHelpers } = makeData();
     const scoped = data.forGame(FIXTURE_GAME_NAME);
     await scoped.saveQuestion(
       makeQuestion({ id: "q1", batchId: "B", postedAt: 1_000, revealResponses: "yes" }),
@@ -252,7 +243,7 @@ describe("compute_answers —orchestrator", () => {
     await scoped.saveQuestion(
       makeQuestion({ id: "q3", batchId: "B", postedAt: 1_002, revealResponses: "just-winners" }),
     );
-    await data.saveUser({ userId: "U1", displayName: "Alice", joinedAt: 0 });
+    testHelpers.saveUser({ userId: "U1", displayName: "Alice" });
     for (const [questionId, correct] of [
       ["q1", true],
       ["q2", true],
@@ -261,12 +252,7 @@ describe("compute_answers —orchestrator", () => {
       await scoped.saveAnswer({ userId: "U1", questionId, answer: true, correct, timestamp: 500 });
     }
 
-    const tool = createComputeAnswersTool(
-      data,
-      createFakeSdk().sdk,
-      fixtureGetGames,
-      createFakeRevealSlackDeps(),
-    );
+    const tool = createComputeAnswersTool(data, sdk, fixtureGetGames, createFakeRevealSlackDeps());
 
     const res = parseToolResult(
       await tool.handler(
@@ -292,18 +278,13 @@ describe("compute_answers —orchestrator", () => {
   });
 
   it("includes `roundSummary` with an empty perPlayer when nobody answered this round", async () => {
-    const data = createInMemoryDataLayer();
+    const { sdk, dataLayer: data } = makeData();
     const scoped = data.forGame(FIXTURE_GAME_NAME);
     await scoped.saveQuestion(
       makeQuestion({ id: "q1", batchId: "B", postedAt: 1_000, revealResponses: "yes" }),
     );
 
-    const tool = createComputeAnswersTool(
-      data,
-      createFakeSdk().sdk,
-      fixtureGetGames,
-      createFakeRevealSlackDeps(),
-    );
+    const tool = createComputeAnswersTool(data, sdk, fixtureGetGames, createFakeRevealSlackDeps());
 
     const res = parseToolResult(
       await tool.handler(
@@ -322,13 +303,13 @@ describe("compute_answers —orchestrator", () => {
   });
 
   it("excludes flagged cheaters from `roundSummary` (same scoring filter as the leaderboard)", async () => {
-    const data = createInMemoryDataLayer();
+    const { sdk, dataLayer: data, testHelpers } = makeData();
     const scoped = data.forGame(FIXTURE_GAME_NAME);
     await scoped.saveQuestion(
       makeQuestion({ id: "q1", batchId: "B", postedAt: 1_000, revealResponses: "yes" }),
     );
-    await data.saveUser({ userId: "U1", displayName: "Alice", joinedAt: 0 });
-    await data.saveUser({ userId: "U2", displayName: "Bob", joinedAt: 0 });
+    testHelpers.saveUser({ userId: "U1", displayName: "Alice" });
+    testHelpers.saveUser({ userId: "U2", displayName: "Bob" });
     await scoped.saveAnswer({
       userId: "U1",
       questionId: "q1",
@@ -350,12 +331,7 @@ describe("compute_answers —orchestrator", () => {
       detectedAt: new Date(700).toISOString(),
     });
 
-    const tool = createComputeAnswersTool(
-      data,
-      createFakeSdk().sdk,
-      fixtureGetGames,
-      createFakeRevealSlackDeps(),
-    );
+    const tool = createComputeAnswersTool(data, sdk, fixtureGetGames, createFakeRevealSlackDeps());
 
     const res = parseToolResult(
       await tool.handler(
@@ -373,7 +349,7 @@ describe("compute_answers —orchestrator", () => {
   });
 
   it("emits voters.revealResponses === 'no' with reactions-only shape (no correct/incorrect/noAnswer)", async () => {
-    const data = createInMemoryDataLayer();
+    const { sdk, dataLayer: data } = makeData();
     const scoped = data.forGame(FIXTURE_GAME_NAME);
     await scoped.saveQuestion(
       makeQuestion({ id: "q1", batchId: "B", postedAt: 1_000, revealResponses: "no" }),
@@ -387,12 +363,7 @@ describe("compute_answers —orchestrator", () => {
       timestamp: 500,
     });
 
-    const tool = createComputeAnswersTool(
-      data,
-      createFakeSdk().sdk,
-      fixtureGetGames,
-      createFakeRevealSlackDeps(),
-    );
+    const tool = createComputeAnswersTool(data, sdk, fixtureGetGames, createFakeRevealSlackDeps());
 
     const res = parseToolResult(
       await tool.handler(
@@ -415,14 +386,14 @@ describe("compute_answers —orchestrator", () => {
   });
 
   it("emits voters.revealResponses === 'just-winners' naming winners and counting missers anonymously", async () => {
-    const data = createInMemoryDataLayer();
+    const { sdk, dataLayer: data, testHelpers } = makeData();
     const scoped = data.forGame(FIXTURE_GAME_NAME);
     await scoped.saveQuestion(
       makeQuestion({ id: "q1", batchId: "B", postedAt: 1_000, revealResponses: "just-winners" }),
     );
-    await data.saveUser({ userId: "U1", displayName: "Alice", joinedAt: 0 });
-    await data.saveUser({ userId: "U2", displayName: "Bob", joinedAt: 0 });
-    await data.saveUser({ userId: "U3", displayName: "Carol", joinedAt: 0 });
+    testHelpers.saveUser({ userId: "U1", displayName: "Alice" });
+    testHelpers.saveUser({ userId: "U2", displayName: "Bob" });
+    testHelpers.saveUser({ userId: "U3", displayName: "Carol" });
     await scoped.saveAnswer({
       userId: "U1",
       questionId: "q1",
@@ -445,12 +416,7 @@ describe("compute_answers —orchestrator", () => {
       timestamp: 700,
     });
 
-    const tool = createComputeAnswersTool(
-      data,
-      createFakeSdk().sdk,
-      fixtureGetGames,
-      createFakeRevealSlackDeps(),
-    );
+    const tool = createComputeAnswersTool(data, sdk, fixtureGetGames, createFakeRevealSlackDeps());
 
     const res = parseToolResult(
       await tool.handler(
@@ -479,7 +445,7 @@ describe("compute_answers —orchestrator", () => {
   });
 
   it("just-winners with everyone wrong yields empty correct + positive incorrectCount", async () => {
-    const data = createInMemoryDataLayer();
+    const { sdk, dataLayer: data } = makeData();
     const scoped = data.forGame(FIXTURE_GAME_NAME);
     await scoped.saveQuestion(
       makeQuestion({ id: "q1", batchId: "B", postedAt: 1_000, revealResponses: "just-winners" }),
@@ -499,12 +465,7 @@ describe("compute_answers —orchestrator", () => {
       timestamp: 600,
     });
 
-    const tool = createComputeAnswersTool(
-      data,
-      createFakeSdk().sdk,
-      fixtureGetGames,
-      createFakeRevealSlackDeps(),
-    );
+    const tool = createComputeAnswersTool(data, sdk, fixtureGetGames, createFakeRevealSlackDeps());
 
     const res = parseToolResult(
       await tool.handler(
@@ -525,13 +486,13 @@ describe("compute_answers —orchestrator", () => {
   });
 
   it("excludes flagged cheaters from voter buckets", async () => {
-    const data = createInMemoryDataLayer();
+    const { sdk, dataLayer: data, testHelpers } = makeData();
     const scoped = data.forGame(FIXTURE_GAME_NAME);
     await scoped.saveQuestion(
       makeQuestion({ id: "q1", batchId: "B", postedAt: 1_000, revealResponses: "yes" }),
     );
-    await data.saveUser({ userId: "U1", displayName: "Alice", joinedAt: 0 });
-    await data.saveUser({ userId: "U2", displayName: "Bob", joinedAt: 0 });
+    testHelpers.saveUser({ userId: "U1", displayName: "Alice" });
+    testHelpers.saveUser({ userId: "U2", displayName: "Bob" });
     await scoped.saveAnswer({
       userId: "U1",
       questionId: "q1",
@@ -554,12 +515,7 @@ describe("compute_answers —orchestrator", () => {
       detectedAt: new Date(700).toISOString(),
     });
 
-    const tool = createComputeAnswersTool(
-      data,
-      createFakeSdk().sdk,
-      fixtureGetGames,
-      createFakeRevealSlackDeps(),
-    );
+    const tool = createComputeAnswersTool(data, sdk, fixtureGetGames, createFakeRevealSlackDeps());
 
     const res = parseToolResult(
       await tool.handler(
@@ -580,7 +536,7 @@ describe("compute_answers —orchestrator", () => {
   });
 
   it("reprocess re-derives EVERY answer's verdict in BOTH directions (never deletes rows)", async () => {
-    const data = createInMemoryDataLayer();
+    const { sdk, dataLayer: data } = makeData();
     const scoped = data.forGame(FIXTURE_GAME_NAME);
     // isTrue: true is the corrected key; both stored rows carry STALE verdicts scored
     // against a previously-wrong key. Reprocess must recompute each one independently.
@@ -610,12 +566,7 @@ describe("compute_answers —orchestrator", () => {
       timestamp: 600,
     });
 
-    const tool = createComputeAnswersTool(
-      data,
-      createFakeSdk().sdk,
-      fixtureGetGames,
-      createFakeRevealSlackDeps(),
-    );
+    const tool = createComputeAnswersTool(data, sdk, fixtureGetGames, createFakeRevealSlackDeps());
 
     const res = parseToolResult(
       await tool.handler(
@@ -642,7 +593,7 @@ describe("compute_answers —orchestrator", () => {
   });
 
   it("reprocess refuses a never-revealed target and leaves it eligible for default mode", async () => {
-    const data = createInMemoryDataLayer();
+    const { sdk, dataLayer: data } = makeData();
     const scoped = data.forGame(FIXTURE_GAME_NAME);
     // Posted, keyed, but not yet scored (no processedAt).
     await scoped.saveQuestion(makeQuestion({ id: "q1", batchId: "B", postedAt: 1_000 }));
@@ -653,12 +604,7 @@ describe("compute_answers —orchestrator", () => {
       correct: undefined,
       timestamp: 500,
     });
-    const tool = createComputeAnswersTool(
-      data,
-      createFakeSdk().sdk,
-      fixtureGetGames,
-      createFakeRevealSlackDeps(),
-    );
+    const tool = createComputeAnswersTool(data, sdk, fixtureGetGames, createFakeRevealSlackDeps());
 
     const res = parseToolResult(
       await tool.handler(
@@ -690,7 +636,7 @@ describe("compute_answers —orchestrator", () => {
   });
 
   it("reprocess handles a mixed batch: valid target processed, unprocessed one refused", async () => {
-    const data = createInMemoryDataLayer();
+    const { sdk, dataLayer: data } = makeData();
     const scoped = data.forGame(FIXTURE_GAME_NAME);
     await scoped.saveQuestion(
       makeQuestion({ id: "q_done", batchId: "B", postedAt: 1_000, processedAt: 9_000 }),
@@ -703,12 +649,7 @@ describe("compute_answers —orchestrator", () => {
       correct: false,
       timestamp: 500,
     });
-    const tool = createComputeAnswersTool(
-      data,
-      createFakeSdk().sdk,
-      fixtureGetGames,
-      createFakeRevealSlackDeps(),
-    );
+    const tool = createComputeAnswersTool(data, sdk, fixtureGetGames, createFakeRevealSlackDeps());
 
     const res = parseToolResult(
       await tool.handler(
@@ -734,18 +675,13 @@ describe("compute_answers —orchestrator", () => {
   });
 
   it("reprocess refuses an unposted target (no postedAt/messageLink) with a per-id error", async () => {
-    const data = createInMemoryDataLayer();
+    const { sdk, dataLayer: data } = makeData();
     const scoped = data.forGame(FIXTURE_GAME_NAME);
     // A staged question that was never posted to Slack.
     await scoped.saveQuestion(
       makeQuestion({ id: "q1", postedAt: undefined, messageLink: undefined }),
     );
-    const tool = createComputeAnswersTool(
-      data,
-      createFakeSdk().sdk,
-      fixtureGetGames,
-      createFakeRevealSlackDeps(),
-    );
+    const tool = createComputeAnswersTool(data, sdk, fixtureGetGames, createFakeRevealSlackDeps());
 
     const res = parseToolResult(
       await tool.handler(
@@ -765,7 +701,7 @@ describe("compute_answers —orchestrator", () => {
   });
 
   it("reprocess skips re-derivation for hand-overridden rows but still re-derives the rest", async () => {
-    const data = createInMemoryDataLayer();
+    const { sdk, dataLayer: data } = makeData();
     const scoped = data.forGame(FIXTURE_GAME_NAME);
     await scoped.saveQuestion(
       makeQuestion({ id: "q1", batchId: "B", postedAt: 1_000, processedAt: 9_000, isTrue: true }),
@@ -789,12 +725,7 @@ describe("compute_answers —orchestrator", () => {
       timestamp: 600,
     });
 
-    const tool = createComputeAnswersTool(
-      data,
-      createFakeSdk().sdk,
-      fixtureGetGames,
-      createFakeRevealSlackDeps(),
-    );
+    const tool = createComputeAnswersTool(data, sdk, fixtureGetGames, createFakeRevealSlackDeps());
     await tool.handler(
       {
         game: FIXTURE_GAME_NAME,
@@ -813,18 +744,13 @@ describe("compute_answers —orchestrator", () => {
   });
 
   it("treats undefined-batchId questions as singleton batches", async () => {
-    const data = createInMemoryDataLayer();
+    const { sdk, dataLayer: data } = makeData();
     const scoped = data.forGame(FIXTURE_GAME_NAME);
     // Two legacy questions with no batchId — each is its own batch.
     await scoped.saveQuestion(makeQuestion({ id: "legacy1", postedAt: 1_000, statement: "L1" }));
     await scoped.saveQuestion(makeQuestion({ id: "legacy2", postedAt: 2_000, statement: "L2" }));
 
-    const tool = createComputeAnswersTool(
-      data,
-      createFakeSdk().sdk,
-      fixtureGetGames,
-      createFakeRevealSlackDeps(),
-    );
+    const tool = createComputeAnswersTool(data, sdk, fixtureGetGames, createFakeRevealSlackDeps());
 
     const res = parseToolResult(
       await tool.handler(
@@ -841,8 +767,8 @@ describe("compute_answers —orchestrator", () => {
   });
 
   it("includes leaderboard regardless of reveals length", async () => {
-    const data = createInMemoryDataLayer();
-    await data.saveUser({ userId: "U1", displayName: "Alice", joinedAt: 0 });
+    const { sdk, dataLayer: data, testHelpers } = makeData();
+    testHelpers.saveUser({ userId: "U1", displayName: "Alice" });
     const scoped = data.forGame(FIXTURE_GAME_NAME);
     // Stamp some history (no pending questions).
     const historical = makeQuestion({
@@ -859,12 +785,7 @@ describe("compute_answers —orchestrator", () => {
       timestamp: 150,
     });
 
-    const tool = createComputeAnswersTool(
-      data,
-      createFakeSdk().sdk,
-      fixtureGetGames,
-      createFakeRevealSlackDeps(),
-    );
+    const tool = createComputeAnswersTool(data, sdk, fixtureGetGames, createFakeRevealSlackDeps());
 
     const res = parseToolResult(
       await tool.handler(
@@ -884,10 +805,12 @@ describe("compute_answers —orchestrator", () => {
 
   describe("instructions and additionalInstructions on the result", () => {
     it("omits both when no tier sets them", async () => {
-      const data = createInMemoryDataLayer();
+      const { sdk } = createFakeSdk();
+      primeTriviaConfig(sdk);
+      const { dataLayer: data } = createTriviaDataLayer(sdk);
       const tool = createComputeAnswersTool(
         data,
-        createFakeSdk().sdk,
+        sdk,
         fixtureGetGames,
         createFakeRevealSlackDeps(),
         () => ({}),
@@ -907,10 +830,12 @@ describe("compute_answers —orchestrator", () => {
     });
 
     it("surfaces workspace-tier instructions when set", async () => {
-      const data = createInMemoryDataLayer();
+      const { sdk } = createFakeSdk();
+      primeTriviaConfig(sdk);
+      const { dataLayer: data } = createTriviaDataLayer(sdk);
       const tool = createComputeAnswersTool(
         data,
-        createFakeSdk().sdk,
+        sdk,
         fixtureGetGames,
         createFakeRevealSlackDeps(),
         () => ({ instructions: "Be funny." }),
@@ -929,10 +854,12 @@ describe("compute_answers —orchestrator", () => {
     });
 
     it("concatenates additionalInstructions across workspace + game (game has it)", async () => {
-      const data = createInMemoryDataLayer();
+      const { sdk } = createFakeSdk();
+      primeTriviaConfig(sdk);
+      const { dataLayer: data } = createTriviaDataLayer(sdk);
       const tool = createComputeAnswersTool(
         data,
-        createFakeSdk().sdk,
+        sdk,
         () => [
           {
             name: FIXTURE_GAME_NAME,
@@ -962,14 +889,19 @@ describe("compute_answers —orchestrator", () => {
 
   describe("display-name refresh", () => {
     it("propagates a refreshed Slack display name into the leaderboard", async () => {
-      const data = createInMemoryDataLayer({
-        resolveIdentity: (userId) => (userId === "U1" ? "NewName" : undefined),
+      const { sdk, dataLayer: data, testHelpers } = makeData();
+      testHelpers.saveUser({ userId: "U1", displayName: "OldName" });
+      // The registry's `get` is the Slack-backed refresh: it fetches the current
+      // name AND caches it, so a subsequent `list` (→ loadUsers) reflects it.
+      sdk.users.get.mockImplementation(async (userId) => {
+        const refreshed = { userId, displayName: "NewName" };
+        testHelpers.saveUser(refreshed);
+        return refreshed;
       });
       const scoped = data.forGame(FIXTURE_GAME_NAME);
       await scoped.saveQuestion(
         makeQuestion({ id: "q1", batchId: "B", postedAt: 1_000, revealResponses: "yes" }),
       );
-      await data.saveUser({ userId: "U1", displayName: "OldName", joinedAt: 0 });
       await scoped.saveAnswer({
         userId: "U1",
         questionId: "q1",
@@ -978,14 +910,11 @@ describe("compute_answers —orchestrator", () => {
         timestamp: 500,
       });
 
-      const { sdk } = createFakeSdk();
       const tool = createComputeAnswersTool(
         data,
         sdk,
         fixtureGetGames,
-        createFakeRevealSlackDeps({
-          fetchUserDisplayName: async (userId) => (userId === "U1" ? "NewName" : null),
-        }),
+        createFakeRevealSlackDeps(),
       );
 
       const res = parseToolResult(
@@ -1014,14 +943,14 @@ describe("compute_answers — reprocess re-applies current config", () => {
     );
 
   it("re-stamps revealResponses from the current cascade", async () => {
-    const data = createInMemoryDataLayer();
+    const { sdk, dataLayer: data } = makeData();
     const scoped = data.forGame(FIXTURE_GAME_NAME);
     await scoped.saveQuestion(
       makeQuestion({ id: "q1", batchId: "B", processedAt: 9_000, revealResponses: "yes" }),
     );
     const tool = createComputeAnswersTool(
       data,
-      createFakeSdk().sdk,
+      sdk,
       gamesWithRevealResponses("just-correctness"),
       createFakeRevealSlackDeps(),
     );
@@ -1042,14 +971,14 @@ describe("compute_answers — reprocess re-applies current config", () => {
   });
 
   it("is a harmless no-op when the resolved value already matches the stamp", async () => {
-    const data = createInMemoryDataLayer();
+    const { sdk, dataLayer: data } = makeData();
     const scoped = data.forGame(FIXTURE_GAME_NAME);
     await scoped.saveQuestion(
       makeQuestion({ id: "q1", processedAt: 9_000, revealResponses: "yes" }),
     );
     const tool = createComputeAnswersTool(
       data,
-      createFakeSdk().sdk,
+      sdk,
       gamesWithRevealResponses("yes"),
       createFakeRevealSlackDeps(),
     );
@@ -1066,7 +995,7 @@ describe("compute_answers — reprocess re-applies current config", () => {
   });
 
   it("reprocessBatchId targets the whole batch in postedAt order", async () => {
-    const data = createInMemoryDataLayer();
+    const { sdk, dataLayer: data } = makeData();
     const scoped = data.forGame(FIXTURE_GAME_NAME);
     await scoped.saveQuestion(
       makeQuestion({ id: "q2", batchId: "B", postedAt: 2_000, processedAt: 9_000 }),
@@ -1074,12 +1003,7 @@ describe("compute_answers — reprocess re-applies current config", () => {
     await scoped.saveQuestion(
       makeQuestion({ id: "q1", batchId: "B", postedAt: 1_000, processedAt: 9_000 }),
     );
-    const tool = createComputeAnswersTool(
-      data,
-      createFakeSdk().sdk,
-      fixtureGetGames,
-      createFakeRevealSlackDeps(),
-    );
+    const tool = createComputeAnswersTool(data, sdk, fixtureGetGames, createFakeRevealSlackDeps());
 
     const res = parseToolResult(
       await tool.handler(
@@ -1100,15 +1024,10 @@ describe("compute_answers — reprocess re-applies current config", () => {
   });
 
   it("reveals nothing when reprocessBatchId matches no batch or id", async () => {
-    const data = createInMemoryDataLayer();
+    const { sdk, dataLayer: data } = makeData();
     const scoped = data.forGame(FIXTURE_GAME_NAME);
     await scoped.saveQuestion(makeQuestion({ id: "q1", batchId: "B", processedAt: 9_000 }));
-    const tool = createComputeAnswersTool(
-      data,
-      createFakeSdk().sdk,
-      fixtureGetGames,
-      createFakeRevealSlackDeps(),
-    );
+    const tool = createComputeAnswersTool(data, sdk, fixtureGetGames, createFakeRevealSlackDeps());
     const res = parseToolResult(
       await tool.handler(
         {
@@ -1123,7 +1042,7 @@ describe("compute_answers — reprocess re-applies current config", () => {
   });
 
   it("unions reprocessQuestionIds and reprocessBatchId", async () => {
-    const data = createInMemoryDataLayer();
+    const { sdk, dataLayer: data } = makeData();
     const scoped = data.forGame(FIXTURE_GAME_NAME);
     await scoped.saveQuestion(makeQuestion({ id: "solo", postedAt: 500, processedAt: 9_000 }));
     await scoped.saveQuestion(
@@ -1132,12 +1051,7 @@ describe("compute_answers — reprocess re-applies current config", () => {
     await scoped.saveQuestion(
       makeQuestion({ id: "q3", batchId: "B", postedAt: 3_000, processedAt: 9_000 }),
     );
-    const tool = createComputeAnswersTool(
-      data,
-      createFakeSdk().sdk,
-      fixtureGetGames,
-      createFakeRevealSlackDeps(),
-    );
+    const tool = createComputeAnswersTool(data, sdk, fixtureGetGames, createFakeRevealSlackDeps());
     const res = parseToolResult(
       await tool.handler(
         {
@@ -1155,7 +1069,7 @@ describe("compute_answers — reprocess re-applies current config", () => {
   });
 
   it("re-stamps judgeLeniency on a freeform question from the current cascade", async () => {
-    const data = createInMemoryDataLayer();
+    const { sdk, dataLayer: data } = makeData();
     const scoped = data.forGame(FIXTURE_GAME_NAME);
     const freeform: TriviaQuestion = {
       id: "f1",
@@ -1178,12 +1092,7 @@ describe("compute_answers — reprocess re-applies current config", () => {
       fixtureGetGames().map((g) =>
         g.name === FIXTURE_GAME_NAME ? { ...g, judgeLeniency: "lenient" as const } : g,
       );
-    const tool = createComputeAnswersTool(
-      data,
-      createFakeSdk().sdk,
-      getGames,
-      createFakeRevealSlackDeps(),
-    );
+    const tool = createComputeAnswersTool(data, sdk, getGames, createFakeRevealSlackDeps());
 
     await tool.handler(
       {
@@ -1198,18 +1107,13 @@ describe("compute_answers — reprocess re-applies current config", () => {
   });
 
   it("falls back to a legacy question's id when reprocessBatchId matches no batchId", async () => {
-    const data = createInMemoryDataLayer();
+    const { sdk, dataLayer: data } = makeData();
     const scoped = data.forGame(FIXTURE_GAME_NAME);
     await scoped.saveQuestion(makeQuestion({ id: "legacy", postedAt: 1_000, processedAt: 9_000 }));
     await scoped.saveQuestion(
       makeQuestion({ id: "other", batchId: "B", postedAt: 2_000, processedAt: 9_000 }),
     );
-    const tool = createComputeAnswersTool(
-      data,
-      createFakeSdk().sdk,
-      fixtureGetGames,
-      createFakeRevealSlackDeps(),
-    );
+    const tool = createComputeAnswersTool(data, sdk, fixtureGetGames, createFakeRevealSlackDeps());
     const res = parseToolResult(
       await tool.handler(
         {
@@ -1227,8 +1131,8 @@ describe("compute_answers — reprocess re-applies current config", () => {
   });
 
   it("isolates a re-stamp failure: records a per-id error, skips it, processes the rest", async () => {
-    const base = createInMemoryDataLayer();
-    const scoped = base.forGame(FIXTURE_GAME_NAME);
+    const { sdk, dataLayer: data } = makeData();
+    const scoped = data.forGame(FIXTURE_GAME_NAME);
     await scoped.saveQuestion(
       makeQuestion({ id: "boom", batchId: "B", postedAt: 1_000, processedAt: 9_000 }),
     );
@@ -1236,28 +1140,13 @@ describe("compute_answers — reprocess re-applies current config", () => {
       makeQuestion({ id: "ok", batchId: "B", postedAt: 2_000, processedAt: 9_000 }),
     );
 
-    // Inject a data layer whose updateQuestion throws for one question id — the
-    // re-stamp persist failure should isolate to that question.
-    const data: TriviaDataLayer = {
-      ...base,
-      forGame(name: string) {
-        const inner = base.forGame(name);
-        return {
-          ...inner,
-          updateQuestion: async (id: string, updates: Partial<TriviaQuestion>) => {
-            if (id === "boom") throw new Error("disk fail");
-            return inner.updateQuestion(id, updates);
-          },
-        };
-      },
-    };
+    // The re-stamp persist failure should isolate to the one question whose
+    // updateQuestion throws; the sibling's update no-ops (a stub's benign default).
+    scoped.updateQuestion.mockImplementation(async (id) => {
+      if (id === "boom") throw new Error("disk fail");
+    });
 
-    const tool = createComputeAnswersTool(
-      data,
-      createFakeSdk().sdk,
-      fixtureGetGames,
-      createFakeRevealSlackDeps(),
-    );
+    const tool = createComputeAnswersTool(data, sdk, fixtureGetGames, createFakeRevealSlackDeps());
     const res = parseToolResult(
       await tool.handler(
         {
@@ -1282,7 +1171,7 @@ describe("compute_answers — reprocess re-applies current config", () => {
 
 describe("compute_answers —hint non-leak regression", () => {
   it("does NOT surface hint.text, hint.mode, or hint.clickedBy in the reveal payload", async () => {
-    const data = createInMemoryDataLayer();
+    const { sdk, dataLayer: data } = makeData();
     await data.saveCategories(["Science"]);
     const scoped = data.forGame(FIXTURE_GAME_NAME);
 
@@ -1298,12 +1187,7 @@ describe("compute_answers —hint non-leak regression", () => {
       }),
     );
 
-    const tool = createComputeAnswersTool(
-      data,
-      createFakeSdk().sdk,
-      fixtureGetGames,
-      createFakeRevealSlackDeps(),
-    );
+    const tool = createComputeAnswersTool(data, sdk, fixtureGetGames, createFakeRevealSlackDeps());
     const res = parseToolResult(
       await tool.handler(
         {
@@ -1328,7 +1212,7 @@ describe("compute_answers —hint non-leak regression", () => {
   });
 
   it("clickedBy on the persisted record survives the reveal pass intact (audit trail)", async () => {
-    const data = createInMemoryDataLayer();
+    const { sdk, dataLayer: data } = makeData();
     await data.saveCategories(["Science"]);
     const scoped = data.forGame(FIXTURE_GAME_NAME);
     const originalClickedBy = ["U-hinter-1", "U-hinter-2"];
@@ -1345,12 +1229,7 @@ describe("compute_answers —hint non-leak regression", () => {
       }),
     );
 
-    const tool = createComputeAnswersTool(
-      data,
-      createFakeSdk().sdk,
-      fixtureGetGames,
-      createFakeRevealSlackDeps(),
-    );
+    const tool = createComputeAnswersTool(data, sdk, fixtureGetGames, createFakeRevealSlackDeps());
     await tool.handler(
       {
         game: FIXTURE_GAME_NAME,
@@ -1419,7 +1298,7 @@ function postedBooleanBlocks(questionId: string) {
 
 describe("compute_answers — does not edit cards (projection moved to refresh_question_cards)", () => {
   it("never calls updateMessage during a successful reveal", async () => {
-    const data = createInMemoryDataLayer();
+    const { sdk, dataLayer: data } = makeData();
     const scoped = data.forGame(FIXTURE_GAME_NAME);
     await scoped.saveQuestion(
       makeQuestion({ id: "q1", batchId: "B", postedBlocks: postedBooleanBlocks("q1") }),
@@ -1433,7 +1312,7 @@ describe("compute_answers — does not edit cards (projection moved to refresh_q
     });
 
     const { deps, updates } = capturingSlackDeps();
-    const tool = createComputeAnswersTool(data, createFakeSdk().sdk, fixtureGetGames, deps);
+    const tool = createComputeAnswersTool(data, sdk, fixtureGetGames, deps);
     const res = parseToolResult(
       await tool.handler(
         {
@@ -1464,7 +1343,7 @@ describe("compute_answers —image-medium attribution", () => {
   };
 
   it("surfaces media { title, attribution, license } on the reveal entry", async () => {
-    const data = createInMemoryDataLayer();
+    const { sdk, dataLayer: data } = makeData();
     const scoped = data.forGame(FIXTURE_GAME_NAME);
     await scoped.saveQuestion(
       makeQuestion({
@@ -1475,12 +1354,7 @@ describe("compute_answers —image-medium attribution", () => {
         media: MEDIA,
       }),
     );
-    const tool = createComputeAnswersTool(
-      data,
-      createFakeSdk().sdk,
-      fixtureGetGames,
-      createFakeRevealSlackDeps(),
-    );
+    const tool = createComputeAnswersTool(data, sdk, fixtureGetGames, createFakeRevealSlackDeps());
     const res = parseToolResult(
       await tool.handler(
         {
@@ -1499,15 +1373,10 @@ describe("compute_answers —image-medium attribution", () => {
   });
 
   it("omits media on text-medium questions", async () => {
-    const data = createInMemoryDataLayer();
+    const { sdk, dataLayer: data } = makeData();
     const scoped = data.forGame(FIXTURE_GAME_NAME);
     await scoped.saveQuestion(makeQuestion({ id: "txt", batchId: "B", postedAt: 1_000 }));
-    const tool = createComputeAnswersTool(
-      data,
-      createFakeSdk().sdk,
-      fixtureGetGames,
-      createFakeRevealSlackDeps(),
-    );
+    const tool = createComputeAnswersTool(data, sdk, fixtureGetGames, createFakeRevealSlackDeps());
     const res = parseToolResult(
       await tool.handler(
         {
@@ -1522,7 +1391,7 @@ describe("compute_answers —image-medium attribution", () => {
   });
 
   it("never leaks the upstream url or subjectId into the payload", async () => {
-    const data = createInMemoryDataLayer();
+    const { sdk, dataLayer: data } = makeData();
     const scoped = data.forGame(FIXTURE_GAME_NAME);
     await scoped.saveQuestion(
       makeQuestion({
@@ -1533,12 +1402,7 @@ describe("compute_answers —image-medium attribution", () => {
         media: MEDIA,
       }),
     );
-    const tool = createComputeAnswersTool(
-      data,
-      createFakeSdk().sdk,
-      fixtureGetGames,
-      createFakeRevealSlackDeps(),
-    );
+    const tool = createComputeAnswersTool(data, sdk, fixtureGetGames, createFakeRevealSlackDeps());
     const raw = JSON.stringify(
       parseToolResult(
         await tool.handler(
@@ -1558,7 +1422,7 @@ describe("compute_answers —image-medium attribution", () => {
 
 describe("compute_answers — points", () => {
   async function revealOne(points?: number) {
-    const data = createInMemoryDataLayer();
+    const { sdk, dataLayer: data } = makeData();
     const scoped = data.forGame(FIXTURE_GAME_NAME);
     await scoped.saveQuestion(
       makeQuestion({
@@ -1582,12 +1446,7 @@ describe("compute_answers — points", () => {
       correct: false,
       timestamp: 1_500,
     });
-    const tool = createComputeAnswersTool(
-      data,
-      createFakeSdk().sdk,
-      fixtureGetGames,
-      createFakeRevealSlackDeps(),
-    );
+    const tool = createComputeAnswersTool(data, sdk, fixtureGetGames, createFakeRevealSlackDeps());
     return parseToolResult(
       await tool.handler(
         { game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined, reprocessBatchId: undefined },
@@ -1622,7 +1481,7 @@ describe("compute_answers — points", () => {
 });
 
 describe("compute_answers — includeRevealInQuestions axis", () => {
-  function toolWith(data: ReturnType<typeof createInMemoryDataLayer>, mode?: "yes" | "no") {
+  function toolWith(h: ReturnType<typeof makeData>, mode?: "yes" | "no") {
     const getGames = () =>
       fixtureGetGames().map((g) =>
         g.name === FIXTURE_GAME_NAME && mode !== undefined
@@ -1630,8 +1489,8 @@ describe("compute_answers — includeRevealInQuestions axis", () => {
           : g,
       );
     return createComputeAnswersTool(
-      data,
-      createFakeSdk().sdk,
+      h.dataLayer,
+      h.sdk,
       getGames,
       createFakeRevealSlackDeps(),
       () => ({}),
@@ -1652,42 +1511,37 @@ describe("compute_answers — includeRevealInQuestions axis", () => {
   }
 
   it("payload carries the resolved value (present even on empty reveals)", async () => {
-    const data = createInMemoryDataLayer();
-    const res = await run(toolWith(data, "yes"));
+    const res = await run(toolWith(makeData(), "yes"));
     assert.equal(res.reveals.length, 0);
     assert.equal(res.includeRevealInQuestions, "yes");
   });
 
   it("defaults to no when unset at every tier", async () => {
-    const data = createInMemoryDataLayer();
-    const res = await run(toolWith(data, undefined));
+    const res = await run(toolWith(makeData(), undefined));
     assert.equal(res.includeRevealInQuestions, "no");
   });
 
   it("resolves fresh from current config, not from the question record", async () => {
-    const data = createInMemoryDataLayer();
+    const h = makeData();
     // A question posted while the game resolved "no" (its record carries no axis)…
-    await data
+    await h.dataLayer
       .forGame(FIXTURE_GAME_NAME)
       .saveQuestion(makeQuestion({ id: "q1", batchId: "B", postedAt: 1_000 }));
     // …but the game is now "yes" → compute returns the CURRENT resolution.
-    const res = await run(toolWith(data, "yes"));
+    const res = await run(toolWith(h, "yes"));
     assert.equal(res.includeRevealInQuestions, "yes");
   });
 });
 
 describe("compute_answers — finalRevealSummary axis", () => {
-  function toolWith(
-    data: ReturnType<typeof createInMemoryDataLayer>,
-    mode?: "yes" | "no" | "in-thread",
-  ) {
+  function toolWith(h: ReturnType<typeof makeData>, mode?: "yes" | "no" | "in-thread") {
     const getGames = () =>
       fixtureGetGames().map((g) =>
         g.name === FIXTURE_GAME_NAME && mode !== undefined ? { ...g, finalRevealSummary: mode } : g,
       );
     return createComputeAnswersTool(
-      data,
-      createFakeSdk().sdk,
+      h.dataLayer,
+      h.sdk,
       getGames,
       createFakeRevealSlackDeps(),
       () => ({}),
@@ -1708,37 +1562,35 @@ describe("compute_answers — finalRevealSummary axis", () => {
   }
 
   it("payload carries the resolved value (present even on empty reveals)", async () => {
-    const data = createInMemoryDataLayer();
-    const res = await run(toolWith(data, "in-thread"));
+    const res = await run(toolWith(makeData(), "in-thread"));
     assert.equal(res.reveals.length, 0);
     assert.equal(res.finalRevealSummary, "in-thread");
   });
 
   it("defaults to yes when unset at every tier", async () => {
-    const data = createInMemoryDataLayer();
-    const res = await run(toolWith(data, undefined));
+    const res = await run(toolWith(makeData(), undefined));
     assert.equal(res.finalRevealSummary, "yes");
   });
 
   it("resolves fresh from current config, not from the question record", async () => {
-    const data = createInMemoryDataLayer();
-    await data
+    const h = makeData();
+    await h.dataLayer
       .forGame(FIXTURE_GAME_NAME)
       .saveQuestion(makeQuestion({ id: "q1", batchId: "B", postedAt: 1_000 }));
-    const res = await run(toolWith(data, "no"));
+    const res = await run(toolWith(h, "no"));
     assert.equal(res.finalRevealSummary, "no");
   });
 });
 
 describe("compute_answers — tagPlayers axis", () => {
-  function toolWith(data: ReturnType<typeof createInMemoryDataLayer>, tagPlayers?: boolean) {
+  function toolWith(h: ReturnType<typeof makeData>, tagPlayers?: boolean) {
     const getGames = () =>
       fixtureGetGames().map((g) =>
         g.name === FIXTURE_GAME_NAME && tagPlayers !== undefined ? { ...g, tagPlayers } : g,
       );
     return createComputeAnswersTool(
-      data,
-      createFakeSdk().sdk,
+      h.dataLayer,
+      h.sdk,
       getGames,
       createFakeRevealSlackDeps(),
       () => ({}),
@@ -1759,27 +1611,24 @@ describe("compute_answers — tagPlayers axis", () => {
   }
 
   it("defaults to true when unset at every tier", async () => {
-    const res = await run(toolWith(createInMemoryDataLayer(), undefined));
+    const res = await run(toolWith(makeData(), undefined));
     assert.equal(res.tagPlayers, true);
   });
 
   it("payload carries the resolved game-tier value", async () => {
-    const res = await run(toolWith(createInMemoryDataLayer(), false));
+    const res = await run(toolWith(makeData(), false));
     assert.equal(res.tagPlayers, false);
   });
 });
 
 describe("compute_answers — predictions & invalidation", () => {
-  const FAKE_REACTIONS: RevealSlackDeps = {
-    isAvailable: () => null,
-    fetchBotUserId: async () => "UBOT",
-    fetchMessageReactions: async () => [],
-    fetchUserDisplayName: async () => null,
-    updateMessage: async () => {},
-  };
-
-  function predictionTool(data: ReturnType<typeof createInMemoryDataLayer>) {
-    return createComputeAnswersTool(data, createFakeSdk().sdk, fixtureGetGames, FAKE_REACTIONS);
+  function predictionTool(h: ReturnType<typeof makeData>) {
+    return createComputeAnswersTool(
+      h.dataLayer,
+      h.sdk,
+      fixtureGetGames,
+      createFakeRevealSlackDeps({ fetchBotUserId: async () => "UBOT" }),
+    );
   }
   function runDefault(t: ReturnType<typeof createComputeAnswersTool>) {
     return t.handler(
@@ -1789,8 +1638,8 @@ describe("compute_answers — predictions & invalidation", () => {
   }
 
   it("refuses to score while a prediction is still pending (resolved:false)", async () => {
-    const data = createInMemoryDataLayer();
-    const scoped = data.forGame(FIXTURE_GAME_NAME);
+    const h = makeData();
+    const scoped = h.dataLayer.forGame(FIXTURE_GAME_NAME);
     await scoped.saveQuestion(
       makeQuestion({
         id: "pred",
@@ -1800,15 +1649,15 @@ describe("compute_answers — predictions & invalidation", () => {
         resolved: false,
       }),
     );
-    const res = parseToolResult(await runDefault(predictionTool(data)));
+    const res = parseToolResult(await runDefault(predictionTool(h)));
     assert.match(res.error, /UNDECIDED_PREDICTIONS/);
     const after = await scoped.loadQuestions();
     assert.equal(after.find((q) => q.id === "pred")?.processedAt, undefined);
   });
 
   it("scores a settled prediction and derives the verdict on its pending answer rows", async () => {
-    const data = createInMemoryDataLayer();
-    const scoped = data.forGame(FIXTURE_GAME_NAME);
+    const h = makeData();
+    const scoped = h.dataLayer.forGame(FIXTURE_GAME_NAME);
     await scoped.saveQuestion(
       makeQuestion({
         id: "pred",
@@ -1833,7 +1682,7 @@ describe("compute_answers — predictions & invalidation", () => {
       timestamp: 2,
     });
 
-    const res = parseToolResult(await runDefault(predictionTool(data)));
+    const res = parseToolResult(await runDefault(predictionTool(h)));
     assert.equal(res.reveals.length, 1);
     const answers = await scoped.loadAnswers();
     assert.equal(answers.find((a) => a.userId === "U1")?.correct, true);
@@ -1841,8 +1690,8 @@ describe("compute_answers — predictions & invalidation", () => {
   });
 
   it("surfaces an invalidated question, stamps processedAt, and never scores it", async () => {
-    const data = createInMemoryDataLayer();
-    const scoped = data.forGame(FIXTURE_GAME_NAME);
+    const h = makeData();
+    const scoped = h.dataLayer.forGame(FIXTURE_GAME_NAME);
     await scoped.saveQuestion(
       makeQuestion({
         id: "void1",
@@ -1851,7 +1700,7 @@ describe("compute_answers — predictions & invalidation", () => {
         invalidatedReason: "match postponed",
       }),
     );
-    const res = parseToolResult(await runDefault(predictionTool(data)));
+    const res = parseToolResult(await runDefault(predictionTool(h)));
     assert.equal(res.reveals.length, 0);
     assert.equal(res.invalidatedQuestions.length, 1);
     assert.equal(res.invalidatedQuestions[0].invalidatedReason, "match postponed");

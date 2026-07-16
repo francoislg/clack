@@ -1,10 +1,15 @@
 import { describe, it, beforeEach } from "vitest";
 import assert from "node:assert/strict";
-import { createInMemoryDataLayer, FIXTURE_GAME_NAME, fixtureGetGames } from "../../testHelpers.js";
+import {
+  createTriviaDataLayer,
+  FIXTURE_GAME_NAME,
+  fixtureGetGames,
+  type FakeTriviaDataLayer,
+} from "../../testHelpers.js";
+import { createFakeSdk, primeTriviaConfig } from "../../testHelpers.fakeSdk.js";
 import { createSaveQuestionTool } from "./saveQuestion.js";
 import { parseToolResult } from "../../../../tools/testHelpers.js";
 import type { TriviaConfig } from "../../core/configTypes.js";
-import type { TriviaDataLayer } from "../../core/types.js";
 
 const SESSION = { sessionId: "test" };
 
@@ -13,9 +18,12 @@ function makeConfig(trivia?: TriviaConfig): TriviaConfig {
 }
 
 describe("save_question — boolean shape", () => {
-  let data: TriviaDataLayer;
+  let data: FakeTriviaDataLayer;
   beforeEach(async () => {
-    data = createInMemoryDataLayer();
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk);
+    const { dataLayer } = createTriviaDataLayer(sdk);
+    data = dataLayer;
     await data.saveCategories(["Science"]);
   });
 
@@ -131,9 +139,12 @@ describe("save_question — boolean shape", () => {
 });
 
 describe("save_question — choice shape", () => {
-  let data: TriviaDataLayer;
+  let data: FakeTriviaDataLayer;
   beforeEach(async () => {
-    data = createInMemoryDataLayer();
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk);
+    const { dataLayer } = createTriviaDataLayer(sdk);
+    data = dataLayer;
     await data.saveCategories(["Geography"]);
   });
 

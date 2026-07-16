@@ -308,11 +308,11 @@
   "306": "seedCategories.ts",
   "307": "roundSummary.ts",
   "308": "getLoadedPlugins",
-  "309": "slackErrors.ts",
-  "310": "serialize",
-  "311": "trackedKinds.ts",
-  "312": "forgetMemory",
-  "313": "getArchived",
-  "314": "MemoryEntryNotFoundError",
-  "318": "RevealSlackDeps"
+  "315": "configurationFiles.ts",
+  "316": "cascadingConfigResolver.ts",
+  "318": "RevealSlackDeps",
+  "319": "truncate",
+  "320": "configFieldSchemas.ts",
+  "321": "disposablePool.ts",
+  "325": "languages.ts"
 }

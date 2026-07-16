@@ -1,61 +1,69 @@
 import { describe, it, beforeEach } from "vitest";
 import assert from "node:assert/strict";
-import { createInMemoryDataLayer, multiFixtureGetGames } from "../../testHelpers.js";
+import {
+  createTriviaDataLayer,
+  multiFixtureGetGames,
+  type FakeTriviaDataLayer,
+} from "../../testHelpers.js";
+import { createFakeSdk, primeTriviaConfig } from "../../testHelpers.fakeSdk.js";
 import { createFindPreviousQuestionsTool } from "./findPreviousQuestions.js";
 import { parseToolResult } from "../../../../tools/testHelpers.js";
-import type { TriviaDataLayer } from "../../core/types.js";
 
 const SESSION = { sessionId: "test" };
 
 describe("find_previous_questions cross-game and array semantics", () => {
-  let data: TriviaDataLayer;
+  let data: FakeTriviaDataLayer;
 
   beforeEach(async () => {
-    data = createInMemoryDataLayer();
-    const main = data.forGame("main");
-    const sandbox = data.forGame("sandbox");
-    const retired = data.forGame("retired");
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk);
+    const { dataLayer } = createTriviaDataLayer(sdk);
+    data = dataLayer;
 
-    await main.saveQuestion({
+    const m1 = {
       id: "m1",
       category: "Music",
       statement: "Mozart composed The Magic Flute in 1791.",
       isTrue: true,
       emojis: ["🎼"],
       createdAt: 100,
-    });
-    await main.saveQuestion({
+    };
+    const m2 = {
       id: "m2",
       category: "Geography",
       statement: "Mount Everest is the tallest mountain.",
       isTrue: true,
       emojis: ["⛰️"],
       createdAt: 200,
-    });
-    await sandbox.saveQuestion({
+    };
+    const s1 = {
       id: "s1",
       category: "Music",
       statement: "Beethoven wrote nine symphonies.",
       isTrue: true,
       emojis: ["🎻"],
       createdAt: 300,
-    });
-    await sandbox.saveQuestion({
+    };
+    const s2 = {
       id: "s2",
       category: "Science",
       statement: "Mozart was a famous chemist.",
       isTrue: false,
       emojis: ["⚗️"],
       createdAt: 400,
-    });
-    await retired.saveQuestion({
+    };
+    const r1 = {
       id: "r1",
       category: "History",
       statement: "Mozart died in 1791 in Vienna.",
       isTrue: true,
       emojis: ["🕰️"],
       createdAt: 500,
-    });
+    };
+
+    data.forGame("main").loadQuestions.mockResolvedValue([m1, m2]);
+    data.forGame("sandbox").loadQuestions.mockResolvedValue([s1, s2]);
+    data.forGame("retired").loadQuestions.mockResolvedValue([r1]);
   });
 
   it("omitted games scans every registered game (including disabled — frozen archive)", async () => {

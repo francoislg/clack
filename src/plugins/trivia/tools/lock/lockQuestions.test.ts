@@ -1,12 +1,21 @@
-import { describe, it, beforeEach, vi } from "vitest";
+import { describe, it, vi } from "vitest";
 import assert from "node:assert/strict";
 import { createLockQuestionsTool, type LockSlackDeps } from "./lockQuestions.js";
-import { createInMemoryDataLayer, FIXTURE_GAME_NAME, fixtureGetGames } from "../../testHelpers.js";
-import { createFakeLockSlackDeps } from "../../testHelpers.fakeSdk.js";
+import {
+  createTriviaDataLayer,
+  FIXTURE_GAME_NAME,
+  fixtureGetGames,
+  type FakeTriviaDataLayer,
+} from "../../testHelpers.js";
+import {
+  createFakeSdk,
+  primeTriviaConfig,
+  createFakeLockSlackDeps,
+} from "../../testHelpers.fakeSdk.js";
 import { parseToolResult } from "../../../../tools/testHelpers.js";
 import type { RosterEditClient } from "../../freeform/roster.js";
 import type { KnownBlock } from "@slack/types";
-import type { TriviaDataLayer, TriviaQuestion } from "../../core/types.js";
+import type { TriviaQuestion } from "../../core/types.js";
 
 const SESSION = { sessionId: "test" };
 
@@ -37,22 +46,24 @@ function posted(overrides: Partial<TriviaQuestion>): TriviaQuestion {
   };
 }
 
-async function run(data: TriviaDataLayer, sdk: LockSlackDeps): Promise<LockResult> {
+async function run(data: FakeTriviaDataLayer, sdk: LockSlackDeps): Promise<LockResult> {
   const tool = createLockQuestionsTool(data, sdk, fixtureGetGames);
   return parseToolResult(await tool.handler({ game: FIXTURE_GAME_NAME }, SESSION));
 }
 
 describe("lock_questions", () => {
   it("locks every posted, unrevealed, unlocked question and stamps the record", async () => {
-    const data = createInMemoryDataLayer();
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk);
+    const { dataLayer: data } = createTriviaDataLayer(sdk);
     const scoped = data.forGame(FIXTURE_GAME_NAME);
     await scoped.saveQuestion(posted({ id: "a" }));
     await scoped.saveQuestion(posted({ id: "b" }));
 
     const chat = { update: vi.fn<RosterEditClient["chat"]["update"]>(async () => ({ ok: true })) };
-    const sdk = createFakeLockSlackDeps({ getSlackClient: () => ({ chat }) });
+    const slackDeps = createFakeLockSlackDeps({ getSlackClient: () => ({ chat }) });
 
-    const res = await run(data, sdk);
+    const res = await run(data, slackDeps);
 
     assert.deepEqual(res.locked?.sort(), ["a", "b"]);
     assert.equal(chat.update.mock.calls.length, 2, "both cards repainted");
@@ -61,15 +72,17 @@ describe("lock_questions", () => {
   });
 
   it("skips revealed and already-locked questions", async () => {
-    const data = createInMemoryDataLayer();
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk);
+    const { dataLayer: data } = createTriviaDataLayer(sdk);
     const scoped = data.forGame(FIXTURE_GAME_NAME);
     await scoped.saveQuestion(posted({ id: "open" }));
     await scoped.saveQuestion(posted({ id: "revealed", processedAt: 2000 }));
     await scoped.saveQuestion(posted({ id: "alreadyLocked", answerLocked: true }));
     const chat = { update: vi.fn<RosterEditClient["chat"]["update"]>(async () => ({ ok: true })) };
-    const sdk = createFakeLockSlackDeps({ getSlackClient: () => ({ chat }) });
+    const slackDeps = createFakeLockSlackDeps({ getSlackClient: () => ({ chat }) });
 
-    const res = await run(data, sdk);
+    const res = await run(data, slackDeps);
 
     assert.deepEqual(res.locked, ["open"]);
     const revealed = (await scoped.loadQuestions()).find((q) => q.id === "revealed");
@@ -77,31 +90,37 @@ describe("lock_questions", () => {
   });
 
   it("skips unposted (staged) questions", async () => {
-    const data = createInMemoryDataLayer();
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk);
+    const { dataLayer: data } = createTriviaDataLayer(sdk);
     const scoped = data.forGame(FIXTURE_GAME_NAME);
     await scoped.saveQuestion(posted({ id: "staged", postedAt: undefined }));
     const chat = { update: vi.fn<RosterEditClient["chat"]["update"]>(async () => ({ ok: true })) };
-    const sdk = createFakeLockSlackDeps({ getSlackClient: () => ({ chat }) });
+    const slackDeps = createFakeLockSlackDeps({ getSlackClient: () => ({ chat }) });
 
-    const res = await run(data, sdk);
+    const res = await run(data, slackDeps);
     assert.deepEqual(res.locked, []);
   });
 
   it("is idempotent — a second run locks nothing new", async () => {
-    const data = createInMemoryDataLayer();
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk);
+    const { dataLayer: data } = createTriviaDataLayer(sdk);
     const scoped = data.forGame(FIXTURE_GAME_NAME);
     await scoped.saveQuestion(posted({ id: "a" }));
     const chat = { update: vi.fn<RosterEditClient["chat"]["update"]>(async () => ({ ok: true })) };
-    const sdk = createFakeLockSlackDeps({ getSlackClient: () => ({ chat }) });
+    const slackDeps = createFakeLockSlackDeps({ getSlackClient: () => ({ chat }) });
 
-    const first = await run(data, sdk);
+    const first = await run(data, slackDeps);
     assert.deepEqual(first.locked, ["a"]);
-    const second = await run(data, sdk);
+    const second = await run(data, slackDeps);
     assert.deepEqual(second.locked, []);
   });
 
   it("isolates a per-card chat.update failure — the flag still persists for every target", async () => {
-    const data = createInMemoryDataLayer();
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk);
+    const { dataLayer: data } = createTriviaDataLayer(sdk);
     const scoped = data.forGame(FIXTURE_GAME_NAME);
     await scoped.saveQuestion(posted({ id: "a" }));
     await scoped.saveQuestion(posted({ id: "b" }));
@@ -110,12 +129,10 @@ describe("lock_questions", () => {
         throw new Error("slack down");
       }),
     };
-    const sdk = createFakeLockSlackDeps({ getSlackClient: () => ({ chat }) });
+    const slackDeps = createFakeLockSlackDeps({ getSlackClient: () => ({ chat }) });
 
-    const res = await run(data, sdk);
+    const res = await run(data, slackDeps);
 
-    // editRosterIntoCard swallows chat.update failures, so both questions are still
-    // flagged and both repaints were attempted — one card's failure never aborts the rest.
     assert.deepEqual(res.locked?.sort(), ["a", "b"]);
     assert.equal(chat.update.mock.calls.length, 2);
     const after = await scoped.loadQuestions();
@@ -123,15 +140,19 @@ describe("lock_questions", () => {
   });
 
   it("errors when the game is unknown", async () => {
-    const data = createInMemoryDataLayer();
-    const sdk = createFakeLockSlackDeps();
-    const tool = createLockQuestionsTool(data, sdk, fixtureGetGames);
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk);
+    const { dataLayer: data } = createTriviaDataLayer(sdk);
+    const slackDeps = createFakeLockSlackDeps();
+    const tool = createLockQuestionsTool(data, slackDeps, fixtureGetGames);
     const res: LockResult = parseToolResult(await tool.handler({ game: "nope" }, SESSION));
     assert.ok(res.error);
   });
 
   it("errors when the Slack client is unavailable", async () => {
-    const data = createInMemoryDataLayer();
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk);
+    const { dataLayer: data } = createTriviaDataLayer(sdk);
     const res = await run(data, { getSlackClient: () => null });
     assert.match(res.error ?? "", /Slack client is not available/);
   });

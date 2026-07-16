@@ -5,12 +5,12 @@
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 4848 nodes · 13695 edges · 316 communities (197 shown, 119 thin omitted)
+- 4848 nodes · 13694 edges · 316 communities (199 shown, 117 thin omitted)
 - Extraction: 99% EXTRACTED · 1% INFERRED · 0% AMBIGUOUS · INFERRED: 124 edges (avg confidence: 0.68)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `a6005626`
+- Built from commit: `852da065`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -306,13 +306,13 @@
 - [[_COMMUNITY_seedCategories.ts|seedCategories.ts]]
 - [[_COMMUNITY_roundSummary.ts|roundSummary.ts]]
 - [[_COMMUNITY_getLoadedPlugins|getLoadedPlugins]]
-- [[_COMMUNITY_slackErrors.ts|slackErrors.ts]]
-- [[_COMMUNITY_serialize|serialize]]
-- [[_COMMUNITY_trackedKinds.ts|trackedKinds.ts]]
-- [[_COMMUNITY_forgetMemory|forgetMemory]]
-- [[_COMMUNITY_getArchived|getArchived]]
-- [[_COMMUNITY_MemoryEntryNotFoundError|MemoryEntryNotFoundError]]
+- [[_COMMUNITY_configurationFiles.ts|configurationFiles.ts]]
+- [[_COMMUNITY_cascadingConfigResolver.ts|cascadingConfigResolver.ts]]
 - [[_COMMUNITY_RevealSlackDeps|RevealSlackDeps]]
+- [[_COMMUNITY_truncate|truncate]]
+- [[_COMMUNITY_configFieldSchemas.ts|configFieldSchemas.ts]]
+- [[_COMMUNITY_disposablePool.ts|disposablePool.ts]]
+- [[_COMMUNITY_languages.ts|languages.ts]]
 
 ## God Nodes (most connected - your core abstractions)
 1. `Claude Agent SDK` - 147 edges
@@ -329,16 +329,17 @@
 ## Surprising Connections (you probably didn't know these)
 - `main()` --calls--> `loadConfig()`  [EXTRACTED]
   scripts/askClaude.ts → src/config.ts
-- `main()` --calls--> `getSession()`  [EXTRACTED]
-  scripts/askClaude.ts → src/sessions.ts
 - `main()` --calls--> `loadConfig()`  [EXTRACTED]
   scripts/askClaudeTester.ts → src/config.ts
 - `main()` --calls--> `teardownAppProcess()`  [EXTRACTED]
   scripts/askClaudeTester.ts → src/tester/processTeardown.ts
 - `main()` --calls--> `truncate()`  [EXTRACTED]
   scripts/askClaudeTester.ts → src/text.ts
+- `main()` --calls--> `runClaude()`  [EXTRACTED]
+  scripts/askClaudeWorktree.ts → src/changes/execution.ts
 
 ## Import Cycles
+- 1-file cycle: `src/tools/types.ts -> src/tools/types.ts`
 - 3-file cycle: `src/plugins/trivia/answerTypes/saveSchema.ts -> src/plugins/trivia/questionTypes/registry.ts -> src/plugins/trivia/questionTypes/types.ts -> src/plugins/trivia/answerTypes/saveSchema.ts`
 - 3-file cycle: `src/plugins/trivia/answerTypes/registry.ts -> src/plugins/trivia/answerTypes/types.ts -> src/plugins/trivia/answerTypes/saveSchema.ts -> src/plugins/trivia/answerTypes/registry.ts`
 - 3-file cycle: `src/slack/app.ts -> src/slack/handlers/homeTab.ts -> src/slack/homeTab.ts -> src/slack/app.ts`
@@ -346,19 +347,18 @@
 - 3-file cycle: `src/claude/skillsManager.ts -> src/sessions.ts -> src/tools/types.ts -> src/claude/skillsManager.ts`
 - 3-file cycle: `src/workers/branchSwitch.ts -> src/workers/types.ts -> src/worktrees.ts -> src/workers/branchSwitch.ts`
 - 3-file cycle: `src/config.ts -> src/configZod.ts -> src/configSchemas.ts -> src/config.ts`
-- 4-file cycle: `src/plugins/trivia/answerTypes/boolean.ts -> src/plugins/trivia/answerTypes/types.ts -> src/plugins/trivia/answerTypes/saveSchema.ts -> src/plugins/trivia/answerTypes/registry.ts -> src/plugins/trivia/answerTypes/boolean.ts`
 - 4-file cycle: `src/plugins/trivia/answerTypes/saveSchema.ts -> src/plugins/trivia/questionTypes/registry.ts -> src/plugins/trivia/questionTypes/fact.ts -> src/plugins/trivia/questionTypes/compose.ts -> src/plugins/trivia/answerTypes/saveSchema.ts`
 - 4-file cycle: `src/plugins/trivia/answerTypes/saveSchema.ts -> src/plugins/trivia/questionTypes/registry.ts -> src/plugins/trivia/questionTypes/fact.ts -> src/plugins/trivia/questionTypes/types.ts -> src/plugins/trivia/answerTypes/saveSchema.ts`
+- 4-file cycle: `src/plugins/trivia/answerTypes/saveSchema.ts -> src/plugins/trivia/questionTypes/registry.ts -> src/plugins/trivia/questionTypes/prediction.ts -> src/plugins/trivia/questionTypes/compose.ts -> src/plugins/trivia/answerTypes/saveSchema.ts`
+- 4-file cycle: `src/plugins/trivia/answerTypes/saveSchema.ts -> src/plugins/trivia/questionTypes/registry.ts -> src/plugins/trivia/questionTypes/prediction.ts -> src/plugins/trivia/questionTypes/eventSource.ts -> src/plugins/trivia/answerTypes/saveSchema.ts`
 - 4-file cycle: `src/plugins/trivia/answerTypes/saveSchema.ts -> src/plugins/trivia/questionTypes/registry.ts -> src/plugins/trivia/questionTypes/prediction.ts -> src/plugins/trivia/questionTypes/types.ts -> src/plugins/trivia/answerTypes/saveSchema.ts`
+- 4-file cycle: `src/plugins/trivia/answerTypes/saveSchema.ts -> src/plugins/trivia/questionTypes/registry.ts -> src/plugins/trivia/questionTypes/topical.ts -> src/plugins/trivia/questionTypes/compose.ts -> src/plugins/trivia/answerTypes/saveSchema.ts`
+- 4-file cycle: `src/plugins/trivia/answerTypes/saveSchema.ts -> src/plugins/trivia/questionTypes/registry.ts -> src/plugins/trivia/questionTypes/topical.ts -> src/plugins/trivia/questionTypes/eventSource.ts -> src/plugins/trivia/answerTypes/saveSchema.ts`
 - 4-file cycle: `src/plugins/trivia/answerTypes/saveSchema.ts -> src/plugins/trivia/questionTypes/registry.ts -> src/plugins/trivia/questionTypes/topical.ts -> src/plugins/trivia/questionTypes/types.ts -> src/plugins/trivia/answerTypes/saveSchema.ts`
 - 4-file cycle: `src/plugins/trivia/answerTypes/saveSchema.ts -> src/plugins/trivia/questionTypes/registry.ts -> src/plugins/trivia/questionTypes/types.ts -> src/plugins/trivia/answerTypes/types.ts -> src/plugins/trivia/answerTypes/saveSchema.ts`
 - 4-file cycle: `src/plugins/trivia/answerTypes/freeform.ts -> src/plugins/trivia/answerTypes/types.ts -> src/plugins/trivia/answerTypes/saveSchema.ts -> src/plugins/trivia/answerTypes/registry.ts -> src/plugins/trivia/answerTypes/freeform.ts`
+- 4-file cycle: `src/plugins/trivia/answerTypes/boolean.ts -> src/plugins/trivia/answerTypes/types.ts -> src/plugins/trivia/answerTypes/saveSchema.ts -> src/plugins/trivia/answerTypes/registry.ts -> src/plugins/trivia/answerTypes/boolean.ts`
 - 4-file cycle: `src/plugins/trivia/answerTypes/choice.ts -> src/plugins/trivia/answerTypes/types.ts -> src/plugins/trivia/answerTypes/saveSchema.ts -> src/plugins/trivia/answerTypes/registry.ts -> src/plugins/trivia/answerTypes/choice.ts`
-- 4-file cycle: `src/plugins/trivia/answerTypes/saveSchema.ts -> src/plugins/trivia/questionTypes/registry.ts -> src/plugins/trivia/questionTypes/prediction.ts -> src/plugins/trivia/questionTypes/compose.ts -> src/plugins/trivia/answerTypes/saveSchema.ts`
-- 4-file cycle: `src/plugins/trivia/answerTypes/saveSchema.ts -> src/plugins/trivia/questionTypes/registry.ts -> src/plugins/trivia/questionTypes/topical.ts -> src/plugins/trivia/questionTypes/compose.ts -> src/plugins/trivia/answerTypes/saveSchema.ts`
-- 4-file cycle: `src/plugins/trivia/answerTypes/saveSchema.ts -> src/plugins/trivia/questionTypes/registry.ts -> src/plugins/trivia/questionTypes/prediction.ts -> src/plugins/trivia/questionTypes/eventSource.ts -> src/plugins/trivia/answerTypes/saveSchema.ts`
-- 4-file cycle: `src/plugins/trivia/answerTypes/saveSchema.ts -> src/plugins/trivia/questionTypes/registry.ts -> src/plugins/trivia/questionTypes/topical.ts -> src/plugins/trivia/questionTypes/eventSource.ts -> src/plugins/trivia/answerTypes/saveSchema.ts`
-- 4-file cycle: `src/slack/app.ts -> src/slack/handlers/resend.ts -> src/slack/handlers/handlerResponse.ts -> src/slack/ownerDm.ts -> src/slack/app.ts`
 
 ## Hyperedges (group relationships)
 - **MCP Configuration Shapes** — mcp_pinned_shape, mcp_legacy_shape, mcp_http_shape [EXTRACTED 1.00]
@@ -366,99 +366,99 @@
 - **** — pre_commit_hook, oxlint, oxfmt, npm_test [EXTRACTED 1.00]
 - **** — migrate_skill_pack, data_deploy_include, gce_push_config_sh, config_json [EXTRACTED 1.00]
 
-## Communities (316 total, 119 thin omitted)
+## Communities (316 total, 117 thin omitted)
 
 ### Community 0 - "trivia plugin"
-Cohesion: 0.11
-Nodes (32): defaultMcpDeps, ExecSyncOptions, getMcpConfigPath(), getPinnedEntries(), isRemoteEntry(), loadMcpServer(), loadMcpServers(), loadStaticMcpConfig() (+24 more)
+Cohesion: 0.09
+Nodes (43): McpSessionSetupDeps, clackQuery(), defaultTestMcpDeps, McpServerInfo, McpTestResult, TestMcpDeps, defaultMcpDeps, ExecSyncOptions (+35 more)
 
 ### Community 1 - "src/tools: server.ts"
-Cohesion: 0.04
-Nodes (36): QuerySetup, AttachFailure, AttachResult, AttachSuccess, completeSessionStart(), defaultMcpSessionSetupDeps, McpServerManager, defaultAttachIntegrationDeps (+28 more)
+Cohesion: 0.14
+Nodes (3): QuerySetup, completeSessionStart(), McpServerManager
 
 ### Community 2 - "trivia plugin"
-Cohesion: 0.07
-Nodes (34): loadTriviaConfig(), saveTriviaConfig(), TeamDef, TeamsScoringMode, TriviaFreeformAnswerShape, answersSchema, categoriesSchema, cheatsSchema (+26 more)
+Cohesion: 0.13
+Nodes (13): loadTriviaConfig(), saveTriviaConfig(), answersSchema, categoriesSchema, cheatsSchema, isSeasonsEnabled(), questionsSchema, triviaUserDataZod (+5 more)
 
 ### Community 3 - "src/tools: types.ts"
-Cohesion: 0.05
-Nodes (91): findChangeEnabledRepo(), getChangeEnabledRepos(), isChangesEnabledForTrigger(), ChangeKind, FollowUpInfo, isChannellessChannelId(), AskClaudeOptions, ClaudeResponse (+83 more)
+Cohesion: 0.09
+Nodes (42): addError(), addSessionUsage(), appendAssistantMessage(), appendStagedIntents(), appendUserMessage(), setDeliveryMode(), touchSession(), updateSession() (+34 more)
 
 ### Community 4 - "src/slack: core.ts"
-Cohesion: 0.10
-Nodes (34): buildQuerySetup(), wrapDeliverWithDeliveredMark(), McpSessionSetupDeps, buildSystemPrompt(), clackQuery(), prepareSkillsSession(), defaultTestMcpDeps, McpServerInfo (+26 more)
+Cohesion: 0.12
+Nodes (18): analyzeError(), defaultUtilitiesDeps, detectRuntime(), summarizeForSlack(), UtilitiesDeps, defaultSkillPluginsDeps, discoverSkillPluginInfo(), discoverSkillPlugins() (+10 more)
 
 ### Community 5 - "src/slack: getConfig()"
-Cohesion: 0.08
-Nodes (31): BRANCH_TYPES, isProtectedBranchName(), PROTECTED_BRANCH_NAMES, ResumableSession, RepositoryConfig, canReadRepo(), canWriteRepo(), getVisibleRepos() (+23 more)
+Cohesion: 0.10
+Nodes (27): BRANCH_TYPES, isProtectedBranchName(), PROTECTED_BRANCH_NAMES, ResumableSession, RepositoryConfig, canReadRepo(), canWriteRepo(), getVisibleRepos() (+19 more)
 
 ### Community 6 - "src/slack: userSkills.ts"
-Cohesion: 0.06
-Nodes (67): getActiveChange(), TriggerType, getSessionsDir(), fileExists(), RolesDeps, buildSynthesizedTrigger(), cleanupExpiredSessions(), createSession() (+59 more)
+Cohesion: 0.09
+Nodes (43): main(), parseArgs(), getActiveChange(), askClaude(), getSessionsDir(), fileExists(), RolesDeps, buildSynthesizedTrigger() (+35 more)
 
 ### Community 7 - "trivia plugin"
-Cohesion: 0.12
-Nodes (27): PreAnalysisMessage, channelCache, ChannelInfo, getChannelInfo(), buildChannelReplyPrompt(), defaultAutoRespondDeps, enrichForPreAnalysis(), fetchEnrichedContext() (+19 more)
+Cohesion: 0.11
+Nodes (29): PreAnalysisMessage, channelCache, ChannelInfo, getChannelInfo(), buildChannelReplyPrompt(), defaultAutoRespondDeps, enrichForPreAnalysis(), fetchEnrichedContext() (+21 more)
 
 ### Community 8 - "trivia plugin"
-Cohesion: 0.08
-Nodes (37): CronConfig, adminZod, assistantZod, BACKUP_DEFAULT_FOLDERS, backupZod, cronCatchUpZod, emojiField(), isPlainObject() (+29 more)
+Cohesion: 0.10
+Nodes (32): CronConfig, adminZod, assistantZod, BACKUP_DEFAULT_FOLDERS, backupZod, cronCatchUpZod, emojiField(), isPlainObject() (+24 more)
 
 ### Community 9 - "trivia plugin"
-Cohesion: 0.12
-Nodes (24): DISMISSAL_PHRASES, DISMISSAL_PHRASES_INLINE, ALWAYS_HIDDEN_FROM_CATALOG, buildIntegrationsCatalog(), McpSessionSetup, ADMIN_CLAIM_KEYWORDS, attentionLevelGuidance(), buildDeliveryContext() (+16 more)
+Cohesion: 0.11
+Nodes (27): DISMISSAL_PHRASES, DISMISSAL_PHRASES_INLINE, buildQuerySetup(), wrapDeliverWithDeliveredMark(), ALWAYS_HIDDEN_FROM_CATALOG, buildIntegrationsCatalog(), McpSessionSetup, ADMIN_CLAIM_KEYWORDS (+19 more)
 
 ### Community 11 - "gemini-image plugin"
-Cohesion: 0.38
-Nodes (6): DiagnosableConfig, diagnoseHttp(), diagnoseMcpServer(), diagnoseStdio(), RemoteConfig, StdioConfig
+Cohesion: 0.07
+Nodes (66): ChangeKind, TriggerType, AskClaudeOptions, buildSuccessResponse(), buildToolResults(), ClaudeResponse, ErrorRecord, handleQueryError() (+58 more)
 
 ### Community 12 - "idler plugin"
-Cohesion: 0.08
-Nodes (43): activitySchema, ActivitySdk, appendActivity(), clearActivity(), entrySchema, IdlerActivity, IdlerActivityEntry, loadActivity() (+35 more)
+Cohesion: 0.06
+Nodes (58): baseConfigSchema, DEFAULT_CONFIG, idlerConfigSchema, isOperational(), loadConfig(), reportingSchema, saveConfig(), sourcesSchema (+50 more)
 
 ### Community 13 - "trivia plugin"
 Cohesion: 0.07
-Nodes (35): noopLogger, triviaLogger, resolveTellMeMore(), fallbackT(), interpolate(), t(), TFn, TVars (+27 more)
+Nodes (36): parseMessageCoordinates(), noopLogger, triviaLogger, resolveTellMeMore(), buildLockedNotice(), buildRosterBlock(), buildRosterDivider(), editRosterIntoCard() (+28 more)
 
 ### Community 14 - "UserRole"
-Cohesion: 0.27
-Nodes (18): latestAssistantMessage(), latestAssistantPayload(), latestAssistantText(), buildAnswerBlocks(), confirmInDm(), defaultDmActionsDeps, handleAcceptSynthesis(), handleEditSynthesis() (+10 more)
+Cohesion: 0.20
+Nodes (23): latestAssistantMessage(), latestAssistantPayload(), latestAssistantText(), extractDisplayText(), buildAnswerBlocks(), confirmInDm(), defaultDmActionsDeps, deliverFollower() (+15 more)
 
 ### Community 15 - "src/slack: roles.ts"
-Cohesion: 0.07
-Nodes (60): clearAutoRespondCache(), getActiveChangeBranches(), defaultGetReusablePool(), startCompletionMonitor(), stopCompletionMonitor(), prepareMcpSession(), testMCP(), getCronCatchUpDelayMinutes() (+52 more)
+Cohesion: 0.09
+Nodes (38): getActiveChangeBranches(), defaultGetReusablePool(), prepareMcpSession(), testMCP(), executeJob(), main(), validateInstructionFiles(), requestSoftRestart() (+30 more)
 
 ### Community 16 - "src/slack: fetchChannelMessages.ts"
 Cohesion: 0.20
 Nodes (18): AppDeps, defaultAppDeps, registerAssistant(), registerAutoRespondHandler(), registerChangeActionHandler(), registerChoiceHandler(), registerClassicDmHandlers(), registerConfigUpdateActionHandler() (+10 more)
 
 ### Community 17 - "src/claude: index.ts"
-Cohesion: 0.05
-Nodes (39): getTaskCardMaxDetails(), ToolMapping, fmtElapsed(), getSlackErrorCode(), SlackStreamer, getToolDetails(), getToolGroup(), getToolLabel() (+31 more)
+Cohesion: 0.09
+Nodes (35): getTaskCardMaxDetails(), ToolMapping, getToolGroup(), getToolLabel(), parseToolName(), resolve(), resolveGroupMaxDetails(), ToolGroupInfo (+27 more)
 
 ### Community 18 - "src/slack: logger.ts"
-Cohesion: 0.06
-Nodes (39): main(), parseArgs(), RunClaudeDeps, RunClaudeInWorktreeOptions, askClaude(), buildSuccessResponse(), buildToolResults(), ErrorRecord (+31 more)
+Cohesion: 0.10
+Nodes (19): RunClaudeDeps, RunClaudeInWorktreeOptions, isResumeMissingError(), createPushableAsyncIterable(), PushableAsyncIterable, captureSessionId(), clackSession(), ClackSessionParams (+11 more)
 
 ### Community 19 - "src/slack: homeTab.ts"
-Cohesion: 0.07
-Nodes (53): ActiveWorker, InstructionFileListing, InstructionFileSearchResult, t(), failedServers, getFailedMcpServers(), MigrationError, RolesConfig (+45 more)
+Cohesion: 0.08
+Nodes (42): ActiveWorker, InstructionFileListing, InstructionFileSearchResult, failedServers, getFailedMcpServers(), RolesConfig, SkillPluginInfo, buildClaimOwnershipSection() (+34 more)
 
 ### Community 20 - "src/changes: activeState.ts"
-Cohesion: 0.26
-Nodes (9): getForChannelMessage(), BotIdentity, getBotIdentity(), getBotUserId(), defaultMessageChangedDeps, handleMessageChanged(), MessageChangedDeps, MessageChangedEvent (+1 more)
+Cohesion: 0.12
+Nodes (17): getForChannelMessage(), handleKeys, makeThreadKey(), register(), RegisterOptions, registry, RegistryEntry, threadLocks (+9 more)
 
 ### Community 21 - "scripts/migration-tests: run.ts"
-Cohesion: 0.12
-Nodes (19): test, test, test, test, test, test, test, test (+11 more)
+Cohesion: 0.05
+Nodes (46): test, test, test, test, test, test, test, test (+38 more)
 
 ### Community 22 - "src/claude: execution.ts"
-Cohesion: 0.07
-Nodes (41): asArray(), CollectionKind, dedupeByKey(), deleteQuarantinedEntry(), describeFailure(), emptyValid(), frozenPaths, isFrozen() (+33 more)
+Cohesion: 0.08
+Nodes (33): asArray(), CollectionKind, dedupeByKey(), deleteQuarantinedEntry(), describeFailure(), emptyValid(), freezeAndSnapshot(), frozenPaths (+25 more)
 
 ### Community 23 - "src/slack: autoRespond.ts"
-Cohesion: 0.30
-Nodes (11): runBlockingMigrations(), runEnhancementMigrations(), applyStaticResults(), executeMigration(), getPendingMigrations(), readMigrationFiles(), migrations, MigrationState (+3 more)
+Cohesion: 0.19
+Nodes (20): loadConfig(), runBlockingMigrations(), runEnhancementMigrations(), applyStaticResults(), executeMigration(), getPendingMigrations(), readMigrationFiles(), MigrationState (+12 more)
 
 ### Community 24 - "src/tools: submitResponse.ts"
 Cohesion: 0.04
@@ -469,16 +469,16 @@ Cohesion: 0.11
 Nodes (41): answersFormatZod, contextsZod, difficultyZod, freeformAnswerShapeZod, promptMediumZod, questionTypeZod, REVEAL_RESPONSES_VALUES, triviaAllTimeRowZod (+33 more)
 
 ### Community 26 - "trivia plugin"
-Cohesion: 0.04
-Nodes (96): canAccessMemory(), createChannelsCache(), createEmojiCache(), createUsersCache(), createCancelReminderTool(), createCancelScheduledMessageTool(), createCancelWorkerRunTool(), createCreateScheduledMessageTool() (+88 more)
+Cohesion: 0.03
+Nodes (103): createChannelsCache(), createEmojiCache(), createUsersCache(), createAddAutoRespondRuleTool(), createCancelReminderTool(), createCancelScheduledMessageTool(), createCancelWorkerRunTool(), createCreateScheduledMessageTool() (+95 more)
 
 ### Community 27 - "src/slack: streamingDelivery.ts"
-Cohesion: 0.14
-Nodes (17): UsersSurfaceDeps, defaultUserRegistryDeps, getRegistryPath(), getStateDir(), getUserNamespace(), jsonObjectZod, jsonValueZod, listUserIdentities() (+9 more)
+Cohesion: 0.13
+Nodes (17): UpdateUserDeps, defaultUserRegistryDeps, getRegistryPath(), getStateDir(), jsonObjectZod, jsonValueZod, mergeUserGithub(), mergeUserOtherNames() (+9 more)
 
 ### Community 28 - "memoryRegistry: memoryRegistry.ts"
-Cohesion: 0.06
-Nodes (30): ArchivedMemory, archivedMemoryZod, ArchiveLeanNote, ArchiveStore, archStore, beforeExpireHooks, BeforeExpireResult, defaultMemoryRegistryDeps (+22 more)
+Cohesion: 0.04
+Nodes (64): buildTrackedMemoryKinds(), listTrackedKinds(), namespaceOf(), trackedMemoryKindsForRole(), archive(), ArchivedMemory, archivedMemoryZod, ArchiveLeanNote (+56 more)
 
 ### Community 29 - "trivia plugin"
 Cohesion: 0.10
@@ -489,19 +489,19 @@ Cohesion: 0.20
 Nodes (14): defaultRosterSyncDeps, ensureRosterFresh(), getMarkerPath(), getStateDir(), isRealMember(), markerZod, readSyncedAt(), RosterSyncDeps (+6 more)
 
 ### Community 31 - "cronScheduler: cronScheduler.ts"
-Cohesion: 0.11
-Nodes (30): Actor, ActorDeps, actorDisplay(), actorDmTarget(), defaultDeps, resolveJobActor(), makeChannellessChannelId(), getEnabledJobs() (+22 more)
+Cohesion: 0.09
+Nodes (35): Actor, ActorDeps, actorDisplay(), actorDmTarget(), defaultDeps, resolveJobActor(), makeChannellessChannelId(), getEnabledJobs() (+27 more)
 
 ### Community 32 - "src/workers: index.ts"
 Cohesion: 0.08
-Nodes (40): MessageReaction, SlackAttachment, SlackBlock, openDmChannel(), setupDmDelivery(), BlockLike, buildThreadMessage(), extractBlocksText() (+32 more)
+Nodes (41): ConversationMessage, ErrorReport, MessageReaction, SlackAttachment, SlackBlock, openDmChannel(), setupDmDelivery(), BlockLike (+33 more)
 
 ### Community 33 - "src/migrations: index.ts"
 Cohesion: 0.13
 Nodes (19): migration, migration, migration, migration, migration, migration, migration, migration (+11 more)
 
 ### Community 34 - "casual-talk plugin"
-Cohesion: 0.09
+Cohesion: 0.08
 Nodes (41): casualTalkConfigSchema, channelSchema, DEFAULT_CONFIG, loadConfig(), saveConfig(), workHoursSchema, BUILTIN_FALLBACK_TOPICS, resolveFallbackTopics() (+33 more)
 
 ### Community 35 - "src/tools: aggregate.ts"
@@ -509,60 +509,60 @@ Cohesion: 0.11
 Nodes (34): Accumulators, bump(), Counter, createAccumulators(), finalize(), foldSession, HUMAN_INITIATED, localDayKey() (+26 more)
 
 ### Community 36 - "lifecycle: lifecycle.ts"
-Cohesion: 0.15
-Nodes (26): getResponseActionBlocks(), validateActionButtonLabels(), validateBlocks(), validateTable(), deliverFollower(), postAnswerToChannel(), applyDeliveryReactions(), addDeliveryReactions() (+18 more)
+Cohesion: 0.16
+Nodes (25): getResponseActionBlocks(), validateActionButtonLabels(), validateBlocks(), validateTable(), collectActionErrors(), FlatAction, flattenActions(), flattenActionsRecursive() (+17 more)
 
 ### Community 37 - "cronJobs: cronJobs.ts"
 Cohesion: 0.17
 Nodes (12): JsonObject, baseEntry(), defaultUserRegistryReader, projectPlugins(), SlackUserEntry, UserRegistryReader, UsersCache, UsersCacheDeps (+4 more)
 
 ### Community 38 - "src/slack: handlerResponse.ts"
-Cohesion: 0.10
-Nodes (40): readRepoSkillBody(), ReadRepoSkillBodyResult, AutoExecuteDeps, SkillActionDeps, ProposeSkillCreateDeps, ProposeSkillDisableDeps, ProposeSkillRestoreDeps, ProposeSkillUpdateDeps (+32 more)
+Cohesion: 0.09
+Nodes (47): getRole(), AutoExecuteDeps, publishHomeView(), SkillActionDeps, closeModalIfOpen(), extractViewId(), ModalState, refreshHomeView() (+39 more)
 
 ### Community 39 - "config: config.ts"
-Cohesion: 0.14
-Nodes (21): isValidBranchName(), getRepositoriesDir(), getWorktreesDir(), cloneRepository(), defaultRepositoriesDeps, getGitInstance(), RepositoriesDeps, setAuthenticatedRemote() (+13 more)
+Cohesion: 0.21
+Nodes (16): isValidBranchName(), getRepositoriesDir(), cloneRepository(), defaultRepositoriesDeps, getGitInstance(), RepositoriesDeps, setAuthenticatedRemote(), syncRepository() (+8 more)
 
 ### Community 40 - "src/changes: monitor.ts"
 Cohesion: 0.17
 Nodes (12): DEFAULT_PREFERENCES, defaultUserPreferencesDeps, getReactionDelivery(), getUserPreference(), loadPreferences(), preferencesEntryZod, PreferencesMap, ReactionDelivery (+4 more)
 
 ### Community 41 - "src/claude: query.ts"
-Cohesion: 0.08
-Nodes (44): assembleBooleanVoters(), BOOLEAN_SAVE_FIELDS, booleanAnswerHandler, buildExcludeSet(), isScoredAnswer(), loadQuestionCheaterIds(), assembleChoiceVoters(), CHOICE_NUMBER_EMOJI (+36 more)
+Cohesion: 0.12
+Nodes (34): assembleBooleanVoters(), buildExcludeSet(), isScoredAnswer(), loadQuestionCheaterIds(), assembleChoiceVoters(), CHOICE_NUMBER_EMOJI, installClickableVoteHandler(), buildNoAnswerBucket() (+26 more)
 
 ### Community 42 - "src/workers: index.ts"
 Cohesion: 0.11
-Nodes (9): defaultSkillsManagerDeps, defaultSkillsSessionSetupDeps, loadKey(), PackInfo, parseFrontmatter(), SkillInfo, SkillsManager, SkillsManagerDeps (+1 more)
+Nodes (10): defaultSkillsManagerDeps, defaultSkillsSessionSetupDeps, loadKey(), PackInfo, parseFrontmatter(), prepareSkillsSession(), SkillInfo, SkillsManager (+2 more)
 
 ### Community 43 - "configSchemas: configZod.ts"
-Cohesion: 0.07
-Nodes (31): ClaudeMessageParser, extractToolErrorMessage(), joinContentBlocks(), ParsedMessage, ParsedResult, PendingToolUse, PlatformLimitInfo, stringifyToolResultContent() (+23 more)
+Cohesion: 0.08
+Nodes (30): ClaudeMessageParser, extractToolErrorMessage(), joinContentBlocks(), ParsedMessage, ParsedResult, PendingToolUse, stringifyToolResultContent(), ToolResultContent (+22 more)
 
 ### Community 44 - "trivia plugin"
-Cohesion: 0.14
-Nodes (40): parseTriviaConfigObject(), readAndParse(), reloadInBackground(), isRevealResponsesMode(), ParseIssue, parseTriviaAxisBag(), validateAllTimeRowMode(), validateAnswersFormatMap() (+32 more)
+Cohesion: 0.17
+Nodes (36): parseTriviaConfigObject(), readAndParse(), reloadInBackground(), isRevealResponsesMode(), ParseIssue, parseTriviaAxisBag(), validateAllTimeRowMode(), validateAnswersFormatMap() (+28 more)
 
 ### Community 45 - "src/claude: skillsManager.ts"
-Cohesion: 0.13
-Nodes (18): ALL_ANSWER_TYPE_SAVE_FIELDS, COMMON_SAVE_FIELDS, SAVE_QUESTION_HANDLER_FIELDS, TriviaQuestionType, composeDeferred(), composeWithKey(), EventSourceOutcome, validateEventSource() (+10 more)
+Cohesion: 0.12
+Nodes (22): COMMON_SAVE_FIELDS, SAVE_QUESTION_HANDLER_FIELDS, SaveQuestionArgs, GetSavedQuestionOutcome, SaveValidationContext, TriviaQuestionBase, TriviaQuestionType, composeDeferred() (+14 more)
 
 ### Community 46 - "src/tools: proposeConfigUpdate.ts"
 Cohesion: 0.31
 Nodes (7): ENV_PATH, isValidEnvKey(), listEnvKeys(), loadEnvLines(), SetEnvResult, setEnvVar(), writeEnvLines()
 
 ### Community 47 - "roles.ts"
-Cohesion: 0.10
-Nodes (34): NotifyErrorDeps, AssignableRole, claimOwnershipFromDisabled(), DEFAULT_ROLES, defaultRolesDeps, freezeRoles(), getRolesPath(), getStateDir() (+26 more)
+Cohesion: 0.09
+Nodes (36): NotifyErrorDeps, AssignableRole, claimOwnershipFromDisabled(), DEFAULT_ROLES, defaultRolesDeps, freezeRoles(), getRolesPath(), getStateDir() (+28 more)
 
 ### Community 48 - "userRegistry: userRegistry.ts"
-Cohesion: 0.14
-Nodes (14): BraveDeps, BraveImageResult, BraveSearchResponse, EXTENSION_MIME, fetchImageBytes(), fetchWithTimeout(), loadBraveApiKey(), mimeFromUrl() (+6 more)
+Cohesion: 0.05
+Nodes (39): AttachFailure, AttachResult, AttachSuccess, defaultMcpSessionSetupDeps, AdminDeleteMessageDeps, deleteClackMessage(), DeleteMessageResult, defaultFetchSlackMessageDeps (+31 more)
 
 ### Community 49 - "query.ts"
-Cohesion: 0.10
-Nodes (32): main(), connectHttp(), connectStdio(), main(), McpConfig, McpRemoteConfig, McpServerEntry, McpStdioConfig (+24 more)
+Cohesion: 0.14
+Nodes (23): main(), ActiveRunPreAnalysisResult, buildChannelContinuationPolicyBlock(), buildClassifyPrompt(), buildConversationContext(), buildPolicyBlock(), buildTimingLine(), CLASSIFIER_DISALLOWED_TOOLS (+15 more)
 
 ### Community 50 - "trivia plugin"
 Cohesion: 0.08
@@ -577,12 +577,12 @@ Cohesion: 0.11
 Nodes (29): AssistantPaneConfig, setAttentionLevel(), getByThread(), AssistantConstructor, AssistantDeps, AssistantEventMessage, defaultAssistantDeps, fetchAssistantContext() (+21 more)
 
 ### Community 53 - "sdk.ts plugin"
-Cohesion: 0.14
-Nodes (20): createFindImageTool(), braveImageSearchPlugin(), createFindSubjectTool(), commonsImageSearchPlugin(), BUILTIN_PLUGINS, deriveLocalPluginName(), installPluginInteractivity(), isPathEntry() (+12 more)
+Cohesion: 0.07
+Nodes (35): createFindImageTool(), braveImageSearchPlugin(), createFindSubjectTool(), commonsImageSearchPlugin(), BUILTIN_PLUGINS, deriveLocalPluginName(), installPluginInteractivity(), isPathEntry() (+27 more)
 
 ### Community 54 - "registry.ts plugin"
-Cohesion: 0.08
-Nodes (46): SessionRef, resolveNonCollidingBranch(), CorrectiveResumeOptions, defaultSpinoffGitOps, SpinoffGitOps, SpinoffIntentData, spinoffIntentSchema, spinoffPatchPath() (+38 more)
+Cohesion: 0.07
+Nodes (41): SessionRef, findChangeEnabledRepo(), getChangeEnabledRepos(), isChangesEnabledForTrigger(), FollowUpCommand, FollowUpInfo, isChannellessChannelId(), deleteInstructionFile() (+33 more)
 
 ### Community 55 - "trivia plugin"
 Cohesion: 0.09
@@ -609,24 +609,24 @@ Cohesion: 0.50
 Nodes (3): computeSetupVersionHash(), EMPTY_HASH, sha256()
 
 ### Community 61 - "pluginActionRegistry.ts"
-Cohesion: 0.12
-Nodes (30): getCronMaxRunHistory(), cronJobFileZod, CronJobState, cronJobZod, CronQuarantineEntry, CronQuarantineReport, CronQuarantineSummary, CronRun (+22 more)
+Cohesion: 0.07
+Nodes (50): getCronMaxRunHistory(), computeMissedRuns(), DelayedBootHandler, handlers, registerDelayedBootHandler(), RegisteredHandler, assertValidJitter(), CreateCronJobParams (+42 more)
 
 ### Community 62 - "commons-image-search plugin"
 Cohesion: 0.14
 Nodes (20): defaultFindSubjectDeps, FindSubjectDeps, CommonsImageInfoResponse, CommonsPage, EXTENSION_MIME, ExtMetadataField, extractExtMetadata(), fetchImageBytes() (+12 more)
 
 ### Community 63 - "persistence.ts"
-Cohesion: 0.19
-Nodes (16): ensureStateDir(), fromPersisted(), loadPoolState(), normalizeRestartStatus(), PersistedWorker, persistedWorkerZod, readWorkerSidecar(), reconcilePoolState() (+8 more)
+Cohesion: 0.21
+Nodes (16): getStateDir(), ensureStateDir(), fromPersisted(), loadPoolState(), normalizeRestartStatus(), PersistedWorker, persistedWorkerZod, readWorkerSidecar() (+8 more)
 
 ### Community 64 - "configurationFiles: configurationFiles.ts"
 Cohesion: 0.15
 Nodes (16): getConfiguredRepoNames(), createProposeConfigUpdateTool(), defaultProposeConfigUpdateDeps, ProposeConfigUpdateDeps, callTool(), fakeConfig, fakeSession, makeCtx() (+8 more)
 
 ### Community 65 - "sdk.ts"
-Cohesion: 0.08
-Nodes (21): RoleDir, AskClaudeOptions, AskClaudeResult, ClackSdkCapabilities, createClackSdk(), PluginDictionary, PluginMcpServerSpec, PluginVars (+13 more)
+Cohesion: 0.07
+Nodes (24): RoleDir, BeforeExpireResult, MemoryReference, StaleAfter, AskClaudeOptions, AskClaudeResult, ClackSdkCapabilities, createClackSdk() (+16 more)
 
 ### Community 66 - "allowlist.ts"
 Cohesion: 0.19
@@ -634,19 +634,19 @@ Nodes (14): loadSlackAuth(), AllowlistDeps, defaultAllowlistDeps, getFormatHint(
 
 ### Community 67 - "t.ts"
 Cohesion: 0.09
-Nodes (24): baseConfigSchema, DEFAULT_CONFIG, idlerConfigSchema, isOperational(), reportingSchema, saveConfig(), sourcesSchema, windowSchema (+16 more)
+Nodes (18): BOOLEAN_SAVE_FIELDS, booleanAnswerHandler, CHOICE_SAVE_FIELDS, choiceAnswerHandler, FREEFORM_SAVE_FIELDS, freeformAnswerHandler, ALL_ANSWER_TYPE_SAVE_FIELDS, ANSWER_TYPE_SAVE_FIELD_NAMES (+10 more)
 
 ### Community 68 - "sdk.ts plugin"
-Cohesion: 0.08
-Nodes (6): ClackSdk, HintInstallDeps, HintSlackClient, ViewsOpenArgs, buildHintModal(), BuildHintModalParams
+Cohesion: 0.06
+Nodes (15): activitySchema, ActivitySdk, appendActivity(), clearActivity(), entrySchema, IdlerActivity, IdlerActivityEntry, loadActivity() (+7 more)
 
 ### Community 69 - "prompt.ts"
-Cohesion: 0.13
-Nodes (30): canCreateUserSkill(), canDeleteUserSkill(), canEditUserSkillContent(), canManageUserSkill(), getRole(), publishHomeView(), applyCreate(), applyDelete() (+22 more)
+Cohesion: 0.19
+Nodes (22): t(), canCreateUserSkill(), canDeleteUserSkill(), canEditUserSkillContent(), canManageUserSkill(), getDmPostAcceptActions(), getDmSynthesisActions(), missingChangeText() (+14 more)
 
 ### Community 70 - "statusServer.ts"
-Cohesion: 0.24
-Nodes (11): RunningChangeInfo, snapshotRunningChanges(), ActiveRunInfo, snapshot(), createStatusHandler(), defaultStatusDeps(), readPackageVersion(), startStatusServer() (+3 more)
+Cohesion: 0.18
+Nodes (13): RunningChangeInfo, snapshotRunningChanges(), defaultFileExistsDeps, FileExistsDeps, ActiveRunInfo, snapshot(), createStatusHandler(), defaultStatusDeps() (+5 more)
 
 ### Community 71 - "heuristic.ts"
 Cohesion: 0.07
@@ -657,8 +657,8 @@ Cohesion: 0.17
 Nodes (7): ChannelApiResult, ChannelsCache, ChannelsCacheClient, SlackChannelEntry, EmojiCache, EmojiCacheEntry, buildWildcardMatcher()
 
 ### Community 73 - "dump-mcp-tools.ts"
-Cohesion: 0.11
-Nodes (11): AnswerTypeHandler, SubmittedAnswer, TriviaQuestion, buildFreeformModal(), BuildFreeformModalParams, escapeMarkdown(), FREEFORM_MODAL_INTERNALS, readAnswerTextFromSubmission() (+3 more)
+Cohesion: 0.17
+Nodes (7): AnswerTypeHandler, ClickableAnswerHandler, JsonValue, SubmittedAnswer, TriviaQuestion, EditRosterParams, BuildSeeAnswerModalParams
 
 ### Community 74 - "scripts/generate-manifest.ts: generate-manifest."
 Cohesion: 0.12
@@ -666,7 +666,7 @@ Nodes (21): ArrayElement, AutoRespondConfig, BotScope, buildEvents(), buildScope
 
 ### Community 75 - "truncate"
 Cohesion: 0.15
-Nodes (17): computeMissedRuns(), DelayedBootHandler, handlers, registerDelayedBootHandler(), RegisteredHandler, assertValidJitter(), createJob(), CronJob (+9 more)
+Nodes (4): fmtElapsed(), getSlackErrorCode(), SlackStreamer, getToolDetails()
 
 ### Community 76 - "giphy plugin"
 Cohesion: 0.14
@@ -677,19 +677,19 @@ Cohesion: 0.12
 Nodes (27): TesterConfig, TesterPromptOptions, buildDockerApi(), containerListSchema, createAndStart(), defaultServiceLifecycleDeps, DockerApi, ensureImage() (+19 more)
 
 ### Community 78 - "errorReports.ts"
-Cohesion: 0.12
-Nodes (15): actionHandlers, actionPatterns, dispatchAction(), DispatchResult, dispatchView(), findActionHandler(), findViewHandler(), logOrphanAction() (+7 more)
+Cohesion: 0.16
+Nodes (15): rosterSchema, scoringSchema, teamDefSchema, TeamDef, TEAMS_SCORING_KEYS, TeamsScoringMode, TeamsStamp, QuestionPointsMap (+7 more)
 
 ### Community 79 - "admin.ts"
-Cohesion: 0.36
-Nodes (6): addMigrationError(), dmAdmin(), getAdmin(), getMigrationErrors(), handleMigrationFailure(), migrationErrors
+Cohesion: 0.31
+Nodes (7): addMigrationError(), dmAdmin(), getAdmin(), getMigrationErrors(), handleMigrationFailure(), migrationErrors, MigrationError
 
 ### Community 80 - "usageLimits.ts"
 Cohesion: 0.18
-Nodes (12): getStateDir(), defaultUsageLimitsDeps, getUsageLimitsPath(), loadFromDisk(), readUsageLimits(), recordUsageLimit(), UsageLimitsDeps, usageLimitsStateZod (+4 more)
+Nodes (11): defaultUsageLimitsDeps, getUsageLimitsPath(), loadFromDisk(), readUsageLimits(), recordUsageLimit(), UsageLimitsDeps, usageLimitsStateZod, UsageLimitWindow (+3 more)
 
 ### Community 81 - "trivia plugin"
-Cohesion: 0.12
+Cohesion: 0.11
 Nodes (43): main(), detectFollowUpCommand(), defaultRunClaudeDeps, drainStagedSpinoffs(), executeChange(), executeTest(), readBranchHead(), resolveChangesInstructions() (+35 more)
 
 ### Community 82 - "catchUp.ts"
@@ -713,16 +713,16 @@ Cohesion: 0.21
 Nodes (15): BackupConfig, getBackupConfig(), getBackupsDir(), getDataDir(), matchesSkipDate(), dateKeysInTimezone(), BackupLogger, computeNextBackupTime() (+7 more)
 
 ### Community 87 - "src/slack: blockValidate.ts"
-Cohesion: 0.16
-Nodes (12): AuthoredTableCell, ALLOWED_IMAGE_KEYS, BlockValidationError, cardFieldPath(), cardLabel(), imageSourceError(), InCarouselContext, validateCard() (+4 more)
+Cohesion: 0.17
+Nodes (11): AuthoredTableCell, ALLOWED_IMAGE_KEYS, cardFieldPath(), cardLabel(), imageSourceError(), InCarouselContext, validateCard(), validateCardImage() (+3 more)
 
 ### Community 88 - "activity.ts"
-Cohesion: 0.08
-Nodes (32): Claude Agent SDK, getJob(), canEditConfig(), canManageRoles(), meetsMinimumRole(), ROLE_HIERARCHY, userCanEditConfig(), userCanManageRoles() (+24 more)
+Cohesion: 0.07
+Nodes (47): Claude Agent SDK, getJob(), errorMessage(), LEVELS, logger, LogLevel, canAccessMemory(), canEditConfig() (+39 more)
 
 ### Community 89 - "persistence.ts"
 Cohesion: 0.04
-Nodes (97): activeChanges, ActiveChangeState, ACTIVELY_EXECUTING_STATUSES, ActiveStateDeps, adoptActiveChange(), adoptedAway, buildChangeSessionForPersistence(), ChangeSessionLiveness (+89 more)
+Nodes (67): activeChanges, ActiveChangeState, ACTIVELY_EXECUTING_STATUSES, ActiveStateDeps, adoptActiveChange(), adoptedAway, buildChangeSessionForPersistence(), ChangeSessionLiveness (+59 more)
 
 ### Community 90 - "src/streaming: toolLabels.ts"
 Cohesion: 0.15
@@ -733,20 +733,20 @@ Cohesion: 0.16
 Nodes (19): CascadeAxes, TriviaAxisBag, PromptMediumWeights, TriviaAnswersFormatWeights, TriviaContextEntry, TriviaDifficultyConfig, TriviaDifficultyRatioConfig, TriviaFreeformAnswerShapeWeights (+11 more)
 
 ### Community 92 - "mcpInstaller: mcpInstaller.ts"
-Cohesion: 0.12
-Nodes (24): ConfigWatcherOptions, debounce(), reinstallPinned(), startConfigWatcher(), watchFile(), watchTreeRecursively(), defaultFileExistsDeps, FileExistsDeps (+16 more)
+Cohesion: 0.21
+Nodes (15): setPinnedSpawnConfig(), assertSafePackageName(), assertSafeServerName(), defaultInstallAllDeps, defaultMcpInstallerDeps, ensureInstalled(), EnsureInstalledResult, InstallAllDeps (+7 more)
 
 ### Community 93 - "activity.ts"
-Cohesion: 0.06
-Nodes (33): AdminConfig, AssistantSuggestedPrompt, AutoRespondConfig, ChangesWorkflowConfig, ClaudeCodeConfig, CronCatchUpConfig, DEFAULT_BACKUP_FOLDERS, DirectMessagesConfig (+25 more)
+Cohesion: 0.07
+Nodes (28): AdminConfig, AssistantSuggestedPrompt, AutoRespondConfig, ChangesWorkflowConfig, ClaudeCodeConfig, CronCatchUpConfig, DEFAULT_BACKUP_FOLDERS, DirectMessagesConfig (+20 more)
 
 ### Community 94 - "StreamingDelivery"
-Cohesion: 0.17
-Nodes (12): archive(), pruneArchive(), rememberCore(), RememberInput, serialize(), ArchiveDeps, PruneArchiveDeps, defaultDeps (+4 more)
+Cohesion: 0.15
+Nodes (18): prepareTable(), ACTION_STYLES, actionToButton(), asSlackBlocks(), ButtonLabelValidationError, defaultActionLabel(), encodeActionValue(), EncodedActionValue (+10 more)
 
 ### Community 96 - "QueueEntry"
-Cohesion: 0.06
-Nodes (59): AxisDef, AxisRegistry, CASCADE_TIER_ORDER, CascadeContext, CascadeLadderEntry, CascadeResolution, CascadeTier, ConcreteTier (+51 more)
+Cohesion: 0.05
+Nodes (70): AxisDef, AxisRegistry, CASCADE_TIER_ORDER, CascadeContext, CascadeLadderEntry, CascadeResolution, CascadeTier, ConcreteTier (+62 more)
 
 ### Community 97 - "src/migrations: 016-topic-subfolders.ts"
 Cohesion: 0.19
@@ -761,20 +761,20 @@ Cohesion: 0.14
 Nodes (14): scripts, ask, build, deploy:gce, dev, docker-setup, format, format:check (+6 more)
 
 ### Community 101 - "SlackStreamer"
-Cohesion: 0.22
-Nodes (5): BeforeExpireHook, MemoryEntry, MemorySearchResult, SearchMemoryArgs, ClackSdkMemory
+Cohesion: 0.20
+Nodes (17): addRule(), AutoRespondRulePatch, autoRespondRuleZod, deleteRule(), findMatchingRule(), getEnabledRules(), getRule(), getRules() (+9 more)
 
 ### Community 102 - "listGames.ts"
 Cohesion: 0.12
 Nodes (18): JudgeLeniency, OffDay, TriviaAllTimeRowMode, TriviaFinalRevealSummary, TriviaHintConfig, TriviaIncludeRevealInQuestions, TriviaSeasonsConfig, LeaderboardEntry (+10 more)
 
 ### Community 103 - "blocks.ts"
-Cohesion: 0.09
-Nodes (28): en, StringKey, fr, activeLanguage(), Args, DICTIONARIES, fallbackWarned, getActiveLanguageMetadata() (+20 more)
+Cohesion: 0.17
+Nodes (11): en, StringKey, fr, activeLanguage(), Args, DICTIONARIES, fallbackWarned, getActiveLanguageMetadata() (+3 more)
 
 ### Community 104 - "src/slack: blocks.ts"
-Cohesion: 0.05
-Nodes (74): ALL_ROLE_DIRS, buildRoleChain(), InstructionFileEntry, listRoleDirFiles(), listRoleTopicDirFiles(), listSingleDirFiles(), readRoleFile(), readRoleTopicFile() (+66 more)
+Cohesion: 0.14
+Nodes (20): readRepoSkillBody(), ReadRepoSkillBodyResult, discoverWorkerSkills(), getWorkerSkillMtimeMs(), listSlugs(), readDescription(), readWorkerSkillBody(), ReadWorkerSkillBodyResult (+12 more)
 
 ### Community 105 - "package.json: devDependencies"
 Cohesion: 0.17
@@ -816,6 +816,10 @@ Nodes (12): coalescedFetch(), EXPECTED_LOOKUP_ERRORS, fetchUserInfo(), getBotInf
 Cohesion: 0.05
 Nodes (26): ClackSdkMemoryData, ClackSdkUserData, ClackSdkUsers, ClackUser, PluginLogger, _resetTriviaConfigBridge(), _setTriviaConfigForTests(), _setTriviaConfigSdkForTests() (+18 more)
 
+### Community 116 - "ScopedTriviaDataLayer"
+Cohesion: 0.07
+Nodes (16): ScopedTriviaDataLayer, BaseClickContext, findGameForQuestion(), installPostGameButtons(), makeHandler(), OneShotClickContext, OneShotPostGameButton, PersistentClickContext (+8 more)
+
 ### Community 117 - "proposeSkillCreate.ts"
 Cohesion: 0.22
 Nodes (12): isMissingRemoteRef(), resolveRemoteBase(), switchBranch(), switchToDefault(), clearQuarantineRecord(), getDirtyTrackedFiles(), hasUnpushedCommits(), QuarantineRecord (+4 more)
@@ -833,8 +837,8 @@ Cohesion: 0.20
 Nodes (9): author, description, engines, node, license, main, name, type (+1 more)
 
 ### Community 121 - "fileCache.ts"
-Cohesion: 0.39
-Nodes (9): CachedFileMeta, cacheFile(), extensionForMime(), filePath(), getCachedFile(), getCacheDir(), metaPath(), readCachedFileBase64() (+1 more)
+Cohesion: 0.17
+Nodes (13): getQuarantinedJobSummaries(), isCronPersistenceFrozen(), setCronQuarantineNotifier(), registerCronQuarantineStore(), QuarantineEntry, QuarantineReport, createArrayStore(), createRecordStore() (+5 more)
 
 ### Community 122 - "github: github.ts"
 Cohesion: 0.15
@@ -861,20 +865,20 @@ Cohesion: 0.18
 Nodes (10): Check for context, Ending Discovery, Guardrails, Handling Different Entry Points, OpenSpec Awareness, The Stance, What You Don't Have To Do, What You Might Do (+2 more)
 
 ### Community 128 - "index.ts"
-Cohesion: 0.07
-Nodes (32): firstInlineImage(), GeminiError, GeminiImageResult, GeminiInputImage, GenAiContents, GenAiLike, GenAiPart, GenAiResponse (+24 more)
+Cohesion: 0.08
+Nodes (31): firstInlineImage(), GeminiError, GeminiImageResult, GeminiInputImage, GenAiContents, GenAiLike, GenAiPart, GenAiResponse (+23 more)
 
 ### Community 129 - "/Users: Trivia Cascading Attributes"
 Cohesion: 0.06
 Nodes (32): Add Trivia Cascading Attribute, Checklist, CLAUDE.md, Decision Tree: Flat-Object vs Weighted-Roll, Final Verification Checklist, Hard Rules, Layer 1: Type Definitions, Layer 2: Domain Resolver (+24 more)
 
 ### Community 130 - "buildWorkerTools"
-Cohesion: 0.28
-Nodes (7): buildTranscodeArgs(), createRecordAndUploadTool(), defaultRecordAndUploadDeps, execFileAsync, RecordAndUploadDeps, RecordingUploader, transcodeToMp4()
+Cohesion: 0.26
+Nodes (10): renderPlayerRef(), resolveTagPlayers(), buildTeamIndexByUser(), buildRevealFooterBlocks(), renderNames(), renderTeamBucket(), teamNames(), groupVotersByTeam() (+2 more)
 
 ### Community 134 - "disposablePool.ts"
-Cohesion: 0.31
-Nodes (9): ConversationMessage, ErrorReport, errorReportZod, getErrorReportsDir(), getReportFilename(), listErrorReports(), readErrorReport(), writeErrorReport() (+1 more)
+Cohesion: 0.09
+Nodes (49): resolveNonCollidingBranch(), CorrectiveResumeOptions, ExecuteChangeOptions, SpinoffIntentData, ChangePlan, ChangeRequest, ChangeResult, ChangeSession (+41 more)
 
 ### Community 135 - "getStateDir"
 Cohesion: 0.20
@@ -885,8 +889,8 @@ Cohesion: 0.20
 Nodes (3): ReusableFoldersConfig, ReusablePool, Worker
 
 ### Community 137 - "updateJob"
-Cohesion: 0.40
-Nodes (9): getMemory(), getMemoryNamespace(), listMemory(), loadMemoryStore(), mergeMemoryNamespace(), registerBeforeExpire(), searchMemory(), MemorySurfaceDeps (+1 more)
+Cohesion: 0.28
+Nodes (5): JsonValue, ThinkingFeedbackConfig, CONFIG_SCHEMA, FieldDoc, SchemaFor
 
 ### Community 138 - "/Users: Clack main mascot"
 Cohesion: 0.50
@@ -949,8 +953,8 @@ Cohesion: 0.18
 Nodes (10): 1. Set the API token, 2. Create the MCP server config, 3. Restart Clack, Authentication, Configuration, Monday.com Integration, References, Step 1: Create a dedicated Monday.com user (+2 more)
 
 ### Community 176 - "AttentionLevel"
-Cohesion: 0.29
-Nodes (7): extractDisplayText(), MessagePostingClient, PostStructuredMessageOpts, PostStructuredMessageResult, persistPostToSnapshots(), buildTexts(), validateSingleMessage()
+Cohesion: 0.39
+Nodes (6): getLoadedPlugins(), loadedPlugins, CLACK_CORE_TOOL_NAMES, parseFullName(), ToolNameValidationResult, validateRequiredToolNames()
 
 ### Community 177 - "explore.md"
 Cohesion: 0.20
@@ -961,8 +965,8 @@ Cohesion: 0.20
 Nodes (9): Bumping a version, Forcing a clean reinstall, HTTP/SSE shape, Install failures, Legacy npx shape, MCP Server Setup, Pinned shape (recommended), Validation (+1 more)
 
 ### Community 179 - "testHelpers.ts"
-Cohesion: 0.05
-Nodes (61): addRule(), AutoRespondRulePatch, autoRespondRuleZod, deleteRule(), findMatchingRule(), getEnabledRules(), getRule(), getRules() (+53 more)
+Cohesion: 0.09
+Nodes (28): getSlackClient(), SilentDeliveryOptions, DeliveryPayload, DeliveryResult, notificationText(), postStructuredMessage(), PostStructuredMessageResult, getOwnerUserId() (+20 more)
 
 ### Community 180 - "updateUser.ts"
 Cohesion: 0.29
@@ -973,8 +977,8 @@ Cohesion: 0.51
 Nodes (7): insertBeforeActions(), isActionsBlock(), mrkdwnContext(), applyHintRendering(), applyPointsRendering(), rewriteWorthBlock(), worthBlock()
 
 ### Community 182 - "main"
-Cohesion: 0.22
-Nodes (9): buildTestTasks(), cleanup(), main(), parallel(), readTestConfig(), runFullPathTest(), setup(), validateFinalState() (+1 more)
+Cohesion: 0.33
+Nodes (6): defaultSpinoffGitOps, SpinoffGitOps, spinoffIntentSchema, spinoffPatchPath(), getSpinoffPatchesDir(), ProposeSpinoffDeps
 
 ### Community 183 - "Plugin Hard Rules"
 Cohesion: 0.22
@@ -1005,8 +1009,8 @@ Cohesion: 0.29
 Nodes (6): commons-image-search, How it returns images, Install, What it does NOT handle, What it handles well, Wikimedia etiquette
 
 ### Community 190 - "sdkUsers.ts"
-Cohesion: 0.29
-Nodes (7): CreateCronJobParams, SkipDate, UpdateCronJobParams, CronJobSpec, StartThreadConversationOptions, SettableAttentionLevel, AutoRespondContext
+Cohesion: 0.48
+Nodes (6): errorReportZod, getErrorReportsDir(), getReportFilename(), listErrorReports(), readErrorReport(), writeErrorReport()
 
 ### Community 191 - "extractDisplayText"
 Cohesion: 0.33
@@ -1017,8 +1021,8 @@ Cohesion: 0.47
 Nodes (4): DOCKER_CONTROL_PLANE_PATTERNS, GIT_GLOBAL_FLAGS_WITH_ARG, isDockerControlPlaneCommand(), isGitPushCommand()
 
 ### Community 295 - "renderPoints.ts"
-Cohesion: 0.12
-Nodes (24): parseMessageCoordinates(), buildLockedNotice(), buildRosterBlock(), buildRosterDivider(), editRosterIntoCard(), groupRosterAnswers(), NameOf, renderHidden() (+16 more)
+Cohesion: 0.48
+Nodes (6): UsersSurfaceDeps, getUserNamespace(), listUserIdentities(), loadRegistry(), mergeUserNamespace(), UserIdentity
 
 ### Community 296 - "getArchived.ts"
 Cohesion: 0.27
@@ -1037,8 +1041,8 @@ Cohesion: 0.40
 Nodes (3): IdleSweepPool, runIdleSweep(), runQueueDrainBackstop()
 
 ### Community 301 - "024.ts"
-Cohesion: 0.40
-Nodes (3): RegistryRecord, test, TriviaNamespace
+Cohesion: 0.33
+Nodes (5): getSkillMtimeMs(), cache, CacheEntry, getUserSkillBody(), GetUserSkillBodyResult
 
 ### Community 302 - "020-system-actor-on-plugin-crons.ts"
 Cohesion: 0.40
@@ -1046,7 +1050,7 @@ Nodes (4): CronJob, CronJobsFile, CronRun, migration
 
 ### Community 303 - "WorkerPool"
 Cohesion: 0.09
-Nodes (13): AlreadyInFlight, Cancelled, DirtyWorkerQuarantined, PoolExhausted, RemoteBranchNotFound, RemoteBranchUnreachable, ClearQuarantineResult, findLocalBranchSource() (+5 more)
+Nodes (14): AlreadyInFlight, Cancelled, DirtyWorkerQuarantined, PoolExhausted, RemoteBranchNotFound, RemoteBranchUnreachable, ClearQuarantineResult, findLocalBranchSource() (+6 more)
 
 ### Community 304 - "installInteractions.ts"
 Cohesion: 0.67
@@ -1057,52 +1061,56 @@ Cohesion: 0.26
 Nodes (13): circularRuns(), DAY_NAME_MAP, DAY_NAMES, expandHourList(), formatDayOfWeekSuffix(), formatHour(), formatSubDaily(), humanReadableSchedule() (+5 more)
 
 ### Community 308 - "getLoadedPlugins"
-Cohesion: 0.53
-Nodes (5): getLoadedPlugins(), CLACK_CORE_TOOL_NAMES, parseFullName(), ToolNameValidationResult, validateRequiredToolNames()
+Cohesion: 0.12
+Nodes (34): clearAutoRespondCache(), startCompletionMonitor(), stopCompletionMonitor(), getConfig(), getCronCatchUpDelayMinutes(), ConfigWatcherOptions, debounce(), reinstallPinned() (+26 more)
 
-### Community 309 - "slackErrors.ts"
-Cohesion: 0.53
-Nodes (5): hasSlackData(), isSlackAccessError(), SLACK_ACCESS_ERROR_CODES, slackErrorCode(), SlackLikeError
+### Community 315 - "configurationFiles.ts"
+Cohesion: 0.12
+Nodes (21): InstructionFileEntry, RoleDirListing, FileEntry, getEffectiveContentLength(), getRepoEntries(), listInstructionFiles(), MatchHit, readInstructionFile() (+13 more)
 
-### Community 310 - "serialize"
-Cohesion: 0.47
-Nodes (6): UpdateUserDeps, mergeUserGithub(), mergeUserOtherNames(), serialize(), setUserDisplayName(), upsertRosterMembers()
-
-### Community 311 - "trackedKinds.ts"
-Cohesion: 0.70
-Nodes (4): buildTrackedMemoryKinds(), listTrackedKinds(), namespaceOf(), trackedMemoryKindsForRole()
-
-### Community 312 - "forgetMemory"
-Cohesion: 0.67
-Nodes (3): forgetMemory(), pruneExpired(), ForgetDeps
-
-### Community 313 - "getArchived"
-Cohesion: 0.67
-Nodes (3): getArchived(), loadArchiveStore(), GetArchivedDeps
+### Community 316 - "cascadingConfigResolver.ts"
+Cohesion: 0.22
+Nodes (23): ALL_ROLE_DIRS, buildRoleChain(), listRoleDirFiles(), listRoleTopicDirFiles(), listSingleDirFiles(), readRoleFile(), readRoleTopicFile(), resolveBaselineFiles() (+15 more)
 
 ### Community 318 - "RevealSlackDeps"
-Cohesion: 0.05
-Nodes (49): ReStampAxis, resolveAllTimeRow(), shouldShowAllTimeRow(), aggregate(), buildQuestionPointsMap(), computeLeaderboard(), ComputeLeaderboardOptions, ComputeLeaderboardResult (+41 more)
+Cohesion: 0.06
+Nodes (40): ReStampAxis, resolveAllTimeRow(), shouldShowAllTimeRow(), aggregate(), buildQuestionPointsMap(), computeLeaderboard(), ComputeLeaderboardOptions, ComputeLeaderboardResult (+32 more)
+
+### Community 319 - "truncate"
+Cohesion: 0.16
+Nodes (10): connectHttp(), connectStdio(), main(), McpConfig, McpRemoteConfig, McpServerEntry, McpStdioConfig, substituteEnvVars() (+2 more)
+
+### Community 320 - "configFieldSchemas.ts"
+Cohesion: 0.17
+Nodes (13): REPO_FILE_ENUM, REPO_INSTRUCTION_FILES, RepoInstructionFile, buildConfigPath(), buildInstructionPath(), CONFIG_TARGET_SCHEMA, ConfigRole, FILE_PATTERN (+5 more)
+
+### Community 321 - "disposablePool.ts"
+Cohesion: 0.31
+Nodes (5): getWorktreesDir(), branchToWorkerId(), DisposablePool, AcquireOptions, getExistingWorktree()
+
+### Community 325 - "languages.ts"
+Cohesion: 0.33
+Nodes (5): isSupportedLanguage(), Lang, LANGUAGE_METADATA, LanguageMetadata, SUPPORTED_LANGUAGES
 
 ## Knowledge Gaps
 - **1328 isolated node(s):** `$schema`, `correctness`, `plugins`, `no-unused-vars`, `no-console` (+1323 more)
   These have ≤1 connection - possible missing edges or undocumented components.
-- **119 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
+- **117 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `Claude Agent SDK` connect `activity.ts` to `trivia plugin`, `src/tools: server.ts`, `index.ts`, `trivia plugin`, `src/slack: core.ts`, `src/slack: getConfig()`, `src/slack: userSkills.ts`, `buildWorkerTools`, `idler plugin`, `src/slack: roles.ts`, `src/slack: logger.ts`, `src/tools: submitResponse.ts`, `trivia plugin`, `trivia plugin`, `src/workers: index.ts`, `casual-talk plugin`, `workerBashGuard.ts`, `github.ts`, `configSchemas: configZod.ts`, `src/tools: proposeConfigUpdate.ts`, `userRegistry: userRegistry.ts`, `query.ts`, `testHelpers.ts`, `sdk.ts plugin`, `commons-image-search plugin`, `RevealSlackDeps`, `configurationFiles: configurationFiles.ts`, `sdk.ts`, `heuristic.ts`, `brave-image-search plugin`, `giphy plugin`, `usageLimits.ts`, `trivia plugin`, `persistence.ts`, `listSeasons.ts`, `StreamingDelivery`, `listGames.ts`?**
-  _High betweenness centrality (0.103) - this node is a cross-community bridge._
-- **Why does `logger` connect `testHelpers.ts` to `trivia plugin`, `src/tools: server.ts`, `src/tools: types.ts`, `src/slack: core.ts`, `src/slack: getConfig()`, `disposablePool.ts`, `src/slack: userSkills.ts`, `trivia plugin`, `trivia plugin`, `UserRole`, `src/slack: roles.ts`, `src/slack: fetchChannelMessages.ts`, `src/claude: index.ts`, `src/slack: logger.ts`, `src/changes: activeState.ts`, `src/claude: execution.ts`, `src/slack: autoRespond.ts`, `src/tools: submitResponse.ts`, `trivia plugin`, `src/slack: streamingDelivery.ts`, `memoryRegistry: memoryRegistry.ts`, `mcp: mcp.ts`, `cronScheduler: cronScheduler.ts`, `src/workers: index.ts`, `src/tools: aggregate.ts`, `src/slack: handlerResponse.ts`, `config: config.ts`, `src/changes: monitor.ts`, `github.ts`, `src/workers: index.ts`, `020-system-actor-on-plugin-crons.ts`, `roles.ts`, `WorkerPool`, `query.ts`, `sdkMemory.ts`, `src/workers: Worker`, `sdk.ts plugin`, `registry.ts plugin`, `fileExtractor.ts`, `t.ts`, `processTeardown.ts`, `pluginActionRegistry.ts`, `persistence.ts`, `sdk.ts`, `prompt.ts`, `statusServer.ts`, `heuristic.ts`, `brave-image-search plugin`, `truncate`, `github.ts`, `errorReports.ts`, `admin.ts`, `usageLimits.ts`, `trivia plugin`, `workerSkills.ts`, `activity.ts`, `persistence.ts`, `mcpInstaller: mcpInstaller.ts`, `src/migrations: 019-trivia-games-migration.ts`, `blocks.ts`, `src/slack: blocks.ts`, `src/migrations: 021-trivia-answers-format-rename`, `src/migrations: 025-idler-ledger-to-memory.ts`, `userCache.ts`, `proposeSkillCreate.ts`, `src/migrations: 024-trivia-users-to-registry.ts`, `src/migrations: 022-trivia-config-to-plugin.ts`, `src/migrations: 023-cron-config-namespace.ts`?**
-  _High betweenness centrality (0.082) - this node is a cross-community bridge._
-- **Why does `ClackSdk` connect `sdk.ts plugin` to `index.ts`, `trivia plugin`, `idler plugin`, `trivia plugin`, `src/slack: autoRespond.ts`, `trivia plugin`, `casual-talk plugin`, `src/claude: query.ts`, `trivia plugin`, `installInteractions.ts`, `sdk.ts plugin`, `renderPoints.ts`, `src/slack: dmActions.ts`, `RevealSlackDeps`, `sdk.ts`, `t.ts`, `heuristic.ts`, `giphy plugin`, `catchUp.ts`, `AttentionLevel`, `testHelpers.ts`, `IdleSweepPool`, `fileCache.ts`?**
+- **Why does `Claude Agent SDK` connect `activity.ts` to `trivia plugin`, `index.ts`, `trivia plugin`, `src/slack: core.ts`, `src/slack: getConfig()`, `disposablePool.ts`, `src/slack: userSkills.ts`, `gemini-image plugin`, `idler plugin`, `src/slack: roles.ts`, `src/slack: logger.ts`, `scripts/migration-tests: run.ts`, `src/tools: submitResponse.ts`, `trivia plugin`, `trivia plugin`, `memoryRegistry: memoryRegistry.ts`, `src/workers: index.ts`, `casual-talk plugin`, `workerBashGuard.ts`, `github.ts`, `configSchemas: configZod.ts`, `src/tools: proposeConfigUpdate.ts`, `userRegistry: userRegistry.ts`, `query.ts`, `testHelpers.ts`, `sdk.ts plugin`, `commons-image-search plugin`, `RevealSlackDeps`, `configurationFiles: configurationFiles.ts`, `sdk.ts`, `sdk.ts plugin`, `heuristic.ts`, `brave-image-search plugin`, `giphy plugin`, `usageLimits.ts`, `trivia plugin`, `listSeasons.ts`, `SlackStreamer`, `listGames.ts`?**
+  _High betweenness centrality (0.098) - this node is a cross-community bridge._
+- **Why does `logger` connect `activity.ts` to `trivia plugin`, `src/tools: types.ts`, `src/slack: core.ts`, `disposablePool.ts`, `src/slack: userSkills.ts`, `trivia plugin`, `trivia plugin`, `gemini-image plugin`, `UserRole`, `src/slack: roles.ts`, `src/slack: fetchChannelMessages.ts`, `src/claude: index.ts`, `src/slack: logger.ts`, `src/changes: activeState.ts`, `src/claude: execution.ts`, `src/slack: autoRespond.ts`, `src/tools: submitResponse.ts`, `trivia plugin`, `src/slack: streamingDelivery.ts`, `memoryRegistry: memoryRegistry.ts`, `mcp: mcp.ts`, `cronScheduler: cronScheduler.ts`, `src/workers: index.ts`, `src/tools: aggregate.ts`, `src/slack: handlerResponse.ts`, `config: config.ts`, `src/changes: monitor.ts`, `github.ts`, `src/workers: index.ts`, `020-system-actor-on-plugin-crons.ts`, `roles.ts`, `userRegistry: userRegistry.ts`, `query.ts`, `WorkerPool`, `sdkMemory.ts`, `getLoadedPlugins`, `sdk.ts plugin`, `src/workers: Worker`, `registry.ts plugin`, `testHelpers.ts`, `fileExtractor.ts`, `configurationFiles.ts`, `t.ts`, `pluginActionRegistry.ts`, `sdkUsers.ts`, `cascadingConfigResolver.ts`, `processTeardown.ts`, `sdk.ts`, `persistence.ts`, `prompt.ts`, `statusServer.ts`, `heuristic.ts`, `brave-image-search plugin`, `github.ts`, `admin.ts`, `usageLimits.ts`, `trivia plugin`, `workerSkills.ts`, `persistence.ts`, `mcpInstaller: mcpInstaller.ts`, `StreamingDelivery`, `src/migrations: 019-trivia-games-migration.ts`, `SlackStreamer`, `blocks.ts`, `src/slack: blocks.ts`, `src/migrations: 021-trivia-answers-format-rename`, `src/migrations: 025-idler-ledger-to-memory.ts`, `userCache.ts`, `proposeSkillCreate.ts`, `src/migrations: 024-trivia-users-to-registry.ts`, `src/migrations: 022-trivia-config-to-plugin.ts`, `src/migrations: 023-cron-config-namespace.ts`?**
+  _High betweenness centrality (0.080) - this node is a cross-community bridge._
+- **Why does `ClackSdk` connect `sdk.ts plugin` to `index.ts`, `trivia plugin`, `idler plugin`, `trivia plugin`, `src/slack: autoRespond.ts`, `trivia plugin`, `casual-talk plugin`, `src/claude: query.ts`, `trivia plugin`, `installInteractions.ts`, `sdk.ts plugin`, `renderPoints.ts`, `src/slack: dmActions.ts`, `RevealSlackDeps`, `sdk.ts`, `t.ts`, `heuristic.ts`, `giphy plugin`, `catchUp.ts`, `AttentionLevel`, `testHelpers.ts`, `IdleSweepPool`, `ScopedTriviaDataLayer`?**
   _High betweenness centrality (0.021) - this node is a cross-community bridge._
 - **What connects `$schema`, `correctness`, `plugins` to the rest of the system?**
   _1328 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `trivia plugin` be split into smaller, more focused modules?**
-  _Cohesion score 0.1092436974789916 - nodes in this community are weakly interconnected._
+  _Cohesion score 0.08695652173913043 - nodes in this community are weakly interconnected._
 - **Should `src/tools: server.ts` be split into smaller, more focused modules?**
-  _Cohesion score 0.044444444444444446 - nodes in this community are weakly interconnected._
+  _Cohesion score 0.14285714285714285 - nodes in this community are weakly interconnected._
 - **Should `trivia plugin` be split into smaller, more focused modules?**
-  _Cohesion score 0.07180851063829788 - nodes in this community are weakly interconnected._
+  _Cohesion score 0.12631578947368421 - nodes in this community are weakly interconnected._

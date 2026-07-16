@@ -1,8 +1,17 @@
 import { describe, it } from "vitest";
 import assert from "node:assert/strict";
 import { createComputeAnswersTool } from "./computeAnswers.js";
-import { createFakeSdk, createFakeRevealSlackDeps } from "../../testHelpers.fakeSdk.js";
-import { createInMemoryDataLayer, FIXTURE_GAME_NAME, fixtureGetGames } from "../../testHelpers.js";
+import {
+  createFakeSdk,
+  createFakeRevealSlackDeps,
+  primeTriviaConfig,
+} from "../../testHelpers.fakeSdk.js";
+import {
+  createTriviaDataLayer,
+  FIXTURE_GAME_NAME,
+  fixtureGetGames,
+  type FakeTriviaDataLayer,
+} from "../../testHelpers.js";
 import { parseToolResult } from "../../../../tools/testHelpers.js";
 import type { TriviaQuestion } from "../../core/types.js";
 import type { TeamDef, TriviaGame } from "../../core/configTypes.js";
@@ -34,7 +43,8 @@ function makeQuestion(overrides: Partial<TriviaQuestion>): TriviaQuestion {
 }
 
 function toolWith(
-  data: ReturnType<typeof createInMemoryDataLayer>,
+  data: FakeTriviaDataLayer,
+  sdk: ReturnType<typeof createFakeSdk>["sdk"],
   gamePatch: Partial<TriviaGame>,
   revealCron = "* * * * *",
 ) {
@@ -42,13 +52,7 @@ function toolWith(
     fixtureGetGames().map((g) =>
       g.name === FIXTURE_GAME_NAME ? { ...g, revealCron, timezone: "UTC", ...gamePatch } : g,
     );
-  return createComputeAnswersTool(
-    data,
-    createFakeSdk().sdk,
-    getGames,
-    createFakeRevealSlackDeps(),
-    () => ({}),
-  );
+  return createComputeAnswersTool(data, sdk, getGames, createFakeRevealSlackDeps(), () => ({}));
 }
 
 async function run(tool: ReturnType<typeof createComputeAnswersTool>) {
@@ -60,7 +64,7 @@ async function run(tool: ReturnType<typeof createComputeAnswersTool>) {
   );
 }
 
-async function seedRound(data: ReturnType<typeof createInMemoryDataLayer>): Promise<void> {
+async function seedRound(data: FakeTriviaDataLayer): Promise<void> {
   const scoped = data.forGame(FIXTURE_GAME_NAME);
   await scoped.saveSeasonsState({
     seasons: [{ slug: "s1", startedAt: Date.now() - DAY, expectedEndAt: Date.now() + DAY }],
@@ -102,32 +106,40 @@ async function seedRound(data: ReturnType<typeof createInMemoryDataLayer>): Prom
 
 describe("compute_answers — teams mode", () => {
   it("teams OFF: payload carries no team fields at all", async () => {
-    const data = createInMemoryDataLayer();
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk);
+    const { dataLayer: data } = createTriviaDataLayer(sdk);
     await seedRound(data);
-    const res = await run(toolWith(data, {}));
+    const res = await run(toolWith(data, sdk, {}));
     assert.equal("teamStandings" in res, false);
     assert.equal(res.reveals.length, 1);
     assert.equal("teamVoters" in res.reveals[0], false);
   });
 
   it("roster alone never activates (teamsEnabled unset)", async () => {
-    const data = createInMemoryDataLayer();
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk);
+    const { dataLayer: data } = createTriviaDataLayer(sdk);
     await seedRound(data);
-    const res = await run(toolWith(data, { teams: ROSTER }));
+    const res = await run(toolWith(data, sdk, { teams: ROSTER }));
     assert.equal("teamStandings" in res, false);
   });
 
   it("enabled with empty roster resolves OFF (no zero-team payload)", async () => {
-    const data = createInMemoryDataLayer();
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk);
+    const { dataLayer: data } = createTriviaDataLayer(sdk);
     await seedRound(data);
-    const res = await run(toolWith(data, { teamsEnabled: true }));
+    const res = await run(toolWith(data, sdk, { teamsEnabled: true }));
     assert.equal("teamStandings" in res, false);
   });
 
   it("teams ON: payload carries teamStandings, free agents, and team-grouped voters", async () => {
-    const data = createInMemoryDataLayer();
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk);
+    const { dataLayer: data } = createTriviaDataLayer(sdk);
     await seedRound(data);
-    const res = await run(toolWith(data, { teams: ROSTER, teamsEnabled: true }));
+    const res = await run(toolWith(data, sdk, { teams: ROSTER, teamsEnabled: true }));
 
     assert.equal(res.teamStandings.scoring, "one-right-is-right");
     // Red (1 member correct → 1 pt) sorts above Blue (0 pts); no allTime (no prior stamp).
@@ -156,7 +168,9 @@ describe("compute_answers — teams mode", () => {
   });
 
   it("total-points scoring pays each correct member through the strategy", async () => {
-    const data = createInMemoryDataLayer();
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk);
+    const { dataLayer: data } = createTriviaDataLayer(sdk);
     await seedRound(data);
     const scoped = data.forGame(FIXTURE_GAME_NAME);
     await scoped.saveAnswer({
@@ -168,7 +182,7 @@ describe("compute_answers — teams mode", () => {
       season: "s1",
     });
     const res = await run(
-      toolWith(data, { teams: ROSTER, teamsEnabled: true, teamsScoring: "total-points" }),
+      toolWith(data, sdk, { teams: ROSTER, teamsEnabled: true, teamsScoring: "total-points" }),
     );
     assert.equal(res.teamStandings.scoring, "total-points");
     const red = res.teamStandings.teams.find((t: { name: string }) => t.name === "Red");
@@ -176,7 +190,9 @@ describe("compute_answers — teams mode", () => {
   });
 
   it("all-time cell present only for a team name stamped in a prior season", async () => {
-    const data = createInMemoryDataLayer();
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk);
+    const { dataLayer: data } = createTriviaDataLayer(sdk);
     await seedRound(data);
     const scoped = data.forGame(FIXTURE_GAME_NAME);
     const state = await scoped.loadSeasonsState();
@@ -201,7 +217,7 @@ describe("compute_answers — teams mode", () => {
       season: "s0",
     });
 
-    const res = await run(toolWith(data, { teams: ROSTER, teamsEnabled: true }));
+    const res = await run(toolWith(data, sdk, { teams: ROSTER, teamsEnabled: true }));
     const red = res.teamStandings.teams.find((t: { name: string }) => t.name === "Red");
     const blue = res.teamStandings.teams.find((t: { name: string }) => t.name === "Blue");
     assert.equal(red.allTime, 2);
@@ -209,7 +225,9 @@ describe("compute_answers — teams mode", () => {
   });
 
   it("season-tier roster + enablement activates teams with a bare game (natural expiry path)", async () => {
-    const data = createInMemoryDataLayer();
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk);
+    const { dataLayer: data } = createTriviaDataLayer(sdk);
     await seedRound(data);
     const scoped = data.forGame(FIXTURE_GAME_NAME);
     const state = await scoped.loadSeasonsState();
@@ -218,13 +236,15 @@ describe("compute_answers — teams mode", () => {
     state.seasons[0].teamsEnabled = true;
     await scoped.saveSeasonsState(state);
 
-    const res = await run(toolWith(data, {}));
+    const res = await run(toolWith(data, sdk, {}));
     assert.equal(res.teamStandings.teams[0].name, "Red");
     assert.equal(res.reveals[0].teamVoters.correctTeams.length, 1);
   });
 
   it("a season disabling teams beats a game-tier enablement", async () => {
-    const data = createInMemoryDataLayer();
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk);
+    const { dataLayer: data } = createTriviaDataLayer(sdk);
     await seedRound(data);
     const scoped = data.forGame(FIXTURE_GAME_NAME);
     const state = await scoped.loadSeasonsState();
@@ -232,12 +252,14 @@ describe("compute_answers — teams mode", () => {
     state.seasons[0].teamsEnabled = false;
     await scoped.saveSeasonsState(state);
 
-    const res = await run(toolWith(data, { teams: ROSTER, teamsEnabled: true }));
+    const res = await run(toolWith(data, sdk, { teams: ROSTER, teamsEnabled: true }));
     assert.equal("teamStandings" in res, false);
   });
 
   it("finaleIndividuals signals on the season's last fire when configured", async () => {
-    const data = createInMemoryDataLayer();
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk);
+    const { dataLayer: data } = createTriviaDataLayer(sdk);
     await seedRound(data);
     const scoped = data.forGame(FIXTURE_GAME_NAME);
     const state = await scoped.loadSeasonsState();
@@ -248,6 +270,7 @@ describe("compute_answers — teams mode", () => {
     const res = await run(
       toolWith(
         data,
+        sdk,
         { teams: ROSTER, teamsEnabled: true, teamsFinaleIndividuals: true },
         "0 0 1 1 *",
       ),

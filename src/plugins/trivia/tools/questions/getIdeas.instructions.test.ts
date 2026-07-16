@@ -1,9 +1,14 @@
 import { describe, it, beforeEach, expect } from "vitest";
-import { createInMemoryDataLayer, FIXTURE_GAME_NAME, fixtureGetGames } from "../../testHelpers.js";
+import {
+  createTriviaDataLayer,
+  FIXTURE_GAME_NAME,
+  fixtureGetGames,
+  type FakeTriviaDataLayer,
+} from "../../testHelpers.js";
+import { createFakeSdk, primeTriviaConfig } from "../../testHelpers.fakeSdk.js";
 import { createGetIdeasTool } from "./getIdeas.js";
 import { parseToolResult } from "../../../../tools/testHelpers.js";
 import type { TriviaConfig, TriviaGame } from "../../core/configTypes.js";
-import type { TriviaDataLayer } from "../../core/types.js";
 
 const SESSION = { sessionId: "test" };
 const DAY = 24 * 60 * 60 * 1000;
@@ -20,11 +25,14 @@ const gamesWith = (overrides: Partial<TriviaGame>): TriviaGame[] => [
 ];
 
 describe("get_ideas — instructions and additionalInstructions payload", () => {
-  let data: TriviaDataLayer;
+  let data: FakeTriviaDataLayer;
 
   beforeEach(async () => {
-    data = createInMemoryDataLayer();
-    await data.saveCategories(["Science", "History", "Geography"]);
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk);
+    const { dataLayer: createdData } = createTriviaDataLayer(sdk);
+    data = createdData;
+    data.loadCategories.mockResolvedValue(["Science", "History", "Geography"]);
   });
 
   it("omits both keys when no tier sets them", async () => {
@@ -86,7 +94,7 @@ describe("get_ideas — instructions and additionalInstructions payload", () => 
         },
       ],
     };
-    await data.forGame(FIXTURE_GAME_NAME).saveSeasonsState(seasonsState);
+    data.forGame(FIXTURE_GAME_NAME).loadSeasonsState.mockResolvedValue(seasonsState);
 
     const cfg: TriviaConfig = { additionalInstructions: "Avoid politics." };
     const tool = createGetIdeasTool(data, () => cfg, fixtureGetGames);

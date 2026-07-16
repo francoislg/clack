@@ -1,21 +1,29 @@
 import { describe, it, beforeEach } from "vitest";
 import assert from "node:assert/strict";
 import {
-  createInMemoryDataLayer,
+  createTriviaDataLayer,
   FIXTURE_GAME_NAME,
   fixtureGetGames,
-  type InMemoryDataLayer,
+  type FakeTriviaDataLayer,
 } from "../../testHelpers.js";
+import { createFakeSdk, primeTriviaConfig } from "../../testHelpers.fakeSdk.js";
 import { createGetQuestionHistoryTool } from "./getQuestionHistory.js";
 import { parseToolResult } from "../../../../tools/testHelpers.js";
 
 const SESSION = { sessionId: "test" };
 
 describe("get_question_history", () => {
-  let data: InMemoryDataLayer;
+  let data: FakeTriviaDataLayer;
+  let testHelpers: ReturnType<typeof createFakeSdk>["testHelpers"];
 
   beforeEach(async () => {
-    data = createInMemoryDataLayer();
+    const fakeResult = createFakeSdk();
+    const { sdk } = fakeResult;
+    testHelpers = fakeResult.testHelpers;
+    primeTriviaConfig(sdk);
+    const { dataLayer } = createTriviaDataLayer(sdk);
+    data = dataLayer;
+
     await data.forGame(FIXTURE_GAME_NAME).saveQuestion({
       id: "q42",
       category: "Science",
@@ -62,9 +70,9 @@ describe("get_question_history", () => {
       detectedAt: "2026-04-16T10:10:00.000Z",
     });
 
-    await data.saveUser({ userId: "U1", displayName: "Alice", joinedAt: 1 });
-    await data.saveUser({ userId: "U2", displayName: "Bob", joinedAt: 2 });
-    await data.saveUser({ userId: "U777", displayName: "Cheater Cathy", joinedAt: 3 });
+    testHelpers.saveUser({ userId: "U1", displayName: "Alice" });
+    testHelpers.saveUser({ userId: "U2", displayName: "Bob" });
+    testHelpers.saveUser({ userId: "U777", displayName: "Cheater Cathy" });
 
     await data.forGame(FIXTURE_GAME_NAME).saveAnswer({
       userId: "U1",
@@ -254,10 +262,17 @@ describe("get_question_history", () => {
 });
 
 describe("get_question_history — choice questions", () => {
-  let data: InMemoryDataLayer;
+  let data: FakeTriviaDataLayer;
+  let testHelpers: ReturnType<typeof createFakeSdk>["testHelpers"];
 
   beforeEach(async () => {
-    data = createInMemoryDataLayer();
+    const fakeResult = createFakeSdk();
+    const { sdk } = fakeResult;
+    testHelpers = fakeResult.testHelpers;
+    primeTriviaConfig(sdk);
+    const { dataLayer } = createTriviaDataLayer(sdk);
+    data = dataLayer;
+
     await data.forGame(FIXTURE_GAME_NAME).saveQuestion({
       id: "qchoice",
       answersFormat: "choice",
@@ -281,7 +296,7 @@ describe("get_question_history — choice questions", () => {
   });
 
   it("response entries carry answerIndex (not answer) for choice answers", async () => {
-    await data.saveUser({ userId: "U1", displayName: "Alice", joinedAt: 1 });
+    testHelpers.saveUser({ userId: "U1", displayName: "Alice" });
     await data.forGame(FIXTURE_GAME_NAME).saveAnswer({
       userId: "U1",
       questionId: "qchoice",

@@ -1,12 +1,18 @@
 import { describe, it, beforeEach } from "vitest";
 import assert from "node:assert/strict";
 import {
-  createInMemoryDataLayer,
+  createTriviaDataLayer,
   FIXTURE_GAME_NAME,
   fixtureGetGames,
-  type InMemoryDataLayer,
+  type FakeTriviaDataLayer,
 } from "./testHelpers.js";
-import { createFakeSdk, createFakePostQuestionsSlackDeps } from "./testHelpers.fakeSdk.js";
+import {
+  createFakeSdk,
+  createFakePostQuestionsSlackDeps,
+  primeTriviaConfig,
+  type FakeSdk,
+  type FakeSdkTestHelpers,
+} from "./testHelpers.fakeSdk.js";
 import { createGetIdeasTool } from "./tools/questions/getIdeas.js";
 import { createSaveQuestionTool } from "./tools/questions/saveQuestion.js";
 import { createFindPreviousQuestionsTool } from "./tools/questions/findPreviousQuestions.js";
@@ -29,10 +35,14 @@ function makeConfig(trivia?: TriviaConfig): TriviaConfig {
 }
 
 describe("choice-questions end-to-end flow", () => {
-  let data: InMemoryDataLayer;
+  let data: FakeTriviaDataLayer;
+  let sdk: FakeSdk;
+  let testHelpers: FakeSdkTestHelpers;
 
   beforeEach(async () => {
-    data = createInMemoryDataLayer();
+    ({ sdk, testHelpers } = createFakeSdk());
+    primeTriviaConfig(sdk);
+    ({ dataLayer: data } = createTriviaDataLayer(sdk));
     await data.saveCategories(["Geography", "Astronomy", "History"]);
   });
 
@@ -87,12 +97,7 @@ describe("choice-questions end-to-end flow", () => {
     const questionId = saved.question.id;
 
     // 3. post_questions stamps postedAt + messageLink on the question record
-    const postQuestions = createPostQuestionsTool(
-      data,
-      createFakeSdk().sdk,
-      fixtureGetGames,
-      postQuestionsDeps(),
-    );
+    const postQuestions = createPostQuestionsTool(data, sdk, fixtureGetGames, postQuestionsDeps());
     const postResult = parseToolResult(
       await postQuestions.handler(
         {
@@ -151,7 +156,7 @@ describe("choice-questions end-to-end flow", () => {
       { userId: "U2", displayName: "Bob" },
       { userId: "U3", displayName: "Carol" },
     ]) {
-      await data.saveUser({ ...u, joinedAt: 1000 });
+      testHelpers.saveUser({ userId: u.userId, displayName: u.displayName });
     }
 
     // 4. find_previous_questions exposes choices but never correctIndex/isTrue
@@ -282,7 +287,7 @@ describe("choice-questions end-to-end flow", () => {
 
     // Submit one correct answer to each via direct data-layer writes.
     const scoped = data.forGame(FIXTURE_GAME_NAME);
-    await data.saveUser({ userId: "U1", displayName: "Alice", joinedAt: 1000 });
+    testHelpers.saveUser({ userId: "U1", displayName: "Alice" });
     await scoped.saveAnswer({
       userId: "U1",
       questionId: boolean.question.id,
