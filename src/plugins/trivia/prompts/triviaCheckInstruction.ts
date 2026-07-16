@@ -329,13 +329,23 @@ export const TRIVIA_CHECK_INSTRUCTION = BASE_TRIVIA_CHECK_INSTRUCTION;
  * tool by name so Claude can scan and pick the right tool from the AVAILABLE INTEGRATIONS
  * block in the system prompt.
  */
-export const TRIVIA_MANAGEMENT_DESCRIPTION =
-  "Manage trivia games, seasons, categories, and workspace-tier defaults. Admin only. Attach when the user wants to add/remove/configure trivia games or seasons, manage the category pool, or change workspace-wide trivia defaults. Tools: upsert_game, delete_game, set_workspace_config, upsert_season, delete_season, add_categories, remove_categories.";
+export function getTriviaManagementDescription(seasonsEnabled: boolean): string {
+  const tools = [
+    "upsert_game",
+    "delete_game",
+    "unlock_questions",
+    "set_workspace_config",
+    ...(seasonsEnabled ? ["upsert_season", "delete_season"] : []),
+    "add_categories",
+    "remove_categories",
+  ];
+  return `Manage trivia games, seasons, categories, and workspace-tier defaults. Admin only. Attach when the user wants to add/remove/configure trivia games or seasons, manage the category pool, or change workspace-wide trivia defaults. Tools: ${tools.join(", ")}.`;
+}
 
 /** Topic-scoped admin instruction loaded when `trivia:management` is attached. */
 export const TRIVIA_MANAGEMENT_INSTRUCTION = `# Managing trivia games, seasons, categories, and workspace config
 
-The \`trivia:management\` integration gives you seven admin-only tools that mutate the trivia plugin's persisted config (\`data/plugins/trivia/config.json\`, per-game \`seasons.json\`, \`categories.json\`) directly. No confirm-and-apply flow — these write through immediately.
+The \`trivia:management\` integration gives you admin-only tools that mutate the trivia plugin's persisted config (\`data/plugins/trivia/config.json\`, per-game \`seasons.json\`, \`categories.json\`) directly. No confirm-and-apply flow — these write through immediately.
 
 ## Default to the game tier — season is for overrides only
 
@@ -449,7 +459,7 @@ Facts worth relaying when relevant:
 - Team identity across seasons is the NAME (case-insensitive). At season close the effective roster + scoring mode are stamped onto the season, and a team's All-Time only accumulates across seasons whose stamped roster carries the same name — RENAMING a team severs its history (that's the escape hatch, not a bug; warn admins before renames).
 - \`retrieve_scores\` returns \`teamStandings\` alongside the individual leaderboard while teams mode is on; \`list_games\` / \`list_seasons\` surface the four fields present-iff-set.
 
-## The seven tools
+## The tools
 
 ### Lifecycle — games
 

@@ -91,7 +91,7 @@ Worker tools (in worktree context):
 
 - `git_push`, `ensure_pr`, `merge_pr`, `close_pr`, `resolve_review_thread`, `report_status`
 
-**Plugin tools** are registered via the plugin SDK. Tools added with `sdk.registerTool(...)` (or equivalently `sdk.mcpServer.registerTool(...)`) live on the plugin's always-on default server at `mcp__<plugin>__<tool>`. For on-demand tool groups (e.g., admin-only management surfaces), plugins call `sdk.registerMcpServer(name, { autoload: false, description })` and bind tools to the returned handle — those tools live at `mcp__<plugin>_<name>__<tool>` and only become available after Claude calls `attach_integration("<plugin>:<name>")`. See `src/plugins/trivia/index.ts` for the live example: the `trivia:management` on-demand server hosts seven config-mutation tools and its admin instruction.
+**Plugin tools** are registered via the plugin SDK. Tools added with `sdk.registerTool(...)` (or equivalently `sdk.mcpServer.registerTool(...)`) live on the plugin's always-on default server at `mcp__<plugin>__<tool>`. For on-demand tool groups (e.g., admin-only management surfaces), plugins call `sdk.registerMcpServer(name, { autoload: false, description })` and bind tools to the returned handle — those tools live at `mcp__<plugin>_<name>__<tool>` and only become available after Claude calls `attach_integration("<plugin>:<name>")`. See `src/plugins/trivia/index.ts` for the live example: the `trivia:management` on-demand server hosts the config-mutation tools (six, plus two more when seasons are enabled) and its admin instruction.
 
 ### Role System (4 tiers)
 
