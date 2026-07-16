@@ -39,7 +39,7 @@ import {
   getTriviaCheckInstruction,
   TRIVIA_GAMES_ADMIN_INSTRUCTION,
   TRIVIA_MANAGEMENT_INSTRUCTION,
-  TRIVIA_MANAGEMENT_DESCRIPTION,
+  getTriviaManagementDescription,
 } from "./prompts/triviaCheckInstruction.js";
 import {
   PERSONA_CONTENT,
@@ -99,7 +99,7 @@ export const triviaPlugin: ClackPlugin = async (sdk: ClackSdk) => {
   // `attach_integration("trivia:management")` reveals everything in one shot.
   const management = sdk.registerMcpServer("management", {
     autoload: false,
-    description: TRIVIA_MANAGEMENT_DESCRIPTION,
+    description: getTriviaManagementDescription(seasonsEnabled),
   });
   management.addTopicInstruction("admin", "trivia-management", TRIVIA_MANAGEMENT_INSTRUCTION);
 

@@ -1,7 +1,7 @@
 import { describe, it } from "vitest";
 import assert from "node:assert/strict";
 import {
-  TRIVIA_MANAGEMENT_DESCRIPTION,
+  getTriviaManagementDescription,
   TRIVIA_MANAGEMENT_INSTRUCTION,
   TRIVIA_CHECK_INSTRUCTION,
   TRIVIA_GAMES_ADMIN_INSTRUCTION,
@@ -65,28 +65,39 @@ describe("TRIVIA_GAMES_ADMIN_INSTRUCTION — correction-tool dispatch", () => {
   });
 });
 
-describe("TRIVIA_MANAGEMENT_DESCRIPTION", () => {
-  const REQUIRED_TOOLS = [
+describe("getTriviaManagementDescription", () => {
+  const ALWAYS_REGISTERED = [
     "upsert_game",
     "delete_game",
+    "unlock_questions",
     "set_workspace_config",
-    "upsert_season",
-    "delete_season",
     "add_categories",
     "remove_categories",
   ];
+  const SEASONS_GATED = ["upsert_season", "delete_season"];
 
-  for (const name of REQUIRED_TOOLS) {
-    it(`mentions ${name}`, () => {
+  for (const name of ALWAYS_REGISTERED) {
+    it(`mentions ${name} regardless of the seasons flag`, () => {
       assert.ok(
-        TRIVIA_MANAGEMENT_DESCRIPTION.includes(name),
+        getTriviaManagementDescription(false).includes(name),
         `description must mention ${name} so Claude can discover the gated tool`,
+      );
+      assert.ok(getTriviaManagementDescription(true).includes(name));
+    });
+  }
+
+  for (const name of SEASONS_GATED) {
+    it(`mentions ${name} only when seasons are enabled`, () => {
+      assert.ok(getTriviaManagementDescription(true).includes(name));
+      assert.ok(
+        !getTriviaManagementDescription(false).includes(name),
+        `description must not advertise ${name} when the tool is not registered`,
       );
     });
   }
 
   it("flags itself as admin-only", () => {
-    assert.match(TRIVIA_MANAGEMENT_DESCRIPTION, /admin/i);
+    assert.match(getTriviaManagementDescription(true), /admin/i);
   });
 });
 
