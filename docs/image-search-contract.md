@@ -44,6 +44,10 @@ Examples of well-covered sources:
 - Wikipedia / Wikimedia Commons (`mcp__commons-image-search__find_subject`) — flags, people, landmarks, paintings
 - Brave Search Images (`mcp__brave-image-search__find_image`) — generic web, long-tail subjects
 - TMDB (a hypothetical future `mcp__tmdb-image-search__find_movie`) — film / TV
+- Cover Art Archive (`mcp__coverart-image-search__find_album`) — album covers, keyless (MusicBrainz + CAA)
+
+A solid keyless/free-key stack: Commons (public-domain/canonical subjects + musician photos) +
+TMDB (movies/TV/actors, free key) + Cover Art Archive (album covers, keyless).
 
 A recognizable name is **recommended** for human readability (the shipped plugins use the
 `*-image-search` server name), but it is not required and is never matched.
