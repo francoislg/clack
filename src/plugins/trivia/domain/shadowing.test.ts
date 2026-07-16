@@ -59,4 +59,18 @@ describe("detectGameWriteShadowing", () => {
     const s = season({ questionType: { fact: 1, topical: 0, prediction: 0 } }); // shadows a DIFFERENT field
     expect(detectGameWriteShadowing(["answersFormat"], s, baseGame)).toBeUndefined();
   });
+
+  it("reports season shadowing of teams fields", () => {
+    const s = season({ teams: [{ name: "Gold", userIds: ["U9"] }], teamsEnabled: false });
+    const r = detectGameWriteShadowing(["teams", "teamsEnabled", "teamsScoring"], s, baseGame);
+    expect(r).toEqual({ tier: "season", slug: "s1", fields: ["teams", "teamsEnabled"] });
+  });
+
+  it("teams fields have no slot tier — a game format never shadows them", () => {
+    const game: TriviaGame = {
+      ...baseGame,
+      format: { questions: [{ answersFormat: { boolean: 0, choice: 1, freeform: 0 } }] },
+    };
+    expect(detectGameWriteShadowing(["teams", "teamsEnabled"], null, game)).toBeUndefined();
+  });
 });

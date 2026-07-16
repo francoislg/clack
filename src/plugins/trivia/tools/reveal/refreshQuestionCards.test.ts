@@ -573,3 +573,60 @@ describe("refresh_question_cards — state-complete projection", () => {
     assert.deepEqual(res.edited, []);
   });
 });
+
+describe("refresh_question_cards — teams mode footer", () => {
+  const ROSTER = [{ name: "Red", userIds: ["U1", "U2"] }];
+
+  async function seedRevealed(data: ReturnType<typeof createInMemoryDataLayer>): Promise<void> {
+    const scoped = data.forGame(FIXTURE_GAME_NAME);
+    await scoped.saveQuestion(makeQuestion({ id: "q1", postedBlocks: postedBooleanBlocks("q1") }));
+    await scoped.saveAnswer({
+      userId: "U1",
+      questionId: "q1",
+      answer: true,
+      correct: true,
+      timestamp: 1,
+    });
+    await scoped.saveAnswer({
+      userId: "UFREE",
+      questionId: "q1",
+      answer: false,
+      correct: false,
+      timestamp: 2,
+    });
+  }
+
+  function footerText(updates: UpdateCall[]): string {
+    const footer = updates[0].blocks.find((b) => b.block_id === "reveal-results:q1");
+    assert.ok(footer !== undefined && footer.type === "section");
+    return footer.text?.text ?? "";
+  }
+
+  it("teams ON: the footer names the team and free agents, never members", async () => {
+    const data = createInMemoryDataLayer();
+    await seedRevealed(data);
+    const getGames = () =>
+      fixtureGetGames().map((g) =>
+        g.name === FIXTURE_GAME_NAME ? { ...g, teams: ROSTER, teamsEnabled: true } : g,
+      );
+    const { deps, updates } = capturingSlackDeps();
+    const tool = createRefreshQuestionCardsTool(data, createFakeSdk(), getGames, deps);
+    await tool.handler({ game: FIXTURE_GAME_NAME, questionIds: ["q1"] }, SESSION);
+
+    const text = footerText(updates);
+    assert.match(text, /Correct:.*Red/);
+    assert.doesNotMatch(text, /<@U1>/);
+    assert.match(text, /Incorrect:.*<@UFREE>/);
+  });
+
+  it("teams OFF: the footer names individuals exactly as before", async () => {
+    const data = createInMemoryDataLayer();
+    await seedRevealed(data);
+    const { deps, updates } = capturingSlackDeps();
+    await makeTool(data, deps).handler({ game: FIXTURE_GAME_NAME, questionIds: ["q1"] }, SESSION);
+
+    const text = footerText(updates);
+    assert.match(text, /Correct:.*<@U1>/);
+    assert.doesNotMatch(text, /Red/);
+  });
+});

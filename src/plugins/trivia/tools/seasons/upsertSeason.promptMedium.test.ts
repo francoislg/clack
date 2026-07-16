@@ -40,6 +40,10 @@ function makeArgs(overrides: Partial<UpsertArgs>): UpsertArgs {
     choices: undefined,
     choiceEmojiStyle: undefined,
     points: undefined,
+    teams: undefined,
+    teamsEnabled: undefined,
+    teamsFinaleIndividuals: undefined,
+    teamsScoring: undefined,
     ...overrides,
   };
 }

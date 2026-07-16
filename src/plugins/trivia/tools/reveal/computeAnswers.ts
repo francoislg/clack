@@ -13,6 +13,10 @@ import { requireWritableGame } from "../../core/gamesRegistry.js";
 import { buildQuestionPointsMap, computeLeaderboard } from "../../domain/computeLeaderboard.js";
 import { resolveAllTimeRow, shouldShowAllTimeRow } from "../../domain/allTimeRow.js";
 import { resolveTagPlayers } from "../../domain/tagPlayers.js";
+import { resolveTeamsConfig } from "../../domain/teams/resolveTeamsConfig.js";
+import { computeTeamStandings } from "../../domain/teams/computeTeamStandings.js";
+import { computeTeamAllTime } from "../../domain/teams/allTime.js";
+import { groupVotersByTeam } from "./teamVoters.js";
 import { resolveIncludeRevealInQuestions } from "../../domain/includeRevealInQuestions.js";
 import { resolveFinalRevealSummary } from "../../domain/finalRevealSummary.js";
 import { findCurrentSeason } from "../../core/seasonTimeline.js";
@@ -26,7 +30,7 @@ import {
 } from "./slack.js";
 import { pickSeasonMvp } from "./rollover.js";
 import { computeRoundSummary, type RoundAnswer } from "./roundSummary.js";
-import { isScoredAnswer } from "../../answerTypes/cheaterFilter.js";
+import { buildExcludeSet, isScoredAnswer } from "../../answerTypes/cheaterFilter.js";
 import type { ClackSdk } from "../../../sdk.js";
 import type { TriviaDataLayer, TriviaQuestion, SubmittedAnswer } from "../../core/types.js";
 import { getAllAnswerTypeHandlers, getAnswerTypeHandler } from "../../answerTypes/registry.js";
@@ -38,6 +42,7 @@ import type {
   ProcessRevealResult,
   SeasonStatusOut,
   SlackReactionLike,
+  TeamStandingsOut,
 } from "./types.js";
 
 const EMPTY_CHEATER_SET: ReadonlySet<string> = new Set<string>();
@@ -67,6 +72,7 @@ ${PER_FORMAT_ANSWER_SHAPES}
 - \`leaderboard\`: same shape as retrieve_scores' return.
 - \`roundSummary\` (ALWAYS present): \`{ totalQuestions, perPlayer: Array<{ userId, displayName, correct, answered, roundMvp?, perfectRound? }> }\` — the per-player round scoreboard, an AGGREGATE derived from the scored answers (same source as \`leaderboard\`), INDEPENDENT of every entry's \`revealResponses\`. \`perPlayer\` is empty only when nobody answered this round. Cheaters/bot are excluded. \`perfectRound: true\` marks a player who answered EVERY question correctly on a fire of >= 3 questions.
 - \`seasonStatus\` (only when seasons enabled): \`{ currentSlug, isLastFireOfSeason, seasonClosed, hasPriorSeasons, mvp? }\`. This tool REPORTS the status but performs NO rollover — \`seasonClosed\` is always \`false\` here and no continuation season is created. When \`isLastFireOfSeason\` is true, the renderer SHALL call \`start_new_season({ game })\` to perform the rollover.
+- \`teamStandings\` (optional — present ONLY when the game's effective teams mode is ON): \`{ scoring, teams: Array<{ name, thisRound, currentSeason, allTime? }>, freeAgents: Array<{ userId, displayName, thisRound, currentSeason, allTime }>, finaleIndividuals? }\`. \`teams\` is ordered current-season points desc (the standings table's column order); a team's \`allTime\` is present ONLY when its name matches a prior season's stamped roster (absent → render that All Time cell empty). \`finaleIndividuals: true\` (season's last fire + \`teamsFinaleIndividuals\` on) directs the renderer to ALSO append the classic individual leaderboard below the team standings. When teams mode is ON, each entry additionally carries \`teamVoters\` (team-grouped voter buckets: a team is Correct when ≥1 member was correct, Incorrect when members answered but none correctly, NoAnswer when nobody answered; members are absorbed — name TEAMS in the narrative, never their members; free agents stay individual; freeform member answer texts arrive UNATTRIBUTED on the team entry).
 - \`invalidatedQuestions\` (optional): \`Array<{ questionId, statement, category, emojis, invalidatedReason? }>\` — questions in this batch marked INVALIDATED via \`settle_question({ invalidate: true })\`. Worth 0, never scored; render an "invalidated" line for each and (via \`refresh_question_cards\`) their cards repaint as invalidated. Absent when none.
 - \`instructions\` / \`additionalInstructions\` (optional): resolved guidance axes; honor verbatim. Absent → ignore.
 
@@ -243,7 +249,9 @@ export function createComputeAnswersTool(
 
       const gameEntry = getGamesFn().find((g) => g.name === args.game) ?? null;
       const triviaConfig = getTriviaConfigFn();
-      const currentSeasonForResolution = findCurrentSeason(await scoped.loadSeasonsState(), now);
+      const seasonsStateForResolution = await scoped.loadSeasonsState();
+      const currentSeasonForResolution = findCurrentSeason(seasonsStateForResolution, now);
+      const teamsConfig = resolveTeamsConfig(currentSeasonForResolution, gameEntry, triviaConfig);
 
       // Each target's reveal scoring is owned by its answer-type handler — the
       // flow just iterates, calls `handler.processReveal`, and accumulates
@@ -340,6 +348,10 @@ export function createComputeAnswersTool(
               ? { points: question.points }
               : {}),
           };
+          if (teamsConfig.enabled) {
+            const teamVoters = groupVotersByTeam(entry.voters, teamsConfig.roster);
+            if (teamVoters !== undefined) entry.teamVoters = teamVoters;
+          }
           entriesById.set(question.id, entry);
         } else {
           perIdErrors.push({ questionId: question.id, error: outcome.error });
@@ -395,6 +407,7 @@ export function createComputeAnswersTool(
       }
       const revealedIdSet = new Set(revealedQuestionIds);
       const scoredRoundAnswers: RoundAnswer[] = [];
+      const scoredRoundRows: SubmittedAnswer[] = [];
       for (const a of refreshedAnswers) {
         if (!revealedIdSet.has(a.questionId)) continue;
         const cheaterIds = cheaterIdsByQuestion.get(a.questionId) ?? EMPTY_CHEATER_SET;
@@ -404,6 +417,7 @@ export function createComputeAnswersTool(
           userId: a.userId,
           correct: a.correct === true,
         });
+        scoredRoundRows.push(a);
       }
       const roundSummary = computeRoundSummary(
         revealedQuestionIds,
@@ -411,6 +425,69 @@ export function createComputeAnswersTool(
         (userId) => refreshedUsers.get(userId)?.displayName ?? userId,
         questionPoints,
       );
+
+      // Teams-mode standings block. Present ONLY when teams mode is effectively
+      // ON — the teams-off payload stays byte-identical to pre-teams behavior.
+      let teamStandingsOut: TeamStandingsOut | undefined;
+      if (teamsConfig.enabled) {
+        const excludes = buildExcludeSet(botUserId, EMPTY_CHEATER_SET);
+        const roundStandings = computeTeamStandings(
+          scoredRoundRows,
+          teamsConfig.roster,
+          teamsConfig.scoring,
+          null,
+          questionPoints,
+        );
+        const seasonStandings = computeTeamStandings(
+          refreshedAnswers,
+          teamsConfig.roster,
+          teamsConfig.scoring,
+          currentSlugForBoard,
+          questionPoints,
+          excludes,
+        );
+        const allTimeByName = computeTeamAllTime(
+          refreshedAnswers,
+          seasonsStateForResolution,
+          teamsConfig.roster,
+          teamsConfig.scoring,
+          currentSlugForBoard,
+          questionPoints,
+          excludes,
+        );
+        const roundByName = new Map(roundStandings.map((s) => [s.name, s.points]));
+
+        const teamUserIds = new Set(teamsConfig.roster.flatMap((t) => t.userIds));
+        const roundPointsByUser = new Map(roundSummary.perPlayer.map((p) => [p.userId, p.points]));
+        const freeAgents = leaderboard
+          .filter((entry) => !teamUserIds.has(entry.userId))
+          .map((entry) => ({
+            userId: entry.userId,
+            displayName: entry.displayName,
+            thisRound: roundPointsByUser.get(entry.userId) ?? 0,
+            currentSeason: entry.currentSeasonPoints ?? 0,
+            allTime: entry.totalPoints,
+          }));
+
+        teamStandingsOut = {
+          scoring: teamsConfig.scoring,
+          // seasonStandings is already sorted season-points-desc — the table's
+          // column order.
+          teams: seasonStandings.map((s) => {
+            const allTime = allTimeByName.get(s.name);
+            return {
+              name: s.name,
+              thisRound: roundByName.get(s.name) ?? 0,
+              currentSeason: s.points,
+              ...(allTime !== undefined ? { allTime } : {}),
+            };
+          }),
+          freeAgents,
+          ...(seasonStatus?.isLastFireOfSeason === true && teamsConfig.finaleIndividuals
+            ? { finaleIndividuals: true as const }
+            : {}),
+        };
+      }
 
       // Resolve the two free-form guidance axes for this reveal.
       const firstSlotIndex =
@@ -436,6 +513,7 @@ export function createComputeAnswersTool(
         finalRevealSummary: resolveFinalRevealSummary(gameEntry, triviaConfig),
         tagPlayers: resolveTagPlayers(gameEntry, triviaConfig),
         ...(seasonStatus ? { seasonStatus } : {}),
+        ...(teamStandingsOut !== undefined ? { teamStandings: teamStandingsOut } : {}),
         ...(seasonStatus
           ? {
               showAllTimeRow: shouldShowAllTimeRow(

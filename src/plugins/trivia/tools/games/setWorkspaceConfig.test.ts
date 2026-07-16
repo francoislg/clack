@@ -43,6 +43,10 @@ const emptyArgs = {
   finalRevealSummary: undefined,
   judgeLeniency: undefined,
   tellMeMore: undefined,
+  teams: undefined,
+  teamsEnabled: undefined,
+  teamsFinaleIndividuals: undefined,
+  teamsScoring: undefined,
 };
 
 describe("set_workspace_config", () => {
@@ -323,6 +327,67 @@ describe("set_workspace_config", () => {
       const tool = createSetWorkspaceConfigTool();
       await tool.handler({ ...emptyArgs, instructions: "  Be dry.  " }, SESSION);
       assert.equal(loadTriviaConfig()?.instructions, "Be dry.");
+    });
+  });
+
+  describe("teams fields", () => {
+    const ROSTER = [
+      { name: "Red", userIds: ["U1", "U2"] },
+      { name: "Blue", userIds: ["U3"] },
+    ];
+
+    it("sets and clears the workspace roster", async () => {
+      primeBridge({});
+      const tool = createSetWorkspaceConfigTool();
+      const set = parseToolResult(await tool.handler({ ...emptyArgs, teams: ROSTER }, SESSION));
+      assert.ok(set.updatedFields.includes("teams"));
+      assert.deepEqual(loadTriviaConfig()?.teams, ROSTER);
+
+      const cleared = parseToolResult(await tool.handler({ ...emptyArgs, teams: null }, SESSION));
+      assert.ok(cleared.updatedFields.includes("teams (cleared)"));
+      assert.equal(loadTriviaConfig()?.teams, undefined);
+    });
+
+    it("sets teamsEnabled, teamsFinaleIndividuals, and teamsScoring", async () => {
+      primeBridge({});
+      const tool = createSetWorkspaceConfigTool();
+      const result = parseToolResult(
+        await tool.handler(
+          {
+            ...emptyArgs,
+            teamsEnabled: true,
+            teamsFinaleIndividuals: true,
+            teamsScoring: "total-points",
+          },
+          SESSION,
+        ),
+      );
+      assert.ok(result.updatedFields.includes("teamsEnabled"));
+      assert.ok(result.updatedFields.includes("teamsFinaleIndividuals"));
+      assert.ok(result.updatedFields.includes("teamsScoring"));
+      const cfg = loadTriviaConfig();
+      assert.equal(cfg?.teamsEnabled, true);
+      assert.equal(cfg?.teamsFinaleIndividuals, true);
+      assert.equal(cfg?.teamsScoring, "total-points");
+    });
+
+    it("rejects an invalid roster without writing", async () => {
+      primeBridge({});
+      const tool = createSetWorkspaceConfigTool();
+      const result = parseToolResult(
+        await tool.handler(
+          {
+            ...emptyArgs,
+            teams: [
+              { name: "Red", userIds: ["U1"] },
+              { name: "red", userIds: ["U2"] },
+            ],
+          },
+          SESSION,
+        ),
+      );
+      assert.match(result.error, /duplicate team name/);
+      assert.equal(loadTriviaConfig()?.teams, undefined);
     });
   });
 });

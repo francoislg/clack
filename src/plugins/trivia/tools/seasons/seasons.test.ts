@@ -200,6 +200,10 @@ describe("upsert_season tool", () => {
         choices: undefined,
         choiceEmojiStyle: undefined,
         points: undefined,
+        teams: undefined,
+        teamsEnabled: undefined,
+        teamsFinaleIndividuals: undefined,
+        teamsScoring: undefined,
       },
       SESSION,
     );
@@ -245,6 +249,10 @@ describe("upsert_season tool", () => {
       choices: undefined,
       choiceEmojiStyle: undefined,
       points: undefined,
+      teams: undefined,
+      teamsEnabled: undefined,
+      teamsFinaleIndividuals: undefined,
+      teamsScoring: undefined,
     };
 
     const created = parseToolResult(
@@ -292,6 +300,10 @@ describe("upsert_season tool", () => {
         choices: undefined,
         choiceEmojiStyle: undefined,
         points: undefined,
+        teams: undefined,
+        teamsEnabled: undefined,
+        teamsFinaleIndividuals: undefined,
+        teamsScoring: undefined,
       },
       SESSION,
     );
@@ -330,6 +342,10 @@ describe("upsert_season tool", () => {
         choices: undefined,
         choiceEmojiStyle: undefined,
         points: undefined,
+        teams: undefined,
+        teamsEnabled: undefined,
+        teamsFinaleIndividuals: undefined,
+        teamsScoring: undefined,
       },
       SESSION,
     );
@@ -370,6 +386,10 @@ describe("upsert_season tool", () => {
         choices: undefined,
         choiceEmojiStyle: undefined,
         points: undefined,
+        teams: undefined,
+        teamsEnabled: undefined,
+        teamsFinaleIndividuals: undefined,
+        teamsScoring: undefined,
       },
       SESSION,
     );
@@ -410,6 +430,10 @@ describe("upsert_season tool", () => {
         choices: undefined,
         choiceEmojiStyle: undefined,
         points: undefined,
+        teams: undefined,
+        teamsEnabled: undefined,
+        teamsFinaleIndividuals: undefined,
+        teamsScoring: undefined,
       },
       SESSION,
     );
@@ -453,6 +477,10 @@ describe("upsert_season tool", () => {
         choices: undefined,
         choiceEmojiStyle: undefined,
         points: undefined,
+        teams: undefined,
+        teamsEnabled: undefined,
+        teamsFinaleIndividuals: undefined,
+        teamsScoring: undefined,
       },
       SESSION,
     );
@@ -497,6 +525,10 @@ describe("upsert_season tool", () => {
         choices: undefined,
         choiceEmojiStyle: undefined,
         points: undefined,
+        teams: undefined,
+        teamsEnabled: undefined,
+        teamsFinaleIndividuals: undefined,
+        teamsScoring: undefined,
       },
       SESSION,
     );
@@ -537,6 +569,10 @@ describe("upsert_season tool", () => {
         choices: undefined,
         choiceEmojiStyle: undefined,
         points: undefined,
+        teams: undefined,
+        teamsEnabled: undefined,
+        teamsFinaleIndividuals: undefined,
+        teamsScoring: undefined,
       },
       SESSION,
     );
@@ -575,6 +611,10 @@ describe("upsert_season tool", () => {
         choices: undefined,
         choiceEmojiStyle: undefined,
         points: undefined,
+        teams: undefined,
+        teamsEnabled: undefined,
+        teamsFinaleIndividuals: undefined,
+        teamsScoring: undefined,
       },
       SESSION,
     );
@@ -612,6 +652,10 @@ describe("upsert_season tool", () => {
         choices: undefined,
         choiceEmojiStyle: undefined,
         points: undefined,
+        teams: undefined,
+        teamsEnabled: undefined,
+        teamsFinaleIndividuals: undefined,
+        teamsScoring: undefined,
       },
       SESSION,
     );
@@ -649,6 +693,10 @@ describe("upsert_season tool", () => {
         choices: undefined,
         choiceEmojiStyle: undefined,
         points: undefined,
+        teams: undefined,
+        teamsEnabled: undefined,
+        teamsFinaleIndividuals: undefined,
+        teamsScoring: undefined,
       },
       SESSION,
     );
@@ -689,6 +737,10 @@ describe("upsert_season tool", () => {
         choices: undefined,
         choiceEmojiStyle: undefined,
         points: undefined,
+        teams: undefined,
+        teamsEnabled: undefined,
+        teamsFinaleIndividuals: undefined,
+        teamsScoring: undefined,
       },
       SESSION,
     );
@@ -731,6 +783,10 @@ describe("upsert_season tool", () => {
         choices: undefined,
         choiceEmojiStyle: undefined,
         points: undefined,
+        teams: undefined,
+        teamsEnabled: undefined,
+        teamsFinaleIndividuals: undefined,
+        teamsScoring: undefined,
       },
       SESSION,
     );
@@ -769,6 +825,10 @@ describe("upsert_season tool", () => {
         choices: undefined,
         choiceEmojiStyle: undefined,
         points: undefined,
+        teams: undefined,
+        teamsEnabled: undefined,
+        teamsFinaleIndividuals: undefined,
+        teamsScoring: undefined,
       },
       SESSION,
     );
@@ -814,6 +874,10 @@ describe("upsert_season tool", () => {
         choices: undefined,
         choiceEmojiStyle: undefined,
         points: undefined,
+        teams: undefined,
+        teamsEnabled: undefined,
+        teamsFinaleIndividuals: undefined,
+        teamsScoring: undefined,
       },
       SESSION,
     );
@@ -856,6 +920,10 @@ describe("upsert_season tool", () => {
         choices: undefined,
         choiceEmojiStyle: undefined,
         points: undefined,
+        teams: undefined,
+        teamsEnabled: undefined,
+        teamsFinaleIndividuals: undefined,
+        teamsScoring: undefined,
       },
       SESSION,
     );
@@ -893,6 +961,10 @@ describe("upsert_season tool", () => {
           choices: undefined,
           choiceEmojiStyle: undefined,
           points: undefined,
+          teams: undefined,
+          teamsEnabled: undefined,
+          teamsFinaleIndividuals: undefined,
+          teamsScoring: undefined,
         },
         SESSION,
       );
@@ -931,6 +1003,10 @@ describe("upsert_season tool", () => {
         choices: undefined,
         choiceEmojiStyle: undefined,
         points: undefined,
+        teams: undefined,
+        teamsEnabled: undefined,
+        teamsFinaleIndividuals: undefined,
+        teamsScoring: undefined,
       },
       SESSION,
     );
@@ -972,6 +1048,10 @@ describe("upsert_season tool", () => {
         choices: undefined,
         choiceEmojiStyle: undefined,
         points: undefined,
+        teams: undefined,
+        teamsEnabled: undefined,
+        teamsFinaleIndividuals: undefined,
+        teamsScoring: undefined,
       },
       SESSION,
     );
@@ -1002,6 +1082,10 @@ describe("upsert_season tool", () => {
         choices: undefined,
         choiceEmojiStyle: undefined,
         points: undefined,
+        teams: undefined,
+        teamsEnabled: undefined,
+        teamsFinaleIndividuals: undefined,
+        teamsScoring: undefined,
       },
       SESSION,
     );
@@ -1689,6 +1773,10 @@ describe("find_previous_questions with timeline-based current", () => {
         choices: undefined,
         choiceEmojiStyle: undefined,
         points: undefined,
+        teams: undefined,
+        teamsEnabled: undefined,
+        teamsFinaleIndividuals: undefined,
+        teamsScoring: undefined,
       },
     ]);
     const tool = createFindPreviousQuestionsTool(data, fixtureGetGames);
@@ -1774,6 +1862,10 @@ describe("add_categories with target dispatch", () => {
         choices: undefined,
         choiceEmojiStyle: undefined,
         points: undefined,
+        teams: undefined,
+        teamsEnabled: undefined,
+        teamsFinaleIndividuals: undefined,
+        teamsScoring: undefined,
       },
     ]);
     const tool = createAddCategoriesTool(data, fixtureGetGames);

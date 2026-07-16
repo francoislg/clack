@@ -2,8 +2,24 @@ import type { CascadeAxes } from "../core/cascadeAxes.js";
 import type { SeasonEntry } from "../core/types.js";
 import type { TriviaGame } from "../core/configTypes.js";
 
-/** A field name an `upsert_game` call wrote: a cascading axis, or the `format` pseudo-field. */
-export type WrittenField = keyof CascadeAxes | "format";
+/**
+ * A field name an `upsert_game` call wrote: a cascading axis, the `format`
+ * pseudo-field, or one of the season-tier-only teams fields.
+ */
+export type WrittenField = keyof CascadeAxes | "format" | TeamsWrittenField;
+
+/** The four teams fields cascade `season → game → workspace` with NO slot tier. */
+const TEAMS_WRITTEN_FIELDS = [
+  "teams",
+  "teamsEnabled",
+  "teamsFinaleIndividuals",
+  "teamsScoring",
+] as const;
+export type TeamsWrittenField = (typeof TEAMS_WRITTEN_FIELDS)[number];
+
+function isTeamsField(field: WrittenField): field is TeamsWrittenField {
+  return (TEAMS_WRITTEN_FIELDS as readonly string[]).includes(field);
+}
 
 /** Which higher-precedence tier masks the game-tier write, and the masked field names. */
 export interface ShadowReport {
@@ -42,6 +58,8 @@ export function detectGameWriteShadowing(
       seasonShadowed.push(field);
       continue;
     }
+    // Teams fields have no slot tier — season shadowing is the only kind possible.
+    if (isTeamsField(field)) continue;
     if (
       season?.format === undefined &&
       game.format !== undefined &&

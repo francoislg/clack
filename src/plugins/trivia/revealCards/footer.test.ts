@@ -1,10 +1,21 @@
 import { describe, it } from "vitest";
 import assert from "node:assert/strict";
 import { buildRevealFooterBlocks } from "./footer.js";
-import type { VoterBuckets } from "../tools/reveal/types.js";
+import type { TeamVoterBuckets, VoterBuckets } from "../tools/reveal/types.js";
 
-function sectionText(voters: VoterBuckets, answerLine = "👍 TRUE", tagPlayers = true): string {
-  const [divider, section] = buildRevealFooterBlocks(voters, answerLine, "Q1", tagPlayers);
+function sectionText(
+  voters: VoterBuckets,
+  answerLine = "👍 TRUE",
+  tagPlayers = true,
+  teamVoters?: TeamVoterBuckets,
+): string {
+  const [divider, section] = buildRevealFooterBlocks(
+    voters,
+    answerLine,
+    "Q1",
+    tagPlayers,
+    teamVoters,
+  );
   assert.equal(divider.type, "divider");
   assert.equal(divider.block_id, "reveal-results-divider:Q1");
   assert.equal(section.type, "section");
@@ -108,5 +119,127 @@ describe("buildRevealFooterBlocks", () => {
     });
     assert.doesNotMatch(text, /got it wrong/);
     assert.doesNotMatch(text, /didn't answer/);
+  });
+
+  describe("teams mode (teamVoters supplied)", () => {
+    it("renders team names plus free agents; members are absorbed", () => {
+      const text = sectionText(
+        {
+          revealResponses: "yes",
+          correct: [ALICE, BOB],
+          incorrect: [CY],
+          noAnswer: [],
+          reactions: [],
+        },
+        "👍 TRUE",
+        true,
+        {
+          correctTeams: [{ team: "Red" }],
+          correctFreeAgents: [BOB],
+          incorrectTeams: [{ team: "Blue" }],
+          incorrectFreeAgents: [],
+          noAnswerTeams: [],
+          noAnswerFreeAgents: [],
+        },
+      );
+      assert.match(text, /Correct:.*Red, <@U_BOB>/);
+      assert.match(text, /Incorrect:.*Blue/);
+      assert.doesNotMatch(text, /<@U_ALICE>/);
+      assert.doesNotMatch(text, /<@U_CY>/);
+    });
+
+    it("team names are plain text even when tagPlayers is true; free agents honor tagPlayers=false", () => {
+      const text = sectionText(
+        {
+          revealResponses: "yes",
+          correct: [ALICE],
+          incorrect: [],
+          noAnswer: [],
+          reactions: [],
+        },
+        "👍 TRUE",
+        false,
+        {
+          correctTeams: [{ team: "Red" }],
+          correctFreeAgents: [BOB],
+          incorrectTeams: [],
+          incorrectFreeAgents: [],
+          noAnswerTeams: [],
+          noAnswerFreeAgents: [],
+        },
+      );
+      assert.match(text, /Correct:.*Red, @Bob/);
+      assert.doesNotMatch(text, /<@U_/);
+    });
+
+    it("never prints member answer texts", () => {
+      const text = sectionText(
+        {
+          revealResponses: "yes",
+          correct: [{ ...ALICE, answerText: "Napoleon" }],
+          incorrect: [],
+          noAnswer: [],
+          reactions: [],
+        },
+        "Napoleon",
+        true,
+        {
+          correctTeams: [{ team: "Red", answerTexts: ["Napoleon", "Bonaparte"] }],
+          correctFreeAgents: [],
+          incorrectTeams: [],
+          incorrectFreeAgents: [],
+          noAnswerTeams: [],
+          noAnswerFreeAgents: [],
+        },
+      );
+      assert.match(text, /Correct:.*Red/);
+      assert.doesNotMatch(text, /Bonaparte/);
+    });
+
+    it("renders noAnswer teams alongside noAnswer free agents", () => {
+      const text = sectionText(
+        {
+          revealResponses: "just-correctness",
+          correct: [],
+          incorrect: [],
+          noAnswer: [CY],
+          reactions: [],
+        },
+        "👍 TRUE",
+        true,
+        {
+          correctTeams: [],
+          correctFreeAgents: [],
+          incorrectTeams: [],
+          incorrectFreeAgents: [],
+          noAnswerTeams: ["Blue"],
+          noAnswerFreeAgents: [CY],
+        },
+      );
+      assert.match(text, /Didn't answer:.*Blue, <@U_CY>/);
+      assert.doesNotMatch(text, /Correct/);
+    });
+
+    it("just-winners names winning teams and keeps anonymous counts", () => {
+      const text = sectionText(
+        {
+          revealResponses: "just-winners",
+          correct: [ALICE],
+          incorrectCount: 3,
+          noAnswerCount: 2,
+          reactions: [],
+        },
+        "👍 TRUE",
+        true,
+        {
+          correctTeams: [{ team: "Red" }],
+          correctFreeAgents: [],
+        },
+      );
+      assert.match(text, /Correct:.*Red/);
+      assert.doesNotMatch(text, /<@U_ALICE>/);
+      assert.match(text, /3 got it wrong/);
+      assert.match(text, /2 didn't answer/);
+    });
   });
 });

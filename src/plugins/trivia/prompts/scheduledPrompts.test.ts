@@ -1060,3 +1060,37 @@ describe("difficulty is doubt, not obscurity (boolean)", () => {
     );
   });
 });
+
+describe("PROCESS_REVEAL_INSTRUCTIONS — TEAMS MODE contract", () => {
+  it("is gated on teamStandings presence and preserves the individual contract when absent", () => {
+    assert.match(
+      PROCESS_REVEAL_INSTRUCTIONS,
+      /TEAMS MODE \(ACTIVE ONLY when the payload carries `teamStandings`\)/,
+    );
+    assert.match(
+      PROCESS_REVEAL_INSTRUCTIONS,
+      /When `teamStandings` is ABSENT, ignore this section — the individual contract above applies exactly as written/,
+    );
+  });
+
+  it("orders team columns first and applies the per-cell All Time rule", () => {
+    assert.match(PROCESS_REVEAL_INSTRUCTIONS, /one per team from `teamStandings\.teams`, FIRST/);
+    assert.match(PROCESS_REVEAL_INSTRUCTIONS, /THEN one per free agent/);
+    assert.match(
+      PROCESS_REVEAL_INSTRUCTIONS,
+      /a team WITHOUT it renders the em-dash `"—"` \(no medal\)/,
+    );
+  });
+
+  it("names teams in the narrative and never their members", () => {
+    assert.match(PROCESS_REVEAL_INSTRUCTIONS, /NEVER name a team member/);
+    assert.match(PROCESS_REVEAL_INSTRUCTIONS, /quote a team's `answerTexts` UNATTRIBUTED/);
+  });
+
+  it("appends the classic individual table only on the finale signal", () => {
+    assert.match(
+      PROCESS_REVEAL_INSTRUCTIONS,
+      /When `teamStandings\.finaleIndividuals` is `true`, ADDITIONALLY append the classic INDIVIDUAL leaderboard table/,
+    );
+  });
+});

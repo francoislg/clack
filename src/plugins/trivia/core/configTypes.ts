@@ -330,6 +330,42 @@ export const CHOICE_EMOJI_STYLE_KEYS = ["numbers", "themed"] as const;
 export const DEFAULT_CHOICE_EMOJI_STYLE: ChoiceEmojiStyle = "numbers";
 
 /**
+ * One team in a trivia roster. Stores Slack user ids ONLY — display names are
+ * resolved at render time from the central users registry (an unknown id falls
+ * back to the raw id). Team identity across seasons is the NAME (matched
+ * case-insensitively against stamped season history); renaming a team severs
+ * its all-time history by design.
+ */
+export interface TeamDef {
+  name: string;
+  userIds: string[];
+}
+
+/**
+ * Team scoring algorithm selector. Every mode MUST have an entry in
+ * `TEAM_SCORING_REGISTRY` (`domain/teams/scoring.ts`) — the mapped type makes a
+ * missing strategy a compile error. Consumers never branch on this value;
+ * behavior lives in the strategy.
+ *   - `"one-right-is-right"` — per question, ≥1 member correct → the team earns
+ *     the question's stamped points (1 unless the points axis raised it).
+ *   - `"total-points"` — per question, Σ over correct members of the question's
+ *     stamped points.
+ */
+export type TeamsScoringMode = "one-right-is-right" | "total-points";
+
+/** The accepted `teamsScoring` values, for zod/validator reuse. */
+export const TEAMS_SCORING_KEYS = ["one-right-is-right", "total-points"] as const;
+
+/** Built-in fallback when no `teamsEnabled` is set at any tier: teams mode off. */
+export const DEFAULT_TEAMS_ENABLED = false;
+
+/** Built-in fallback when no `teamsScoring` is set at any tier. */
+export const DEFAULT_TEAMS_SCORING: TeamsScoringMode = "one-right-is-right";
+
+/** Built-in fallback when no `teamsFinaleIndividuals` is set at any tier. */
+export const DEFAULT_TEAMS_FINALE_INDIVIDUALS = false;
+
+/**
  * One trivia game declared in plugin config. The trivia plugin reconciles its cron jobs
  * from this list on every load: each entry produces two plugin-managed cron jobs
  * (`<name>:question` and `<name>:reveal`).
@@ -429,6 +465,34 @@ export interface TriviaGame extends CascadeAxes {
    *   See `TriviaTellMeMoreConfig` and `resolveTellMeMore`.
    */
   tellMeMore?: TriviaTellMeMoreConfig;
+  /**
+   * Per-game tier of the teams roster. Structural-special (NOT a CascadeAxes
+   * member — no slot tier); each teams field cascades INDEPENDENTLY first-wins
+   * `season → game → workspace → default` (a season flipping `teamsEnabled`
+   * still inherits a lower-tier roster). Whole-roster replace per tier.
+   * See `resolveTeamsConfig` in `domain/teams/resolveTeamsConfig.ts`.
+   */
+  teams?: TeamDef[];
+  /**
+   * Per-game tier of the teams policy toggle. Roster presence NEVER activates
+   * teams by itself, and an enabled config with an empty effective roster
+   * resolves to OFF (surfaced as a `list_games` warning). Cascade:
+   *   `season → game → workspace → false`. NOT a CascadeAxes member.
+   */
+  teamsEnabled?: boolean;
+  /**
+   * Per-game tier of the finale-individuals knob: when teams mode is on and the
+   * season's last fire reveals, ALSO append the classic individual leaderboard
+   * below the team tables. Cascade: `season → game → workspace → false`.
+   * NOT a CascadeAxes member.
+   */
+  teamsFinaleIndividuals?: boolean;
+  /**
+   * Per-game tier of the team scoring algorithm. Cascade:
+   *   `season → game → workspace → "one-right-is-right"`. NOT a CascadeAxes
+   *   member. See `TeamsScoringMode` and `TEAM_SCORING_REGISTRY`.
+   */
+  teamsScoring?: TeamsScoringMode;
 }
 
 /**
@@ -520,6 +584,28 @@ export interface TriviaConfig extends CascadeAxes {
    *   See `TriviaTellMeMoreConfig`.
    */
   tellMeMore?: TriviaTellMeMoreConfig;
+  /**
+   * Workspace tier of the teams roster. Structural-special (NOT a CascadeAxes
+   * member); cascades independently first-wins `season → game → workspace →
+   * default`. See `TeamDef` and `resolveTeamsConfig`.
+   */
+  teams?: TeamDef[];
+  /**
+   * Workspace tier of the teams policy toggle. Cascade:
+   *   `season → game → workspace → false`. NOT a CascadeAxes member.
+   */
+  teamsEnabled?: boolean;
+  /**
+   * Workspace tier of the finale-individuals knob. Cascade:
+   *   `season → game → workspace → false`. NOT a CascadeAxes member.
+   */
+  teamsFinaleIndividuals?: boolean;
+  /**
+   * Workspace tier of the team scoring algorithm. Cascade:
+   *   `season → game → workspace → "one-right-is-right"`. NOT a CascadeAxes
+   *   member.
+   */
+  teamsScoring?: TeamsScoringMode;
 }
 
 /** Defaults applied when `choices` is absent or only partially specified. */

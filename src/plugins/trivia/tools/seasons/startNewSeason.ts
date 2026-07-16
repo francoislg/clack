@@ -2,7 +2,12 @@ import { z } from "zod";
 import { tool } from "@anthropic-ai/claude-agent-sdk";
 import { textResult, errorResult } from "../../../../tools/helpers.js";
 import { findCurrentSeason } from "../../core/seasonTimeline.js";
-import { defaultGetGames, type GetGamesFn } from "../../core/configBridge.js";
+import {
+  defaultGetGames,
+  defaultGetTriviaConfig,
+  type GetGamesFn,
+  type GetTriviaConfigFn,
+} from "../../core/configBridge.js";
 import { requireWritableGame } from "../../core/gamesRegistry.js";
 import { nextCronFireAfter, isLastFireBeforeSeasonEnd } from "../../domain/seasonStatus.js";
 import { applySeasonRollover } from "../reveal/rollover.js";
@@ -17,6 +22,7 @@ CONFIRMATION GUARD: this tool re-derives \`isLastFireOfSeason\` from the game's 
 export function createStartNewSeasonTool(
   data: TriviaDataLayer,
   getGamesFn: GetGamesFn = defaultGetGames,
+  getTriviaConfigFn: GetTriviaConfigFn = defaultGetTriviaConfig,
 ) {
   return tool(
     "start_new_season",
@@ -86,8 +92,15 @@ export function createStartNewSeasonTool(
         });
       }
 
-      const outcome = applySeasonRollover(state, current.slug, now);
-      if (outcome.seasonClosed || outcome.newSeasonStarted !== undefined) {
+      const outcome = applySeasonRollover(state, current.slug, now, {
+        game: game ?? null,
+        workspace: getTriviaConfigFn(),
+      });
+      if (
+        outcome.seasonClosed ||
+        outcome.newSeasonStarted !== undefined ||
+        outcome.teamsStamped === true
+      ) {
         await scoped.saveSeasonsState(state);
       }
 

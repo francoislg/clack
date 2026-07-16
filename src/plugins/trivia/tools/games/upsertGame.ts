@@ -15,12 +15,18 @@ import type {
   JsonObject,
   JsonValue,
   RevealResponsesMode,
+  TeamDef,
   TriviaChoicesConfig,
   TriviaPointsConfig,
   TriviaConfig,
   TriviaGame,
   TriviaHintConfig,
 } from "../../core/configTypes.js";
+import {
+  teamsRosterZod,
+  teamsScoringZod,
+  validateTeamsRoster,
+} from "../../core/configParsers/teams.js";
 import {
   REVEAL_RESPONSES_VALUES,
   answersFormatZod,
@@ -227,6 +233,32 @@ const structuralFieldsSchema = {
     .optional()
     .describe(
       "Per-game tier of the choice option-count bounds axis. Object shape `{ min, max }` with `2 ≤ min ≤ max ≤ 4`. Bounds how many options a `choice` question gets (get_ideas rolls a count in `[min, max]`; save_question validates against it). Cascade: `slot → season → game → workspace → { min: 4, max: 4 }`. Whole-object replace per tier. On UPDATE: explicit null clears the field.",
+    ),
+  teams: teamsRosterZod
+    .nullable()
+    .optional()
+    .describe(
+      "Per-game tier of the teams roster: `Array<{ name, userIds }>` (Slack user IDs only). WHOLE-ROSTER replace per tier. Validation rejects empty/duplicate (case-insensitive) team names, empty userIds, and a user in more than one team. A roster alone NEVER activates teams — `teamsEnabled` is the switch. Cascade: `season → game → workspace → (none)` (no slot tier). On UPDATE: explicit null clears the field.",
+    ),
+  teamsEnabled: z
+    .boolean()
+    .nullable()
+    .optional()
+    .describe(
+      "Per-game tier of the teams policy toggle. `true` plays this game in TEAMS mode (using the cascade-resolved roster; enabled with an EMPTY effective roster stays OFF and surfaces a list_games warning). Writing `true` without a roster at this tier is valid staging — the roster may live at another tier. Cascade: `season → game → workspace → false` (no slot tier). On UPDATE: explicit null clears the field.",
+    ),
+  teamsFinaleIndividuals: z
+    .boolean()
+    .nullable()
+    .optional()
+    .describe(
+      "Per-game tier of the finale-individuals knob: when `true` and teams mode is on, the season's LAST reveal also appends the classic individual leaderboard below the team standings. Cascade: `season → game → workspace → false` (no slot tier). On UPDATE: explicit null clears the field.",
+    ),
+  teamsScoring: teamsScoringZod
+    .nullable()
+    .optional()
+    .describe(
+      'Per-game tier of the team scoring algorithm. `"one-right-is-right"` (the default): per question, ≥1 member correct earns the team the question\'s points once. `"total-points"`: per question, the team earns the sum of its correct members\' points (favors bigger teams — say so when an admin picks it). Stamped onto the season at close, so ended seasons keep the mode they were played under. Cascade: `season → game → workspace → "one-right-is-right"` (no slot tier). On UPDATE: explicit null clears the field.',
     ),
 };
 
@@ -479,6 +511,12 @@ export function createUpsertGameTool(
         if (!r.ok) issues.push({ field: "points", error: r.error });
         else parsedPoints = r.value;
       }
+      let parsedTeams: TeamDef[] | undefined;
+      if (args.teams !== undefined && args.teams !== null) {
+        const r = validateTeamsRoster(args.teams, "teams");
+        if (!r.ok) issues.push({ field: "teams", error: r.error });
+        else parsedTeams = r.value;
+      }
 
       if (issues.length > 0) {
         return errorResult(issues.map((i) => `${i.field}: ${i.error}`).join("; "));
@@ -563,6 +601,12 @@ export function createUpsertGameTool(
           ? { choiceEmojiStyle: existing.choiceEmojiStyle }
           : {}),
         ...(existing?.points !== undefined ? { points: existing.points } : {}),
+        ...(existing?.teams !== undefined ? { teams: existing.teams } : {}),
+        ...(existing?.teamsEnabled !== undefined ? { teamsEnabled: existing.teamsEnabled } : {}),
+        ...(existing?.teamsFinaleIndividuals !== undefined
+          ? { teamsFinaleIndividuals: existing.teamsFinaleIndividuals }
+          : {}),
+        ...(existing?.teamsScoring !== undefined ? { teamsScoring: existing.teamsScoring } : {}),
       };
       if (args.format === null) delete mergedStructural.format;
       else if (parsedFormat !== undefined) mergedStructural.format = parsedFormat;
@@ -603,6 +647,15 @@ export function createUpsertGameTool(
         mergedStructural.choiceEmojiStyle = args.choiceEmojiStyle;
       if (args.points === null) mergedStructural.points = undefined;
       else if (parsedPoints !== undefined) mergedStructural.points = parsedPoints;
+      if (args.teams === null) mergedStructural.teams = undefined;
+      else if (parsedTeams !== undefined) mergedStructural.teams = parsedTeams;
+      if (args.teamsEnabled === null) mergedStructural.teamsEnabled = undefined;
+      else if (args.teamsEnabled !== undefined) mergedStructural.teamsEnabled = args.teamsEnabled;
+      if (args.teamsFinaleIndividuals === null) mergedStructural.teamsFinaleIndividuals = undefined;
+      else if (args.teamsFinaleIndividuals !== undefined)
+        mergedStructural.teamsFinaleIndividuals = args.teamsFinaleIndividuals;
+      if (args.teamsScoring === null) mergedStructural.teamsScoring = undefined;
+      else if (args.teamsScoring !== undefined) mergedStructural.teamsScoring = args.teamsScoring;
 
       const enabled = args.enabled ?? existing?.enabled ?? true;
 
@@ -648,6 +701,10 @@ export function createUpsertGameTool(
       if (wrote(args.liveAnswersVisible)) writtenFields.push("liveAnswersVisible");
       if (wrote(args.revealResponses)) writtenFields.push("revealResponses");
       if (wrote(args.format)) writtenFields.push("format");
+      if (wrote(args.teams)) writtenFields.push("teams");
+      if (wrote(args.teamsEnabled)) writtenFields.push("teamsEnabled");
+      if (wrote(args.teamsFinaleIndividuals)) writtenFields.push("teamsFinaleIndividuals");
+      if (wrote(args.teamsScoring)) writtenFields.push("teamsScoring");
 
       const shadowedBy =
         data !== undefined && writtenFields.length > 0
@@ -683,6 +740,10 @@ export function createUpsertGameTool(
         hasIncludeRevealInQuestions: mergedStructural.includeRevealInQuestions !== undefined,
         hasFinalRevealSummary: mergedStructural.finalRevealSummary !== undefined,
         hasTellMeMore: mergedStructural.tellMeMore !== undefined,
+        hasTeams: mergedStructural.teams !== undefined,
+        hasTeamsEnabled: mergedStructural.teamsEnabled !== undefined,
+        hasTeamsFinaleIndividuals: mergedStructural.teamsFinaleIndividuals !== undefined,
+        hasTeamsScoring: mergedStructural.teamsScoring !== undefined,
         slotCount: mergedStructural.format?.questions.length ?? 0,
       });
     },

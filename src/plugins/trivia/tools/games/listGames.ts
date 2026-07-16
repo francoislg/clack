@@ -10,6 +10,8 @@ import {
 } from "../../core/configBridge.js";
 import type {
   SeasonFormat,
+  TeamDef,
+  TeamsScoringMode,
   TriviaAllTimeRowMode,
   TriviaFinalRevealSummary,
   TriviaIncludeRevealInQuestions,
@@ -22,6 +24,7 @@ import type {
 } from "../../core/configTypes.js";
 import type { CascadeAxes } from "../../core/cascadeAxes.js";
 import { AXIS_KEYS, copyAxisIfSet } from "../../domain/resolveCascade.js";
+import { resolveTeamsConfig } from "../../domain/teams/resolveTeamsConfig.js";
 
 /**
  * Per-game cascade-axis overrides. Projected from `AXIS_KEYS` (the registry's axis set),
@@ -77,6 +80,12 @@ interface ListGamesEntry {
   includeRevealInQuestions?: TriviaIncludeRevealInQuestions;
   finalRevealSummary?: TriviaFinalRevealSummary;
   tellMeMore?: TriviaTellMeMoreConfig;
+  teams?: TeamDef[];
+  teamsEnabled?: boolean;
+  teamsFinaleIndividuals?: boolean;
+  teamsScoring?: TeamsScoringMode;
+  /** Present when the effective teams config is enabled with an empty roster (inert misconfiguration). */
+  teamsWarning?: string;
 }
 
 export type FindOwnedCronJobsFn = () => Promise<Array<{ id: string; specKey: string }>>;
@@ -93,6 +102,10 @@ type WorkspaceDefaults = Partial<CascadeAxes> & {
   includeRevealInQuestions?: TriviaIncludeRevealInQuestions;
   finalRevealSummary?: TriviaFinalRevealSummary;
   tellMeMore?: TriviaTellMeMoreConfig;
+  teams?: TeamDef[];
+  teamsEnabled?: boolean;
+  teamsFinaleIndividuals?: boolean;
+  teamsScoring?: TeamsScoringMode;
 };
 
 const DESCRIPTION = `List the trivia games configured in this deployment (data/plugins/trivia/config.json's \`games[]\`), plus the workspace tier of the cascading axis configuration (\`workspaceDefaults\`) AND each entry's per-game \`axisOverrides\`, so admins can audit configuration without reading the file by hand.
@@ -132,9 +145,15 @@ export function createListGamesTool(
         jobIdBySpecKey.set(j.specKey, j.id);
       }
 
+      const workspaceCfg = getTriviaConfigFn();
       const entries: ListGamesEntry[] = filtered.map((g) => {
         const axisOverrides: AxisOverrides = {};
         for (const key of AXIS_KEYS) copyAxisIfSet(axisOverrides, g, key);
+
+        // Season-tier teams overrides are surfaced by list_seasons; this warning
+        // audits the game+workspace tiers, which is what an admin staging a
+        // roster before enabling can act on without a per-game seasons read.
+        const effectiveTeams = resolveTeamsConfig(null, g, workspaceCfg);
 
         // Next-fire epoch ms for the optional prep / lock crons. See `nextFireMs`:
         // an absent or (defensively) unparseable cron yields `undefined`, omitting
@@ -189,10 +208,22 @@ export function createListGamesTool(
             : {}),
           ...(g.tellMeMore !== undefined ? { tellMeMore: g.tellMeMore } : {}),
           ...(g.judgeLeniency !== undefined ? { judgeLeniency: g.judgeLeniency } : {}),
+          ...(g.teams !== undefined ? { teams: g.teams } : {}),
+          ...(g.teamsEnabled !== undefined ? { teamsEnabled: g.teamsEnabled } : {}),
+          ...(g.teamsFinaleIndividuals !== undefined
+            ? { teamsFinaleIndividuals: g.teamsFinaleIndividuals }
+            : {}),
+          ...(g.teamsScoring !== undefined ? { teamsScoring: g.teamsScoring } : {}),
+          ...(effectiveTeams.inertEnabled
+            ? {
+                teamsWarning:
+                  "teamsEnabled resolves to true but the effective roster is empty — teams mode is INERT (individual play). Define a roster via upsert_game/upsert_season/set_workspace_config `teams`, or clear teamsEnabled.",
+              }
+            : {}),
         };
       });
 
-      const triviaCfg = getTriviaConfigFn();
+      const triviaCfg = workspaceCfg;
       const workspaceDefaults: WorkspaceDefaults = {};
       if (triviaCfg) {
         for (const key of AXIS_KEYS) copyAxisIfSet(workspaceDefaults, triviaCfg, key);
@@ -208,6 +239,13 @@ export function createListGamesTool(
         if (triviaCfg.finalRevealSummary !== undefined)
           workspaceDefaults.finalRevealSummary = triviaCfg.finalRevealSummary;
         if (triviaCfg.tellMeMore !== undefined) workspaceDefaults.tellMeMore = triviaCfg.tellMeMore;
+        if (triviaCfg.teams !== undefined) workspaceDefaults.teams = triviaCfg.teams;
+        if (triviaCfg.teamsEnabled !== undefined)
+          workspaceDefaults.teamsEnabled = triviaCfg.teamsEnabled;
+        if (triviaCfg.teamsFinaleIndividuals !== undefined)
+          workspaceDefaults.teamsFinaleIndividuals = triviaCfg.teamsFinaleIndividuals;
+        if (triviaCfg.teamsScoring !== undefined)
+          workspaceDefaults.teamsScoring = triviaCfg.teamsScoring;
       }
 
       return textResult({ games: entries, workspaceDefaults, total: entries.length });

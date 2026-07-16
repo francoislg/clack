@@ -3,9 +3,7 @@
 ## Purpose
 
 When trivia questions are revealed, the plugin SHALL statically edit each question's original Slack message into a final, non-interactive state. The edit removes the voting interface, shows the correct answer and optional results footer per the question's disclosure mode, and provides a read-only modal for users to review their individual submission and verdict. All strings are localized.
-
 ## Requirements
-
 ### Requirement: Static reveal edit of the original question message
 
 The static reveal edit of a question's original Slack message SHALL be performed by the `refresh_question_cards` tool (`trivia-card-projection`), not by the answer-compute tool. When `refresh_question_cards` projects a question, it SHALL edit that question's original Slack message exactly once (`chat.update`) into a final, static state. The edit SHALL be rebuilt deterministically from the question's stored `postedBlocks` (never from the message's current Slack state) so that repeated edits cannot accumulate stale blocks. The edit is a snapshot of current file state and SHALL be re-runnable: re-projecting after `answers.json` changes reconciles the card to the new state.
@@ -141,3 +139,23 @@ Every user-facing string introduced by the reveal cards — the "See your answer
 
 - **WHEN** the i18n parity test runs
 - **THEN** every new reveal-card key exists in both `en` and `fr` with no French value left identical to English
+
+### Requirement: Reveal footer renders team names when teams mode is on
+
+When the reveal payload carries team-grouped voter buckets, the reveal footer SHALL render team names in place of member names (free agents still rendered individually via `renderPlayerRef`, honoring the stamped `tagPlayers`). Team names are plain text and never Slack mentions. The footer never prints freeform answer texts (in individual mode either) — under `revealResponses: "yes"` on freeform questions, member answer texts SHALL instead be carried UNATTRIBUTED on the team's payload bucket entry (`teamVoters.*Teams[].answerTexts`), where the Claude-authored narrative quotes them under the team name.
+
+#### Scenario: Footer shows team plus free agent
+
+- **WHEN** the Correct bucket contains team "Red" and free agent Erica
+- **THEN** the footer renders `✓ Correct: Red, <Erica per tagPlayers>` with no Red member names
+
+#### Scenario: Freeform answer texts unattributed under team
+
+- **WHEN** a freeform question with `revealResponses: "yes"` reveals with teams mode on and two Red members typed answers
+- **THEN** the payload's team bucket entry carries both texts with no mapping back to which member typed which, and the narrative quotes them under "Red"
+
+#### Scenario: Live roster stays individual
+
+- **WHEN** a question is open (pre-reveal) with teams mode on
+- **THEN** the live answer roster renders individual players exactly as today
+

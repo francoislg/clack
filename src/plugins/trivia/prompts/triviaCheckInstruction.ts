@@ -432,6 +432,23 @@ Reveal-display config that is GAME + WORKSPACE only (NOT a per-question axis —
 
 Slot lives inside a season's \`format.questions[i]\`. Season is a SeasonEntry. Game lives on the \`TriviaGame\` registry entry and sits between season and workspace. Workspace is the top-level fields on the plugin config.
 
+## Teams (optional team play)
+
+Four fields turn a game into TEAM play; each cascades INDEPENDENTLY first-wins \`season → game → workspace → default\` (structural — no slot tier), settable on \`upsert_season\`, \`upsert_game\`, and \`set_workspace_config\` with the usual omit-keep / null-clear semantics:
+
+- \`teams\` — the roster: \`Array<{ name, userIds }>\` with Slack user IDs ONLY. Whole-roster replace per tier. Validation rejects empty/duplicate (case-insensitive) team names, empty \`userIds\`, and a user in more than one team.
+- \`teamsEnabled\` — the SWITCH (default \`false\`). A roster alone NEVER activates teams, and enabled-with-an-empty-effective-roster stays OFF (surfaced as a \`teamsWarning\` in \`list_games\`). Because the fields cascade independently, a season can set just \`teamsEnabled: true\` and inherit a roster staged at the game or workspace tier.
+- \`teamsScoring\` — \`"one-right-is-right"\` (default: per question, ≥1 member correct → the team earns the question's points once) or \`"total-points"\` (per question, sum of correct members' points — favors bigger teams; mention that trade-off when an admin picks it).
+- \`teamsFinaleIndividuals\` — when \`true\`, the season's last reveal ALSO appends the classic individual leaderboard below the team standings.
+
+How to apply the common ask, "add teams to the next trivia game in channel X": collect who's on which team (user IDs), then set BOTH \`teams\` and \`teamsEnabled: true\` on the game's CURRENT season via \`upsert_season\` — teams mode then expires naturally when the season ends, no cleanup. Use the game tier only when the admin wants teams to persist across seasons.
+
+Facts worth relaying when relevant:
+- Team scores are a pure projection over the existing individual answers — editing a roster mid-season recomputes retroactively (a free agent joining a team back-credits their whole season), and individual scores are always kept intact underneath.
+- Players in no team are FREE AGENTS: they keep playing, scoring, and appearing individually beside the team columns.
+- Team identity across seasons is the NAME (case-insensitive). At season close the effective roster + scoring mode are stamped onto the season, and a team's All-Time only accumulates across seasons whose stamped roster carries the same name — RENAMING a team severs its history (that's the escape hatch, not a bug; warn admins before renames).
+- \`retrieve_scores\` returns \`teamStandings\` alongside the individual leaderboard while teams mode is on; \`list_games\` / \`list_seasons\` surface the four fields present-iff-set.
+
 ## The seven tools
 
 ### Lifecycle — games

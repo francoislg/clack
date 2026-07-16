@@ -2,6 +2,8 @@ import type { KnownBlock } from "@slack/types";
 import type {
   SeasonFormat,
   SeasonFormatSlot,
+  TeamDef,
+  TeamsScoringMode,
   TriviaFreeformAnswerShape,
   JudgeLeniency,
   RevealResponsesMode,
@@ -388,10 +390,38 @@ export interface SeasonEntry extends CascadeAxes {
    * questions a fire posts. Mutually exclusive with `format`.
    */
   slotOverrides?: Record<number, SeasonFormatSlot>;
+  /**
+   * Season tier of the teams roster. Structural-special (NOT a CascadeAxes
+   * member); each teams field cascades independently first-wins
+   * `season → game → workspace → default`. See `resolveTeamsConfig`.
+   */
+  teams?: TeamDef[];
+  /** Season tier of the teams policy toggle. See `TriviaGame.teamsEnabled`. */
+  teamsEnabled?: boolean;
+  /** Season tier of the finale-individuals knob. See `TriviaGame.teamsFinaleIndividuals`. */
+  teamsFinaleIndividuals?: boolean;
+  /** Season tier of the team scoring algorithm. See `TriviaGame.teamsScoring`. */
+  teamsScoring?: TeamsScoringMode;
+  /**
+   * EFFECTIVE teams roster + scoring mode, stamped at season close (by
+   * `applySeasonRollover`) — present IFF teams mode was effectively ON when the
+   * season ended. Distinct from the season-TIER config fields above: those are
+   * one cascade tier's input, this is the resolved output frozen for history.
+   * Ended seasons are scored from this stamp (immune to later config edits) and
+   * team all-time walks it by case-insensitive name match. Optional on disk —
+   * legacy rows simply carry no team history.
+   */
+  teamsStamp?: TeamsStamp;
   // The per-season tier of every cascading axis (answersFormat, questionType,
   // promptMedium, freeformAnswerShape, contexts, difficulty, difficultyRatio,
   // instructions, additionalInstructions, liveAnswersVisible, revealResponses, hint,
   // judgeLeniency) is inherited from CascadeAxes — the single source of truth.
+}
+
+/** The effective teams config frozen onto an ended `SeasonEntry`. See `SeasonEntry.teamsStamp`. */
+export interface TeamsStamp {
+  teams: TeamDef[];
+  teamsScoring: TeamsScoringMode;
 }
 
 export interface SeasonsState {

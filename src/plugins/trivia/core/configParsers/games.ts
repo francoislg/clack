@@ -14,6 +14,8 @@ import type {
   OffDay,
   RevealResponsesMode,
   JudgeLeniency,
+  TeamDef,
+  TeamsScoringMode,
   TriviaAllTimeRowMode,
   TriviaFinalRevealSummary,
   TriviaChoicesConfig,
@@ -37,6 +39,7 @@ import {
   type ParseIssue,
 } from "./axes.js";
 import { validateFormat } from "./format.js";
+import { validateTeamsRoster, validateTeamsScoring } from "./teams.js";
 
 /** Game-name format: filesystem-safe kebab-case, 1–32 chars. */
 const TRIVIA_GAME_NAME_RE = /^[a-z0-9-]+$/;
@@ -378,6 +381,44 @@ export function parseTriviaGame(
     else issues.push({ field: `${fieldPrefix}.points`, error: r.error });
   }
 
+  let teams: TeamDef[] | undefined;
+  if (e.teams !== undefined && e.teams !== null) {
+    const r = validateTeamsRoster(e.teams, `${fieldPrefix}.teams`);
+    if (r.ok) teams = r.value;
+    else issues.push({ field: `${fieldPrefix}.teams`, error: r.error });
+  }
+
+  let teamsEnabled: boolean | undefined;
+  if (e.teamsEnabled !== undefined && e.teamsEnabled !== null) {
+    if (typeof e.teamsEnabled !== "boolean") {
+      issues.push({
+        field: `${fieldPrefix}.teamsEnabled`,
+        error: `must be a boolean (got ${typeof e.teamsEnabled})`,
+      });
+    } else {
+      teamsEnabled = e.teamsEnabled;
+    }
+  }
+
+  let teamsFinaleIndividuals: boolean | undefined;
+  if (e.teamsFinaleIndividuals !== undefined && e.teamsFinaleIndividuals !== null) {
+    if (typeof e.teamsFinaleIndividuals !== "boolean") {
+      issues.push({
+        field: `${fieldPrefix}.teamsFinaleIndividuals`,
+        error: `must be a boolean (got ${typeof e.teamsFinaleIndividuals})`,
+      });
+    } else {
+      teamsFinaleIndividuals = e.teamsFinaleIndividuals;
+    }
+  }
+
+  let teamsScoring: TeamsScoringMode | undefined;
+  if (e.teamsScoring !== undefined && e.teamsScoring !== null) {
+    const r = validateTeamsScoring(e.teamsScoring, `${fieldPrefix}.teamsScoring`);
+    if (r.ok) teamsScoring = r.value;
+    else issues.push({ field: `${fieldPrefix}.teamsScoring`, error: r.error });
+  }
+
   seenNames.add(name);
   return {
     game: {
@@ -408,6 +449,10 @@ export function parseTriviaGame(
       ...(includeRevealInQuestions !== undefined ? { includeRevealInQuestions } : {}),
       ...(finalRevealSummary !== undefined ? { finalRevealSummary } : {}),
       ...(tellMeMore !== undefined ? { tellMeMore } : {}),
+      ...(teams !== undefined ? { teams } : {}),
+      ...(teamsEnabled !== undefined ? { teamsEnabled } : {}),
+      ...(teamsFinaleIndividuals !== undefined ? { teamsFinaleIndividuals } : {}),
+      ...(teamsScoring !== undefined ? { teamsScoring } : {}),
     },
     issues,
   };

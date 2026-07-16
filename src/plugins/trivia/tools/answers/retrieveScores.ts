@@ -1,18 +1,28 @@
 import { z } from "zod";
 import { tool } from "@anthropic-ai/claude-agent-sdk";
 import { textResult, errorResult } from "../../../../tools/helpers.js";
-import { defaultGetGames, type GetGamesFn } from "../../core/configBridge.js";
+import {
+  defaultGetGames,
+  defaultGetTriviaConfig,
+  type GetGamesFn,
+  type GetTriviaConfigFn,
+} from "../../core/configBridge.js";
 import { requireGame } from "../../core/gamesRegistry.js";
 import { buildQuestionPointsMap, computeLeaderboard } from "../../domain/computeLeaderboard.js";
+import { findCurrentSeason } from "../../core/seasonTimeline.js";
+import { resolveTeamsConfig } from "../../domain/teams/resolveTeamsConfig.js";
+import { computeTeamStandings } from "../../domain/teams/computeTeamStandings.js";
+import { computeTeamAllTime } from "../../domain/teams/allTime.js";
 import type { TriviaDataLayer } from "../../core/types.js";
 
 export function createRetrieveScoresTool(
   data: TriviaDataLayer,
   getGamesFn: GetGamesFn = defaultGetGames,
+  getTriviaConfigFn: GetTriviaConfigFn = defaultGetTriviaConfig,
 ) {
   return tool(
     "retrieve_scores",
-    "Retrieve the trivia leaderboard for a specific game. When seasons are enabled, results include both current-season and all-time totals per user; use the season parameter to scope the leaderboard's primary ranking.",
+    "Retrieve the trivia leaderboard for a specific game. When seasons are enabled, results include both current-season and all-time totals per user; use the season parameter to scope the leaderboard's primary ranking. When the game's effective teams mode is ON, the result additionally carries `teamStandings` — per team: `currentSeason` points (via the resolved scoring strategy) and `allTime` (present only when the team name matches prior seasons' stamped rosters) — alongside the unchanged individual leaderboard.",
     {
       game: z
         .string()
@@ -68,11 +78,55 @@ export function createRetrieveScoresTool(
         },
       );
 
+      const gameEntry = getGamesFn().find((g) => g.name === args.game) ?? null;
+      const seasonsState = await scoped.loadSeasonsState();
+      const teamsConfig = resolveTeamsConfig(
+        findCurrentSeason(seasonsState, Date.now()),
+        gameEntry,
+        getTriviaConfigFn(),
+      );
+      let teamStandings:
+        | {
+            scoring: string;
+            teams: Array<{ name: string; currentSeason: number; allTime?: number }>;
+          }
+        | undefined;
+      if (teamsConfig.enabled) {
+        const questionPoints = buildQuestionPointsMap(questions);
+        const seasonStandings = computeTeamStandings(
+          allAnswers,
+          teamsConfig.roster,
+          teamsConfig.scoring,
+          currentSlug,
+          questionPoints,
+        );
+        const allTimeByName = computeTeamAllTime(
+          allAnswers,
+          seasonsState,
+          teamsConfig.roster,
+          teamsConfig.scoring,
+          currentSlug,
+          questionPoints,
+        );
+        teamStandings = {
+          scoring: teamsConfig.scoring,
+          teams: seasonStandings.map((s) => {
+            const allTime = allTimeByName.get(s.name);
+            return {
+              name: s.name,
+              currentSeason: s.points,
+              ...(allTime !== undefined ? { allTime } : {}),
+            };
+          }),
+        };
+      }
+
       return textResult({
         leaderboard,
         totalPlayers,
         totalQuestions: questions.length,
         ...(seasonsEnabled ? { currentSeason: currentSlug, seasonFilter: seasonArg } : {}),
+        ...(teamStandings !== undefined ? { teamStandings } : {}),
       });
     },
   );

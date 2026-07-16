@@ -93,6 +93,7 @@ export async function editRevealIntoCard(params: EditRevealParams): Promise<void
     answerLine,
     question.id,
     question.tagPlayers ?? true,
+    entry.teamVoters,
   );
 
   // When `includeRevealInQuestions: "yes"`, `set_reveal_narrative` has stored authored

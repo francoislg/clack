@@ -89,6 +89,10 @@ function args(overrides: Partial<UpsertGameArgs> & Pick<UpsertGameArgs, "name">)
     points: undefined,
     tellMeMore: undefined,
     choices: undefined,
+    teams: undefined,
+    teamsEnabled: undefined,
+    teamsFinaleIndividuals: undefined,
+    teamsScoring: undefined,
     initialSeason: undefined,
     ...overrides,
   };
@@ -1110,5 +1114,117 @@ describe("upsert_game — initialSeason (seasons enabled)", () => {
     );
     assert.match(result.error, /upsert_season/);
     assert.equal(await data.forGame("main").loadSeasonsState(), null);
+  });
+});
+
+describe("upsert_game — teams fields", () => {
+  beforeEach(() => {
+    _resetTriviaConfigBridge();
+  });
+
+  const ROSTER = [
+    { name: "Red", userIds: ["U1", "U2"] },
+    { name: "Blue", userIds: ["U3"] },
+  ];
+
+  it("sets the four teams fields on update and reports them", async () => {
+    primeBridge({ games: [baseGame] });
+    const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
+    const result = parseToolResult(
+      await tool.handler(
+        args({
+          name: "main",
+          teams: ROSTER,
+          teamsEnabled: true,
+          teamsFinaleIndividuals: true,
+          teamsScoring: "total-points",
+        }),
+        SESSION,
+      ),
+    );
+    assert.equal(result.action, "updated");
+    assert.equal(result.hasTeams, true);
+    assert.equal(result.hasTeamsEnabled, true);
+    assert.equal(result.hasTeamsFinaleIndividuals, true);
+    assert.equal(result.hasTeamsScoring, true);
+    const game = loadTriviaConfig()?.games?.[0];
+    assert.deepEqual(game?.teams, ROSTER);
+    assert.equal(game?.teamsEnabled, true);
+    assert.equal(game?.teamsScoring, "total-points");
+  });
+
+  it("null clears one teams field without touching siblings", async () => {
+    primeBridge({
+      games: [{ ...baseGame, teams: ROSTER, teamsEnabled: true, teamsScoring: "total-points" }],
+    });
+    const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
+    const result = parseToolResult(
+      await tool.handler(args({ name: "main", teamsEnabled: null }), SESSION),
+    );
+    assert.equal(result.hasTeamsEnabled, false);
+    assert.equal(result.hasTeams, true);
+    const game = loadTriviaConfig()?.games?.[0];
+    assert.equal(game?.teamsEnabled, undefined);
+    assert.deepEqual(game?.teams, ROSTER);
+    assert.equal(game?.teamsScoring, "total-points");
+  });
+
+  it("omit keeps the existing teams fields", async () => {
+    primeBridge({ games: [{ ...baseGame, teams: ROSTER, teamsEnabled: true }] });
+    const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
+    await tool.handler(args({ name: "main", theme: "New" }), SESSION);
+    const game = loadTriviaConfig()?.games?.[0];
+    assert.deepEqual(game?.teams, ROSTER);
+    assert.equal(game?.teamsEnabled, true);
+  });
+
+  it("rejects an invalid roster (user in two teams) without writing", async () => {
+    primeBridge({ games: [baseGame] });
+    const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
+    const result = parseToolResult(
+      await tool.handler(
+        args({
+          name: "main",
+          teams: [
+            { name: "Red", userIds: ["U1"] },
+            { name: "Blue", userIds: ["U1"] },
+          ],
+        }),
+        SESSION,
+      ),
+    );
+    assert.match(result.error, /at most one team/);
+    assert.equal(loadTriviaConfig()?.games?.[0].teams, undefined);
+  });
+
+  it("accepts teamsEnabled: true with no roster at this tier (valid staging)", async () => {
+    primeBridge({ games: [baseGame] });
+    const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
+    const result = parseToolResult(
+      await tool.handler(args({ name: "main", teamsEnabled: true }), SESSION),
+    );
+    assert.equal(result.action, "updated");
+    assert.equal(loadTriviaConfig()?.games?.[0].teamsEnabled, true);
+  });
+
+  it("reports shadowedBy when the active season has its own roster", async () => {
+    primeBridge({ games: [baseGame], seasons: { enabled: true, prompt: "p" } });
+    const data = createInMemoryDataLayer();
+    const now = Date.now();
+    await data.forGame("main").saveSeasonsState({
+      seasons: [
+        {
+          slug: "s1",
+          startedAt: now - 1000,
+          expectedEndAt: now + 86_400_000,
+          teams: [{ name: "Gold", userIds: ["U9"] }],
+        },
+      ],
+    });
+    const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? [], data);
+    const result = parseToolResult(
+      await tool.handler(args({ name: "main", teams: ROSTER }), SESSION),
+    );
+    assert.deepEqual(result.shadowedBy, { tier: "season", slug: "s1", fields: ["teams"] });
   });
 });
