@@ -21,28 +21,79 @@
 import type { DividerBlock, SectionBlock } from "@slack/types";
 import { t } from "../i18n/t.js";
 import { renderPlayerRef } from "../domain/tagPlayers.js";
-import type { Voter, VoterBuckets } from "../tools/reveal/types.js";
+import type {
+  TeamBucketEntry,
+  TeamVoterBuckets,
+  Voter,
+  VoterBuckets,
+} from "../tools/reveal/types.js";
 
 function renderNames(voters: readonly Voter[], tagPlayers: boolean): string {
   return voters.map((v) => renderPlayerRef(v.userId, v.displayName, tagPlayers)).join(", ");
+}
+
+function teamNames(entries: readonly TeamBucketEntry[]): string[] {
+  return entries.map((entry) => entry.team);
+}
+
+/**
+ * Team names first (plain text — never Slack mentions), then free agents via
+ * `renderPlayerRef` honoring the stamped `tagPlayers`. Member answer texts are
+ * NOT printed — the footer never prints texts in individual mode either; they
+ * live in the payload for the Claude-authored narrative.
+ */
+function renderTeamBucket(
+  names: readonly string[],
+  freeAgents: readonly Voter[],
+  tagPlayers: boolean,
+): string {
+  const agentNames = freeAgents.map((v) => renderPlayerRef(v.userId, v.displayName, tagPlayers));
+  return [...names, ...agentNames].join(", ");
 }
 
 /**
  * Build the static results footer blocks for one revealed question. Returns a
  * divider followed by a single mrkdwn section; empty voter buckets are omitted
  * rather than rendered as placeholder lines.
+ *
+ * When `teamVoters` is supplied (teams mode ON), the named buckets render team
+ * names in place of member names — members are absorbed; free agents are still
+ * named individually. The `just-winners` anonymous counts and the `"no"` mode
+ * are unchanged.
  */
 export function buildRevealFooterBlocks(
   voters: VoterBuckets,
   answerLine: string,
   questionId: string,
   tagPlayers: boolean,
+  teamVoters?: TeamVoterBuckets,
 ): [DividerBlock, SectionBlock] {
   const lines: string[] = [t("reveal.answer_was", { answer: answerLine })];
 
   switch (voters.revealResponses) {
     case "yes":
     case "just-correctness": {
+      if (teamVoters !== undefined) {
+        const correct = renderTeamBucket(
+          teamNames(teamVoters.correctTeams),
+          teamVoters.correctFreeAgents,
+          tagPlayers,
+        );
+        if (correct.length > 0) lines.push(t("reveal.correct_label", { names: correct }));
+        const incorrect = renderTeamBucket(
+          teamNames(teamVoters.incorrectTeams ?? []),
+          teamVoters.incorrectFreeAgents ?? [],
+          tagPlayers,
+        );
+        if (incorrect.length > 0) lines.push(t("reveal.incorrect_label", { names: incorrect }));
+        const noAnswer = renderTeamBucket(
+          teamVoters.noAnswerTeams ?? [],
+          teamVoters.noAnswerFreeAgents ?? [],
+          tagPlayers,
+        );
+        if (noAnswer.length > 0) lines.push(t("reveal.no_answer_label", { names: noAnswer }));
+        break;
+      }
       if (voters.correct.length > 0) {
         lines.push(t("reveal.correct_label", { names: renderNames(voters.correct, tagPlayers) }));
       }
@@ -59,8 +110,18 @@ export function buildRevealFooterBlocks(
       break;
     }
     case "just-winners": {
-      if (voters.correct.length > 0) {
-        lines.push(t("reveal.correct_label", { names: renderNames(voters.correct, tagPlayers) }));
+      const winners =
+        teamVoters !== undefined
+          ? renderTeamBucket(
+              teamNames(teamVoters.correctTeams),
+              teamVoters.correctFreeAgents,
+              tagPlayers,
+            )
+          : voters.correct.length > 0
+            ? renderNames(voters.correct, tagPlayers)
+            : "";
+      if (winners.length > 0) {
+        lines.push(t("reveal.correct_label", { names: winners }));
       }
       if (voters.incorrectCount > 0) {
         lines.push(t("reveal.n_incorrect", { count: voters.incorrectCount }));

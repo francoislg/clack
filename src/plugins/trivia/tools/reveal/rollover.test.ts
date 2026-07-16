@@ -277,6 +277,126 @@ describe("applySeasonRollover", () => {
     assert.ok(out.newSeasonStarted);
   });
 
+  describe("teams stamping", () => {
+    const ROSTER = [{ name: "Red", userIds: ["U1", "U2"] }];
+    const gameTier = {
+      name: "g",
+      channel: "C1",
+      questionCron: "0 9 * * *",
+      revealCron: "0 17 * * *",
+      timezone: "UTC",
+      teams: ROSTER,
+      teamsEnabled: true,
+      teamsScoring: "total-points" as const,
+    };
+
+    it("stamps the effective roster + scoring mode at close when teams mode is on", () => {
+      const now = Date.UTC(2026, 4, 31, 12, 0, 0, 0);
+      const state = makeActiveState(now, "season-2026-05");
+      const out = applySeasonRollover(state, "season-2026-05", now, {
+        game: gameTier,
+        workspace: null,
+      });
+      assert.equal(out.teamsStamped, true);
+      assert.deepEqual(state.seasons[0].teamsStamp, {
+        teams: ROSTER,
+        teamsScoring: "total-points",
+      });
+    });
+
+    it("does NOT stamp when teams mode is off", () => {
+      const now = Date.UTC(2026, 4, 31, 12, 0, 0, 0);
+      const state = makeActiveState(now, "season-2026-05");
+      const out = applySeasonRollover(state, "season-2026-05", now, {
+        game: { ...gameTier, teamsEnabled: false },
+        workspace: null,
+      });
+      assert.equal(out.teamsStamped, undefined);
+      assert.equal(state.seasons[0].teamsStamp, undefined);
+    });
+
+    it("does NOT stamp when enabled but the effective roster is empty", () => {
+      const now = Date.UTC(2026, 4, 31, 12, 0, 0, 0);
+      const state = makeActiveState(now, "season-2026-05");
+      const { teams: _dropped, ...rosterlessGame } = gameTier;
+      applySeasonRollover(state, "season-2026-05", now, {
+        game: rosterlessGame,
+        workspace: null,
+      });
+      assert.equal(state.seasons[0].teamsStamp, undefined);
+    });
+
+    it("never overwrites an existing stamp, even when config changed since", () => {
+      const now = Date.UTC(2026, 4, 31, 12, 0, 0, 0);
+      const state = makeActiveState(now, "season-2026-05");
+      const original = {
+        teams: [{ name: "Blue", userIds: ["U9"] }],
+        teamsScoring: "one-right-is-right" as const,
+      };
+      state.seasons[0].teamsStamp = original;
+      const out = applySeasonRollover(state, "season-2026-05", now, {
+        game: gameTier,
+        workspace: null,
+      });
+      assert.equal(out.teamsStamped, undefined);
+      assert.deepEqual(state.seasons[0].teamsStamp, original);
+    });
+
+    it("back-fills a missing stamp on an already-closed season (crash recovery)", () => {
+      const now = Date.UTC(2026, 4, 31, 12, 0, 0, 0);
+      const state = makeActiveState(now, "season-2026-05");
+      state.seasons[0].endedAt = now - 1000;
+      const out = applySeasonRollover(state, "season-2026-05", now, {
+        game: gameTier,
+        workspace: null,
+      });
+      assert.equal(out.seasonClosed, false);
+      assert.equal(out.teamsStamped, true);
+      assert.deepEqual(state.seasons[0].teamsStamp, {
+        teams: ROSTER,
+        teamsScoring: "total-points",
+      });
+    });
+
+    it("resolves the season tier of the CLOSING entry (season roster wins over game)", () => {
+      const now = Date.UTC(2026, 4, 31, 12, 0, 0, 0);
+      const state = makeActiveState(now, "season-2026-05");
+      const seasonRoster = [{ name: "Gold", userIds: ["U7"] }];
+      state.seasons[0].teams = seasonRoster;
+      applySeasonRollover(state, "season-2026-05", now, {
+        game: gameTier,
+        workspace: null,
+      });
+      assert.deepEqual(state.seasons[0].teamsStamp?.teams, seasonRoster);
+    });
+
+    it("continuation season does NOT inherit season-tier teams fields or the stamp", () => {
+      const now = Date.UTC(2026, 4, 31, 12, 0, 0, 0);
+      const state = makeActiveState(now, "season-2026-05");
+      state.seasons[0].teams = ROSTER;
+      state.seasons[0].teamsEnabled = true;
+      const out = applySeasonRollover(state, "season-2026-05", now, {
+        game: null,
+        workspace: null,
+      });
+      assert.ok(out.newSeasonStarted);
+      const continuation = state.seasons[1];
+      assert.ok(!Object.prototype.hasOwnProperty.call(continuation, "teams"));
+      assert.ok(!Object.prototype.hasOwnProperty.call(continuation, "teamsEnabled"));
+      assert.ok(!Object.prototype.hasOwnProperty.call(continuation, "teamsStamp"));
+    });
+
+    it("legacy call without a teams context stamps nothing", () => {
+      const now = Date.UTC(2026, 4, 31, 12, 0, 0, 0);
+      const state = makeActiveState(now, "season-2026-05");
+      state.seasons[0].teams = ROSTER;
+      state.seasons[0].teamsEnabled = true;
+      const out = applySeasonRollover(state, "season-2026-05", now);
+      assert.equal(out.teamsStamped, undefined);
+      assert.equal(state.seasons[0].teamsStamp, undefined);
+    });
+  });
+
   it("auto-continuation season does NOT inherit `theme` from the closing season", () => {
     const now = Date.UTC(2026, 9, 31, 12, 0, 0, 0); // Oct 31
     const state: SeasonsState = {

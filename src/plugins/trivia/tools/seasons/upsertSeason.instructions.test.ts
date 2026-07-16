@@ -34,6 +34,10 @@ function baseArgs(slug: string, startedAt: number) {
     choices: undefined,
     choiceEmojiStyle: undefined,
     points: undefined,
+    teams: undefined,
+    teamsEnabled: undefined,
+    teamsFinaleIndividuals: undefined,
+    teamsScoring: undefined,
   };
 }
 

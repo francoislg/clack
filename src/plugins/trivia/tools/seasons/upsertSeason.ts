@@ -57,6 +57,8 @@ import type {
   RevealResponsesMode,
   SeasonFormat,
   SeasonFormatSlot,
+  TeamDef,
+  TeamsScoringMode,
   TriviaAnswersFormatWeights,
   TriviaQuestionTypeWeights,
   PromptMediumWeights,
@@ -68,6 +70,11 @@ import type {
   TriviaDifficultyRatioConfig,
   TriviaHintConfig,
 } from "../../core/configTypes.js";
+import {
+  teamsRosterZod,
+  teamsScoringZod,
+  validateTeamsRoster,
+} from "../../core/configParsers/teams.js";
 
 const SLOT_OVERRIDES_VS_FORMAT_MSG =
   "A season cannot set both `format` and `slotOverrides`: `format` declares the question count/structure, while `slotOverrides` layers count-decoupled per-slot deltas over the game format. Pick one.";
@@ -235,6 +242,32 @@ export function createUpsertSeasonTool(
         .describe(
           "Per-season tier of the variable-points axis. Object shape `{ max: integer 1–10, guidance?: string }`. `max` (REQUIRED) caps what one question may be worth; `guidance` is free text steering the pick. GUIDANCE IS THE SWITCH: a bare `{ max: 3 }` never makes Claude spend points — it only ALLOWS an admin to reclass a question up to 3 via override_question. Both set → get_ideas surfaces them and Claude picks `1..max` at generation, stamped by save_question. Cascade: `slot → season → game → workspace → { max: 1 }`. Whole-object replace per tier — a tier setting `guidance` must restate `max`. Already-posed questions keep their stamped value if this changes. On UPDATE: passing `null` clears the field. Mid-season mutation permitted.",
         ),
+      teams: teamsRosterZod
+        .nullable()
+        .optional()
+        .describe(
+          "Per-season tier of the teams roster: `Array<{ name, userIds }>` (Slack user IDs only). WHOLE-ROSTER replace per tier — a season roster fully masks the game/workspace one. Validation rejects empty/duplicate (case-insensitive) team names, empty userIds, and a user in more than one team. A roster alone NEVER activates teams — set `teamsEnabled: true` too. Setting both on the CURRENT season is the natural way to run 'teams for this game' with automatic expiry at season end. Cascade: `season → game → workspace → (none)` (no slot tier). On UPDATE: passing `null` clears the field. Mid-season mutation permitted (team scores recompute retroactively).",
+        ),
+      teamsEnabled: z
+        .boolean()
+        .nullable()
+        .optional()
+        .describe(
+          "Per-season tier of the teams policy toggle. `true` plays this season in TEAMS mode with the cascade-resolved roster (enabled with an EMPTY effective roster stays OFF and surfaces a list_games warning); `false` forces individual play even when a lower tier enables teams. Cascade: `season → game → workspace → false` (no slot tier). On UPDATE: passing `null` clears the field.",
+        ),
+      teamsFinaleIndividuals: z
+        .boolean()
+        .nullable()
+        .optional()
+        .describe(
+          "Per-season tier of the finale-individuals knob: when `true` and teams mode is on, this season's LAST reveal also appends the classic individual leaderboard below the team standings. Cascade: `season → game → workspace → false` (no slot tier). On UPDATE: passing `null` clears the field.",
+        ),
+      teamsScoring: teamsScoringZod
+        .nullable()
+        .optional()
+        .describe(
+          'Per-season tier of the team scoring algorithm. `"one-right-is-right"` (the default): per question, ≥1 member correct earns the team the question\'s points once. `"total-points"`: per question, the team earns the sum of its correct members\' points (favors bigger teams — say so when an admin picks it). Stamped onto the season at close. Cascade: `season → game → workspace → "one-right-is-right"` (no slot tier). On UPDATE: passing `null` clears the field.',
+        ),
     },
     async (args) => {
       try {
@@ -397,6 +430,28 @@ export function createUpsertSeasonTool(
           points = validated.value;
         }
 
+        let teams: TeamDef[] | undefined;
+        if (args.teams !== undefined && args.teams !== null) {
+          const validated = validateTeamsRoster(args.teams, "teams");
+          if (!validated.ok) return errorResult(validated.error);
+          teams = validated.value;
+        }
+
+        const teamsEnabled: boolean | undefined =
+          args.teamsEnabled === undefined || args.teamsEnabled === null
+            ? undefined
+            : args.teamsEnabled;
+
+        const teamsFinaleIndividuals: boolean | undefined =
+          args.teamsFinaleIndividuals === undefined || args.teamsFinaleIndividuals === null
+            ? undefined
+            : args.teamsFinaleIndividuals;
+
+        const teamsScoring: TeamsScoringMode | undefined =
+          args.teamsScoring === undefined || args.teamsScoring === null
+            ? undefined
+            : args.teamsScoring;
+
         const liveAnswersVisible: boolean | undefined =
           args.liveAnswersVisible === undefined || args.liveAnswersVisible === null
             ? undefined
@@ -434,6 +489,10 @@ export function createUpsertSeasonTool(
           ...(choices !== undefined ? { choices } : {}),
           ...(choiceEmojiStyle !== undefined ? { choiceEmojiStyle } : {}),
           ...(points !== undefined ? { points } : {}),
+          ...(teams !== undefined ? { teams } : {}),
+          ...(teamsEnabled !== undefined ? { teamsEnabled } : {}),
+          ...(teamsFinaleIndividuals !== undefined ? { teamsFinaleIndividuals } : {}),
+          ...(teamsScoring !== undefined ? { teamsScoring } : {}),
         };
 
         try {
@@ -474,6 +533,10 @@ export function createUpsertSeasonTool(
           hasChoices: entry.choices !== undefined,
           hasChoiceEmojiStyle: entry.choiceEmojiStyle !== undefined,
           hasPoints: entry.points !== undefined,
+          hasTeams: entry.teams !== undefined,
+          hasTeamsEnabled: entry.teamsEnabled !== undefined,
+          hasTeamsFinaleIndividuals: entry.teamsFinaleIndividuals !== undefined,
+          hasTeamsScoring: entry.teamsScoring !== undefined,
         });
       }
 
@@ -674,6 +737,36 @@ export function createUpsertSeasonTool(
         updatedPoints = validated.value;
       }
 
+      let updatedTeams: TeamDef[] | undefined = existing.teams;
+      if (args.teams === null) {
+        updatedTeams = undefined;
+      } else if (args.teams !== undefined) {
+        const validated = validateTeamsRoster(args.teams, "teams");
+        if (!validated.ok) return errorResult(validated.error);
+        updatedTeams = validated.value;
+      }
+
+      let updatedTeamsEnabled: boolean | undefined = existing.teamsEnabled;
+      if (args.teamsEnabled === null) {
+        updatedTeamsEnabled = undefined;
+      } else if (args.teamsEnabled !== undefined) {
+        updatedTeamsEnabled = args.teamsEnabled;
+      }
+
+      let updatedTeamsFinaleIndividuals: boolean | undefined = existing.teamsFinaleIndividuals;
+      if (args.teamsFinaleIndividuals === null) {
+        updatedTeamsFinaleIndividuals = undefined;
+      } else if (args.teamsFinaleIndividuals !== undefined) {
+        updatedTeamsFinaleIndividuals = args.teamsFinaleIndividuals;
+      }
+
+      let updatedTeamsScoring: TeamsScoringMode | undefined = existing.teamsScoring;
+      if (args.teamsScoring === null) {
+        updatedTeamsScoring = undefined;
+      } else if (args.teamsScoring !== undefined) {
+        updatedTeamsScoring = args.teamsScoring;
+      }
+
       const updated: SeasonEntry = {
         slug: existing.slug,
         startedAt: args.startedAt ?? existing.startedAt,
@@ -715,6 +808,15 @@ export function createUpsertSeasonTool(
           ? { choiceEmojiStyle: updatedChoiceEmojiStyle }
           : {}),
         ...(updatedPoints !== undefined ? { points: updatedPoints } : {}),
+        ...(updatedTeams !== undefined ? { teams: updatedTeams } : {}),
+        ...(updatedTeamsEnabled !== undefined ? { teamsEnabled: updatedTeamsEnabled } : {}),
+        ...(updatedTeamsFinaleIndividuals !== undefined
+          ? { teamsFinaleIndividuals: updatedTeamsFinaleIndividuals }
+          : {}),
+        ...(updatedTeamsScoring !== undefined ? { teamsScoring: updatedTeamsScoring } : {}),
+        // Internal close-time stamp — not settable through this tool, but it MUST
+        // survive the field-by-field entry rebuild or an update would erase history.
+        ...(existing.teamsStamp !== undefined ? { teamsStamp: existing.teamsStamp } : {}),
       };
 
       const effectiveEnd = updated.endedAt ?? updated.expectedEndAt;
@@ -762,6 +864,10 @@ export function createUpsertSeasonTool(
         hasChoices: updated.choices !== undefined,
         hasChoiceEmojiStyle: updated.choiceEmojiStyle !== undefined,
         hasPoints: updated.points !== undefined,
+        hasTeams: updated.teams !== undefined,
+        hasTeamsEnabled: updated.teamsEnabled !== undefined,
+        hasTeamsFinaleIndividuals: updated.teamsFinaleIndividuals !== undefined,
+        hasTeamsScoring: updated.teamsScoring !== undefined,
       });
     },
   );

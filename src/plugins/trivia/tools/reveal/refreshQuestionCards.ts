@@ -12,6 +12,9 @@ import { requireWritableGame } from "../../core/gamesRegistry.js";
 import { getAnswerTypeHandler } from "../../answerTypes/registry.js";
 import { editRevealIntoCard, editInvalidatedIntoCard } from "../../revealCards/editCard.js";
 import { resolveLiveOrLockedCard } from "../../freeform/roster.js";
+import { findCurrentSeason } from "../../core/seasonTimeline.js";
+import { resolveTeamsConfig } from "../../domain/teams/resolveTeamsConfig.js";
+import { groupVotersByTeam } from "./teamVoters.js";
 import type { ClackSdk } from "../../../sdk.js";
 import type { TriviaDataLayer, TriviaQuestion } from "../../core/types.js";
 import {
@@ -93,6 +96,8 @@ export function createRefreshQuestionCardsTool(
       const users = await data.loadUsers();
       const game = getGamesFn().find((g) => g.name === args.game) ?? null;
       const config = getTriviaConfigFn();
+      const currentSeason = findCurrentSeason(await scoped.loadSeasonsState(), Date.now());
+      const teamsConfig = resolveTeamsConfig(currentSeason, game, config);
 
       const projectDeps = {
         scoped,
@@ -129,10 +134,15 @@ export function createRefreshQuestionCardsTool(
               errors.push({ questionId: question.id, error: outcome.error });
               continue;
             }
+            const entry = outcome.entry;
+            if (teamsConfig.enabled) {
+              const teamVoters = groupVotersByTeam(entry.voters, teamsConfig.roster);
+              if (teamVoters !== undefined) entry.teamVoters = teamVoters;
+            }
             await editRevealIntoCard({
               updateMessage: (channel, ts, blocks) => slackDeps.updateMessage(channel, ts, blocks),
               question,
-              entry: outcome.entry,
+              entry,
               actionId: sdk.actionId,
               game,
               config,

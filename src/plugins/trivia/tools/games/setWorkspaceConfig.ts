@@ -38,6 +38,11 @@ import {
   triviaAdditionalInstructionsZod,
   triviaInstructionsZod,
 } from "../../core/configParsers/format.js";
+import {
+  teamsRosterZod,
+  teamsScoringZod,
+  validateTeamsRoster,
+} from "../../core/configParsers/teams.js";
 
 export function createSetWorkspaceConfigTool() {
   return tool(
@@ -173,6 +178,32 @@ export function createSetWorkspaceConfigTool() {
         .optional()
         .describe(
           'Workspace tier of the "Tell me more" reveal affordance. Object shape `{ enabled: boolean }`. When enabled, the revealed question card grows a "Tell me more" button that starts a thread conversation asking Clack for deeper detail about the question/answer. Cascade: `game → workspace → { enabled: false }`. null clears.',
+        ),
+      teams: teamsRosterZod
+        .nullable()
+        .optional()
+        .describe(
+          "Workspace tier of the teams roster: `Array<{ name, userIds }>` (Slack user IDs only). Whole-roster replace per tier; validation rejects empty/duplicate (case-insensitive) team names, empty userIds, and a user in more than one team. A roster alone NEVER activates teams — `teamsEnabled` is the switch. Cascade: `season → game → workspace → (none)`. null clears.",
+        ),
+      teamsEnabled: z
+        .boolean()
+        .nullable()
+        .optional()
+        .describe(
+          "Workspace tier of the teams policy toggle. `true` plays every game in TEAMS mode by default (unless a game/season overrides it; enabled with an EMPTY effective roster stays OFF and surfaces a list_games warning). Cascade: `season → game → workspace → false`. null clears.",
+        ),
+      teamsFinaleIndividuals: z
+        .boolean()
+        .nullable()
+        .optional()
+        .describe(
+          "Workspace tier of the finale-individuals knob: when `true` and teams mode is on, the season's LAST reveal also appends the classic individual leaderboard below the team standings. Cascade: `season → game → workspace → false`. null clears.",
+        ),
+      teamsScoring: teamsScoringZod
+        .nullable()
+        .optional()
+        .describe(
+          'Workspace tier of the team scoring algorithm. `"one-right-is-right"` (the built-in default): per question, ≥1 member correct earns the team the question\'s points once. `"total-points"`: per question, the team earns the sum of its correct members\' points (favors bigger teams). Cascade: `season → game → workspace → "one-right-is-right"`. null clears.',
         ),
     },
     async (args) => {
@@ -445,6 +476,46 @@ export function createSetWorkspaceConfigTool() {
           next.hint = r.value;
           updatedFields.push("hint");
         }
+      }
+
+      // teams roster: validate + apply, or clear.
+      if (args.teams === null) {
+        next.teams = undefined;
+        updatedFields.push("teams (cleared)");
+      } else if (args.teams !== undefined) {
+        const r = validateTeamsRoster(args.teams, "set_workspace_config.teams");
+        if (!r.ok) issues.push({ field: "teams", error: r.error });
+        else {
+          next.teams = r.value;
+          updatedFields.push("teams");
+        }
+      }
+
+      // teamsEnabled: apply or clear.
+      if (args.teamsEnabled === null) {
+        next.teamsEnabled = undefined;
+        updatedFields.push("teamsEnabled (cleared)");
+      } else if (args.teamsEnabled !== undefined) {
+        next.teamsEnabled = args.teamsEnabled;
+        updatedFields.push("teamsEnabled");
+      }
+
+      // teamsFinaleIndividuals: apply or clear.
+      if (args.teamsFinaleIndividuals === null) {
+        next.teamsFinaleIndividuals = undefined;
+        updatedFields.push("teamsFinaleIndividuals (cleared)");
+      } else if (args.teamsFinaleIndividuals !== undefined) {
+        next.teamsFinaleIndividuals = args.teamsFinaleIndividuals;
+        updatedFields.push("teamsFinaleIndividuals");
+      }
+
+      // teamsScoring: apply or clear.
+      if (args.teamsScoring === null) {
+        next.teamsScoring = undefined;
+        updatedFields.push("teamsScoring (cleared)");
+      } else if (args.teamsScoring !== undefined) {
+        next.teamsScoring = args.teamsScoring;
+        updatedFields.push("teamsScoring");
       }
 
       if (issues.length > 0) {

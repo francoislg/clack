@@ -2,6 +2,7 @@ import type { RevealAnswerDescriptor } from "../../answerTypes/types.js";
 import type { LeaderboardEntry } from "../../domain/computeLeaderboard.js";
 import type {
   RevealResponsesMode,
+  TeamsScoringMode,
   TriviaFinalRevealSummary,
   TriviaIncludeRevealInQuestions,
 } from "../../core/configTypes.js";
@@ -70,6 +71,40 @@ export type VoterBuckets =
       reactions: ReactorEntry[];
     };
 
+/** One team's entry in a team-grouped voter bucket. */
+export interface TeamBucketEntry {
+  /** Team name — rendered as plain text, never a Slack mention. */
+  team: string;
+  /**
+   * Unattributed member answer texts (freeform questions under
+   * `revealResponses: "yes"` only) — the texts the team's members typed, with
+   * no mapping back to which member typed which.
+   */
+  answerTexts?: string[];
+}
+
+/**
+ * Team-grouped projection of an entry's `voters`, present only when teams mode
+ * is ON. A team buckets by TEAM verdict — Correct: ≥1 member correct;
+ * Incorrect: members answered but none correct; NoAnswer: no member answered
+ * but ≥1 member reacted (mirroring the individual noAnswer semantics, so a
+ * fully-absent team lands in no bucket). Members are absorbed into the team
+ * name and never listed. Free agents remain individual `Voter`s.
+ *
+ * Mirrors the `revealResponses` variants of `voters`: under `"yes"` /
+ * `"just-correctness"` all six fields are present; under `"just-winners"` only
+ * the two correct fields (missers stay anonymous counts on `voters`); under
+ * `"no"` the whole field is absent.
+ */
+export interface TeamVoterBuckets {
+  correctTeams: TeamBucketEntry[];
+  correctFreeAgents: Voter[];
+  incorrectTeams?: TeamBucketEntry[];
+  incorrectFreeAgents?: Voter[];
+  noAnswerTeams?: string[];
+  noAnswerFreeAgents?: Voter[];
+}
+
 export interface ProcessRevealEntry {
   questionId: string;
   statement: string;
@@ -91,6 +126,52 @@ export interface ProcessRevealEntry {
    * reveal narrative can call out the stakes. Absent means the ordinary 1 point.
    */
   points?: number;
+  /**
+   * Team-grouped projection of `voters`, present only when the game's effective
+   * teams mode is ON (and `revealResponses` isn't `"no"`). Renderers name teams
+   * instead of members; free agents stay individual. See `TeamVoterBuckets`.
+   */
+  teamVoters?: TeamVoterBuckets;
+}
+
+/** One team's row in the teams-mode standings payload. */
+export interface TeamStandingEntry {
+  name: string;
+  /** Points this reveal's batch earned the team, through the resolved strategy. */
+  thisRound: number;
+  currentSeason: number;
+  /**
+   * All-time points, present ONLY when the team name (case-insensitive) matches
+   * ≥1 prior season's stamped roster — absent means the All Time cell renders empty.
+   */
+  allTime?: number;
+}
+
+/** One free agent's (player in no team) row in the teams-mode standings payload. */
+export interface FreeAgentStandingEntry {
+  userId: string;
+  displayName: string;
+  thisRound: number;
+  currentSeason: number;
+  allTime: number;
+}
+
+/**
+ * Teams-mode standings block, present on `ProcessRevealResult` only when the
+ * game's effective teams mode is ON. Carries everything the standings table
+ * needs: team rows (season points desc), free-agent rows, the resolved scoring
+ * mode, and the finale signal.
+ */
+export interface TeamStandingsOut {
+  scoring: TeamsScoringMode;
+  teams: TeamStandingEntry[];
+  freeAgents: FreeAgentStandingEntry[];
+  /**
+   * Present (true) on the season's last fire when effective
+   * `teamsFinaleIndividuals` is on — directs the renderer to append the classic
+   * individual leaderboard table below the team standings.
+   */
+  finaleIndividuals?: true;
 }
 
 export interface SeasonStatusOut {
@@ -169,6 +250,12 @@ export interface ProcessRevealResult {
    */
   tagPlayers: boolean;
   seasonStatus?: SeasonStatusOut;
+  /**
+   * Teams-mode standings, present ONLY when the game's effective teams mode is
+   * ON — the teams-off payload is byte-identical to pre-teams behavior. See
+   * `TeamStandingsOut`.
+   */
+  teamStandings?: TeamStandingsOut;
   /**
    * Resolved decision for the All-Time leaderboard surface: the normal-reveal
    * `All Time` row and the season-finale All-Time table. Computed from the

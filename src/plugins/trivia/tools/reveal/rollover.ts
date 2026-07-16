@@ -1,7 +1,9 @@
 import { triviaLogger as logger } from "../../core/pluginLogger.js";
 import { findNextSeason, validateNoOverlap } from "../../core/seasonTimeline.js";
+import { resolveTeamsConfig } from "../../domain/teams/resolveTeamsConfig.js";
 import type { LeaderboardEntry } from "../../domain/computeLeaderboard.js";
 import type { SeasonsState, SeasonEntry } from "../../core/types.js";
+import type { TriviaConfig, TriviaGame } from "../../core/configTypes.js";
 import type { SeasonStatusOut } from "./types.js";
 
 /**
@@ -61,8 +63,16 @@ export function deriveNextMonthSlug(after: number): { slug: string; expectedEndA
 export interface RolloverOutcome {
   seasonClosed: boolean;
   newSeasonStarted?: { slug: string; expectedEndAt: number };
-  /** Mutated state — caller persists when `seasonClosed || newSeasonStarted` is true. */
+  /** True when this call wrote (or re-wrote a missing) `teamsStamp` on the closing season. */
+  teamsStamped?: boolean;
+  /** Mutated state — caller persists when `seasonClosed || newSeasonStarted || teamsStamped` is true. */
   state: SeasonsState;
+}
+
+/** The game + workspace tiers `applySeasonRollover` needs to resolve the closing season's effective teams config. */
+export interface RolloverTeamsContext {
+  game: TriviaGame | null;
+  workspace: TriviaConfig | null;
 }
 
 /**
@@ -82,6 +92,13 @@ export interface RolloverOutcome {
  *      deep-copied `format` as structural slot composition, not a theme).
  *      Admins stage a future season explicitly to carry a theme forward.
  *
+ * Additionally, when `teamsCtx` is supplied and the closing season's effective
+ * teams config resolves to ON, the effective roster + scoring mode are frozen
+ * onto the closing entry as `teamsStamp` (see `SeasonEntry.teamsStamp`).
+ * Idempotent: an existing stamp is never overwritten, and a season that closed
+ * WITHOUT being stamped (crash between close and save) gets its stamp
+ * back-filled on the next rollover call for the same slug.
+ *
  * Returns the outcome flags so the caller can populate `seasonStatus` AND decide
  * whether to persist the mutated state.
  */
@@ -89,8 +106,10 @@ export function applySeasonRollover(
   state: SeasonsState,
   currentSlug: string,
   now: number,
+  teamsCtx?: RolloverTeamsContext,
 ): RolloverOutcome {
   let seasonClosed = false;
+  let teamsStamped = false;
   let newSeasonStarted: RolloverOutcome["newSeasonStarted"];
 
   const idx = state.seasons.findIndex((s) => s.slug === currentSlug);
@@ -98,6 +117,17 @@ export function applySeasonRollover(
   if (idx !== -1 && state.seasons[idx].endedAt === undefined) {
     state.seasons[idx] = { ...state.seasons[idx], endedAt: now };
     seasonClosed = true;
+  }
+
+  if (teamsCtx !== undefined && idx !== -1 && state.seasons[idx].teamsStamp === undefined) {
+    const effective = resolveTeamsConfig(closingSnapshot, teamsCtx.game, teamsCtx.workspace);
+    if (effective.enabled) {
+      state.seasons[idx] = {
+        ...state.seasons[idx],
+        teamsStamp: { teams: effective.roster, teamsScoring: effective.scoring },
+      };
+      teamsStamped = true;
+    }
   }
 
   const next = findNextSeason(state, now);
@@ -151,5 +181,5 @@ export function applySeasonRollover(
     }
   }
 
-  return { seasonClosed, newSeasonStarted, state };
+  return { seasonClosed, newSeasonStarted, ...(teamsStamped ? { teamsStamped } : {}), state };
 }

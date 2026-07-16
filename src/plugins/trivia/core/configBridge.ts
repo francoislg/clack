@@ -26,6 +26,7 @@ import {
   type ParseIssue,
 } from "./configParsers/axes.js";
 import { parseOffDays, parseTriviaGames } from "./configParsers/games.js";
+import { validateTeamsRoster, validateTeamsScoring } from "./configParsers/teams.js";
 
 const CONFIG_FILENAME = "config.json";
 
@@ -230,6 +231,40 @@ function parseTriviaConfigObject(raw: JsonObject, logger: PluginLogger): TriviaC
     const r = validateTriviaPoints(raw.points, "trivia.points");
     if (r.ok) out.points = r.value;
     else allIssues.push({ field: "trivia.points", error: r.error });
+  }
+
+  if (raw.teams !== undefined && raw.teams !== null) {
+    const r = validateTeamsRoster(raw.teams, "trivia.teams");
+    if (r.ok) out.teams = r.value;
+    else allIssues.push({ field: "trivia.teams", error: r.error });
+  }
+
+  if (raw.teamsEnabled !== undefined && raw.teamsEnabled !== null) {
+    if (typeof raw.teamsEnabled !== "boolean") {
+      allIssues.push({
+        field: "trivia.teamsEnabled",
+        error: `must be a boolean (got ${typeof raw.teamsEnabled})`,
+      });
+    } else {
+      out.teamsEnabled = raw.teamsEnabled;
+    }
+  }
+
+  if (raw.teamsFinaleIndividuals !== undefined && raw.teamsFinaleIndividuals !== null) {
+    if (typeof raw.teamsFinaleIndividuals !== "boolean") {
+      allIssues.push({
+        field: "trivia.teamsFinaleIndividuals",
+        error: `must be a boolean (got ${typeof raw.teamsFinaleIndividuals})`,
+      });
+    } else {
+      out.teamsFinaleIndividuals = raw.teamsFinaleIndividuals;
+    }
+  }
+
+  if (raw.teamsScoring !== undefined && raw.teamsScoring !== null) {
+    const r = validateTeamsScoring(raw.teamsScoring, "trivia.teamsScoring");
+    if (r.ok) out.teamsScoring = r.value;
+    else allIssues.push({ field: "trivia.teamsScoring", error: r.error });
   }
 
   if (raw.instructions !== undefined && raw.instructions !== null) {

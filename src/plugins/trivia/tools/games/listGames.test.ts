@@ -732,3 +732,76 @@ describe("list_games — hint surfacing", () => {
     assert.equal(parsed.games[0].hint, undefined);
   });
 });
+
+describe("list_games — teams surfacing", () => {
+  const ROSTER = [{ name: "Red", userIds: ["U1"] }];
+
+  function gameWith(overrides: Partial<TriviaGame>): readonly TriviaGame[] {
+    return [
+      {
+        name: "teamsy",
+        channel: "C200000000",
+        questionCron: "0 9 * * 1-5",
+        revealCron: "0 17 * * 1-5",
+        timezone: "UTC",
+        enabled: true,
+        ...overrides,
+      },
+    ];
+  }
+
+  it("surfaces the four per-game teams fields when set, omits them when absent", async () => {
+    const tool = createListGamesTool(
+      () =>
+        gameWith({
+          teams: ROSTER,
+          teamsEnabled: true,
+          teamsFinaleIndividuals: true,
+          teamsScoring: "total-points",
+        }),
+      emptyTriviaConfig,
+    );
+    const parsed = parseToolResult(await tool.handler({ includeDisabled: undefined }, SESSION));
+    const entry = parsed.games[0];
+    assert.deepEqual(entry.teams, ROSTER);
+    assert.equal(entry.teamsEnabled, true);
+    assert.equal(entry.teamsFinaleIndividuals, true);
+    assert.equal(entry.teamsScoring, "total-points");
+
+    const bare = parseToolResult(
+      await createListGamesTool(fixtureGetGames, emptyTriviaConfig).handler(
+        { includeDisabled: undefined },
+        SESSION,
+      ),
+    );
+    assert.equal("teams" in bare.games[0], false);
+    assert.equal("teamsEnabled" in bare.games[0], false);
+    assert.equal("teamsWarning" in bare.games[0], false);
+  });
+
+  it("surfaces the workspace teams fields in workspaceDefaults", async () => {
+    const triviaConfig = (): TriviaConfig => ({
+      teams: ROSTER,
+      teamsEnabled: true,
+      teamsScoring: "one-right-is-right",
+    });
+    const tool = createListGamesTool(fixtureGetGames, triviaConfig);
+    const parsed = parseToolResult(await tool.handler({ includeDisabled: undefined }, SESSION));
+    assert.deepEqual(parsed.workspaceDefaults.teams, ROSTER);
+    assert.equal(parsed.workspaceDefaults.teamsEnabled, true);
+    assert.equal(parsed.workspaceDefaults.teamsScoring, "one-right-is-right");
+  });
+
+  it("warns when teamsEnabled resolves true with an empty effective roster", async () => {
+    const tool = createListGamesTool(() => gameWith({ teamsEnabled: true }), emptyTriviaConfig);
+    const parsed = parseToolResult(await tool.handler({ includeDisabled: undefined }, SESSION));
+    assert.match(parsed.games[0].teamsWarning, /INERT/);
+  });
+
+  it("does not warn when the roster comes from a lower tier", async () => {
+    const triviaConfig = (): TriviaConfig => ({ teams: ROSTER });
+    const tool = createListGamesTool(() => gameWith({ teamsEnabled: true }), triviaConfig);
+    const parsed = parseToolResult(await tool.handler({ includeDisabled: undefined }, SESSION));
+    assert.equal("teamsWarning" in parsed.games[0], false);
+  });
+});

@@ -73,6 +73,29 @@ describe("dataLayer — fallback season seed", () => {
       seasons: [{ slug: "kickoff-2026", startedAt: 1, expectedEndAt: 2 }],
     });
   });
+
+  it("loads legacy entries and teams-stamped entries side by side, unchanged", async () => {
+    const files = primeConfig({ games: [], seasons: { enabled: true, prompt: "p" } });
+    const sdk = makeMemorySdk(files);
+    const stamped = {
+      slug: "season-2026-06",
+      startedAt: 1,
+      expectedEndAt: 2,
+      endedAt: 2,
+      teamsStamp: {
+        teams: [{ name: "Red", userIds: ["U1"] }],
+        teamsScoring: "one-right-is-right",
+      },
+    };
+    const legacy = { slug: "season-2026-05", startedAt: 0, expectedEndAt: 1, endedAt: 1 };
+    files.set("games/staging/seasons.json", JSON.stringify({ seasons: [legacy, stamped] }));
+    const data = createSdkDataLayer(sdk);
+
+    const state = await data.forGame("staging").loadSeasonsState();
+
+    assert.equal(state?.seasons[0].teamsStamp, undefined);
+    assert.deepEqual(state, { seasons: [legacy, stamped] });
+  });
 });
 
 describe("dataLayer — graceful JSON reads", () => {

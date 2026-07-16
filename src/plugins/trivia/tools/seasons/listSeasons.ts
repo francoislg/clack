@@ -147,6 +147,13 @@ export function createListSeasonsTool(
           ...(entry.additionalInstructions !== undefined
             ? { additionalInstructions: entry.additionalInstructions }
             : {}),
+          ...(entry.teams !== undefined ? { teams: entry.teams } : {}),
+          ...(entry.teamsEnabled !== undefined ? { teamsEnabled: entry.teamsEnabled } : {}),
+          ...(entry.teamsFinaleIndividuals !== undefined
+            ? { teamsFinaleIndividuals: entry.teamsFinaleIndividuals }
+            : {}),
+          ...(entry.teamsScoring !== undefined ? { teamsScoring: entry.teamsScoring } : {}),
+          ...(entry.teamsStamp !== undefined ? { teamsStamp: entry.teamsStamp } : {}),
         };
       });
       return textResult({ game: args.game, seasons, total: seasons.length });
