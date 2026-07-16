@@ -1,42 +1,13 @@
 import { describe, it, beforeEach } from "vitest";
 import assert from "node:assert/strict";
 import { createUpsertGameTool } from "./upsertGame.js";
-import {
-  _resetTriviaConfigBridge,
-  _setTriviaConfigForTests,
-  _setTriviaConfigSdkForTests,
-  loadTriviaConfig,
-} from "../../core/configBridge.js";
+import { _resetTriviaConfigBridge, loadTriviaConfig } from "../../core/configBridge.js";
 import { parseToolResult } from "../../../../tools/testHelpers.js";
-import { createInMemoryDataLayer, createFakeSdk } from "../../testHelpers.js";
-import type { ClackSdk } from "../../../sdk.js";
+import { createInMemoryDataLayer } from "../../testHelpers.js";
+import { createFakeSdk, primeTriviaConfig } from "../../testHelpers.fakeSdk.js";
 import type { TriviaConfig, TriviaGame } from "../../core/configTypes.js";
 
 const SESSION = { sessionId: "test" };
-
-interface FakeSdkState {
-  writes: Map<string, string>;
-}
-
-function makeFakeSdk(state: FakeSdkState): ClackSdk {
-  return createFakeSdk({
-    readFile: async (path) => state.writes.get(path) ?? null,
-    writeFile: async (path, content) => {
-      state.writes.set(path, content);
-    },
-    watchFile: () => {
-      throw new Error("watchFile not used in upsert_game tests");
-    },
-  });
-}
-
-function primeBridge(initial: TriviaConfig | null): FakeSdkState {
-  const state: FakeSdkState = { writes: new Map() };
-  _resetTriviaConfigBridge();
-  _setTriviaConfigSdkForTests(makeFakeSdk(state));
-  _setTriviaConfigForTests(initial);
-  return state;
-}
 
 const baseGame: TriviaGame = {
   name: "main",
@@ -104,7 +75,8 @@ describe("upsert_game — create branch", () => {
   });
 
   it("creates a new game with all required fields", async () => {
-    primeBridge({ games: [] });
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk, { games: [] });
     const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
     const result = parseToolResult(
       await tool.handler(
@@ -130,7 +102,8 @@ describe("upsert_game — create branch", () => {
   });
 
   it("creates a game with per-game axis overrides", async () => {
-    primeBridge({ games: [] });
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk, { games: [] });
     const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
     const result = parseToolResult(
       await tool.handler(
@@ -151,7 +124,8 @@ describe("upsert_game — create branch", () => {
   });
 
   it("persists tellMeMore on the game (and reports hasTellMeMore)", async () => {
-    primeBridge({ games: [] });
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk, { games: [] });
     const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
     const result = parseToolResult(
       await tool.handler(
@@ -171,14 +145,16 @@ describe("upsert_game — create branch", () => {
   });
 
   it("clears tellMeMore on update when passed null", async () => {
-    primeBridge({ games: [{ ...baseGame, tellMeMore: { enabled: true } }] });
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk, { games: [{ ...baseGame, tellMeMore: { enabled: true } }] });
     const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
     await tool.handler(args({ name: "main", tellMeMore: null }), SESSION);
     assert.equal(loadTriviaConfig()?.games?.[0]?.tellMeMore, undefined);
   });
 
   it("persists includeRevealInQuestions and clears it on null", async () => {
-    primeBridge({ games: [] });
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk, { games: [] });
     const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
     const result = parseToolResult(
       await tool.handler(
@@ -201,7 +177,8 @@ describe("upsert_game — create branch", () => {
   });
 
   it("persists tagPlayers and clears it on null", async () => {
-    primeBridge({ games: [] });
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk, { games: [] });
     const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
     const result = parseToolResult(
       await tool.handler(
@@ -225,7 +202,8 @@ describe("upsert_game — create branch", () => {
   });
 
   it("persists finalRevealSummary and clears it on null", async () => {
-    primeBridge({ games: [] });
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk, { games: [] });
     const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
     const result = parseToolResult(
       await tool.handler(
@@ -248,7 +226,8 @@ describe("upsert_game — create branch", () => {
   });
 
   it("rejects create when scheduling fields are missing", async () => {
-    primeBridge({ games: [] });
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk, { games: [] });
     const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
     const result = parseToolResult(
       await tool.handler(args({ name: "incomplete", channel: "C1" }), SESSION),
@@ -257,7 +236,8 @@ describe("upsert_game — create branch", () => {
   });
 
   it("rejects invalid cron expression", async () => {
-    primeBridge({ games: [] });
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk, { games: [] });
     const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
     const result = parseToolResult(
       await tool.handler(
@@ -275,7 +255,8 @@ describe("upsert_game — create branch", () => {
   });
 
   it("rejects invalid name format", async () => {
-    primeBridge({ games: [] });
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk, { games: [] });
     const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
     const result = parseToolResult(
       await tool.handler(
@@ -293,7 +274,8 @@ describe("upsert_game — create branch", () => {
   });
 
   it("rejects invalid axis value (all-zero answersFormat)", async () => {
-    primeBridge({ games: [] });
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk, { games: [] });
     const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
     const result = parseToolResult(
       await tool.handler(
@@ -312,7 +294,8 @@ describe("upsert_game — create branch", () => {
   });
 
   it("creates a game with format / categories / theme structural overrides", async () => {
-    primeBridge({ games: [] });
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk, { games: [] });
     const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
     const result = parseToolResult(
       await tool.handler(
@@ -342,7 +325,8 @@ describe("upsert_game — create branch", () => {
   });
 
   it("dedupes and trims categories on create", async () => {
-    primeBridge({ games: [] });
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk, { games: [] });
     const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
     await tool.handler(
       args({
@@ -360,7 +344,8 @@ describe("upsert_game — create branch", () => {
   });
 
   it("rejects empty categories array", async () => {
-    primeBridge({ games: [] });
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk, { games: [] });
     const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
     const result = parseToolResult(
       await tool.handler(
@@ -379,7 +364,8 @@ describe("upsert_game — create branch", () => {
   });
 
   it("rejects empty / whitespace-only theme", async () => {
-    primeBridge({ games: [] });
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk, { games: [] });
     const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
     const result = parseToolResult(
       await tool.handler(
@@ -398,7 +384,8 @@ describe("upsert_game — create branch", () => {
   });
 
   it("rejects invalid format (empty questions array)", async () => {
-    primeBridge({ games: [] });
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk, { games: [] });
     const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
     const result = parseToolResult(
       await tool.handler(
@@ -423,7 +410,8 @@ describe("upsert_game — update branch", () => {
   });
 
   it("updates a single scheduling field, preserves the rest", async () => {
-    primeBridge({ games: [baseGame] });
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk, { games: [baseGame] });
     const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
     const result = parseToolResult(
       await tool.handler(args({ name: "main", questionCron: "0 10 * * *" }), SESSION),
@@ -436,7 +424,8 @@ describe("upsert_game — update branch", () => {
   });
 
   it("sets a per-game axis override on existing game", async () => {
-    primeBridge({ games: [baseGame] });
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk, { games: [baseGame] });
     const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
     await tool.handler(args({ name: "main", answersFormat: { boolean: 1, choice: 1 } }), SESSION);
     const game = loadTriviaConfig()?.games?.[0];
@@ -444,7 +433,8 @@ describe("upsert_game — update branch", () => {
   });
 
   it("clears an axis override with explicit null", async () => {
-    primeBridge({
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk, {
       games: [{ ...baseGame, answersFormat: { boolean: 1, choice: 1, freeform: 0 } }],
     });
     const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
@@ -454,7 +444,8 @@ describe("upsert_game — update branch", () => {
   });
 
   it("omit-to-keep preserves untouched axis overrides", async () => {
-    primeBridge({
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk, {
       games: [
         {
           ...baseGame,
@@ -471,7 +462,8 @@ describe("upsert_game — update branch", () => {
   });
 
   it("toggles enabled to false", async () => {
-    primeBridge({ games: [baseGame] });
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk, { games: [baseGame] });
     const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
     await tool.handler(args({ name: "main", enabled: false }), SESSION);
     const game = loadTriviaConfig()?.games?.[0];
@@ -479,7 +471,8 @@ describe("upsert_game — update branch", () => {
   });
 
   it("sets format / categories / theme on existing game", async () => {
-    primeBridge({ games: [baseGame] });
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk, { games: [baseGame] });
     const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
     await tool.handler(
       args({
@@ -497,7 +490,8 @@ describe("upsert_game — update branch", () => {
   });
 
   it("clears structural fields with explicit null", async () => {
-    primeBridge({
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk, {
       games: [
         {
           ...baseGame,
@@ -519,7 +513,8 @@ describe("upsert_game — update branch", () => {
   });
 
   it("omit-to-keep preserves untouched structural fields", async () => {
-    primeBridge({
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk, {
       games: [
         {
           ...baseGame,
@@ -540,7 +535,8 @@ describe("upsert_game — update branch", () => {
   it("accepts freeformAnswerShape with countable key (post-rename)", async () => {
     // Regression test for ef53bab: the schema renamed `number` → `countable`.
     // Verifies the upsert_game tool path accepts the new key end-to-end.
-    primeBridge({ games: [baseGame] });
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk, { games: [baseGame] });
     const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
     await tool.handler(
       args({
@@ -561,7 +557,8 @@ describe("upsert_game — instructions and additionalInstructions", () => {
   });
 
   it("create persists both fields and surfaces hasInstructions / hasAdditionalInstructions", async () => {
-    primeBridge({ games: [] });
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk, { games: [] });
     const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
     const result = parseToolResult(
       await tool.handler(
@@ -586,7 +583,8 @@ describe("upsert_game — instructions and additionalInstructions", () => {
   });
 
   it("update with null clears the named field but preserves the other", async () => {
-    primeBridge({
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk, {
       games: [{ ...baseGame, instructions: "Be dry.", additionalInstructions: "Avoid politics." }],
     });
     const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
@@ -597,7 +595,8 @@ describe("upsert_game — instructions and additionalInstructions", () => {
   });
 
   it("update with omitted fields preserves both existing values", async () => {
-    primeBridge({
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk, {
       games: [{ ...baseGame, instructions: "Be dry.", additionalInstructions: "Avoid politics." }],
     });
     const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
@@ -609,7 +608,8 @@ describe("upsert_game — instructions and additionalInstructions", () => {
   });
 
   it("rejects empty / whitespace-only strings", async () => {
-    primeBridge({ games: [{ ...baseGame }] });
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk, { games: [{ ...baseGame }] });
     const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
     const result = parseToolResult(
       await tool.handler(args({ name: "main", instructions: "   " }), SESSION),
@@ -618,7 +618,8 @@ describe("upsert_game — instructions and additionalInstructions", () => {
   });
 
   it("hasInstructions / hasAdditionalInstructions reflect mid-cascade state", async () => {
-    primeBridge({ games: [{ ...baseGame, instructions: "Be dry." }] });
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk, { games: [{ ...baseGame, instructions: "Be dry." }] });
     const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
     const result = parseToolResult(
       await tool.handler(args({ name: "main", additionalInstructions: "Stack me." }), SESSION),
@@ -635,7 +636,8 @@ describe("upsert_game — prepCron", () => {
   });
 
   it("creates a game with prepCron", async () => {
-    primeBridge({ games: [] });
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk, { games: [] });
     const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
     const result = parseToolResult(
       await tool.handler(
@@ -656,7 +658,8 @@ describe("upsert_game — prepCron", () => {
   });
 
   it("adds prepCron to an existing game (update branch)", async () => {
-    primeBridge({ games: [{ ...baseGame }] });
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk, { games: [{ ...baseGame }] });
     const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
     await tool.handler(args({ name: "main", prepCron: "30 8 * * 1-5" }), SESSION);
     const game = loadTriviaConfig()?.games?.[0];
@@ -667,7 +670,8 @@ describe("upsert_game — prepCron", () => {
   });
 
   it("omitting prepCron on update keeps the existing value", async () => {
-    primeBridge({ games: [{ ...baseGame, prepCron: "30 8 * * 1-5" }] });
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk, { games: [{ ...baseGame, prepCron: "30 8 * * 1-5" }] });
     const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
     await tool.handler(args({ name: "main", enabled: false }), SESSION);
     const game = loadTriviaConfig()?.games?.[0];
@@ -676,7 +680,8 @@ describe("upsert_game — prepCron", () => {
   });
 
   it("passing prepCron: null clears it (opt out of pre-staging)", async () => {
-    primeBridge({ games: [{ ...baseGame, prepCron: "30 8 * * 1-5" }] });
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk, { games: [{ ...baseGame, prepCron: "30 8 * * 1-5" }] });
     const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
     await tool.handler(args({ name: "main", prepCron: null }), SESSION);
     const game = loadTriviaConfig()?.games?.[0];
@@ -684,7 +689,8 @@ describe("upsert_game — prepCron", () => {
   });
 
   it("rejects invalid prepCron expression", async () => {
-    primeBridge({ games: [] });
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk, { games: [] });
     const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
     const result = parseToolResult(
       await tool.handler(
@@ -703,7 +709,8 @@ describe("upsert_game — prepCron", () => {
   });
 
   it("a game can be created without prepCron (it's optional)", async () => {
-    primeBridge({ games: [] });
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk, { games: [] });
     const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
     const result = parseToolResult(
       await tool.handler(
@@ -729,7 +736,8 @@ describe("upsert_game — judgeLeniency", () => {
   });
 
   it("creates a game carrying a judgeLeniency override", async () => {
-    primeBridge({ games: [] });
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk, { games: [] });
     const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
     const result = parseToolResult(
       await tool.handler(
@@ -749,7 +757,8 @@ describe("upsert_game — judgeLeniency", () => {
   });
 
   it("updates and then clears judgeLeniency on an existing game", async () => {
-    primeBridge({
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk, {
       games: [
         {
           name: "g",
@@ -781,7 +790,8 @@ describe("upsert_game — choices", () => {
   });
 
   it("creates a game carrying a choices override", async () => {
-    primeBridge({ games: [] });
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk, { games: [] });
     const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
     const result = parseToolResult(
       await tool.handler(
@@ -801,7 +811,8 @@ describe("upsert_game — choices", () => {
   });
 
   it("rejects out-of-range bounds", async () => {
-    primeBridge({ games: [] });
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk, { games: [] });
     const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
     const result = parseToolResult(
       await tool.handler(
@@ -820,7 +831,8 @@ describe("upsert_game — choices", () => {
   });
 
   it("updates and then clears choices on an existing game", async () => {
-    primeBridge({
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk, {
       games: [
         {
           name: "g",
@@ -852,7 +864,8 @@ describe("upsert_game — points", () => {
   });
 
   it("creates a game carrying a points override", async () => {
-    primeBridge({ games: [] });
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk, { games: [] });
     const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
     const result = parseToolResult(
       await tool.handler(
@@ -875,7 +888,8 @@ describe("upsert_game — points", () => {
   });
 
   it("accepts a bare cap — an allowance for admin reclassing, no guidance needed", async () => {
-    primeBridge({ games: [] });
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk, { games: [] });
     const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
     const result = parseToolResult(
       await tool.handler(
@@ -895,7 +909,8 @@ describe("upsert_game — points", () => {
   });
 
   it("rejects an out-of-range cap", async () => {
-    primeBridge({ games: [] });
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk, { games: [] });
     const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
     const result = parseToolResult(
       await tool.handler(
@@ -914,7 +929,8 @@ describe("upsert_game — points", () => {
   });
 
   it("updates and then clears points on an existing game", async () => {
-    primeBridge({
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk, {
       games: [
         {
           name: "g",
@@ -950,7 +966,8 @@ describe("upsert_game — shadowing detection", () => {
   });
 
   it("reports season shadowing of a written axis field", async () => {
-    primeBridge({ games: [baseGame] });
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk, { games: [baseGame] });
     const data = createInMemoryDataLayer();
     const now = Date.now();
     await data.forGame("main").saveSeasonsState({
@@ -978,7 +995,8 @@ describe("upsert_game — shadowing detection", () => {
   });
 
   it("omits shadowedBy when no active season overrides the written field", async () => {
-    primeBridge({ games: [baseGame] });
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk, { games: [baseGame] });
     const data = createInMemoryDataLayer();
     const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? [], data);
     const result = parseToolResult(
@@ -1010,7 +1028,8 @@ describe("upsert_game — initialSeason (seasons enabled)", () => {
   }
 
   it("rejects CREATE with no initialSeason and writes nothing", async () => {
-    primeBridge(seasonsOn);
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk, seasonsOn);
     const data = createInMemoryDataLayer();
     const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? [], data);
     const result = parseToolResult(await tool.handler(createArgs(), SESSION));
@@ -1020,7 +1039,8 @@ describe("upsert_game — initialSeason (seasons enabled)", () => {
   });
 
   it("writes the game and its first season atomically with only timeline fields", async () => {
-    primeBridge(seasonsOn);
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk, seasonsOn);
     const data = createInMemoryDataLayer();
     const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? [], data);
     const startedAt = 1_000;
@@ -1038,7 +1058,8 @@ describe("upsert_game — initialSeason (seasons enabled)", () => {
   });
 
   it("defaults initialSeason.startedAt to creation time when omitted", async () => {
-    primeBridge(seasonsOn);
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk, seasonsOn);
     const data = createInMemoryDataLayer();
     const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? [], data);
     const before = Date.now();
@@ -1057,7 +1078,8 @@ describe("upsert_game — initialSeason (seasons enabled)", () => {
   });
 
   it("rejects initialSeason whose expectedEndAt is not after startedAt", async () => {
-    primeBridge(seasonsOn);
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk, seasonsOn);
     const data = createInMemoryDataLayer();
     const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? [], data);
     const result = parseToolResult(
@@ -1074,7 +1096,8 @@ describe("upsert_game — initialSeason (seasons enabled)", () => {
 
   it("rejects non-kebab-case initialSeason slugs and writes nothing", async () => {
     for (const bad of ["", "Kickoff 2026", "UPPER", "trailing-", "-leading", "doub--le"]) {
-      primeBridge(seasonsOn);
+      const { sdk } = createFakeSdk();
+      primeTriviaConfig(sdk, seasonsOn);
       const data = createInMemoryDataLayer();
       const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? [], data);
       const result = parseToolResult(
@@ -1089,7 +1112,8 @@ describe("upsert_game — initialSeason (seasons enabled)", () => {
   });
 
   it("rejects initialSeason when seasons are disabled", async () => {
-    primeBridge({ games: [] });
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk, { games: [] });
     const data = createInMemoryDataLayer();
     const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? [], data);
     const result = parseToolResult(
@@ -1103,7 +1127,8 @@ describe("upsert_game — initialSeason (seasons enabled)", () => {
   });
 
   it("rejects initialSeason on UPDATE of an existing game", async () => {
-    primeBridge({ games: [baseGame], seasons: { enabled: true, prompt: "p" } });
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk, { games: [baseGame], seasons: { enabled: true, prompt: "p" } });
     const data = createInMemoryDataLayer();
     const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? [], data);
     const result = parseToolResult(
@@ -1128,7 +1153,8 @@ describe("upsert_game — teams fields", () => {
   ];
 
   it("sets the four teams fields on update and reports them", async () => {
-    primeBridge({ games: [baseGame] });
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk, { games: [baseGame] });
     const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
     const result = parseToolResult(
       await tool.handler(
@@ -1154,7 +1180,8 @@ describe("upsert_game — teams fields", () => {
   });
 
   it("null clears one teams field without touching siblings", async () => {
-    primeBridge({
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk, {
       games: [{ ...baseGame, teams: ROSTER, teamsEnabled: true, teamsScoring: "total-points" }],
     });
     const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
@@ -1170,7 +1197,8 @@ describe("upsert_game — teams fields", () => {
   });
 
   it("omit keeps the existing teams fields", async () => {
-    primeBridge({ games: [{ ...baseGame, teams: ROSTER, teamsEnabled: true }] });
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk, { games: [{ ...baseGame, teams: ROSTER, teamsEnabled: true }] });
     const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
     await tool.handler(args({ name: "main", theme: "New" }), SESSION);
     const game = loadTriviaConfig()?.games?.[0];
@@ -1179,7 +1207,8 @@ describe("upsert_game — teams fields", () => {
   });
 
   it("rejects an invalid roster (user in two teams) without writing", async () => {
-    primeBridge({ games: [baseGame] });
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk, { games: [baseGame] });
     const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
     const result = parseToolResult(
       await tool.handler(
@@ -1198,7 +1227,8 @@ describe("upsert_game — teams fields", () => {
   });
 
   it("accepts teamsEnabled: true with no roster at this tier (valid staging)", async () => {
-    primeBridge({ games: [baseGame] });
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk, { games: [baseGame] });
     const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
     const result = parseToolResult(
       await tool.handler(args({ name: "main", teamsEnabled: true }), SESSION),
@@ -1208,7 +1238,8 @@ describe("upsert_game — teams fields", () => {
   });
 
   it("reports shadowedBy when the active season has its own roster", async () => {
-    primeBridge({ games: [baseGame], seasons: { enabled: true, prompt: "p" } });
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk, { games: [baseGame], seasons: { enabled: true, prompt: "p" } });
     const data = createInMemoryDataLayer();
     const now = Date.now();
     await data.forGame("main").saveSeasonsState({

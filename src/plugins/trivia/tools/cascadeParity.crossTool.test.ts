@@ -1,24 +1,15 @@
 import { describe, it, beforeEach } from "vitest";
 import assert from "node:assert/strict";
-import { createFakeSdk, createInMemoryDataLayer, type InMemoryDataLayer } from "../testHelpers.js";
+import { createFakeSdk, createFakeRevealSlackDeps } from "../testHelpers.fakeSdk.js";
+import { createInMemoryDataLayer, type InMemoryDataLayer } from "../testHelpers.js";
 import { createGetIdeasTool } from "./questions/getIdeas.js";
 import { createSaveQuestionTool } from "./questions/saveQuestion.js";
 import { createExplainCascadeTool } from "./games/explainCascade.js";
-import { createComputeAnswersTool, type RevealSlackDeps } from "./reveal/computeAnswers.js";
+import { createComputeAnswersTool } from "./reveal/computeAnswers.js";
 import { parseToolResult } from "../../../tools/testHelpers.js";
 import type { TriviaConfig, TriviaGame } from "../core/configTypes.js";
 
 const SESSION = { sessionId: "test" };
-
-function fakeSlackDeps(): RevealSlackDeps {
-  return {
-    isAvailable: () => null,
-    fetchBotUserId: async () => "UBOT",
-    fetchMessageReactions: async () => [],
-    fetchUserDisplayName: async () => null,
-    updateMessage: async () => {},
-  };
-}
 
 // A game that owns its question composition via `format`, with one-hot per-slot axis
 // weights so generation rolls are deterministic. NO season is active (seasons disabled),
@@ -185,9 +176,9 @@ describe("cascade parity — explain_cascade ≡ get_ideas ≡ save_question (ga
 
     const reveal = createComputeAnswersTool(
       data,
-      createFakeSdk(),
+      createFakeSdk().sdk,
       getGames,
-      fakeSlackDeps(),
+      createFakeRevealSlackDeps(),
       getConfig,
     );
     const res = parseToolResult(

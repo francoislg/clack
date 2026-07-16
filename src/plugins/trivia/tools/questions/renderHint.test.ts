@@ -3,10 +3,10 @@ import assert from "node:assert/strict";
 import type { ActionsBlock, Button, ContextBlock } from "@slack/types";
 import type { SlackBlocks } from "../../../../slack/blocks.js";
 import type { TriviaQuestion } from "../../core/types.js";
-import { createFakeSdk } from "../../testHelpers.js";
+import { createFakeSdk } from "../../testHelpers.fakeSdk.js";
 import { applyHintRendering } from "./renderHint.js";
 
-const sdk = createFakeSdk();
+const { sdk } = createFakeSdk();
 
 function makeQuestion(overrides: Partial<TriviaQuestion> = {}): TriviaQuestion {
   return {

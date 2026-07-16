@@ -1,12 +1,8 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import assert from "node:assert/strict";
 import type { KnownBlock, SectionBlock } from "@slack/types";
-import {
-  createInMemoryDataLayer,
-  FIXTURE_GAME_NAME,
-  fixtureGetGames,
-  createFakeSdk,
-} from "../../testHelpers.js";
+import { createInMemoryDataLayer, FIXTURE_GAME_NAME, fixtureGetGames } from "../../testHelpers.js";
+import { createFakeSdk } from "../../testHelpers.fakeSdk.js";
 import { createOverrideQuestionTool } from "./overrideQuestion.js";
 import { rewriteWorthBlock } from "./renderPoints.js";
 import { parseToolResult } from "../../../../tools/testHelpers.js";
@@ -51,7 +47,7 @@ async function seed(
 }
 
 function makeTool(data: TriviaDataLayer) {
-  return createOverrideQuestionTool(data, createFakeSdk(), fixtureGetGames);
+  return createOverrideQuestionTool(data, createFakeSdk().sdk, fixtureGetGames);
 }
 
 async function loadQ(data: TriviaDataLayer, id = "Q1"): Promise<TriviaQuestion> {

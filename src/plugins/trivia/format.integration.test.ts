@@ -1,11 +1,7 @@
 import { describe, it, beforeEach } from "vitest";
 import assert from "node:assert/strict";
-import {
-  createFakeSdk,
-  createInMemoryDataLayer,
-  FIXTURE_GAME_NAME,
-  fixtureGetGames,
-} from "./testHelpers.js";
+import { createInMemoryDataLayer, FIXTURE_GAME_NAME, fixtureGetGames } from "./testHelpers.js";
+import { createFakeSdk, createFakePostQuestionsSlackDeps } from "./testHelpers.fakeSdk.js";
 import { createUpsertSeasonTool } from "./tools/seasons/upsertSeason.js";
 import { createGetIdeasTool } from "./tools/questions/getIdeas.js";
 import { createSaveQuestionTool } from "./tools/questions/saveQuestion.js";
@@ -26,20 +22,7 @@ function makeConfig(trivia?: TriviaConfig): TriviaConfig {
 }
 
 function postQuestionsDeps(): PostQuestionsSlackDeps {
-  let counter = 0;
-  return {
-    isAvailable() {
-      return null;
-    },
-    async postBlocks(args) {
-      counter++;
-      const ts = `170000000${counter}.000000`;
-      return {
-        ts,
-        permalink: `https://test.slack.com/archives/${args.channel}/p170000000${counter}000000`,
-      };
-    },
-  };
+  return createFakePostQuestionsSlackDeps();
 }
 
 const SEASONS_ON = makeConfig({
@@ -246,7 +229,7 @@ describe("Trivia question-format end-to-end flow", () => {
     // 6. post_questions with both items
     const postQuestions = createPostQuestionsTool(
       data,
-      createFakeSdk(),
+      createFakeSdk().sdk,
       fixtureGetGames,
       postQuestionsDeps(),
     );

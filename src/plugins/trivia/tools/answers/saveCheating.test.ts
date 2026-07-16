@@ -1,40 +1,16 @@
 import { describe, it } from "vitest";
 import assert from "node:assert/strict";
-import {
-  createInMemoryDataLayer,
-  createFakeSdk,
-  FIXTURE_GAME_NAME,
-  fixtureGetGames,
-} from "../../testHelpers.js";
+import { createInMemoryDataLayer, FIXTURE_GAME_NAME, fixtureGetGames } from "../../testHelpers.js";
+import { createFakeSdk } from "../../testHelpers.fakeSdk.js";
 import { createSaveCheatingTool } from "./saveCheating.js";
 import { parseToolResult } from "../../../../tools/testHelpers.js";
-import type { ClackSdk } from "../../../sdk.js";
 
 const SESSION = { sessionId: "test" };
-
-interface FakeSdkOptions {
-  dmOwnerResult?: { ok: true } | { ok: false; error: string };
-}
-
-function makeFakeSdk(opts: FakeSdkOptions = {}): {
-  sdk: ClackSdk;
-  dmOwnerCalls: string[];
-} {
-  const dmOwnerCalls: string[] = [];
-  const result = opts.dmOwnerResult ?? { ok: true as const };
-  const sdk = createFakeSdk({
-    dmOwner: async (text: string) => {
-      dmOwnerCalls.push(text);
-      return result;
-    },
-  });
-  return { sdk, dmOwnerCalls };
-}
 
 describe("save_cheating tool", () => {
   it("first cheat initializes cheatAttempts counter to 1 and DMs the owner", async () => {
     const data = createInMemoryDataLayer();
-    const { sdk, dmOwnerCalls } = makeFakeSdk();
+    const { sdk } = createFakeSdk();
     const tool = createSaveCheatingTool(data, sdk, fixtureGetGames);
 
     const result = await tool.handler(
@@ -61,19 +37,21 @@ describe("save_cheating tool", () => {
     assert.equal(cheats[0].cheaterUserId, "U123");
     assert.equal(cheats[0].questionId, "q1");
 
-    assert.equal(dmOwnerCalls.length, 1);
-    assert.match(dmOwnerCalls[0], /Trivia cheat report/);
-    assert.match(dmOwnerCalls[0], /<@U123>/);
-    assert.match(dmOwnerCalls[0], /total attempts: 1/);
-    assert.match(dmOwnerCalls[0], /q1/);
-    assert.match(dmOwnerCalls[0], /how tall is mount everest/);
+    assert.equal(sdk.dmOwner.mock.calls.length, 1);
+    assert.match(sdk.dmOwner.mock.calls[0][0], /Trivia cheat report/);
+    assert.match(sdk.dmOwner.mock.calls[0][0], /<@U123>/);
+    assert.match(sdk.dmOwner.mock.calls[0][0], /total attempts: 1/);
+    assert.match(sdk.dmOwner.mock.calls[0][0], /q1/);
+    assert.match(sdk.dmOwner.mock.calls[0][0], /how tall is mount everest/);
   });
 
   it("reports an owner-notification failure without losing the saved report", async () => {
-    const data = createInMemoryDataLayer();
-    const { sdk } = makeFakeSdk({
-      dmOwnerResult: { ok: false, error: "No owner is configured (set one via the Home Tab)" },
+    const { sdk } = createFakeSdk();
+    sdk.dmOwner.mockResolvedValue({
+      ok: false,
+      error: "No owner is configured (set one via the Home Tab)",
     });
+    const data = createInMemoryDataLayer();
     const tool = createSaveCheatingTool(data, sdk, fixtureGetGames);
 
     const result = await tool.handler(
@@ -98,7 +76,7 @@ describe("save_cheating tool", () => {
 
   it("subsequent cheats increment the counter", async () => {
     const data = createInMemoryDataLayer();
-    const { sdk } = makeFakeSdk();
+    const { sdk } = createFakeSdk();
     const tool = createSaveCheatingTool(data, sdk, fixtureGetGames);
 
     await tool.handler(
@@ -134,7 +112,7 @@ describe("save_cheating tool", () => {
 
   it("appends each report in order", async () => {
     const data = createInMemoryDataLayer();
-    const { sdk } = makeFakeSdk();
+    const { sdk } = createFakeSdk();
     const tool = createSaveCheatingTool(data, sdk, fixtureGetGames);
 
     await tool.handler(
@@ -178,7 +156,7 @@ describe("save_cheating tool", () => {
 
   it("rejects empty reason and does not DM the owner", async () => {
     const data = createInMemoryDataLayer();
-    const { sdk, dmOwnerCalls } = makeFakeSdk();
+    const { sdk } = createFakeSdk();
     const tool = createSaveCheatingTool(data, sdk, fixtureGetGames);
 
     const result = await tool.handler(
@@ -197,7 +175,7 @@ describe("save_cheating tool", () => {
 
     const cheats = await data.forGame(FIXTURE_GAME_NAME).loadCheats();
     assert.equal(cheats.length, 0);
-    assert.equal(dmOwnerCalls.length, 0);
+    assert.equal(sdk.dmOwner.mock.calls.length, 0);
   });
 
   it("preserves existing user fields when incrementing counter", async () => {
@@ -207,7 +185,7 @@ describe("save_cheating tool", () => {
       displayName: "Alice",
       joinedAt: 1_700_000_000_000,
     });
-    const { sdk } = makeFakeSdk();
+    const { sdk } = createFakeSdk();
     const tool = createSaveCheatingTool(data, sdk, fixtureGetGames);
 
     await tool.handler(

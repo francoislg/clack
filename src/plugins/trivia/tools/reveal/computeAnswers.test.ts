@@ -1,12 +1,8 @@
 import { describe, it } from "vitest";
 import assert from "node:assert/strict";
 import { createComputeAnswersTool, type RevealSlackDeps } from "./computeAnswers.js";
-import {
-  createFakeSdk,
-  createInMemoryDataLayer,
-  FIXTURE_GAME_NAME,
-  fixtureGetGames,
-} from "../../testHelpers.js";
+import { createFakeSdk, createFakeRevealSlackDeps } from "../../testHelpers.fakeSdk.js";
+import { createInMemoryDataLayer, FIXTURE_GAME_NAME, fixtureGetGames } from "../../testHelpers.js";
 import { parseToolResult } from "../../../../tools/testHelpers.js";
 import type { TriviaDataLayer, TriviaQuestion } from "../../core/types.js";
 
@@ -19,16 +15,6 @@ import type { TriviaDataLayer, TriviaQuestion } from "../../core/types.js";
  */
 
 const SESSION = { sessionId: "test" };
-
-function fakeSlackDeps(): RevealSlackDeps {
-  return {
-    isAvailable: () => null,
-    fetchBotUserId: async () => "UBOT",
-    fetchMessageReactions: async () => [],
-    fetchUserDisplayName: async () => null,
-    updateMessage: async () => {},
-  };
-}
 
 function makeQuestion(overrides: Partial<TriviaQuestion>): TriviaQuestion {
   return {
@@ -72,9 +58,15 @@ describe("compute_answers —showAllTimeRow", () => {
       fixtureGetGames().map((g) =>
         g.name === FIXTURE_GAME_NAME ? { ...g, revealCron, timezone: "UTC" } : g,
       );
-    return createComputeAnswersTool(data, createFakeSdk(), getGames, fakeSlackDeps(), () => ({
-      allTimeRow,
-    }));
+    return createComputeAnswersTool(
+      data,
+      createFakeSdk().sdk,
+      getGames,
+      createFakeRevealSlackDeps(),
+      () => ({
+        allTimeRow,
+      }),
+    );
   }
 
   async function run(tool: ReturnType<typeof createComputeAnswersTool>) {
@@ -132,7 +124,12 @@ describe("compute_answers —showAllTimeRow", () => {
 describe("compute_answers —orchestrator", () => {
   it("returns reveals: [] when no question is pending", async () => {
     const data = createInMemoryDataLayer();
-    const tool = createComputeAnswersTool(data, createFakeSdk(), fixtureGetGames, fakeSlackDeps());
+    const tool = createComputeAnswersTool(
+      data,
+      createFakeSdk().sdk,
+      fixtureGetGames,
+      createFakeRevealSlackDeps(),
+    );
 
     const res = parseToolResult(
       await tool.handler(
@@ -162,7 +159,12 @@ describe("compute_answers —orchestrator", () => {
       makeQuestion({ id: "b1", postedAt: 3_000, batchId: "batch-B", statement: "B1" }),
     );
 
-    const tool = createComputeAnswersTool(data, createFakeSdk(), fixtureGetGames, fakeSlackDeps());
+    const tool = createComputeAnswersTool(
+      data,
+      createFakeSdk().sdk,
+      fixtureGetGames,
+      createFakeRevealSlackDeps(),
+    );
 
     const res = parseToolResult(
       await tool.handler(
@@ -210,7 +212,12 @@ describe("compute_answers —orchestrator", () => {
       timestamp: 600,
     });
 
-    const tool = createComputeAnswersTool(data, createFakeSdk(), fixtureGetGames, fakeSlackDeps());
+    const tool = createComputeAnswersTool(
+      data,
+      createFakeSdk().sdk,
+      fixtureGetGames,
+      createFakeRevealSlackDeps(),
+    );
 
     const res = parseToolResult(
       await tool.handler(
@@ -254,7 +261,12 @@ describe("compute_answers —orchestrator", () => {
       await scoped.saveAnswer({ userId: "U1", questionId, answer: true, correct, timestamp: 500 });
     }
 
-    const tool = createComputeAnswersTool(data, createFakeSdk(), fixtureGetGames, fakeSlackDeps());
+    const tool = createComputeAnswersTool(
+      data,
+      createFakeSdk().sdk,
+      fixtureGetGames,
+      createFakeRevealSlackDeps(),
+    );
 
     const res = parseToolResult(
       await tool.handler(
@@ -286,7 +298,12 @@ describe("compute_answers —orchestrator", () => {
       makeQuestion({ id: "q1", batchId: "B", postedAt: 1_000, revealResponses: "yes" }),
     );
 
-    const tool = createComputeAnswersTool(data, createFakeSdk(), fixtureGetGames, fakeSlackDeps());
+    const tool = createComputeAnswersTool(
+      data,
+      createFakeSdk().sdk,
+      fixtureGetGames,
+      createFakeRevealSlackDeps(),
+    );
 
     const res = parseToolResult(
       await tool.handler(
@@ -333,7 +350,12 @@ describe("compute_answers —orchestrator", () => {
       detectedAt: new Date(700).toISOString(),
     });
 
-    const tool = createComputeAnswersTool(data, createFakeSdk(), fixtureGetGames, fakeSlackDeps());
+    const tool = createComputeAnswersTool(
+      data,
+      createFakeSdk().sdk,
+      fixtureGetGames,
+      createFakeRevealSlackDeps(),
+    );
 
     const res = parseToolResult(
       await tool.handler(
@@ -365,7 +387,12 @@ describe("compute_answers —orchestrator", () => {
       timestamp: 500,
     });
 
-    const tool = createComputeAnswersTool(data, createFakeSdk(), fixtureGetGames, fakeSlackDeps());
+    const tool = createComputeAnswersTool(
+      data,
+      createFakeSdk().sdk,
+      fixtureGetGames,
+      createFakeRevealSlackDeps(),
+    );
 
     const res = parseToolResult(
       await tool.handler(
@@ -418,7 +445,12 @@ describe("compute_answers —orchestrator", () => {
       timestamp: 700,
     });
 
-    const tool = createComputeAnswersTool(data, createFakeSdk(), fixtureGetGames, fakeSlackDeps());
+    const tool = createComputeAnswersTool(
+      data,
+      createFakeSdk().sdk,
+      fixtureGetGames,
+      createFakeRevealSlackDeps(),
+    );
 
     const res = parseToolResult(
       await tool.handler(
@@ -467,7 +499,12 @@ describe("compute_answers —orchestrator", () => {
       timestamp: 600,
     });
 
-    const tool = createComputeAnswersTool(data, createFakeSdk(), fixtureGetGames, fakeSlackDeps());
+    const tool = createComputeAnswersTool(
+      data,
+      createFakeSdk().sdk,
+      fixtureGetGames,
+      createFakeRevealSlackDeps(),
+    );
 
     const res = parseToolResult(
       await tool.handler(
@@ -517,7 +554,12 @@ describe("compute_answers —orchestrator", () => {
       detectedAt: new Date(700).toISOString(),
     });
 
-    const tool = createComputeAnswersTool(data, createFakeSdk(), fixtureGetGames, fakeSlackDeps());
+    const tool = createComputeAnswersTool(
+      data,
+      createFakeSdk().sdk,
+      fixtureGetGames,
+      createFakeRevealSlackDeps(),
+    );
 
     const res = parseToolResult(
       await tool.handler(
@@ -568,7 +610,12 @@ describe("compute_answers —orchestrator", () => {
       timestamp: 600,
     });
 
-    const tool = createComputeAnswersTool(data, createFakeSdk(), fixtureGetGames, fakeSlackDeps());
+    const tool = createComputeAnswersTool(
+      data,
+      createFakeSdk().sdk,
+      fixtureGetGames,
+      createFakeRevealSlackDeps(),
+    );
 
     const res = parseToolResult(
       await tool.handler(
@@ -606,7 +653,12 @@ describe("compute_answers —orchestrator", () => {
       correct: undefined,
       timestamp: 500,
     });
-    const tool = createComputeAnswersTool(data, createFakeSdk(), fixtureGetGames, fakeSlackDeps());
+    const tool = createComputeAnswersTool(
+      data,
+      createFakeSdk().sdk,
+      fixtureGetGames,
+      createFakeRevealSlackDeps(),
+    );
 
     const res = parseToolResult(
       await tool.handler(
@@ -651,7 +703,12 @@ describe("compute_answers —orchestrator", () => {
       correct: false,
       timestamp: 500,
     });
-    const tool = createComputeAnswersTool(data, createFakeSdk(), fixtureGetGames, fakeSlackDeps());
+    const tool = createComputeAnswersTool(
+      data,
+      createFakeSdk().sdk,
+      fixtureGetGames,
+      createFakeRevealSlackDeps(),
+    );
 
     const res = parseToolResult(
       await tool.handler(
@@ -683,7 +740,12 @@ describe("compute_answers —orchestrator", () => {
     await scoped.saveQuestion(
       makeQuestion({ id: "q1", postedAt: undefined, messageLink: undefined }),
     );
-    const tool = createComputeAnswersTool(data, createFakeSdk(), fixtureGetGames, fakeSlackDeps());
+    const tool = createComputeAnswersTool(
+      data,
+      createFakeSdk().sdk,
+      fixtureGetGames,
+      createFakeRevealSlackDeps(),
+    );
 
     const res = parseToolResult(
       await tool.handler(
@@ -727,7 +789,12 @@ describe("compute_answers —orchestrator", () => {
       timestamp: 600,
     });
 
-    const tool = createComputeAnswersTool(data, createFakeSdk(), fixtureGetGames, fakeSlackDeps());
+    const tool = createComputeAnswersTool(
+      data,
+      createFakeSdk().sdk,
+      fixtureGetGames,
+      createFakeRevealSlackDeps(),
+    );
     await tool.handler(
       {
         game: FIXTURE_GAME_NAME,
@@ -752,7 +819,12 @@ describe("compute_answers —orchestrator", () => {
     await scoped.saveQuestion(makeQuestion({ id: "legacy1", postedAt: 1_000, statement: "L1" }));
     await scoped.saveQuestion(makeQuestion({ id: "legacy2", postedAt: 2_000, statement: "L2" }));
 
-    const tool = createComputeAnswersTool(data, createFakeSdk(), fixtureGetGames, fakeSlackDeps());
+    const tool = createComputeAnswersTool(
+      data,
+      createFakeSdk().sdk,
+      fixtureGetGames,
+      createFakeRevealSlackDeps(),
+    );
 
     const res = parseToolResult(
       await tool.handler(
@@ -787,7 +859,12 @@ describe("compute_answers —orchestrator", () => {
       timestamp: 150,
     });
 
-    const tool = createComputeAnswersTool(data, createFakeSdk(), fixtureGetGames, fakeSlackDeps());
+    const tool = createComputeAnswersTool(
+      data,
+      createFakeSdk().sdk,
+      fixtureGetGames,
+      createFakeRevealSlackDeps(),
+    );
 
     const res = parseToolResult(
       await tool.handler(
@@ -810,9 +887,9 @@ describe("compute_answers —orchestrator", () => {
       const data = createInMemoryDataLayer();
       const tool = createComputeAnswersTool(
         data,
-        createFakeSdk(),
+        createFakeSdk().sdk,
         fixtureGetGames,
-        fakeSlackDeps(),
+        createFakeRevealSlackDeps(),
         () => ({}),
       );
       const res = parseToolResult(
@@ -833,9 +910,9 @@ describe("compute_answers —orchestrator", () => {
       const data = createInMemoryDataLayer();
       const tool = createComputeAnswersTool(
         data,
-        createFakeSdk(),
+        createFakeSdk().sdk,
         fixtureGetGames,
-        fakeSlackDeps(),
+        createFakeRevealSlackDeps(),
         () => ({ instructions: "Be funny." }),
       );
       const res = parseToolResult(
@@ -855,7 +932,7 @@ describe("compute_answers —orchestrator", () => {
       const data = createInMemoryDataLayer();
       const tool = createComputeAnswersTool(
         data,
-        createFakeSdk(),
+        createFakeSdk().sdk,
         () => [
           {
             name: FIXTURE_GAME_NAME,
@@ -866,7 +943,7 @@ describe("compute_answers —orchestrator", () => {
             additionalInstructions: "Be concise.",
           },
         ],
-        fakeSlackDeps(),
+        createFakeRevealSlackDeps(),
         () => ({ additionalInstructions: "Avoid politics." }),
       );
       const res = parseToolResult(
@@ -901,13 +978,15 @@ describe("compute_answers —orchestrator", () => {
         timestamp: 500,
       });
 
-      const tool = createComputeAnswersTool(data, createFakeSdk(), fixtureGetGames, {
-        isAvailable: () => null,
-        fetchBotUserId: async () => "UBOT",
-        fetchMessageReactions: async () => [],
-        fetchUserDisplayName: async (userId) => (userId === "U1" ? "NewName" : null),
-        updateMessage: async () => {},
-      });
+      const { sdk } = createFakeSdk();
+      const tool = createComputeAnswersTool(
+        data,
+        sdk,
+        fixtureGetGames,
+        createFakeRevealSlackDeps({
+          fetchUserDisplayName: async (userId) => (userId === "U1" ? "NewName" : null),
+        }),
+      );
 
       const res = parseToolResult(
         await tool.handler(
@@ -942,9 +1021,9 @@ describe("compute_answers — reprocess re-applies current config", () => {
     );
     const tool = createComputeAnswersTool(
       data,
-      createFakeSdk(),
+      createFakeSdk().sdk,
       gamesWithRevealResponses("just-correctness"),
-      fakeSlackDeps(),
+      createFakeRevealSlackDeps(),
     );
 
     const res = parseToolResult(
@@ -970,9 +1049,9 @@ describe("compute_answers — reprocess re-applies current config", () => {
     );
     const tool = createComputeAnswersTool(
       data,
-      createFakeSdk(),
+      createFakeSdk().sdk,
       gamesWithRevealResponses("yes"),
-      fakeSlackDeps(),
+      createFakeRevealSlackDeps(),
     );
     await tool.handler(
       {
@@ -995,7 +1074,12 @@ describe("compute_answers — reprocess re-applies current config", () => {
     await scoped.saveQuestion(
       makeQuestion({ id: "q1", batchId: "B", postedAt: 1_000, processedAt: 9_000 }),
     );
-    const tool = createComputeAnswersTool(data, createFakeSdk(), fixtureGetGames, fakeSlackDeps());
+    const tool = createComputeAnswersTool(
+      data,
+      createFakeSdk().sdk,
+      fixtureGetGames,
+      createFakeRevealSlackDeps(),
+    );
 
     const res = parseToolResult(
       await tool.handler(
@@ -1019,7 +1103,12 @@ describe("compute_answers — reprocess re-applies current config", () => {
     const data = createInMemoryDataLayer();
     const scoped = data.forGame(FIXTURE_GAME_NAME);
     await scoped.saveQuestion(makeQuestion({ id: "q1", batchId: "B", processedAt: 9_000 }));
-    const tool = createComputeAnswersTool(data, createFakeSdk(), fixtureGetGames, fakeSlackDeps());
+    const tool = createComputeAnswersTool(
+      data,
+      createFakeSdk().sdk,
+      fixtureGetGames,
+      createFakeRevealSlackDeps(),
+    );
     const res = parseToolResult(
       await tool.handler(
         {
@@ -1043,7 +1132,12 @@ describe("compute_answers — reprocess re-applies current config", () => {
     await scoped.saveQuestion(
       makeQuestion({ id: "q3", batchId: "B", postedAt: 3_000, processedAt: 9_000 }),
     );
-    const tool = createComputeAnswersTool(data, createFakeSdk(), fixtureGetGames, fakeSlackDeps());
+    const tool = createComputeAnswersTool(
+      data,
+      createFakeSdk().sdk,
+      fixtureGetGames,
+      createFakeRevealSlackDeps(),
+    );
     const res = parseToolResult(
       await tool.handler(
         {
@@ -1084,7 +1178,12 @@ describe("compute_answers — reprocess re-applies current config", () => {
       fixtureGetGames().map((g) =>
         g.name === FIXTURE_GAME_NAME ? { ...g, judgeLeniency: "lenient" as const } : g,
       );
-    const tool = createComputeAnswersTool(data, createFakeSdk(), getGames, fakeSlackDeps());
+    const tool = createComputeAnswersTool(
+      data,
+      createFakeSdk().sdk,
+      getGames,
+      createFakeRevealSlackDeps(),
+    );
 
     await tool.handler(
       {
@@ -1105,7 +1204,12 @@ describe("compute_answers — reprocess re-applies current config", () => {
     await scoped.saveQuestion(
       makeQuestion({ id: "other", batchId: "B", postedAt: 2_000, processedAt: 9_000 }),
     );
-    const tool = createComputeAnswersTool(data, createFakeSdk(), fixtureGetGames, fakeSlackDeps());
+    const tool = createComputeAnswersTool(
+      data,
+      createFakeSdk().sdk,
+      fixtureGetGames,
+      createFakeRevealSlackDeps(),
+    );
     const res = parseToolResult(
       await tool.handler(
         {
@@ -1148,7 +1252,12 @@ describe("compute_answers — reprocess re-applies current config", () => {
       },
     };
 
-    const tool = createComputeAnswersTool(data, createFakeSdk(), fixtureGetGames, fakeSlackDeps());
+    const tool = createComputeAnswersTool(
+      data,
+      createFakeSdk().sdk,
+      fixtureGetGames,
+      createFakeRevealSlackDeps(),
+    );
     const res = parseToolResult(
       await tool.handler(
         {
@@ -1189,7 +1298,12 @@ describe("compute_answers —hint non-leak regression", () => {
       }),
     );
 
-    const tool = createComputeAnswersTool(data, createFakeSdk(), fixtureGetGames, fakeSlackDeps());
+    const tool = createComputeAnswersTool(
+      data,
+      createFakeSdk().sdk,
+      fixtureGetGames,
+      createFakeRevealSlackDeps(),
+    );
     const res = parseToolResult(
       await tool.handler(
         {
@@ -1231,7 +1345,12 @@ describe("compute_answers —hint non-leak regression", () => {
       }),
     );
 
-    const tool = createComputeAnswersTool(data, createFakeSdk(), fixtureGetGames, fakeSlackDeps());
+    const tool = createComputeAnswersTool(
+      data,
+      createFakeSdk().sdk,
+      fixtureGetGames,
+      createFakeRevealSlackDeps(),
+    );
     await tool.handler(
       {
         game: FIXTURE_GAME_NAME,
@@ -1252,23 +1371,29 @@ interface UpdateCall {
   blockIds: string[];
 }
 
-/** Slack deps that capture `updateMessage` calls (and can be made to throw). */
+interface UpdateCall {
+  channel: string;
+  ts: string;
+  blockIds: string[];
+}
+
 function capturingSlackDeps(opts: { throwOnUpdate?: boolean } = {}): {
-  deps: RevealSlackDeps;
+  deps: ReturnType<typeof createFakeRevealSlackDeps>;
   updates: UpdateCall[];
 } {
   const updates: UpdateCall[] = [];
-  const deps: RevealSlackDeps = {
-    isAvailable: () => null,
-    fetchBotUserId: async () => "UBOT",
-    fetchMessageReactions: async () => [],
-    fetchUserDisplayName: async () => null,
-    updateMessage: async (channel, ts, blocks) => {
-      if (opts.throwOnUpdate) throw new Error("rate limited");
-      updates.push({ channel, ts, blockIds: blocks.map((b) => b.block_id ?? "") });
-    },
+  const updateMessage = async (
+    channel: string,
+    ts: string,
+    blocks: Array<{ block_id?: string }>,
+  ) => {
+    if (opts.throwOnUpdate) throw new Error("rate limited");
+    updates.push({ channel, ts, blockIds: blocks.map((b) => b.block_id ?? "") });
   };
-  return { deps, updates };
+  return {
+    deps: createFakeRevealSlackDeps({ updateMessage }),
+    updates,
+  };
 }
 
 function postedBooleanBlocks(questionId: string) {
@@ -1308,7 +1433,7 @@ describe("compute_answers — does not edit cards (projection moved to refresh_q
     });
 
     const { deps, updates } = capturingSlackDeps();
-    const tool = createComputeAnswersTool(data, createFakeSdk(), fixtureGetGames, deps);
+    const tool = createComputeAnswersTool(data, createFakeSdk().sdk, fixtureGetGames, deps);
     const res = parseToolResult(
       await tool.handler(
         {
@@ -1350,7 +1475,12 @@ describe("compute_answers —image-medium attribution", () => {
         media: MEDIA,
       }),
     );
-    const tool = createComputeAnswersTool(data, createFakeSdk(), fixtureGetGames, fakeSlackDeps());
+    const tool = createComputeAnswersTool(
+      data,
+      createFakeSdk().sdk,
+      fixtureGetGames,
+      createFakeRevealSlackDeps(),
+    );
     const res = parseToolResult(
       await tool.handler(
         {
@@ -1372,7 +1502,12 @@ describe("compute_answers —image-medium attribution", () => {
     const data = createInMemoryDataLayer();
     const scoped = data.forGame(FIXTURE_GAME_NAME);
     await scoped.saveQuestion(makeQuestion({ id: "txt", batchId: "B", postedAt: 1_000 }));
-    const tool = createComputeAnswersTool(data, createFakeSdk(), fixtureGetGames, fakeSlackDeps());
+    const tool = createComputeAnswersTool(
+      data,
+      createFakeSdk().sdk,
+      fixtureGetGames,
+      createFakeRevealSlackDeps(),
+    );
     const res = parseToolResult(
       await tool.handler(
         {
@@ -1398,7 +1533,12 @@ describe("compute_answers —image-medium attribution", () => {
         media: MEDIA,
       }),
     );
-    const tool = createComputeAnswersTool(data, createFakeSdk(), fixtureGetGames, fakeSlackDeps());
+    const tool = createComputeAnswersTool(
+      data,
+      createFakeSdk().sdk,
+      fixtureGetGames,
+      createFakeRevealSlackDeps(),
+    );
     const raw = JSON.stringify(
       parseToolResult(
         await tool.handler(
@@ -1442,7 +1582,12 @@ describe("compute_answers — points", () => {
       correct: false,
       timestamp: 1_500,
     });
-    const tool = createComputeAnswersTool(data, createFakeSdk(), fixtureGetGames, fakeSlackDeps());
+    const tool = createComputeAnswersTool(
+      data,
+      createFakeSdk().sdk,
+      fixtureGetGames,
+      createFakeRevealSlackDeps(),
+    );
     return parseToolResult(
       await tool.handler(
         { game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined, reprocessBatchId: undefined },
@@ -1484,7 +1629,13 @@ describe("compute_answers — includeRevealInQuestions axis", () => {
           ? { ...g, includeRevealInQuestions: mode }
           : g,
       );
-    return createComputeAnswersTool(data, createFakeSdk(), getGames, fakeSlackDeps(), () => ({}));
+    return createComputeAnswersTool(
+      data,
+      createFakeSdk().sdk,
+      getGames,
+      createFakeRevealSlackDeps(),
+      () => ({}),
+    );
   }
 
   async function run(tool: ReturnType<typeof createComputeAnswersTool>) {
@@ -1534,7 +1685,13 @@ describe("compute_answers — finalRevealSummary axis", () => {
       fixtureGetGames().map((g) =>
         g.name === FIXTURE_GAME_NAME && mode !== undefined ? { ...g, finalRevealSummary: mode } : g,
       );
-    return createComputeAnswersTool(data, createFakeSdk(), getGames, fakeSlackDeps(), () => ({}));
+    return createComputeAnswersTool(
+      data,
+      createFakeSdk().sdk,
+      getGames,
+      createFakeRevealSlackDeps(),
+      () => ({}),
+    );
   }
 
   async function run(tool: ReturnType<typeof createComputeAnswersTool>) {
@@ -1579,7 +1736,13 @@ describe("compute_answers — tagPlayers axis", () => {
       fixtureGetGames().map((g) =>
         g.name === FIXTURE_GAME_NAME && tagPlayers !== undefined ? { ...g, tagPlayers } : g,
       );
-    return createComputeAnswersTool(data, createFakeSdk(), getGames, fakeSlackDeps(), () => ({}));
+    return createComputeAnswersTool(
+      data,
+      createFakeSdk().sdk,
+      getGames,
+      createFakeRevealSlackDeps(),
+      () => ({}),
+    );
   }
 
   async function run(tool: ReturnType<typeof createComputeAnswersTool>) {
@@ -1616,7 +1779,7 @@ describe("compute_answers — predictions & invalidation", () => {
   };
 
   function predictionTool(data: ReturnType<typeof createInMemoryDataLayer>) {
-    return createComputeAnswersTool(data, createFakeSdk(), fixtureGetGames, FAKE_REACTIONS);
+    return createComputeAnswersTool(data, createFakeSdk().sdk, fixtureGetGames, FAKE_REACTIONS);
   }
   function runDefault(t: ReturnType<typeof createComputeAnswersTool>) {
     return t.handler(

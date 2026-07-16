@@ -24,7 +24,7 @@ import {
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { relocateTriviaConfig } from "../../../migrations/022-trivia-config-to-plugin.js";
-import { createFakeSdk } from "../testHelpers.js";
+import { createFakeSdk } from "../testHelpers.fakeSdk.js";
 import {
   _resetTriviaConfigBridge,
   defaultGetGames,
@@ -41,7 +41,7 @@ import type { ClackSdk } from "../../sdk.js";
 const SESSION = { sessionId: "test" };
 
 function makeSdkOverRealDir(pluginDataDir: string): ClackSdk {
-  return createFakeSdk({
+  const { sdk } = createFakeSdk({
     readFile: async (path) => {
       const full = join(pluginDataDir, path);
       if (!existsSync(full)) return null;
@@ -61,6 +61,7 @@ function makeSdkOverRealDir(pluginDataDir: string): ClackSdk {
       return fsWatch(full);
     },
   });
+  return sdk;
 }
 
 interface OnDiskPluginConfigShape {
