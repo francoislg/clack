@@ -1,15 +1,14 @@
 import { z } from "zod";
 import { tool } from "@anthropic-ai/claude-agent-sdk";
+import { imageAndTextResult, sourceErrorResult, validateQuery } from "../imageSearchResult.js";
 import {
   searchReleaseGroups,
   fetchFrontCover,
   fetchImageBytes,
   type ReleaseGroup,
-  type SourceError,
   type MusicBrainzDeps,
 } from "./musicbrainz.js";
 
-const MAX_QUERY_LENGTH = 200;
 /** Bounds the CAA round-trips per lookup — beyond the top 3 the query is too obscure. */
 const CAA_FETCH_BUDGET = 3;
 
@@ -34,26 +33,6 @@ export const defaultFindAlbumDeps: FindAlbumDeps = {
   fetchImageBytes,
 };
 
-/**
- * Data-mode multimodal result: one base64 image content block (for Claude to inspect) + one text
- * block carrying the metadata JSON. Both shapes are valid MCP `CallToolResult` content.
- */
-function imageAndTextResult(data: string, mimeType: string, metadata: unknown) {
-  return {
-    content: [
-      { type: "image" as const, data, mimeType },
-      { type: "text" as const, text: JSON.stringify(metadata, null, 2) },
-    ],
-  };
-}
-
-function sourceErrorResult(err: SourceError) {
-  return {
-    content: [{ type: "text" as const, text: JSON.stringify(err) }],
-    isError: true as const,
-  };
-}
-
 function albumTitle(releaseGroup: ReleaseGroup): string {
   const artist = releaseGroup["artist-credit"]?.[0]?.name;
   const title = releaseGroup.title ?? "";
@@ -70,16 +49,9 @@ export function createFindAlbumTool(deps: FindAlbumDeps = defaultFindAlbumDeps) 
         .describe("Artist + album (e.g. 'Nirvana Nevermind') or an album title alone."),
     },
     async (args) => {
-      const query = args.query.trim();
-      if (query.length === 0) {
-        return sourceErrorResult({ kind: "notFound", message: "query is empty" });
-      }
-      if (query.length > MAX_QUERY_LENGTH) {
-        return sourceErrorResult({
-          kind: "notFound",
-          message: `query exceeds ${MAX_QUERY_LENGTH} characters`,
-        });
-      }
+      const validated = validateQuery(args.query);
+      if (!validated.ok) return sourceErrorResult(validated.error);
+      const query = validated.query;
 
       const searchResult = await deps.searchReleaseGroups(query, deps.musicBrainzDeps);
       if (!("ok" in searchResult)) return sourceErrorResult(searchResult);

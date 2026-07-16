@@ -309,9 +309,16 @@
   "307": "roundSummary.ts",
   "308": "testCtx.ts",
   "309": "MemoryEntryNotFoundError",
+  "313": "instructions.ts",
   "315": "configurationFiles.ts",
   "316": "cascadingConfigResolver.ts",
   "318": "RevealSlackDeps",
-  "321": "disposablePool.ts",
-  "325": "languages.ts"
+  "320": "errorReports.ts",
+  "323": "github.ts",
+  "325": "languages.ts",
+  "326": "tmdb-image-search",
+  "328": "020-system-actor-on-plugin-crons.ts",
+  "329": "index.ts",
+  "330": "persistGame.ts",
+  "332": "createAdminDescribeConfigFileTool"
 }
