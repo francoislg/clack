@@ -1,9 +1,14 @@
 import { describe, it, beforeEach } from "vitest";
 import assert from "node:assert/strict";
-import { createInMemoryDataLayer, FIXTURE_GAME_NAME, fixtureGetGames } from "../../testHelpers.js";
+import {
+  createTriviaDataLayer,
+  FIXTURE_GAME_NAME,
+  fixtureGetGames,
+  type FakeTriviaDataLayer,
+} from "../../testHelpers.js";
+import { createFakeSdk, primeTriviaConfig } from "../../testHelpers.fakeSdk.js";
 import { createFindPreviousQuestionsTool } from "./findPreviousQuestions.js";
 import { parseToolResult } from "../../../../tools/testHelpers.js";
-import type { TriviaDataLayer } from "../../core/types.js";
 
 const SESSION = { sessionId: "test" };
 
@@ -16,13 +21,15 @@ function extractText(result: { content?: ReadonlyArray<{ type: string }> }): str
 }
 
 describe("find_previous_questions — posted filter", () => {
-  let data: TriviaDataLayer;
+  let data: FakeTriviaDataLayer;
 
   beforeEach(async () => {
-    data = createInMemoryDataLayer();
-    const scoped = data.forGame(FIXTURE_GAME_NAME);
-    // q1, q2 are posted; q3, q4 are staged (postedAt undefined).
-    await scoped.saveQuestion({
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk);
+    const { dataLayer } = createTriviaDataLayer(sdk);
+    data = dataLayer;
+
+    const q1 = {
       id: "q1",
       category: "Science",
       statement: "posted question one",
@@ -31,8 +38,8 @@ describe("find_previous_questions — posted filter", () => {
       createdAt: 1,
       postedAt: 1500,
       messageLink: "https://slack.com/archives/C/p1",
-    });
-    await scoped.saveQuestion({
+    };
+    const q2 = {
       id: "q2",
       category: "Geography",
       statement: "posted question two",
@@ -41,23 +48,25 @@ describe("find_previous_questions — posted filter", () => {
       createdAt: 2,
       postedAt: 2500,
       messageLink: "https://slack.com/archives/C/p2",
-    });
-    await scoped.saveQuestion({
+    };
+    const q3 = {
       id: "q3",
       category: "Science",
       statement: "staged question three",
       isTrue: true,
       emojis: ["🧪"],
       createdAt: 3,
-    });
-    await scoped.saveQuestion({
+    };
+    const q4 = {
       id: "q4",
       category: "History",
       statement: "staged question four",
       isTrue: false,
       emojis: ["📜"],
       createdAt: 4,
-    });
+    };
+
+    data.forGame(FIXTURE_GAME_NAME).loadQuestions.mockResolvedValue([q1, q2, q3, q4]);
   });
 
   it("posted: true returns only posted questions", async () => {
@@ -190,9 +199,32 @@ describe("find_previous_questions — posted filter", () => {
   });
 
   it("posted: true + recentBatchFromNow is permitted (existing behavior preserved)", async () => {
-    const scoped = data.forGame(FIXTURE_GAME_NAME);
-    await scoped.updateQuestion("q1", { batchId: "batch-a" });
-    await scoped.updateQuestion("q2", { batchId: "batch-a" });
+    const q1 = {
+      id: "q1",
+      category: "Science",
+      statement: "posted question one",
+      isTrue: true,
+      emojis: ["🔬"],
+      createdAt: 1,
+      postedAt: 1500,
+      messageLink: "https://slack.com/archives/C/p1",
+      batchId: "batch-a",
+    };
+    const q2 = {
+      id: "q2",
+      category: "Geography",
+      statement: "posted question two",
+      isTrue: false,
+      emojis: ["🌍"],
+      createdAt: 2,
+      postedAt: 2500,
+      messageLink: "https://slack.com/archives/C/p2",
+      batchId: "batch-a",
+    };
+    const q3 = await data.forGame(FIXTURE_GAME_NAME).loadQuestions();
+    const q3q4 = q3?.slice(2) || [];
+
+    data.forGame(FIXTURE_GAME_NAME).loadQuestions.mockResolvedValue([q1, q2, ...q3q4]);
 
     const tool = createFindPreviousQuestionsTool(data, fixtureGetGames);
     const result = await tool.handler(
@@ -210,7 +242,6 @@ describe("find_previous_questions — posted filter", () => {
       SESSION,
     );
     const parsed = parseToolResult(result);
-    // Both posted rows are in the same batch — they should come back.
     assert.equal(parsed.questions.length, 2);
   });
 });

@@ -1,6 +1,8 @@
 import { describe, it } from "vitest";
 import assert from "node:assert/strict";
-import { createInMemoryDataLayer, FIXTURE_GAME_NAME, fixtureGetGames } from "../../testHelpers.js";
+import { z } from "zod";
+import { createTriviaDataLayer, FIXTURE_GAME_NAME, fixtureGetGames } from "../../testHelpers.js";
+import { createFakeSdk, primeTriviaConfig } from "../../testHelpers.fakeSdk.js";
 import { createRemoveCheatTool } from "./removeCheat.js";
 import { parseToolResult } from "../../../../tools/testHelpers.js";
 
@@ -11,7 +13,9 @@ const SESSION = { sessionId: "test" };
 
 describe("remove_cheat tool", () => {
   it("removes a matching report and decrements the counter", async () => {
-    const data = createInMemoryDataLayer();
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk);
+    const { dataLayer: data } = createTriviaDataLayer(sdk);
     const scoped = data.forGame(FIXTURE_GAME_NAME);
     await scoped.saveCheat({ cheaterUserId: "U1", questionId: "q1", reason: "x", detectedAt: "t" });
     await scoped.saveCheat({ cheaterUserId: "U1", questionId: "q2", reason: "y", detectedAt: "t" });
@@ -29,11 +33,17 @@ describe("remove_cheat tool", () => {
     const cheats = await scoped.loadCheats();
     assert.equal(cheats.length, 1);
     assert.equal(cheats[0].questionId, "q2", "the unrelated report is preserved");
-    assert.equal((await data.getUserData("U1"))?.cheatAttempts, 1);
+    assert.equal(
+      (await sdk.users.data(z.object({ cheatAttempts: z.number().optional() })).get("U1"))
+        ?.cheatAttempts,
+      1,
+    );
   });
 
   it("removes every matching report and drops the counter by that count", async () => {
-    const data = createInMemoryDataLayer();
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk);
+    const { dataLayer: data } = createTriviaDataLayer(sdk);
     const scoped = data.forGame(FIXTURE_GAME_NAME);
     await scoped.saveCheat({ cheaterUserId: "U1", questionId: "q1", reason: "a", detectedAt: "t" });
     await scoped.saveCheat({ cheaterUserId: "U1", questionId: "q1", reason: "b", detectedAt: "t" });
@@ -51,11 +61,15 @@ describe("remove_cheat tool", () => {
   });
 
   it("floors the counter at 0 when it has drifted below the removed count", async () => {
-    const data = createInMemoryDataLayer();
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk);
+    const { dataLayer: data } = createTriviaDataLayer(sdk);
     const scoped = data.forGame(FIXTURE_GAME_NAME);
     await scoped.saveCheat({ cheaterUserId: "U1", questionId: "q1", reason: "a", detectedAt: "t" });
     // Force a drifted counter: 0 despite an existing report.
-    await data.saveUser({ userId: "U1", displayName: "U1", joinedAt: 0, cheatAttempts: 0 });
+    await sdk.users
+      .data(z.object({ joinedAt: z.number().optional(), cheatAttempts: z.number().optional() }))
+      .merge("U1", { joinedAt: 0, cheatAttempts: 0 });
     const tool = createRemoveCheatTool(data, fixtureGetGames);
 
     const body = parseToolResult(
@@ -69,7 +83,9 @@ describe("remove_cheat tool", () => {
   });
 
   it("is a safe no-op when nothing matches", async () => {
-    const data = createInMemoryDataLayer();
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk);
+    const { dataLayer: data } = createTriviaDataLayer(sdk);
     const scoped = data.forGame(FIXTURE_GAME_NAME);
     await scoped.saveCheat({ cheaterUserId: "U1", questionId: "q1", reason: "a", detectedAt: "t" });
     const tool = createRemoveCheatTool(data, fixtureGetGames);
@@ -83,11 +99,18 @@ describe("remove_cheat tool", () => {
     assert.equal(body.removed, 0);
     assert.match(body.message, /No cheat report/);
     assert.equal((await scoped.loadCheats()).length, 1, "report untouched");
-    assert.equal((await data.getUserData("U1"))?.cheatAttempts, 1, "counter untouched");
+    assert.equal(
+      (await sdk.users.data(z.object({ cheatAttempts: z.number().optional() })).get("U1"))
+        ?.cheatAttempts,
+      1,
+      "counter untouched",
+    );
   });
 
   it("points at the reprocess-refresh flow when the question was already revealed", async () => {
-    const data = createInMemoryDataLayer();
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk);
+    const { dataLayer: data } = createTriviaDataLayer(sdk);
     const scoped = data.forGame(FIXTURE_GAME_NAME);
     await scoped.saveQuestion({
       id: "q1",
@@ -113,15 +136,15 @@ describe("remove_cheat tool", () => {
       ),
     );
     assert.match(body.refreshHint, /compute_answers/);
-    // Standardized repaint call names questionIds with the affected id, never a batchId.
     assert.match(body.refreshHint, /refresh_question_cards\(game, questionIds: \["q1"\]\)/);
     assert.doesNotMatch(body.refreshHint, /batchId/);
   });
 
   it("omits the refreshHint when the question has not been revealed yet", async () => {
-    const data = createInMemoryDataLayer();
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk);
+    const { dataLayer: data } = createTriviaDataLayer(sdk);
     const scoped = data.forGame(FIXTURE_GAME_NAME);
-    // A still-live question (posted, no processedAt) — no posted result to refresh.
     await scoped.saveQuestion({
       id: "q1",
       category: "C",

@@ -2,12 +2,21 @@ import { describe, it, vi } from "vitest";
 import assert from "node:assert/strict";
 import { createUnlockQuestionsTool } from "./unlockQuestions.js";
 import { type LockSlackDeps } from "./lockQuestions.js";
-import { createInMemoryDataLayer, FIXTURE_GAME_NAME, fixtureGetGames } from "../../testHelpers.js";
-import { createFakeLockSlackDeps } from "../../testHelpers.fakeSdk.js";
+import {
+  createTriviaDataLayer,
+  FIXTURE_GAME_NAME,
+  fixtureGetGames,
+  type FakeTriviaDataLayer,
+} from "../../testHelpers.js";
+import {
+  createFakeSdk,
+  primeTriviaConfig,
+  createFakeLockSlackDeps,
+} from "../../testHelpers.fakeSdk.js";
 import { parseToolResult } from "../../../../tools/testHelpers.js";
 import type { RosterEditClient } from "../../freeform/roster.js";
 import type { KnownBlock } from "@slack/types";
-import type { TriviaDataLayer, TriviaQuestion } from "../../core/types.js";
+import type { TriviaQuestion } from "../../core/types.js";
 
 const SESSION = { sessionId: "test" };
 
@@ -39,21 +48,23 @@ function locked(overrides: Partial<TriviaQuestion>): TriviaQuestion {
   };
 }
 
-async function run(data: TriviaDataLayer, sdk: LockSlackDeps): Promise<UnlockResult> {
+async function run(data: FakeTriviaDataLayer, sdk: LockSlackDeps): Promise<UnlockResult> {
   const tool = createUnlockQuestionsTool(data, sdk, fixtureGetGames);
   return parseToolResult(await tool.handler({ game: FIXTURE_GAME_NAME }, SESSION));
 }
 
 describe("unlock_questions", () => {
   it("clears the flag and repaints every locked, unrevealed question", async () => {
-    const data = createInMemoryDataLayer();
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk);
+    const { dataLayer: data } = createTriviaDataLayer(sdk);
     const scoped = data.forGame(FIXTURE_GAME_NAME);
     await scoped.saveQuestion(locked({ id: "a" }));
     await scoped.saveQuestion(locked({ id: "b" }));
     const chat = { update: vi.fn<RosterEditClient["chat"]["update"]>(async () => ({ ok: true })) };
-    const sdk = createFakeLockSlackDeps({ getSlackClient: () => ({ chat }) });
+    const slackDeps = createFakeLockSlackDeps({ getSlackClient: () => ({ chat }) });
 
-    const res = await run(data, sdk);
+    const res = await run(data, slackDeps);
 
     assert.deepEqual(res.unlocked?.sort(), ["a", "b"]);
     assert.equal(chat.update.mock.calls.length, 2);
@@ -62,13 +73,15 @@ describe("unlock_questions", () => {
   });
 
   it("does not reopen an already-revealed (and locked) question", async () => {
-    const data = createInMemoryDataLayer();
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk);
+    const { dataLayer: data } = createTriviaDataLayer(sdk);
     const scoped = data.forGame(FIXTURE_GAME_NAME);
     await scoped.saveQuestion(locked({ id: "revealed", processedAt: 2000 }));
     const chat = { update: vi.fn<RosterEditClient["chat"]["update"]>(async () => ({ ok: true })) };
-    const sdk = createFakeLockSlackDeps({ getSlackClient: () => ({ chat }) });
+    const slackDeps = createFakeLockSlackDeps({ getSlackClient: () => ({ chat }) });
 
-    const res = await run(data, sdk);
+    const res = await run(data, slackDeps);
 
     assert.deepEqual(res.unlocked, []);
     const after = (await scoped.loadQuestions()).find((q) => q.id === "revealed");
@@ -76,18 +89,22 @@ describe("unlock_questions", () => {
   });
 
   it("ignores questions that are not locked", async () => {
-    const data = createInMemoryDataLayer();
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk);
+    const { dataLayer: data } = createTriviaDataLayer(sdk);
     const scoped = data.forGame(FIXTURE_GAME_NAME);
     await scoped.saveQuestion(locked({ id: "open", answerLocked: undefined }));
     const chat = { update: vi.fn<RosterEditClient["chat"]["update"]>(async () => ({ ok: true })) };
-    const sdk = createFakeLockSlackDeps({ getSlackClient: () => ({ chat }) });
+    const slackDeps = createFakeLockSlackDeps({ getSlackClient: () => ({ chat }) });
 
-    const res = await run(data, sdk);
+    const res = await run(data, slackDeps);
     assert.deepEqual(res.unlocked, []);
   });
 
   it("errors when the Slack client is unavailable", async () => {
-    const data = createInMemoryDataLayer();
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk);
+    const { dataLayer: data } = createTriviaDataLayer(sdk);
     const res = await run(data, { getSlackClient: () => null });
     assert.match(res.error ?? "", /Slack client is not available/);
   });

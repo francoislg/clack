@@ -1,10 +1,15 @@
 import { describe, it, beforeEach } from "vitest";
 import assert from "node:assert/strict";
-import { createInMemoryDataLayer, FIXTURE_GAME_NAME, fixtureGetGames } from "../../testHelpers.js";
+import {
+  createTriviaDataLayer,
+  FIXTURE_GAME_NAME,
+  fixtureGetGames,
+  type FakeTriviaDataLayer,
+} from "../../testHelpers.js";
+import { createFakeSdk, primeTriviaConfig } from "../../testHelpers.fakeSdk.js";
 import { createGetIdeasTool } from "./getIdeas.js";
 import { parseToolResult } from "../../../../tools/testHelpers.js";
 import type { TriviaConfig, TriviaGame, TriviaPointsConfig } from "../../core/configTypes.js";
-import type { TriviaDataLayer } from "../../core/types.js";
 
 const SESSION = { sessionId: "test" };
 const DAY = 24 * 60 * 60 * 1000;
@@ -17,9 +22,9 @@ function makeConfig(points?: TriviaPointsConfig): TriviaConfig {
   };
 }
 
-async function seedSeason(data: TriviaDataLayer, points?: TriviaPointsConfig): Promise<void> {
+function mockSeason(points?: TriviaPointsConfig) {
   const now = Date.now();
-  await data.forGame(FIXTURE_GAME_NAME).saveSeasonsState({
+  return {
     seasons: [
       {
         slug: "active",
@@ -29,11 +34,11 @@ async function seedSeason(data: TriviaDataLayer, points?: TriviaPointsConfig): P
         ...(points !== undefined ? { points } : {}),
       },
     ],
-  });
+  };
 }
 
 async function ideas(
-  data: TriviaDataLayer,
+  data: FakeTriviaDataLayer,
   config: TriviaConfig,
   games?: readonly TriviaGame[],
   slot?: number,
@@ -43,12 +48,15 @@ async function ideas(
 }
 
 describe("get_ideas — points axis", () => {
-  let data: TriviaDataLayer;
+  let data: FakeTriviaDataLayer;
 
   beforeEach(async () => {
-    data = createInMemoryDataLayer();
-    await data.saveCategories(["Baseline-1", "Baseline-2"]);
-    await seedSeason(data);
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk);
+    const { dataLayer: createdData } = createTriviaDataLayer(sdk);
+    data = createdData;
+    data.loadCategories.mockResolvedValue(["Baseline-1", "Baseline-2"]);
+    data.forGame(FIXTURE_GAME_NAME).loadSeasonsState.mockResolvedValue(mockSeason());
   });
 
   it("no points configured → neither field surfaces", async () => {
@@ -93,18 +101,26 @@ describe("get_ideas — points axis", () => {
   });
 
   it("season tier beats game and workspace", async () => {
-    data = createInMemoryDataLayer();
-    await data.saveCategories(["Baseline-1", "Baseline-2"]);
-    await seedSeason(data, { max: 4, guidance: "season rule" });
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk);
+    const { dataLayer: createdData } = createTriviaDataLayer(sdk);
+    data = createdData;
+    data.loadCategories.mockResolvedValue(["Baseline-1", "Baseline-2"]);
+    data
+      .forGame(FIXTURE_GAME_NAME)
+      .loadSeasonsState.mockResolvedValue(mockSeason({ max: 4, guidance: "season rule" }));
     const parsed = await ideas(data, makeConfig({ max: 2, guidance: "workspace rule" }));
     assert.equal(parsed.maxPoints, 4);
     assert.equal(parsed.pointsGuidance, "season rule");
   });
 
   it("a season tier with a bare cap masks the workspace guidance and turns the axis off", async () => {
-    data = createInMemoryDataLayer();
-    await data.saveCategories(["Baseline-1", "Baseline-2"]);
-    await seedSeason(data, { max: 4 });
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk);
+    const { dataLayer: createdData } = createTriviaDataLayer(sdk);
+    data = createdData;
+    data.loadCategories.mockResolvedValue(["Baseline-1", "Baseline-2"]);
+    data.forGame(FIXTURE_GAME_NAME).loadSeasonsState.mockResolvedValue(mockSeason({ max: 4 }));
     const parsed = await ideas(data, makeConfig({ max: 2, guidance: "workspace rule" }));
     assert.equal(parsed.maxPoints, undefined, "whole-object replace — no guidance survives");
     assert.equal(parsed.pointsGuidance, undefined);

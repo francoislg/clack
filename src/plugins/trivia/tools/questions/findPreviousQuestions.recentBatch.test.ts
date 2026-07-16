@@ -2,91 +2,90 @@ import { describe, it } from "vitest";
 import assert from "node:assert/strict";
 import { z } from "zod";
 import {
-  createInMemoryDataLayer,
+  createTriviaDataLayer,
   FIXTURE_GAME_NAME,
   fixtureGetGames,
   multiFixtureGetGames,
 } from "../../testHelpers.js";
+import { createFakeSdk, primeTriviaConfig } from "../../testHelpers.fakeSdk.js";
 import { createFindPreviousQuestionsTool } from "./findPreviousQuestions.js";
 import { parseToolResult } from "../../../../tools/testHelpers.js";
-import type { TriviaDataLayer } from "../../core/types.js";
 
 const SESSION = { sessionId: "test" };
 
-// Three batches at distinct postedAt windows; within each batch, the items are
-// separated by a few ms (mirroring how post_questions stamps them in sequence).
-// T1 (oldest) = batch-A, T2 = batch-B, T3 (newest) = batch-C.
-async function seedThreeBatches(scoped: ReturnType<TriviaDataLayer["forGame"]>) {
-  await scoped.saveQuestion({
-    id: "a1",
-    category: "X",
-    statement: "A1 statement (ten or more chars)",
-    isTrue: true,
-    emojis: ["🅰️"],
-    createdAt: 1,
-    postedAt: 1000,
-    batchId: "batch-A",
-  });
-  await scoped.saveQuestion({
-    id: "a2",
-    category: "X",
-    statement: "A2 statement (ten or more chars)",
-    isTrue: false,
-    emojis: ["🅰️"],
-    createdAt: 2,
-    postedAt: 1001,
-    batchId: "batch-A",
-  });
-  await scoped.saveQuestion({
-    id: "b1",
-    category: "Y",
-    statement: "B1 statement (ten or more chars)",
-    isTrue: true,
-    emojis: ["🅱️"],
-    createdAt: 3,
-    postedAt: 2000,
-    batchId: "batch-B",
-  });
-  await scoped.saveQuestion({
-    id: "b2",
-    category: "Y",
-    statement: "B2 statement (ten or more chars)",
-    isTrue: false,
-    emojis: ["🅱️"],
-    createdAt: 4,
-    postedAt: 2001,
-    batchId: "batch-B",
-  });
-  await scoped.saveQuestion({
-    id: "c1",
-    category: "X",
-    statement: "C1 statement (ten or more chars)",
-    isTrue: true,
-    emojis: ["🅲"],
-    createdAt: 5,
-    postedAt: 3000,
-    batchId: "batch-C",
-  });
-  await scoped.saveQuestion({
-    id: "c2",
-    category: "Y",
-    statement: "C2 statement (ten or more chars)",
-    isTrue: false,
-    emojis: ["🅲"],
-    createdAt: 6,
-    postedAt: 3001,
-    batchId: "batch-C",
-  });
-  await scoped.saveQuestion({
-    id: "c3",
-    category: "Y",
-    statement: "C3 statement (ten or more chars)",
-    isTrue: true,
-    emojis: ["🅲"],
-    createdAt: 7,
-    postedAt: 3002,
-    batchId: "batch-C",
-  });
+function buildThreeBatches() {
+  return [
+    {
+      id: "a1",
+      category: "X",
+      statement: "A1 statement (ten or more chars)",
+      isTrue: true,
+      emojis: ["🅰️"],
+      createdAt: 1,
+      postedAt: 1000,
+      batchId: "batch-A",
+    },
+    {
+      id: "a2",
+      category: "X",
+      statement: "A2 statement (ten or more chars)",
+      isTrue: false,
+      emojis: ["🅰️"],
+      createdAt: 2,
+      postedAt: 1001,
+      batchId: "batch-A",
+    },
+    {
+      id: "b1",
+      category: "Y",
+      statement: "B1 statement (ten or more chars)",
+      isTrue: true,
+      emojis: ["🅱️"],
+      createdAt: 3,
+      postedAt: 2000,
+      batchId: "batch-B",
+    },
+    {
+      id: "b2",
+      category: "Y",
+      statement: "B2 statement (ten or more chars)",
+      isTrue: false,
+      emojis: ["🅱️"],
+      createdAt: 4,
+      postedAt: 2001,
+      batchId: "batch-B",
+    },
+    {
+      id: "c1",
+      category: "X",
+      statement: "C1 statement (ten or more chars)",
+      isTrue: true,
+      emojis: ["🅲"],
+      createdAt: 5,
+      postedAt: 3000,
+      batchId: "batch-C",
+    },
+    {
+      id: "c2",
+      category: "Y",
+      statement: "C2 statement (ten or more chars)",
+      isTrue: false,
+      emojis: ["🅲"],
+      createdAt: 6,
+      postedAt: 3001,
+      batchId: "batch-C",
+    },
+    {
+      id: "c3",
+      category: "Y",
+      statement: "C3 statement (ten or more chars)",
+      isTrue: true,
+      emojis: ["🅲"],
+      createdAt: 7,
+      postedAt: 3002,
+      batchId: "batch-C",
+    },
+  ];
 }
 
 function extractText(result: { content?: ReadonlyArray<{ type: string }> }): string {
@@ -99,8 +98,12 @@ function extractText(result: { content?: ReadonlyArray<{ type: string }> }): str
 
 describe("find_previous_questions recentBatchFromNow", () => {
   it("recentBatchFromNow=1 returns every question in the most recent batch, ordered by postedAt asc, stamped with game", async () => {
-    const data = createInMemoryDataLayer();
-    await seedThreeBatches(data.forGame(FIXTURE_GAME_NAME));
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk);
+    const { dataLayer: data } = createTriviaDataLayer(sdk);
+
+    const questions = buildThreeBatches();
+    data.forGame(FIXTURE_GAME_NAME).loadQuestions.mockResolvedValue(questions);
     const tool = createFindPreviousQuestionsTool(data, fixtureGetGames);
     const result = await tool.handler(
       {
@@ -126,8 +129,12 @@ describe("find_previous_questions recentBatchFromNow", () => {
   });
 
   it("recentBatchFromNow=2 returns the second-most-recent batch", async () => {
-    const data = createInMemoryDataLayer();
-    await seedThreeBatches(data.forGame(FIXTURE_GAME_NAME));
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk);
+    const { dataLayer: data } = createTriviaDataLayer(sdk);
+
+    const questions = buildThreeBatches();
+    data.forGame(FIXTURE_GAME_NAME).loadQuestions.mockResolvedValue(questions);
     const tool = createFindPreviousQuestionsTool(data, fixtureGetGames);
     const result = await tool.handler(
       {
@@ -152,8 +159,12 @@ describe("find_previous_questions recentBatchFromNow", () => {
   });
 
   it("recentBatchFromNow without games is rejected", async () => {
-    const data = createInMemoryDataLayer();
-    await seedThreeBatches(data.forGame(FIXTURE_GAME_NAME));
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk);
+    const { dataLayer: data } = createTriviaDataLayer(sdk);
+
+    const questions = buildThreeBatches();
+    data.forGame(FIXTURE_GAME_NAME).loadQuestions.mockResolvedValue(questions);
     const tool = createFindPreviousQuestionsTool(data, fixtureGetGames);
     const result = await tool.handler(
       {
@@ -173,9 +184,13 @@ describe("find_previous_questions recentBatchFromNow", () => {
   });
 
   it("recentBatchFromNow with multiple games is rejected", async () => {
-    const data = createInMemoryDataLayer();
-    await seedThreeBatches(data.forGame("main"));
-    await seedThreeBatches(data.forGame("sandbox"));
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk);
+    const { dataLayer: data } = createTriviaDataLayer(sdk);
+
+    const questions = buildThreeBatches();
+    data.forGame("main").loadQuestions.mockResolvedValue(questions);
+    data.forGame("sandbox").loadQuestions.mockResolvedValue(questions);
     const tool = createFindPreviousQuestionsTool(data, multiFixtureGetGames);
     const result = await tool.handler(
       {
@@ -195,8 +210,12 @@ describe("find_previous_questions recentBatchFromNow", () => {
   });
 
   it("recentBatchFromNow exceeding available batches returns an empty result, not an error", async () => {
-    const data = createInMemoryDataLayer();
-    await seedThreeBatches(data.forGame(FIXTURE_GAME_NAME));
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk);
+    const { dataLayer: data } = createTriviaDataLayer(sdk);
+
+    const questions = buildThreeBatches();
+    data.forGame(FIXTURE_GAME_NAME).loadQuestions.mockResolvedValue(questions);
     const tool = createFindPreviousQuestionsTool(data, fixtureGetGames);
     const result = await tool.handler(
       {
@@ -218,9 +237,11 @@ describe("find_previous_questions recentBatchFromNow", () => {
   });
 
   it("legacy rows without batchId are excluded from the recent-batch view", async () => {
-    const data = createInMemoryDataLayer();
-    const scoped = data.forGame(FIXTURE_GAME_NAME);
-    await scoped.saveQuestion({
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk);
+    const { dataLayer: data } = createTriviaDataLayer(sdk);
+
+    const batched = {
       id: "batched",
       category: "X",
       statement: "Batched statement long enough",
@@ -229,8 +250,8 @@ describe("find_previous_questions recentBatchFromNow", () => {
       createdAt: 1,
       postedAt: 1000,
       batchId: "batch-A",
-    });
-    await scoped.saveQuestion({
+    };
+    const legacy = {
       id: "legacy",
       category: "X",
       statement: "Legacy statement long enough",
@@ -238,7 +259,8 @@ describe("find_previous_questions recentBatchFromNow", () => {
       emojis: ["⚠️"],
       createdAt: 2,
       postedAt: 5000,
-    });
+    };
+    data.forGame(FIXTURE_GAME_NAME).loadQuestions.mockResolvedValue([batched, legacy]);
     const tool = createFindPreviousQuestionsTool(data, fixtureGetGames);
     const result = await tool.handler(
       {
@@ -261,8 +283,12 @@ describe("find_previous_questions recentBatchFromNow", () => {
   });
 
   it("filters compose with recentBatchFromNow before grouping (latest batch still has Y matches)", async () => {
-    const data = createInMemoryDataLayer();
-    await seedThreeBatches(data.forGame(FIXTURE_GAME_NAME));
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk);
+    const { dataLayer: data } = createTriviaDataLayer(sdk);
+
+    const questions = buildThreeBatches();
+    data.forGame(FIXTURE_GAME_NAME).loadQuestions.mockResolvedValue(questions);
     const tool = createFindPreviousQuestionsTool(data, fixtureGetGames);
     const result = await tool.handler(
       {
@@ -287,9 +313,11 @@ describe("find_previous_questions recentBatchFromNow", () => {
   });
 
   it("filters can eliminate a batch from the ranking", async () => {
-    const data = createInMemoryDataLayer();
-    const scoped = data.forGame(FIXTURE_GAME_NAME);
-    await scoped.saveQuestion({
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk);
+    const { dataLayer: data } = createTriviaDataLayer(sdk);
+
+    const newx1 = {
       id: "newx1",
       category: "X",
       statement: "Newest X1 statement long enough",
@@ -298,8 +326,8 @@ describe("find_previous_questions recentBatchFromNow", () => {
       createdAt: 10,
       postedAt: 5000,
       batchId: "newest",
-    });
-    await scoped.saveQuestion({
+    };
+    const newx2 = {
       id: "newx2",
       category: "X",
       statement: "Newest X2 statement long enough",
@@ -308,8 +336,8 @@ describe("find_previous_questions recentBatchFromNow", () => {
       createdAt: 11,
       postedAt: 5001,
       batchId: "newest",
-    });
-    await scoped.saveQuestion({
+    };
+    const oldy1 = {
       id: "oldy1",
       category: "Y",
       statement: "Older Y1 statement long enough",
@@ -318,7 +346,9 @@ describe("find_previous_questions recentBatchFromNow", () => {
       createdAt: 1,
       postedAt: 1000,
       batchId: "older",
-    });
+    };
+
+    data.forGame(FIXTURE_GAME_NAME).loadQuestions.mockResolvedValue([newx1, newx2, oldy1]);
 
     const tool = createFindPreviousQuestionsTool(data, fixtureGetGames);
     const result = await tool.handler(
@@ -344,7 +374,10 @@ describe("find_previous_questions recentBatchFromNow", () => {
   });
 
   it("recentBatchFromNow=0 is rejected by the schema", () => {
-    const tool = createFindPreviousQuestionsTool(createInMemoryDataLayer(), fixtureGetGames);
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk);
+    const { dataLayer } = createTriviaDataLayer(sdk);
+    const tool = createFindPreviousQuestionsTool(dataLayer, fixtureGetGames);
     const parsed = z.object(tool.inputSchema).safeParse({
       games: [FIXTURE_GAME_NAME],
       recentBatchFromNow: 0,
@@ -353,7 +386,10 @@ describe("find_previous_questions recentBatchFromNow", () => {
   });
 
   it("negative recentBatchFromNow is rejected by the schema", () => {
-    const tool = createFindPreviousQuestionsTool(createInMemoryDataLayer(), fixtureGetGames);
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk);
+    const { dataLayer } = createTriviaDataLayer(sdk);
+    const tool = createFindPreviousQuestionsTool(dataLayer, fixtureGetGames);
     const parsed = z.object(tool.inputSchema).safeParse({
       games: [FIXTURE_GAME_NAME],
       recentBatchFromNow: -1,
@@ -362,20 +398,21 @@ describe("find_previous_questions recentBatchFromNow", () => {
   });
 
   it("limit caps the per-batch result (oldest-by-postedAt kept)", async () => {
-    const data = createInMemoryDataLayer();
-    const scoped = data.forGame(FIXTURE_GAME_NAME);
-    for (let i = 0; i < 5; i++) {
-      await scoped.saveQuestion({
-        id: `big-${i}`,
-        category: "X",
-        statement: `Big batch item ${i} long enough`,
-        isTrue: true,
-        emojis: ["📦"],
-        createdAt: 100 + i,
-        postedAt: 9000 + i,
-        batchId: "big-batch",
-      });
-    }
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk);
+    const { dataLayer: data } = createTriviaDataLayer(sdk);
+
+    const bigBatch = Array.from({ length: 5 }, (_, i) => ({
+      id: `big-${i}`,
+      category: "X",
+      statement: `Big batch item ${i} long enough`,
+      isTrue: true,
+      emojis: ["📦"],
+      createdAt: 100 + i,
+      postedAt: 9000 + i,
+      batchId: "big-batch",
+    }));
+    data.forGame(FIXTURE_GAME_NAME).loadQuestions.mockResolvedValue(bigBatch);
     const tool = createFindPreviousQuestionsTool(data, fixtureGetGames);
     const result = await tool.handler(
       {

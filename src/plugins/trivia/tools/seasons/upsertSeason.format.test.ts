@@ -1,18 +1,26 @@
 import { describe, it, beforeEach } from "vitest";
 import assert from "node:assert/strict";
-import { createInMemoryDataLayer, FIXTURE_GAME_NAME, fixtureGetGames } from "../../testHelpers.js";
+import {
+  createTriviaDataLayer,
+  FIXTURE_GAME_NAME,
+  fixtureGetGames,
+  type FakeTriviaDataLayer,
+} from "../../testHelpers.js";
+import { createFakeSdk, primeTriviaConfig } from "../../testHelpers.fakeSdk.js";
 import { createUpsertSeasonTool } from "./upsertSeason.js";
 import { parseToolResult } from "../../../../tools/testHelpers.js";
-import type { TriviaDataLayer } from "../../core/types.js";
 
 const SESSION = { sessionId: "test" };
 const DAY = 24 * 60 * 60 * 1000;
 
 describe("upsert_season — format argument", () => {
-  let data: TriviaDataLayer;
+  let data: FakeTriviaDataLayer;
 
   beforeEach(async () => {
-    data = createInMemoryDataLayer();
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk);
+    const result = createTriviaDataLayer(sdk);
+    data = result.dataLayer;
     await data.saveCategories(["Science", "History", "Geography"]);
   });
 
@@ -451,7 +459,9 @@ describe("upsert_season — format argument", () => {
   it("mid-season format mutation is permitted (unlike startedAt)", async () => {
     const start = Date.now() - 10 * DAY;
     const end = Date.now() + 20 * DAY;
-    const data2 = createInMemoryDataLayer();
+    const { sdk: sdk2 } = createFakeSdk();
+    primeTriviaConfig(sdk2);
+    const { dataLayer: data2 } = createTriviaDataLayer(sdk2);
     await data2.saveCategories(["Science"]);
     await data2.forGame(FIXTURE_GAME_NAME).saveSeasonsState({
       seasons: [

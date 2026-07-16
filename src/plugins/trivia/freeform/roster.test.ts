@@ -7,7 +7,8 @@ import {
   type RosterEditClient,
 } from "./roster.js";
 import { getAnswerTypeHandler } from "../answerTypes/registry.js";
-import { createInMemoryDataLayer, FIXTURE_GAME_NAME } from "../testHelpers.js";
+import { createTriviaDataLayer, FIXTURE_GAME_NAME } from "../testHelpers.js";
+import { createFakeSdk, primeTriviaConfig } from "../testHelpers.fakeSdk.js";
 import { setTriviaT, _resetTriviaT } from "../i18n/t.js";
 import { fr as triviaFr } from "../i18n/strings.js";
 import type { KnownBlock } from "@slack/types";
@@ -347,7 +348,9 @@ describe("editRosterIntoCard", () => {
   }
 
   it("re-click that flips TRUE → FALSE moves the user between groups in the rebuilt footer", async () => {
-    const data = createInMemoryDataLayer();
+    const { sdk: fakeSDK, testHelpers } = createFakeSdk();
+    primeTriviaConfig(fakeSDK);
+    const { dataLayer: data } = createTriviaDataLayer(fakeSDK);
     const scoped = data.forGame(FIXTURE_GAME_NAME);
     const question = postedQuestion();
     await scoped.saveQuestion(question);
@@ -355,7 +358,7 @@ describe("editRosterIntoCard", () => {
 
     // First click: U_ALICE votes TRUE.
     await scoped.saveAnswer(booleanRow("U_ALICE", 1000, true));
-    await data.saveUser({ userId: "U_ALICE", displayName: "Alice", joinedAt: 1000 });
+    testHelpers.saveUser({ userId: "U_ALICE", displayName: "Alice" });
 
     const client = fakeClient();
     await editRosterIntoCard({ client, scoped, data, question, handler });
@@ -397,14 +400,16 @@ describe("editRosterIntoCard", () => {
   });
 
   it("strips flagged cheaters from the rebuilt footer before grouping", async () => {
-    const data = createInMemoryDataLayer();
+    const { sdk: fakeSDK, testHelpers } = createFakeSdk();
+    primeTriviaConfig(fakeSDK);
+    const { dataLayer: data } = createTriviaDataLayer(fakeSDK);
     const scoped = data.forGame(FIXTURE_GAME_NAME);
     const question = postedQuestion();
     await scoped.saveQuestion(question);
     await scoped.saveAnswer(booleanRow("U_ALICE", 1000, true));
     await scoped.saveAnswer(booleanRow("U_CHEAT", 1100, true));
-    await data.saveUser({ userId: "U_ALICE", displayName: "Alice", joinedAt: 0 });
-    await data.saveUser({ userId: "U_CHEAT", displayName: "Cheater", joinedAt: 0 });
+    testHelpers.saveUser({ userId: "U_ALICE", displayName: "Alice" });
+    testHelpers.saveUser({ userId: "U_CHEAT", displayName: "Cheater" });
     await scoped.saveCheat({
       cheaterUserId: "U_CHEAT",
       questionId: question.id,
@@ -427,12 +432,14 @@ describe("editRosterIntoCard", () => {
   });
 
   it("renders plain @displayName (no ping) when the question stamped tagPlayers=false", async () => {
-    const data = createInMemoryDataLayer();
+    const { sdk: fakeSDK, testHelpers } = createFakeSdk();
+    primeTriviaConfig(fakeSDK);
+    const { dataLayer: data } = createTriviaDataLayer(fakeSDK);
     const scoped = data.forGame(FIXTURE_GAME_NAME);
     const question = { ...postedQuestion(), tagPlayers: false };
     await scoped.saveQuestion(question);
     await scoped.saveAnswer(booleanRow("U_ALICE", 1000, true));
-    await data.saveUser({ userId: "U_ALICE", displayName: "Alice", joinedAt: 0 });
+    testHelpers.saveUser({ userId: "U_ALICE", displayName: "Alice" });
 
     const client = fakeClient();
     await editRosterIntoCard({
@@ -463,12 +470,14 @@ describe("editRosterIntoCard", () => {
     }
 
     it("strips the buttons and shows the lock notice alone when revealResponses is 'no'", async () => {
-      const data = createInMemoryDataLayer();
+      const { sdk: fakeSDK, testHelpers } = createFakeSdk();
+      primeTriviaConfig(fakeSDK);
+      const { dataLayer: data } = createTriviaDataLayer(fakeSDK);
       const scoped = data.forGame(FIXTURE_GAME_NAME);
       const question = lockableQuestion({ answerLocked: true, revealResponses: "no" });
       await scoped.saveQuestion(question);
       await scoped.saveAnswer(booleanRow("U_ALICE", 1000, true));
-      await data.saveUser({ userId: "U_ALICE", displayName: "Alice", joinedAt: 0 });
+      testHelpers.saveUser({ userId: "U_ALICE", displayName: "Alice" });
 
       const client = fakeClient();
       await editRosterIntoCard({
@@ -490,14 +499,16 @@ describe("editRosterIntoCard", () => {
     });
 
     it("shows the full grouped distribution while locked when revealResponses is 'yes'", async () => {
-      const data = createInMemoryDataLayer();
+      const { sdk: fakeSDK, testHelpers } = createFakeSdk();
+      primeTriviaConfig(fakeSDK);
+      const { dataLayer: data } = createTriviaDataLayer(fakeSDK);
       const scoped = data.forGame(FIXTURE_GAME_NAME);
       const question = lockableQuestion({ answerLocked: true, revealResponses: "yes" });
       await scoped.saveQuestion(question);
       await scoped.saveAnswer(booleanRow("U_ALICE", 1000, true));
       await scoped.saveAnswer(booleanRow("U_BOB", 1100, false));
-      await data.saveUser({ userId: "U_ALICE", displayName: "Alice", joinedAt: 0 });
-      await data.saveUser({ userId: "U_BOB", displayName: "Bob", joinedAt: 0 });
+      testHelpers.saveUser({ userId: "U_ALICE", displayName: "Alice" });
+      testHelpers.saveUser({ userId: "U_BOB", displayName: "Bob" });
 
       const client = fakeClient();
       await editRosterIntoCard({
@@ -523,14 +534,16 @@ describe("editRosterIntoCard", () => {
 
     for (const mode of ["just-correctness", "just-winners"] as const) {
       it(`shows participation only (no picks) while locked when revealResponses is '${mode}'`, async () => {
-        const data = createInMemoryDataLayer();
+        const { sdk: fakeSDK, testHelpers } = createFakeSdk();
+        primeTriviaConfig(fakeSDK);
+        const { dataLayer: data } = createTriviaDataLayer(fakeSDK);
         const scoped = data.forGame(FIXTURE_GAME_NAME);
         const question = lockableQuestion({ answerLocked: true, revealResponses: mode });
         await scoped.saveQuestion(question);
         await scoped.saveAnswer(booleanRow("U_ALICE", 1000, true));
         await scoped.saveAnswer(booleanRow("U_BOB", 1100, false));
-        await data.saveUser({ userId: "U_ALICE", displayName: "Alice", joinedAt: 0 });
-        await data.saveUser({ userId: "U_BOB", displayName: "Bob", joinedAt: 0 });
+        testHelpers.saveUser({ userId: "U_ALICE", displayName: "Alice" });
+        testHelpers.saveUser({ userId: "U_BOB", displayName: "Bob" });
 
         const client = fakeClient();
         await editRosterIntoCard({
@@ -555,12 +568,14 @@ describe("editRosterIntoCard", () => {
     }
 
     it("treats an absent revealResponses on a locked question as 'yes' (grouped)", async () => {
-      const data = createInMemoryDataLayer();
+      const { sdk: fakeSDK, testHelpers } = createFakeSdk();
+      primeTriviaConfig(fakeSDK);
+      const { dataLayer: data } = createTriviaDataLayer(fakeSDK);
       const scoped = data.forGame(FIXTURE_GAME_NAME);
       const question = lockableQuestion({ answerLocked: true, revealResponses: undefined });
       await scoped.saveQuestion(question);
       await scoped.saveAnswer(booleanRow("U_ALICE", 1000, true));
-      await data.saveUser({ userId: "U_ALICE", displayName: "Alice", joinedAt: 0 });
+      testHelpers.saveUser({ userId: "U_ALICE", displayName: "Alice" });
 
       const client = fakeClient();
       await editRosterIntoCard({
@@ -575,7 +590,9 @@ describe("editRosterIntoCard", () => {
     });
 
     it("ignores liveAnswersVisible while locked — 'yes' stays grouped even when it is false", async () => {
-      const data = createInMemoryDataLayer();
+      const { sdk: fakeSDK, testHelpers } = createFakeSdk();
+      primeTriviaConfig(fakeSDK);
+      const { dataLayer: data } = createTriviaDataLayer(fakeSDK);
       const scoped = data.forGame(FIXTURE_GAME_NAME);
       const question = lockableQuestion({
         answerLocked: true,
@@ -584,7 +601,7 @@ describe("editRosterIntoCard", () => {
       });
       await scoped.saveQuestion(question);
       await scoped.saveAnswer(booleanRow("U_ALICE", 1000, true));
-      await data.saveUser({ userId: "U_ALICE", displayName: "Alice", joinedAt: 0 });
+      testHelpers.saveUser({ userId: "U_ALICE", displayName: "Alice" });
 
       const client = fakeClient();
       await editRosterIntoCard({
@@ -603,14 +620,16 @@ describe("editRosterIntoCard", () => {
     });
 
     it("excludes flagged cheaters from the locked roster", async () => {
-      const data = createInMemoryDataLayer();
+      const { sdk: fakeSDK, testHelpers } = createFakeSdk();
+      primeTriviaConfig(fakeSDK);
+      const { dataLayer: data } = createTriviaDataLayer(fakeSDK);
       const scoped = data.forGame(FIXTURE_GAME_NAME);
       const question = lockableQuestion({ answerLocked: true, revealResponses: "yes" });
       await scoped.saveQuestion(question);
       await scoped.saveAnswer(booleanRow("U_ALICE", 1000, true));
       await scoped.saveAnswer(booleanRow("U_CHEAT", 1100, true));
-      await data.saveUser({ userId: "U_ALICE", displayName: "Alice", joinedAt: 0 });
-      await data.saveUser({ userId: "U_CHEAT", displayName: "Cheater", joinedAt: 0 });
+      testHelpers.saveUser({ userId: "U_ALICE", displayName: "Alice" });
+      testHelpers.saveUser({ userId: "U_CHEAT", displayName: "Cheater" });
       await scoped.saveCheat({
         cheaterUserId: "U_CHEAT",
         questionId: question.id,
@@ -633,12 +652,14 @@ describe("editRosterIntoCard", () => {
     });
 
     it("keeps the buttons and appends the roster when not locked", async () => {
-      const data = createInMemoryDataLayer();
+      const { sdk: fakeSDK, testHelpers } = createFakeSdk();
+      primeTriviaConfig(fakeSDK);
+      const { dataLayer: data } = createTriviaDataLayer(fakeSDK);
       const scoped = data.forGame(FIXTURE_GAME_NAME);
       const question = lockableQuestion(); // answerLocked absent
       await scoped.saveQuestion(question);
       await scoped.saveAnswer(booleanRow("U_ALICE", 1000, true));
-      await data.saveUser({ userId: "U_ALICE", displayName: "Alice", joinedAt: 0 });
+      testHelpers.saveUser({ userId: "U_ALICE", displayName: "Alice" });
 
       const client = fakeClient();
       await editRosterIntoCard({
@@ -656,7 +677,9 @@ describe("editRosterIntoCard", () => {
     });
 
     it("restores the buttons when a previously-locked question is unlocked", async () => {
-      const data = createInMemoryDataLayer();
+      const { sdk: fakeSDK } = createFakeSdk();
+      primeTriviaConfig(fakeSDK);
+      const { dataLayer: data } = createTriviaDataLayer(fakeSDK);
       const scoped = data.forGame(FIXTURE_GAME_NAME);
       const question = lockableQuestion();
       await scoped.saveQuestion(question);

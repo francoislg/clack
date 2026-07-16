@@ -1,7 +1,13 @@
 import { describe, it } from "vitest";
 import assert from "node:assert/strict";
 import { createRetrieveScoresTool } from "./retrieveScores.js";
-import { createInMemoryDataLayer, FIXTURE_GAME_NAME, fixtureGetGames } from "../../testHelpers.js";
+import {
+  createTriviaDataLayer,
+  FIXTURE_GAME_NAME,
+  fixtureGetGames,
+  type FakeTriviaDataLayer,
+} from "../../testHelpers.js";
+import { createFakeSdk, primeTriviaConfig } from "../../testHelpers.fakeSdk.js";
 import { parseToolResult } from "../../../../tools/testHelpers.js";
 import type { TeamDef, TriviaGame } from "../../core/configTypes.js";
 
@@ -18,7 +24,7 @@ function getGamesWith(patch: Partial<TriviaGame>) {
     fixtureGetGames().map((g) => (g.name === FIXTURE_GAME_NAME ? { ...g, ...patch } : g));
 }
 
-async function seed(data: ReturnType<typeof createInMemoryDataLayer>): Promise<void> {
+async function seed(data: FakeTriviaDataLayer): Promise<void> {
   const scoped = data.forGame(FIXTURE_GAME_NAME);
   await scoped.saveSeasonsState({
     seasons: [{ slug: "s1", startedAt: Date.now() - DAY, expectedEndAt: Date.now() + DAY }],
@@ -43,7 +49,9 @@ async function seed(data: ReturnType<typeof createInMemoryDataLayer>): Promise<v
 
 describe("retrieve_scores — teams mode", () => {
   it("teams OFF: result carries no teamStandings key", async () => {
-    const data = createInMemoryDataLayer();
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk);
+    const { dataLayer: data } = createTriviaDataLayer(sdk);
     await seed(data);
     const tool = createRetrieveScoresTool(data, fixtureGetGames, () => ({}));
     const res = parseToolResult(
@@ -57,7 +65,9 @@ describe("retrieve_scores — teams mode", () => {
   });
 
   it("teams ON: team standings ride alongside the unchanged individual leaderboard", async () => {
-    const data = createInMemoryDataLayer();
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk);
+    const { dataLayer: data } = createTriviaDataLayer(sdk);
     await seed(data);
     const tool = createRetrieveScoresTool(
       data,
@@ -75,12 +85,13 @@ describe("retrieve_scores — teams mode", () => {
       { name: "Red", currentSeason: 1 },
       { name: "Blue", currentSeason: 0 },
     ]);
-    // Individual leaderboard is unchanged by teams mode.
     assert.equal(res.leaderboard.length, 2);
   });
 
   it("teams ON with prior stamped history: allTime appears per matched name", async () => {
-    const data = createInMemoryDataLayer();
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk);
+    const { dataLayer: data } = createTriviaDataLayer(sdk);
     await seed(data);
     const scoped = data.forGame(FIXTURE_GAME_NAME);
     const state = await scoped.loadSeasonsState();

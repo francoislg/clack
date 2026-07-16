@@ -1,7 +1,13 @@
 import { describe, it } from "vitest";
 import assert from "node:assert/strict";
 import { createSetRevealNarrativeTool } from "./setRevealNarrative.js";
-import { createInMemoryDataLayer, FIXTURE_GAME_NAME, fixtureGetGames } from "../../testHelpers.js";
+import {
+  createTriviaDataLayer,
+  FIXTURE_GAME_NAME,
+  fixtureGetGames,
+  type FakeTriviaDataLayer,
+} from "../../testHelpers.js";
+import { createFakeSdk, primeTriviaConfig } from "../../testHelpers.fakeSdk.js";
 import { parseToolResult } from "../../../../tools/testHelpers.js";
 import type { TriviaQuestion } from "../../core/types.js";
 import type { TriviaIncludeRevealInQuestions } from "../../core/configTypes.js";
@@ -36,16 +42,15 @@ const block = (text: string) => ({
   text: { type: "mrkdwn" as const, text },
 });
 
-function tool(
-  data: ReturnType<typeof createInMemoryDataLayer>,
-  mode: TriviaIncludeRevealInQuestions | undefined,
-) {
+function tool(data: FakeTriviaDataLayer, mode: TriviaIncludeRevealInQuestions | undefined) {
   return createSetRevealNarrativeTool(data, getGamesWith(mode), () => ({}));
 }
 
 describe("set_reveal_narrative", () => {
   it("persists revealBlocks when the axis resolves yes (no Slack write)", async () => {
-    const data = createInMemoryDataLayer();
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk);
+    const { dataLayer: data } = createTriviaDataLayer(sdk);
     const scoped = data.forGame(FIXTURE_GAME_NAME);
     await scoped.saveQuestion(makeQuestion({ id: "q1" }));
 
@@ -64,7 +69,9 @@ describe("set_reveal_narrative", () => {
   });
 
   it("overwrites rather than appends on re-call", async () => {
-    const data = createInMemoryDataLayer();
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk);
+    const { dataLayer: data } = createTriviaDataLayer(sdk);
     const scoped = data.forGame(FIXTURE_GAME_NAME);
     await scoped.saveQuestion(makeQuestion({ id: "q1" }));
 
@@ -86,7 +93,9 @@ describe("set_reveal_narrative", () => {
   });
 
   it("rejects and writes nothing when the axis resolves no", async () => {
-    const data = createInMemoryDataLayer();
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk);
+    const { dataLayer: data } = createTriviaDataLayer(sdk);
     const scoped = data.forGame(FIXTURE_GAME_NAME);
     await scoped.saveQuestion(makeQuestion({ id: "q1" }));
 
@@ -100,7 +109,9 @@ describe("set_reveal_narrative", () => {
   });
 
   it("rejects when the axis is unset (default no)", async () => {
-    const data = createInMemoryDataLayer();
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk);
+    const { dataLayer: data } = createTriviaDataLayer(sdk);
     await data.forGame(FIXTURE_GAME_NAME).saveQuestion(makeQuestion({ id: "q1" }));
 
     const out = await tool(data, undefined).handler(
@@ -111,7 +122,9 @@ describe("set_reveal_narrative", () => {
   });
 
   it("errors when the question does not exist", async () => {
-    const data = createInMemoryDataLayer();
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk);
+    const { dataLayer: data } = createTriviaDataLayer(sdk);
     const out = await tool(data, "yes").handler(
       { game: FIXTURE_GAME_NAME, questionId: "missing", revealBlocks: [block("x")] },
       SESSION,

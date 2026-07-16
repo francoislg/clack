@@ -3,8 +3,17 @@ import assert from "node:assert/strict";
 import type { KnownBlock } from "@slack/types";
 import { createRefreshQuestionCardsTool } from "./refreshQuestionCards.js";
 import { type RevealSlackDeps } from "./computeAnswers.js";
-import { createFakeSdk, createFakeRevealSlackDeps } from "../../testHelpers.fakeSdk.js";
-import { createInMemoryDataLayer, FIXTURE_GAME_NAME, fixtureGetGames } from "../../testHelpers.js";
+import {
+  createFakeSdk,
+  createFakeRevealSlackDeps,
+  primeTriviaConfig,
+} from "../../testHelpers.fakeSdk.js";
+import {
+  createTriviaDataLayer,
+  FIXTURE_GAME_NAME,
+  fixtureGetGames,
+  type FakeTriviaDataLayer,
+} from "../../testHelpers.js";
 import { parseToolResult } from "../../../../tools/testHelpers.js";
 import type { TriviaQuestion } from "../../core/types.js";
 
@@ -77,13 +86,19 @@ function postedBooleanBlocks(questionId: string) {
   ];
 }
 
-function makeTool(data: ReturnType<typeof createInMemoryDataLayer>, deps: RevealSlackDeps) {
-  return createRefreshQuestionCardsTool(data, createFakeSdk().sdk, fixtureGetGames, deps);
+function makeTool(
+  data: FakeTriviaDataLayer,
+  sdk: ReturnType<typeof createFakeSdk>["sdk"],
+  deps: RevealSlackDeps,
+) {
+  return createRefreshQuestionCardsTool(data, sdk, fixtureGetGames, deps);
 }
 
 describe("refresh_question_cards — deterministic card projection", () => {
   it("edits the named question's card once", async () => {
-    const data = createInMemoryDataLayer();
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk);
+    const { dataLayer: data } = createTriviaDataLayer(sdk);
     const scoped = data.forGame(FIXTURE_GAME_NAME);
     await scoped.saveQuestion(makeQuestion({ id: "q1", postedBlocks: postedBooleanBlocks("q1") }));
     await scoped.saveAnswer({
@@ -96,7 +111,10 @@ describe("refresh_question_cards — deterministic card projection", () => {
 
     const { deps, updates } = capturingSlackDeps();
     const res = parseToolResult(
-      await makeTool(data, deps).handler({ game: FIXTURE_GAME_NAME, questionIds: ["q1"] }, SESSION),
+      await makeTool(data, sdk, deps).handler(
+        { game: FIXTURE_GAME_NAME, questionIds: ["q1"] },
+        SESSION,
+      ),
     );
 
     assert.equal(updates.length, 1);
@@ -108,7 +126,9 @@ describe("refresh_question_cards — deterministic card projection", () => {
   });
 
   it("records an error and skips a question whose projection failed", async () => {
-    const data = createInMemoryDataLayer();
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk);
+    const { dataLayer: data } = createTriviaDataLayer(sdk);
     const scoped = data.forGame(FIXTURE_GAME_NAME);
     await scoped.saveQuestion(
       makeQuestion({
@@ -123,7 +143,10 @@ describe("refresh_question_cards — deterministic card projection", () => {
 
     const { deps, updates } = capturingSlackDeps();
     const res = parseToolResult(
-      await makeTool(data, deps).handler({ game: FIXTURE_GAME_NAME, questionIds: ["q1"] }, SESSION),
+      await makeTool(data, sdk, deps).handler(
+        { game: FIXTURE_GAME_NAME, questionIds: ["q1"] },
+        SESSION,
+      ),
     );
 
     assert.equal(updates.length, 0);
@@ -131,13 +154,18 @@ describe("refresh_question_cards — deterministic card projection", () => {
   });
 
   it("swallows a card's chat.update failure without aborting — call still returns", async () => {
-    const data = createInMemoryDataLayer();
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk);
+    const { dataLayer: data } = createTriviaDataLayer(sdk);
     const scoped = data.forGame(FIXTURE_GAME_NAME);
     await scoped.saveQuestion(makeQuestion({ id: "q1", postedBlocks: postedBooleanBlocks("q1") }));
 
     const { deps } = capturingSlackDeps({ throwOnUpdate: true });
     const res = parseToolResult(
-      await makeTool(data, deps).handler({ game: FIXTURE_GAME_NAME, questionIds: ["q1"] }, SESSION),
+      await makeTool(data, sdk, deps).handler(
+        { game: FIXTURE_GAME_NAME, questionIds: ["q1"] },
+        SESSION,
+      ),
     );
 
     // editRevealIntoCard swallows the chat.update failure (logged, not surfaced in
@@ -147,12 +175,14 @@ describe("refresh_question_cards — deterministic card projection", () => {
   });
 
   it("is idempotent — re-running re-projects the same card", async () => {
-    const data = createInMemoryDataLayer();
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk);
+    const { dataLayer: data } = createTriviaDataLayer(sdk);
     const scoped = data.forGame(FIXTURE_GAME_NAME);
     await scoped.saveQuestion(makeQuestion({ id: "q1", postedBlocks: postedBooleanBlocks("q1") }));
 
     const { deps, updates } = capturingSlackDeps();
-    const tool = makeTool(data, deps);
+    const tool = makeTool(data, sdk, deps);
     await tool.handler({ game: FIXTURE_GAME_NAME, questionIds: ["q1"] }, SESSION);
     await tool.handler({ game: FIXTURE_GAME_NAME, questionIds: ["q1"] }, SESSION);
 
@@ -161,7 +191,9 @@ describe("refresh_question_cards — deterministic card projection", () => {
   });
 
   it("edits every named card and reports them in postedAt order", async () => {
-    const data = createInMemoryDataLayer();
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk);
+    const { dataLayer: data } = createTriviaDataLayer(sdk);
     const scoped = data.forGame(FIXTURE_GAME_NAME);
     await scoped.saveQuestion(
       makeQuestion({ id: "q1", postedAt: 1_000, postedBlocks: postedBooleanBlocks("q1") }),
@@ -172,7 +204,7 @@ describe("refresh_question_cards — deterministic card projection", () => {
 
     const { deps, updates } = capturingSlackDeps();
     const res = parseToolResult(
-      await makeTool(data, deps).handler(
+      await makeTool(data, sdk, deps).handler(
         { game: FIXTURE_GAME_NAME, questionIds: ["q2", "q1"] },
         SESSION,
       ),
@@ -183,7 +215,9 @@ describe("refresh_question_cards — deterministic card projection", () => {
   });
 
   it("de-duplicates repeated ids — each card edited once", async () => {
-    const data = createInMemoryDataLayer();
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk);
+    const { dataLayer: data } = createTriviaDataLayer(sdk);
     const scoped = data.forGame(FIXTURE_GAME_NAME);
     await scoped.saveQuestion(
       makeQuestion({ id: "q1", postedAt: 1_000, postedBlocks: postedBooleanBlocks("q1") }),
@@ -194,7 +228,7 @@ describe("refresh_question_cards — deterministic card projection", () => {
 
     const { deps, updates } = capturingSlackDeps();
     const res = parseToolResult(
-      await makeTool(data, deps).handler(
+      await makeTool(data, sdk, deps).handler(
         { game: FIXTURE_GAME_NAME, questionIds: ["q1", "q1", "q2"] },
         SESSION,
       ),
@@ -205,7 +239,9 @@ describe("refresh_question_cards — deterministic card projection", () => {
   });
 
   it("re-projects an already-judged freeform question from scored rows", async () => {
-    const data = createInMemoryDataLayer();
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk);
+    const { dataLayer: data } = createTriviaDataLayer(sdk);
     const scoped = data.forGame(FIXTURE_GAME_NAME);
     await scoped.saveQuestion(
       makeQuestion({
@@ -235,7 +271,10 @@ describe("refresh_question_cards — deterministic card projection", () => {
 
     const { deps, updates } = capturingSlackDeps();
     const res = parseToolResult(
-      await makeTool(data, deps).handler({ game: FIXTURE_GAME_NAME, questionIds: ["f1"] }, SESSION),
+      await makeTool(data, sdk, deps).handler(
+        { game: FIXTURE_GAME_NAME, questionIds: ["f1"] },
+        SESSION,
+      ),
     );
 
     assert.equal(updates.length, 1);
@@ -244,7 +283,9 @@ describe("refresh_question_cards — deterministic card projection", () => {
   });
 
   it("repaints only the named invalidated card, leaving live siblings untouched", async () => {
-    const data = createInMemoryDataLayer();
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk);
+    const { dataLayer: data } = createTriviaDataLayer(sdk);
     const scoped = data.forGame(FIXTURE_GAME_NAME);
     // A still-live batch: q_bad just got invalidated; q_live is still taking votes.
     await scoped.saveQuestion(
@@ -262,7 +303,7 @@ describe("refresh_question_cards — deterministic card projection", () => {
 
     const { deps, updates } = capturingSlackDeps();
     const res = parseToolResult(
-      await makeTool(data, deps).handler(
+      await makeTool(data, sdk, deps).handler(
         { game: FIXTURE_GAME_NAME, questionIds: ["q_bad"] },
         SESSION,
       ),
@@ -280,7 +321,9 @@ describe("refresh_question_cards — deterministic card projection", () => {
   });
 
   it("repaints the known ids and reports unknown ones in notFound", async () => {
-    const data = createInMemoryDataLayer();
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk);
+    const { dataLayer: data } = createTriviaDataLayer(sdk);
     const scoped = data.forGame(FIXTURE_GAME_NAME);
     await scoped.saveQuestion(
       makeQuestion({
@@ -295,7 +338,7 @@ describe("refresh_question_cards — deterministic card projection", () => {
     // A partial match (one real id + one unknown) repaints the real one and reports
     // the unknown in `notFound` — only an ALL-miss errors.
     const res = parseToolResult(
-      await makeTool(data, deps).handler(
+      await makeTool(data, sdk, deps).handler(
         { game: FIXTURE_GAME_NAME, questionIds: ["q_bad", "ghost"] },
         SESSION,
       ),
@@ -307,12 +350,14 @@ describe("refresh_question_cards — deterministic card projection", () => {
   });
 
   it("errors when no requested id matches a question", async () => {
-    const data = createInMemoryDataLayer();
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk);
+    const { dataLayer: data } = createTriviaDataLayer(sdk);
     const scoped = data.forGame(FIXTURE_GAME_NAME);
     await scoped.saveQuestion(makeQuestion({ id: "q1", postedBlocks: postedBooleanBlocks("q1") }));
 
     const { deps } = capturingSlackDeps();
-    const out = await makeTool(data, deps).handler(
+    const out = await makeTool(data, sdk, deps).handler(
       { game: FIXTURE_GAME_NAME, questionIds: ["nope"] },
       SESSION,
     );
@@ -322,12 +367,14 @@ describe("refresh_question_cards — deterministic card projection", () => {
   });
 
   it("errors on an empty questionIds array", async () => {
-    const data = createInMemoryDataLayer();
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk);
+    const { dataLayer: data } = createTriviaDataLayer(sdk);
     const scoped = data.forGame(FIXTURE_GAME_NAME);
     await scoped.saveQuestion(makeQuestion({ id: "q1", postedBlocks: postedBooleanBlocks("q1") }));
 
     const { deps, updates } = capturingSlackDeps();
-    const out = await makeTool(data, deps).handler(
+    const out = await makeTool(data, sdk, deps).handler(
       { game: FIXTURE_GAME_NAME, questionIds: [] },
       SESSION,
     );
@@ -336,7 +383,9 @@ describe("refresh_question_cards — deterministic card projection", () => {
   });
 
   it("appends stored revealBlocks between the footer and the See-your-answer button", async () => {
-    const data = createInMemoryDataLayer();
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk);
+    const { dataLayer: data } = createTriviaDataLayer(sdk);
     const scoped = data.forGame(FIXTURE_GAME_NAME);
     await scoped.saveQuestion(
       makeQuestion({
@@ -349,7 +398,10 @@ describe("refresh_question_cards — deterministic card projection", () => {
     );
 
     const { deps, updates } = capturingSlackDeps();
-    await makeTool(data, deps).handler({ game: FIXTURE_GAME_NAME, questionIds: ["q1"] }, SESSION);
+    await makeTool(data, sdk, deps).handler(
+      { game: FIXTURE_GAME_NAME, questionIds: ["q1"] },
+      SESSION,
+    );
 
     const ids = updates[0].blockIds;
     const footer = ids.indexOf("reveal-results:q1");
@@ -361,12 +413,17 @@ describe("refresh_question_cards — deterministic card projection", () => {
   });
 
   it("is facts-only when the record has no revealBlocks", async () => {
-    const data = createInMemoryDataLayer();
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk);
+    const { dataLayer: data } = createTriviaDataLayer(sdk);
     const scoped = data.forGame(FIXTURE_GAME_NAME);
     await scoped.saveQuestion(makeQuestion({ id: "q1", postedBlocks: postedBooleanBlocks("q1") }));
 
     const { deps, updates } = capturingSlackDeps();
-    await makeTool(data, deps).handler({ game: FIXTURE_GAME_NAME, questionIds: ["q1"] }, SESSION);
+    await makeTool(data, sdk, deps).handler(
+      { game: FIXTURE_GAME_NAME, questionIds: ["q1"] },
+      SESSION,
+    );
 
     const ids = updates[0].blockIds;
     assert.ok(ids.includes("reveal-results:q1"));
@@ -374,7 +431,9 @@ describe("refresh_question_cards — deterministic card projection", () => {
   });
 
   it("re-projection after re-authoring reconciles to the new narrative", async () => {
-    const data = createInMemoryDataLayer();
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk);
+    const { dataLayer: data } = createTriviaDataLayer(sdk);
     const scoped = data.forGame(FIXTURE_GAME_NAME);
     await scoped.saveQuestion(
       makeQuestion({
@@ -386,7 +445,7 @@ describe("refresh_question_cards — deterministic card projection", () => {
       }),
     );
     const { deps, updates } = capturingSlackDeps();
-    const tool = makeTool(data, deps);
+    const tool = makeTool(data, sdk, deps);
     await tool.handler({ game: FIXTURE_GAME_NAME, questionIds: ["q1"] }, SESSION);
 
     // Re-author the narrative (as set_reveal_narrative would), then re-project.
@@ -403,7 +462,9 @@ describe("refresh_question_cards — deterministic card projection", () => {
   });
 
   it("orders footer → narrative → see-answer → tell-me-more when tellMeMore is also enabled", async () => {
-    const data = createInMemoryDataLayer();
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk);
+    const { dataLayer: data } = createTriviaDataLayer(sdk);
     const scoped = data.forGame(FIXTURE_GAME_NAME);
     await scoped.saveQuestion(
       makeQuestion({
@@ -416,15 +477,9 @@ describe("refresh_question_cards — deterministic card projection", () => {
     );
 
     const { deps, updates } = capturingSlackDeps();
-    const tool = createRefreshQuestionCardsTool(
-      data,
-      createFakeSdk().sdk,
-      fixtureGetGames,
-      deps,
-      () => ({
-        tellMeMore: { enabled: true },
-      }),
-    );
+    const tool = createRefreshQuestionCardsTool(data, sdk, fixtureGetGames, deps, () => ({
+      tellMeMore: { enabled: true },
+    }));
     await tool.handler({ game: FIXTURE_GAME_NAME, questionIds: ["q1"] }, SESSION);
 
     const ids = updates[0].blockIds;
@@ -450,7 +505,9 @@ describe("refresh_question_cards — deterministic card projection", () => {
 
 describe("refresh_question_cards — state-complete projection", () => {
   it("paints a reopened unlocked pending prediction as LIVE (buttons, no footer)", async () => {
-    const data = createInMemoryDataLayer();
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk);
+    const { dataLayer: data } = createTriviaDataLayer(sdk);
     const scoped = data.forGame(FIXTURE_GAME_NAME);
     // Keyless (reopened prediction), unprocessed, unlocked.
     await scoped.saveQuestion(
@@ -463,7 +520,10 @@ describe("refresh_question_cards — state-complete projection", () => {
     );
     const { deps, updates } = capturingSlackDeps();
     const res = parseToolResult(
-      await makeTool(data, deps).handler({ game: FIXTURE_GAME_NAME, questionIds: ["q1"] }, SESSION),
+      await makeTool(data, sdk, deps).handler(
+        { game: FIXTURE_GAME_NAME, questionIds: ["q1"] },
+        SESSION,
+      ),
     );
 
     assert.deepEqual(res.edited, ["q1"]);
@@ -474,7 +534,9 @@ describe("refresh_question_cards — state-complete projection", () => {
   });
 
   it("never paints the footer on a keyed-but-unprocessed question (no leak)", async () => {
-    const data = createInMemoryDataLayer();
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk);
+    const { dataLayer: data } = createTriviaDataLayer(sdk);
     const scoped = data.forGame(FIXTURE_GAME_NAME);
     // Keyed (isTrue set) but not yet scored, unlocked.
     await scoped.saveQuestion(
@@ -487,7 +549,10 @@ describe("refresh_question_cards — state-complete projection", () => {
     );
     const { deps, updates } = capturingSlackDeps();
     const res = parseToolResult(
-      await makeTool(data, deps).handler({ game: FIXTURE_GAME_NAME, questionIds: ["q1"] }, SESSION),
+      await makeTool(data, sdk, deps).handler(
+        { game: FIXTURE_GAME_NAME, questionIds: ["q1"] },
+        SESSION,
+      ),
     );
 
     assert.deepEqual(res.edited, ["q1"]);
@@ -497,7 +562,9 @@ describe("refresh_question_cards — state-complete projection", () => {
   });
 
   it("paints a reopened LOCKED pending prediction as locked (notice, no buttons, no footer)", async () => {
-    const data = createInMemoryDataLayer();
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk);
+    const { dataLayer: data } = createTriviaDataLayer(sdk);
     const scoped = data.forGame(FIXTURE_GAME_NAME);
     await scoped.saveQuestion(
       makeQuestion({
@@ -510,7 +577,10 @@ describe("refresh_question_cards — state-complete projection", () => {
     );
     const { deps, updates } = capturingSlackDeps();
     const res = parseToolResult(
-      await makeTool(data, deps).handler({ game: FIXTURE_GAME_NAME, questionIds: ["q1"] }, SESSION),
+      await makeTool(data, sdk, deps).handler(
+        { game: FIXTURE_GAME_NAME, questionIds: ["q1"] },
+        SESSION,
+      ),
     );
 
     assert.deepEqual(res.edited, ["q1"]);
@@ -521,7 +591,9 @@ describe("refresh_question_cards — state-complete projection", () => {
   });
 
   it("paints a reopened-after-reveal question (keyless + processedAt) as live, not revealed", async () => {
-    const data = createInMemoryDataLayer();
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk);
+    const { dataLayer: data } = createTriviaDataLayer(sdk);
     const scoped = data.forGame(FIXTURE_GAME_NAME);
     // Was revealed-as-invalidated then reopened: keyless again, processedAt retained.
     await scoped.saveQuestion(
@@ -534,7 +606,10 @@ describe("refresh_question_cards — state-complete projection", () => {
     );
     const { deps, updates } = capturingSlackDeps();
     const res = parseToolResult(
-      await makeTool(data, deps).handler({ game: FIXTURE_GAME_NAME, questionIds: ["q1"] }, SESSION),
+      await makeTool(data, sdk, deps).handler(
+        { game: FIXTURE_GAME_NAME, questionIds: ["q1"] },
+        SESSION,
+      ),
     );
 
     assert.deepEqual(res.edited, ["q1"]);
@@ -544,7 +619,9 @@ describe("refresh_question_cards — state-complete projection", () => {
   });
 
   it("skips a staged/legacy row with no postedBlocks", async () => {
-    const data = createInMemoryDataLayer();
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk);
+    const { dataLayer: data } = createTriviaDataLayer(sdk);
     const scoped = data.forGame(FIXTURE_GAME_NAME);
     await scoped.saveQuestion(
       makeQuestion({
@@ -556,7 +633,10 @@ describe("refresh_question_cards — state-complete projection", () => {
     );
     const { deps, updates } = capturingSlackDeps();
     const res = parseToolResult(
-      await makeTool(data, deps).handler({ game: FIXTURE_GAME_NAME, questionIds: ["q1"] }, SESSION),
+      await makeTool(data, sdk, deps).handler(
+        { game: FIXTURE_GAME_NAME, questionIds: ["q1"] },
+        SESSION,
+      ),
     );
 
     assert.equal(updates.length, 0);
@@ -567,7 +647,7 @@ describe("refresh_question_cards — state-complete projection", () => {
 describe("refresh_question_cards — teams mode footer", () => {
   const ROSTER = [{ name: "Red", userIds: ["U1", "U2"] }];
 
-  async function seedRevealed(data: ReturnType<typeof createInMemoryDataLayer>): Promise<void> {
+  async function seedRevealed(data: FakeTriviaDataLayer): Promise<void> {
     const scoped = data.forGame(FIXTURE_GAME_NAME);
     await scoped.saveQuestion(makeQuestion({ id: "q1", postedBlocks: postedBooleanBlocks("q1") }));
     await scoped.saveAnswer({
@@ -593,14 +673,16 @@ describe("refresh_question_cards — teams mode footer", () => {
   }
 
   it("teams ON: the footer names the team and free agents, never members", async () => {
-    const data = createInMemoryDataLayer();
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk);
+    const { dataLayer: data } = createTriviaDataLayer(sdk);
     await seedRevealed(data);
     const getGames = () =>
       fixtureGetGames().map((g) =>
         g.name === FIXTURE_GAME_NAME ? { ...g, teams: ROSTER, teamsEnabled: true } : g,
       );
     const { deps, updates } = capturingSlackDeps();
-    const tool = createRefreshQuestionCardsTool(data, createFakeSdk().sdk, getGames, deps);
+    const tool = createRefreshQuestionCardsTool(data, sdk, getGames, deps);
     await tool.handler({ game: FIXTURE_GAME_NAME, questionIds: ["q1"] }, SESSION);
 
     const text = footerText(updates);
@@ -610,10 +692,15 @@ describe("refresh_question_cards — teams mode footer", () => {
   });
 
   it("teams OFF: the footer names individuals exactly as before", async () => {
-    const data = createInMemoryDataLayer();
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk);
+    const { dataLayer: data } = createTriviaDataLayer(sdk);
     await seedRevealed(data);
     const { deps, updates } = capturingSlackDeps();
-    await makeTool(data, deps).handler({ game: FIXTURE_GAME_NAME, questionIds: ["q1"] }, SESSION);
+    await makeTool(data, sdk, deps).handler(
+      { game: FIXTURE_GAME_NAME, questionIds: ["q1"] },
+      SESSION,
+    );
 
     const text = footerText(updates);
     assert.match(text, /Correct:.*<@U1>/);

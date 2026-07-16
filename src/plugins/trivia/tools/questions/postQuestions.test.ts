@@ -4,8 +4,12 @@ import { createPostQuestionsTool, type PostQuestionsSlackDeps } from "./postQues
 import { getAnswerTypeHandler } from "../../answerTypes/registry.js";
 
 const actionIdFn = (k: string): string => `plugin:trivia:${k}`;
-import { createInMemoryDataLayer, FIXTURE_GAME_NAME, fixtureGetGames } from "../../testHelpers.js";
-import { createFakeSdk, createFakePostQuestionsSlackDeps } from "../../testHelpers.fakeSdk.js";
+import { createTriviaDataLayer, FIXTURE_GAME_NAME, fixtureGetGames } from "../../testHelpers.js";
+import {
+  createFakeSdk,
+  createFakePostQuestionsSlackDeps,
+  primeTriviaConfig,
+} from "../../testHelpers.fakeSdk.js";
 import { parseToolResult } from "../../../../tools/testHelpers.js";
 import { PENDING_QUESTION_CREATION_CONTEXT } from "../../prompts/triviaCheckInstruction.js";
 import type { TriviaDataLayer, TriviaQuestion } from "../../core/types.js";
@@ -63,6 +67,14 @@ function fakeSlackDeps(opts: FakeSlackOpts = {}): {
     },
   };
   return { deps, calls };
+}
+
+/** One sdk threading through the data layer and the tool, primed with the default config. */
+function makeData() {
+  const { sdk, testHelpers } = createFakeSdk();
+  primeTriviaConfig(sdk);
+  const { dataLayer } = createTriviaDataLayer(sdk);
+  return { sdk, dataLayer, testHelpers };
 }
 
 async function seedQuestion(
@@ -185,13 +197,13 @@ describe("answer-type handler buttons", () => {
 
 describe("post_questions tool", () => {
   it("posts a boolean question and stamps the record (no reactions attached)", async () => {
-    const data = createInMemoryDataLayer();
+    const { sdk, dataLayer: data } = makeData();
     await seedQuestion(data, { id: "Q1" });
 
     const { deps, calls } = fakeSlackDeps({
       postResults: [{ ts: "1700000000.123456", permalink: "https://x.slack.com/p1" }],
     });
-    const tool = createPostQuestionsTool(data, createFakeSdk().sdk, fixtureGetGames, deps);
+    const tool = createPostQuestionsTool(data, sdk, fixtureGetGames, deps);
 
     const result = await tool.handler(
       {
@@ -218,13 +230,13 @@ describe("post_questions tool", () => {
   });
 
   it("renders the worth-points line above the buttons and stamps it into postedBlocks", async () => {
-    const data = createInMemoryDataLayer();
+    const { sdk, dataLayer: data } = makeData();
     await seedQuestion(data, { id: "Q1", points: 2 });
 
     const { deps } = fakeSlackDeps({
       postResults: [{ ts: "1700000000.123456", permalink: "https://x.slack.com/p1" }],
     });
-    const tool = createPostQuestionsTool(data, createFakeSdk().sdk, fixtureGetGames, deps);
+    const tool = createPostQuestionsTool(data, sdk, fixtureGetGames, deps);
 
     await tool.handler(
       {
@@ -243,13 +255,13 @@ describe("post_questions tool", () => {
   });
 
   it("posts no worth-points line for a question worth 1", async () => {
-    const data = createInMemoryDataLayer();
+    const { sdk, dataLayer: data } = makeData();
     await seedQuestion(data, { id: "Q1" });
 
     const { deps } = fakeSlackDeps({
       postResults: [{ ts: "1700000000.123456", permalink: "https://x.slack.com/p1" }],
     });
-    const tool = createPostQuestionsTool(data, createFakeSdk().sdk, fixtureGetGames, deps);
+    const tool = createPostQuestionsTool(data, sdk, fixtureGetGames, deps);
 
     await tool.handler(
       {
@@ -267,13 +279,12 @@ describe("post_questions tool", () => {
   });
 
   it("engages the posted question thread with high attention + the clarification context", async () => {
-    const data = createInMemoryDataLayer();
+    const { sdk, dataLayer: data } = makeData();
     await seedQuestion(data, { id: "Q1" });
 
     const { deps } = fakeSlackDeps({
       postResults: [{ ts: "1700000000.123456", permalink: "https://x.slack.com/p1" }],
     });
-    const { sdk } = createFakeSdk();
     const tool = createPostQuestionsTool(data, sdk, fixtureGetGames, deps);
 
     await tool.handler(
@@ -295,11 +306,11 @@ describe("post_questions tool", () => {
   });
 
   it("stamps liveAnswersVisible and revealResponses from the cascade default", async () => {
-    const data = createInMemoryDataLayer();
+    const { sdk, dataLayer: data } = makeData();
     await seedQuestion(data, { id: "Q1" });
 
     const { deps } = fakeSlackDeps();
-    const tool = createPostQuestionsTool(data, createFakeSdk().sdk, fixtureGetGames, deps);
+    const tool = createPostQuestionsTool(data, sdk, fixtureGetGames, deps);
 
     await tool.handler(
       {
@@ -318,12 +329,12 @@ describe("post_questions tool", () => {
   });
 
   it("stamps tagPlayers=false from the game tier", async () => {
-    const data = createInMemoryDataLayer();
+    const { sdk, dataLayer: data } = makeData();
     await seedQuestion(data, { id: "Q1" });
 
     const { deps } = fakeSlackDeps();
     const getGames = () => fixtureGetGames().map((g) => ({ ...g, tagPlayers: false }));
-    const tool = createPostQuestionsTool(data, createFakeSdk().sdk, getGames, deps);
+    const tool = createPostQuestionsTool(data, sdk, getGames, deps);
 
     await tool.handler(
       {
@@ -340,12 +351,12 @@ describe("post_questions tool", () => {
   });
 
   it("multi-item batch posts each question independently", async () => {
-    const data = createInMemoryDataLayer();
+    const { sdk, dataLayer: data } = makeData();
     await seedQuestion(data, { id: "Q1" });
     await seedQuestion(data, { id: "Q2" });
 
     const { deps, calls } = fakeSlackDeps();
-    const tool = createPostQuestionsTool(data, createFakeSdk().sdk, fixtureGetGames, deps);
+    const tool = createPostQuestionsTool(data, sdk, fixtureGetGames, deps);
 
     const result = await tool.handler(
       {
@@ -368,7 +379,7 @@ describe("post_questions tool", () => {
   });
 
   it("skips an already-posted question (idempotency)", async () => {
-    const data = createInMemoryDataLayer();
+    const { sdk, dataLayer: data } = makeData();
     await seedQuestion(data, {
       id: "Q1",
       postedAt: 1000,
@@ -376,7 +387,7 @@ describe("post_questions tool", () => {
     });
 
     const { deps, calls } = fakeSlackDeps();
-    const tool = createPostQuestionsTool(data, createFakeSdk().sdk, fixtureGetGames, deps);
+    const tool = createPostQuestionsTool(data, sdk, fixtureGetGames, deps);
 
     const result = await tool.handler(
       {
@@ -398,9 +409,9 @@ describe("post_questions tool", () => {
   });
 
   it("rejects an unknown game", async () => {
-    const data = createInMemoryDataLayer();
+    const { sdk, dataLayer: data } = makeData();
     const { deps, calls } = fakeSlackDeps();
-    const tool = createPostQuestionsTool(data, createFakeSdk().sdk, fixtureGetGames, deps);
+    const tool = createPostQuestionsTool(data, sdk, fixtureGetGames, deps);
 
     const result = await tool.handler(
       {
@@ -418,11 +429,11 @@ describe("post_questions tool", () => {
   });
 
   it("returns Slack-unavailable error before any per-item work", async () => {
-    const data = createInMemoryDataLayer();
+    const { sdk, dataLayer: data } = makeData();
     await seedQuestion(data, { id: "Q1" });
 
     const { deps, calls } = fakeSlackDeps({ unavailableError: "Slack disconnected" });
-    const tool = createPostQuestionsTool(data, createFakeSdk().sdk, fixtureGetGames, deps);
+    const tool = createPostQuestionsTool(data, sdk, fixtureGetGames, deps);
 
     const result = await tool.handler(
       {
@@ -440,12 +451,12 @@ describe("post_questions tool", () => {
   });
 
   it("stamps a shared batchId on every fresh item in one call", async () => {
-    const data = createInMemoryDataLayer();
+    const { sdk, dataLayer: data } = makeData();
     await seedQuestion(data, { id: "Q1" });
     await seedQuestion(data, { id: "Q2" });
 
     const { deps } = fakeSlackDeps();
-    const tool = createPostQuestionsTool(data, createFakeSdk().sdk, fixtureGetGames, deps);
+    const tool = createPostQuestionsTool(data, sdk, fixtureGetGames, deps);
 
     await tool.handler(
       {
@@ -504,10 +515,10 @@ function findImageBlock(
 
 describe("post_questions is medium-agnostic for images", () => {
   it("posts a Claude-supplied image block unchanged, exactly once, adding no second image", async () => {
-    const data = createInMemoryDataLayer();
+    const { sdk, dataLayer: data } = makeData();
     await seedQuestion(data, { id: "IMG1", promptMedium: "image" });
     const { deps, calls } = fakeSlackDeps();
-    const tool = createPostQuestionsTool(data, createFakeSdk().sdk, fixtureGetGames, deps);
+    const tool = createPostQuestionsTool(data, sdk, fixtureGetGames, deps);
 
     const parsed = parseToolResult(
       await tool.handler(postItem("IMG1", CARD_BLOCKS_WITH_IMAGE), SESSION),
@@ -530,12 +541,12 @@ describe("post_questions is medium-agnostic for images", () => {
   });
 
   it("injects no image block when the supplied blocks contain none", async () => {
-    const data = createInMemoryDataLayer();
+    const { sdk, dataLayer: data } = makeData();
     // An image-medium question whose blocks (erroneously) omit the image block:
     // the tool does NOT compensate — it posts exactly what it was given.
     await seedQuestion(data, { id: "IMG2", promptMedium: "image" });
     const { deps, calls } = fakeSlackDeps();
-    const tool = createPostQuestionsTool(data, createFakeSdk().sdk, fixtureGetGames, deps);
+    const tool = createPostQuestionsTool(data, sdk, fixtureGetGames, deps);
 
     const parsed = parseToolResult(await tool.handler(postItem("IMG2", SAMPLE_BLOCKS), SESSION));
     assert.equal(parsed.results[0].ok, true);
@@ -557,12 +568,12 @@ const scrollEnabledGames = () => fixtureGetGames().map((g) => ({ ...g, scrollToT
 
 describe("post_questions scroll-to-top trailing message", () => {
   it("posts a trailing link to the first question for a multi-question batch", async () => {
-    const data = createInMemoryDataLayer();
+    const { sdk, dataLayer: data } = makeData();
     await seedQuestion(data, { id: "Q1" });
     await seedQuestion(data, { id: "Q2" });
 
     const { deps, calls } = fakeSlackDeps();
-    const tool = createPostQuestionsTool(data, createFakeSdk().sdk, scrollEnabledGames, deps);
+    const tool = createPostQuestionsTool(data, sdk, scrollEnabledGames, deps);
 
     await tool.handler(
       {
@@ -591,11 +602,11 @@ describe("post_questions scroll-to-top trailing message", () => {
   });
 
   it("posts no trailing message for a single-question batch", async () => {
-    const data = createInMemoryDataLayer();
+    const { sdk, dataLayer: data } = makeData();
     await seedQuestion(data, { id: "Q1" });
 
     const { deps, calls } = fakeSlackDeps();
-    const tool = createPostQuestionsTool(data, createFakeSdk().sdk, scrollEnabledGames, deps);
+    const tool = createPostQuestionsTool(data, sdk, scrollEnabledGames, deps);
 
     await tool.handler(
       {
@@ -611,12 +622,12 @@ describe("post_questions scroll-to-top trailing message", () => {
   });
 
   it("posts no trailing message when scrollToTop is disabled (default)", async () => {
-    const data = createInMemoryDataLayer();
+    const { sdk, dataLayer: data } = makeData();
     await seedQuestion(data, { id: "Q1" });
     await seedQuestion(data, { id: "Q2" });
 
     const { deps, calls } = fakeSlackDeps();
-    const tool = createPostQuestionsTool(data, createFakeSdk().sdk, fixtureGetGames, deps);
+    const tool = createPostQuestionsTool(data, sdk, fixtureGetGames, deps);
 
     await tool.handler(
       {
@@ -635,7 +646,7 @@ describe("post_questions scroll-to-top trailing message", () => {
   });
 
   it("does not post a trailing message when fewer than 2 posts succeed", async () => {
-    const data = createInMemoryDataLayer();
+    const { sdk, dataLayer: data } = makeData();
     await seedQuestion(data, { id: "Q1" });
     await seedQuestion(data, { id: "Q2" });
 
@@ -646,7 +657,7 @@ describe("post_questions scroll-to-top trailing message", () => {
         { error: "Slack rate-limited" },
       ],
     });
-    const tool = createPostQuestionsTool(data, createFakeSdk().sdk, scrollEnabledGames, deps);
+    const tool = createPostQuestionsTool(data, sdk, scrollEnabledGames, deps);
 
     const result = await tool.handler(
       {
@@ -670,13 +681,13 @@ describe("post_questions scroll-to-top trailing message", () => {
   });
 
   it("on append, the trailing link targets the batch's earliest message, not this fire's first", async () => {
-    const data = createInMemoryDataLayer();
+    const { sdk, dataLayer: data } = makeData();
     await seedQuestion(data, { id: "Q1" });
     await seedQuestion(data, { id: "Q2" });
     await seedQuestion(data, { id: "Q3" });
 
     const { deps, calls } = fakeSlackDeps();
-    const tool = createPostQuestionsTool(data, createFakeSdk().sdk, scrollEnabledGames, deps);
+    const tool = createPostQuestionsTool(data, sdk, scrollEnabledGames, deps);
 
     // Fresh batch: Q1, Q2.
     await tool.handler(

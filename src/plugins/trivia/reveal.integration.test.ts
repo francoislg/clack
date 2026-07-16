@@ -3,8 +3,17 @@ import assert from "node:assert/strict";
 import { createComputeAnswersTool, type RevealSlackDeps } from "./tools/reveal/computeAnswers.js";
 import { createRefreshQuestionCardsTool } from "./tools/reveal/refreshQuestionCards.js";
 import { createStartNewSeasonTool } from "./tools/seasons/startNewSeason.js";
-import { createInMemoryDataLayer, FIXTURE_GAME_NAME, fixtureGetGames } from "./testHelpers.js";
-import { createFakeSdk, createFakeRevealSlackDeps } from "./testHelpers.fakeSdk.js";
+import {
+  createTriviaDataLayer,
+  FIXTURE_GAME_NAME,
+  fixtureGetGames,
+  type FakeTriviaDataLayer,
+} from "./testHelpers.js";
+import {
+  createFakeSdk,
+  createFakeRevealSlackDeps,
+  primeTriviaConfig,
+} from "./testHelpers.fakeSdk.js";
 import { parseToolResult } from "../../tools/testHelpers.js";
 import type { TriviaQuestion } from "./core/types.js";
 
@@ -93,13 +102,17 @@ function makeQuestion(overrides: Partial<TriviaQuestion>): TriviaQuestion {
   };
 }
 
-type Data = ReturnType<typeof createInMemoryDataLayer>;
+type Data = FakeTriviaDataLayer;
 
-function tools(data: Data, deps: RevealSlackDeps, revealCron: string) {
+/** ONE sdk threads through the data layer and every tool — production's wiring. */
+function harness(revealCron: string, deps: RevealSlackDeps) {
   const { sdk } = createFakeSdk();
+  primeTriviaConfig(sdk);
+  const { dataLayer: data } = createTriviaDataLayer(sdk);
   const getGames = getGamesWithCron(revealCron);
   const noConfig = () => ({});
   return {
+    data,
     compute: createComputeAnswersTool(data, sdk, getGames, deps, noConfig),
     update: createRefreshQuestionCardsTool(data, sdk, getGames, deps, noConfig),
     startNewSeason: createStartNewSeasonTool(data, getGames),
@@ -114,7 +127,8 @@ async function seedCurrentSeason(data: Data, expectedEndAt: number): Promise<voi
 
 describe("reveal flow integration — compute → update → start_new_season", () => {
   it("mid-season fire: scores, edits the batch's cards, and leaves the season open", async () => {
-    const data = createInMemoryDataLayer();
+    const deps = capturingSlackDeps();
+    const { data, compute, update } = harness("* * * * *", deps);
     const scoped = data.forGame(FIXTURE_GAME_NAME);
     // "* * * * *" → next fire ≈ now, well before a +DAY end → NOT the last fire.
     await seedCurrentSeason(data, Date.now() + DAY);
@@ -137,9 +151,6 @@ describe("reveal flow integration — compute → update → start_new_season", 
       timestamp: 2,
       season: "s1",
     });
-
-    const deps = capturingSlackDeps();
-    const { compute, update } = tools(data, deps, "* * * * *");
 
     // ── Step 1: compute_answers (the scorer) ──────────────────────────────
     const computed = parseToolResult(
@@ -186,7 +197,8 @@ describe("reveal flow integration — compute → update → start_new_season", 
   });
 
   it("last fire: compute reports it, start_new_season is what closes the season and queues the continuation", async () => {
-    const data = createInMemoryDataLayer();
+    const deps = capturingSlackDeps();
+    const { data, compute, update, startNewSeason } = harness("0 0 1 1 *", deps);
     const scoped = data.forGame(FIXTURE_GAME_NAME);
     // Season ends shortly; a yearly cron next-fires far past that → the last fire.
     await seedCurrentSeason(data, Date.now() + 60_000);
@@ -200,9 +212,6 @@ describe("reveal flow integration — compute → update → start_new_season", 
       correct: true,
       timestamp: 1,
     });
-
-    const deps = capturingSlackDeps();
-    const { compute, update, startNewSeason } = tools(data, deps, "0 0 1 1 *");
 
     const computed = parseToolResult(
       await compute.handler(
@@ -248,7 +257,8 @@ describe("reveal flow integration — compute → update → start_new_season", 
   });
 
   it("replay is safe: re-running update re-projects identically and the closed season is never re-closed", async () => {
-    const data = createInMemoryDataLayer();
+    const deps = capturingSlackDeps();
+    const { data, compute, update, startNewSeason } = harness("0 0 1 1 *", deps);
     const scoped = data.forGame(FIXTURE_GAME_NAME);
     await seedCurrentSeason(data, Date.now() + 60_000);
     await scoped.saveQuestion(
@@ -261,9 +271,6 @@ describe("reveal flow integration — compute → update → start_new_season", 
       correct: true,
       timestamp: 1,
     });
-
-    const deps = capturingSlackDeps();
-    const { compute, update, startNewSeason } = tools(data, deps, "0 0 1 1 *");
 
     const computed = parseToolResult(
       await compute.handler(
@@ -309,7 +316,8 @@ describe("reveal flow integration — compute → update → start_new_season", 
   });
 
   it("batches drain one per fire across successive chained runs", async () => {
-    const data = createInMemoryDataLayer();
+    const deps = capturingSlackDeps();
+    const { data, compute, update } = harness("* * * * *", deps);
     const scoped = data.forGame(FIXTURE_GAME_NAME);
     await scoped.saveQuestion(
       makeQuestion({
@@ -327,9 +335,6 @@ describe("reveal flow integration — compute → update → start_new_season", 
         postedBlocks: postedBooleanBlocks("q2"),
       }),
     );
-
-    const deps = capturingSlackDeps();
-    const { compute, update } = tools(data, deps, "* * * * *");
 
     // Fire 1 drains the oldest batch (B1) only.
     const first = parseToolResult(

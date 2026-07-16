@@ -1,7 +1,17 @@
 import { describe, it, beforeEach } from "vitest";
 import assert from "node:assert/strict";
-import { createInMemoryDataLayer, FIXTURE_GAME_NAME, fixtureGetGames } from "./testHelpers.js";
-import { createFakeSdk, createFakePostQuestionsSlackDeps } from "./testHelpers.fakeSdk.js";
+import {
+  createTriviaDataLayer,
+  FIXTURE_GAME_NAME,
+  fixtureGetGames,
+  type FakeTriviaDataLayer,
+} from "./testHelpers.js";
+import {
+  createFakeSdk,
+  createFakePostQuestionsSlackDeps,
+  primeTriviaConfig,
+  type FakeSdk,
+} from "./testHelpers.fakeSdk.js";
 import { createUpsertSeasonTool } from "./tools/seasons/upsertSeason.js";
 import { createGetIdeasTool } from "./tools/questions/getIdeas.js";
 import { createSaveQuestionTool } from "./tools/questions/saveQuestion.js";
@@ -11,7 +21,6 @@ import {
 } from "./tools/questions/postQuestions.js";
 import { parseToolResult } from "../../tools/testHelpers.js";
 import type { TriviaConfig } from "./core/configTypes.js";
-import type { TriviaDataLayer } from "./core/types.js";
 import { applySeasonRollover } from "./tools/reveal/rollover.js";
 
 const SESSION = { sessionId: "test" };
@@ -31,10 +40,13 @@ const SEASONS_ON = makeConfig({
 });
 
 describe("Trivia question-format end-to-end flow", () => {
-  let data: TriviaDataLayer;
+  let data: FakeTriviaDataLayer;
+  let sdk: FakeSdk;
 
   beforeEach(async () => {
-    data = createInMemoryDataLayer();
+    ({ sdk } = createFakeSdk());
+    primeTriviaConfig(sdk, { seasons: { enabled: true, prompt: "Monthly" } });
+    ({ dataLayer: data } = createTriviaDataLayer(sdk));
     await data.saveCategories(["Science", "History", "Geography", "Sports"]);
   });
 
@@ -227,12 +239,7 @@ describe("Trivia question-format end-to-end flow", () => {
     assert.equal(save1.question.slot.label, "History Choice");
 
     // 6. post_questions with both items
-    const postQuestions = createPostQuestionsTool(
-      data,
-      createFakeSdk().sdk,
-      fixtureGetGames,
-      postQuestionsDeps(),
-    );
+    const postQuestions = createPostQuestionsTool(data, sdk, fixtureGetGames, postQuestionsDeps());
     const postRes = parseToolResult(
       await postQuestions.handler(
         {

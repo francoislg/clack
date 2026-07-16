@@ -1,8 +1,13 @@
 import { describe, it, beforeEach, expect } from "vitest";
-import { createInMemoryDataLayer, FIXTURE_GAME_NAME, fixtureGetGames } from "../../testHelpers.js";
+import {
+  createTriviaDataLayer,
+  FIXTURE_GAME_NAME,
+  fixtureGetGames,
+  type FakeTriviaDataLayer,
+} from "../../testHelpers.js";
+import { createFakeSdk, primeTriviaConfig } from "../../testHelpers.fakeSdk.js";
 import { createUpsertSeasonTool } from "./upsertSeason.js";
 import { parseToolResult } from "../../../../tools/testHelpers.js";
-import type { TriviaDataLayer } from "../../core/types.js";
 
 const SESSION = { sessionId: "test" };
 const DAY = 24 * 60 * 60 * 1000;
@@ -42,10 +47,13 @@ function baseArgs(slug: string, startedAt: number) {
 }
 
 describe("upsert_season — instructions and additionalInstructions", () => {
-  let data: TriviaDataLayer;
+  let data: FakeTriviaDataLayer;
 
   beforeEach(async () => {
-    data = createInMemoryDataLayer();
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk);
+    const result = createTriviaDataLayer(sdk);
+    data = result.dataLayer;
     await data.saveCategories(["Science", "History"]);
   });
 

@@ -1,10 +1,10 @@
 import { describe, it, beforeEach } from "vitest";
 import assert from "node:assert/strict";
-import { createInMemoryDataLayer } from "../../testHelpers.js";
+import { createTriviaDataLayer, type FakeTriviaDataLayer } from "../../testHelpers.js";
+import { createFakeSdk, primeTriviaConfig } from "../../testHelpers.fakeSdk.js";
 import { createExplainCascadeTool } from "./explainCascade.js";
 import { parseToolResult } from "../../../../tools/testHelpers.js";
 import type { TriviaConfig, TriviaGame } from "../../core/configTypes.js";
-import type { TriviaDataLayer } from "../../core/types.js";
 
 const SESSION = { sessionId: "test" };
 
@@ -17,9 +17,12 @@ const baseGame: TriviaGame = {
 };
 
 describe("explain_cascade", () => {
-  let data: TriviaDataLayer;
+  let data: FakeTriviaDataLayer;
   beforeEach(() => {
-    data = createInMemoryDataLayer();
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk);
+    const result = createTriviaDataLayer(sdk);
+    data = result.dataLayer;
   });
 
   it("explains the single-question coordinate when there is no format", async () => {

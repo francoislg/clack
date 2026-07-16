@@ -1,13 +1,11 @@
 import { describe, it, vi } from "vitest";
 import assert from "node:assert/strict";
+import { z } from "zod";
 import { installClickableVoteHandler } from "./clickHandlerInstaller.js";
 import { booleanAnswerHandler } from "./boolean.js";
 import { choiceAnswerHandler } from "./choice.js";
-import {
-  createInMemoryDataLayer,
-  type InMemoryDataLayer,
-  FIXTURE_GAME_NAME,
-} from "../testHelpers.js";
+import { createTriviaDataLayer, FIXTURE_GAME_NAME } from "../testHelpers.js";
+import { createFakeSdk, primeTriviaConfig } from "../testHelpers.fakeSdk.js";
 import type { PluginActionHandler } from "../../sdk.js";
 import type { TriviaQuestion } from "../core/types.js";
 
@@ -26,23 +24,6 @@ import type { TriviaQuestion } from "../core/types.js";
 interface CapturedRegistration {
   pattern: string | RegExp;
   handler: PluginActionHandler;
-}
-
-interface FakeSdk {
-  registrations: CapturedRegistration[];
-  registerAction(pattern: string | RegExp, handler: PluginActionHandler): void;
-  getSlackClient(): null;
-}
-
-function fakeSdk(): FakeSdk {
-  const registrations: CapturedRegistration[] = [];
-  return {
-    registrations,
-    registerAction(pattern, handler) {
-      registrations.push({ pattern, handler });
-    },
-    getSlackClient: () => null,
-  };
 }
 
 interface MinimalActionArgs {
@@ -114,33 +95,37 @@ function makeChoiceQuestion(overrides: Partial<TriviaQuestion> = {}): TriviaQues
   };
 }
 
-function setupBoolean(): { data: InMemoryDataLayer; installed: CapturedRegistration } {
-  const sdk = fakeSdk();
-  const data = createInMemoryDataLayer();
+function setupBoolean() {
+  const { sdk } = createFakeSdk();
+  primeTriviaConfig(sdk);
+  const { dataLayer: data } = createTriviaDataLayer(sdk);
   installClickableVoteHandler(
     sdk,
     booleanAnswerHandler,
     { data, getGameNames: () => [FIXTURE_GAME_NAME] },
     /^plugin:trivia:vote:[^:]+:(true|false)$/,
   );
-  return { data, installed: sdk.registrations[0] };
+  const [pattern, handler] = sdk.registerAction.mock.calls[0];
+  return { sdk, data, installed: { pattern, handler } };
 }
 
-function setupChoice(): { data: InMemoryDataLayer; installed: CapturedRegistration } {
-  const sdk = fakeSdk();
-  const data = createInMemoryDataLayer();
+function setupChoice() {
+  const { sdk } = createFakeSdk();
+  primeTriviaConfig(sdk);
+  const { dataLayer: data } = createTriviaDataLayer(sdk);
   installClickableVoteHandler(
     sdk,
     choiceAnswerHandler,
     { data, getGameNames: () => [FIXTURE_GAME_NAME] },
     /^plugin:trivia:vote:[^:]+:[0-9]+$/,
   );
-  return { data, installed: sdk.registrations[0] };
+  const [pattern, handler] = sdk.registerAction.mock.calls[0];
+  return { sdk, data, installed: { pattern, handler } };
 }
 
 describe("installClickableVoteHandler — vote click flow", () => {
   it("first click persists a SubmittedAnswer row with correct=true for the right value", async () => {
-    const { data, installed } = setupBoolean();
+    const { sdk, data, installed } = setupBoolean();
     const scoped = data.forGame(FIXTURE_GAME_NAME);
     await scoped.saveQuestion(makeBooleanQuestion());
 
@@ -157,7 +142,9 @@ describe("installClickableVoteHandler — vote click flow", () => {
     assert.equal(answers[0].answer, true);
 
     // Records the user's join time in trivia's registry namespace.
-    const joined = await data.getUserData("U_ALICE");
+    const joined = await sdk.users
+      .data(z.object({ joinedAt: z.number().optional() }))
+      .get("U_ALICE");
     assert.equal(joined?.joinedAt !== undefined, true);
   });
 

@@ -1,10 +1,16 @@
 import { describe, it, beforeEach } from "vitest";
 import assert from "node:assert/strict";
-import { createInMemoryDataLayer, FIXTURE_GAME_NAME, fixtureGetGames } from "../../testHelpers.js";
+import {
+  createTriviaDataLayer,
+  FIXTURE_GAME_NAME,
+  fixtureGetGames,
+  type FakeTriviaDataLayer,
+} from "../../testHelpers.js";
+import { createFakeSdk, primeTriviaConfig } from "../../testHelpers.fakeSdk.js";
 import { createGetIdeasTool } from "./getIdeas.js";
 import { parseToolResult } from "../../../../tools/testHelpers.js";
 import type { TriviaConfig, TriviaGame } from "../../core/configTypes.js";
-import type { TriviaDataLayer, SeasonEntry } from "../../core/types.js";
+import type { SeasonEntry } from "../../core/types.js";
 
 const SESSION = { sessionId: "test" };
 const DAY = 24 * 60 * 60 * 1000;
@@ -18,32 +24,32 @@ const SEASONS_ON_CONFIG = makeConfig({
   answersFormat: { boolean: 1, choice: 0, freeform: 0 },
 });
 
-async function seedSeason(
-  data: TriviaDataLayer,
-  overrides: Partial<SeasonEntry> = {},
-): Promise<SeasonEntry> {
+function makeSeason(overrides: Partial<SeasonEntry> = {}): SeasonEntry {
   const now = Date.now();
-  const entry: SeasonEntry = {
+  return {
     slug: "active",
     startedAt: now - 10 * DAY,
     expectedEndAt: now + 20 * DAY,
     categories: ["Science", "History", "Geography", "Sports", "Art"],
     ...overrides,
   };
-  await data.forGame(FIXTURE_GAME_NAME).saveSeasonsState({ seasons: [entry] });
-  return entry;
 }
 
 describe("get_ideas — format meta and slot routing", () => {
-  let data: TriviaDataLayer;
+  let data: FakeTriviaDataLayer;
 
   beforeEach(async () => {
-    data = createInMemoryDataLayer();
-    await data.saveCategories(["Baseline-1", "Baseline-2"]);
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk);
+    const { dataLayer: createdData } = createTriviaDataLayer(sdk);
+    data = createdData;
+    data.loadCategories.mockResolvedValue(["Baseline-1", "Baseline-2"]);
   });
 
   it("returns format: null when active season has no format", async () => {
-    await seedSeason(data);
+    data.forGame(FIXTURE_GAME_NAME).loadSeasonsState.mockResolvedValue({
+      seasons: [makeSeason()],
+    });
     const tool = createGetIdeasTool(data, () => SEASONS_ON_CONFIG, fixtureGetGames);
     const parsed = parseToolResult(
       await tool.handler({ game: FIXTURE_GAME_NAME, slot: undefined }, SESSION),
@@ -53,10 +59,14 @@ describe("get_ideas — format meta and slot routing", () => {
   });
 
   it("returns format meta when active season has format", async () => {
-    await seedSeason(data, {
-      format: {
-        questions: [{ label: "Q1" }, { label: "History Choice", categories: ["History"] }],
-      },
+    data.forGame(FIXTURE_GAME_NAME).loadSeasonsState.mockResolvedValue({
+      seasons: [
+        makeSeason({
+          format: {
+            questions: [{ label: "Q1" }, { label: "History Choice", categories: ["History"] }],
+          },
+        }),
+      ],
     });
     const tool = createGetIdeasTool(data, () => SEASONS_ON_CONFIG, fixtureGetGames);
     const parsed = parseToolResult(
@@ -79,8 +89,12 @@ describe("get_ideas — format meta and slot routing", () => {
   });
 
   it("surfaces flexible: true when the active season format is flexible", async () => {
-    await seedSeason(data, {
-      format: { questions: [{}, {}], flexible: true },
+    data.forGame(FIXTURE_GAME_NAME).loadSeasonsState.mockResolvedValue({
+      seasons: [
+        makeSeason({
+          format: { questions: [{}, {}], flexible: true },
+        }),
+      ],
     });
     const tool = createGetIdeasTool(data, () => SEASONS_ON_CONFIG, fixtureGetGames);
     const parsed = parseToolResult(
@@ -91,8 +105,12 @@ describe("get_ideas — format meta and slot routing", () => {
   });
 
   it("omits flexible for a fixed format (payload unchanged)", async () => {
-    await seedSeason(data, {
-      format: { questions: [{}, {}] },
+    data.forGame(FIXTURE_GAME_NAME).loadSeasonsState.mockResolvedValue({
+      seasons: [
+        makeSeason({
+          format: { questions: [{}, {}] },
+        }),
+      ],
     });
     const tool = createGetIdeasTool(data, () => SEASONS_ON_CONFIG, fixtureGetGames);
     const parsed = parseToolResult(
@@ -102,7 +120,9 @@ describe("get_ideas — format meta and slot routing", () => {
   });
 
   it("surfaces flexible from a game format when no season format is active", async () => {
-    await seedSeason(data);
+    data.forGame(FIXTURE_GAME_NAME).loadSeasonsState.mockResolvedValue({
+      seasons: [makeSeason()],
+    });
     const gameWithFlexibleFormat = [
       {
         name: FIXTURE_GAME_NAME,
@@ -127,8 +147,12 @@ describe("get_ideas — format meta and slot routing", () => {
   });
 
   it("masks a game's flexible flag when a fixed season format wins", async () => {
-    await seedSeason(data, {
-      format: { questions: [{}, {}] },
+    data.forGame(FIXTURE_GAME_NAME).loadSeasonsState.mockResolvedValue({
+      seasons: [
+        makeSeason({
+          format: { questions: [{}, {}] },
+        }),
+      ],
     });
     const gameWithFlexibleFormat = [
       {
@@ -154,10 +178,14 @@ describe("get_ideas — format meta and slot routing", () => {
   });
 
   it("routes category pool through the slot's resolved categories", async () => {
-    await seedSeason(data, {
-      format: {
-        questions: [{}, { categories: ["History"] }],
-      },
+    data.forGame(FIXTURE_GAME_NAME).loadSeasonsState.mockResolvedValue({
+      seasons: [
+        makeSeason({
+          format: {
+            questions: [{}, { categories: ["History"] }],
+          },
+        }),
+      ],
     });
     const tool = createGetIdeasTool(data, () => SEASONS_ON_CONFIG, fixtureGetGames);
     const parsed = parseToolResult(
@@ -169,8 +197,12 @@ describe("get_ideas — format meta and slot routing", () => {
   });
 
   it("rejects slot out of range", async () => {
-    await seedSeason(data, {
-      format: { questions: [{}, {}] },
+    data.forGame(FIXTURE_GAME_NAME).loadSeasonsState.mockResolvedValue({
+      seasons: [
+        makeSeason({
+          format: { questions: [{}, {}] },
+        }),
+      ],
     });
     const tool = createGetIdeasTool(data, () => SEASONS_ON_CONFIG, fixtureGetGames);
     const parsed = parseToolResult(
@@ -180,7 +212,9 @@ describe("get_ideas — format meta and slot routing", () => {
   });
 
   it("rejects non-zero slot when season has no format", async () => {
-    await seedSeason(data);
+    data.forGame(FIXTURE_GAME_NAME).loadSeasonsState.mockResolvedValue({
+      seasons: [makeSeason()],
+    });
     const tool = createGetIdeasTool(data, () => SEASONS_ON_CONFIG, fixtureGetGames);
     const parsed = parseToolResult(
       await tool.handler({ game: FIXTURE_GAME_NAME, slot: 1 }, SESSION),
@@ -189,7 +223,9 @@ describe("get_ideas — format meta and slot routing", () => {
   });
 
   it("accepts slot 0 when season has no format (backward compat)", async () => {
-    await seedSeason(data);
+    data.forGame(FIXTURE_GAME_NAME).loadSeasonsState.mockResolvedValue({
+      seasons: [makeSeason()],
+    });
     const tool = createGetIdeasTool(data, () => SEASONS_ON_CONFIG, fixtureGetGames);
     const parsed = parseToolResult(
       await tool.handler({ game: FIXTURE_GAME_NAME, slot: 0 }, SESSION),
@@ -199,11 +235,15 @@ describe("get_ideas — format meta and slot routing", () => {
   });
 
   it("uses slot.answersFormat when set (overrides season answersFormat)", async () => {
-    await seedSeason(data, {
-      answersFormat: { boolean: 1, choice: 0, freeform: 0 },
-      format: {
-        questions: [{ answersFormat: { boolean: 0, choice: 1, freeform: 0 } }],
-      },
+    data.forGame(FIXTURE_GAME_NAME).loadSeasonsState.mockResolvedValue({
+      seasons: [
+        makeSeason({
+          answersFormat: { boolean: 1, choice: 0, freeform: 0 },
+          format: {
+            questions: [{ answersFormat: { boolean: 0, choice: 1, freeform: 0 } }],
+          },
+        }),
+      ],
     });
     const tool = createGetIdeasTool(data, () => SEASONS_ON_CONFIG, fixtureGetGames);
     // Run several times; with deterministic weights the type roll is constant
@@ -242,9 +282,13 @@ describe("get_ideas — format meta and slot routing", () => {
   });
 
   it("falls back to season.answersFormat when slot has none", async () => {
-    await seedSeason(data, {
-      answersFormat: { boolean: 0, choice: 1, freeform: 0 },
-      format: { questions: [{}] },
+    data.forGame(FIXTURE_GAME_NAME).loadSeasonsState.mockResolvedValue({
+      seasons: [
+        makeSeason({
+          answersFormat: { boolean: 0, choice: 1, freeform: 0 },
+          format: { questions: [{}] },
+        }),
+      ],
     });
     const tool = createGetIdeasTool(data, () => SEASONS_ON_CONFIG, fixtureGetGames);
     for (let i = 0; i < 10; i++) {
@@ -256,8 +300,12 @@ describe("get_ideas — format meta and slot routing", () => {
   });
 
   it("falls back to config when neither slot nor season has answersFormat", async () => {
-    await seedSeason(data, {
-      format: { questions: [{}] },
+    data.forGame(FIXTURE_GAME_NAME).loadSeasonsState.mockResolvedValue({
+      seasons: [
+        makeSeason({
+          format: { questions: [{}] },
+        }),
+      ],
     });
     const cfg = makeConfig({
       seasons: { enabled: true, prompt: "Monthly" },
@@ -273,8 +321,12 @@ describe("get_ideas — format meta and slot routing", () => {
   });
 
   it("echoes slot in the response", async () => {
-    await seedSeason(data, {
-      format: { questions: [{}, {}, {}] },
+    data.forGame(FIXTURE_GAME_NAME).loadSeasonsState.mockResolvedValue({
+      seasons: [
+        makeSeason({
+          format: { questions: [{}, {}, {}] },
+        }),
+      ],
     });
     const tool = createGetIdeasTool(data, () => SEASONS_ON_CONFIG, fixtureGetGames);
     for (const slot of [0, 1, 2]) {
@@ -286,8 +338,12 @@ describe("get_ideas — format meta and slot routing", () => {
   });
 
   it("format meta is stable across calls in the same season", async () => {
-    await seedSeason(data, {
-      format: { questions: [{ label: "A" }, { label: "B" }] },
+    data.forGame(FIXTURE_GAME_NAME).loadSeasonsState.mockResolvedValue({
+      seasons: [
+        makeSeason({
+          format: { questions: [{ label: "A" }, { label: "B" }] },
+        }),
+      ],
     });
     const tool = createGetIdeasTool(data, () => SEASONS_ON_CONFIG, fixtureGetGames);
     const a = parseToolResult(await tool.handler({ game: FIXTURE_GAME_NAME, slot: 0 }, SESSION));
@@ -296,7 +352,9 @@ describe("get_ideas — format meta and slot routing", () => {
   });
 
   it("game.format is used when season has no format", async () => {
-    await seedSeason(data);
+    data.forGame(FIXTURE_GAME_NAME).loadSeasonsState.mockResolvedValue({
+      seasons: [makeSeason()],
+    });
     const gameWithFormat = [
       {
         name: FIXTURE_GAME_NAME,
@@ -322,8 +380,14 @@ describe("get_ideas — format meta and slot routing", () => {
   });
 
   it("season.format wins over game.format", async () => {
-    await seedSeason(data, {
-      format: { questions: [{ label: "Season-A" }, { label: "Season-B" }, { label: "Season-C" }] },
+    data.forGame(FIXTURE_GAME_NAME).loadSeasonsState.mockResolvedValue({
+      seasons: [
+        makeSeason({
+          format: {
+            questions: [{ label: "Season-A" }, { label: "Season-B" }, { label: "Season-C" }],
+          },
+        }),
+      ],
     });
     const gameWithFormat = [
       {
@@ -349,7 +413,9 @@ describe("get_ideas — format meta and slot routing", () => {
   });
 
   it("game.theme surfaced when no season theme is set", async () => {
-    await seedSeason(data);
+    data.forGame(FIXTURE_GAME_NAME).loadSeasonsState.mockResolvedValue({
+      seasons: [makeSeason()],
+    });
     const gameWithTheme = [
       {
         name: FIXTURE_GAME_NAME,
@@ -373,7 +439,9 @@ describe("get_ideas — format meta and slot routing", () => {
   });
 
   it("season.theme wins over game.theme", async () => {
-    await seedSeason(data, { theme: "Halloween" });
+    data.forGame(FIXTURE_GAME_NAME).loadSeasonsState.mockResolvedValue({
+      seasons: [makeSeason({ theme: "Halloween" })],
+    });
     const gameWithTheme = [
       {
         name: FIXTURE_GAME_NAME,
@@ -398,19 +466,24 @@ describe("get_ideas — format meta and slot routing", () => {
 });
 
 describe("get_ideas — suggestedFreeformAnswerShape (freeform branch)", () => {
-  let data: TriviaDataLayer;
+  let data: FakeTriviaDataLayer;
   const FREEFORM_CONFIG = makeConfig({
     seasons: { enabled: true, prompt: "Monthly" },
     answersFormat: { boolean: 0, choice: 0, freeform: 1 },
   });
 
   beforeEach(async () => {
-    data = createInMemoryDataLayer();
-    await data.saveCategories(["Baseline-1", "Baseline-2"]);
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk);
+    const { dataLayer: createdData } = createTriviaDataLayer(sdk);
+    data = createdData;
+    data.loadCategories.mockResolvedValue(["Baseline-1", "Baseline-2"]);
   });
 
   it("is omitted on boolean / choice branches", async () => {
-    await seedSeason(data);
+    data.forGame(FIXTURE_GAME_NAME).loadSeasonsState.mockResolvedValue({
+      seasons: [makeSeason()],
+    });
     const tool = createGetIdeasTool(data, () => SEASONS_ON_CONFIG, fixtureGetGames);
     const parsed = parseToolResult(
       await tool.handler({ game: FIXTURE_GAME_NAME, slot: undefined }, SESSION),
@@ -420,7 +493,9 @@ describe("get_ideas — suggestedFreeformAnswerShape (freeform branch)", () => {
   });
 
   it("rolls one of the legal shapes on freeform with uniform default", async () => {
-    await seedSeason(data);
+    data.forGame(FIXTURE_GAME_NAME).loadSeasonsState.mockResolvedValue({
+      seasons: [makeSeason()],
+    });
     const tool = createGetIdeasTool(data, () => FREEFORM_CONFIG, fixtureGetGames);
     const seen = new Set<string>();
     for (let i = 0; i < 50; i++) {
@@ -440,31 +515,35 @@ describe("get_ideas — suggestedFreeformAnswerShape (freeform branch)", () => {
   });
 
   it("honors slot.freeformAnswerShape (overrides season + config)", async () => {
-    await seedSeason(data, {
-      freeformAnswerShape: {
-        name: 0,
-        place: 0,
-        phrase: 0,
-        title: 0,
-        date: 1,
-        countable: 0,
-        other: 0,
-      },
-      format: {
-        questions: [
-          {
-            freeformAnswerShape: {
-              name: 1,
-              place: 0,
-              phrase: 0,
-              title: 0,
-              date: 0,
-              countable: 0,
-              other: 0,
-            },
+    data.forGame(FIXTURE_GAME_NAME).loadSeasonsState.mockResolvedValue({
+      seasons: [
+        makeSeason({
+          freeformAnswerShape: {
+            name: 0,
+            place: 0,
+            phrase: 0,
+            title: 0,
+            date: 1,
+            countable: 0,
+            other: 0,
           },
-        ],
-      },
+          format: {
+            questions: [
+              {
+                freeformAnswerShape: {
+                  name: 1,
+                  place: 0,
+                  phrase: 0,
+                  title: 0,
+                  date: 0,
+                  countable: 0,
+                  other: 0,
+                },
+              },
+            ],
+          },
+        }),
+      ],
     });
     const tool = createGetIdeasTool(data, () => FREEFORM_CONFIG, fixtureGetGames);
     for (let i = 0; i < 10; i++) {
@@ -476,17 +555,21 @@ describe("get_ideas — suggestedFreeformAnswerShape (freeform branch)", () => {
   });
 
   it("falls back to season.freeformAnswerShape when slot has none", async () => {
-    await seedSeason(data, {
-      freeformAnswerShape: {
-        name: 0,
-        place: 1,
-        phrase: 0,
-        title: 0,
-        date: 0,
-        countable: 0,
-        other: 0,
-      },
-      format: { questions: [{}] },
+    data.forGame(FIXTURE_GAME_NAME).loadSeasonsState.mockResolvedValue({
+      seasons: [
+        makeSeason({
+          freeformAnswerShape: {
+            name: 0,
+            place: 1,
+            phrase: 0,
+            title: 0,
+            date: 0,
+            countable: 0,
+            other: 0,
+          },
+          format: { questions: [{}] },
+        }),
+      ],
     });
     const tool = createGetIdeasTool(data, () => FREEFORM_CONFIG, fixtureGetGames);
     for (let i = 0; i < 10; i++) {
@@ -498,8 +581,12 @@ describe("get_ideas — suggestedFreeformAnswerShape (freeform branch)", () => {
   });
 
   it("falls back to config.trivia.freeformAnswerShape when neither slot nor season has it", async () => {
-    await seedSeason(data, {
-      format: { questions: [{}] },
+    data.forGame(FIXTURE_GAME_NAME).loadSeasonsState.mockResolvedValue({
+      seasons: [
+        makeSeason({
+          format: { questions: [{}] },
+        }),
+      ],
     });
     const cfg = makeConfig({
       seasons: { enabled: true, prompt: "Monthly" },

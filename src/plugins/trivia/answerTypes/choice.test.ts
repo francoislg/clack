@@ -3,7 +3,8 @@ import assert from "node:assert/strict";
 import { choiceAnswerHandler } from "./choice.js";
 import { isClickableHandler } from "./registry.js";
 import { composeWithKey } from "../questionTypes/compose.js";
-import { createInMemoryDataLayer, FIXTURE_GAME_NAME } from "../testHelpers.js";
+import { createTriviaDataLayer, FIXTURE_GAME_NAME } from "../testHelpers.js";
+import { createFakeSdk, primeTriviaConfig } from "../testHelpers.fakeSdk.js";
 import type { TriviaQuestion } from "../core/types.js";
 import type { ProcessRevealDeps } from "./types.js";
 
@@ -170,7 +171,9 @@ describe("choiceAnswerHandler", () => {
 
   describe("processReveal", () => {
     function makeDeps(overrides: Partial<ProcessRevealDeps> = {}): ProcessRevealDeps {
-      const data = createInMemoryDataLayer();
+      const { sdk } = createFakeSdk();
+      primeTriviaConfig(sdk);
+      const { dataLayer: data } = createTriviaDataLayer(sdk);
       return {
         scoped: data.forGame(FIXTURE_GAME_NAME),
         data,

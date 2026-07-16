@@ -1,6 +1,12 @@
 import { describe, it, beforeEach } from "vitest";
 import assert from "node:assert/strict";
-import { createInMemoryDataLayer, FIXTURE_GAME_NAME, fixtureGetGames } from "../../testHelpers.js";
+import {
+  createTriviaDataLayer,
+  FIXTURE_GAME_NAME,
+  fixtureGetGames,
+  type FakeTriviaDataLayer,
+} from "../../testHelpers.js";
+import { createFakeSdk, primeTriviaConfig } from "../../testHelpers.fakeSdk.js";
 import { createUpsertSeasonTool } from "./upsertSeason.js";
 import { createDeleteSeasonTool } from "./deleteSeason.js";
 import { createListSeasonsTool } from "./listSeasons.js";
@@ -24,20 +30,19 @@ import { buildProcessRevealInstructions } from "../../prompts/scheduledPrompts.j
 const PROCESS_REVEAL_INSTRUCTIONS = buildProcessRevealInstructions();
 import { getTriviaCheckInstruction } from "../../prompts/triviaCheckInstruction.js";
 import type { SeasonEntry } from "../../core/types.js";
-import type { InMemoryDataLayer } from "../../testHelpers.js";
 
 const SESSION = { sessionId: "test" };
 
 const DAY = 24 * 60 * 60 * 1000;
 
 /** Seed the timeline with the given entries, in order. */
-async function seedTimeline(data: InMemoryDataLayer, entries: SeasonEntry[]): Promise<void> {
+async function seedTimeline(data: FakeTriviaDataLayer, entries: SeasonEntry[]): Promise<void> {
   await data.forGame(FIXTURE_GAME_NAME).saveSeasonsState({ seasons: entries });
 }
 
 /** Convenience: seed a single "currently active" season. */
 async function seedSingleActive(
-  data: InMemoryDataLayer,
+  data: FakeTriviaDataLayer,
   overrides: Partial<SeasonEntry> = {},
 ): Promise<SeasonEntry> {
   const now = Date.now();
@@ -53,7 +58,7 @@ async function seedSingleActive(
 }
 
 /** Seed a single boolean question stamped to the given season slug. */
-async function seedStampedQuestion(data: InMemoryDataLayer, seasonSlug: string): Promise<void> {
+async function seedStampedQuestion(data: FakeTriviaDataLayer, seasonSlug: string): Promise<void> {
   await data.forGame(FIXTURE_GAME_NAME).saveQuestion({
     id: `q-${seasonSlug}`,
     category: "Science",
@@ -163,10 +168,13 @@ describe("findCurrentSeason / findNextSeason / validateNoOverlap", () => {
 // =============================================================================
 
 describe("upsert_season tool", () => {
-  let data: InMemoryDataLayer;
+  let data: FakeTriviaDataLayer;
 
   beforeEach(async () => {
-    data = createInMemoryDataLayer();
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk);
+    const result = createTriviaDataLayer(sdk);
+    data = result.dataLayer;
     await data.saveCategories(["Science", "History", "Geography"]);
   });
 
@@ -400,7 +408,9 @@ describe("upsert_season tool", () => {
   });
 
   it("create: with no categories arg and empty global baseline still succeeds (cascade-inheriting)", async () => {
-    const freshData = createInMemoryDataLayer();
+    const { sdk: freshSdk } = createFakeSdk();
+    primeTriviaConfig(freshSdk);
+    const { dataLayer: freshData } = createTriviaDataLayer(freshSdk);
     // No categories.json — the new entry inherits via cascade (resolves at read time).
     const tool = createUpsertSeasonTool(freshData, fixtureGetGames);
     const result = await tool.handler(
@@ -1102,10 +1112,13 @@ describe("upsert_season tool", () => {
 // =============================================================================
 
 describe("delete_season tool", () => {
-  let data: InMemoryDataLayer;
+  let data: FakeTriviaDataLayer;
 
   beforeEach(async () => {
-    data = createInMemoryDataLayer();
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk);
+    const result = createTriviaDataLayer(sdk);
+    data = result.dataLayer;
     await data.saveCategories(["Science"]);
   });
 
@@ -1212,10 +1225,13 @@ describe("delete_season tool", () => {
 // =============================================================================
 
 describe("list_seasons tool", () => {
-  let data: InMemoryDataLayer;
+  let data: FakeTriviaDataLayer;
 
   beforeEach(async () => {
-    data = createInMemoryDataLayer();
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk);
+    const result = createTriviaDataLayer(sdk);
+    data = result.dataLayer;
     await data.saveCategories(["Science"]);
   });
 
@@ -1279,10 +1295,13 @@ describe("list_seasons tool", () => {
 // =============================================================================
 
 describe("list_seasons — axis-config surfacing", () => {
-  let data: InMemoryDataLayer;
+  let data: FakeTriviaDataLayer;
 
   beforeEach(async () => {
-    data = createInMemoryDataLayer();
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk);
+    const result = createTriviaDataLayer(sdk);
+    data = result.dataLayer;
     await data.saveCategories(["Science"]);
   });
 
@@ -1470,10 +1489,13 @@ describe("list_seasons — axis-config surfacing", () => {
 // =============================================================================
 
 describe("check_season_status tool", () => {
-  let data: InMemoryDataLayer;
+  let data: FakeTriviaDataLayer;
 
   beforeEach(async () => {
-    data = createInMemoryDataLayer();
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk);
+    const result = createTriviaDataLayer(sdk);
+    data = result.dataLayer;
     await data.saveCategories(["Science"]);
   });
 
@@ -1585,13 +1607,17 @@ describe("check_season_status tool", () => {
 // =============================================================================
 
 describe("retrieve_scores with timeline-based current", () => {
-  let data: InMemoryDataLayer;
+  let data: FakeTriviaDataLayer;
 
   beforeEach(async () => {
-    data = createInMemoryDataLayer();
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk);
+    const result = createTriviaDataLayer(sdk);
+    data = result.dataLayer;
     await data.saveCategories(["Science"]);
-    await data.saveUser({ userId: "U1", displayName: "Alice", joinedAt: 0 });
-    await data.saveUser({ userId: "U2", displayName: "Bob", joinedAt: 0 });
+    const { testHelpers } = createFakeSdk();
+    testHelpers.saveUser({ userId: "U1", displayName: "Alice" });
+    testHelpers.saveUser({ userId: "U2", displayName: "Bob" });
 
     for (let i = 0; i < 5; i++) {
       await data.forGame(FIXTURE_GAME_NAME).saveAnswer({
@@ -1684,10 +1710,13 @@ describe("retrieve_scores with timeline-based current", () => {
 // =============================================================================
 
 describe("find_previous_questions with timeline-based current", () => {
-  let data: InMemoryDataLayer;
+  let data: FakeTriviaDataLayer;
 
   beforeEach(async () => {
-    data = createInMemoryDataLayer();
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk);
+    const result = createTriviaDataLayer(sdk);
+    data = result.dataLayer;
     await data.saveCategories(["Marine"]);
     await data.forGame(FIXTURE_GAME_NAME).saveQuestion({
       id: "q1",
@@ -1804,10 +1833,13 @@ describe("find_previous_questions with timeline-based current", () => {
 // =============================================================================
 
 describe("add_categories with target dispatch", () => {
-  let data: InMemoryDataLayer;
+  let data: FakeTriviaDataLayer;
 
   beforeEach(async () => {
-    data = createInMemoryDataLayer();
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk);
+    const result = createTriviaDataLayer(sdk);
+    data = result.dataLayer;
     await data.saveCategories(["Science", "History"]);
     await seedSingleActive(data, { categories: ["Science", "History"] });
   });
@@ -1893,7 +1925,9 @@ describe("add_categories with target dispatch", () => {
 
   it("target 'current' during a gap is a warned no-op", async () => {
     const now = Date.now();
-    const freshData = createInMemoryDataLayer();
+    const { sdk: freshSdk } = createFakeSdk();
+    primeTriviaConfig(freshSdk);
+    const { dataLayer: freshData } = createTriviaDataLayer(freshSdk);
     await freshData.saveCategories(["Science"]);
     await seedTimeline(freshData, [
       {
@@ -1965,10 +1999,13 @@ describe("add_categories with target dispatch", () => {
 });
 
 describe("remove_categories with target dispatch + non-empty guards", () => {
-  let data: InMemoryDataLayer;
+  let data: FakeTriviaDataLayer;
 
   beforeEach(async () => {
-    data = createInMemoryDataLayer();
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk);
+    const result = createTriviaDataLayer(sdk);
+    data = result.dataLayer;
     await data.saveCategories(["Science", "History"]);
     await seedSingleActive(data, { categories: ["Science", "History"] });
   });
@@ -2048,10 +2085,13 @@ describe("remove_categories with target dispatch + non-empty guards", () => {
 // =============================================================================
 
 describe("get_ideas reads currentCategories via timeline", () => {
-  let data: InMemoryDataLayer;
+  let data: FakeTriviaDataLayer;
 
   beforeEach(async () => {
-    data = createInMemoryDataLayer();
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk);
+    const result = createTriviaDataLayer(sdk);
+    data = result.dataLayer;
     await data.saveCategories(["Baseline-A", "Baseline-B", "Baseline-C", "Baseline-D"]);
   });
 
@@ -2096,10 +2136,13 @@ describe("get_ideas reads currentCategories via timeline", () => {
 // =============================================================================
 
 describe("save_question validates against active pool", () => {
-  let data: InMemoryDataLayer;
+  let data: FakeTriviaDataLayer;
 
   beforeEach(async () => {
-    data = createInMemoryDataLayer();
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk);
+    const result = createTriviaDataLayer(sdk);
+    data = result.dataLayer;
     await data.saveCategories(["Baseline-Only"]);
   });
 

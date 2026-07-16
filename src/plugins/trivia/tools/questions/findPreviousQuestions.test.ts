@@ -1,14 +1,15 @@
 import { describe, it, beforeEach } from "vitest";
 import assert from "node:assert/strict";
 import {
-  createInMemoryDataLayer,
+  createTriviaDataLayer,
   FIXTURE_GAME_NAME,
   fixtureGetGames,
   multiFixtureGetGames,
+  type FakeTriviaDataLayer,
 } from "../../testHelpers.js";
+import { createFakeSdk, primeTriviaConfig } from "../../testHelpers.fakeSdk.js";
 import { createFindPreviousQuestionsTool } from "./findPreviousQuestions.js";
 import { parseToolResult } from "../../../../tools/testHelpers.js";
-import type { TriviaDataLayer } from "../../core/types.js";
 
 const SESSION = { sessionId: "test" };
 
@@ -30,12 +31,15 @@ function fullArgs(over: Partial<FindArgs>): FindArgs {
 }
 
 describe("find_previous_questions response shape (single game)", () => {
-  let data: TriviaDataLayer;
+  let data: FakeTriviaDataLayer;
 
   beforeEach(async () => {
-    data = createInMemoryDataLayer();
-    const scoped = data.forGame(FIXTURE_GAME_NAME);
-    await scoped.saveQuestion({
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk);
+    const { dataLayer } = createTriviaDataLayer(sdk);
+    data = dataLayer;
+
+    const q1 = {
       id: "q1",
       category: "Science",
       statement: "Water boils at 100 degrees Celsius",
@@ -44,23 +48,24 @@ describe("find_previous_questions response shape (single game)", () => {
       createdAt: 1,
       postedAt: 1500,
       messageLink: "https://slack.com/archives/C/p1",
-    });
-    await scoped.saveQuestion({
+    };
+    const q2 = {
       id: "q2",
       category: "Science",
       statement: "The Earth is flat",
       isTrue: false,
       emojis: ["🌍"],
       createdAt: 2,
-    });
-    await scoped.saveQuestion({
+    };
+    const q3 = {
       id: "q3",
       category: "History",
       statement: "Rome was founded in 753 BC",
       isTrue: true,
       emojis: ["🏛️"],
       createdAt: 3,
-    });
+    };
+    data.forGame(FIXTURE_GAME_NAME).loadQuestions.mockResolvedValue([q1, q2, q3]);
   });
 
   it("omits isTrue from every returned question (category-only search)", async () => {
@@ -171,16 +176,15 @@ describe("find_previous_questions response shape (single game)", () => {
   });
 
   it("surfaces promptMedium and media on image-medium questions (the posting run needs them)", async () => {
-    const scoped = data.forGame(FIXTURE_GAME_NAME);
-    await scoped.saveQuestion({
+    const imgQ = {
       id: "img1",
       category: "Geography",
       statement: "Which landmark is shown?",
-      answersFormat: "freeform",
+      answersFormat: "freeform" as const,
       expectedAnswer: "Eiffel Tower",
-      promptMedium: "image",
+      promptMedium: "image" as const,
       media: {
-        kind: "image",
+        kind: "image" as const,
         url: "https://upload.wikimedia.org/x/thumb.jpg",
         altText: "a landmark",
         subjectId: "wikidata:Q243",
@@ -190,7 +194,10 @@ describe("find_previous_questions response shape (single game)", () => {
       },
       emojis: ["🗼"],
       createdAt: 10,
-    });
+    };
+
+    const existing = await data.forGame(FIXTURE_GAME_NAME).loadQuestions();
+    data.forGame(FIXTURE_GAME_NAME).loadQuestions.mockResolvedValue([...(existing || []), imgQ]);
 
     const tool = createFindPreviousQuestionsTool(data, fixtureGetGames);
     const result = await tool.handler(
@@ -295,12 +302,15 @@ interface PointsRow {
 }
 
 describe("find_previous_questions — points and override originals", () => {
-  let data: TriviaDataLayer;
+  let data: FakeTriviaDataLayer;
 
   beforeEach(async () => {
-    data = createInMemoryDataLayer();
-    const scoped = data.forGame(FIXTURE_GAME_NAME);
-    await scoped.saveQuestion({
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk);
+    const { dataLayer } = createTriviaDataLayer(sdk);
+    data = dataLayer;
+
+    const weighted = {
       id: "weighted",
       category: "Science",
       statement: "A weighted question",
@@ -308,16 +318,16 @@ describe("find_previous_questions — points and override originals", () => {
       emojis: ["⭐"],
       createdAt: 1,
       points: 3,
-    });
-    await scoped.saveQuestion({
+    };
+    const ordinary = {
       id: "ordinary",
       category: "Science",
       statement: "An ordinary question",
       isTrue: true,
       emojis: ["🔬"],
       createdAt: 2,
-    });
-    await scoped.saveQuestion({
+    };
+    const reclassed = {
       id: "reclassed",
       category: "Science",
       statement: "A reclassed question",
@@ -327,7 +337,10 @@ describe("find_previous_questions — points and override originals", () => {
       points: 2,
       difficulty: 8,
       overriddenFrom: { points: 1, difficulty: null },
-    });
+    };
+    data
+      .forGame(FIXTURE_GAME_NAME)
+      .loadQuestions.mockResolvedValue([weighted, ordinary, reclassed]);
   });
 
   async function findById(id: string): Promise<PointsRow> {
@@ -363,30 +376,34 @@ describe("find_previous_questions — points and override originals", () => {
 });
 
 describe("find_previous_questions per-format response shape", () => {
-  let data: TriviaDataLayer;
+  let data: FakeTriviaDataLayer;
 
   beforeEach(async () => {
-    data = createInMemoryDataLayer();
-    const scoped = data.forGame(FIXTURE_GAME_NAME);
-    await scoped.saveQuestion({
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk);
+    const { dataLayer } = createTriviaDataLayer(sdk);
+    data = dataLayer;
+
+    const qc1 = {
       id: "qc1",
-      answersFormat: "choice",
+      answersFormat: "choice" as const,
       category: "Geography",
       statement: "Which is the smallest planet?",
       choices: ["Mercury", "Venus", "Earth", "Mars"],
       correctIndex: 0,
       emojis: ["🪐"],
       createdAt: 100,
-    });
-    await scoped.saveQuestion({
+    };
+    const qb1 = {
       id: "qb1",
-      answersFormat: "boolean",
+      answersFormat: "boolean" as const,
       category: "Geography",
       statement: "The Earth is round.",
       isTrue: true,
       emojis: ["🌍"],
       createdAt: 200,
-    });
+    };
+    data.forGame(FIXTURE_GAME_NAME).loadQuestions.mockResolvedValue([qc1, qb1]);
   });
 
   it("choice rows include answersFormat and choices, never correctIndex or isTrue", async () => {
@@ -439,11 +456,13 @@ describe("find_previous_questions per-format response shape", () => {
   });
 
   it("freeform rows never carry expectedAnswer/acceptableAnswers/gradingNotes", async () => {
-    const local = createInMemoryDataLayer();
-    const scoped = local.forGame(FIXTURE_GAME_NAME);
-    await scoped.saveQuestion({
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk);
+    const { dataLayer: local } = createTriviaDataLayer(sdk);
+
+    const qf1 = {
       id: "qf1",
-      answersFormat: "freeform",
+      answersFormat: "freeform" as const,
       category: "Geography",
       statement: "What is the capital of France?",
       expectedAnswer: "Paris",
@@ -451,7 +470,8 @@ describe("find_previous_questions per-format response shape", () => {
       gradingNotes: "Accept any English-language form.",
       emojis: ["🗺️"],
       createdAt: 1,
-    });
+    };
+    local.forGame(FIXTURE_GAME_NAME).loadQuestions.mockResolvedValue([qf1]);
     const tool = createFindPreviousQuestionsTool(local, fixtureGetGames);
     const result = await tool.handler(
       {
@@ -477,11 +497,13 @@ describe("find_previous_questions per-format response shape", () => {
   });
 
   it("surfaces processedAt, season, slot, suggestedDifficulty, and difficulty when set", async () => {
-    const local = createInMemoryDataLayer();
-    const scoped = local.forGame(FIXTURE_GAME_NAME);
-    await scoped.saveQuestion({
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk);
+    const { dataLayer: local } = createTriviaDataLayer(sdk);
+
+    const qx = {
       id: "qx",
-      answersFormat: "boolean",
+      answersFormat: "boolean" as const,
       category: "Science",
       statement: "Water is wet.",
       isTrue: true,
@@ -492,9 +514,10 @@ describe("find_previous_questions per-format response shape", () => {
       processedAt: 30,
       season: "season-2026-05",
       slot: { index: 1, label: "Mid" },
-      suggestedDifficulty: "Medium",
+      suggestedDifficulty: "Medium" as const,
       difficulty: 5,
-    });
+    };
+    local.forGame(FIXTURE_GAME_NAME).loadQuestions.mockResolvedValue([qx]);
 
     const tool = createFindPreviousQuestionsTool(local, fixtureGetGames);
     const result = await tool.handler(
@@ -538,17 +561,21 @@ describe("find_previous_questions keyword haystack", () => {
   }
 
   it("matches a choice option absent from the statement", async () => {
-    const data = createInMemoryDataLayer();
-    await data.forGame(FIXTURE_GAME_NAME).saveQuestion({
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk);
+    const { dataLayer: data } = createTriviaDataLayer(sdk);
+
+    const qc = {
       id: "qc",
-      answersFormat: "choice",
+      answersFormat: "choice" as const,
       category: "Sports",
       statement: "Which nation lifted the trophy in 1998?",
       choices: ["France", "Brazil", "Italy", "Germany"],
       correctIndex: 0,
       emojis: ["⚽"],
       createdAt: 1,
-    });
+    };
+    data.forGame(FIXTURE_GAME_NAME).loadQuestions.mockResolvedValue([qc]);
     const tool = createFindPreviousQuestionsTool(data, fixtureGetGames);
     const parsed = parseToolResult(await tool.handler(args({ keywords: ["brazil"] }), SESSION));
     assert.equal(parsed.questions.length, 1);
@@ -556,10 +583,13 @@ describe("find_previous_questions keyword haystack", () => {
   });
 
   it("matches a freeform answer field absent from the statement without leaking it", async () => {
-    const data = createInMemoryDataLayer();
-    await data.forGame(FIXTURE_GAME_NAME).saveQuestion({
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk);
+    const { dataLayer: data } = createTriviaDataLayer(sdk);
+
+    const qf = {
       id: "qf",
-      answersFormat: "freeform",
+      answersFormat: "freeform" as const,
       category: "Art",
       statement: "Name the painter of the Mona Lisa.",
       expectedAnswer: "Leonardo da Vinci",
@@ -567,7 +597,8 @@ describe("find_previous_questions keyword haystack", () => {
       gradingNotes: "Accept the surname alone.",
       emojis: ["🎨"],
       createdAt: 1,
-    });
+    };
+    data.forGame(FIXTURE_GAME_NAME).loadQuestions.mockResolvedValue([qf]);
     const tool = createFindPreviousQuestionsTool(data, fixtureGetGames);
     const parsed = parseToolResult(await tool.handler(args({ keywords: ["leonardo"] }), SESSION));
     assert.equal(parsed.questions.length, 1);
@@ -579,16 +610,20 @@ describe("find_previous_questions keyword haystack", () => {
   });
 
   it("matches a boolean row only via its statement", async () => {
-    const data = createInMemoryDataLayer();
-    await data.forGame(FIXTURE_GAME_NAME).saveQuestion({
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk);
+    const { dataLayer: data } = createTriviaDataLayer(sdk);
+
+    const qb = {
       id: "qb",
-      answersFormat: "boolean",
+      answersFormat: "boolean" as const,
       category: "Geography",
       statement: "The Great Wall of China is visible from space.",
       isTrue: false,
       emojis: ["🧱"],
       createdAt: 1,
-    });
+    };
+    data.forGame(FIXTURE_GAME_NAME).loadQuestions.mockResolvedValue([qb]);
     const tool = createFindPreviousQuestionsTool(data, fixtureGetGames);
     const hit = parseToolResult(await tool.handler(args({ keywords: ["space"] }), SESSION));
     assert.equal(hit.questions.length, 1);
@@ -597,17 +632,20 @@ describe("find_previous_questions keyword haystack", () => {
   });
 
   it("matches an image question via its media title/altText (cross-medium dedup)", async () => {
-    const data = createInMemoryDataLayer();
-    await data.forGame(FIXTURE_GAME_NAME).saveQuestion({
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk);
+    const { dataLayer: data } = createTriviaDataLayer(sdk);
+
+    const qi = {
       id: "qi",
-      answersFormat: "choice",
-      promptMedium: "image",
+      answersFormat: "choice" as const,
+      promptMedium: "image" as const,
       category: "Landmarks",
       statement: "Which landmark is shown?",
       choices: ["Eiffel Tower", "Big Ben", "Colosseum", "Brandenburg Gate"],
       correctIndex: 0,
       media: {
-        kind: "image",
+        kind: "image" as const,
         url: "https://example.org/eiffel.jpg",
         altText: "A wrought-iron lattice tower beside the Seine",
         subjectId: "wikidata:Q243",
@@ -615,16 +653,17 @@ describe("find_previous_questions keyword haystack", () => {
       },
       emojis: ["🗼"],
       createdAt: 1,
-    });
-    await data.forGame(FIXTURE_GAME_NAME).saveQuestion({
+    };
+    const qt = {
       id: "qt",
-      answersFormat: "boolean",
+      answersFormat: "boolean" as const,
       category: "Science",
       statement: "Photosynthesis converts light into chemical energy.",
       isTrue: true,
       emojis: ["🌱"],
       createdAt: 2,
-    });
+    };
+    data.forGame(FIXTURE_GAME_NAME).loadQuestions.mockResolvedValue([qi, qt]);
     const tool = createFindPreviousQuestionsTool(data, fixtureGetGames);
     const parsed = parseToolResult(await tool.handler(args({ keywords: ["seine"] }), SESSION));
     assert.equal(parsed.questions.length, 1);
@@ -633,16 +672,20 @@ describe("find_previous_questions keyword haystack", () => {
   });
 
   it("does not match a row solely by its category", async () => {
-    const data = createInMemoryDataLayer();
-    await data.forGame(FIXTURE_GAME_NAME).saveQuestion({
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk);
+    const { dataLayer: data } = createTriviaDataLayer(sdk);
+
+    const qcat = {
       id: "qcat",
-      answersFormat: "boolean",
+      answersFormat: "boolean" as const,
       category: "Geography",
       statement: "The Nile is the longest river in Africa.",
       isTrue: true,
       emojis: ["🌍"],
       createdAt: 1,
-    });
+    };
+    data.forGame(FIXTURE_GAME_NAME).loadQuestions.mockResolvedValue([qcat]);
     const tool = createFindPreviousQuestionsTool(data, fixtureGetGames);
     const byKeyword = parseToolResult(
       await tool.handler(args({ keywords: ["geography"] }), SESSION),
@@ -678,8 +721,8 @@ describe("find_previous_questions — revealBlocks opt-in exposure", () => {
     };
   }
 
-  async function seedRevealed(data: TriviaDataLayer) {
-    await data.forGame(FIXTURE_GAME_NAME).saveQuestion({
+  async function seedRevealed(data: FakeTriviaDataLayer) {
+    const q1 = {
       id: "q1",
       category: "Science",
       statement: "Water boils at 100C",
@@ -690,11 +733,14 @@ describe("find_previous_questions — revealBlocks opt-in exposure", () => {
       processedAt: 2000,
       messageLink: "https://slack.com/archives/C/p1",
       revealBlocks: narrative,
-    });
+    };
+    data.forGame(FIXTURE_GAME_NAME).loadQuestions.mockResolvedValue([q1]);
   }
 
   it("default (no opt-in) omits revealBlocks even for a revealed question", async () => {
-    const data = createInMemoryDataLayer();
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk);
+    const { dataLayer: data } = createTriviaDataLayer(sdk);
     await seedRevealed(data);
     const tool = createFindPreviousQuestionsTool(data, fixtureGetGames);
     const parsed = parseToolResult(await tool.handler(args({}), SESSION));
@@ -702,7 +748,9 @@ describe("find_previous_questions — revealBlocks opt-in exposure", () => {
   });
 
   it("opt-in returns revealBlocks for a revealed question", async () => {
-    const data = createInMemoryDataLayer();
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk);
+    const { dataLayer: data } = createTriviaDataLayer(sdk);
     await seedRevealed(data);
     const tool = createFindPreviousQuestionsTool(data, fixtureGetGames);
     const parsed = parseToolResult(
@@ -713,9 +761,12 @@ describe("find_previous_questions — revealBlocks opt-in exposure", () => {
   });
 
   it("opt-in still withholds revealBlocks for a live (unrevealed) question", async () => {
-    const data = createInMemoryDataLayer();
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk);
+    const { dataLayer: data } = createTriviaDataLayer(sdk);
+
     // Posted but NOT revealed (processedAt absent) — carries revealBlocks but must stay hidden.
-    await data.forGame(FIXTURE_GAME_NAME).saveQuestion({
+    const q2 = {
       id: "q2",
       category: "Science",
       statement: "Live one",
@@ -725,7 +776,8 @@ describe("find_previous_questions — revealBlocks opt-in exposure", () => {
       postedAt: 1500,
       messageLink: "https://slack.com/archives/C/p2",
       revealBlocks: narrative,
-    });
+    };
+    data.forGame(FIXTURE_GAME_NAME).loadQuestions.mockResolvedValue([q2]);
     const tool = createFindPreviousQuestionsTool(data, fixtureGetGames);
     const parsed = parseToolResult(
       await tool.handler(args({ includeRevealBlocks: true }), SESSION),
@@ -734,9 +786,11 @@ describe("find_previous_questions — revealBlocks opt-in exposure", () => {
   });
 
   it("opt-in omits revealBlocks for a revealed question that has none stored", async () => {
-    const data = createInMemoryDataLayer();
-    // Revealed (processedAt set) but authored under "no" mode → no revealBlocks. Must omit, not error.
-    await data.forGame(FIXTURE_GAME_NAME).saveQuestion({
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk);
+    const { dataLayer: data } = createTriviaDataLayer(sdk);
+
+    const qNoReveal = {
       id: "q1",
       category: "Science",
       statement: "Facts-only reveal",
@@ -746,7 +800,8 @@ describe("find_previous_questions — revealBlocks opt-in exposure", () => {
       postedAt: 1500,
       processedAt: 2000,
       messageLink: "https://slack.com/archives/C/p1",
-    });
+    };
+    data.forGame(FIXTURE_GAME_NAME).loadQuestions.mockResolvedValue([qNoReveal]);
     const tool = createFindPreviousQuestionsTool(data, fixtureGetGames);
     const parsed = parseToolResult(
       await tool.handler(args({ includeRevealBlocks: true }), SESSION),
@@ -774,10 +829,13 @@ describe("find_previous_questions batch facts (batchPending / batchIsLatest, nev
   }
 
   it("marks a live latest batch as pending and latest, and never returns batchId", async () => {
-    const data = createInMemoryDataLayer();
-    const scoped = data.forGame(FIXTURE_GAME_NAME);
-    await scoped.saveQuestion(postedQ({ id: "q1", postedAt: 1000, batchId: "B" }));
-    await scoped.saveQuestion(postedQ({ id: "q2", postedAt: 1001, batchId: "B" }));
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk);
+    const { dataLayer: data } = createTriviaDataLayer(sdk);
+
+    const q1Seed = postedQ({ id: "q1", postedAt: 1000, batchId: "B" });
+    const q2Seed = postedQ({ id: "q2", postedAt: 1001, batchId: "B" });
+    data.forGame(FIXTURE_GAME_NAME).loadQuestions.mockResolvedValue([q1Seed, q2Seed]);
 
     const tool = createFindPreviousQuestionsTool(data, fixtureGetGames);
     const parsed = parseToolResult(
@@ -790,12 +848,13 @@ describe("find_previous_questions batch facts (batchPending / batchIsLatest, nev
   });
 
   it("marks an older revealed batch as neither pending nor latest", async () => {
-    const data = createInMemoryDataLayer();
-    const scoped = data.forGame(FIXTURE_GAME_NAME);
-    await scoped.saveQuestion(
-      postedQ({ id: "old", postedAt: 1000, processedAt: 5000, batchId: "A" }),
-    );
-    await scoped.saveQuestion(postedQ({ id: "new", postedAt: 2000, batchId: "B" }));
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk);
+    const { dataLayer: data } = createTriviaDataLayer(sdk);
+
+    const old = postedQ({ id: "old", postedAt: 1000, processedAt: 5000, batchId: "A" });
+    const newer = postedQ({ id: "new", postedAt: 2000, batchId: "B" });
+    data.forGame(FIXTURE_GAME_NAME).loadQuestions.mockResolvedValue([old, newer]);
 
     const tool = createFindPreviousQuestionsTool(data, fixtureGetGames);
     const parsed = parseToolResult(
@@ -810,11 +869,16 @@ describe("find_previous_questions batch facts (batchPending / batchIsLatest, nev
   });
 
   it("computes batchIsLatest per game in a cross-game scan", async () => {
-    const data = createInMemoryDataLayer();
-    // main: M1 @100, M2 @200 → M2 latest. sandbox: S1 @150 → its own game's latest.
-    await data.forGame("main").saveQuestion(postedQ({ id: "M1", postedAt: 100, batchId: "M1" }));
-    await data.forGame("main").saveQuestion(postedQ({ id: "M2", postedAt: 200, batchId: "M2" }));
-    await data.forGame("sandbox").saveQuestion(postedQ({ id: "S1", postedAt: 150, batchId: "S1" }));
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk);
+    const { dataLayer: data } = createTriviaDataLayer(sdk);
+
+    const m1 = postedQ({ id: "M1", postedAt: 100, batchId: "M1" });
+    const m2 = postedQ({ id: "M2", postedAt: 200, batchId: "M2" });
+    const s1 = postedQ({ id: "S1", postedAt: 150, batchId: "S1" });
+
+    data.forGame("main").loadQuestions.mockResolvedValue([m1, m2]);
+    data.forGame("sandbox").loadQuestions.mockResolvedValue([s1]);
 
     const tool = createFindPreviousQuestionsTool(data, multiFixtureGetGames);
     const parsed = parseToolResult(await tool.handler(fullArgs({}), SESSION));
@@ -824,23 +888,26 @@ describe("find_previous_questions batch facts (batchPending / batchIsLatest, nev
   });
 
   it("omits batch facts for a staged (unposted) row", async () => {
-    const data = createInMemoryDataLayer();
-    const scoped = data.forGame(FIXTURE_GAME_NAME);
-    await scoped.saveQuestion({
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk);
+    const { dataLayer: data } = createTriviaDataLayer(sdk);
+
+    const staged = {
       id: "staged",
       category: "C",
       statement: "not posted",
       isTrue: true,
       emojis: ["🎯"],
       createdAt: 1,
-    });
+    };
+    data.forGame(FIXTURE_GAME_NAME).loadQuestions.mockResolvedValue([staged]);
 
     const tool = createFindPreviousQuestionsTool(data, fixtureGetGames);
     const parsed = parseToolResult(
       await tool.handler(fullArgs({ games: [FIXTURE_GAME_NAME], posted: false }), SESSION),
     );
-    const staged = parsed.questions.find((q: FactRow) => q.id === "staged");
-    assert.equal(Object.prototype.hasOwnProperty.call(staged, "batchPending"), false);
-    assert.equal(Object.prototype.hasOwnProperty.call(staged, "batchIsLatest"), false);
+    const stagedRow = parsed.questions.find((q: FactRow) => q.id === "staged");
+    assert.equal(Object.prototype.hasOwnProperty.call(stagedRow, "batchPending"), false);
+    assert.equal(Object.prototype.hasOwnProperty.call(stagedRow, "batchIsLatest"), false);
   });
 });

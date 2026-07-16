@@ -1,10 +1,15 @@
 import { describe, it, beforeEach } from "vitest";
 import assert from "node:assert/strict";
-import { createInMemoryDataLayer, FIXTURE_GAME_NAME, fixtureGetGames } from "../../testHelpers.js";
+import {
+  createTriviaDataLayer,
+  FIXTURE_GAME_NAME,
+  fixtureGetGames,
+  type FakeTriviaDataLayer,
+} from "../../testHelpers.js";
+import { createFakeSdk, primeTriviaConfig } from "../../testHelpers.fakeSdk.js";
 import { createGetIdeasTool } from "./getIdeas.js";
 import { parseToolResult } from "../../../../tools/testHelpers.js";
 import type { ChoiceEmojiStyle, TriviaConfig } from "../../core/configTypes.js";
-import type { TriviaDataLayer } from "../../core/types.js";
 
 const SESSION = { sessionId: "test" };
 const DAY = 24 * 60 * 60 * 1000;
@@ -18,9 +23,9 @@ function makeConfig(choiceEmojiStyle?: ChoiceEmojiStyle): TriviaConfig {
   };
 }
 
-async function seedSeason(data: TriviaDataLayer): Promise<void> {
+function mockSeason() {
   const now = Date.now();
-  await data.forGame(FIXTURE_GAME_NAME).saveSeasonsState({
+  return {
     seasons: [
       {
         slug: "active",
@@ -29,16 +34,19 @@ async function seedSeason(data: TriviaDataLayer): Promise<void> {
         categories: ["Science", "History", "Geography", "Sports", "Art"],
       },
     ],
-  });
+  };
 }
 
 describe("get_ideas — choiceEmojiStyle axis", () => {
-  let data: TriviaDataLayer;
+  let data: FakeTriviaDataLayer;
 
   beforeEach(async () => {
-    data = createInMemoryDataLayer();
-    await data.saveCategories(["Baseline-1", "Baseline-2"]);
-    await seedSeason(data);
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk);
+    const { dataLayer: createdData } = createTriviaDataLayer(sdk);
+    data = createdData;
+    data.loadCategories.mockResolvedValue(["Baseline-1", "Baseline-2"]);
+    data.forGame(FIXTURE_GAME_NAME).loadSeasonsState.mockResolvedValue(mockSeason());
   });
 
   it("axis absent → suggestedChoiceEmojiStyle 'numbers', no guidance", async () => {

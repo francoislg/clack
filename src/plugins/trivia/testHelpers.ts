@@ -1,26 +1,86 @@
+import { vi } from "vitest";
+import type { Mock } from "vitest";
+import type { ClackSdk } from "../sdk.js";
 import type { TriviaGame } from "./core/configTypes.js";
-import { findCurrentSeason } from "./core/seasonTimeline.js";
-import type {
-  TriviaQuestion,
-  TriviaUser,
-  TriviaUserData,
-  SubmittedAnswer,
-  CheatReport,
-  SeasonsState,
-  TriviaDataLayer,
-  ScopedTriviaDataLayer,
-} from "./core/types.js";
+import { createSdkDataLayer } from "./core/dataLayer.js";
+import type { TriviaDataLayer, ScopedTriviaDataLayer } from "./core/types.js";
+
+/** `ScopedTriviaDataLayer` with every method exposing the mock API directly. */
+export type FakeScopedTriviaDataLayer = {
+  [K in keyof ScopedTriviaDataLayer]: Mock<ScopedTriviaDataLayer[K]>;
+} & ScopedTriviaDataLayer;
 
 /**
- * In-memory data layer with test-only seeding seams. Production identity is owned by the
- * central registry (`sdk.users`); tests seed it directly via `saveUser`/`saveUsers`.
+ * `TriviaDataLayer` with every method exposing the mock API directly. The mock
+ * block sits first in the intersection so call-signature resolution prefers the
+ * widened forms (`forGame` returning the fake scoped type).
  */
-export type InMemoryDataLayer = TriviaDataLayer & {
-  saveUser(u: TriviaUser & TriviaUserData): Promise<void>;
-  saveUsers(users: readonly (TriviaUser & TriviaUserData)[]): Promise<void>;
-  /** Read trivia's namespace slice for a user — the in-memory stand-in for `sdk.users.data`. */
-  getUserData(userId: string): Promise<TriviaUserData | null>;
-};
+export type FakeTriviaDataLayer = {
+  loadCategories: Mock<TriviaDataLayer["loadCategories"]>;
+  saveCategories: Mock<TriviaDataLayer["saveCategories"]>;
+  loadUsers: Mock<TriviaDataLayer["loadUsers"]>;
+  refreshIdentities: Mock<TriviaDataLayer["refreshIdentities"]>;
+  recordJoin: Mock<TriviaDataLayer["recordJoin"]>;
+  forGame: Mock<(name: string) => FakeScopedTriviaDataLayer>;
+} & TriviaDataLayer;
+
+/**
+ * Spies sit at the collaborator's public surface ONLY. A method that reaches a
+ * sibling through its own closure (e.g. `saveQuestion` re-reading via
+ * `loadQuestions`) bypasses these spies by design — a test observes exactly the
+ * calls the code under test makes, never the data layer's internals.
+ */
+function spyScoped(scoped: ScopedTriviaDataLayer): FakeScopedTriviaDataLayer {
+  return {
+    loadQuestions: vi.spyOn(scoped, "loadQuestions"),
+    saveQuestion: vi.spyOn(scoped, "saveQuestion"),
+    updateQuestion: vi.spyOn(scoped, "updateQuestion"),
+    loadAnswers: vi.spyOn(scoped, "loadAnswers"),
+    saveAnswer: vi.spyOn(scoped, "saveAnswer"),
+    updateAnswer: vi.spyOn(scoped, "updateAnswer"),
+    loadCheats: vi.spyOn(scoped, "loadCheats"),
+    saveCheat: vi.spyOn(scoped, "saveCheat"),
+    removeCheat: vi.spyOn(scoped, "removeCheat"),
+    loadSeasonsState: vi.spyOn(scoped, "loadSeasonsState"),
+    saveSeasonsState: vi.spyOn(scoped, "saveSeasonsState"),
+    getCurrentSeasonSlug: vi.spyOn(scoped, "getCurrentSeasonSlug"),
+  };
+}
+
+/**
+ * The canonical `TriviaDataLayer` fake: the REAL `createSdkDataLayer(sdk)` with
+ * every method wrapped by a spy, so default behavior is production's (including
+ * the season bootstrap) and any single method can still be stubbed per test.
+ *
+ * State lives in the sdk fake (`createFakeSdk().testHelpers.files` and the
+ * users store) — this factory owns nothing, mirrors the production signature,
+ * and therefore returns `{ dataLayer }` with no `testHelpers`.
+ *
+ * `forGame(name)` is memoized by name so the production API is the observation
+ * point: `dataLayer.forGame("main").saveQuestion` is the SAME spy the code
+ * under test called. Prime the config bridge first via
+ * `primeTriviaConfig(sdk, config)` (in `beforeEach`, never at module scope).
+ */
+export function createTriviaDataLayer(sdk: ClackSdk): { dataLayer: FakeTriviaDataLayer } {
+  const real = createSdkDataLayer(sdk);
+  const scopedByName = new Map<string, FakeScopedTriviaDataLayer>();
+  const dataLayer: FakeTriviaDataLayer = {
+    loadCategories: vi.spyOn(real, "loadCategories"),
+    saveCategories: vi.spyOn(real, "saveCategories"),
+    loadUsers: vi.spyOn(real, "loadUsers"),
+    refreshIdentities: vi.spyOn(real, "refreshIdentities"),
+    recordJoin: vi.spyOn(real, "recordJoin"),
+    forGame: vi.fn((name: string): FakeScopedTriviaDataLayer => {
+      let scoped = scopedByName.get(name);
+      if (scoped === undefined) {
+        scoped = spyScoped(real.forGame(name));
+        scopedByName.set(name, scoped);
+      }
+      return scoped;
+    }),
+  };
+  return { dataLayer };
+}
 
 /** Conventional fixture name used throughout the trivia test suite. */
 export const FIXTURE_GAME_NAME = "main";
@@ -76,155 +136,3 @@ export const MULTI_FIXTURE_GAMES: readonly TriviaGame[] = [
 ];
 
 export const multiFixtureGetGames = () => MULTI_FIXTURE_GAMES;
-
-/**
- * Per-game in-memory storage cell. The factory below maintains one cell per game
- * name and lazily creates new ones on `forGame(name)` — mirrors how the real SDK
- * data layer treats unregistered games as "empty until first write."
- */
-interface GameCell {
-  questions: TriviaQuestion[];
-  answers: SubmittedAnswer[];
-  cheats: CheatReport[];
-  seasonsState: SeasonsState | null;
-}
-
-/**
- * In-memory implementation of TriviaDataLayer, for unit tests.
- *
- * - Categories and users are global (shared across all games), matching production.
- * - Per-game arrays are isolated per `name` and accessed via `forGame(name)`.
- * - No lazy season-bootstrap (the production behavior depends on `getConfig()`,
- *   which tests typically don't load); seed `seasonsState` explicitly via
- *   `forGame(name).saveSeasonsState(state)` when needed.
- */
-/**
- * @param opts.resolveIdentity Stands in for the registry's Slack-backed refresh: when
- *   `refreshIdentities` runs, each id is passed through this and any returned name updates the
- *   identity map. Omit for tests that don't exercise refresh (refreshIdentities is then a no-op).
- */
-export function createInMemoryDataLayer(opts?: {
-  resolveIdentity?: (userId: string) => string | undefined;
-}): InMemoryDataLayer {
-  let categories: string[] = [];
-  const identities = new Map<string, TriviaUser>();
-  const userData = new Map<string, TriviaUserData>();
-  const gameCells = new Map<string, GameCell>();
-
-  function seedUser(u: TriviaUser & TriviaUserData): void {
-    identities.set(u.userId, { userId: u.userId, displayName: u.displayName });
-    const namespace: TriviaUserData = {
-      ...(u.joinedAt !== undefined ? { joinedAt: u.joinedAt } : {}),
-      ...(u.cheatAttempts !== undefined ? { cheatAttempts: u.cheatAttempts } : {}),
-    };
-    if (Object.keys(namespace).length > 0) {
-      userData.set(u.userId, { ...userData.get(u.userId), ...namespace });
-    }
-  }
-
-  function cellFor(name: string): GameCell {
-    let cell = gameCells.get(name);
-    if (cell === undefined) {
-      cell = { questions: [], answers: [], cheats: [], seasonsState: null };
-      gameCells.set(name, cell);
-    }
-    return cell;
-  }
-
-  function forGame(name: string): ScopedTriviaDataLayer {
-    const cell = cellFor(name);
-    return {
-      async loadQuestions() {
-        return [...cell.questions];
-      },
-      async saveQuestion(q) {
-        cell.questions.push(q);
-      },
-      async updateQuestion(id, updates) {
-        const idx = cell.questions.findIndex((q) => q.id === id);
-        if (idx === -1) return;
-        cell.questions[idx] = { ...cell.questions[idx], ...updates };
-      },
-      async loadAnswers() {
-        return [...cell.answers];
-      },
-      async saveAnswer(a) {
-        cell.answers.push(a);
-      },
-      async updateAnswer(userId, questionId, partial) {
-        const idx = cell.answers.findIndex(
-          (a) => a.userId === userId && a.questionId === questionId,
-        );
-        if (idx === -1) return;
-        cell.answers[idx] = { ...cell.answers[idx], ...partial };
-      },
-      async loadCheats() {
-        return [...cell.cheats];
-      },
-      async saveCheat(report) {
-        cell.cheats.push(report);
-        const existing = userData.get(report.cheaterUserId);
-        const totalAttempts = (existing?.cheatAttempts ?? 0) + 1;
-        userData.set(report.cheaterUserId, { ...existing, cheatAttempts: totalAttempts });
-        return { totalAttempts };
-      },
-      async removeCheat(cheaterUserId, questionId) {
-        const before = cell.cheats.length;
-        cell.cheats = cell.cheats.filter(
-          (c) => !(c.cheaterUserId === cheaterUserId && c.questionId === questionId),
-        );
-        const removedCount = before - cell.cheats.length;
-        const existing = userData.get(cheaterUserId);
-        if (removedCount === 0) {
-          return { removedCount: 0, totalAttempts: existing?.cheatAttempts ?? 0 };
-        }
-        const totalAttempts = Math.max(0, (existing?.cheatAttempts ?? 0) - removedCount);
-        userData.set(cheaterUserId, { ...existing, cheatAttempts: totalAttempts });
-        return { removedCount, totalAttempts };
-      },
-      async loadSeasonsState() {
-        return cell.seasonsState === null ? null : structuredClone(cell.seasonsState);
-      },
-      async saveSeasonsState(state) {
-        cell.seasonsState = structuredClone(state);
-      },
-      async getCurrentSeasonSlug() {
-        return findCurrentSeason(cell.seasonsState, Date.now())?.slug ?? null;
-      },
-    };
-  }
-
-  return {
-    async loadCategories() {
-      return [...categories];
-    },
-    async saveCategories(c) {
-      categories = [...c];
-    },
-    async loadUsers() {
-      return new Map(identities);
-    },
-    async refreshIdentities(userIds) {
-      if (opts?.resolveIdentity === undefined) return;
-      for (const userId of userIds) {
-        const displayName = opts.resolveIdentity(userId);
-        if (displayName !== undefined) identities.set(userId, { userId, displayName });
-      }
-    },
-    async recordJoin(userId) {
-      const existing = userData.get(userId);
-      if (existing?.joinedAt !== undefined) return;
-      userData.set(userId, { ...existing, joinedAt: Date.now() });
-    },
-    async saveUser(u) {
-      seedUser(u);
-    },
-    async saveUsers(updates) {
-      for (const u of updates) seedUser(u);
-    },
-    async getUserData(userId) {
-      return userData.get(userId) ?? null;
-    },
-    forGame,
-  };
-}

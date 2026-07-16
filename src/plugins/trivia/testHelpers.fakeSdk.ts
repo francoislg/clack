@@ -78,6 +78,21 @@ export type FakeMcpServer = RegisteredMcpServer & {
   addTopicInstruction: Mock<RegisteredMcpServer["addTopicInstruction"]>;
 };
 
+/** `ClackSdkUsers` with the registry queries observable (`data` stays a plain generic, like production). */
+export type FakeSdkUsers = {
+  get: Mock<ClackSdkUsers["get"]>;
+  list: Mock<ClackSdkUsers["list"]>;
+} & ClackSdkUsers;
+
+/** `ClackSdkMemory` with the query members observable (`data` stays a plain generic, like production). */
+export type FakeSdkMemory = {
+  get: Mock<ClackSdkMemory["get"]>;
+  list: Mock<ClackSdkMemory["list"]>;
+  recall: Mock<ClackSdkMemory["recall"]>;
+  remember: Mock<ClackSdkMemory["remember"]>;
+  onBeforeExpire: Mock<ClackSdkMemory["onBeforeExpire"]>;
+} & ClackSdkMemory;
+
 /**
  * `ClackSdk` with every collaborator member widened to a vitest mock. The mock
  * block comes FIRST in the intersection so call-signature resolution prefers the
@@ -95,6 +110,8 @@ export type FakeSdk = {
   >;
   logger: MockedLogger;
   mcpServer: FakeMcpServer;
+  users: FakeSdkUsers;
+  memory: FakeSdkMemory;
 } & { [K in MockedSdkKeys]: Mock<Extract<ClackSdk[K], AnyFn>> } & ClackSdk;
 
 /**
@@ -136,7 +153,7 @@ function createFakeMcpServer(fullName: string): FakeMcpServer {
 function createFakeSdkUsers(
   identities: Map<string, ClackUser>,
   store: Map<string, object>,
-): ClackSdkUsers {
+): FakeSdkUsers {
   return {
     get: vi.fn<ClackSdkUsers["get"]>(async (userId) => identities.get(userId) ?? null),
     list: vi.fn<ClackSdkUsers["list"]>(async () => [...identities.values()]),
@@ -156,7 +173,7 @@ function createFakeSdkUsers(
   };
 }
 
-function createFakeSdkMemory(store: Map<string, object>): ClackSdkMemory {
+function createFakeSdkMemory(store: Map<string, object>): FakeSdkMemory {
   return {
     get: vi.fn<ClackSdkMemory["get"]>(async () => null),
     list: vi.fn<ClackSdkMemory["list"]>(async () => []),
@@ -240,7 +257,9 @@ export function createFakeSdk(overrides: FakeSdkOverrides = {}): {
         ((minRole, tool, mapping) => defaultServer.registerTool(minRole, tool, mapping)),
     ),
     mcpServer: defaultServer,
-    registerMcpServer: vi.fn((name: string): FakeMcpServer => {
+    registerMcpServer: vi.fn<
+      (name: string, options: { autoload?: boolean; description: string }) => FakeMcpServer
+    >((name) => {
       let handle = handles.get(name);
       if (handle === undefined) {
         handle = createFakeMcpServer(`test:${name}`);

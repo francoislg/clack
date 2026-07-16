@@ -1,10 +1,7 @@
 import { describe, it } from "vitest";
 import assert from "node:assert/strict";
-import {
-  createInMemoryDataLayer,
-  fixtureGetGames,
-  multiFixtureGetGames,
-} from "../../testHelpers.js";
+import { createTriviaDataLayer, fixtureGetGames, multiFixtureGetGames } from "../../testHelpers.js";
+import { createFakeSdk, primeTriviaConfig } from "../../testHelpers.fakeSdk.js";
 import { createFindPreviousQuestionsTool } from "./findPreviousQuestions.js";
 import { parseToolResult } from "../../../../tools/testHelpers.js";
 
@@ -12,11 +9,11 @@ const SESSION = { sessionId: "test" };
 
 describe("find_previous_questions seasons array semantics", () => {
   it('seasons: ["current"] resolves per-game', async () => {
-    const data = createInMemoryDataLayer();
-    const main = data.forGame("main");
-    const sandbox = data.forGame("sandbox");
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk, { seasons: { enabled: true, prompt: "p" } });
+    const { dataLayer: data } = createTriviaDataLayer(sdk);
 
-    await main.saveSeasonsState({
+    await data.forGame("main").saveSeasonsState({
       seasons: [
         {
           slug: "summer-2026",
@@ -26,7 +23,7 @@ describe("find_previous_questions seasons array semantics", () => {
         },
       ],
     });
-    await sandbox.saveSeasonsState({
+    await data.forGame("sandbox").saveSeasonsState({
       seasons: [
         {
           slug: "demo-2026",
@@ -37,7 +34,7 @@ describe("find_previous_questions seasons array semantics", () => {
       ],
     });
 
-    await main.saveQuestion({
+    const m1 = {
       id: "m1",
       category: "Music",
       statement: "Main current season question",
@@ -45,8 +42,8 @@ describe("find_previous_questions seasons array semantics", () => {
       emojis: ["🎵"],
       createdAt: 100,
       season: "summer-2026",
-    });
-    await main.saveQuestion({
+    };
+    const m2 = {
       id: "m2",
       category: "Music",
       statement: "Main other season question",
@@ -54,8 +51,8 @@ describe("find_previous_questions seasons array semantics", () => {
       emojis: ["🎵"],
       createdAt: 101,
       season: "spring-2026",
-    });
-    await sandbox.saveQuestion({
+    };
+    const s1 = {
       id: "s1",
       category: "Music",
       statement: "Sandbox current season question",
@@ -63,7 +60,10 @@ describe("find_previous_questions seasons array semantics", () => {
       emojis: ["🎵"],
       createdAt: 102,
       season: "demo-2026",
-    });
+    };
+
+    data.forGame("main").loadQuestions.mockResolvedValue([m1, m2]);
+    data.forGame("sandbox").loadQuestions.mockResolvedValue([s1]);
 
     const tool = createFindPreviousQuestionsTool(data, multiFixtureGetGames);
     const result = await tool.handler(
@@ -86,10 +86,11 @@ describe("find_previous_questions seasons array semantics", () => {
   });
 
   it('seasons: ["current"] during a gap contributes no match for that game', async () => {
-    const data = createInMemoryDataLayer();
-    const main = data.forGame("main");
-    // Seasons are enabled (state exists) but no season covers `now` — gap scenario.
-    await main.saveSeasonsState({
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk, { seasons: { enabled: true, prompt: "p" } });
+    const { dataLayer: data } = createTriviaDataLayer(sdk);
+
+    await data.forGame("main").saveSeasonsState({
       seasons: [
         {
           slug: "ancient-history",
@@ -100,7 +101,8 @@ describe("find_previous_questions seasons array semantics", () => {
         },
       ],
     });
-    await main.saveQuestion({
+
+    const m1 = {
       id: "m1",
       category: "Music",
       statement: "Main no-season question",
@@ -108,7 +110,8 @@ describe("find_previous_questions seasons array semantics", () => {
       emojis: ["🎵"],
       createdAt: 100,
       season: "summer-2026",
-    });
+    };
+    data.forGame("main").loadQuestions.mockResolvedValue([m1]);
 
     const tool = createFindPreviousQuestionsTool(data, multiFixtureGetGames);
     const result = await tool.handler(
@@ -130,9 +133,11 @@ describe("find_previous_questions seasons array semantics", () => {
   });
 
   it("multiple season slugs are OR-internal", async () => {
-    const data = createInMemoryDataLayer();
-    const main = data.forGame("main");
-    await main.saveSeasonsState({
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk, { seasons: { enabled: true, prompt: "p" } });
+    const { dataLayer: data } = createTriviaDataLayer(sdk);
+
+    await data.forGame("main").saveSeasonsState({
       seasons: [
         {
           slug: "spring-2026",
@@ -149,7 +154,8 @@ describe("find_previous_questions seasons array semantics", () => {
         },
       ],
     });
-    await main.saveQuestion({
+
+    const s1 = {
       id: "s1",
       category: "X",
       statement: "Spring question long enough",
@@ -157,8 +163,8 @@ describe("find_previous_questions seasons array semantics", () => {
       emojis: ["🌱"],
       createdAt: 1,
       season: "spring-2026",
-    });
-    await main.saveQuestion({
+    };
+    const s2 = {
       id: "s2",
       category: "X",
       statement: "Summer question long enough",
@@ -166,8 +172,8 @@ describe("find_previous_questions seasons array semantics", () => {
       emojis: ["☀️"],
       createdAt: 2,
       season: "summer-2026",
-    });
-    await main.saveQuestion({
+    };
+    const s3 = {
       id: "s3",
       category: "X",
       statement: "Winter question long enough",
@@ -175,7 +181,8 @@ describe("find_previous_questions seasons array semantics", () => {
       emojis: ["❄️"],
       createdAt: 3,
       season: "winter-2026",
-    });
+    };
+    data.forGame("main").loadQuestions.mockResolvedValue([s1, s2, s3]);
 
     const tool = createFindPreviousQuestionsTool(data, fixtureGetGames);
     const result = await tool.handler(
@@ -198,19 +205,19 @@ describe("find_previous_questions seasons array semantics", () => {
   });
 
   it("seasons criterion is silently dropped when no game has a seasons state", async () => {
-    // When trivia.seasons.enabled is false, no game has a seasons state. The criterion
-    // is dropped → falls back to "no criterion supplied," and the remaining keywords
-    // criterion governs matching alone.
-    const data = createInMemoryDataLayer();
-    const main = data.forGame("main");
-    await main.saveQuestion({
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk);
+    const { dataLayer: data } = createTriviaDataLayer(sdk);
+
+    const m1 = {
       id: "m1",
       category: "X",
       statement: "Mozart wrote operas",
       isTrue: true,
       emojis: ["🎼"],
       createdAt: 1,
-    });
+    };
+    data.forGame("main").loadQuestions.mockResolvedValue([m1]);
 
     const tool = createFindPreviousQuestionsTool(data, fixtureGetGames);
     const result = await tool.handler(

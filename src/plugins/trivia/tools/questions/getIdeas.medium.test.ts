@@ -1,10 +1,15 @@
 import { describe, it, beforeEach, afterEach } from "vitest";
 import assert from "node:assert/strict";
-import { createInMemoryDataLayer, FIXTURE_GAME_NAME, fixtureGetGames } from "../../testHelpers.js";
+import {
+  createTriviaDataLayer,
+  FIXTURE_GAME_NAME,
+  fixtureGetGames,
+  type FakeTriviaDataLayer,
+} from "../../testHelpers.js";
+import { createFakeSdk, primeTriviaConfig } from "../../testHelpers.fakeSdk.js";
 import { createGetIdeasTool } from "./getIdeas.js";
 import { parseToolResult } from "../../../../tools/testHelpers.js";
 import type { TriviaConfig } from "../../core/configTypes.js";
-import type { TriviaDataLayer } from "../../core/types.js";
 
 const SESSION = { sessionId: "test" };
 
@@ -13,12 +18,15 @@ function makeConfig(trivia: TriviaConfig): TriviaConfig {
 }
 
 describe("get_ideas suggestedPromptMedium", () => {
-  let data: TriviaDataLayer;
+  let data: FakeTriviaDataLayer;
   const originalRandom = Math.random;
 
   beforeEach(async () => {
-    data = createInMemoryDataLayer();
-    await data.saveCategories(["Flags", "Landmarks", "Animals"]);
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk);
+    const { dataLayer: createdData } = createTriviaDataLayer(sdk);
+    data = createdData;
+    data.loadCategories.mockResolvedValue(["Flags", "Landmarks", "Animals"]);
   });
 
   afterEach(() => {
@@ -90,7 +98,7 @@ describe("get_ideas suggestedPromptMedium", () => {
 
   it("current season's promptMedium overrides config", async () => {
     const now = Date.now();
-    await data.forGame(FIXTURE_GAME_NAME).saveSeasonsState({
+    data.forGame(FIXTURE_GAME_NAME).loadSeasonsState.mockResolvedValue({
       seasons: [
         {
           slug: "active",

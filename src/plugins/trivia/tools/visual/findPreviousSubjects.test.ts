@@ -1,9 +1,15 @@
 import { describe, it, beforeEach } from "vitest";
 import assert from "node:assert/strict";
-import { createInMemoryDataLayer, FIXTURE_GAME_NAME, fixtureGetGames } from "../../testHelpers.js";
+import {
+  createTriviaDataLayer,
+  FIXTURE_GAME_NAME,
+  fixtureGetGames,
+  type FakeTriviaDataLayer,
+} from "../../testHelpers.js";
+import { createFakeSdk, primeTriviaConfig } from "../../testHelpers.fakeSdk.js";
 import { createFindPreviousSubjectsTool } from "./findPreviousSubjects.js";
 import { parseToolResult } from "../../../../tools/testHelpers.js";
-import type { TriviaDataLayer, TriviaQuestion } from "../../core/types.js";
+import type { TriviaQuestion } from "../../core/types.js";
 
 const SESSION = { sessionId: "test" };
 
@@ -30,9 +36,12 @@ function imageQuestion(overrides: Partial<TriviaQuestion> & { subjectId: string 
 }
 
 describe("find_previous_subjects", () => {
-  let data: TriviaDataLayer;
+  let data: FakeTriviaDataLayer;
   beforeEach(() => {
-    data = createInMemoryDataLayer();
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk);
+    const { dataLayer } = createTriviaDataLayer(sdk);
+    data = dataLayer;
   });
 
   it("returns a match on exact subjectId", async () => {

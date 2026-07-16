@@ -11,7 +11,8 @@ import {
 import { POST_GAME_BUTTONS } from "./postGameRegistry.js";
 import { seeAnswerButton } from "./seeAnswerButton.js";
 import { tellMeMoreButton } from "./tellMeMoreButton.js";
-import { createInMemoryDataLayer, FIXTURE_GAME_NAME } from "../testHelpers.js";
+import { createTriviaDataLayer, FIXTURE_GAME_NAME } from "../testHelpers.js";
+import { createFakeSdk, primeTriviaConfig } from "../testHelpers.fakeSdk.js";
 import type { PluginActionHandler } from "../../sdk.js";
 import type { TriviaQuestion } from "../core/types.js";
 
@@ -238,7 +239,9 @@ function clickBody(blocks: KnownBlock[]): ActionArgs["body"] {
 describe("installPostGameButtons (one-shot wrapper)", () => {
   it("removes the block via chat.update, then runs onClick", async () => {
     const sdk = fakeSdk();
-    const data = createInMemoryDataLayer();
+    const { sdk: fakeSDK } = createFakeSdk();
+    primeTriviaConfig(fakeSDK);
+    const { dataLayer: data } = createTriviaDataLayer(fakeSDK);
     await data.forGame(FIXTURE_GAME_NAME).saveQuestion(makeQuestion());
     const button = syntheticOneShot(sdk.order);
     installPostGameButtons(sdk, [button], { data, getGameNames: () => [FIXTURE_GAME_NAME] });
@@ -274,7 +277,9 @@ describe("installPostGameButtons (one-shot wrapper)", () => {
 
   it("is a no-op when the block is already gone (race / double-click)", async () => {
     const sdk = fakeSdk();
-    const data = createInMemoryDataLayer();
+    const { sdk: fakeSDK } = createFakeSdk();
+    primeTriviaConfig(fakeSDK);
+    const { dataLayer: data } = createTriviaDataLayer(fakeSDK);
     await data.forGame(FIXTURE_GAME_NAME).saveQuestion(makeQuestion());
     const button = syntheticOneShot(sdk.order);
     installPostGameButtons(sdk, [button], { data, getGameNames: () => [FIXTURE_GAME_NAME] });

@@ -1,9 +1,14 @@
 import { describe, it, beforeEach } from "vitest";
 import assert from "node:assert/strict";
-import { createInMemoryDataLayer, FIXTURE_GAME_NAME, fixtureGetGames } from "../../testHelpers.js";
+import {
+  createTriviaDataLayer,
+  FIXTURE_GAME_NAME,
+  fixtureGetGames,
+  type FakeTriviaDataLayer,
+} from "../../testHelpers.js";
+import { createFakeSdk, primeTriviaConfig } from "../../testHelpers.fakeSdk.js";
 import { createSaveQuestionTool } from "./saveQuestion.js";
 import { parseToolResult } from "../../../../tools/testHelpers.js";
-import type { TriviaDataLayer } from "../../core/types.js";
 
 const SESSION = { sessionId: "test" };
 
@@ -44,9 +49,12 @@ const BASE = {
 };
 
 describe("save_question — promptMedium / media", () => {
-  let data: TriviaDataLayer;
+  let data: FakeTriviaDataLayer;
   beforeEach(async () => {
-    data = createInMemoryDataLayer();
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk);
+    const { dataLayer } = createTriviaDataLayer(sdk);
+    data = dataLayer;
     await data.saveCategories(["Landmarks"]);
   });
 
