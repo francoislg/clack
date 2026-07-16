@@ -170,27 +170,40 @@ function mimeFromUrl(url: string): string | undefined {
 /**
  * Download an image and return it base64-encoded for a data-mode image content block.
  * MIME is read from the `Content-Type` header, falling back to the URL extension.
- * SVG and oversized payloads return `unsupportedFormat`.
+ * SVG and oversized payloads return `unsupportedFormat`. 5xx gets one jittered retry
+ * (the contract's bounded single-retry policy), then `network`.
  */
 export async function fetchImageBytes(
   url: string,
   deps: BraveDeps = {},
 ): Promise<{ ok: true; data: string; mimeType: string } | SourceError> {
   const fetchImpl = deps.fetchImpl ?? fetch;
+  const sleep = deps.sleep ?? defaultSleep;
+  const random = deps.random ?? Math.random;
   const timeoutMs = deps.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-  const controller = new AbortController();
-  const id = setTimeout(() => controller.abort(), timeoutMs);
+
+  let serverErrorRetried = false;
   let res: Response;
-  try {
-    res = await fetchImpl(url, {
-      headers: { "User-Agent": USER_AGENT },
-      signal: controller.signal,
-    });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    return { kind: "network", message: `image download failed: ${message}` };
-  } finally {
-    clearTimeout(id);
+  while (true) {
+    const controller = new AbortController();
+    const id = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      res = await fetchImpl(url, {
+        headers: { "User-Agent": USER_AGENT },
+        signal: controller.signal,
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return { kind: "network", message: `image download failed: ${message}` };
+    } finally {
+      clearTimeout(id);
+    }
+    if (res.status >= 500 && !serverErrorRetried) {
+      serverErrorRetried = true;
+      await sleep(SERVER_ERROR_BACKOFF_MS + Math.floor(SERVER_ERROR_BACKOFF_MS * random()));
+      continue;
+    }
+    break;
   }
   if (!res.ok) {
     return { kind: "network", message: `image download failed (HTTP ${res.status})` };

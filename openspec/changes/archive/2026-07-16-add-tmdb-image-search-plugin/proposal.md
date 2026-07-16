@@ -47,7 +47,7 @@ This plugin unlocks visual trivia for the `Movies`, `TV Series`, and `Actors` ca
 
 ## Impact
 
-- **Code**: new `src/plugins/tmdb-image-search/` — `index.ts` (entry + three tool registrations), `findMovie.ts` / `findTv.ts` / `findPerson.ts`, `tmdb.ts` (HTTP adapter: search, `/images`, CDN fetch), plus `.test.ts` files. Loader registration mirrors Commons/Brave.
+- **Code**: new `src/plugins/tmdb-image-search/` — `index.ts` (entry + three tool registrations), `findMovie.ts` / `findTv.ts` / `findPerson.ts`, `tmdb.ts` (HTTP adapter: search, `/images`, CDN fetch), plus `.test.ts` files. Loader registration mirrors Commons/Brave. Additionally, the `imageAndTextResult`/`sourceErrorResult` helpers duplicated across the three existing image-search plugins are extracted into a shared SDK-layer leaf module `src/plugins/imageSearchResult.ts` (zodResult.ts pattern), with the siblings refactored to import it.
 - **External dependencies**: TMDB API (`https://api.themoviedb.org/3/...`) for search + `/images`; TMDB image CDN (`https://image.tmdb.org/t/p/<size>/<path>`) for downloads. Both HTTPS. Admin needs a free themoviedb.org account + v4 read token. No new npm packages — built-in `fetch`.
 - **Configuration**: optional `TMDB_READ_TOKEN` in `data/auth/.env`. Unset → plugin loads, tools return `keyMissing`, trivia falls through.
 - **Tests**: mock the TMDB HTTP layer. Happy path per tool (find_movie/find_tv return a textless backdrop with `tmdb:m-`/`tmdb:tv-` subjectIds; find_person returns a profile with `tmdb:p-`). Error paths (keyMissing, zero results, no textless backdrop → notFound, no poster fallback, rate-limit retry, 5xx network, oversized image, CDN failure). Attribution/license constants always set.

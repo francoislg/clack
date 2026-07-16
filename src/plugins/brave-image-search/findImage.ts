@@ -1,16 +1,14 @@
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import { tool } from "@anthropic-ai/claude-agent-sdk";
+import { imageAndTextResult, sourceErrorResult, validateQuery } from "../imageSearchResult.js";
 import {
   loadBraveApiKey,
   searchImages,
   fetchImageBytes,
   selectRenderableResult,
-  type SourceError,
   type BraveDeps,
 } from "./brave.js";
-
-const MAX_QUERY_LENGTH = 200;
 
 const DESCRIPTION =
   "Generic web image search via Brave Search. Best for: long-tail subjects not covered by " +
@@ -32,22 +30,6 @@ export const defaultFindImageDeps: FindImageDeps = {
   searchImages,
   fetchImageBytes,
 };
-
-function imageAndTextResult(data: string, mimeType: string, metadata: unknown) {
-  return {
-    content: [
-      { type: "image" as const, data, mimeType },
-      { type: "text" as const, text: JSON.stringify(metadata, null, 2) },
-    ],
-  };
-}
-
-function sourceErrorResult(err: SourceError) {
-  return {
-    content: [{ type: "text" as const, text: JSON.stringify(err) }],
-    isError: true as const,
-  };
-}
 
 function subjectIdFromUrl(imageUrl: string): string {
   const hash = createHash("sha256").update(imageUrl).digest("hex");
@@ -78,16 +60,8 @@ export function createFindImageTool(deps: FindImageDeps = defaultFindImageDeps) 
         });
       }
 
-      const query = args.query.trim();
-      if (query.length === 0) {
-        return sourceErrorResult({ kind: "notFound", message: "query is empty" });
-      }
-      if (args.query.length > MAX_QUERY_LENGTH) {
-        return sourceErrorResult({
-          kind: "notFound",
-          message: `query exceeds ${MAX_QUERY_LENGTH} characters`,
-        });
-      }
+      const validated = validateQuery(args.query);
+      if (!validated.ok) return sourceErrorResult(validated.error);
 
       const searchResult = await deps.searchImages(args.query, apiKey, deps.braveDeps);
       if (!("ok" in searchResult)) return sourceErrorResult(searchResult);

@@ -1,15 +1,13 @@
 import { z } from "zod";
 import { tool } from "@anthropic-ai/claude-agent-sdk";
+import { imageAndTextResult, sourceErrorResult, validateQuery } from "../imageSearchResult.js";
 import {
   fetchPageSummary,
   fetchImageInfo,
   fetchImageBytes,
   sourceFilenameFromThumbUrl,
-  type SourceError,
   type WikimediaDeps,
 } from "./wikimedia.js";
-
-const MAX_QUERY_LENGTH = 200;
 
 const DESCRIPTION =
   "Wikipedia/Wikimedia Commons image search. Best for: flags, country symbols, world leaders, " +
@@ -30,26 +28,6 @@ export const defaultFindSubjectDeps: FindSubjectDeps = {
   fetchImageBytes,
 };
 
-/**
- * Data-mode multimodal result: one base64 image content block (for Claude to inspect) + one text
- * block carrying the metadata JSON. Both shapes are valid MCP `CallToolResult` content.
- */
-function imageAndTextResult(data: string, mimeType: string, metadata: unknown) {
-  return {
-    content: [
-      { type: "image" as const, data, mimeType },
-      { type: "text" as const, text: JSON.stringify(metadata, null, 2) },
-    ],
-  };
-}
-
-function sourceErrorResult(err: SourceError) {
-  return {
-    content: [{ type: "text" as const, text: JSON.stringify(err) }],
-    isError: true as const,
-  };
-}
-
 function slugFromTitle(title: string): string {
   return encodeURIComponent(title.replace(/ /g, "_"));
 }
@@ -60,16 +38,8 @@ export function createFindSubjectTool(deps: FindSubjectDeps = defaultFindSubject
     DESCRIPTION,
     { query: z.string().describe("English Wikipedia title of the subject, e.g. 'Eiffel Tower'.") },
     async (args) => {
-      const query = args.query.trim();
-      if (query.length === 0) {
-        return sourceErrorResult({ kind: "notFound", message: "query is empty" });
-      }
-      if (args.query.length > MAX_QUERY_LENGTH) {
-        return sourceErrorResult({
-          kind: "notFound",
-          message: `query exceeds ${MAX_QUERY_LENGTH} characters`,
-        });
-      }
+      const validated = validateQuery(args.query);
+      if (!validated.ok) return sourceErrorResult(validated.error);
 
       const summaryResult = await deps.fetchPageSummary(args.query, deps.wikimediaDeps);
       if (!("ok" in summaryResult)) return sourceErrorResult(summaryResult);

@@ -152,4 +152,19 @@ describe("fetchImageBytes", () => {
     const r = await fetchImageBytes("https://x/a.jpg", fastDeps(fetchImpl));
     assert.equal("ok" in r ? "ok" : r.kind, "network");
   });
+
+  it("retries a 500 once then returns network", async () => {
+    const fetchImpl = buildFetch([{ status: 500 }, { status: 500 }]);
+    const r = await fetchImageBytes("https://x/a.jpg", fastDeps(fetchImpl));
+    assert.equal("ok" in r ? "ok" : r.kind, "network");
+  });
+
+  it("recovers when the 500 retry succeeds", async () => {
+    const fetchImpl = buildFetch([
+      { status: 500 },
+      { bytes: new Uint8Array([1]), contentType: "image/jpeg" },
+    ]);
+    const r = await fetchImageBytes("https://x/a.jpg", fastDeps(fetchImpl));
+    assert.ok("ok" in r);
+  });
 });

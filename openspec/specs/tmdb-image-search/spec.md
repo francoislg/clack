@@ -1,4 +1,9 @@
-## ADDED Requirements
+# tmdb-image-search Specification
+
+## Purpose
+Free-key TMDB MCP tools for visual trivia: `find_movie` / `find_tv` resolve a query to a spoiler-safe **textless backdrop** (never a title-bearing poster) and `find_person` to a profile headshot, returned as data-mode multimodal results with structured errors, `tmdb:m-` / `tmdb:tv-` / `tmdb:p-` subjectId namespacing, Bearer-token auth, and mandatory TMDB attribution/license constants.
+
+## Requirements
 
 ### Requirement: Three MCP tools — one per TMDB content kind
 
@@ -8,7 +13,7 @@ The plugin SHALL expose three MCP tools on its always-on default server:
 - `find_tv` — searches TV series, returns a textless backdrop (scene still).
 - `find_person` — searches people (actors / crew), returns a profile headshot.
 
-Each tool SHALL accept one required argument `query: string` (non-empty, ≤ 200 characters; longer queries SHALL be rejected with a structured error). Each tool's DESCRIPTION SHALL state its category fit (e.g. `find_movie` → "Best for the Movies category") so trivia's prompt — which discovers image sources by description, not by tool name — routes by the rolled category. Tool names are NOT load-bearing.
+Each tool SHALL accept one required argument `query: string` (non-blank — a whitespace-only query counts as empty — and ≤ 200 characters after trimming; violations SHALL be rejected in-handler with a structured error, never a schema-level throw). Each tool's DESCRIPTION SHALL state its category fit (e.g. `find_movie` → "Best for the Movies category") so trivia's prompt — which discovers image sources by description, not by tool name — routes by the rolled category. Tool names are NOT load-bearing.
 
 #### Scenario: Movies category routes to find_movie
 
@@ -25,7 +30,7 @@ Each tool SHALL accept one required argument `query: string` (non-empty, ≤ 200
 
 #### Scenario: Empty query is rejected (per tool)
 
-- **WHEN** any of the three tools is called with `query: ""`
+- **WHEN** any of the three tools is called with `query: ""` (or a whitespace-only string)
 - **THEN** the tool returns a structured error indicating the query was empty
 
 #### Scenario: Oversized query is rejected (per tool)
@@ -73,6 +78,12 @@ The tools SHALL NOT return a poster, and SHALL NOT fall back to a poster when no
 ### Requirement: Profile headshots for people
 
 `find_person` SHALL return the matched person's `profile_path` headshot directly from the search result, with no `/images` hop. It SHALL skip results with a null `profile_path`.
+
+#### Scenario: Null profile_path skipped
+
+- **GIVEN** the top person result has `profile_path: null` and the second result has `profile_path: "/xyz.jpg"`
+- **WHEN** `find_person` iterates
+- **THEN** the second result is returned; `subjectId` reflects the second result's ID
 
 #### Scenario: Successful person lookup
 
@@ -128,7 +139,7 @@ The plugin SHALL NOT use `original` and SHALL NOT expose size as a tool argument
 
 Each tool SHALL iterate `results[]` in TMDB rank order, capped at index 10:
 
-- `find_movie` / `find_tv`: attempt the textless-backdrop resolution (per its requirement) on a candidate result. If a candidate yields no backdrop, advance to the next. The plugin SHALL attempt the `/images` hop on at most the first 3 candidate results before giving up.
+- `find_movie` / `find_tv`: attempt the textless-backdrop resolution (per its requirement) on a candidate result. If a candidate yields no backdrop, advance to the next. The plugin SHALL attempt the `/images` hop on at most the first 3 candidate results before giving up; when all 3 yield no backdrop, the tool SHALL return `{ kind: "notFound" }` without evaluating further results (the index-10 cap binds only when the search returns fewer usable candidates).
 - `find_person`: skip results with null `profile_path`; the first with a profile wins.
 
 When no usable result is found within the cap/budget, the tool SHALL return `{ kind: "notFound" }`. When the search returns zero results, the tool SHALL return `{ kind: "notFound" }`.
@@ -184,11 +195,14 @@ The plugin SHALL authenticate with TMDB using `Authorization: Bearer <token>` (t
 The plugin SHALL return a structured error (matching the visual-questions `SourceError` shape) on every failure mode and SHALL NOT throw out of any tool call:
 
 - `keyMissing` — token unset.
-- `notFound` — zero results, or no usable image within the cap/budget.
+- `notFound` — zero results, no usable image within the cap/budget, or a blank/oversized query.
 - `rateLimit` — 429 on initial and on one bounded retry.
 - `network` — 5xx (after one retry), timeout, connection failure, or a CDN download failure.
 - `tooLarge` — downloaded image exceeds the 5 MB cap.
+- `unsupportedFormat` — the CDN returns an SVG or a non-image Content-Type.
 - `unknown` — 200 with valid JSON but a missing/malformed `results` (or `backdrops`) field.
+
+"Bounded retry" means exactly one retry per failed request (429 → one ~1s jittered retry; 5xx → one ~500ms jittered retry). Timeouts and connection failures are not retried.
 
 #### Scenario: 429 retry exhaustion — rateLimit
 
@@ -199,6 +213,11 @@ The plugin SHALL return a structured error (matching the visual-questions `Sourc
 
 - **GIVEN** TMDB returns 500 on initial and on retry
 - **THEN** the tool returns `{ kind: "network", message: "<descriptive>" }`
+
+#### Scenario: Timeout — network
+
+- **GIVEN** a TMDB request exceeds the 5s timeout
+- **THEN** the tool returns `{ kind: "network", message: "<descriptive>" }` without retrying
 
 #### Scenario: Image CDN download fails
 
