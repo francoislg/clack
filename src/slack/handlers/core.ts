@@ -23,6 +23,7 @@ import { openDmChannel } from "../channelResolver.js";
 import { isChannellessChannelId } from "../../channelless.js";
 import { resolveChannelLabel, resolveUserLabel, slackLink } from "../logContext.js";
 import { getClaudeOptions, type GetClaudeOptionsArgs } from "./changeWorkflowHelper.js";
+import { mergeBuiltinTopics } from "../../claude/builtinTopics.js";
 import { getReactionDelivery } from "../../userPreferences.js";
 import {
   getForChannelMessage as getActiveRunForChannelMessage,
@@ -677,7 +678,7 @@ export async function processMessage(
         skipConditions: ctx.skipConditions,
         submitResponseMode: ctx.submitResponseMode,
         asOf: ctx.asOf,
-        preAttachedTopics: ctx.preAttachedTopics,
+        preAttachedTopics: mergeBuiltinTopics(triggerType, ctx.preAttachedTopics),
         // Releases the per-thread lock the instant this run claims its active-runs slot.
         onRegistered: release,
       },

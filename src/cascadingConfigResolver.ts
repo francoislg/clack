@@ -304,7 +304,7 @@ export function listRoleDirFiles(virtualDefaults?: VirtualDefaults): RoleDirList
  * a sorted deduplicated list. A topic "exists" for a role if any source (default, custom,
  * or virtual) contributes at least one file to it.
  */
-function scanTopicNames(role: string, virtualDefaults?: VirtualDefaults): string[] {
+export function scanTopicNames(role: string, virtualDefaults?: VirtualDefaults): string[] {
   const names = new Set<string>();
   const defaultDir = getDefaultConfigurationDir();
   const configDir = getConfigurationDir();

@@ -725,6 +725,11 @@ function buildQueryTools(ctx: QueryToolContext): ClackQueryToolsResult {
         },
       }),
       allowPostTopLevel: shouldAllowPostTopLevel(triggerType),
+      // Formatting-hint gate: true when the response-rendering topic is loaded, either
+      // pre-attached at session start or attached mid-session via attach_integration.
+      isResponseRenderingAttached: () =>
+        (ctx.preAttachedTopics ?? []).includes("response-rendering") ||
+        (ctx.mcpManager?.isAttached("response-rendering") ?? false),
       // Top-level multi-message fields gated to scheduled (cron) context only. In DM,
       // @mention, reaction, etc. the trigger channel is the user's space and multi-message
       // there is almost never what they want — they'd ask via post_to with an explicit

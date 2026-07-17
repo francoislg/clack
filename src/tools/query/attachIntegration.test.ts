@@ -287,6 +287,58 @@ describe("attach_integration tool", () => {
     assert.equal(depMocks.updateSession.mock.calls.length, 1);
   });
 
+  it("short-circuits a duplicate attach of a pre-attached topic without re-injecting instructions", async () => {
+    const setMcpServers = okSetMcpServers();
+    const registry: McpServerRegistry = {
+      "response-rendering": { alwaysLoad: false, description: "Slack rendering guidance" },
+    };
+    const manager = makeManager({ setMcpServers, registry });
+    const ctx = makeCtx({ mcpManager: manager, preAttachedTopics: ["response-rendering"] });
+    const depMocks = makeDepMocks();
+    const toolDef = createAttachIntegrationTool(ctx, depMocks.deps);
+
+    const result = await toolDef.handler({ name: "response-rendering" }, { sessionId: "test" });
+    const text = toolResultText(result);
+
+    assert.ok(text.includes("pre-attached at session start"));
+    assert.ok(!text.includes("Topic instructions for response-rendering"));
+    assert.equal(depMocks.resolveTopicFiles.mock.calls.length, 0);
+    assert.equal(setMcpServers.mock.calls.length, 0);
+    const updates = depMocks.updateSession.mock.calls[0]![1];
+    assert.equal(updates.mcpAttachHistory?.[0]?.outcome, "duplicate");
+  });
+
+  it("pre-attached short-circuit wins even when the topic is unknown to the registry", async () => {
+    const manager = makeManager({ setMcpServers: okSetMcpServers() });
+    const ctx = makeCtx({ mcpManager: manager, preAttachedTopics: ["my-plugin-topic"] });
+    const toolDef = createAttachIntegrationTool(ctx, makeDepMocks().deps);
+
+    const result = await toolDef.handler({ name: "my-plugin-topic" }, { sessionId: "test" });
+    const text = toolResultText(result);
+
+    assert.notEqual("isError" in result && result.isError, true);
+    assert.ok(text.includes("pre-attached at session start"));
+  });
+
+  it("attaches the built-in response-rendering entry via the instructions-only path", async () => {
+    const setMcpServers = okSetMcpServers();
+    const registry: McpServerRegistry = {
+      "response-rendering": { alwaysLoad: false, description: "Slack rendering guidance" },
+    };
+    const manager = makeManager({ setMcpServers, registry });
+    const ctx = makeCtx({ mcpManager: manager });
+    const depMocks = makeDepMocks();
+    const toolDef = createAttachIntegrationTool(ctx, depMocks.deps);
+
+    const result = await toolDef.handler({ name: "response-rendering" }, { sessionId: "test" });
+    const text = toolResultText(result);
+
+    assert.ok(text.includes("Attached integration: response-rendering"));
+    assert.ok(text.includes("Topic instructions for response-rendering"));
+    assert.equal(depMocks.resolveTopicFiles.mock.calls[0]![1], "response-rendering");
+    assert.equal(setMcpServers.mock.calls.length, 0);
+  });
+
   it("falls back to 'nothing arrives' when no MCP, no gated tools, no topic instructions", async () => {
     const setMcpServers = okSetMcpServers();
     const manager = makeManager({ setMcpServers });

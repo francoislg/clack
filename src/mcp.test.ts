@@ -9,6 +9,7 @@ import {
   getConfiguredMcpServerNames,
   resetMcpCache,
   resolveEffectiveRegistry,
+  DEFAULT_RESPONSE_RENDERING_REGISTRY_ENTRY,
   DEFAULT_GITHUB_REGISTRY_ENTRY,
   UNMAPPED_REGISTRY_DESCRIPTION,
 } from "./mcp.js";
@@ -490,8 +491,37 @@ describe("resolveEffectiveRegistry", () => {
       githubAutoInjected: false,
     });
 
-    assert.deepEqual(result.registry, configRegistry);
+    assert.deepEqual(result.registry, {
+      ...configRegistry,
+      "response-rendering": DEFAULT_RESPONSE_RENDERING_REGISTRY_ENTRY,
+    });
     assert.deepEqual(result.unmapped, []);
+  });
+
+  it("always injects the built-in response-rendering entry (instructions-only, not unmapped)", () => {
+    const result = resolveEffectiveRegistry({
+      configRegistry: {},
+      mcpServerNames: [],
+      githubAutoInjected: false,
+    });
+
+    assert.deepEqual(
+      result.registry["response-rendering"],
+      DEFAULT_RESPONSE_RENDERING_REGISTRY_ENTRY,
+    );
+    assert.equal(result.registry["response-rendering"].alwaysLoad, false);
+    assert.deepEqual(result.unmapped, []);
+  });
+
+  it("does not override an explicit response-rendering registry entry", () => {
+    const explicit = { alwaysLoad: false, description: "Custom rendering guidance" };
+    const result = resolveEffectiveRegistry({
+      configRegistry: { "response-rendering": explicit },
+      mcpServerNames: [],
+      githubAutoInjected: false,
+    });
+
+    assert.deepEqual(result.registry["response-rendering"], explicit);
   });
 
   it("adds a synthetic always-load entry for each mcp.json server missing from the registry", () => {

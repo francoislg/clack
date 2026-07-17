@@ -9,10 +9,24 @@ import { canManageRoles } from "../../permissions.js";
 import { humanReadableSchedule } from "../../cronFormatter.js";
 import { isValidTimezone } from "../../timezone.js";
 import { validateRequiredToolNames, formatRequiredToolNameError } from "../toolNameValidator.js";
+import { collectKnownTopics, validateTopicNames } from "./topicValidation.js";
 import { logger } from "../../logger.js";
 import { errorMessage } from "../../errors.js";
 
-export function createUpdateScheduledMessageTool(ctx: QueryToolContext) {
+export interface UpdateScheduledMessageDeps {
+  collectKnownTopics: typeof collectKnownTopics;
+  validateTopicNames: typeof validateTopicNames;
+}
+
+export const defaultUpdateScheduledMessageDeps: UpdateScheduledMessageDeps = {
+  collectKnownTopics,
+  validateTopicNames,
+};
+
+export function createUpdateScheduledMessageTool(
+  ctx: QueryToolContext,
+  deps: UpdateScheduledMessageDeps = defaultUpdateScheduledMessageDeps,
+) {
   return tool(
     "update_scheduled_message",
     "Update an existing scheduled message. " +
@@ -111,6 +125,15 @@ export function createUpdateScheduledMessageTool(ctx: QueryToolContext) {
             'replies (always | high | medium | low). Pass an empty string "" to clear it (reverts ' +
             'to the "medium" default). Omit to leave unchanged.',
         ),
+      attached_topics: z
+        .array(z.string())
+        .optional()
+        .describe(
+          "Replace the topic names pre-attached when this job fires (each topic's instruction " +
+            "files load into the run's system prompt — e.g. 'response-rendering' for Slack " +
+            "rendering guidance). Pass an empty array `[]` to clear all attached topics (lean " +
+            "runs). Omit to leave the existing list unchanged.",
+        ),
     },
     async (args) => {
       const job = await getJob(args.id);
@@ -163,6 +186,15 @@ export function createUpdateScheduledMessageTool(ctx: QueryToolContext) {
         if (err) return errorResult(err);
       }
 
+      // Same shape for attached_topics: an empty array clears, so only validate non-empty lists.
+      if (args.attached_topics && args.attached_topics.length > 0) {
+        const topicErr = deps.validateTopicNames(
+          args.attached_topics,
+          deps.collectKnownTopics(ctx.mcpManager?.knownNames()),
+        );
+        if (topicErr) return errorResult(topicErr);
+      }
+
       // Resolve channel if provided
       let channelId = args.channel;
       if (channelId && ctx.slackClient) {
@@ -188,6 +220,7 @@ export function createUpdateScheduledMessageTool(ctx: QueryToolContext) {
           ...(args.attentionLevel !== undefined && {
             attentionLevel: args.attentionLevel === "" ? null : args.attentionLevel,
           }),
+          ...(args.attached_topics !== undefined && { attachedTopics: args.attached_topics }),
         });
 
         if (!updated) {

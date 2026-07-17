@@ -1,9 +1,13 @@
-import { describe, it, beforeEach, afterEach } from "vitest";
+import { describe, it, beforeEach, afterEach, vi } from "vitest";
 import assert from "node:assert/strict";
 import { mkdtemp, rm, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createUpdateScheduledMessageTool } from "./updateScheduledMessage.js";
+import {
+  createUpdateScheduledMessageTool,
+  type UpdateScheduledMessageDeps,
+} from "./updateScheduledMessage.js";
+import { validateTopicNames } from "./topicValidation.js";
 import type { QueryToolContext } from "../types.js";
 import { parseToolResult, toolResultText } from "../testHelpers.js";
 import { clearCronJobsCache, createJob, getJob } from "../../cronJobs.js";
@@ -42,6 +46,7 @@ function callHandler(
     };
     timezone?: string;
     jitterMinutes?: number;
+    attached_topics?: string[];
   },
 ) {
   return tool.handler(
@@ -57,6 +62,7 @@ function callHandler(
       skipConditions: args.skipConditions,
       name: args.name,
       attentionLevel: undefined,
+      attached_topics: args.attached_topics,
     },
     { sessionId: "test" },
   );
@@ -333,5 +339,58 @@ describe("update_scheduled_message tool — skipConditions", () => {
     // Verify the persisted job was NOT modified.
     const unchanged = await getJob(job.id);
     assert.equal(unchanged?.prompt, "embedded trivia prompt");
+  });
+
+  function topicDeps(): UpdateScheduledMessageDeps {
+    return {
+      collectKnownTopics: vi.fn(() => ["response-rendering", "trivia"]),
+      validateTopicNames,
+    };
+  }
+
+  it("replaces attachedTopics when attached_topics is supplied", async () => {
+    const job = await seedJob();
+    const tool = createUpdateScheduledMessageTool(buildCtx(), topicDeps());
+
+    const result = await callHandler(tool, { id: job.id, attached_topics: ["trivia"] });
+
+    assert.notEqual(result.isError, true);
+    const updated = await getJob(job.id);
+    assert.deepEqual(updated?.attachedTopics, ["trivia"]);
+  });
+
+  it("clears attachedTopics with an empty array", async () => {
+    const job = await seedJob();
+    const tool = createUpdateScheduledMessageTool(buildCtx(), topicDeps());
+    await callHandler(tool, { id: job.id, attached_topics: ["response-rendering"] });
+
+    await callHandler(tool, { id: job.id, attached_topics: [] });
+
+    const updated = await getJob(job.id);
+    assert.equal(updated?.attachedTopics, undefined);
+  });
+
+  it("leaves attachedTopics unchanged when the field is omitted", async () => {
+    const job = await seedJob();
+    const tool = createUpdateScheduledMessageTool(buildCtx(), topicDeps());
+    await callHandler(tool, { id: job.id, attached_topics: ["response-rendering"] });
+
+    await callHandler(tool, { id: job.id, prompt: "New prompt" });
+
+    const updated = await getJob(job.id);
+    assert.deepEqual(updated?.attachedTopics, ["response-rendering"]);
+  });
+
+  it("rejects unknown topic names and leaves the job untouched", async () => {
+    const job = await seedJob();
+    const tool = createUpdateScheduledMessageTool(buildCtx(), topicDeps());
+
+    const result = await callHandler(tool, { id: job.id, attached_topics: ["nope"] });
+
+    assert.equal(result.isError, true);
+    assert.match(toolResultText(result), /Unknown topic name\(s\): nope/);
+    assert.match(toolResultText(result), /Known topics: response-rendering, trivia/);
+    const unchanged = await getJob(job.id);
+    assert.equal(unchanged?.attachedTopics, undefined);
   });
 });

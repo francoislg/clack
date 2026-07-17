@@ -10,13 +10,19 @@ import { logger } from "../../logger.js";
 import { errorMessage } from "../../errors.js";
 import { humanReadableSchedule } from "../../cronFormatter.js";
 import { validateRequiredToolNames, formatRequiredToolNameError } from "../toolNameValidator.js";
+import { collectKnownTopics, validateTopicNames } from "./topicValidation.js";
+import { RESPONSE_RENDERING_TOPIC } from "../../claude/builtinTopics.js";
 
 export interface CreateScheduledMessageDeps {
   createJob: (params: Parameters<typeof createJob>[0]) => Promise<CronJob>;
+  collectKnownTopics: typeof collectKnownTopics;
+  validateTopicNames: typeof validateTopicNames;
 }
 
 export const defaultCreateScheduledMessageDeps: CreateScheduledMessageDeps = {
   createJob,
+  collectKnownTopics,
+  validateTopicNames,
 };
 
 export function createCreateScheduledMessageTool(
@@ -171,6 +177,16 @@ export function createCreateScheduledMessageTool(
             'and someone replies. "always" replies to every reply (no relevance check), "high"/' +
             '"medium"/"low" lean progressively less toward replying. Omit for the "medium" default.',
         ),
+      attached_topics: z
+        .array(z.string())
+        .optional()
+        .describe(
+          "Topic names to pre-attach when this job fires (loads each topic's instruction files " +
+            "into the run's system prompt — e.g. 'response-rendering' for Slack rendering " +
+            "guidance). Omit to default to ['response-rendering'] so the scheduled post keeps " +
+            "rich-output quality. Pass [] for a lean run that needs no rendering guidance " +
+            "(e.g. one whose deliverable is produced by other tools).",
+        ),
     },
     async (args) => {
       if (!ctx.slackClient) {
@@ -201,6 +217,15 @@ export function createCreateScheduledMessageTool(
         if (err) return errorResult(err);
       }
 
+      const attachedTopics = args.attached_topics ?? [RESPONSE_RENDERING_TOPIC];
+      if (attachedTopics.length > 0) {
+        const topicErr = deps.validateTopicNames(
+          attachedTopics,
+          deps.collectKnownTopics(ctx.mcpManager?.knownNames()),
+        );
+        if (topicErr) return errorResult(topicErr);
+      }
+
       // Resolve channel
       const resolved = await resolveChannelId(
         { client: ctx.slackClient, userId: ctx.userId },
@@ -224,6 +249,7 @@ export function createCreateScheduledMessageTool(
           skipConditions: args.skipConditions,
           submitResponseMode: args.submitResponseMode,
           attentionLevel: args.attentionLevel,
+          attachedTopics,
         });
 
         const schedule = humanReadableSchedule(cronExpression, args.timezone);
@@ -239,6 +265,7 @@ export function createCreateScheduledMessageTool(
           type: "dynamic",
           oneShot: args.oneShot ?? false,
           ...(args.submitResponseMode ? { submitResponseMode: args.submitResponseMode } : {}),
+          ...(attachedTopics.length > 0 ? { attachedTopics } : {}),
         });
       } catch (error) {
         logger.error("Failed to create scheduled message:", error);

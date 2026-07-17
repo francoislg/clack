@@ -46,6 +46,12 @@ export interface BuildQueryContextParams {
    */
   asOf?: Date;
   /**
+   * Topic names pre-attached at session start (built-in auto-attach merged with the
+   * caller's list). Used by `submit_response` to decide whether the response-rendering
+   * attach hint applies on formatting-class validation failures.
+   */
+  preAttachedTopics?: string[];
+  /**
    * MCP server lifecycle manager for this session. Owns session-start servers,
    * attached servers, and the effective registry; guarantees the merge invariant
    * on every `setMcpServers` call. Bound to the SDK Query by the orchestrator.

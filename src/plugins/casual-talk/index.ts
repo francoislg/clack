@@ -116,7 +116,7 @@ export const casualTalkPlugin: ClackPlugin = async (sdk: ClackSdk) => {
         name: "Casual chatter",
         submitResponseMode: "optional-post-to",
         requiredTools: ["mcp__clack__random_roll"],
-        attachedTopics: ["casual-talk"],
+        attachedTopics: ["casual-talk", "response-rendering"],
         jitterMinutes: CHATTER_JITTER_MINUTES,
       });
     } else if (config.enabled && config.channels.length === 0) {

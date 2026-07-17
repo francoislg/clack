@@ -11,12 +11,17 @@ import {
 import type { QueryToolContext } from "../types.js";
 import { parseToolResult, toolResultText } from "../testHelpers.js";
 import { clearCronJobsCache, getJobs, createJob } from "../../cronJobs.js";
+import { validateTopicNames } from "./topicValidation.js";
 
 const originalCwd = process.cwd;
 
 function makeDeps(overrides?: Partial<CreateScheduledMessageDeps>): CreateScheduledMessageDeps {
   return {
     createJob,
+    // Real validator over a stubbed known-topics set — collectKnownTopics reads config
+    // dirs, which don't exist under the temp cwd these tests run in.
+    collectKnownTopics: vi.fn(() => ["response-rendering", "trivia"]),
+    validateTopicNames,
     ...overrides,
   };
 }
@@ -64,6 +69,7 @@ interface CallArgs {
   skipConditions?: string;
   submitResponseMode?: "always" | "optional" | "skipped";
   jitterMinutes?: number;
+  attached_topics?: string[];
 }
 
 type CreateTool = ReturnType<typeof createCreateScheduledMessageTool>;
@@ -85,6 +91,7 @@ function callHandler(tool: CreateTool, args: CallArgs) {
       skipConditions: undefined,
       submitResponseMode: undefined,
       attentionLevel: undefined,
+      attached_topics: undefined,
       ...args,
     },
     { sessionId: "test" },
@@ -302,6 +309,7 @@ describe("createScheduledMessage tool", () => {
         skipConditions: undefined,
         submitResponseMode: undefined,
         attentionLevel: undefined,
+        attached_topics: undefined,
       },
       { sessionId: "test" },
     );
@@ -336,6 +344,7 @@ describe("createScheduledMessage tool", () => {
         skipConditions: undefined,
         submitResponseMode: undefined,
         attentionLevel: undefined,
+        attached_topics: undefined,
       },
       { sessionId: "test" },
     );
@@ -459,5 +468,57 @@ describe("createScheduledMessage tool", () => {
     const text = block.text;
     assert.ok(typeof text === "string");
     assert.match(text, /"name":\s*"Daily standup reminder"/);
+  });
+
+  it("defaults attachedTopics to ['response-rendering'] when attached_topics is omitted", async () => {
+    const ctx = buildCtx();
+    const tool = createCreateScheduledMessageTool(ctx, makeDeps());
+
+    await callHandler(tool, { channel: "C456", prompt: "daily digest" });
+
+    const jobs = await getJobs();
+    assert.deepEqual(jobs[0].attachedTopics, ["response-rendering"]);
+  });
+
+  it("persists an explicit attached_topics list", async () => {
+    const ctx = buildCtx();
+    const tool = createCreateScheduledMessageTool(ctx, makeDeps());
+
+    await callHandler(tool, {
+      channel: "C456",
+      prompt: "daily digest",
+      attached_topics: ["trivia", "response-rendering"],
+    });
+
+    const jobs = await getJobs();
+    assert.deepEqual(jobs[0].attachedTopics, ["trivia", "response-rendering"]);
+  });
+
+  it("persists no attachedTopics for an explicit empty array (lean run)", async () => {
+    const ctx = buildCtx();
+    const tool = createCreateScheduledMessageTool(ctx, makeDeps());
+
+    await callHandler(tool, { channel: "C456", prompt: "lean job", attached_topics: [] });
+
+    const jobs = await getJobs();
+    assert.equal(jobs[0].attachedTopics, undefined);
+  });
+
+  it("rejects unknown topic names, listing invalid entries and known topics", async () => {
+    const ctx = buildCtx();
+    const tool = createCreateScheduledMessageTool(ctx, makeDeps());
+
+    const result = await callHandler(tool, {
+      channel: "C456",
+      prompt: "x",
+      attached_topics: ["response-rendring"],
+    });
+
+    assert.equal(result.isError, true);
+    const text = toolResultText(result);
+    assert.match(text, /Unknown topic name\(s\): response-rendring/);
+    assert.match(text, /Known topics: .*response-rendering/);
+    const jobs = await getJobs();
+    assert.equal(jobs.length, 0);
   });
 });

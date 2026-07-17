@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { resolve, join } from "node:path";
 import { loadConfig } from "./config.js";
 import { resolveInstructions } from "./cascadingConfigResolver.js";
+import { loadInstructions } from "./instructions.js";
 
 // Integration test: resolveInstructions against the REAL shipped
 // data/default_configuration content (symlinked in), exercising loadConfig and
@@ -98,5 +99,52 @@ describe("shipped default_configuration smoke test", () => {
     assert.ok(result.includes("submit_response"), "user content present");
     assert.ok(result.includes("propose_change"), "dev content present");
     assert.ok(result.includes("propose_config_update"), "admin content present");
+  });
+
+  it("response-rendering topic content loads ONLY when the topic is attached", () => {
+    const lean = loadInstructions("member", { changesWorkflowEnabled: false, variables: {} });
+    assert.ok(
+      lean.includes("ends the conversation permanently"),
+      "baseline stub contract always present",
+    );
+    assert.ok(
+      !lean.includes("Actions by Delivery Context"),
+      "rendering guidance must not load without the topic",
+    );
+
+    const attached = loadInstructions("member", {
+      changesWorkflowEnabled: false,
+      variables: {},
+      topics: ["response-rendering"],
+    });
+    assert.ok(
+      attached.includes("Actions by Delivery Context"),
+      "rendering guidance loads with the topic",
+    );
+    assert.ok(attached.length > lean.length, "attached prompt is strictly larger");
+  });
+
+  it("re-homed operator override wins over the shipped response-rendering default", () => {
+    const overrideDir = join(
+      smokeBase,
+      "data",
+      "configuration",
+      "user",
+      "topics",
+      "response-rendering",
+    );
+    mkdirSync(overrideDir, { recursive: true });
+    writeFileSync(join(overrideDir, "block-kit-formatting.md"), "OPERATOR OVERRIDE MARKER\n");
+
+    const attached = loadInstructions("member", {
+      changesWorkflowEnabled: false,
+      variables: {},
+      topics: ["response-rendering"],
+    });
+    assert.ok(attached.includes("OPERATOR OVERRIDE MARKER"), "operator override content wins");
+    assert.ok(
+      attached.includes("Actions by Delivery Context"),
+      "other shipped topic files still load",
+    );
   });
 });
