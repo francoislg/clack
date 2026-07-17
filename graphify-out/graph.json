@@ -3235,7 +3235,7 @@
       "source_location": "L115",
       "_origin": "ast",
       "id": "src_changes_persistence_appendexecutionlog",
-      "community": 81,
+      "community": 89,
       "norm_label": "appendexecutionlog()"
     },
     {
@@ -4705,7 +4705,7 @@
       "source_location": "L59",
       "_origin": "ast",
       "id": "src_claude_index_clauderesponse",
-      "community": 6,
+      "community": 18,
       "norm_label": "clauderesponse"
     },
     {
@@ -5155,7 +5155,7 @@
       "source_location": "L37",
       "_origin": "ast",
       "id": "src_claude_messageparser_platformlimitinfo",
-      "community": 6,
+      "community": 18,
       "norm_label": "platformlimitinfo"
     },
     {
@@ -8675,7 +8675,7 @@
       "source_location": "L14",
       "_origin": "ast",
       "id": "src_ephemeralrules_ephemeralattentionlevel",
-      "community": 6,
+      "community": 18,
       "norm_label": "ephemeralattentionlevel"
     },
     {
@@ -9345,7 +9345,7 @@
       "source_location": "L57",
       "_origin": "ast",
       "id": "src_i18n_t_t",
-      "community": 3,
+      "community": 304,
       "norm_label": "t()"
     },
     {
@@ -12625,7 +12625,7 @@
       "source_location": "L13",
       "_origin": "ast",
       "id": "src_permissions_cancreateuserskill",
-      "community": 38,
+      "community": 304,
       "norm_label": "cancreateuserskill()"
     },
     {
@@ -12635,7 +12635,7 @@
       "source_location": "L21",
       "_origin": "ast",
       "id": "src_permissions_canedituserskillcontent",
-      "community": 38,
+      "community": 304,
       "norm_label": "canedituserskillcontent()"
     },
     {
@@ -12645,7 +12645,7 @@
       "source_location": "L35",
       "_origin": "ast",
       "id": "src_permissions_canmanageuserskill",
-      "community": 38,
+      "community": 304,
       "norm_label": "canmanageuserskill()"
     },
     {
@@ -12655,7 +12655,7 @@
       "source_location": "L48",
       "_origin": "ast",
       "id": "src_permissions_candeleteuserskill",
-      "community": 38,
+      "community": 304,
       "norm_label": "candeleteuserskill()"
     },
     {
@@ -16605,7 +16605,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "src_plugins_tenor_gif_findgif",
-      "community": 23,
+      "community": 26,
       "norm_label": "findgif.ts"
     },
     {
@@ -16625,7 +16625,7 @@
       "source_location": "L11",
       "_origin": "ast",
       "id": "src_plugins_tenor_gif_findgif_defaultfindgifdeps",
-      "community": 23,
+      "community": 26,
       "norm_label": "defaultfindgifdeps"
     },
     {
@@ -26265,7 +26265,7 @@
       "source_location": "L172",
       "_origin": "ast",
       "id": "src_sessions_attentionlevel",
-      "community": 6,
+      "community": 18,
       "norm_label": "attentionlevel"
     },
     {
@@ -26285,7 +26285,7 @@
       "source_location": "L187",
       "_origin": "ast",
       "id": "src_sessions_deliverymode",
-      "community": 6,
+      "community": 18,
       "norm_label": "deliverymode"
     },
     {
@@ -28075,7 +28075,7 @@
       "source_location": "L360",
       "_origin": "ast",
       "id": "src_slack_blocks_getchangerecoveryblocks",
-      "community": 3,
+      "community": 304,
       "norm_label": "getchangerecoveryblocks()"
     },
     {
@@ -28365,7 +28365,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "src_slack_dmresponse",
-      "community": 3,
+      "community": 305,
       "norm_label": "dmresponse.ts"
     },
     {
@@ -28385,7 +28385,7 @@
       "source_location": "L14",
       "_origin": "ast",
       "id": "src_slack_dmresponse_defaultdmresponsedeps",
-      "community": 3,
+      "community": 305,
       "norm_label": "defaultdmresponsedeps"
     },
     {
@@ -28395,7 +28395,7 @@
       "source_location": "L21",
       "_origin": "ast",
       "id": "src_slack_dmresponse_getdmsynthesisactions",
-      "community": 3,
+      "community": 305,
       "norm_label": "getdmsynthesisactions()"
     },
     {
@@ -28405,7 +28405,7 @@
       "source_location": "L52",
       "_origin": "ast",
       "id": "src_slack_dmresponse_getdmpostacceptactions",
-      "community": 3,
+      "community": 305,
       "norm_label": "getdmpostacceptactions()"
     },
     {
@@ -28895,7 +28895,7 @@
       "source_location": "L130",
       "_origin": "ast",
       "id": "src_slack_handlers_autoexecute_autoexecuteparams",
-      "community": 6,
+      "community": 18,
       "norm_label": "autoexecuteparams"
     },
     {
@@ -28905,7 +28905,7 @@
       "source_location": "L153",
       "_origin": "ast",
       "id": "src_slack_handlers_autoexecute_handleautoexecuteactions",
-      "community": 3,
+      "community": 20,
       "norm_label": "handleautoexecuteactions()"
     },
     {
@@ -28915,7 +28915,7 @@
       "source_location": "L547",
       "_origin": "ast",
       "id": "src_slack_handlers_autoexecute_handleposttoautoexecute",
-      "community": 3,
+      "community": 38,
       "norm_label": "handleposttoautoexecute()"
     },
     {
@@ -29105,7 +29105,7 @@
       "source_location": "L106",
       "_origin": "ast",
       "id": "src_slack_handlers_changeaction_triggerchangeworkflow",
-      "community": 3,
+      "community": 304,
       "norm_label": "triggerchangeworkflow()"
     },
     {
@@ -29115,7 +29115,7 @@
       "source_location": "L239",
       "_origin": "ast",
       "id": "src_slack_handlers_changeaction_createnoopchangestreamer",
-      "community": 3,
+      "community": 304,
       "norm_label": "createnoopchangestreamer()"
     },
     {
@@ -29165,7 +29165,7 @@
       "source_location": "L94",
       "_origin": "ast",
       "id": "src_slack_handlers_changethreadactions_missingchangetext",
-      "community": 3,
+      "community": 304,
       "norm_label": "missingchangetext()"
     },
     {
@@ -29175,7 +29175,7 @@
       "source_location": "L108",
       "_origin": "ast",
       "id": "src_slack_handlers_changethreadactions_maybeofferrecovery",
-      "community": 3,
+      "community": 304,
       "norm_label": "maybeofferrecovery()"
     },
     {
@@ -29185,7 +29185,7 @@
       "source_location": "L128",
       "_origin": "ast",
       "id": "src_slack_handlers_changethreadactions_triggerfollowup",
-      "community": 3,
+      "community": 304,
       "norm_label": "triggerfollowup()"
     },
     {
@@ -30505,7 +30505,7 @@
       "source_location": "L150",
       "_origin": "ast",
       "id": "src_slack_handlers_hometab_publishhomeview",
-      "community": 38,
+      "community": 304,
       "norm_label": "publishhomeview()"
     },
     {
@@ -30845,7 +30845,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "src_slack_handlers_skillaction",
-      "community": 38,
+      "community": 304,
       "norm_label": "skillaction.ts"
     },
     {
@@ -30865,7 +30865,7 @@
       "source_location": "L50",
       "_origin": "ast",
       "id": "src_slack_handlers_skillaction_defaultskillactiondeps",
-      "community": 38,
+      "community": 304,
       "norm_label": "defaultskillactiondeps"
     },
     {
@@ -30885,7 +30885,7 @@
       "source_location": "L133",
       "_origin": "ast",
       "id": "src_slack_handlers_skillaction_applycreate",
-      "community": 38,
+      "community": 304,
       "norm_label": "applycreate()"
     },
     {
@@ -30895,7 +30895,7 @@
       "source_location": "L183",
       "_origin": "ast",
       "id": "src_slack_handlers_skillaction_applyupdate",
-      "community": 38,
+      "community": 304,
       "norm_label": "applyupdate()"
     },
     {
@@ -30905,7 +30905,7 @@
       "source_location": "L242",
       "_origin": "ast",
       "id": "src_slack_handlers_skillaction_applydisable",
-      "community": 38,
+      "community": 304,
       "norm_label": "applydisable()"
     },
     {
@@ -30915,7 +30915,7 @@
       "source_location": "L285",
       "_origin": "ast",
       "id": "src_slack_handlers_skillaction_applyrestore",
-      "community": 38,
+      "community": 304,
       "norm_label": "applyrestore()"
     },
     {
@@ -30925,7 +30925,7 @@
       "source_location": "L328",
       "_origin": "ast",
       "id": "src_slack_handlers_skillaction_applydelete",
-      "community": 38,
+      "community": 304,
       "norm_label": "applydelete()"
     },
     {
@@ -30935,7 +30935,7 @@
       "source_location": "L371",
       "_origin": "ast",
       "id": "src_slack_handlers_skillaction_postephemeralpermissiondenied",
-      "community": 38,
+      "community": 304,
       "norm_label": "postephemeralpermissiondenied()"
     },
     {
@@ -31075,7 +31075,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "src_slack_handlers_userskillshomeactions",
-      "community": 38,
+      "community": 304,
       "norm_label": "userskillshomeactions.ts"
     },
     {
@@ -31085,7 +31085,7 @@
       "source_location": "L54",
       "_origin": "ast",
       "id": "src_slack_handlers_userskillshomeactions_registeruserskillshomeactions",
-      "community": 38,
+      "community": 304,
       "norm_label": "registeruserskillshomeactions()"
     },
     {
@@ -31095,7 +31095,7 @@
       "source_location": "L64",
       "_origin": "ast",
       "id": "src_slack_handlers_userskillshomeactions_registeropencreatemodal",
-      "community": 38,
+      "community": 304,
       "norm_label": "registeropencreatemodal()"
     },
     {
@@ -31105,7 +31105,7 @@
       "source_location": "L82",
       "_origin": "ast",
       "id": "src_slack_handlers_userskillshomeactions_registeropeneditmodal",
-      "community": 38,
+      "community": 304,
       "norm_label": "registeropeneditmodal()"
     },
     {
@@ -31115,7 +31115,7 @@
       "source_location": "L111",
       "_origin": "ast",
       "id": "src_slack_handlers_userskillshomeactions_registerdisable",
-      "community": 38,
+      "community": 304,
       "norm_label": "registerdisable()"
     },
     {
@@ -31125,7 +31125,7 @@
       "source_location": "L134",
       "_origin": "ast",
       "id": "src_slack_handlers_userskillshomeactions_registerrestore",
-      "community": 38,
+      "community": 304,
       "norm_label": "registerrestore()"
     },
     {
@@ -31135,7 +31135,7 @@
       "source_location": "L157",
       "_origin": "ast",
       "id": "src_slack_handlers_userskillshomeactions_registerdelete",
-      "community": 38,
+      "community": 304,
       "norm_label": "registerdelete()"
     },
     {
@@ -31145,7 +31145,7 @@
       "source_location": "L180",
       "_origin": "ast",
       "id": "src_slack_handlers_userskillshomeactions_extractviewid",
-      "community": 38,
+      "community": 304,
       "norm_label": "extractviewid()"
     },
     {
@@ -31155,7 +31155,7 @@
       "source_location": "L189",
       "_origin": "ast",
       "id": "src_slack_handlers_userskillshomeactions_closemodalifopen",
-      "community": 38,
+      "community": 304,
       "norm_label": "closemodalifopen()"
     },
     {
@@ -31175,7 +31175,7 @@
       "source_location": "L269",
       "_origin": "ast",
       "id": "src_slack_handlers_userskillshomeactions_registereditsubmit",
-      "community": 38,
+      "community": 304,
       "norm_label": "registereditsubmit()"
     },
     {
@@ -31185,7 +31185,7 @@
       "source_location": "L350",
       "_origin": "ast",
       "id": "src_slack_handlers_userskillshomeactions_extractslug",
-      "community": 38,
+      "community": 304,
       "norm_label": "extractslug()"
     },
     {
@@ -31195,7 +31195,7 @@
       "source_location": "L358",
       "_origin": "ast",
       "id": "src_slack_handlers_userskillshomeactions_modalstate",
-      "community": 38,
+      "community": 304,
       "norm_label": "modalstate"
     },
     {
@@ -31205,7 +31205,7 @@
       "source_location": "L363",
       "_origin": "ast",
       "id": "src_slack_handlers_userskillshomeactions_readinputvalue",
-      "community": 38,
+      "community": 304,
       "norm_label": "readinputvalue()"
     },
     {
@@ -31215,7 +31215,7 @@
       "source_location": "L371",
       "_origin": "ast",
       "id": "src_slack_handlers_userskillshomeactions_readcheckboxchecked",
-      "community": 38,
+      "community": 304,
       "norm_label": "readcheckboxchecked()"
     },
     {
@@ -31225,7 +31225,7 @@
       "source_location": "L382",
       "_origin": "ast",
       "id": "src_slack_handlers_userskillshomeactions_slugmetadatazod",
-      "community": 38,
+      "community": 304,
       "norm_label": "slugmetadatazod"
     },
     {
@@ -31235,7 +31235,7 @@
       "source_location": "L384",
       "_origin": "ast",
       "id": "src_slack_handlers_userskillshomeactions_parseslugmetadata",
-      "community": 38,
+      "community": 304,
       "norm_label": "parseslugmetadata()"
     },
     {
@@ -31245,7 +31245,7 @@
       "source_location": "L396",
       "_origin": "ast",
       "id": "src_slack_handlers_userskillshomeactions_refreshhomeview",
-      "community": 38,
+      "community": 304,
       "norm_label": "refreshhomeview()"
     },
     {
@@ -31375,7 +31375,7 @@
       "source_location": "L541",
       "_origin": "ast",
       "id": "src_slack_hometab_formataccesstag",
-      "community": 3,
+      "community": 304,
       "norm_label": "formataccesstag()"
     },
     {
@@ -32935,7 +32935,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "src_slack_userskillshometab",
-      "community": 38,
+      "community": 304,
       "norm_label": "userskillshometab.ts"
     },
     {
@@ -32945,7 +32945,7 @@
       "source_location": "L56",
       "_origin": "ast",
       "id": "src_slack_userskillshometab_builduserskillssection",
-      "community": 38,
+      "community": 304,
       "norm_label": "builduserskillssection()"
     },
     {
@@ -32955,7 +32955,7 @@
       "source_location": "L131",
       "_origin": "ast",
       "id": "src_slack_userskillshometab_buildcreateskillmodal",
-      "community": 38,
+      "community": 304,
       "norm_label": "buildcreateskillmodal()"
     },
     {
@@ -32965,7 +32965,7 @@
       "source_location": "L178",
       "_origin": "ast",
       "id": "src_slack_userskillshometab_buildeditskillmodal",
-      "community": 38,
+      "community": 304,
       "norm_label": "buildeditskillmodal()"
     },
     {
@@ -36365,7 +36365,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "src_tools_admin_admindescribeconfigfile",
-      "community": 23,
+      "community": 26,
       "norm_label": "admindescribeconfigfile.ts"
     },
     {
@@ -36375,7 +36375,7 @@
       "source_location": "L6",
       "_origin": "ast",
       "id": "src_tools_admin_admindescribeconfigfile_supported_files",
-      "community": 23,
+      "community": 26,
       "norm_label": "supported_files"
     },
     {
@@ -36385,7 +36385,7 @@
       "source_location": "L7",
       "_origin": "ast",
       "id": "src_tools_admin_admindescribeconfigfile_supportedfile",
-      "community": 23,
+      "community": 26,
       "norm_label": "supportedfile"
     },
     {
@@ -36395,7 +36395,7 @@
       "source_location": "L9",
       "_origin": "ast",
       "id": "src_tools_admin_admindescribeconfigfile_createadmindescribeconfigfiletool",
-      "community": 23,
+      "community": 26,
       "norm_label": "createadmindescribeconfigfiletool()"
     },
     {
@@ -36855,7 +36855,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "src_tools_admin_readerrorreport",
-      "community": 23,
+      "community": 26,
       "norm_label": "readerrorreport.ts"
     },
     {
@@ -36865,7 +36865,7 @@
       "source_location": "L6",
       "_origin": "ast",
       "id": "src_tools_admin_readerrorreport_createreaderrorreporttool",
-      "community": 23,
+      "community": 26,
       "norm_label": "createreaderrorreporttool()"
     },
     {
@@ -37255,7 +37255,7 @@
       "source_location": "L620",
       "_origin": "ast",
       "id": "src_tools_presentation_submitresponse_submitresponsesuccessresult",
-      "community": 6,
+      "community": 18,
       "norm_label": "submitresponsesuccessresult"
     },
     {
@@ -39225,7 +39225,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "src_tools_query_getconversationstats",
-      "community": 88,
+      "community": 26,
       "norm_label": "getconversationstats.ts"
     },
     {
@@ -39235,7 +39235,7 @@
       "source_location": "L11",
       "_origin": "ast",
       "id": "src_tools_query_getconversationstats_description",
-      "community": 88,
+      "community": 26,
       "norm_label": "description"
     },
     {
@@ -39245,7 +39245,7 @@
       "source_location": "L21",
       "_origin": "ast",
       "id": "src_tools_query_getconversationstats_creategetconversationstatstool",
-      "community": 88,
+      "community": 26,
       "norm_label": "creategetconversationstatstool()"
     },
     {
@@ -39455,7 +39455,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "src_tools_query_listconfigfiles",
-      "community": 88,
+      "community": 26,
       "norm_label": "listconfigfiles.ts"
     },
     {
@@ -39475,7 +39475,7 @@
       "source_location": "L16",
       "_origin": "ast",
       "id": "src_tools_query_listconfigfiles_defaultdeps",
-      "community": 88,
+      "community": 26,
       "norm_label": "defaultdeps"
     },
     {
@@ -39485,7 +39485,7 @@
       "source_location": "L21",
       "_origin": "ast",
       "id": "src_tools_query_listconfigfiles_createlistconfigfilestool",
-      "community": 88,
+      "community": 26,
       "norm_label": "createlistconfigfilestool()"
     },
     {
@@ -39725,7 +39725,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "src_tools_query_randomroll",
-      "community": 23,
+      "community": 26,
       "norm_label": "randomroll.ts"
     },
     {
@@ -39735,7 +39735,7 @@
       "source_location": "L8",
       "_origin": "ast",
       "id": "src_tools_query_randomroll_randomrolldeps",
-      "community": 23,
+      "community": 26,
       "norm_label": "randomrolldeps"
     },
     {
@@ -39745,7 +39745,7 @@
       "source_location": "L13",
       "_origin": "ast",
       "id": "src_tools_query_randomroll_defaultdeps",
-      "community": 23,
+      "community": 26,
       "norm_label": "defaultdeps"
     },
     {
@@ -39755,7 +39755,7 @@
       "source_location": "L17",
       "_origin": "ast",
       "id": "src_tools_query_randomroll_createrandomrolltool",
-      "community": 23,
+      "community": 26,
       "norm_label": "createrandomrolltool()"
     },
     {
@@ -40095,7 +40095,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "src_tools_query_viewslackfile",
-      "community": 88,
+      "community": 26,
       "norm_label": "viewslackfile.ts"
     },
     {
@@ -40105,7 +40105,7 @@
       "source_location": "L10",
       "_origin": "ast",
       "id": "src_tools_query_viewslackfile_formatfilesize",
-      "community": 88,
+      "community": 26,
       "norm_label": "formatfilesize()"
     },
     {
@@ -40115,7 +40115,7 @@
       "source_location": "L16",
       "_origin": "ast",
       "id": "src_tools_query_viewslackfile_createviewslackfiletool",
-      "community": 88,
+      "community": 26,
       "norm_label": "createviewslackfiletool()"
     },
     {
@@ -40125,7 +40125,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "src_tools_query_viewslackimage",
-      "community": 88,
+      "community": 26,
       "norm_label": "viewslackimage.ts"
     },
     {
@@ -40135,7 +40135,7 @@
       "source_location": "L14",
       "_origin": "ast",
       "id": "src_tools_query_viewslackimage_downloadslackfile",
-      "community": 88,
+      "community": 26,
       "norm_label": "downloadslackfile()"
     },
     {
@@ -40145,7 +40145,7 @@
       "source_location": "L46",
       "_origin": "ast",
       "id": "src_tools_query_viewslackimage_createviewslackimagetool",
-      "community": 88,
+      "community": 26,
       "norm_label": "createviewslackimagetool()"
     },
     {
@@ -40225,7 +40225,7 @@
       "source_location": "L228",
       "_origin": "ast",
       "id": "src_tools_server_responsecapture",
-      "community": 6,
+      "community": 18,
       "norm_label": "responsecapture"
     },
     {
@@ -40515,7 +40515,7 @@
       "source_location": "L102",
       "_origin": "ast",
       "id": "src_tools_types_delivertoentry",
-      "community": 6,
+      "community": 18,
       "norm_label": "delivertoentry"
     },
     {
@@ -40735,7 +40735,7 @@
       "source_location": "L480",
       "_origin": "ast",
       "id": "src_tools_types_posttoaction",
-      "community": 6,
+      "community": 18,
       "norm_label": "posttoaction"
     },
     {
@@ -44215,7 +44215,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "vitest_config",
-      "community": 34,
+      "community": 59,
       "norm_label": "vitest.config.ts"
     },
     {
@@ -48990,7 +48990,7 @@
       "captured_at": null,
       "author": null,
       "contributor": null,
-      "community": 23,
+      "community": 26,
       "norm_label": "claude agent sdk",
       "id": "claude_agent_sdk"
     },
@@ -63227,6 +63227,17 @@
       "source_location": "L5",
       "weight": 1.0,
       "source": "src_changes_verification_runner",
+      "target": "src_changes_verification_config",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "imports_from",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "vitest.config.ts",
+      "source_location": "L1",
+      "weight": 1.0,
+      "source": "vitest_config",
       "target": "src_changes_verification_config",
       "confidence_score": 1.0
     },
@@ -102131,17 +102142,6 @@
       "source_location": "L4",
       "weight": 1.0,
       "source": "src_plugins_casual_talk_tools_workhours",
-      "target": "src_plugins_casual_talk_config",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "imports_from",
-      "context": "import",
-      "confidence": "EXTRACTED",
-      "source_file": "vitest.config.ts",
-      "source_location": "L1",
-      "weight": 1.0,
-      "source": "vitest_config",
       "target": "src_plugins_casual_talk_config",
       "confidence_score": 1.0
     },
@@ -198640,5 +198640,5 @@
       "source_file": ".claude/skills/migrate-skill-pack/SKILL.md"
     }
   ],
-  "built_at_commit": "8a026eba9fdbc2780c0a5bfaa547ba9f70f819d2"
+  "built_at_commit": "b39c63d39a6c92830de553c0616ff68c38e9c973"
 }
