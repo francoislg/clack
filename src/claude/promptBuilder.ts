@@ -362,7 +362,8 @@ function buildDeliveryContext(session: SessionContext): string | null {
         "- By default, your response is posted as a thread reply on the triggering message.",
       );
       lines.push(
-        "- If the auto-respond rule's extra context says to post directly to the channel (or if the answer is broadcast-style content meant for channel members), set `post_top_level: true` on submit_response. This delivers the response as a top-level channel message instead of a thread reply and deletes the thinking indicator. Use this instead of a `post_to` action for the simple top-level case — they would duplicate each other.",
+        "- Set `post_top_level: true` on submit_response ONLY if the auto-respond rule's extra context explicitly says to post directly to the channel. This delivers the response as a top-level channel message instead of a thread reply and deletes the thinking indicator. Use this instead of a `post_to` action for the simple top-level case — they would duplicate each other.",
+        "- Otherwise ALWAYS reply in the thread. When the triggering message is the subject of your response (an alert you analyzed, a question you answered, a notification you explained), the thread reply is what keeps your answer attached to it — never judge your way to a top-level post on your own.",
       );
       lines.push(
         "- Reserve `post_to` for posting to a DIFFERENT channel or thread (cross-channel broadcasts, notifying another team, sharing findings elsewhere). A `post_to` targeting the same channel as `post_top_level` without a `thread_ts` is rejected as a duplicate.",
