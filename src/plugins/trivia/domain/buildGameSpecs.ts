@@ -142,7 +142,8 @@ export function buildGameSpecs(games: TriviaGame[], offDays?: OffDay[]): CronJob
       submitResponseMode: "skipped",
       // Pre-attach the `trivia` topic so persona / reveal-tone / finale-tone instruction
       // files load into the system prompt from turn 1. See `plugin-topic-instructions`.
-      attachedTopics: ["trivia"],
+      // `response-rendering` because this fire composes Claude-authored Block Kit.
+      attachedTopics: ["trivia", "response-rendering"],
       // Trivia is button-driven; keep auto-respond conservative so Clack doesn't chime into
       // chatter in the game thread.
       attentionLevel: "low",
@@ -179,7 +180,8 @@ export function buildGameSpecs(games: TriviaGame[], offDays?: OffDay[]): CronJob
       prompt: substituteGame(buildProcessRevealInstructions(), game.name),
       timezone: game.timezone,
       requiredTools: REVEAL_REQUIRED_TOOLS,
-      attachedTopics: ["trivia"],
+      // `response-rendering` because the reveal posts a rich Claude-authored message.
+      attachedTopics: ["trivia", "response-rendering"],
       attentionLevel: "low",
       ...(skipDates ? { skipDates } : {}),
     });

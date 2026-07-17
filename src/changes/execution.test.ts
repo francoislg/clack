@@ -282,4 +282,12 @@ describe("runClaude — model selection", () => {
 
     assert.equal(getOptions()?.model, undefined);
   });
+
+  it("never receives built-in topics — worker sessions bypass the instruction cascade", async () => {
+    const { deps, getOptions } = captureOptionsWithConfig({ claudeCode: {} });
+
+    await runClaude({ prompt: "go", cwd: "/tmp", _deps: deps });
+
+    assert.ok(!("preAttachedTopics" in (getOptions() ?? {})));
+  });
 });

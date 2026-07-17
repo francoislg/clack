@@ -33,6 +33,9 @@ Every request must present the token, either way:
 ```bash
 curl -s -H "x-status-token: $STATUS_TOKEN" 'localhost:8787/prompt?role=owner&topics=idler'
 curl -s -H "Authorization: Bearer $STATUS_TOKEN" 'localhost:8787/prompt?role=dev&changesWorkflow=1'
+# Interactive sessions auto-attach the response-rendering built-in topic — include it
+# to reproduce what a DM/mention session actually pays:
+curl -s -H "x-status-token: $STATUS_TOKEN" 'localhost:8787/prompt?role=dev&topics=response-rendering'
 ```
 
 ### Query parameters

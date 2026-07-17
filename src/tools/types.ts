@@ -212,6 +212,11 @@ export interface QueryToolContext {
    */
   asOf?: Date;
   /**
+   * Topic names pre-attached at session start (built-in auto-attach merged with any
+   * caller-declared topics). Consumed by `submit_response`'s formatting-hint gate.
+   */
+  preAttachedTopics?: string[];
+  /**
    * Owns the session's MCP-server lifecycle — tracks session-start servers, attached
    * servers, the effective registry, and wraps every `setMcpServers` call so the
    * merge invariant is guaranteed. Populated by the session orchestrator and bound

@@ -282,6 +282,7 @@ async function buildQuerySetup(
     requiredTools: options?.requiredTools,
     skipConditions: options?.skipConditions,
     submitResponseMode: options?.submitResponseMode,
+    preAttachedTopics: options?.preAttachedTopics,
     allowMultiMessage,
     ...(maxAdditionalMessages !== undefined && { maxAdditionalMessages }),
     asOf: options?.asOf,

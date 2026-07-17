@@ -166,7 +166,9 @@ export const idlerPlugin: ClackPlugin = async (sdk: ClackSdk) => {
         prompt: buildSummaryPrompt(),
         timezone: tz,
         name: "Idler summary",
-        attachedTopics: [TOPIC],
+        // `response-rendering` because the summary posts a rich digest; sync/work
+        // fires stay lean (their deliverables are tool calls, not rich messages).
+        attachedTopics: [TOPIC, "response-rendering"],
       });
     }
 

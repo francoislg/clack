@@ -24,6 +24,14 @@ Skipped runs are recorded in the job's history with `status: "skipped"` (distinc
 
 When a scheduled job has BOTH `skipConditions` and `requiredTools`, the required-tools gate runs before the skip branch. Claude must call the required tools before it can legitimately skip. This is intentional: the operator declared those tools as obligations for every run.
 
+### Attached Topics (`attached_topics`)
+
+`create_scheduled_message` and `update_scheduled_message` accept an optional `attached_topics` field — topic names whose instruction files are loaded into the run's system prompt each time the job fires (the same names `attach_integration` accepts, e.g. `response-rendering` for Slack rendering guidance).
+
+- `create_scheduled_message` defaults to `["response-rendering"]` when the field is omitted, so scheduled posts keep rich-output quality. Pass `[]` explicitly for a lean run that needs no rendering guidance (e.g. one whose deliverable is produced by other required tools).
+- `update_scheduled_message` replaces the whole list; `[]` clears it; omitting the field leaves it unchanged.
+- Topic names are validated at write time — unknown names are rejected with the list of known topics.
+
 ### Off-Days (`skipDates`)
 
 Cron jobs may also carry a structured `skipDates` field — an array of `{ date, label }` entries where `date` is either `YYYY-MM-DD` (exact) or `MM-DD` (annually recurring). The scheduler evaluates `skipDates` **before** opening a Claude session: on a match the run is recorded as `status: "skipped"` and Claude is never invoked. This is the deterministic, free, off-day mechanism — use it for fixed-calendar skips like holidays, where `skipConditions` would be both wasteful (one Claude session per fire) and risky (the model could misread the date list).

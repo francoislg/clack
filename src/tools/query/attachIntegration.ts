@@ -80,6 +80,27 @@ export function createAttachIntegrationTool(
         );
       }
 
+      // Pre-attached topics loaded their instructions into the system prompt at session
+      // start — re-resolving them here would re-inject the same content into history.
+      // Checked BEFORE the registry lookup: pre-attached names (e.g. plugin topics from
+      // a cron spec) need not exist in the integrations registry.
+      if (ctx.preAttachedTopics?.includes(args.name)) {
+        logger.info(`mcp.attach sessionId=${sessionId} name=${args.name} outcome=pre_attached`);
+        await appendAttachHistory(ctx.session, deps.updateSession, {
+          name: args.name,
+          outcome: "duplicate",
+          timestamp: Date.now(),
+        });
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: `Integration ${args.name} was pre-attached at session start — its instructions are already in your system prompt. No additional action taken.`,
+            },
+          ],
+        };
+      }
+
       if (!manager.knowsServer(args.name)) {
         const available = manager.knownNames().join(", ");
         logger.info(`mcp.attach sessionId=${sessionId} name=${args.name} outcome=unknown`);

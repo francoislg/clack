@@ -472,6 +472,12 @@ export interface SubmitResponseDeps {
   /** When true, the skip_response parameter is available in the schema. */
   allowSkip?: boolean;
   /**
+   * Returns true when the `response-rendering` topic is loaded (pre-attached at session
+   * start or attached mid-session). When absent or false, formatting-class validation
+   * failures append a hint to attach the topic before retrying.
+   */
+  isResponseRenderingAttached?: () => boolean;
+  /**
    * Declarative override of the schema/gating behavior. When `"skipped"`, the entire schema
    * is replaced by `{ skip_response: z.literal(true) }`. Other values are honored by
    * `computeAllowSkip` (which has already run by the time this is passed). See the
@@ -1282,13 +1288,13 @@ export function createSubmitResponseTool(deps: SubmitResponseDeps) {
       // per-error round-trips. The earlier early-return gates (pending-input, required-tools,
       // skip path) are NOT part of this — they're pre-validation handler-level gates.
 
-      const errors: string[] = [];
-
       // Per-message validation: blocks, table, length budget. Each message gets its own
-      // 10,000-char budget — no aggregate sum across the batch.
+      // 10,000-char budget — no aggregate sum across the batch. Kept separate from
+      // action errors: formatting-class failures gate the response-rendering hint below.
+      const formattingErrors: string[] = [];
       const batchMessages = enumerateBatchMessages(args);
       for (const m of batchMessages) {
-        errors.push(
+        formattingErrors.push(
           ...validateSingleMessage({
             blocks: m.blocks,
             ...(m.table && { table: m.table }),
@@ -1307,9 +1313,20 @@ export function createSubmitResponseTool(deps: SubmitResponseDeps) {
         intentStore,
         effectiveTopLevelChannel,
       );
-      errors.push(...actionErrors);
+      const errors = [...formattingErrors, ...actionErrors];
 
       if (errors.length > 0) {
+        // Formatting failures without the rendering guidance loaded get a corrective hint —
+        // the retry round-trip is already happening, so the hint rides it for free. Action
+        // errors alone never hint (the topic wouldn't help there).
+        const hint =
+          formattingErrors.length > 0 &&
+          deps.isResponseRenderingAttached !== undefined &&
+          !deps.isResponseRenderingAttached()
+            ? {
+                hint: 'Formatting rules for blocks and tables are documented in the response-rendering topic — call attach_integration("response-rendering") to load them before retrying.',
+              }
+            : {};
         // Preserve backward-compatible error shape when there's a single error: surface it
         // directly in `error` (matches today's "error contains the human-readable message"
         // contract). For multi-error batches, use `error: "invalid_batch"` and put every
@@ -1317,7 +1334,9 @@ export function createSubmitResponseTool(deps: SubmitResponseDeps) {
         return recordError(
           recorder,
           args,
-          errors.length === 1 ? { error: errors[0] } : { error: "invalid_batch", details: errors },
+          errors.length === 1
+            ? { error: errors[0], ...hint }
+            : { error: "invalid_batch", details: errors, ...hint },
         );
       }
 

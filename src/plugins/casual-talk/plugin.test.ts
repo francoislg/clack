@@ -221,7 +221,7 @@ describe("casual-talk plugin load", () => {
     assert.equal(created.pluginManaged, true);
     assert.equal(created.submitResponseMode, "optional-post-to");
     assert.deepEqual(created.requiredTools, ["mcp__clack__random_roll"]);
-    assert.deepEqual(created.attachedTopics, ["casual-talk"]);
+    assert.deepEqual(created.attachedTopics, ["casual-talk", "response-rendering"]);
     assert.equal(created.name, "Casual chatter");
     // Internal jitter constant carried onto the spec; must stay below the 15-minute cadence.
     assert.ok(

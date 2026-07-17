@@ -3,6 +3,7 @@ import { join } from "path";
 import { execSync } from "child_process";
 import type { McpServerConfig } from "@anthropic-ai/claude-agent-sdk";
 import { getInstallationToken } from "./github.js";
+import { RESPONSE_RENDERING_TOPIC } from "./claude/builtinTopics.js";
 import { logger } from "./logger.js";
 import type { McpServerRegistry } from "./config.js";
 import {
@@ -262,6 +263,22 @@ export function setPinnedSpawnConfig(name: string, config: McpServerConfig): voi
 export const UNMAPPED_REGISTRY_DESCRIPTION =
   "(unmapped — add a description in config.json to enable lazy loading)";
 
+/**
+ * Built-in instructions-only catalog entry for the `response-rendering` topic. No MCP
+ * server exists behind this name — attaching it injects the topic's instruction files
+ * (Block Kit formatting, delivery-context actions, post_to composition) via
+ * `attach_integration`'s instructions-only path. Interactive triggers pre-attach it
+ * automatically; this entry lets scheduled fires self-attach when composing rich output.
+ */
+export const DEFAULT_RESPONSE_RENDERING_REGISTRY_ENTRY: {
+  alwaysLoad: false;
+  description: string;
+} = {
+  alwaysLoad: false,
+  description:
+    "Slack rendering guidance (guidance only, no tools) — Block Kit formatting rules, delivery-context action guidance, and post_to composition. Attach BEFORE composing a rich visible message (tables, cards, multi-block layouts) when it is not already loaded.",
+};
+
 export interface ResolveEffectiveRegistryInput {
   /** `config.mcpServers` as parsed from `data/config.json` — may be undefined or empty. */
   configRegistry?: McpServerRegistry;
@@ -316,6 +333,11 @@ export function resolveEffectiveRegistry(
   if (githubAutoInjected && !("github" in registry)) {
     registry.github = { ...GITHUB_DEFAULT_REGISTRY };
     // GitHub auto-inject is a first-class path — don't report as unmapped.
+  }
+
+  if (!(RESPONSE_RENDERING_TOPIC in registry)) {
+    registry[RESPONSE_RENDERING_TOPIC] = { ...DEFAULT_RESPONSE_RENDERING_REGISTRY_ENTRY };
+    // Built-in instructions-only topic — never reported as unmapped.
   }
 
   for (const entry of pluginIntegrations ?? []) {

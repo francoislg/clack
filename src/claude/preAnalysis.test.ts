@@ -422,6 +422,30 @@ describe("runPreAnalysis", () => {
     );
   });
 
+  it("does NOT receive built-in topics — pre-analysis bypasses the instruction cascade", async () => {
+    let capturedOptions: QueryCallArg["options"];
+    mockQuery.mockImplementation((...args: unknown[]) => {
+      capturedOptions = (args[0] as QueryCallArg).options;
+      return asyncIterableOf([{ type: "result", subtype: "success", result: "skip" }]);
+    });
+
+    await runPreAnalysis(
+      "hello",
+      "Alice",
+      "Clack",
+      "Skip noise",
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      makeDeps(),
+    );
+
+    assert.ok(!("preAttachedTopics" in (capturedOptions ?? {})));
+    assert.ok(!capturedOptions!.systemPrompt!.includes("response-rendering"));
+  });
+
   it("includes attributed recent messages and author in the prompt", async () => {
     let capturedPrompt = "";
     mockQuery.mockImplementation((...args: unknown[]) => {

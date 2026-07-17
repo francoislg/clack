@@ -601,3 +601,58 @@ describe("processMessage — resumeSessionId", () => {
     assert.equal(mockCreateSession.mock.calls.length, 0);
   });
 });
+
+describe("processMessage — built-in topic auto-attach", () => {
+  beforeEach(() => {
+    resetAllMocks();
+  });
+
+  function deliveredTopics(): string[] | undefined {
+    return mockExecuteAndDeliver.mock.calls[0]![0].claudeOptions.preAttachedTopics;
+  }
+
+  const interactive: TriggerType[] = [
+    "directMessages",
+    "mentions",
+    "reactions",
+    "autoRespond",
+    "threadReply",
+    "channelReply",
+  ];
+
+  for (const triggerType of interactive) {
+    it(`auto-attaches response-rendering for ${triggerType}`, async () => {
+      const deps = makeDeps();
+      await processMessage(makeParams({ triggerType }), deps);
+
+      assert.deepEqual(deliveredTopics(), ["response-rendering"]);
+    });
+  }
+
+  it("scheduled passes only the caller-supplied topics through", async () => {
+    const deps = makeDeps();
+    await processMessage(
+      makeParams({ triggerType: "scheduled", preAttachedTopics: ["trivia"] }),
+      deps,
+    );
+
+    assert.deepEqual(deliveredTopics(), ["trivia"]);
+  });
+
+  it("scheduled with no declared topics attaches nothing", async () => {
+    const deps = makeDeps();
+    await processMessage(makeParams({ triggerType: "scheduled" }), deps);
+
+    assert.equal(deliveredTopics(), undefined);
+  });
+
+  it("deduplicates when the caller already supplies response-rendering", async () => {
+    const deps = makeDeps();
+    await processMessage(
+      makeParams({ triggerType: "mentions", preAttachedTopics: ["response-rendering"] }),
+      deps,
+    );
+
+    assert.deepEqual(deliveredTopics(), ["response-rendering"]);
+  });
+});

@@ -114,8 +114,8 @@ describe("buildGameSpecs", () => {
 
   it("both specs attach the trivia topic for persona / tone loading", () => {
     const [question, reveal] = buildGameSpecs([baseGame]);
-    assert.deepEqual(question.attachedTopics, ["trivia"]);
-    assert.deepEqual(reveal.attachedTopics, ["trivia"]);
+    assert.deepEqual(question.attachedTopics, ["trivia", "response-rendering"]);
+    assert.deepEqual(reveal.attachedTopics, ["trivia", "response-rendering"]);
   });
 
   it("reveal spec NEVER includes the absorbed, conditional, or season tools", () => {

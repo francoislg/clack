@@ -92,6 +92,7 @@ function makeDeps(
     requiredTools: string[];
     hasPendingInput: () => boolean;
     consumePendingPushedTexts: () => string[];
+    isResponseRenderingAttached: () => boolean;
   }> = {},
 ) {
   const intentStore: IntentStore = {
@@ -133,6 +134,7 @@ function makeDeps(
     requiredTools: overrides.requiredTools,
     hasPendingInput: overrides.hasPendingInput,
     consumePendingPushedTexts: overrides.consumePendingPushedTexts,
+    isResponseRenderingAttached: overrides.isResponseRenderingAttached,
     getStructuredResponseBlocks: mockGetStructuredResponseBlocks,
     validateBlocks: mockValidateBlocks,
     validateTable: mockValidateTable,
@@ -3215,6 +3217,62 @@ describe("createSubmitResponseTool", () => {
       assert.ok(parsed.details.length >= 2);
       assert.ok(parsed.details.some((d: string) => /unknown ref/.test(d)));
       assert.ok(parsed.details.some((d: string) => /didn't include/.test(d)));
+    });
+
+    // -------- response-rendering attach hint on formatting-class failures --------
+
+    const OVERLONG_BLOCKS = [
+      { type: "section" as const, text: { type: "mrkdwn" as const, text: "x".repeat(10_001) } },
+    ];
+
+    it("formatting failure without the topic appends the attach hint", async () => {
+      const deps = makeDeps({ isResponseRenderingAttached: () => false });
+      const result = await callTool(deps, { blocks: OVERLONG_BLOCKS, actions: [] });
+
+      assert.equal("isError" in result && result.isError, true);
+      const parsed = parseToolResult(result);
+      assert.match(parsed.hint, /attach_integration\("response-rendering"\)/);
+    });
+
+    it("mixed formatting + action errors still hint", async () => {
+      const deps = makeDeps({ isResponseRenderingAttached: () => false });
+      const result = await callTool(deps, {
+        blocks: OVERLONG_BLOCKS,
+        actions: [{ type: "change", ref: "unknown-ref" }],
+      });
+
+      const parsed = parseToolResult(result);
+      assert.equal(parsed.error, "invalid_batch");
+      assert.match(parsed.hint, /response-rendering/);
+    });
+
+    it("action-only failure never hints", async () => {
+      const deps = makeDeps({ isResponseRenderingAttached: () => false });
+      const result = await callTool(deps, {
+        blocks: [{ type: "section", text: { type: "mrkdwn", text: "fine" } }],
+        actions: [{ type: "change", ref: "unknown-ref" }],
+      });
+
+      assert.equal("isError" in result && result.isError, true);
+      const parsed = parseToolResult(result);
+      assert.equal(parsed.hint, undefined);
+    });
+
+    it("attached session gets no hint on formatting failure", async () => {
+      const deps = makeDeps({ isResponseRenderingAttached: () => true });
+      const result = await callTool(deps, { blocks: OVERLONG_BLOCKS, actions: [] });
+
+      assert.equal("isError" in result && result.isError, true);
+      const parsed = parseToolResult(result);
+      assert.equal(parsed.hint, undefined);
+    });
+
+    it("no attach-state supplier (worker/test contexts) means no hint", async () => {
+      const deps = makeDeps();
+      const result = await callTool(deps, { blocks: OVERLONG_BLOCKS, actions: [] });
+
+      const parsed = parseToolResult(result);
+      assert.equal(parsed.hint, undefined);
     });
 
     // -------- §6 — per-message validateSingleMessage helper --------
