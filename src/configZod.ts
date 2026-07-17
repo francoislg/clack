@@ -50,6 +50,8 @@ const optBool = (v: JsonValue | undefined): boolean | undefined =>
   typeof v === "boolean" ? v : undefined;
 const optNum = (v: JsonValue | undefined): number | undefined =>
   typeof v === "number" ? v : undefined;
+const optStr = (v: JsonValue | undefined): string | undefined =>
+  typeof v === "string" && v.length > 0 ? v : undefined;
 
 function parseGracefulInteger(
   val: JsonValue | undefined,
@@ -257,6 +259,7 @@ export function validateConfig(config: unknown, slackAuth: SlackAuthConfig): Con
     },
     claudeCode: {
       model: claudeCodeRaw ? stringOr(claudeCodeRaw.model, "sonnet") : "sonnet",
+      workerModel: claudeCodeRaw ? optStr(claudeCodeRaw.workerModel) : undefined,
       watchMcpConfig: claudeCodeRaw ? boolOr(claudeCodeRaw.watchMcpConfig, false) : false,
     },
     changesWorkflow: cwRaw
