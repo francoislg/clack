@@ -171,7 +171,9 @@ echo -e "${YELLOW}Streaming paths to $REMOTE_DATA_DIR ...${NC}"
 # Single SSH session: mkdir (defensive) + tar -x (from stdin) + scoped chown.
 # Consolidating into one call avoids ~10s of cumulative SSH setup overhead
 # vs the previous three-call approach.
-tar -C "$PROJECT_DIR" -cf - --files-from="$TMPLIST" \
+# COPYFILE_DISABLE stops macOS tar from emitting AppleDouble `._*` companion
+# files, which otherwise litter the VM and show up as noise in gce-config-diff.
+COPYFILE_DISABLE=1 tar -C "$PROJECT_DIR" -cf - --files-from="$TMPLIST" \
     | gcloud compute ssh "$INSTANCE_NAME" --zone="$ZONE" --quiet \
         --command="
 set -e
