@@ -22,13 +22,25 @@ export function createRecallTool(deps: RecallDeps = defaultDeps) {
         ),
       from: z.string().optional().describe("ISO lower bound on updatedAt"),
       to: z.string().optional().describe("ISO upper bound on updatedAt"),
+      since_hours: z
+        .number()
+        .positive()
+        .optional()
+        .describe(
+          "Relative lower bound: only entries updated within the last N hours. The cutoff is computed server-side from the current clock — use this instead of `from` for recency windows; never compute ISO timestamps yourself. Ignored when `from` is provided.",
+        ),
       limit: z.number().int().min(1).max(100).optional().describe("Page size (default 20)"),
       offset: z.number().int().min(0).optional().describe("Page offset (default 0)"),
     },
     async (args) => {
+      const from =
+        args.from ??
+        (args.since_hours !== undefined
+          ? new Date(Date.now() - args.since_hours * 60 * 60 * 1000).toISOString()
+          : undefined);
       const search: SearchMemoryArgs = {
         query: args.query,
-        from: args.from,
+        from,
         to: args.to,
         limit: args.limit,
         offset: args.offset,

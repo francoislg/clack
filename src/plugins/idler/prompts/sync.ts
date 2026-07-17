@@ -4,9 +4,11 @@ import type { IdlerConfig } from "../types.js";
  * The shared memory-triage recipe, run on BOTH sync tiers. Reads a recency-ordered page, classifies
  * every entry by its idler slice, then adopts (actionable + allowlisted) or ignores (everything
  * else) up to a bounded number of candidates. Classify-then-take slides past already-triaged newest
- * entries to reach older untriaged ones. Kept in one place so light and deep can't drift on it.
+ * entries to reach older untriaged ones. The `recallCall` parameter is the only tier difference:
+ * light reads a server-computed 24h window (its whole scope), deep reads the unwindowed newest page.
+ * Kept in one place so light and deep can't drift on the classification rules.
  */
-const MEMORY_TRIAGE_RECIPE = `a. Call recall with no query and limit 50 (newest-updatedAt first).
+const MEMORY_TRIAGE_RECIPE = (recallCall: string) => `a. ${recallCall}
    b. Classify EVERY entry on the page by its plugins.idler slice:
       - NO plugins.idler slice → CANDIDATE (untriaged).
       - plugins.idler.ignoredAt EQUALS the entry's updatedAt → SKIP (already triaged as not-work, unchanged since).
@@ -36,7 +38,14 @@ Allowlisted repos: ${repos}
 
 ## Triage recently-changed memory
 Other paths (a scheduled message, a Q&A session) may have remembered work-shaped entries the idler never sourced. Pick them up:
-   ${MEMORY_TRIAGE_RECIPE}
+   ${MEMORY_TRIAGE_RECIPE(
+     "Call recall with no query, `since_hours: 24`, and limit 30 (newest-updatedAt first). This bounded window IS the light fire's whole reading scope — entries older than that are the deep fire's job.",
+   )}
+
+## Hard budget
+- Make at most 2 recall calls total (the windowed call, plus at most one smaller retry). NEVER paginate through the full memory store — older untriaged entries are caught by the daily deep fire, not by you.
+- If a recall result is too large and gets offloaded to a file, do NOT Read or Grep that file — re-call recall with limit 10 instead and work from what fits.
+- Never open repository files, run Grep/Read on the codebase, or verify an idea against code — if an idea needs code verification, note that in its upsert_idea whereWeAre and leave it for the deep fire.
 
 ## Early exit is the expected outcome
 Most fires find nothing new: if classification yields NO candidates (every entry on the page is already tracked or already ignored-and-unchanged), end the fire immediately with skip_response. Doing nothing is the correct, common result — never manufacture work or reach for the deep-fire steps to fill the fire.
@@ -61,7 +70,7 @@ export function buildSyncDeepPrompt(config: IdlerConfig, fetchInstructions: stri
 
   const triageBlock = config.sources.scanMemory
     ? `2. TRIAGE RECENTLY-CHANGED MEMORY (every fire): other paths (a scheduled message, a Q&A session) may have remembered work-shaped entries the idler never sourced. Pick them up:
-   ${MEMORY_TRIAGE_RECIPE}
+   ${MEMORY_TRIAGE_RECIPE("Call recall with no query and limit 50 (newest-updatedAt first).")}
 `
     : "";
 
