@@ -97,17 +97,48 @@ export function buildDeepSyncCron(s: SyncSchedule, minuteField: string): string 
 }
 
 /**
+ * The hour the discovery fire owns: the thinned sync slot immediately before the anchor,
+ * `(anchor − stepHours) mod 24`. `null` when that hour is outside the thinned sync schedule or
+ * collides with the anchor (single-hour / too-small windows) — the caller then falls back to the
+ * combined maintenance-plus-discovery fire at the anchor.
+ */
+export function discoveryHour(s: SyncSchedule, stepHours: number): number | null {
+  const candidate = (((s.anchor - stepHours) % 24) + 24) % 24;
+  if (candidate === s.anchor) return null;
+  return thinHours(s.hours, stepHours, s.anchor).includes(candidate) ? candidate : null;
+}
+
+/**
+ * The discovery sync cron — the once-per-window-day external-discovery fire at `discoveryHour`.
+ * `null` when no eligible hour exists or no days are set; the deep fire then runs the combined
+ * pass instead.
+ */
+export function buildDiscoverySyncCron(
+  s: SyncSchedule,
+  minuteField: string,
+  stepHours: number,
+): string | null {
+  const hour = discoveryHour(s, stepHours);
+  if (hour === null || s.days.length === 0) return null;
+  return `${minuteField} ${hour} * * ${s.days.join(",")}`;
+}
+
+/**
  * The light sync cron — the cheap memory-triage fire firing every `stepHours` across the sync
- * window, EXCLUDING the anchor hour (which the deep fire owns). Thinning is anchored on that same
- * hour, so light ∪ {anchor} equals the thinned sync schedule and the remaining fires keep their
- * chronological spacing. `null` when nothing remains (a single-hour sync window) or no days are set.
+ * window, EXCLUDING the anchor hour (which the deep fire owns) and the discovery hour (which the
+ * discovery fire owns, when one exists). Thinning is anchored on the anchor hour, so
+ * light ∪ {discovery} ∪ {anchor} equals the thinned sync schedule and every hour is owned by
+ * exactly one spec. `null` when nothing remains (a single-hour sync window) or no days are set.
  */
 export function buildLightSyncCron(
   s: SyncSchedule,
   minuteField: string,
   stepHours: number,
 ): string | null {
-  const hours = thinHours(s.hours, stepHours, s.anchor).filter((h) => h !== s.anchor);
+  const discovery = discoveryHour(s, stepHours);
+  const hours = thinHours(s.hours, stepHours, s.anchor).filter(
+    (h) => h !== s.anchor && h !== discovery,
+  );
   if (hours.length === 0 || s.days.length === 0) return null;
   return `${minuteField} ${compressToCronField(hours)} * * ${s.days.join(",")}`;
 }

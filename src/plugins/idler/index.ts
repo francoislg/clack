@@ -2,6 +2,7 @@ import type { ClackSdk, ClackPlugin, CronJobSpec } from "../sdk.js";
 import { isOperational, loadConfig } from "./config.js";
 import {
   buildDeepSyncCron,
+  buildDiscoverySyncCron,
   buildLightSyncCron,
   buildSummaryCron,
   buildWindowCron,
@@ -9,7 +10,12 @@ import {
 } from "./heuristic.js";
 import { loadFetchInstructions } from "./fetchInstructions.js";
 import { BEHAVIOR_INSTRUCTION } from "./instructions.js";
-import { buildSyncDeepPrompt, buildSyncLightPrompt } from "./prompts/sync.js";
+import {
+  buildSyncDeepPrompt,
+  buildSyncDiscoveryPrompt,
+  buildSyncLightPrompt,
+  buildSyncMaintenancePrompt,
+} from "./prompts/sync.js";
 import { buildWorkPrompt } from "./prompts/work.js";
 import { buildSummaryPrompt } from "./prompts/summary.js";
 import { en as idlerEn, fr as idlerFr } from "./i18n/strings.js";
@@ -120,14 +126,32 @@ export const idlerPlugin: ClackPlugin = async (sdk: ClackSdk) => {
     const schedule = syncSchedule(config.workHours, config.syncHours);
     const syncTz = config.syncHours?.tz ?? tz;
 
+    // Split layout: a separate discovery fire feeds the ledger one slot before the anchor, and
+    // the anchor fire runs maintenance only. No eligible discovery hour → combined fallback.
+    const discoveryCron = buildDiscoverySyncCron(schedule, "45", config.syncEveryHours);
+
     const deepSyncCron = buildDeepSyncCron(schedule, "45");
     if (deepSyncCron) {
       specs.push({
         specKey: "sync",
         cronExpression: deepSyncCron,
-        prompt: buildSyncDeepPrompt(config, fetchInstructions),
+        prompt: discoveryCron
+          ? buildSyncMaintenancePrompt(config)
+          : buildSyncDeepPrompt(config, fetchInstructions),
         timezone: syncTz,
         name: "Idler deep sync",
+        submitResponseMode: "skipped",
+        attachedTopics: [TOPIC],
+      });
+    }
+
+    if (discoveryCron) {
+      specs.push({
+        specKey: "sync-discovery",
+        cronExpression: discoveryCron,
+        prompt: buildSyncDiscoveryPrompt(config, fetchInstructions),
+        timezone: syncTz,
+        name: "Idler discovery sync",
         submitResponseMode: "skipped",
         attachedTopics: [TOPIC],
       });
