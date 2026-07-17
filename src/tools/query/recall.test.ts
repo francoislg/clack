@@ -21,6 +21,7 @@ describe("recall tool", () => {
       query: "login",
       from: "2026-01-01T00:00:00.000Z",
       to: undefined,
+      since_hours: undefined,
       limit: 1,
       offset: 2,
     });
@@ -28,6 +29,44 @@ describe("recall tool", () => {
       expect.objectContaining({ query: "login", limit: 1, offset: 2 }),
     );
     expect(JSON.parse(out.content[0].text ?? "{}")).toEqual(result);
+  });
+
+  it("computes `from` server-side when since_hours is given", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-17T12:00:00.000Z"));
+    try {
+      const result: MemorySearchResult = { total: 0, limit: 20, offset: 0, entries: [] };
+      const searchMemory = vi.fn(async () => result);
+      await invoke(createRecallTool({ searchMemory }), {
+        query: undefined,
+        from: undefined,
+        to: undefined,
+        since_hours: 24,
+        limit: undefined,
+        offset: undefined,
+      });
+      expect(searchMemory).toHaveBeenCalledWith(
+        expect.objectContaining({ from: "2026-07-16T12:00:00.000Z" }),
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("an explicit `from` wins over since_hours", async () => {
+    const result: MemorySearchResult = { total: 0, limit: 20, offset: 0, entries: [] };
+    const searchMemory = vi.fn(async () => result);
+    await invoke(createRecallTool({ searchMemory }), {
+      query: undefined,
+      from: "2026-01-01T00:00:00.000Z",
+      to: undefined,
+      since_hours: 24,
+      limit: undefined,
+      offset: undefined,
+    });
+    expect(searchMemory).toHaveBeenCalledWith(
+      expect.objectContaining({ from: "2026-01-01T00:00:00.000Z" }),
+    );
   });
 
   it("surfaces the archive enrichment on linked memories in the tool output", async () => {
@@ -54,6 +93,7 @@ describe("recall tool", () => {
       query: "tracked",
       from: undefined,
       to: undefined,
+      since_hours: undefined,
       limit: undefined,
       offset: undefined,
     });

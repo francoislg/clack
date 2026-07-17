@@ -31,6 +31,20 @@ describe("buildSyncLightPrompt — triage-only with early exit", () => {
     expect(prompt).not.toContain("External discovery");
   });
 
+  it("reads only a server-computed recency window, never the full store", () => {
+    const prompt = buildSyncLightPrompt(config(true));
+    expect(prompt).toContain("`since_hours: 24`");
+    expect(prompt).not.toContain("recall with no query and limit 50");
+  });
+
+  it("caps recall calls and forbids offload-file and codebase reads", () => {
+    const prompt = buildSyncLightPrompt(config(true));
+    expect(prompt).toContain("at most 2 recall calls");
+    expect(prompt).toContain("NEVER paginate");
+    expect(prompt).toContain("do NOT Read or Grep that file");
+    expect(prompt).toContain("Never open repository files");
+  });
+
   it("short-circuits to skip_response when memory triage is disabled", () => {
     const prompt = buildSyncLightPrompt(config(false));
     expect(prompt).toContain("skip_response");
@@ -64,6 +78,12 @@ describe("buildSyncDeepPrompt — full maintenance pass", () => {
   it("bakes in the admin fetch instructions", () => {
     const prompt = buildSyncDeepPrompt(config(true), FETCH);
     expect(prompt).toContain(FETCH);
+  });
+
+  it("keeps the unwindowed full-page recall (the daily catch-all)", () => {
+    const prompt = buildSyncDeepPrompt(config(true), FETCH);
+    expect(prompt).toContain("recall with no query and limit 50");
+    expect(prompt).not.toContain("since_hours");
   });
 
   it("still closes resolved units and re-verifies the coldest when scanMemory is false", () => {
