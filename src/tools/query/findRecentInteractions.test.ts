@@ -1,4 +1,4 @@
-import { describe, it } from "vitest";
+import { describe, it, vi } from "vitest";
 import assert from "node:assert/strict";
 import { normalizePath } from "../../testUtils.js";
 import {
@@ -25,6 +25,8 @@ function toolArgs(over: { include?: IncludeSection[] } = {}) {
     limit: 10,
     offset: 0,
     since: undefined,
+    since_hours: undefined,
+    plugin: undefined,
     include: over.include ?? ["entries"],
   };
 }
@@ -630,6 +632,117 @@ describe("searchRecentInteractions", () => {
       });
       const results = await search(deps, makeCtx());
       assert.equal(results.length, 2);
+    });
+  });
+
+  describe("sinceHours filter", () => {
+    const NOW = 100 * 60 * 60 * 1000;
+
+    it("computes the cutoff server-side from the current clock", async () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(NOW);
+      try {
+        const deps = makeDeps({
+          recent: makeSessionFile({ sessionId: "recent", createdAt: NOW - 2 * 60 * 60 * 1000 }),
+          stale: makeSessionFile({ sessionId: "stale", createdAt: NOW - 30 * 60 * 60 * 1000 }),
+        });
+        const results = await search(deps, makeCtx(), { sinceHours: 24 });
+        assert.equal(results.length, 1);
+        assert.equal(results[0].sessionId, "recent");
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("`since` wins when both bounds are provided", async () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(NOW);
+      try {
+        const deps = makeDeps({
+          old: makeSessionFile({ sessionId: "old", createdAt: 1000 }),
+          new: makeSessionFile({ sessionId: "new", createdAt: 5000 }),
+        });
+        const results = await search(deps, makeCtx(), { since: 3000, sinceHours: 24 });
+        assert.equal(results.length, 1);
+        assert.equal(results[0].sessionId, "new");
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+  });
+
+  describe("plugin filter", () => {
+    const sessions = {
+      "channelless-fire": makeSessionFile({
+        sessionId: "channelless-fire",
+        channelId: "channelless:job-1",
+        userId: "plugin:idler",
+        triggerType: "scheduled",
+      }),
+      "channeled-fire": makeSessionFile({
+        sessionId: "channeled-fire",
+        channelId: "C0REPORT",
+        userId: "plugin:idler",
+        triggerType: "scheduled",
+      }),
+      "other-plugin": makeSessionFile({
+        sessionId: "other-plugin",
+        channelId: "channelless:job-2",
+        userId: "plugin:trivia",
+        triggerType: "scheduled",
+      }),
+      "human-session": makeSessionFile({
+        sessionId: "human-session",
+        channelId: "C0REPORT",
+        userId: "U001",
+      }),
+    };
+
+    it("matches the plugin's system actor across channel'd and channelless fires", async () => {
+      const deps = makeDeps(sessions);
+      const results = await search(deps, makeCtx("plugin:idler"), { plugin: "idler" });
+      const ids = results.map((r) => r.sessionId).sort();
+      assert.deepEqual(ids, ["channeled-fire", "channelless-fire"]);
+    });
+
+    it("excludes everything for a plugin with no sessions", async () => {
+      const deps = makeDeps(sessions);
+      const results = await search(deps, makeCtx("plugin:idler"), { plugin: "gemini-image" });
+      assert.equal(results.length, 0);
+    });
+
+    it("aggregates usage across both fire shapes when combined with include usage", async () => {
+      const deps = makeDeps({
+        "channelless-fire": makeSessionFile({
+          sessionId: "channelless-fire",
+          channelId: "channelless:job-1",
+          userId: "plugin:idler",
+          triggerType: "scheduled",
+          usage: {
+            inputTokens: 1,
+            outputTokens: 2,
+            cacheReadTokens: 0,
+            cacheCreationTokens: 0,
+            costUsd: 0.5,
+          },
+        }),
+        "channeled-fire": makeSessionFile({
+          sessionId: "channeled-fire",
+          channelId: "C0REPORT",
+          userId: "plugin:idler",
+          triggerType: "scheduled",
+          usage: {
+            inputTokens: 3,
+            outputTokens: 4,
+            cacheReadTokens: 0,
+            cacheCreationTokens: 0,
+            costUsd: 0.25,
+          },
+        }),
+      });
+      const { totalUsage } = await searchFull(deps, makeCtx("plugin:idler"), { plugin: "idler" });
+      assert.equal(totalUsage.costUsd, 0.75);
+      assert.equal(totalUsage.inputTokens, 4);
     });
   });
 

@@ -246,8 +246,16 @@ export interface SearchArgs {
   channel?: string;
   /** Filter by trigger type (reactions, directMessages, mentions, autoRespond, etc.). */
   triggerType?: string;
+  /** Filter to sessions created by a plugin's own scheduled jobs — matches the
+   *  `plugin:<name>` system actor persisted as the session's userId. Catches both
+   *  channel'd and channelless fires, unlike a channel filter. */
+  plugin?: string;
   /** Epoch-ms lower bound on `createdAt`. Only sessions created at or after this are returned. */
   since?: number;
+  /** Relative lower bound: sessions created within the last N hours. The cutoff is computed
+   *  server-side from the current clock, so callers never do epoch arithmetic. Ignored when
+   *  `since` is also provided. */
+  sinceHours?: number;
   /** Which sections to compute and return. Empty/absent is treated as `["entries"]`. */
   include?: IncludeSection[];
 }
@@ -339,12 +347,19 @@ export async function searchRecentInteractions(
     filtered = filtered.filter((s) => s.triggerType === triggerType);
   }
 
+  if (args.plugin) {
+    const actor = `plugin:${args.plugin}`;
+    filtered = filtered.filter((s) => s.userId === actor);
+  }
+
   if (args.keywords) {
     filtered = filtered.filter((s) => matchesKeywords(s, args.keywords!));
   }
 
-  if (args.since !== undefined) {
-    const since = args.since;
+  const since =
+    args.since ??
+    (args.sinceHours !== undefined ? Date.now() - args.sinceHours * 60 * 60 * 1000 : undefined);
+  if (since !== undefined) {
     filtered = filtered.filter((s) => s.createdAt >= since);
   }
 
@@ -465,7 +480,20 @@ export function createFindRecentInteractionsTool(
         .positive()
         .optional()
         .describe(
-          "Epoch-millisecond lower bound on session creation time. Only sessions created at or after this are returned. Use to scope to a time window (e.g. since the start of a reporting window).",
+          "Epoch-millisecond lower bound on session creation time. Only sessions created at or after this are returned. Prefer `since_hours` unless you have an exact epoch timestamp from another tool result — never compute epoch values yourself.",
+        ),
+      plugin: z
+        .string()
+        .optional()
+        .describe(
+          'Filter to sessions created by a plugin\'s own scheduled jobs (system actor "plugin:<name>"). Example: "idler". Matches both channel-bound and channelless fires — prefer this over `channel` when tallying a plugin\'s own activity or spend.',
+        ),
+      since_hours: z
+        .number()
+        .positive()
+        .optional()
+        .describe(
+          'Relative lower bound: only sessions created within the last N hours. The cutoff is computed server-side from the current clock — use this instead of `since` for windows like "the last 24 hours". Ignored when `since` is also provided.',
         ),
       include: z
         .array(INCLUDE_SECTION_ENUM)
@@ -475,10 +503,16 @@ export function createFindRecentInteractionsTool(
           'Which sections to return, as a projected object. "entries" (default) → the paginated per-session summaries; "usage" → a `totalUsage` object summing token + cost usage across ALL matched sessions (the full set, independent of limit/offset). Request `["usage"]` alone to tally spend over a window without pulling back entries — a bounded result that will not hit the tool-result size cap. An empty array is treated as `["entries"]`.',
         ),
     },
-    async ({ include_auto_respond, trigger_type, include, ...rest }) => {
+    async ({ include_auto_respond, trigger_type, since_hours, include, ...rest }) => {
       const result = await searchRecentInteractions(
         ctx,
-        { ...rest, includeAutoRespond: include_auto_respond, triggerType: trigger_type, include },
+        {
+          ...rest,
+          includeAutoRespond: include_auto_respond,
+          triggerType: trigger_type,
+          sinceHours: since_hours,
+          include,
+        },
         deps,
       );
       return textResult(result);

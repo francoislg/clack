@@ -2,17 +2,22 @@ import { describe, it, expect } from "vitest";
 import { buildSummaryPrompt } from "./summary.js";
 
 describe("buildSummaryPrompt", () => {
-  const prompt = buildSummaryPrompt("C0REPORT");
+  const prompt = buildSummaryPrompt();
 
-  it("embeds the reporting channel id for the usage query", () => {
-    expect(prompt).toContain('channel: "C0REPORT"');
+  it("scopes the usage query by plugin actor, not channel", () => {
+    expect(prompt).toContain('plugin: "idler"');
+    expect(prompt).not.toContain("channel:");
+  });
+
+  it("uses the server-computed relative window and forbids epoch math", () => {
+    expect(prompt).toContain("since_hours: 24");
+    expect(prompt).toContain("never compute epoch timestamps");
   });
 
   it("instructs a scoped usage-only query via find_recent_interactions", () => {
     expect(prompt).toContain("find_recent_interactions");
     expect(prompt).toContain('include: ["usage"]');
     expect(prompt).toContain('trigger_type: "scheduled"');
-    expect(prompt).toContain("since");
     // Explains WHY usage-only is safe (bounded result) so the instruction isn't lost on reword.
     expect(prompt).toContain("keeps the result small");
   });
