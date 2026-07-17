@@ -236,3 +236,50 @@ describe("runClaude — worker settings forwarding", () => {
     }
   });
 });
+
+// ============================================================================
+// runClaude — model selection
+// ============================================================================
+
+describe("runClaude — model selection", () => {
+  function captureOptionsWithConfig(overrides: Partial<Config>): {
+    deps: RunClaudeDeps;
+    getOptions: () => ClackSessionParams["options"];
+  } {
+    const clackSession = vi.fn((_params: ClackSessionParams) =>
+      makeRunFromMessages([resultSuccessWithUsage("ok", {} as SDKResultSuccess["usage"])]),
+    );
+    return {
+      deps: { getConfig: vi.fn(() => makeConfig(overrides)), clackSession },
+      getOptions: () => clackSession.mock.calls[0]![0].options,
+    };
+  }
+
+  it("uses claudeCode.workerModel when set", async () => {
+    const { deps, getOptions } = captureOptionsWithConfig({
+      claudeCode: { model: "claude-sonnet-5", workerModel: "claude-opus-4-8" },
+    });
+
+    await runClaude({ prompt: "go", cwd: "/tmp", _deps: deps });
+
+    assert.equal(getOptions()?.model, "claude-opus-4-8");
+  });
+
+  it("falls back to claudeCode.model when workerModel is unset", async () => {
+    const { deps, getOptions } = captureOptionsWithConfig({
+      claudeCode: { model: "claude-sonnet-5" },
+    });
+
+    await runClaude({ prompt: "go", cwd: "/tmp", _deps: deps });
+
+    assert.equal(getOptions()?.model, "claude-sonnet-5");
+  });
+
+  it("passes undefined when neither model is configured", async () => {
+    const { deps, getOptions } = captureOptionsWithConfig({ claudeCode: {} });
+
+    await runClaude({ prompt: "go", cwd: "/tmp", _deps: deps });
+
+    assert.equal(getOptions()?.model, undefined);
+  });
+});

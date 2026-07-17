@@ -156,6 +156,7 @@ export async function runClaude(options: {
     options: {
       cwd: options.cwd,
       executable: detectRuntime(),
+      model: config.claudeCode?.workerModel ?? config.claudeCode?.model,
       systemPrompt: options.systemPrompt,
       allowedTools: options.allowedTools,
       disallowedTools: options.disallowedTools,

@@ -266,6 +266,12 @@ export const CONFIG_SCHEMA: SchemaFor<Config> = {
           default: "sonnet",
           required: false,
         },
+        workerModel: {
+          type: "string",
+          description:
+            "Model for worker-mode (worktree) runs — alias or concrete model ID. Falls back to 'model' when unset.",
+          required: false,
+        },
         watchMcpConfig: {
           type: "boolean",
           description: "Reload mcp.json on disk changes without restarting Clack.",

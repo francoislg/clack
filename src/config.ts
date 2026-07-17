@@ -45,6 +45,8 @@ export interface SessionsConfig {
 
 export interface ClaudeCodeConfig {
   model?: string;
+  /** Model for worker-mode (worktree) runs. Falls back to `model` when unset. */
+  workerModel?: string;
   watchMcpConfig?: boolean;
 }
 
