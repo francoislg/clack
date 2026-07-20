@@ -3,13 +3,14 @@ import { tool } from "@anthropic-ai/claude-agent-sdk";
 import { textResult, errorResult } from "../helpers.js";
 import { errorMessage } from "../../errors.js";
 import type { EmojiCache } from "../../slack/emojiCache.js";
-import { upsertLore, MAX_LORE_EXAMPLES, type EmojiLoreEntry } from "../../emojiLore.js";
+import { upsertLore, clearLore, MAX_LORE_EXAMPLES, type EmojiLoreEntry } from "../../emojiLore.js";
 
 export interface DescribeEmojiDeps {
   upsertLore: typeof upsertLore;
+  clearLore: typeof clearLore;
 }
 
-export const defaultDescribeEmojiDeps: DescribeEmojiDeps = { upsertLore };
+export const defaultDescribeEmojiDeps: DescribeEmojiDeps = { upsertLore, clearLore };
 
 const exampleArg = z.object({
   text: z
@@ -30,6 +31,7 @@ export interface DescribeEmojiResult {
   warning?: string;
   conflict?: string;
   existing?: EmojiLoreEntry;
+  cleared?: boolean;
 }
 
 export function createDescribeEmojiTool(
@@ -38,12 +40,15 @@ export function createDescribeEmojiTool(
 ) {
   return tool(
     "describe_emoji",
-    "Record what a custom workspace emoji MEANS here — the cultural knowledge its name doesn't carry (an in-joke, a team ritual, a specific situation it marks). Lore saved with this tool is what `find_emoji` searches, so recording it is what lets you pick the right emoji later. Use source 'taught' when a person told you the meaning, 'observed' when you inferred it from how you saw it used. An observed write never overwrites a taught one — if they disagree, you get the taught entry back and should raise the discrepancy rather than silently correcting it.",
+    "Record what a custom workspace emoji MEANS here — the cultural knowledge its name doesn't carry (an in-joke, a team ritual, a specific situation it marks). Lore saved with this tool is what `find_emoji` searches, so recording it is what lets you pick the right emoji later. Use source 'taught' when a person told you the meaning, 'observed' when you inferred it from how you saw it used. An observed write never overwrites a taught one — if they disagree, you get the taught entry back and should raise the discrepancy rather than silently correcting it. Pass clear: true to DELETE an entry instead of writing one — do that only when a person asks for lore to be removed or corrected away, never as an autonomous cleanup during observation.",
     {
       name: z.string().describe("Emoji name without colons (e.g. 'partyparrot')"),
       meaning: z
         .string()
-        .describe("What it means / when this workspace uses it — one or two sentences"),
+        .optional()
+        .describe(
+          "What it means / when this workspace uses it — one or two sentences. Required unless clear is true.",
+        ),
       tags: z
         .array(z.string())
         .optional()
@@ -59,10 +64,40 @@ export function createDescribeEmojiTool(
         ),
       source: z
         .enum(["taught", "observed"])
-        .describe("'taught' when a person stated this meaning; 'observed' when you inferred it"),
+        .optional()
+        .describe(
+          "'taught' when a person stated this meaning; 'observed' when you inferred it. Required unless clear is true.",
+        ),
+      clear: z
+        .boolean()
+        .optional()
+        .describe(
+          "Delete this emoji's lore entry instead of writing one. Only when a person asks for it to be removed.",
+        ),
     },
     async (args) => {
       try {
+        if (args.clear) {
+          const existed = await deps.clearLore(args.name);
+          const payload: DescribeEmojiResult = {
+            ok: true,
+            name: args.name,
+            cleared: existed,
+          };
+          if (!existed) {
+            payload.warning = `No lore entry existed for '${args.name}'; nothing to remove.`;
+          }
+          return textResult(payload);
+        }
+
+        // Paired rather than expressed as a zod refinement so the message names the missing field
+        // and each arg's schema stays independently assertable in tests.
+        if (args.meaning === undefined || args.source === undefined) {
+          return errorResult(
+            "describe_emoji requires both `meaning` and `source` unless `clear: true` is set.",
+          );
+        }
+
         const result = await deps.upsertLore({
           name: args.name,
           meaning: args.meaning,
