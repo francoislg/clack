@@ -4,6 +4,7 @@ import { buildCronExpression, rateLabel, resolveDie } from "./heuristic.js";
 import { buildPrompt } from "./prompt.js";
 import { resolveFallbackTopics } from "./fallbackTopics.js";
 import { PERSONA_CONTENT } from "./persona.js";
+import { ENGAGEMENT_CONTENT } from "./engagement.js";
 import { en as casualTalkEn, fr as casualTalkFr } from "./i18n/strings.js";
 import { createSetConfigTool } from "./tools/setConfig.js";
 import {
@@ -43,6 +44,16 @@ export const casualTalkPlugin: ClackPlugin = async (sdk: ClackSdk) => {
   // Persona pre-attached to every casual-talk fire. Admins override at
   // `data/configuration/user/topics/casual-talk/casual-talk__persona.md`.
   sdk.addTopicInstruction("user", "casual-talk", "persona", PERSONA_CONTENT);
+
+  // Engagement mechanics — attachable on HIT fires only (the lean cron prompt directs
+  // `attach_integration("casual-talk:engagement")` after a winning roll), so the ~90%
+  // miss fires never pay for them. Instructions-only: no tools bound to this server.
+  const engagement = sdk.registerMcpServer("engagement", {
+    autoload: false,
+    description:
+      "Casual-talk engagement instructions: channel triage, reacting, posting, and termination mechanics for a hit fire.",
+  });
+  engagement.addTopicInstruction("user", "engagement", ENGAGEMENT_CONTENT);
 
   // On-demand management server — all config-mutation tools live here. Admins call
   // `attach_integration("casual-talk:management")` to reveal them.
@@ -116,7 +127,9 @@ export const casualTalkPlugin: ClackPlugin = async (sdk: ClackSdk) => {
         name: "Casual chatter",
         submitResponseMode: "optional-post-to",
         requiredTools: ["mcp__clack__random_roll"],
-        attachedTopics: ["casual-talk", "response-rendering"],
+        // Persona only. `response-rendering` (and `casual-talk:engagement`) attach at
+        // hit time per the prompt's on-hit directive — miss fires never load them.
+        attachedTopics: ["casual-talk"],
         jitterMinutes: CHATTER_JITTER_MINUTES,
       });
     } else if (config.enabled && config.channels.length === 0) {

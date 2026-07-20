@@ -4,6 +4,7 @@ import { LANGUAGE_METADATA, type Lang } from "../i18n/languages.js";
 import { loadInstructions } from "../instructions.js";
 import type { UserRole } from "../roles.js";
 import { isChannellessChannelId } from "../channelless.js";
+import type { TriggerType } from "../changes/types.js";
 import type { SessionContext } from "../sessions.js";
 import { triggerText, userContinuations } from "../sessions/selectors.js";
 import type { SlackImageFile, SlackFile } from "../slack/slackFileBase.js";
@@ -160,6 +161,20 @@ export interface PromptOptions {
    * capability.
    */
   preAttachedTopics?: string[];
+}
+
+/**
+ * True when the skill catalogs (AVAILABLE SKILL PACKS + USER SKILLS) should be omitted
+ * from the prompt: `scheduled`-trigger sessions fired by a plugin-managed cron job.
+ * Pure prompt weight there — `load_skill` stays available for instruction-named skills.
+ * Fail-open: an absent flag renders the catalogs. AVAILABLE INTEGRATIONS is never gated.
+ * Applied at the prompt-options supplier (`buildQuerySetup`), not inside the builder.
+ */
+export function shouldOmitSkillCatalogs(
+  triggerType: TriggerType | undefined,
+  pluginManagedJob: boolean | undefined,
+): boolean {
+  return triggerType === "scheduled" && pluginManagedJob === true;
 }
 
 export function buildSystemPrompt(options?: PromptOptions): string {

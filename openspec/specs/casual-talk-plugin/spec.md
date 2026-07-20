@@ -148,7 +148,7 @@ The spec SHALL set:
 - `timezone`: from `workHours.tz`
 - `submitResponseMode`: `"optional-post-to"`
 - `requiredTools`: `["mcp__clack__random_roll"]`
-- `attachedTopics`: `["casual-talk"]`
+- `attachedTopics`: `["casual-talk"]` — the persona only; `response-rendering` is NOT pre-attached (it is attached at hit time per the prompt's on-hit directive)
 - `prompt`: the assembled prompt (see "Prompt Assembly")
 - `name`: a short human-readable label (e.g., `"Casual chatter"`)
 
@@ -181,25 +181,19 @@ The `"optional-post-to"` mode (not `"skipped"`) is REQUIRED so the run can deliv
 
 ### Requirement: Prompt Assembly
 
-The plugin SHALL assemble the cron job's `prompt` at reconcile time to embed: the resolved die `N`, the candidate channel list, and the **effective fallback topics**. The effective fallback topics SHALL be computed from config as follows:
+The plugin SHALL assemble the cron job's `prompt` at reconcile time as a **lean triggering prompt**: it SHALL embed only the roll step and config-derived context, and SHALL NOT restate the engagement mechanics (channel triage, reacting, posting/termination) — those live in the `casual-talk:engagement` topic (see "Engagement Topic"). The prompt SHALL embed: the resolved die `N`, the rate label, the candidate channel list, the **effective fallback topics**, and the config-dependent skip-strictness variant. The effective fallback topics SHALL be computed from config as follows:
 
 - When `useBuiltinFallbackTopics` is `true`, the effective list is the de-duplicated union of the plugin's built-in topic constant followed by the admin's `smallTalkTopics` (built-ins first, custom appended, duplicates removed preserving first occurrence).
 - When `useBuiltinFallbackTopics` is `false`, the effective list is exactly `smallTalkTopics` (verbatim, the pre-feature behavior).
 
 The prompt SHALL instruct Claude to:
 
-1. Call `random_roll` with `min: 1, max: N, count: 1`.
-2. If the roll is not `1`, immediately call `submit_response({ skip_response: true })` and end the run.
-3. Otherwise: read each candidate channel via `fetch_channel_messages`, then take one or more of the following **non-exclusive** positive moves:
-   - **React** — add one or more emoji to a recent message via `add_reaction` (see the reaction requirements below). Reacting MAY be done alone or together with a post.
-   - **Post** — deliver in a SINGLE `submit_response` call carrying a `deliver_to` entry — `submit_response({ deliver_to: [{ channel, thread_ts?, response: { blocks } }] })`. Claude SHALL NOT also set `skip_response` on a delivering call.
-4. Terminate according to the moves taken:
-   - **React-only:** after the `add_reaction` call(s), end with `submit_response({ skip_response: true })` and no `deliver_to`. The reaction is a tool side-effect, not a delivery, so `skip_response` (meaning "no message posted") is the correct terminal call.
-   - **React-and-post** or **post-only:** end with the single `deliver_to` entry and no `skip_response`.
-   - **Neither:** when nothing is worth posting AND nothing is worth reacting to, end with `submit_response({ skip_response: true })` and no `deliver_to` (legitimate outcome).
-5. NEVER reveal that this run was triggered by a roll or automation — the persona is "you're a person dropping in naturally." This SHALL apply to reactions as well as posts.
+1. Call `random_roll` with `min: 1, max: N, count: 1` as its FIRST action.
+2. If the roll is not `1`: immediately call `submit_response({ skip_response: true })` and end the run, without reading any channel.
+3. If the roll is `1`: BEFORE anything else, call `attach_integration("casual-talk:engagement")` and `attach_integration("response-rendering")`, then engage per the loaded instructions, using the candidate channels and fallback topics embedded in this prompt. This directive SHALL sit directly under the roll instruction in the assembled prompt.
+4. NEVER reveal that this run was triggered by a roll or automation (restated compactly; the full persona constraints live in the engagement topic).
 
-Per-channel context SHALL include the channel ID and, when set on the config entry, the `promptSuggestion` string. The prompt SHALL direct Claude to also read each candidate channel's `channel_name` and `channel_purpose` (both surfaced by `fetch_channel_messages`) when present, to calibrate channel character.
+Per-channel context SHALL include the channel ID and, when set on the config entry, the `promptSuggestion` string. The skip-strictness variant SHALL state: with fallback topics configured, skipping a hit is reserved for genuine impossibility; with no fallback topics, a quiet day legitimately ends in a skip (chip-in-only mode).
 
 #### Scenario: Prompt embeds the resolved die size
 
@@ -239,50 +233,26 @@ Per-channel context SHALL include the channel ID and, when set on the config ent
 
 - **GIVEN** `useBuiltinFallbackTopics: false` and `smallTalkTopics: []`
 - **WHEN** the prompt is assembled
-- **THEN** the prompt indicates there are no fallback topics (the pre-feature empty-list rendering), and Claude is to only join already-active conversations, react, or skip
+- **THEN** the prompt indicates there are no fallback topics and states the chip-in-only skip variant (a quiet day legitimately ends in a skip)
 
-#### Scenario: Prompt tells Claude to deliver via deliver_to, not a post_to action
+#### Scenario: Prompt is lean — engagement mechanics not restated
 
 - **WHEN** the prompt is assembled
-- **THEN** the prompt instructs that delivery MUST go through a `submit_response({ deliver_to: [...] })` call (channel + `response` blocks per entry)
-- **AND** the prompt instructs Claude NOT to also set `skip_response` on a delivering call
-- **AND** the prompt does NOT instruct Claude to use a `post_to` action for delivery
+- **THEN** the prompt does NOT contain the channel-triage instructions (`fetch_channel_messages` overview mechanics, freshness/human-leaf rules)
+- **AND** the prompt does NOT contain the posting/termination mechanics (`attention_level`, `default_delivery_mode`, react-only termination)
+- **AND** the prompt directs Claude on a hit to attach `casual-talk:engagement` and `response-rendering` and follow the loaded instructions
 
 #### Scenario: Prompt does NOT reveal the triggering mechanism
 
 - **WHEN** the prompt is assembled
-- **THEN** the prompt instructs Claude to NEVER mention the die roll, the schedule, or "automation" in the posted message text OR via the reactions it adds
+- **THEN** the prompt instructs Claude to NEVER mention the die roll, the schedule, or "automation" in anything it posts or reacts
 
-#### Scenario: Prompt offers reaction as an on-hit move
+#### Scenario: Attach failure on a hit degrades gracefully
 
-- **WHEN** the prompt is assembled
-- **THEN** the prompt instructs that on a hit Claude MAY react to a recent message via `add_reaction` as an alternative to, or in combination with, posting
-- **AND** the prompt states the three positive moves are non-exclusive: react-only, post-only, or react-and-post
-
-#### Scenario: Reaction joinability bar is looser than posting
-
-- **WHEN** the prompt is assembled
-- **THEN** the prompt states that a message is reactable when it is a recent HUMAN message worth a lightweight acknowledgment (a win, a funny line, an announcement, a fresh human message), a lower bar than the substantive-thread bar required to write a posted reply
-- **AND** the prompt reuses the human-leaf guard: Claude reacts only to messages whose latest content is from a human, never to bot-leaf messages or the bot's own posts
-
-#### Scenario: Prompt instructs emoji search before reacting
-
-- **WHEN** the prompt is assembled
-- **THEN** the prompt instructs Claude to call `find_emoji` to discover custom workspace emoji fitting the channel's character and the message before reacting, falling back to standard emoji
-- **AND** the prompt instructs Claude to calibrate emoji choice to the channel's character via its `promptSuggestion` hint, its `channel_name`, and its `channel_purpose`
-
-#### Scenario: Prompt caps reaction volume by judgment, not a number
-
-- **WHEN** the prompt is assembled
-- **THEN** the prompt instructs Claude to focus reactions on one or two messages per fire
-- **AND** the prompt instructs that when several related messages are active, a single emoji on the best one suffices rather than blanketing the channel
-- **AND** the prompt does NOT impose a fixed numeric cap on reactions
-
-#### Scenario: React-only run terminates with skip_response
-
-- **WHEN** the prompt is assembled
-- **THEN** the prompt instructs that a react-only run ends with `submit_response({ skip_response: true })` and no `deliver_to` after the `add_reaction` call(s)
-- **AND** the prompt instructs that a react-and-post run ends with the single `deliver_to` entry and no `skip_response`
+- **GIVEN** a hit roll where `attach_integration("casual-talk:engagement")` or `attach_integration("response-rendering")` returns an error
+- **WHEN** the run continues
+- **THEN** the run proceeds with best-effort engagement using the prompt's remaining context (it never crashes or retries in a loop) — a failed attach is a degraded hit, not a miss
+- **AND** the existing `submit_response` formatting-failure hint remains the rendering backstop
 
 ### Requirement: Persona Topic Instruction (Admin-Overridable)
 
@@ -611,4 +581,31 @@ The casual-talk plugin SHALL set `jitterMinutes` on its `chatter` `CronJobSpec` 
 - **WHEN** the plugin loads and validates the config
 - **THEN** `jitterMinutes` SHALL NOT be a recognized `CasualTalkConfig` field
 - **AND** the resolved jitter applied to the cron spec SHALL be independent of the config file contents
+
+### Requirement: Engagement Topic (`casual-talk:engagement`)
+
+The plugin SHALL register an on-demand server named `engagement` (`sdk.registerMcpServer("engagement", { autoload: false, description })`) with NO tools bound, and SHALL bind the engagement instructions to it via the handle's `addTopicInstruction("user", ...)` — making `casual-talk:engagement` an attachable instructions-only catalog entry. Attaching it SHALL resolve with the `instructions_only` outcome and deliver the engagement content as the tool result.
+
+The engagement content SHALL carry the static (non-config-derived) guidance previously in the cron prompt: channel triage mechanics (`fetch_channel_messages` overview semantics, freshness-by-last-reply, human-leaf/no-pile-on guard, join signals), the reacting guidance (reactable bar, `find_emoji`, existing-reaction preference, volume judgment), and the posting and termination mechanics (single `deliver_to` entry, mandatory `attention_level: "high"` and `default_delivery_mode: "invisible"`, destination picking, react-only vs post termination). The persona constraints themselves SHALL NOT be restated in the topic — they live in the pre-attached `casual-talk` persona topic (loaded on every fire); the engagement content carries only the reaction-scoped extension of the persona's never-reveal rule. Config-derived content (channels, fallback topics, die, skip variant) SHALL NOT appear in the topic — it stays in the reconcile-time prompt so config hot-reload keeps working. The split for skip behavior: the topic carries the GENERIC termination mechanics (react-only → `skip_response`; post → single `deliver_to`), while the skip-STRICTNESS decision rule (how reluctant to skip a hit, which depends on whether fallback topics are configured) lives ONLY in the prompt's config-dependent variant — the topic defers to it by reference.
+
+Admins MAY override the content via the standard plugin-topic override path (`data/configuration/user/topics/casual-talk:engagement/`).
+
+#### Scenario: Attach resolves instructions-only
+
+- **GIVEN** the plugin is loaded
+- **WHEN** Claude calls `attach_integration("casual-talk:engagement")`
+- **THEN** the attach succeeds with the `instructions_only` outcome (no MCP server config, no tools)
+- **AND** the tool result contains the engagement instructions (triage, reacting, posting/termination — persona constraints stay in the pre-attached persona topic)
+
+#### Scenario: Topic content is static
+
+- **WHEN** the engagement topic content is registered at plugin load
+- **THEN** it contains no channel IDs, no fallback-topic lists, and no die value
+- **AND** a config edit (channels/topics/rate) requires no soft restart for the topic to stay correct
+
+#### Scenario: Termination contract lives in one place
+
+- **WHEN** the engagement content and the cron prompt are both assembled
+- **THEN** the full termination mechanics (react-only → `skip_response`; post → single `deliver_to`, no `skip_response`; `attention_level`/`default_delivery_mode` mandates) appear ONLY in the engagement topic
+- **AND** the cron prompt references the loaded instructions rather than restating them
 

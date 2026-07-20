@@ -1,7 +1,13 @@
 import { describe, it } from "vitest";
 import assert from "node:assert/strict";
-import { buildPrompt, renderAdminClaimContext, messageClaimsAdmin } from "./promptBuilder.js";
+import {
+  buildPrompt,
+  renderAdminClaimContext,
+  messageClaimsAdmin,
+  shouldOmitSkillCatalogs,
+} from "./promptBuilder.js";
 import type { SessionContext } from "../sessions.js";
+import type { TriggerType } from "../changes/types.js";
 
 /**
  * Build a minimal SessionContext for testing. Only the fields
@@ -935,6 +941,62 @@ describe("buildPrompt", () => {
       assert.ok(prompt.includes("marketingskills"));
       assert.ok(prompt.includes("USER SKILLS"));
       assert.ok(prompt.includes("sports-analyst"));
+    });
+  });
+
+  describe("shouldOmitSkillCatalogs — plugin-managed scheduled-fire gate", () => {
+    it("omits for a scheduled fire from a plugin-managed job", () => {
+      assert.equal(shouldOmitSkillCatalogs("scheduled", true), true);
+    });
+
+    it("fails open when the flag is absent (user-created schedule)", () => {
+      assert.equal(shouldOmitSkillCatalogs("scheduled", undefined), false);
+    });
+
+    it("renders for a scheduled fire explicitly not plugin-managed", () => {
+      assert.equal(shouldOmitSkillCatalogs("scheduled", false), false);
+    });
+
+    it("never gates interactive triggers, whatever the flag says", () => {
+      for (const trigger of ["directMessages", "mentions", "reactions", "autoRespond"] as const) {
+        assert.equal(shouldOmitSkillCatalogs(trigger, true), false);
+      }
+    });
+
+    // Prompt-level composition mirroring the options supplier: the gate decides whether
+    // the skill options reach buildPrompt; the catalogs render iff they do.
+    function buildViaSupplier(triggerType: TriggerType, pluginManagedJob: boolean | undefined) {
+      const skillOptions = shouldOmitSkillCatalogs(triggerType, pluginManagedJob)
+        ? {}
+        : {
+            skillPluginsRegistry: {
+              marketingskills: { lazyLoad: true, description: "Playbooks." },
+            },
+            userSkills: [{ slug: "sports-analyst", description: "Hockey persona." }],
+          };
+      return buildPrompt(makeSession(), {
+        mcpRegistry: { sentry: { description: "Sentry issues", alwaysLoad: false } },
+        ...skillOptions,
+      });
+    }
+
+    it("plugin-managed scheduled fire renders no skill catalogs but keeps integrations", () => {
+      const prompt = buildViaSupplier("scheduled", true);
+      assert.ok(!prompt.includes("AVAILABLE SKILL PACKS"));
+      assert.ok(!prompt.includes("USER SKILLS"));
+      assert.ok(prompt.includes("AVAILABLE INTEGRATIONS"));
+    });
+
+    it("user-created scheduled fire (no flag) renders the catalogs", () => {
+      const prompt = buildViaSupplier("scheduled", undefined);
+      assert.ok(prompt.includes("AVAILABLE SKILL PACKS"));
+      assert.ok(prompt.includes("USER SKILLS"));
+      assert.ok(prompt.includes("AVAILABLE INTEGRATIONS"));
+    });
+
+    it("interactive trigger renders the catalogs even with the flag set", () => {
+      const prompt = buildViaSupplier("mentions", true);
+      assert.ok(prompt.includes("AVAILABLE SKILL PACKS"));
     });
   });
 });

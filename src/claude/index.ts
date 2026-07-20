@@ -13,7 +13,7 @@ import {
   platformLimitMessage,
   type PlatformLimitInfo,
 } from "./messageParser.js";
-import { buildSystemPrompt, buildPrompt } from "./promptBuilder.js";
+import { buildSystemPrompt, buildPrompt, shouldOmitSkillCatalogs } from "./promptBuilder.js";
 import { trackedMemoryKindsForRole } from "../memory/trackedKinds.js";
 import { detectRuntime } from "./utilities.js";
 import { errorMessage } from "../errors.js";
@@ -136,6 +136,12 @@ export interface AskClaudeOptions {
    */
   asOf?: Date;
   /**
+   * True when the session was fired by a plugin-managed cron job (`pluginManaged: true`).
+   * Gates the AVAILABLE SKILL PACKS / USER SKILLS catalogs out of the scheduled-fire prompt;
+   * absent → fail open (catalogs render). See the `lazy-skill-loading` capability.
+   */
+  pluginManagedJob?: boolean;
+  /**
    * Fires once per completed tool call (when its `tool_result` arrives from the SDK stream).
    * Populated for ALL tools the SDK dispatches — built-ins, clack MCP, plugin MCP, external MCP.
    * Use this to persist tool calls to the session incrementally for live debugging.
@@ -241,15 +247,20 @@ async function buildQuerySetup(
 
   const trackedMemoryKinds = await trackedMemoryKindsForRole(options?.role);
   const systemPrompt = buildSystemPrompt({ ...options, trackedMemoryKinds });
+  const omitSkillCatalogs = shouldOmitSkillCatalogs(session.triggerType, options?.pluginManagedJob);
   const userPrompt = buildPrompt(session, {
     ...options,
     mcpRegistry: mcpSetup.registry,
-    skillPluginsRegistry: config.skillPlugins,
-    userSkills: config.userSkills?.enabled
-      ? discoverUserSkills()
-          .filter((s) => !s.disabledAt)
-          .map((s) => ({ slug: s.slug, description: s.description }))
-      : undefined,
+    ...(omitSkillCatalogs
+      ? {}
+      : {
+          skillPluginsRegistry: config.skillPlugins,
+          userSkills: config.userSkills?.enabled
+            ? discoverUserSkills()
+                .filter((s) => !s.disabledAt)
+                .map((s) => ({ slug: s.slug, description: s.description }))
+            : undefined,
+        }),
   });
 
   const skillsManager = prepareSkillsSession(
