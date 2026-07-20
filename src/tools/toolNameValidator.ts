@@ -16,6 +16,7 @@ export const CLACK_CORE_TOOL_NAMES: readonly string[] = [
   // Slack-client-gated query tools
   "find_user",
   "find_emoji",
+  "describe_emoji",
   "fetch_slack_message",
   "fetch_channel_messages",
   "upload_file",

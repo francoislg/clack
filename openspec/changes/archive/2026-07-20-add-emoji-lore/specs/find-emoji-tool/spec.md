@@ -1,42 +1,29 @@
-# find-emoji-tool Specification
+# find-emoji-tool Specification (delta)
 
-## Purpose
-EmojiCache abstraction and find_emoji query tool for searching custom Slack workspace emojis by name.
-## Requirements
-### Requirement: EmojiCache Abstraction
+## ADDED Requirements
 
-The system SHALL provide an `EmojiCache` abstraction that fetches and caches the Slack workspace custom emoji list for search operations.
+### Requirement: EmojiCache Membership Check
 
-#### Scenario: Cache created with factory function
+The `EmojiCache` interface SHALL expose `has(name: string): Promise<boolean>`, an exact-name membership check over the cached workspace emoji list (honoring the same lazy fetch and TTL as `search`). Callers needing to know whether a specific emoji exists SHALL use `has` rather than interpreting `search` results, since `search` is substring-based and would report a false positive for any name that is a substring of another.
 
-- **WHEN** `createEmojiCache(client)` is called with a Slack `WebClient`
-- **THEN** the system returns an `EmojiCache` instance with a `search()` method
-- **AND** the internal emoji map is initially empty (lazy-loaded on first search)
+#### Scenario: Exact membership hit
 
-#### Scenario: First search triggers fetch
+- **GIVEN** the workspace has a custom emoji named `party`
+- **WHEN** `has("party")` is called
+- **THEN** it returns `true`
 
-- **WHEN** `search()` is called for the first time on an `EmojiCache` instance
-- **THEN** the system fetches all custom emojis via the Slack `emoji.list` API (single call, no pagination)
-- **AND** resolves alias entries (`alias:other_name`) to their final URL
-- **AND** caches the result for subsequent calls
+#### Scenario: Substring is not membership
 
-#### Scenario: Subsequent searches use cached data
+- **GIVEN** the workspace has `partyparrot` but no emoji named exactly `party`
+- **WHEN** `has("party")` is called
+- **THEN** it returns `false`
 
-- **WHEN** `search()` is called after the initial fetch
-- **AND** the cache has not expired
-- **THEN** the system reuses the cached emoji list without making additional API calls
+#### Scenario: Membership uses the cache
 
-#### Scenario: Cache expires after TTL
+- **WHEN** `has` is called after `search` has already populated the cache within the TTL
+- **THEN** no additional `emoji.list` API call is made
 
-- **WHEN** `search()` is called more than 1 hour after the last fetch
-- **THEN** the system discards the cached data and fetches a fresh emoji list from the Slack API
-- **AND** resets the TTL timer
-
-#### Scenario: Alias resolution
-
-- **WHEN** the emoji list contains an alias entry (e.g., `"shipit": "alias:squirrel"`)
-- **THEN** the cache resolves the alias to the target emoji's URL
-- **AND** stores the alias relationship so it can be surfaced in search results
+## MODIFIED Requirements
 
 ### Requirement: find_emoji Query Tool
 
@@ -120,25 +107,3 @@ The system SHALL provide a `find_emoji` MCP query tool that searches custom Slac
 
 - **WHEN** `find_emoji` returns results
 - **THEN** the response includes `emojis` (array of `{ name, url, aliasFor?, lore? }`), `total` (number of matches before limit), and `truncated` (boolean)
-
-### Requirement: EmojiCache Membership Check
-
-The `EmojiCache` interface SHALL expose `has(name: string): Promise<boolean>`, an exact-name membership check over the cached workspace emoji list (honoring the same lazy fetch and TTL as `search`). Callers needing to know whether a specific emoji exists SHALL use `has` rather than interpreting `search` results, since `search` is substring-based and would report a false positive for any name that is a substring of another.
-
-#### Scenario: Exact membership hit
-
-- **GIVEN** the workspace has a custom emoji named `party`
-- **WHEN** `has("party")` is called
-- **THEN** it returns `true`
-
-#### Scenario: Substring is not membership
-
-- **GIVEN** the workspace has `partyparrot` but no emoji named exactly `party`
-- **WHEN** `has("party")` is called
-- **THEN** it returns `false`
-
-#### Scenario: Membership uses the cache
-
-- **WHEN** `has` is called after `search` has already populated the cache within the TTL
-- **THEN** no additional `emoji.list` API call is made
-
