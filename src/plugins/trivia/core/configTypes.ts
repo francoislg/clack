@@ -403,6 +403,15 @@ export interface TriviaGame extends CascadeAxes {
   timezone: string;
   /** When `false`, the plugin skips this entry during cron reconcile AND per-game write tools refuse. Defaults to `true`. */
   enabled?: boolean;
+  /**
+   * Game-tier lifecycle flag (NOT a `CascadeAxes` member — no season/slot/workspace
+   * tier). When `true`, `end_season` winds the game down at its round's close instead
+   * of creating a continuation: season branch → last reveal of the season; seasonless
+   * branch → a board-clearing reveal. The wind-down persists `enabled: false`.
+   * STANDING flag: it survives wind-down, so a later re-enabled game winds down
+   * again at its next round close. Defaults to `false`.
+   */
+  disableAfterRound?: boolean;
   // The cascading-axis fields (answersFormat, questionType, promptMedium,
   // freeformAnswerShape, contexts, difficulty, difficultyRatio, instructions,
   // additionalInstructions, liveAnswersVisible, revealResponses, hint, judgeLeniency)

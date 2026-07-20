@@ -26,7 +26,7 @@ import { createCheckSeasonStatusTool } from "./tools/seasons/checkSeasonStatus.j
 import { createUpsertSeasonTool } from "./tools/seasons/upsertSeason.js";
 import { createDeleteSeasonTool } from "./tools/seasons/deleteSeason.js";
 import { createListSeasonsTool } from "./tools/seasons/listSeasons.js";
-import { createStartNewSeasonTool } from "./tools/seasons/startNewSeason.js";
+import { createEndSeasonTool } from "./tools/seasons/endSeason.js";
 import { createComputeAnswersTool } from "./tools/reveal/computeAnswers.js";
 import { createRefreshQuestionCardsTool } from "./tools/reveal/refreshQuestionCards.js";
 import { createOverrideAnswerTool } from "./tools/reveal/overrideAnswer.js";
@@ -147,7 +147,7 @@ export const triviaPlugin: ClackPlugin = async (sdk: ClackSdk) => {
     sdk.t("label.override_question"),
   );
   sdk.registerTool("admin", createRemoveCheatTool(data), sdk.t("label.remove_cheat"));
-  sdk.registerTool("admin", createStartNewSeasonTool(data), sdk.t("label.start_new_season"));
+  sdk.registerTool("admin", createEndSeasonTool(data), sdk.t("label.end_season"));
   sdk.registerTool("member", createRetrieveScoresTool(data), sdk.t("label.retrieve_scores"));
   sdk.registerTool(
     "member",

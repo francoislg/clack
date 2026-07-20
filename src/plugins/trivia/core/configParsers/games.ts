@@ -317,6 +317,18 @@ export function parseTriviaGame(
     }
   }
 
+  let disableAfterRound: boolean | undefined;
+  if (e.disableAfterRound !== undefined && e.disableAfterRound !== null) {
+    if (typeof e.disableAfterRound !== "boolean") {
+      issues.push({
+        field: `${fieldPrefix}.disableAfterRound`,
+        error: `must be a boolean (got ${typeof e.disableAfterRound})`,
+      });
+    } else {
+      disableAfterRound = e.disableAfterRound;
+    }
+  }
+
   let scrollToTop: boolean | undefined;
   if (e.scrollToTop !== undefined && e.scrollToTop !== null) {
     if (typeof e.scrollToTop !== "boolean") {
@@ -445,6 +457,7 @@ export function parseTriviaGame(
       ...(points !== undefined ? { points } : {}),
       ...(allTimeRow !== undefined ? { allTimeRow } : {}),
       ...(tagPlayers !== undefined ? { tagPlayers } : {}),
+      ...(disableAfterRound !== undefined ? { disableAfterRound } : {}),
       ...(scrollToTop !== undefined ? { scrollToTop } : {}),
       ...(includeRevealInQuestions !== undefined ? { includeRevealInQuestions } : {}),
       ...(finalRevealSummary !== undefined ? { finalRevealSummary } : {}),

@@ -53,6 +53,7 @@ function args(overrides: Partial<UpsertGameArgs> & Pick<UpsertGameArgs, "name">)
     allTimeRow: undefined,
     tagPlayers: undefined,
     scrollToTop: undefined,
+    disableAfterRound: undefined,
     includeRevealInQuestions: undefined,
     finalRevealSummary: undefined,
     judgeLeniency: undefined,
@@ -199,6 +200,34 @@ describe("upsert_game — create branch", () => {
     await tool.handler(args({ name: "engineering", tagPlayers: null }), SESSION);
     assert.equal(loadTriviaConfig()?.games?.[0]?.tagPlayers, undefined);
     assert.equal("tagPlayers" in (loadTriviaConfig()?.games?.[0] ?? {}), false);
+  });
+
+  it("persists disableAfterRound, keeps it on omit, and clears it on null", async () => {
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk, { games: [] });
+    const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
+    const result = parseToolResult(
+      await tool.handler(
+        args({
+          name: "engineering",
+          channel: "C1",
+          questionCron: "0 9 * * *",
+          revealCron: "0 17 * * *",
+          timezone: "UTC",
+          disableAfterRound: true,
+        }),
+        SESSION,
+      ),
+    );
+    assert.equal(result.hasDisableAfterRound, true);
+    assert.equal(loadTriviaConfig()?.games?.[0]?.disableAfterRound, true);
+
+    await tool.handler(args({ name: "engineering", theme: "space" }), SESSION);
+    assert.equal(loadTriviaConfig()?.games?.[0]?.disableAfterRound, true, "omit keeps the flag");
+
+    await tool.handler(args({ name: "engineering", disableAfterRound: null }), SESSION);
+    assert.equal(loadTriviaConfig()?.games?.[0]?.disableAfterRound, undefined);
+    assert.equal("disableAfterRound" in (loadTriviaConfig()?.games?.[0] ?? {}), false);
   });
 
   it("persists finalRevealSummary and clears it on null", async () => {

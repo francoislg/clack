@@ -140,6 +140,29 @@ describe("parseTriviaGames — per-game format / categories / theme", () => {
     });
   });
 
+  describe("disableAfterRound", () => {
+    it("accepts a boolean and stores it on the game", () => {
+      const { games, issues } = parseTriviaGames([{ ...validBase, disableAfterRound: true }]);
+      assert.equal(issues.length, 0);
+      assert.equal(games?.[0].disableAfterRound, true);
+    });
+
+    it("leaves the field absent when not provided (legacy shape unchanged)", () => {
+      const { games, issues } = parseTriviaGames([{ ...validBase }]);
+      assert.equal(issues.length, 0);
+      assert.equal(games?.[0].disableAfterRound, undefined);
+      assert.equal("disableAfterRound" in (games?.[0] ?? {}), false);
+    });
+
+    it("drops the field with an issue when the value is not a boolean", () => {
+      const { games, issues } = parseTriviaGames([{ ...validBase, disableAfterRound: "yes" }]);
+      assert.equal(games?.length, 1);
+      assert.equal(games?.[0].disableAfterRound, undefined);
+      assert.equal(issues[0].field, "trivia.games[0].disableAfterRound");
+      assert.match(issues[0].error, /must be a boolean/);
+    });
+  });
+
   describe("instructions", () => {
     it("accepts a trimmed non-empty string", () => {
       const { games, issues } = parseTriviaGames([{ ...validBase, instructions: "  Be dry.  " }]);

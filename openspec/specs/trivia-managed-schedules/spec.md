@@ -355,9 +355,9 @@ For each game's specs, the lists SHALL be (resolved at spec-build time by `build
   - When `game.format?.flexible !== true`: `["mcp__trivia__get_ideas", "mcp__trivia__post_questions"]`. `get_ideas` opens every generation flow; `post_questions` is the guaranteed deliverable of a non-flexible fire (at least one question is always posted), so the gate ensures the run cannot terminate without dispatching it.
   - When `game.format?.flexible === true`: `["mcp__trivia__get_ideas"]`. A flexible fire may legitimately post zero questions, so `post_questions` is not guaranteed and SHALL NOT be required.
   - `mcp__trivia__find_previous_questions`, `mcp__trivia__find_previous_subjects`, and `mcp__trivia__save_question` SHALL NOT appear in the question list: the duplicate-check gate is skipped by some generation paths (e.g. predictions), `find_previous_subjects` runs only in the image subflow, and `save_question` is skipped when a slot is served from the staged pool.
-- **Reveal spec** `requiredTools`: `["mcp__trivia__compute_answers"]` — a single-tool list. `compute_answers` is the only tool called on every reveal, including an empty batch (where it returns `reveals: []`). `mcp__trivia__settle_question`, `mcp__trivia__refresh_question_cards`, `mcp__trivia__start_new_season`, and `mcp__trivia__set_reveal_narrative` are each conditional and SHALL NOT appear.
+- **Reveal spec** `requiredTools`: `["mcp__trivia__compute_answers"]` — a single-tool list. `compute_answers` is the only tool called on every reveal, including an empty batch (where it returns `reveals: []`). `mcp__trivia__settle_question`, `mcp__trivia__refresh_question_cards`, `mcp__trivia__end_season`, and `mcp__trivia__set_reveal_narrative` are each conditional and SHALL NOT appear.
 
-The reveal spec's `requiredTools` SHALL NOT vary with `trivia.seasons.enabled`. Seasons-specific behavior (the `seasonStatus` field, season rollover via `start_new_season`) is invoked by the reveal prompt only when applicable, never on every fire, and therefore is not gated.
+The reveal spec's `requiredTools` SHALL NOT vary with `trivia.seasons.enabled`. Seasons-specific behavior (the `seasonStatus` field, season close via `end_season`) is invoked by the reveal prompt only when applicable, never on every fire, and therefore is not gated.
 
 #### Scenario: Non-flexible question spec requiredTools
 
@@ -378,7 +378,7 @@ The reveal spec's `requiredTools` SHALL NOT vary with `trivia.seasons.enabled`. 
 - **GIVEN** any game
 - **WHEN** the trivia plugin builds the reveal spec
 - **THEN** the spec's `requiredTools` equals `["mcp__trivia__compute_answers"]`
-- **AND** it does NOT include `mcp__trivia__settle_question`, `mcp__trivia__refresh_question_cards`, `mcp__trivia__start_new_season`, or `mcp__trivia__set_reveal_narrative`
+- **AND** it does NOT include `mcp__trivia__settle_question`, `mcp__trivia__refresh_question_cards`, `mcp__trivia__end_season`, or `mcp__trivia__set_reveal_narrative`
 
 #### Scenario: Reveal requiredTools does not vary with seasons
 

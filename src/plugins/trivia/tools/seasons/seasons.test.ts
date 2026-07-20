@@ -2226,12 +2226,12 @@ describe("save_question validates against active pool", () => {
 
 describe("scheduled prompt variants", () => {
   // The reveal prompt is a thin renderer brief: compute_answers scores, refresh_question_cards
-  // edits the cards, start_new_season rolls over on the last fire. The prompt's content is
+  // edits the cards, end_season closes on the round's final fire. The prompt's content is
   // identical regardless of `trivia.seasons.enabled`.
-  it("PROCESS_REVEAL sequences compute_answers / refresh_question_cards / start_new_season", () => {
+  it("PROCESS_REVEAL sequences compute_answers / refresh_question_cards / end_season", () => {
     assert.ok(PROCESS_REVEAL_INSTRUCTIONS.includes("compute_answers"));
     assert.ok(PROCESS_REVEAL_INSTRUCTIONS.includes("refresh_question_cards"));
-    assert.ok(PROCESS_REVEAL_INSTRUCTIONS.includes("start_new_season"));
+    assert.ok(PROCESS_REVEAL_INSTRUCTIONS.includes("end_season"));
     assert.ok(!PROCESS_REVEAL_INSTRUCTIONS.includes("process_reveal_answers"));
     // The absorbed read tools must not appear as required-step verbs.
     assert.ok(!PROCESS_REVEAL_INSTRUCTIONS.includes("Call fetch_channel_messages"));
@@ -2258,11 +2258,12 @@ describe("trivia-check instruction variants", () => {
     assert.ok(!off.includes("delete_season"));
   });
 
-  it("enabled variant references upsert_season and delete_season (not start_new_season)", () => {
+  it("enabled variant references upsert_season and delete_season (not the rollover tool)", () => {
     const on = getTriviaCheckInstruction(true);
     assert.ok(on.includes("upsert_season"));
     assert.ok(on.includes("delete_season"));
     assert.ok(!on.includes("start_new_season"));
+    assert.ok(!on.includes("end_season"));
   });
 
   it("enabled variant documents per-season answersFormat management", () => {

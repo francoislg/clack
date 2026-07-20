@@ -131,6 +131,35 @@ describe("list_games — per-game entries", () => {
     assert.equal("tagPlayers" in without.games[0], false);
   });
 
+  it("surfaces per-game disableAfterRound when set, omits it when absent", async () => {
+    const games: readonly TriviaGame[] = [
+      {
+        name: "one-shot",
+        channel: "C300000000",
+        questionCron: "0 9 * * 1-5",
+        revealCron: "0 17 * * 1-5",
+        timezone: "UTC",
+        enabled: true,
+        disableAfterRound: true,
+      },
+    ];
+    const withValue = parseToolResult(
+      await createListGamesTool(() => games, emptyTriviaConfig).handler(
+        { includeDisabled: undefined },
+        SESSION,
+      ),
+    );
+    assert.equal(withValue.games[0].disableAfterRound, true);
+
+    const without = parseToolResult(
+      await createListGamesTool(fixtureGetGames, emptyTriviaConfig).handler(
+        { includeDisabled: undefined },
+        SESSION,
+      ),
+    );
+    assert.equal("disableAfterRound" in without.games[0], false);
+  });
+
   it("surfaces per-game includeRevealInQuestions when set, omits it when absent", async () => {
     const games: readonly TriviaGame[] = [
       {

@@ -19,7 +19,8 @@ import { computeTeamAllTime } from "../../domain/teams/allTime.js";
 import { groupVotersByTeam } from "./teamVoters.js";
 import { resolveIncludeRevealInQuestions } from "../../domain/includeRevealInQuestions.js";
 import { resolveFinalRevealSummary } from "../../domain/finalRevealSummary.js";
-import { findCurrentSeason } from "../../core/seasonTimeline.js";
+import { findCurrentSeason, findNextSeason } from "../../core/seasonTimeline.js";
+import { hasUnrevealedPostedQuestions } from "../../domain/boardState.js";
 import { resolveCascade } from "../../domain/resolveCascade.js";
 import { buildCascadeContext } from "../../domain/cascadeContext.js";
 import { nextCronFireAfter, isLastFireBeforeSeasonEnd } from "../../domain/seasonStatus.js";
@@ -53,7 +54,7 @@ const PER_FORMAT_ANSWER_SHAPES = getAllAnswerTypeHandlers()
 
 const DESCRIPTION = `Score the trivia reveal for a game in one call and return the render payload — WITHOUT touching Slack and WITHOUT rolling over the season. Fetches the question's Slack message reactions (commentary only), excludes the bot + flagged cheaters, scores the stored button clicks (boolean/choice) and modal submissions (freeform, via the per-answer judge), persists scored answers, stamps \`processedAt\`, and returns the leaderboard, round summary, and (when seasons are enabled) the season status.
 
-This tool does NOT edit any Slack card and does NOT mutate season state. After calling it, the renderer SHALL: (a) call \`refresh_question_cards({ game, questionIds })\` passing \`reveals.map(r => r.questionId)\` to edit each revealed question's card into its final state; (b) on the season's last fire (\`seasonStatus.isLastFireOfSeason === true\`), call \`start_new_season({ game })\` to perform the (idempotent) rollover; (c) render the payload via \`submit_response\`.
+This tool does NOT edit any Slack card and does NOT mutate season state. After calling it, the renderer SHALL: (a) call \`refresh_question_cards({ game, questionIds })\` passing \`reveals.map(r => r.questionId)\` to edit each revealed question's card into its final state; (b) on the round's final fire (\`seasonStatus.isLastFireOfSeason === true\` OR \`windDown.eligible === true\`), call \`end_season({ game })\` to perform the (idempotent) close; (c) render the payload via \`submit_response\`.
 
 DEFAULT BEHAVIOR (\`reprocessQuestionIds\` absent/empty AND \`reprocessBatchId\` absent): processes EVERY question in the OLDEST pending BATCH, where batches are groups of questions sharing the same \`batchId\` (stamped by \`post_questions\` per call; one cron-fire batch = one shared id). Questions with an undefined \`batchId\` (legacy rows) are each treated as their own singleton batch. The oldest batch is the one whose smallest \`postedAt\` is earliest; ties broken by lexicographic comparison of the group key. Stamps \`processedAt\` on each processed question before returning. Other pending batches stay pending — they drain one batch per fire on subsequent reveal runs. If no question is pending, returns \`reveals: []\` and a current leaderboard.
 
@@ -71,7 +72,8 @@ ${PER_FORMAT_ANSWER_SHAPES}
   - \`reactions\` (present in every variant) is the message's emoji reactions as COMMENTARY, not votes. Each \`ReactionVoter\` is \`{ userId, displayName, emojis: string[] }\`. The bot and cheaters are stripped from every list.
 - \`leaderboard\`: same shape as retrieve_scores' return.
 - \`roundSummary\` (ALWAYS present): \`{ totalQuestions, perPlayer: Array<{ userId, displayName, correct, answered, roundMvp?, perfectRound? }> }\` — the per-player round scoreboard, an AGGREGATE derived from the scored answers (same source as \`leaderboard\`), INDEPENDENT of every entry's \`revealResponses\`. \`perPlayer\` is empty only when nobody answered this round. Cheaters/bot are excluded. \`perfectRound: true\` marks a player who answered EVERY question correctly on a fire of >= 3 questions.
-- \`seasonStatus\` (only when seasons enabled): \`{ currentSlug, isLastFireOfSeason, seasonClosed, hasPriorSeasons, mvp? }\`. This tool REPORTS the status but performs NO rollover — \`seasonClosed\` is always \`false\` here and no continuation season is created. When \`isLastFireOfSeason\` is true, the renderer SHALL call \`start_new_season({ game })\` to perform the rollover.
+- \`seasonStatus\` (only when seasons enabled): \`{ currentSlug, isLastFireOfSeason, seasonClosed, hasPriorSeasons, mvp? }\`. This tool REPORTS the status but performs NO rollover — \`seasonClosed\` is always \`false\` here and no continuation season is created. When \`isLastFireOfSeason\` is true, the renderer SHALL call \`end_season({ game })\` to perform the close.
+- \`windDown\` (only \`{ eligible: true }\`, else absent): the seasonless analog of \`isLastFireOfSeason\` — present when the game has no active season and no queued season, carries \`disableAfterRound: true\`, and this reveal leaves zero posted-but-unrevealed questions (the board is cleared). REPORT-ONLY: when present, the renderer SHALL call \`end_season({ game })\`, which performs the wind-down.
 - \`teamStandings\` (optional — present ONLY when the game's effective teams mode is ON): \`{ scoring, teams: Array<{ name, thisRound, currentSeason, allTime? }>, freeAgents: Array<{ userId, displayName, thisRound, currentSeason, allTime }>, finaleIndividuals? }\`. \`teams\` is ordered current-season points desc (the standings table's column order); a team's \`allTime\` is present ONLY when its name matches a prior season's stamped roster (absent → render that All Time cell empty). \`finaleIndividuals: true\` (season's last fire + \`teamsFinaleIndividuals\` on) directs the renderer to ALSO append the classic individual leaderboard below the team standings. When teams mode is ON, each entry additionally carries \`teamVoters\` (team-grouped voter buckets: a team is Correct when ≥1 member was correct, Incorrect when members answered but none correctly, NoAnswer when nobody answered; members are absorbed — name TEAMS in the narrative, never their members; free agents stay individual; freeform member answer texts arrive UNATTRIBUTED on the team entry).
 - \`invalidatedQuestions\` (optional): \`Array<{ questionId, statement, category, emojis, invalidatedReason? }>\` — questions in this batch marked INVALIDATED via \`settle_question({ invalidate: true })\`. Worth 0, never scored; render an "invalidated" line for each and (via \`refresh_question_cards\`) their cards repaint as invalidated. Absent when none.
 - \`instructions\` / \`additionalInstructions\` (optional): resolved guidance axes; honor verbatim. Absent → ignore.
@@ -379,7 +381,7 @@ export function createComputeAnswersTool(
         currentSeasonSlug: currentSlugForBoard,
       });
 
-      // ── Season status (REPORT ONLY — rollover lives in start_new_season) ─
+      // ── Season status (REPORT ONLY — the close lives in end_season) ─
       // `isLastFireOfSeason` is derived from the game's OWN `revealCron` (plugin
       // config), never from the bot-core cron-job registry.
       let seasonStatus: SeasonStatusOut | undefined;
@@ -392,6 +394,23 @@ export function createComputeAnswersTool(
           revealCron: gameEntry?.revealCron,
           timezone: gameEntry?.timezone,
         });
+      }
+
+      // ── Seasonless wind-down eligibility (REPORT ONLY — the disable lives in
+      // end_season). The seasonless analog of `isLastFireOfSeason`: no active
+      // season, no queued season, `disableAfterRound` set, board cleared. The
+      // questions are re-loaded because the processing loop above stamped
+      // `processedAt` on disk.
+      let windDown: { eligible: true } | undefined;
+      if (
+        currentSeasonForResolution === null &&
+        gameEntry?.disableAfterRound === true &&
+        findNextSeason(seasonsStateForResolution, now) === null
+      ) {
+        const questionsAfterProcessing = await scoped.loadQuestions();
+        if (!hasUnrevealedPostedQuestions(questionsAfterProcessing)) {
+          windDown = { eligible: true };
+        }
       }
 
       // Per-player round scoreboard — AGGREGATE from scored answers (same source
@@ -513,6 +532,7 @@ export function createComputeAnswersTool(
         finalRevealSummary: resolveFinalRevealSummary(gameEntry, triviaConfig),
         tagPlayers: resolveTagPlayers(gameEntry, triviaConfig),
         ...(seasonStatus ? { seasonStatus } : {}),
+        ...(windDown !== undefined ? { windDown } : {}),
         ...(teamStandingsOut !== undefined ? { teamStandings: teamStandingsOut } : {}),
         ...(seasonStatus
           ? {
@@ -654,7 +674,7 @@ interface SeasonStatusParams {
  * Compute the season status for the reveal payload — REPORT ONLY. Performs NO
  * rollover and mutates NO state: `seasonClosed` is always `false` and no
  * continuation season is created. The rollover (stamp `endedAt`, create the
- * continuation) is owned by `start_new_season`, which the reveal prompt calls on
+ * continuation) is owned by `end_season`, which the reveal prompt calls on
  * the last fire. Keeping the irreversible mutation off the compute step is what
  * lets compute be re-run safely.
  *
