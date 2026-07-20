@@ -1,9 +1,17 @@
-import { describe, it, vi } from "vitest";
+import { describe, it, vi, beforeEach } from "vitest";
 import assert from "node:assert/strict";
 import { createFetchSlackMessageTool, type FetchSlackMessageDeps } from "./fetchSlackMessage.js";
 import { parseToolResult } from "../testHelpers.js";
 import type { QueryToolContext } from "../types.js";
 import type { SlackImageFile } from "../../slack/slackFileBase.js";
+import type { EmojiCache } from "../../slack/emojiCache.js";
+import { buildLoreHint } from "../../emojiLore.js";
+
+// The lore store is an outside dependency: stub the hint builder and assert the wiring.
+vi.mock("../../emojiLore.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../emojiLore.js")>();
+  return { ...actual, buildLoreHint: vi.fn() };
+});
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -892,5 +900,63 @@ describe("fetchSlackMessage tool", () => {
 
     const parsed = parseToolResult(result);
     assert.equal(parsed.channel_name, undefined);
+  });
+});
+
+describe("fetchSlackMessage emoji lore hint", () => {
+  const emojiCache: EmojiCache = {
+    get: vi.fn(async () => undefined),
+    has: vi.fn(async () => true),
+    search: vi.fn(async () => ({ emojis: [], total: 0, truncated: false })),
+  };
+
+  beforeEach(() => {
+    vi.mocked(buildLoreHint).mockClear();
+  });
+
+  async function fetchWith(text: string, cache?: EmojiCache) {
+    const messages = makeThreadMessages(1);
+    messages[0].text = text;
+    const fetchThreadContext: FetchSlackMessageDeps["fetchThreadContext"] = async () => messages;
+    const toolDef = createFetchSlackMessageTool(makeCtx(), makeDeps({ fetchThreadContext }), cache);
+
+    return parseToolResult(
+      await toolDef.handler(
+        {
+          url: "https://workspace.slack.com/archives/C0123ABC/p1234567890123456",
+          page: undefined,
+          limit: undefined,
+        },
+        { sessionId: "test" },
+      ),
+    );
+  }
+
+  it("passes the emoji it saw to the hint builder and surfaces the hint", async () => {
+    vi.mocked(buildLoreHint).mockResolvedValue("lore nudge");
+
+    const parsed = await fetchWith("great work :ship_it:", emojiCache);
+
+    assert.equal(parsed.lore_hint, "lore nudge");
+    const [names, passedCache] = vi.mocked(buildLoreHint).mock.calls[0];
+    assert.deepEqual([...names], ["ship_it"]);
+    assert.equal(passedCache, emojiCache);
+  });
+
+  it("omits lore_hint entirely when the builder has nothing to say", async () => {
+    vi.mocked(buildLoreHint).mockResolvedValue(null);
+
+    const parsed = await fetchWith("plain message", emojiCache);
+
+    assert.equal("lore_hint" in parsed, false);
+  });
+
+  it("never builds a hint when no emoji cache is available", async () => {
+    vi.mocked(buildLoreHint).mockResolvedValue("should not appear");
+
+    const parsed = await fetchWith("hi :ship_it:");
+
+    assert.equal("lore_hint" in parsed, false);
+    assert.equal(vi.mocked(buildLoreHint).mock.calls.length, 0);
   });
 });

@@ -37,6 +37,32 @@ describe("casual-talk engagement topic content", () => {
     assert.ok(ENGAGEMENT_CONTENT.includes("no fixed cap"));
   });
 
+  it("reads the emoji lore index once per run and picks by meaning", () => {
+    assert.ok(ENGAGEMENT_CONTENT.includes("ONCE per run"));
+    assert.ok(ENGAGEMENT_CONTENT.includes("lore_only: true"));
+    assert.ok(ENGAGEMENT_CONTENT.includes("pick by MEANING"));
+    // The pre-lore fallbacks survive so an empty index is a non-event.
+    assert.ok(ENGAGEMENT_CONTENT.includes("fall back to a plain `find_emoji` name search"));
+    assert.ok(ENGAGEMENT_CONTENT.includes("standard emoji you already know"));
+  });
+
+  it("records observed lore with paraphrased, unattributed examples", () => {
+    assert.ok(ENGAGEMENT_CONTENT.includes("`describe_emoji`"));
+    assert.ok(ENGAGEMENT_CONTENT.includes(`source: "observed"`));
+    assert.ok(ENGAGEMENT_CONTENT.includes("PARAPHRASES the situation"));
+    assert.ok(
+      ENGAGEMENT_CONTENT.includes(
+        "Never quote a message verbatim and never name the person who used it",
+      ),
+    );
+    assert.ok(ENGAGEMENT_CONTENT.includes("do NOT try to overwrite it"));
+  });
+
+  it("marks both lore steps best-effort so a failure never aborts the run", () => {
+    assert.ok(ENGAGEMENT_CONTENT.includes("BEST-EFFORT"));
+    assert.ok(ENGAGEMENT_CONTENT.includes("never aborts the run"));
+  });
+
   it("carries the full posting and termination contract", () => {
     assert.ok(ENGAGEMENT_CONTENT.includes("deliver_to` array holding exactly ONE entry"));
     assert.ok(

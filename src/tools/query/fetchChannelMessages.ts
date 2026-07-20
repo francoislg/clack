@@ -1,6 +1,8 @@
 import { z } from "zod";
 import { tool } from "@anthropic-ai/claude-agent-sdk";
 import type { QueryToolContext } from "../types.js";
+import type { EmojiCache } from "../../slack/emojiCache.js";
+import { buildLoreHint, collectEmojiNames } from "../../emojiLore.js";
 import { textResult, errorResult } from "../helpers.js";
 import {
   buildThreadMessage,
@@ -220,6 +222,7 @@ async function formatMessage(
 export function createFetchChannelMessagesTool(
   ctx: QueryToolContext,
   deps: FetchChannelMessagesDeps = defaultFetchChannelMessagesDeps,
+  emojiCache?: EmojiCache,
 ) {
   return tool(
     "fetch_channel_messages",
@@ -334,6 +337,9 @@ export function createFetchChannelMessagesTool(
         // Reference clock so the model can judge recency ("within the last 2 hours")
         // against an explicit now rather than guessing from the freshest message.
         const now = new Date();
+        const loreHint = emojiCache
+          ? await buildLoreHint(collectEmojiNames(messages), emojiCache)
+          : null;
         return textResult({
           channel: args.channel_id,
           ...(channelInfo && { channel_name: channelInfo.name }),
@@ -343,6 +349,7 @@ export function createFetchChannelMessagesTool(
           has_more: result.has_more ?? false,
           ...windowEcho,
           messages,
+          ...(loreHint ? { lore_hint: loreHint } : {}),
         });
       } catch (error) {
         return errorResult(`Failed to fetch channel messages: ${errorMessage(error)}`);

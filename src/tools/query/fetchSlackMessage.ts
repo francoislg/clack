@@ -5,6 +5,8 @@ import { textResult, errorResult } from "../helpers.js";
 import { fetchThreadContext } from "../../slack/messagesApi.js";
 import { threadMessageToToolOutput } from "../../slack/messageBuilder.js";
 import { getChannelInfo } from "../../slack/channelCache.js";
+import type { EmojiCache } from "../../slack/emojiCache.js";
+import { buildLoreHint, collectEmojiNames } from "../../emojiLore.js";
 
 export interface FetchSlackMessageDeps {
   fetchThreadContext: typeof fetchThreadContext;
@@ -45,6 +47,7 @@ export function parseSlackMessageUrl(
 export function createFetchSlackMessageTool(
   ctx: QueryToolContext,
   deps: FetchSlackMessageDeps = defaultFetchSlackMessageDeps,
+  emojiCache?: EmojiCache,
 ) {
   return tool(
     "fetch_slack_message",
@@ -108,6 +111,11 @@ export function createFetchSlackMessageTool(
         ? await deps.getChannelInfo(ctx.slackClient, channelId)
         : undefined;
 
+      const output = pageMessages.map(threadMessageToToolOutput);
+      const loreHint = emojiCache
+        ? await buildLoreHint(collectEmojiNames(output), emojiCache)
+        : null;
+
       return textResult({
         channel: channelId,
         ...(channelInfo && { channel_name: channelInfo.name }),
@@ -116,7 +124,8 @@ export function createFetchSlackMessageTool(
         page,
         limit,
         has_more: hasMore,
-        messages: pageMessages.map(threadMessageToToolOutput),
+        messages: output,
+        ...(loreHint ? { lore_hint: loreHint } : {}),
       });
     },
   );
