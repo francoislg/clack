@@ -185,6 +185,13 @@ const structuralFieldsSchema = {
     .describe(
       "Per-game tier of the `tagPlayers` knob. `true` (the default) names players with real `<@USERID>` Slack mentions everywhere — reveal post, in-thread narrative, finale podium, live answer roster, and reveal footer — which pings them. `false` renders every player as plain-text `@displayName` instead, so no trivia surface pings the room. Cascade: `game → workspace → true`. On UPDATE: explicit null clears the field.",
     ),
+  disableAfterRound: z
+    .boolean()
+    .nullable()
+    .optional()
+    .describe(
+      "Game-tier lifecycle flag (game tier ONLY — no season/slot/workspace tier, not a cascade axis). `true` makes `end_season` wind the game down at its round's close instead of creating a continuation: on a seasons game, the season's last reveal; on a seasonless game, a board-clearing reveal (NOTE: a recurring seasonless game with this flag winds down after its FIRST board-clearing reveal). The wind-down persists `enabled: false`; corrections afterward require re-enable → fix → re-disable by hand. STANDING: the flag survives wind-down, so a later re-enabled game winds down again at its next round close. On UPDATE: explicit null clears the field.",
+    ),
   scrollToTop: z
     .boolean()
     .nullable()
@@ -570,6 +577,13 @@ export function createUpsertGameTool(
             ? args.scrollToTop
             : existing?.scrollToTop;
 
+      const nextDisableAfterRound: boolean | undefined =
+        args.disableAfterRound === null
+          ? undefined
+          : args.disableAfterRound !== undefined
+            ? args.disableAfterRound
+            : existing?.disableAfterRound;
+
       const mergedStructural: Partial<TriviaGame> = {
         ...(existing?.format !== undefined ? { format: existing.format } : {}),
         ...(existing?.categories !== undefined ? { categories: existing.categories } : {}),
@@ -589,6 +603,9 @@ export function createUpsertGameTool(
         ...(existing?.allTimeRow !== undefined ? { allTimeRow: existing.allTimeRow } : {}),
         ...(nextTagPlayers !== undefined ? { tagPlayers: nextTagPlayers } : {}),
         ...(nextScrollToTop !== undefined ? { scrollToTop: nextScrollToTop } : {}),
+        ...(nextDisableAfterRound !== undefined
+          ? { disableAfterRound: nextDisableAfterRound }
+          : {}),
         ...(existing?.includeRevealInQuestions !== undefined
           ? { includeRevealInQuestions: existing.includeRevealInQuestions }
           : {}),
@@ -737,6 +754,7 @@ export function createUpsertGameTool(
         hasAllTimeRow: mergedStructural.allTimeRow !== undefined,
         hasTagPlayers: mergedStructural.tagPlayers !== undefined,
         hasScrollToTop: mergedStructural.scrollToTop !== undefined,
+        hasDisableAfterRound: mergedStructural.disableAfterRound !== undefined,
         hasIncludeRevealInQuestions: mergedStructural.includeRevealInQuestions !== undefined,
         hasFinalRevealSummary: mergedStructural.finalRevealSummary !== undefined,
         hasTellMeMore: mergedStructural.tellMeMore !== undefined,

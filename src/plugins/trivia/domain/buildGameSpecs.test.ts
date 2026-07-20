@@ -80,7 +80,7 @@ describe("buildGameSpecs", () => {
       "mcp__trivia__settle_question",
       "mcp__trivia__set_reveal_narrative",
       "mcp__trivia__refresh_question_cards",
-      "mcp__trivia__start_new_season",
+      "mcp__trivia__end_season",
     ];
     const games: TriviaGame[] = [
       { ...baseGame, name: "full", prepCron: "0 8 * * *", lockCron: "0 14 * * *" },
@@ -131,12 +131,12 @@ describe("buildGameSpecs", () => {
     assert.ok(!reveal.requiredTools.includes("mcp__trivia__delete_season"));
     assert.ok(!reveal.requiredTools.includes("mcp__trivia__post_questions"));
     // Conditional reveal tools — excluded so the gate doesn't force-call them on runs where the
-    // prompt skips them: settle_question (no predictions), start_new_season (not the season's last
+    // prompt skips them: settle_question (no predictions), end_season (not the round's final
     // fire), set_reveal_narrative (only when includeRevealInQuestions is "yes"), refresh_question_cards
     // (skipped on an empty batch).
     assert.ok(!reveal.requiredTools.includes("mcp__trivia__settle_question"));
     assert.ok(!reveal.requiredTools.includes("mcp__trivia__refresh_question_cards"));
-    assert.ok(!reveal.requiredTools.includes("mcp__trivia__start_new_season"));
+    assert.ok(!reveal.requiredTools.includes("mcp__trivia__end_season"));
     assert.ok(!reveal.requiredTools.includes("mcp__trivia__set_reveal_narrative"));
   });
 

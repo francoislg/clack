@@ -251,6 +251,15 @@ export interface ProcessRevealResult {
   tagPlayers: boolean;
   seasonStatus?: SeasonStatusOut;
   /**
+   * Seasonless wind-down eligibility — the seasonless analog of
+   * `seasonStatus.isLastFireOfSeason`. Present (always `{ eligible: true }`)
+   * ONLY when the game has no active season AND no queued season AND carries
+   * `disableAfterRound: true` AND this reveal left zero posted-but-unrevealed
+   * questions. REPORT-ONLY: the renderer reacts by calling `end_season`, which
+   * performs the wind-down. Absent whenever a season is active.
+   */
+  windDown?: { eligible: true };
+  /**
    * Teams-mode standings, present ONLY when the game's effective teams mode is
    * ON — the teams-off payload is byte-identical to pre-teams behavior. See
    * `TeamStandingsOut`.

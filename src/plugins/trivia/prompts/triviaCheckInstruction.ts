@@ -138,6 +138,11 @@ When an admin asks to **disable a game temporarily** (e.g. "pause the engineerin
 
 When an admin asks to **re-enable a disabled game**: same path, \`enabled: true\`.
 
+When an admin wants a game to **stop by itself after its current run** (a finite series, a one-shot event, "wind it down when this season ends"): set \`upsert_game(name, disableAfterRound: true)\`. At the round's close, \`end_season\` then winds the game down instead of creating a continuation — on a seasons game that is the season's last reveal; on a seasonless game it is a board-clearing reveal (WARN the admin: a RECURRING seasonless game with this flag winds down after its FIRST board-clearing reveal, so the flag suits one-shot boards, not dailies). The wind-down persists \`enabled: false\`. Key facts to relay when relevant:
+- The flag is STANDING: it survives the wind-down, so re-enabling the game later and running a new round winds it down again at that round's close.
+- \`end_season\` with \`force: true\` on a flagged game ALSO winds it down (ending it now means ending it) — mention this before forcing an early close.
+- Correcting a wound-down game (\`override_answer\`, \`settle_question\`, …): re-enable (\`upsert_game(name, enabled: true)\`), apply the fix, then RE-DISABLE by hand (\`enabled: false\`) — nothing re-disables an already-ended round automatically, and while re-enabled the game's cron jobs are live.
+
 When an admin asks to **remove a game entirely**: \`delete_game(name)\`. The data directory stays under \`data/plugins/trivia/games/<name>/\` until you delete it manually (no MCP tool deletes per-game data).
 
 When an admin asks **which trivia games exist** or **what's running where**: call \`list_games\` (always available to members+; no integration needed). Pass \`includeDisabled: true\` to also surface paused games. The response includes \`name\`, \`channel\`, \`timezone\`, \`enabled\`, \`questionCron\`, \`revealCron\`, optional \`prepCron\`, and \`axisOverrides\` per game, plus \`workspaceDefaults\` for the workspace tier.

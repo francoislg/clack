@@ -2,7 +2,7 @@ import { describe, it } from "vitest";
 import assert from "node:assert/strict";
 import { createComputeAnswersTool, type RevealSlackDeps } from "./tools/reveal/computeAnswers.js";
 import { createRefreshQuestionCardsTool } from "./tools/reveal/refreshQuestionCards.js";
-import { createStartNewSeasonTool } from "./tools/seasons/startNewSeason.js";
+import { createEndSeasonTool } from "./tools/seasons/endSeason.js";
 import {
   createTriviaDataLayer,
   FIXTURE_GAME_NAME,
@@ -14,16 +14,17 @@ import {
   createFakeRevealSlackDeps,
   primeTriviaConfig,
 } from "./testHelpers.fakeSdk.js";
+import { loadTriviaConfig } from "./core/configBridge.js";
 import { parseToolResult } from "../../tools/testHelpers.js";
 import type { TriviaQuestion } from "./core/types.js";
 
 /**
  * INTEGRATION test for the reveal flow. Unlike the per-tool unit files
- * (`computeAnswers.test.ts`, `refreshQuestionCards.test.ts`, `startNewSeason.test.ts`),
+ * (`computeAnswers.test.ts`, `refreshQuestionCards.test.ts`, `endSeason.test.ts`),
  * this wires all three real tools against ONE shared in-memory data layer and ONE
  * shared Slack seam — exactly as the scheduled reveal prompt chains them:
  *
- *   compute_answers → refresh_question_cards(questionIds) → start_new_season (last fire only)
+ *   compute_answers → refresh_question_cards(questionIds) → end_season (last fire only)
  *
  * It is the end-to-end safety net the refactor's design called for: the split must
  * reproduce the old monolith's observable result (cards edited, leaderboard/round
@@ -115,7 +116,7 @@ function harness(revealCron: string, deps: RevealSlackDeps) {
     data,
     compute: createComputeAnswersTool(data, sdk, getGames, deps, noConfig),
     update: createRefreshQuestionCardsTool(data, sdk, getGames, deps, noConfig),
-    startNewSeason: createStartNewSeasonTool(data, getGames),
+    endSeason: createEndSeasonTool(data, getGames),
   };
 }
 
@@ -125,7 +126,7 @@ async function seedCurrentSeason(data: Data, expectedEndAt: number): Promise<voi
   });
 }
 
-describe("reveal flow integration — compute → update → start_new_season", () => {
+describe("reveal flow integration — compute → update → end_season", () => {
   it("mid-season fire: scores, edits the batch's cards, and leaves the season open", async () => {
     const deps = capturingSlackDeps();
     const { data, compute, update } = harness("* * * * *", deps);
@@ -196,9 +197,9 @@ describe("reveal flow integration — compute → update → start_new_season", 
     assert.equal(state?.seasons.find((s) => s.slug === "s1")?.endedAt, undefined);
   });
 
-  it("last fire: compute reports it, start_new_season is what closes the season and queues the continuation", async () => {
+  it("last fire: compute reports it, end_season is what closes the season and queues the continuation", async () => {
     const deps = capturingSlackDeps();
-    const { data, compute, update, startNewSeason } = harness("0 0 1 1 *", deps);
+    const { data, compute, update, endSeason } = harness("0 0 1 1 *", deps);
     const scoped = data.forGame(FIXTURE_GAME_NAME);
     // Season ends shortly; a yearly cron next-fires far past that → the last fire.
     await seedCurrentSeason(data, Date.now() + 60_000);
@@ -240,9 +241,9 @@ describe("reveal flow integration — compute → update → start_new_season", 
     );
     assert.equal(updatesOf(deps).length, 1);
 
-    // ── Step 3: start_new_season (the only step that mutates season state) ─
+    // ── Step 3: end_season (the only step that mutates season state) ─
     const rolled = parseToolResult(
-      await startNewSeason.handler({ game: FIXTURE_GAME_NAME, force: undefined }, SESSION),
+      await endSeason.handler({ game: FIXTURE_GAME_NAME, force: undefined }, SESSION),
     );
     assert.equal(rolled.seasonClosed, true);
     assert.equal(rolled.closedSlug, "s1");
@@ -258,7 +259,7 @@ describe("reveal flow integration — compute → update → start_new_season", 
 
   it("replay is safe: re-running update re-projects identically and the closed season is never re-closed", async () => {
     const deps = capturingSlackDeps();
-    const { data, compute, update, startNewSeason } = harness("0 0 1 1 *", deps);
+    const { data, compute, update, endSeason } = harness("0 0 1 1 *", deps);
     const scoped = data.forGame(FIXTURE_GAME_NAME);
     await seedCurrentSeason(data, Date.now() + 60_000);
     await scoped.saveQuestion(
@@ -289,7 +290,7 @@ describe("reveal flow integration — compute → update → start_new_season", 
       },
       SESSION,
     );
-    await startNewSeason.handler({ game: FIXTURE_GAME_NAME, force: undefined }, SESSION);
+    await endSeason.handler({ game: FIXTURE_GAME_NAME, force: undefined }, SESSION);
 
     const closedAt = (await scoped.loadSeasonsState())?.seasons.find(
       (s) => s.slug === "s1",
@@ -308,11 +309,88 @@ describe("reveal flow integration — compute → update → start_new_season", 
     assert.deepEqual(updatesOf(deps)[0].blockIds, updatesOf(deps)[1].blockIds);
 
     // Re-run rollover: s1's close stamp is irreversible-once — never re-applied.
-    await startNewSeason.handler({ game: FIXTURE_GAME_NAME, force: undefined }, SESSION);
+    await endSeason.handler({ game: FIXTURE_GAME_NAME, force: undefined }, SESSION);
     const reclosedAt = (await scoped.loadSeasonsState())?.seasons.find(
       (s) => s.slug === "s1",
     )?.endedAt;
     assert.equal(reclosedAt, closedAt);
+  });
+
+  it("seasonless wind-down: compute reports eligibility, end_season disables the game, replay is a no-op", async () => {
+    const deps = capturingSlackDeps();
+    // Bespoke harness: windDownGame persists through the config bridge, so the
+    // game entry must live IN the primed config (the shared harness primes
+    // `{ games: [] }`), and the getGames view must carry `disableAfterRound`.
+    const { sdk } = createFakeSdk();
+    const gamesInConfig = fixtureGetGames().map((g) =>
+      g.name === FIXTURE_GAME_NAME ? { ...g, disableAfterRound: true } : g,
+    );
+    primeTriviaConfig(sdk, { games: gamesInConfig.map((g) => ({ ...g })) });
+    const { dataLayer: data } = createTriviaDataLayer(sdk);
+    const getGames = () => loadTriviaConfig()?.games ?? [];
+    const noConfig = () => ({});
+    const compute = createComputeAnswersTool(data, sdk, getGames, deps, noConfig);
+    const update = createRefreshQuestionCardsTool(data, sdk, getGames, deps, noConfig);
+    const endSeason = createEndSeasonTool(data, getGames);
+    const scoped = data.forGame(FIXTURE_GAME_NAME);
+    // NO seasons state at all — a pure seasonless one-shot board of one question.
+    await scoped.saveQuestion(
+      makeQuestion({ id: "q1", batchId: "B", postedBlocks: postedBooleanBlocks("q1") }),
+    );
+    await scoped.saveAnswer({
+      userId: "U1",
+      questionId: "q1",
+      answer: true,
+      correct: true,
+      timestamp: 1,
+    });
+
+    // ── Step 1: compute clears the board and REPORTS eligibility (no mutation).
+    const computed = parseToolResult(
+      await compute.handler(
+        {
+          game: FIXTURE_GAME_NAME,
+          reprocessQuestionIds: undefined,
+          reprocessBatchId: undefined,
+        },
+        SESSION,
+      ),
+    );
+    assert.equal(computed.reveals.length, 1);
+    assert.deepEqual(computed.windDown, { eligible: true });
+    assert.equal(
+      loadTriviaConfig()?.games?.find((g) => g.name === FIXTURE_GAME_NAME)?.enabled,
+      true,
+      "compute is report-only — the game stays enabled",
+    );
+
+    // ── Step 2: the projector edits the card as on any reveal.
+    await update.handler(
+      {
+        game: FIXTURE_GAME_NAME,
+        questionIds: computed.reveals.map((r: { questionId: string }) => r.questionId),
+      },
+      SESSION,
+    );
+    assert.equal(updatesOf(deps).length, 1);
+
+    // ── Step 3: end_season performs the wind-down.
+    const wound = parseToolResult(
+      await endSeason.handler({ game: FIXTURE_GAME_NAME, force: undefined }, SESSION),
+    );
+    assert.equal(wound.gameDisabled, true);
+    assert.equal(
+      loadTriviaConfig()?.games?.find((g) => g.name === FIXTURE_GAME_NAME)?.enabled,
+      false,
+      "the wind-down persisted enabled: false",
+    );
+
+    // ── Replay: re-running end_season on the wound-down game is a no-op success.
+    const replayed = parseToolResult(
+      await endSeason.handler({ game: FIXTURE_GAME_NAME, force: undefined }, SESSION),
+    );
+    assert.equal(replayed.alreadyWoundDown, true);
+    assert.equal(replayed.gameDisabled, true);
   });
 
   it("batches drain one per fire across successive chained runs", async () => {

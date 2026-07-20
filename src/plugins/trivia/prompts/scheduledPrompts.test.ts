@@ -385,20 +385,21 @@ describe("PROCESS_REVEAL_INSTRUCTIONS — renderer brief", () => {
   it("sequences compute_answers → refresh_question_cards → submit_response", () => {
     assert.match(PROCESS_REVEAL_INSTRUCTIONS, /compute_answers/);
     assert.match(PROCESS_REVEAL_INSTRUCTIONS, /refresh_question_cards/);
-    assert.match(PROCESS_REVEAL_INSTRUCTIONS, /start_new_season/);
+    assert.match(PROCESS_REVEAL_INSTRUCTIONS, /end_season/);
     assert.match(PROCESS_REVEAL_INSTRUCTIONS, /submit_response/);
     assert.doesNotMatch(PROCESS_REVEAL_INSTRUCTIONS, /process_reveal_answers/);
+    assert.doesNotMatch(PROCESS_REVEAL_INSTRUCTIONS, /start_new_season/);
   });
 
-  it("orders the tool chain compute_answers → refresh_question_cards → start_new_season", () => {
+  it("orders the tool chain compute_answers → refresh_question_cards → end_season", () => {
     // The orchestration moved into this prompt — its ORDER is the runtime contract.
     // `sequences …` above only checks each name exists; this pins the actual sequence.
     const iCompute = PROCESS_REVEAL_INSTRUCTIONS.indexOf("compute_answers");
     const iUpdate = PROCESS_REVEAL_INSTRUCTIONS.indexOf("refresh_question_cards");
-    const iSeason = PROCESS_REVEAL_INSTRUCTIONS.indexOf("start_new_season");
+    const iSeason = PROCESS_REVEAL_INSTRUCTIONS.indexOf("end_season");
     assert.ok(iCompute >= 0 && iUpdate >= 0 && iSeason >= 0);
     assert.ok(iCompute < iUpdate, "compute_answers must come before refresh_question_cards");
-    assert.ok(iUpdate < iSeason, "refresh_question_cards must come before start_new_season");
+    assert.ok(iUpdate < iSeason, "refresh_question_cards must come before end_season");
   });
 
   it("threads the revealed questionIds from compute_answers into refresh_question_cards", () => {
@@ -413,17 +414,26 @@ describe("PROCESS_REVEAL_INSTRUCTIONS — renderer brief", () => {
     assert.doesNotMatch(PROCESS_REVEAL_INSTRUCTIONS, /batchId: <the batchId from step 1>/);
   });
 
-  it("gates start_new_season to the season's last fire only (never unconditional)", () => {
-    // The tool itself now re-verifies the last fire (see startNewSeason.ts confirmation
-    // guard), but this prompt conditional is still the first line of defense keeping a
-    // mid-season fire from even attempting the rollover.
+  it("gates end_season to the round's final fire only (never unconditional)", () => {
+    // The tool itself re-verifies its branch conditions (see endSeason.ts guards), but
+    // this prompt conditional is still the first line of defense keeping a mid-round
+    // fire from even attempting the close.
     assert.match(PROCESS_REVEAL_INSTRUCTIONS, /IF AND ONLY IF[^\n]*isLastFireOfSeason === true/);
-    assert.match(PROCESS_REVEAL_INSTRUCTIONS, /isLastFireOfSeason` is false, SKIP this call/);
-    // And it must be REQUIRED (not optional) when the last fire IS reached.
+    assert.match(PROCESS_REVEAL_INSTRUCTIONS, /When NEITHER gate holds, SKIP this call/);
+    // And it must be REQUIRED (not optional) when the final fire IS reached — via
+    // either gate (season's last fire, or the seasonless windDown report).
     assert.match(
       PROCESS_REVEAL_INSTRUCTIONS,
-      /When `isLastFireOfSeason` is true you MUST call `start_new_season/,
+      /When `isLastFireOfSeason` is true you MUST call `end_season/,
     );
+    assert.match(PROCESS_REVEAL_INSTRUCTIONS, /windDown\.eligible === true/);
+    assert.match(PROCESS_REVEAL_INSTRUCTIONS, /When present you MUST call `end_season/);
+  });
+
+  it("keys the series-wrap closer off the end_season result's gameDisabled", () => {
+    assert.match(PROCESS_REVEAL_INSTRUCTIONS, /gameDisabled: true/);
+    assert.match(PROCESS_REVEAL_INSTRUCTIONS, /series wrap/i);
+    assert.match(PROCESS_REVEAL_INSTRUCTIONS, /NO "see you next season"/);
   });
 
   it("branches on includeRevealInQuestions: yes authors per-card narrative, no does not", () => {

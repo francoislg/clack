@@ -77,6 +77,7 @@ interface ListGamesEntry {
   allTimeRow?: TriviaAllTimeRowMode;
   tagPlayers?: boolean;
   scrollToTop?: boolean;
+  disableAfterRound?: boolean;
   includeRevealInQuestions?: TriviaIncludeRevealInQuestions;
   finalRevealSummary?: TriviaFinalRevealSummary;
   tellMeMore?: TriviaTellMeMoreConfig;
@@ -110,7 +111,7 @@ type WorkspaceDefaults = Partial<CascadeAxes> & {
 
 const DESCRIPTION = `List the trivia games configured in this deployment (data/plugins/trivia/config.json's \`games[]\`), plus the workspace tier of the cascading axis configuration (\`workspaceDefaults\`) AND each entry's per-game \`axisOverrides\`, so admins can audit configuration without reading the file by hand.
 
-By default, disabled games are excluded; pass \`includeDisabled: true\` to surface them too. Each game entry includes \`questionCron\`, \`revealCron\`, \`timezone\`, \`enabled\`, and an \`axisOverrides\` block surfacing the game's per-game cascade tier for EVERY cascading axis (registry-driven — \`answersFormat\`, \`questionType\`, \`promptMedium\`, \`freeformAnswerShape\`, \`contexts\`, \`difficulty\`, \`difficultyRatio\`, \`hint\`, \`judgeLeniency\`, \`choices\`, \`choiceEmojiStyle\`, \`points\`, \`instructions\`, \`additionalInstructions\`, \`liveAnswersVisible\`, \`revealResponses\`). Each axis field is present IF AND ONLY IF the game's entry literally set it. The block is always included on every entry (possibly as \`{}\`). Per-game \`format\` (slot composition), \`categories\` (narrowed pool), \`theme\` (narrative label), \`prepCron\` (opt-in pre-staging schedule), and \`lockCron\` (opt-in voting-lock schedule) also surface on each entry IF AND ONLY IF set. When \`prepCron\` is set, the entry also includes \`nextPrepFire\`; when \`lockCron\` is set, it includes \`nextLockFire\` — each the epoch ms of that cron's next fire in the game's timezone, so admins can sanity-check the schedule.
+By default, disabled games are excluded; pass \`includeDisabled: true\` to surface them too. Each game entry includes \`questionCron\`, \`revealCron\`, \`timezone\`, \`enabled\`, and an \`axisOverrides\` block surfacing the game's per-game cascade tier for EVERY cascading axis (registry-driven — \`answersFormat\`, \`questionType\`, \`promptMedium\`, \`freeformAnswerShape\`, \`contexts\`, \`difficulty\`, \`difficultyRatio\`, \`hint\`, \`judgeLeniency\`, \`choices\`, \`choiceEmojiStyle\`, \`points\`, \`instructions\`, \`additionalInstructions\`, \`liveAnswersVisible\`, \`revealResponses\`). Each axis field is present IF AND ONLY IF the game's entry literally set it. The block is always included on every entry (possibly as \`{}\`). Per-game \`format\` (slot composition), \`categories\` (narrowed pool), \`theme\` (narrative label), \`prepCron\` (opt-in pre-staging schedule), \`lockCron\` (opt-in voting-lock schedule), and \`disableAfterRound\` (wind-down-at-round-close lifecycle flag) also surface on each entry IF AND ONLY IF set. When \`prepCron\` is set, the entry also includes \`nextPrepFire\`; when \`lockCron\` is set, it includes \`nextLockFire\` — each the epoch ms of that cron's next fire in the game's timezone, so admins can sanity-check the schedule.
 
 Each entry also surfaces the underlying cron job UUIDs — \`questionJobId\`, \`revealJobId\`, (when \`prepCron\` is set) \`prepJobId\`, and (when \`lockCron\` is set) \`lockJobId\` — when the trivia plugin's reconcile has registered the corresponding jobs. Pass these to \`run_scheduled_message_now({id})\` to fire a slot on-demand without a separate \`list_scheduled_messages\` lookup.
 
@@ -199,6 +200,7 @@ export function createListGamesTool(
           ...(g.hint !== undefined ? { hint: g.hint } : {}),
           ...(g.allTimeRow !== undefined ? { allTimeRow: g.allTimeRow } : {}),
           ...(g.tagPlayers !== undefined ? { tagPlayers: g.tagPlayers } : {}),
+          ...(g.disableAfterRound !== undefined ? { disableAfterRound: g.disableAfterRound } : {}),
           ...(g.scrollToTop !== undefined ? { scrollToTop: g.scrollToTop } : {}),
           ...(g.includeRevealInQuestions !== undefined
             ? { includeRevealInQuestions: g.includeRevealInQuestions }

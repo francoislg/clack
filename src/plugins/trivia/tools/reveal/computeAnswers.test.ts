@@ -130,6 +130,76 @@ describe("compute_answers —showAllTimeRow", () => {
   });
 });
 
+describe("compute_answers —windDown", () => {
+  function windDownTool(data: FakeTriviaDataLayer, sdk: ReturnType<typeof createFakeSdk>["sdk"]) {
+    const getGames = () =>
+      fixtureGetGames().map((g) =>
+        g.name === FIXTURE_GAME_NAME ? { ...g, disableAfterRound: true } : g,
+      );
+    return createComputeAnswersTool(data, sdk, getGames, createFakeRevealSlackDeps());
+  }
+
+  async function run(tool: ReturnType<typeof createComputeAnswersTool>) {
+    return parseToolResult(
+      await tool.handler(
+        {
+          game: FIXTURE_GAME_NAME,
+          reprocessQuestionIds: undefined,
+          reprocessBatchId: undefined,
+        },
+        SESSION,
+      ),
+    );
+  }
+
+  it("reports eligible when the seasonless reveal clears the board", async () => {
+    const { sdk, dataLayer: data } = makeData();
+    await data.forGame(FIXTURE_GAME_NAME).saveQuestion(makeQuestion({ id: "q1", postedAt: 1_000 }));
+    const res = await run(windDownTool(data, sdk));
+    assert.equal(res.reveals.length, 1, "the run should process the last question");
+    assert.deepEqual(res.windDown, { eligible: true });
+  });
+
+  it("is absent while other posted questions remain unrevealed", async () => {
+    const { sdk, dataLayer: data } = makeData();
+    const scoped = data.forGame(FIXTURE_GAME_NAME);
+    await scoped.saveQuestion(makeQuestion({ id: "q1", postedAt: 1_000, batchId: "A" }));
+    await scoped.saveQuestion(makeQuestion({ id: "q2", postedAt: 2_000, batchId: "B" }));
+    const res = await run(windDownTool(data, sdk));
+    assert.equal("windDown" in res, false);
+  });
+
+  it("is absent without the disableAfterRound flag", async () => {
+    const { sdk, dataLayer: data } = makeData();
+    await data.forGame(FIXTURE_GAME_NAME).saveQuestion(makeQuestion({ id: "q1", postedAt: 1_000 }));
+    const tool = createComputeAnswersTool(data, sdk, fixtureGetGames, createFakeRevealSlackDeps());
+    const res = await run(tool);
+    assert.equal("windDown" in res, false);
+  });
+
+  it("is absent when a season is active, regardless of board state", async () => {
+    const { sdk, dataLayer: data } = makeData();
+    await seedCurrentSeason(data, Date.now() + DAY);
+    await data.forGame(FIXTURE_GAME_NAME).saveQuestion(makeQuestion({ id: "q1", postedAt: 1_000 }));
+    const res = await run(windDownTool(data, sdk));
+    assert.equal("windDown" in res, false);
+  });
+
+  it("is absent in a gap with a queued future season", async () => {
+    const { sdk, dataLayer: data } = makeData();
+    const now = Date.now();
+    await data.forGame(FIXTURE_GAME_NAME).saveSeasonsState({
+      seasons: [
+        { slug: "s0", startedAt: now - 2 * DAY, expectedEndAt: now - DAY, endedAt: now - DAY },
+        { slug: "s1-staged", startedAt: now + DAY, expectedEndAt: now + 30 * DAY },
+      ],
+    });
+    await data.forGame(FIXTURE_GAME_NAME).saveQuestion(makeQuestion({ id: "q1", postedAt: 1_000 }));
+    const res = await run(windDownTool(data, sdk));
+    assert.equal("windDown" in res, false);
+  });
+});
+
 describe("compute_answers —orchestrator", () => {
   it("returns reveals: [] when no question is pending", async () => {
     const { sdk, dataLayer: data } = makeData();

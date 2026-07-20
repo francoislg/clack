@@ -78,7 +78,9 @@ export interface RolloverTeamsContext {
 /**
  * Apply the season-end rollover to a `SeasonsState` IN PLACE:
  *   1. Stamp `endedAt` on the closing season (idempotent — skips when already set).
- *   2. If no future season is queued (no entry with `startedAt > now`), append a
+ *   2. Unless `opts.skipContinuation` is true (the `disableAfterRound` wind-down —
+ *      the game gets no successor), if no future season is queued (no entry with
+ *      `startedAt > now`), append a
  *      continuation season with a `season-YYYY-MM` slug for next month. The
  *      continuation season inherits `answersFormat`, `questionType`, `contexts`,
  *      and `format` from the closing season (deep copies of each field; absent
@@ -107,6 +109,7 @@ export function applySeasonRollover(
   currentSlug: string,
   now: number,
   teamsCtx?: RolloverTeamsContext,
+  opts?: { skipContinuation?: boolean },
 ): RolloverOutcome {
   let seasonClosed = false;
   let teamsStamped = false;
@@ -131,7 +134,7 @@ export function applySeasonRollover(
   }
 
   const next = findNextSeason(state, now);
-  if (next === null && closingSnapshot !== null) {
+  if (opts?.skipContinuation !== true && next === null && closingSnapshot !== null) {
     const { slug, expectedEndAt } = deriveNextMonthSlug(now);
     const fresh: SeasonEntry = {
       slug,

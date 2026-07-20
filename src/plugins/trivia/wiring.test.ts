@@ -61,7 +61,7 @@ describe("trivia plugin wiring", () => {
       "list_games",
       "list_seasons",
       "check_season_status",
-      "start_new_season",
+      "end_season",
       "save_cheating",
     ]) {
       expect(runtime, `${name} should be on the default trivia server`).toContain(name);
