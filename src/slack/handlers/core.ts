@@ -166,6 +166,10 @@ export interface ProcessMessageParams {
   attentionLevel?: SettableAttentionLevel;
   /** Cron job ID for scheduled triggers — recorded on the session's trigger. */
   jobId?: string;
+  /** True when the firing cron job is plugin-managed (`pluginManaged: true`). Gates the
+   *  skill catalogs out of the prompt for scheduled fires; absent → fail open (catalogs
+   *  render). See the `lazy-skill-loading` capability. */
+  pluginManagedJob?: boolean;
   /** Emoji name (no colons) for reactions triggers — recorded on the trigger. */
   reactionEmoji?: string;
   /** autoRespond rule name — propagated onto the trigger when a rule matched. */
@@ -230,6 +234,8 @@ interface ProcessingContext {
   readonly attentionLevel?: SettableAttentionLevel;
   /** Cron job ID for scheduled triggers — carried onto the trigger for provenance. */
   readonly jobId?: string;
+  /** Plugin-managed firing job — see ProcessMessageParams.pluginManagedJob. */
+  readonly pluginManagedJob?: boolean;
   /** Reactions trigger — the emoji that was reacted with. */
   readonly reactionEmoji?: string;
   /** autoRespond rule name — propagated onto the trigger when a rule matched. */
@@ -595,6 +601,7 @@ export async function processMessage(
       preAnalysis: params.preAnalysis,
       attentionLevel: params.attentionLevel,
       jobId: params.jobId,
+      pluginManagedJob: params.pluginManagedJob,
       reactionEmoji: params.reactionEmoji,
       autoRespondRuleName: params.autoRespondRuleName,
       roleOverride: params.roleOverride,
@@ -678,6 +685,7 @@ export async function processMessage(
         skipConditions: ctx.skipConditions,
         submitResponseMode: ctx.submitResponseMode,
         asOf: ctx.asOf,
+        pluginManagedJob: ctx.pluginManagedJob,
         preAttachedTopics: mergeBuiltinTopics(triggerType, ctx.preAttachedTopics),
         // Releases the per-thread lock the instant this run claims its active-runs slot.
         onRegistered: release,

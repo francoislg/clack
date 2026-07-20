@@ -113,20 +113,46 @@ describe("casual-talk plugin load", () => {
     assert.equal(store.createCalls.length, 0);
   });
 
-  it("registers the management server with autoload: false", async () => {
+  it("registers the management and engagement servers with autoload: false", async () => {
     const store = makeFakeStore();
     const { sdk, harvest } = buildSdk(store);
 
     await casualTalkPlugin(sdk);
     const result = harvest();
 
-    assert.equal(result.mcpServers.length, 1, "exactly one on-demand server (management)");
-    assert.equal(result.mcpServers[0].key, "management");
-    assert.equal(result.mcpServers[0].fullName, "casual-talk:management");
-    assert.equal(result.mcpServers[0].autoload, false);
+    assert.equal(result.mcpServers.length, 2, "two on-demand servers (management + engagement)");
+    const management = result.mcpServers.find((s) => s.key === "management");
+    assert.ok(management);
+    assert.equal(management.fullName, "casual-talk:management");
+    assert.equal(management.autoload, false);
+    const engagement = result.mcpServers.find((s) => s.key === "engagement");
+    assert.ok(engagement, "engagement server must be registered");
+    assert.equal(engagement.fullName, "casual-talk:engagement");
+    assert.equal(engagement.autoload, false);
   });
 
-  it("registers all 10 management tools, each scoped to the management server", async () => {
+  it("binds the engagement instructions to the engagement topic with NO tools", async () => {
+    const store = makeFakeStore();
+    const { sdk, harvest } = buildSdk(store);
+
+    await casualTalkPlugin(sdk);
+    const result = harvest();
+
+    const engagement = result.instructions.find(
+      (i) => i.filename === "topics/casual-talk:engagement/casual-talk__engagement.md",
+    );
+    assert.ok(engagement, "engagement topic instruction must be registered");
+    assert.equal(engagement.role, "user");
+    assert.match(engagement.content, /fetch_channel_messages/);
+    assert.match(engagement.content, /attention_level: "high"/);
+    // Instructions-only server: no tool is bound to the engagement server.
+    assert.ok(
+      result.tools.every((t) => t.serverKey !== "engagement"),
+      "no tools may live on the engagement server",
+    );
+  });
+
+  it("registers all 11 management tools, each scoped to the management server", async () => {
     const store = makeFakeStore();
     const { sdk, harvest } = buildSdk(store);
 
@@ -144,6 +170,7 @@ describe("casual-talk plugin load", () => {
       "set_work_hours",
       "enable",
       "disable",
+      "toggle_builtin_fallback_topics",
     ];
     const toolNames = result.tools.map((t) => t.name);
     for (const name of expected) {
@@ -221,7 +248,11 @@ describe("casual-talk plugin load", () => {
     assert.equal(created.pluginManaged, true);
     assert.equal(created.submitResponseMode, "optional-post-to");
     assert.deepEqual(created.requiredTools, ["mcp__clack__random_roll"]);
-    assert.deepEqual(created.attachedTopics, ["casual-talk", "response-rendering"]);
+    assert.deepEqual(
+      created.attachedTopics,
+      ["casual-talk"],
+      "response-rendering attaches at hit time, not via the spec",
+    );
     assert.equal(created.name, "Casual chatter");
     // Internal jitter constant carried onto the spec; must stay below the 15-minute cadence.
     assert.ok(

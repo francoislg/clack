@@ -404,6 +404,7 @@ export async function executeDynamicJob(
     submitResponseMode: job.submitResponseMode,
     silent: job.silent,
     jobId: job.id,
+    pluginManagedJob: job.pluginManaged === true,
     roleOverride: actor.kind === "system" ? "system" : undefined,
     asOf,
     preAttachedTopics: job.attachedTopics,
