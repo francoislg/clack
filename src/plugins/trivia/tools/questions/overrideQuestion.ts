@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { tool } from "@anthropic-ai/claude-agent-sdk";
-import { textResult, errorResult } from "../../../../tools/helpers.js";
+import { textResult, errorResult } from "../../../../plugins-sdk/sdk.js";
 import { defaultGetGames, type GetGamesFn } from "../../core/configBridge.js";
 import { requireWritableGame } from "../../core/gamesRegistry.js";
 import { repaintHint } from "../../core/refreshHint.js";
@@ -10,7 +10,7 @@ import type {
   TriviaQuestion,
   QuestionOverrideOriginals,
 } from "../../core/types.js";
-import type { ClackSdk } from "../../../sdk.js";
+import type { ClackSdk } from "../../../../plugins-sdk/sdk.js";
 import { rewriteWorthBlock } from "./renderPoints.js";
 
 const DESCRIPTION = `Hand-correct a stamped value on ONE trivia question that nothing else can re-derive. Admin-only. Works on staged, live, and already-revealed questions.

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { z } from "zod";
-import { createUsersSurface, type UsersSurfaceDeps } from "./sdkUsers.js";
+import { createUsersSurface, type UsersSurfaceDeps } from "./users.js";
 
 const schema = z.object({
   joinedAt: z.number().optional(),

@@ -1,4 +1,4 @@
-import type { ClackSdk, ClackPlugin } from "../sdk.js";
+import type { ClackSdk, ClackPlugin } from "../../plugins-sdk/sdk.js";
 import { createGenerateImageTool, defaultGenerateImageDeps } from "./generateImage.js";
 import { parseModelMap, setModelMap } from "./models.js";
 import { GEMINI_IMAGE_USAGE_INSTRUCTION } from "./usageInstruction.js";

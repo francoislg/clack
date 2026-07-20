@@ -3,23 +3,18 @@ import { createRequire } from "node:module";
 import { createSdkMcpServer } from "@anthropic-ai/claude-agent-sdk";
 import { logger } from "../logger.js";
 import { getConfig, getDataDir } from "../config.js";
-import {
-  createClackSdk,
-  defaultClackSdkDeps,
-  type ClackPlugin,
-  type ClackSdkDeps,
-  type PluginLoadResult,
-} from "./sdk.js";
-import { triviaPlugin } from "./trivia/index.js";
-import { tenorGifPlugin } from "./tenor-gif/index.js";
-import { giphyPlugin } from "./giphy/index.js";
-import { casualTalkPlugin } from "./casual-talk/index.js";
-import { commonsImageSearchPlugin } from "./commons-image-search/index.js";
-import { braveImageSearchPlugin } from "./brave-image-search/index.js";
-import { coverartImageSearchPlugin } from "./coverart-image-search/index.js";
-import { tmdbImageSearchPlugin } from "./tmdb-image-search/index.js";
-import { geminiImagePlugin } from "./gemini-image/index.js";
-import { idlerPlugin } from "./idler/index.js";
+import { createClackSdk, defaultClackSdkDeps } from "../plugins-sdk/internal/factory.js";
+import type { ClackPlugin, ClackSdkDeps, PluginLoadResult } from "../plugins-sdk/sdk.js";
+import { triviaPlugin } from "../plugins/trivia/index.js";
+import { tenorGifPlugin } from "../plugins/tenor-gif/index.js";
+import { giphyPlugin } from "../plugins/giphy/index.js";
+import { casualTalkPlugin } from "../plugins/casual-talk/index.js";
+import { commonsImageSearchPlugin } from "../plugins/commons-image-search/index.js";
+import { braveImageSearchPlugin } from "../plugins/brave-image-search/index.js";
+import { coverartImageSearchPlugin } from "../plugins/coverart-image-search/index.js";
+import { tmdbImageSearchPlugin } from "../plugins/tmdb-image-search/index.js";
+import { geminiImagePlugin } from "../plugins/gemini-image/index.js";
+import { idlerPlugin } from "../plugins/idler/index.js";
 import { setLoadedPlugins } from "./state.js";
 import {
   registerAction as registerPluginAction,

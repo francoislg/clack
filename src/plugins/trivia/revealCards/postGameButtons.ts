@@ -18,7 +18,7 @@
 
 import type { KnownBlock } from "@slack/types";
 import type { ModalView, ViewsOpenResponse } from "@slack/web-api";
-import type { ClackSdk, PluginActionHandler } from "../../sdk.js";
+import type { ClackSdk, PluginActionHandler } from "../../../plugins-sdk/sdk.js";
 import { triviaLogger as logger } from "../core/pluginLogger.js";
 import type { ScopedTriviaDataLayer, TriviaDataLayer, TriviaQuestion } from "../core/types.js";
 import type { TriviaConfig, TriviaGame } from "../core/configTypes.js";

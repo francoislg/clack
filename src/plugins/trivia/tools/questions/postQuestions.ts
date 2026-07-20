@@ -1,13 +1,16 @@
 import { z } from "zod";
 import { tool } from "@anthropic-ai/claude-agent-sdk";
-import { textResult, errorResult } from "../../../../tools/helpers.js";
 import type { KnownBlock } from "@slack/types";
-import { BlockSchema, type Block } from "../../../../slack/blockSchema.js";
-import { validateBlocks } from "../../../../slack/blockValidate.js";
-import { postStructuredMessage } from "../../../../slack/messagePoster.js";
-import type { SlackBlocks } from "../../../../slack/blocks.js";
-import { logger } from "../../../../logger.js";
-import type { ClackSdk } from "../../../sdk.js";
+import {
+  textResult,
+  errorResult,
+  BlockSchema,
+  validateBlocks,
+  postStructuredMessage,
+  type Block,
+  type SlackBlocks,
+  type ClackSdk,
+} from "../../../../plugins-sdk/sdk.js";
 import { PENDING_QUESTION_CREATION_CONTEXT } from "../../prompts/triviaCheckInstruction.js";
 import {
   defaultGetGames,
@@ -195,7 +198,7 @@ async function postScrollToTopMessage(
 
 export function createPostQuestionsTool(
   data: TriviaDataLayer,
-  sdk: Pick<ClackSdk, "getSlackClient" | "actionId" | "t" | "engageThread">,
+  sdk: Pick<ClackSdk, "getSlackClient" | "actionId" | "t" | "engageThread" | "logger">,
   getGamesFn: GetGamesFn = defaultGetGames,
   slackDeps: PostQuestionsSlackDeps = defaultPostQuestionsSlackDeps(sdk),
   getTriviaConfigFn: GetTriviaConfigFn = defaultGetTriviaConfig,
@@ -380,7 +383,7 @@ export function createPostQuestionsTool(
               creationContext: PENDING_QUESTION_CREATION_CONTEXT,
             });
           } catch (err) {
-            logger.warn(
+            sdk.logger.warn(
               `[post_questions] failed to engage thread for ${item.questionId}: ${err instanceof Error ? err.message : String(err)}`,
             );
           }
@@ -393,7 +396,7 @@ export function createPostQuestionsTool(
           });
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);
-          logger.warn(`[post_questions] item ${item.questionId} failed: ${message}`);
+          sdk.logger.warn(`[post_questions] item ${item.questionId} failed: ${message}`);
           results.push({
             questionId: item.questionId,
             ok: false,
@@ -412,7 +415,7 @@ export function createPostQuestionsTool(
             slackDeps,
           );
         } catch (err) {
-          logger.warn(
+          sdk.logger.warn(
             `[post_questions] failed to post scroll-to-top message for game "${args.game}": ${err instanceof Error ? err.message : String(err)}`,
           );
         }

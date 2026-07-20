@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { tool } from "@anthropic-ai/claude-agent-sdk";
-import { textResult, errorResult } from "../../../../tools/helpers.js";
-import type { ClackSdk } from "../../../sdk.js";
+import { textResult, errorResult } from "../../../../plugins-sdk/sdk.js";
+import type { ClackSdk } from "../../../../plugins-sdk/sdk.js";
 import { defaultGetGames, type GetGamesFn } from "../../core/configBridge.js";
 import { requireWritableGame } from "../../core/gamesRegistry.js";
 import type { TriviaDataLayer, CheatReport } from "../../core/types.js";

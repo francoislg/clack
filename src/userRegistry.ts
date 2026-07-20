@@ -4,7 +4,7 @@ import { z } from "zod";
 import { logger } from "./logger.js";
 import { fileExists } from "./fs.js";
 import type { JsonObject, JsonValue } from "./config.js";
-import { zodErrorToResult } from "./plugins/zodResult.js";
+import { zodErrorToResult } from "./plugins-sdk/zodResult.js";
 
 // ============================================================================
 // Dependency Injection

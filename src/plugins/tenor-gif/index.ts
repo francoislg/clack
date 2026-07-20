@@ -1,4 +1,4 @@
-import type { ClackSdk, ClackPlugin } from "../sdk.js";
+import type { ClackSdk, ClackPlugin } from "../../plugins-sdk/sdk.js";
 import { createFindGifTool } from "./findGif.js";
 import { TENOR_GIF_USAGE_INSTRUCTION } from "./usageInstruction.js";
 

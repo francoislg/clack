@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { z } from "zod";
-import type { ClackSdk } from "../sdk.js";
+import type { ClackSdk } from "../../plugins-sdk/sdk.js";
 import { createFakeSdk, primeTriviaConfig } from "./testHelpers.fakeSdk.js";
 import { createSdkDataLayer } from "./core/dataLayer.js";
 import { _resetTriviaConfigBridge } from "./core/configBridge.js";

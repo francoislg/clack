@@ -1,7 +1,7 @@
 import { describe, it } from "vitest";
 import assert from "node:assert/strict";
 import type { ActionsBlock, Button, ContextBlock, SectionBlock } from "@slack/types";
-import type { SlackBlocks } from "../../../../slack/blocks.js";
+import type { SlackBlocks } from "../../../../plugins-sdk/sdk.js";
 import type { TriviaQuestion } from "../../core/types.js";
 import { createFakeSdk } from "../../testHelpers.fakeSdk.js";
 import { applyPointsRendering } from "./renderPoints.js";

@@ -12,7 +12,7 @@
 
 import { z } from "zod";
 import type { JsonObject, JsonValue, TriviaContextEntry } from "../configTypes.js";
-import { zodErrorToResult, type Result } from "../../../zodResult.js";
+import { zodErrorToResult, type Result } from "../../../../plugins-sdk/sdk.js";
 
 /** A located validation failure. `path` is relative to the schema's field label. */
 export interface CheckIssue {

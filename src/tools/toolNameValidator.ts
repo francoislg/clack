@@ -1,4 +1,4 @@
-import { getLoadedPlugins } from "../plugins/state.js";
+import { getLoadedPlugins } from "../plugins-core/state.js";
 
 /**
  * Every clack core tool name the `tools.push(...)` blocks in `src/tools/server.ts` can

@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { tool } from "@anthropic-ai/claude-agent-sdk";
-import { textResult, errorResult } from "../../../../tools/helpers.js";
+import { textResult, errorResult } from "../../../../plugins-sdk/sdk.js";
 import { triviaLogger as logger } from "../../core/pluginLogger.js";
 import {
   defaultGetGames,
@@ -15,7 +15,7 @@ import { resolveLiveOrLockedCard } from "../../freeform/roster.js";
 import { findCurrentSeason } from "../../core/seasonTimeline.js";
 import { resolveTeamsConfig } from "../../domain/teams/resolveTeamsConfig.js";
 import { groupVotersByTeam } from "./teamVoters.js";
-import type { ClackSdk } from "../../../sdk.js";
+import type { ClackSdk } from "../../../../plugins-sdk/sdk.js";
 import type { TriviaDataLayer, TriviaQuestion } from "../../core/types.js";
 import {
   defaultRevealSlackDeps,

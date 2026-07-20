@@ -4,16 +4,19 @@ These rules apply to every file under `src/plugins/<name>/**` (e.g. `src/plugins
 
 ## 1. Never import code from outside the plugin folder
 
-Plugin code MUST NOT import from `src/config.ts`, `src/logger.ts`, `src/slack/...`, `src/instructions.ts`, or anywhere else in `src/` that lives outside the plugin's own directory.
+**The one-surface rule** — a file under `src/plugins/<name>/**` may import ONLY:
 
-The only exceptions are:
+1. **Files inside its own plugin directory.**
+2. **The SDK surface**: top-level files of `src/plugins-sdk/` — usually just the façade `"../../plugins-sdk/sdk.js"` (types like `ClackSdk`, `ClackPlugin`, `CronJobSpec`, `SlackBlocks`, AND the pure helpers: `textResult`, `errorResult`, `zodErrorToResult`, `validateBlocks`, `postStructuredMessage`, the image-search contract, …). The façade is import-time light (types + pure modules only; the implementation lives in `plugins-sdk/internal/`), so value-importing it from anywhere in a plugin is safe. The sibling leaf modules (`toolResults.js`, `zodResult.js`, `imageSearchResult.js`) are also importable directly, but `plugins-sdk/internal/**` is NEVER importable from a plugin.
+3. **Third-party packages**: `zod`, `@anthropic-ai/claude-agent-sdk`, `cron-parser`, etc. — anything from `node_modules`.
+4. **Node built-ins**: `node:fs`, `node:path`, etc. — but prefer the SDK's `readFile`/`writeFile`/`watchFile` for plugin-data I/O so paths stay scoped.
+5. **Test files only** (`*.test.ts`): additionally `"../../plugins-sdk/testHelpers.js"` — `parseToolResult`, `toolResultText`, `createClackSdk`, `createMemorySurface`.
 
-- **The plugin SDK**: `import type { ClackSdk, ClackPlugin, CronJobSpec, ... } from "../sdk.js"` (or `"../../sdk.js"` from nested files).
-- **Shared SDK-layer leaf utilities**: small dependency-free modules that live in `src/plugins/` alongside `sdk.ts` and import only third-party packages (e.g. `src/plugins/zodResult.ts` — `Result<T>` + `zodErrorToResult`). They are part of the SDK surface and are shared by both plugins and bot core. They MUST stay leaves (import nothing from bot core or other plugins) so they cannot form an import cycle — this is why they live beside `sdk.ts` rather than _inside_ it (a value import of the heavy `sdk.ts` barrel from a plugin's config core cycles through the plugin registry).
-- **Third-party packages**: `zod`, `@anthropic-ai/claude-agent-sdk`, `cron-parser`, `simple-git`, etc. — anything from `node_modules`.
-- **Node built-ins**: `node:fs`, `node:path`, etc. — but prefer the SDK's `readFile`/`writeFile`/`watchFile` for plugin-data I/O so paths stay scoped.
+Nothing else. Not `src/config.ts`, not `src/logger.ts`, not `src/slack/...`, not `src/tools/...`, not another plugin's directory, not `src/plugins-core/...` (the plugin loader), and not `plugins-sdk/internal/**`. `*.integration.test.ts` files are exempt (their purpose is testing the plugin↔core seam).
 
-If you find yourself wanting to import the bot's `logger`, use `sdk.logger` instead. If you need a type the bot defines (e.g. `JsonValue`, `UserRole`), check whether the SDK re-exports it; if not, the plugin defines its own equivalent.
+If you find yourself wanting to import the bot's `logger`, use `sdk.logger` instead. If you need a type the bot defines (e.g. `JsonValue`, `UserRole`), check whether `sdk.js` exports it; if not, the plugin defines its own equivalent.
+
+The façade's export block in `plugins-sdk/sdk.ts` is the **single sanctioned exception** to the repo's no-re-export rule: the boundary IS the re-export point, and routing everything through it is what makes the one-surface rule possible. Don't replicate the pattern elsewhere.
 
 ## 2. Use the SDK as the entry point
 
@@ -85,4 +88,6 @@ Without these rules, plugins become entangled with the core: the core can't chan
 
 ## Enforcement
 
-A future lint/check may enforce these rules automatically. Until then, code review and `grep '../../config' src/plugins/<name>/**` are the safety net. If you catch a violation in review, fix it — don't ship "we'll clean it up later" exceptions.
+The one-surface rule is enforced statically by `src/plugins-core/pluginBoundary.guard.test.ts`, which resolves every import specifier under `src/plugins/<name>/**` and fails the suite on any violation — and the pre-commit hook runs the full suite, so a violation is uncommittable. The guard has NO per-file exception mechanism: when a plugin needs a capability the SDK lacks, grow the SDK surface (a module export in `plugins-sdk/sdk.ts` if pure, a `ClackSdk` instance member wired through `plugins-sdk/internal/factory.ts` if stateful) — never work around the guard.
+
+The same guard enforces the layer layout: `src/plugins/` contains ONLY plugin directories; `src/plugins-sdk/` top-level is the plugin-facing surface, with the implementation in `plugins-sdk/internal/` (bridge code — may import bot core) and the pure leaf modules (`toolResults.ts`, `zodResult.ts`, `imageSearchResult.ts`) importing only npm packages and node builtins so they can never form an import cycle; `src/plugins-core/` holds the core-facing plugin loader (`registry.ts`, `state.ts`) that plugins never touch.

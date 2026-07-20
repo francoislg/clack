@@ -1,4 +1,4 @@
-import type { ClackSdk, ClackPlugin } from "../sdk.js";
+import type { ClackSdk, ClackPlugin } from "../../plugins-sdk/sdk.js";
 import { createFindAlbumTool } from "./findAlbum.js";
 
 export const coverartImageSearchPlugin: ClackPlugin = async (sdk: ClackSdk) => {

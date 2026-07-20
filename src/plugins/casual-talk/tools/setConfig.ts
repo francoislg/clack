@@ -1,8 +1,8 @@
 import { z } from "zod";
 import { tool } from "@anthropic-ai/claude-agent-sdk";
-import type { ClackSdk } from "../../sdk.js";
+import type { ClackSdk } from "../../../plugins-sdk/sdk.js";
 import { casualTalkConfigSchema, saveConfig } from "../config.js";
-import { errorResult, textResult } from "../helpers.js";
+import { errorResult, textResult } from "../../../plugins-sdk/sdk.js";
 
 const channelInputSchema = z.union([
   z.string(),

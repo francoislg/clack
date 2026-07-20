@@ -105,7 +105,9 @@ export function defaultGenerateImageDeps(
   };
 }
 
-function errorResult(message: string) {
+// Deliberately NOT the SDK's `errorResult`: this plugin's errors are prose for
+// Claude to relay, so the text stays plain instead of a JSON `{ error }` envelope.
+function plainErrorResult(message: string) {
   return { content: [{ type: "text" as const, text: message }], isError: true as const };
 }
 
@@ -120,20 +122,20 @@ export function createGenerateImageTool(deps: GenerateImageDeps) {
   return tool("generate_image", DESCRIPTION, Args, async (args) => {
     const apiKey = deps.getApiKey();
     if (!apiKey) {
-      return errorResult(
+      return plainErrorResult(
         "GEMINI_API_KEY is not set. An admin needs to add it to data/auth/.env before image generation works.",
       );
     }
 
     const prompt = args.prompt.trim();
     if (prompt.length === 0) {
-      return errorResult("prompt is empty.");
+      return plainErrorResult("prompt is empty.");
     }
 
     const editing = args.input_image_url !== undefined && args.input_image_url.trim() !== "";
 
     if (!deps.slack.isConnected()) {
-      return errorResult("Slack is not connected, so the image cannot be stored.");
+      return plainErrorResult("Slack is not connected, so the image cannot be stored.");
     }
 
     let input: FetchedImage | undefined;
@@ -141,7 +143,7 @@ export function createGenerateImageTool(deps: GenerateImageDeps) {
       try {
         input = await deps.downloadImage(args.input_image_url!.trim(), deps.slack.botToken() ?? "");
       } catch (err) {
-        return errorResult(
+        return plainErrorResult(
           `Could not load the input image to edit: ${err instanceof Error ? err.message : String(err)}`,
         );
       }
@@ -153,8 +155,8 @@ export function createGenerateImageTool(deps: GenerateImageDeps) {
     try {
       image = await deps.generateImage({ prompt, model, apiKey, input });
     } catch (err) {
-      if (err instanceof GeminiError) return errorResult(err.message);
-      return errorResult(
+      if (err instanceof GeminiError) return plainErrorResult(err.message);
+      return plainErrorResult(
         `Image generation failed: ${err instanceof Error ? err.message : String(err)}`,
       );
     }
@@ -166,7 +168,7 @@ export function createGenerateImageTool(deps: GenerateImageDeps) {
         data: image.data,
       });
     } catch (err) {
-      return errorResult(
+      return plainErrorResult(
         `Image generated but storing it in Slack failed: ${err instanceof Error ? err.message : String(err)}`,
       );
     }

@@ -1,7 +1,7 @@
 import { describe, it } from "vitest";
 import assert from "node:assert/strict";
 import { buildHintModal } from "./hintModal.js";
-import type { ClackSdk } from "../../sdk.js";
+import type { ClackSdk } from "../../../plugins-sdk/sdk.js";
 import type { TriviaQuestion } from "../core/types.js";
 
 const t: ClackSdk["t"] = (key, vars) => (vars?.text !== undefined ? `${key}:${vars.text}` : key);

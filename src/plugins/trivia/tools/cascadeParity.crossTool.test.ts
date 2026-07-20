@@ -10,7 +10,7 @@ import { createGetIdeasTool } from "./questions/getIdeas.js";
 import { createSaveQuestionTool } from "./questions/saveQuestion.js";
 import { createExplainCascadeTool } from "./games/explainCascade.js";
 import { createComputeAnswersTool } from "./reveal/computeAnswers.js";
-import { parseToolResult } from "../../../tools/testHelpers.js";
+import { parseToolResult } from "../../../plugins-sdk/testHelpers.js";
 import type { TriviaConfig, TriviaGame } from "../core/configTypes.js";
 
 const SESSION = { sessionId: "test" };

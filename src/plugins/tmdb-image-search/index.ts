@@ -1,4 +1,4 @@
-import type { ClackSdk, ClackPlugin } from "../sdk.js";
+import type { ClackSdk, ClackPlugin } from "../../plugins-sdk/sdk.js";
 import { createFindMovieTool } from "./findMovie.js";
 import { createFindTvTool } from "./findTv.js";
 import { createFindPersonTool } from "./findPerson.js";

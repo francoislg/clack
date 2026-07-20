@@ -27,7 +27,7 @@ import {
   validateFinalRevealSummary,
   validateJudgeLeniency,
 } from "./axes.js";
-import { type Result } from "../../../zodResult.js";
+import { type Result } from "../../../../plugins-sdk/sdk.js";
 import {
   validateFormat,
   validateSlotConfig,

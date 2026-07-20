@@ -10,7 +10,7 @@ import type {
   ClackUser,
   PluginLogger,
   RegisteredMcpServer,
-} from "../sdk.js";
+} from "../../plugins-sdk/sdk.js";
 import type { TriviaConfig } from "./core/configTypes.js";
 import {
   _resetTriviaConfigBridge,

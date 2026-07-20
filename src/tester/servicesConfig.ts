@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { z } from "zod";
 import { resolveInstructionFile } from "../instructions.js";
-import { zodErrorToResult } from "../plugins/zodResult.js";
+import { zodErrorToResult } from "../plugins-sdk/zodResult.js";
 
 /**
  * Per-repo tester service declarations (`data/configuration/<repo>/tester_services.json`).

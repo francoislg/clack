@@ -11,7 +11,7 @@
  * this file stays unchanged.
  */
 
-import type { ClackSdk } from "../../sdk.js";
+import type { ClackSdk } from "../../../plugins-sdk/sdk.js";
 import type { TriviaDataLayer } from "../core/types.js";
 import { getAllAnswerTypeHandlers } from "./registry.js";
 

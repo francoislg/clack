@@ -5,7 +5,7 @@ import type { SDKRateLimitInfo } from "@anthropic-ai/claude-agent-sdk";
 import { logger } from "./logger.js";
 import { fileExists } from "./fs.js";
 import { getStateDir } from "./config.js";
-import { zodErrorToResult } from "./plugins/zodResult.js";
+import { zodErrorToResult } from "./plugins-sdk/zodResult.js";
 
 // ============================================================================
 // Dependency Injection

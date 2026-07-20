@@ -21,9 +21,9 @@ import {
   createFakePostQuestionsSlackDeps,
   primeTriviaConfig,
 } from "../../testHelpers.fakeSdk.js";
-import { parseToolResult } from "../../../../tools/testHelpers.js";
+import { parseToolResult } from "../../../../plugins-sdk/testHelpers.js";
 import type { TriviaQuestion } from "../../core/types.js";
-import type { BlockSchema } from "../../../../slack/blockSchema.js";
+import type { BlockSchema } from "../../../../plugins-sdk/sdk.js";
 
 /**
  * Integration test for the "replay a bad question" process — exercises the REAL

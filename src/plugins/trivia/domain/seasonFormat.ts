@@ -17,7 +17,7 @@ import type {
   TriviaDifficultyConfig,
   TriviaDifficultyRatioConfig,
 } from "../core/configTypes.js";
-import { type Result } from "../../zodResult.js";
+import { type Result } from "../../../plugins-sdk/sdk.js";
 
 /**
  * Thin wrappers over the shared validators from `config.ts` — same allow-lists,

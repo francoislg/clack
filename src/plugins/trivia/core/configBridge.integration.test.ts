@@ -35,8 +35,8 @@ import {
 import { createUpsertGameTool } from "../tools/games/upsertGame.js";
 import { createDeleteGameTool } from "../tools/games/deleteGame.js";
 import { createSetWorkspaceConfigTool } from "../tools/games/setWorkspaceConfig.js";
-import { parseToolResult } from "../../../tools/testHelpers.js";
-import type { ClackSdk } from "../../sdk.js";
+import { parseToolResult } from "../../../plugins-sdk/testHelpers.js";
+import type { ClackSdk } from "../../../plugins-sdk/sdk.js";
 
 const SESSION = { sessionId: "test" };
 

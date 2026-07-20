@@ -1,14 +1,14 @@
 import type { App } from "@slack/bolt";
 import type { z } from "zod";
-import type { JsonObject } from "../config.js";
+import type { JsonObject } from "../../config.js";
 import {
   listUserIdentities,
   getUserNamespace,
   mergeUserNamespace,
   type UserIdentity,
-} from "../userRegistry.js";
-import { resolveUserIdentity } from "../slack/userCache.js";
-import type { ClackUser, ClackSdkUsers, ClackSdkUserData } from "./sdk.js";
+} from "../../userRegistry.js";
+import { resolveUserIdentity } from "../../slack/userCache.js";
+import type { ClackUser, ClackSdkUsers, ClackSdkUserData } from "../sdk.js";
 
 /**
  * The registry/userCache accessors backing `sdk.users`. All optional so tests can omit

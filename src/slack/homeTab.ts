@@ -34,7 +34,7 @@ import type { InstructionFileListing } from "../configurationFiles.js";
 import type { Config, RepositoryConfig } from "../config.js";
 import type { SkillPluginInfo } from "../skillPlugins.js";
 import type { MigrationError } from "../migrations/types.js";
-import { getLoadedPlugins, getLoadedPluginIntegrations } from "../plugins/state.js";
+import { getLoadedPlugins, getLoadedPluginIntegrations } from "../plugins-core/state.js";
 
 export interface ClackPluginSummary {
   name: string;

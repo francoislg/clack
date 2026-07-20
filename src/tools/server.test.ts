@@ -18,8 +18,8 @@ import type { QueryToolContext } from "./types.js";
 import { makeWorkerCtx } from "./worker/testCtx.js";
 import type { Config } from "../config.js";
 import type { SessionContext } from "../sessions.js";
-import { setLoadedPlugins } from "../plugins/state.js";
-import type { PluginLoadResult, RegisteredTool } from "../plugins/sdk.js";
+import { setLoadedPlugins } from "../plugins-core/state.js";
+import type { PluginLoadResult, RegisteredTool } from "../plugins-sdk/sdk.js";
 import { logger } from "../logger.js";
 
 // ---------------------------------------------------------------------------

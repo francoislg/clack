@@ -2,7 +2,7 @@ import { describe, it } from "vitest";
 import assert from "node:assert/strict";
 import { fixtureGetGames, FIXTURE_GAME_NAME, FIXTURE_GAMES } from "../../testHelpers.js";
 import { createListGamesTool } from "./listGames.js";
-import { parseToolResult } from "../../../../tools/testHelpers.js";
+import { parseToolResult } from "../../../../plugins-sdk/testHelpers.js";
 import type { TriviaConfig, TriviaGame } from "../../core/configTypes.js";
 
 const SESSION = { sessionId: "test" };

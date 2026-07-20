@@ -21,7 +21,7 @@ import {
   createPostQuestionsTool,
   type PostQuestionsSlackDeps,
 } from "./tools/questions/postQuestions.js";
-import { parseToolResult } from "../../tools/testHelpers.js";
+import { parseToolResult } from "../../plugins-sdk/testHelpers.js";
 import type { TriviaConfig } from "./core/configTypes.js";
 
 function postQuestionsDeps(): PostQuestionsSlackDeps {

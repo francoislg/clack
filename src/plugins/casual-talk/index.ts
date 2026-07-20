@@ -1,4 +1,4 @@
-import type { ClackSdk, ClackPlugin, CronJobSpec } from "../sdk.js";
+import type { ClackSdk, ClackPlugin, CronJobSpec } from "../../plugins-sdk/sdk.js";
 import { loadConfig } from "./config.js";
 import { buildCronExpression, rateLabel, resolveDie } from "./heuristic.js";
 import { buildPrompt } from "./prompt.js";

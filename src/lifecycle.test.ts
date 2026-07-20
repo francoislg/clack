@@ -2,7 +2,7 @@ import { describe, it, vi } from "vitest";
 import assert from "node:assert/strict";
 import { restartAll } from "./lifecycle.js";
 import type { LifecycleDeps } from "./lifecycle.js";
-import type { LoadedPlugins } from "./plugins/registry.js";
+import type { LoadedPlugins } from "./plugins-core/registry.js";
 
 // ============================================================================
 // Mocks and Helpers

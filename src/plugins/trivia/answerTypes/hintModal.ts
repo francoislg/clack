@@ -1,5 +1,5 @@
 import type { ModalView } from "@slack/web-api";
-import type { ClackSdk } from "../../sdk.js";
+import type { ClackSdk } from "../../../plugins-sdk/sdk.js";
 import type { TriviaQuestion } from "../core/types.js";
 
 export interface BuildHintModalParams {

@@ -46,7 +46,7 @@ import {
   INCLUDE_REVEAL_IN_QUESTIONS_KEYS,
   JUDGE_LENIENCY_KEYS,
 } from "../configTypes.js";
-import { type Result } from "../../../zodResult.js";
+import { type Result } from "../../../../plugins-sdk/sdk.js";
 import {
   choicesCheck,
   pointsCheck,

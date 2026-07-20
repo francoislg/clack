@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
-import { createMemorySurface } from "./sdkMemory.js";
-import type { MemoryEntry, RememberInput } from "../memoryRegistry.js";
+import { createMemorySurface } from "./memory.js";
+import type { MemoryEntry, RememberInput } from "../../memoryRegistry.js";
 
 const noopWarn = (_message: string): void => {};
 

@@ -1,7 +1,7 @@
 import type { ActionsBlock, Button } from "@slack/types";
-import type { SlackBlocks } from "../../../../slack/blocks.js";
+import type { SlackBlocks } from "../../../../plugins-sdk/sdk.js";
 import type { TriviaQuestion } from "../../core/types.js";
-import type { ClackSdk } from "../../../sdk.js";
+import type { ClackSdk } from "../../../../plugins-sdk/sdk.js";
 import { insertBeforeActions, isActionsBlock, mrkdwnContext } from "./cardLayout.js";
 
 /**

@@ -21,7 +21,7 @@
  */
 
 import type { ModalView, ViewsOpenResponse } from "@slack/web-api";
-import type { ClackSdk } from "../../sdk.js";
+import type { ClackSdk } from "../../../plugins-sdk/sdk.js";
 import { triviaLogger as logger } from "../core/pluginLogger.js";
 import type { TriviaDataLayer } from "../core/types.js";
 import { buildHintModal } from "./hintModal.js";

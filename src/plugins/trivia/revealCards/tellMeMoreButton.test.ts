@@ -9,7 +9,7 @@ import {
   type FakeTriviaDataLayer,
 } from "../testHelpers.js";
 import { createFakeSdk, primeTriviaConfig } from "../testHelpers.fakeSdk.js";
-import type { PluginActionHandler, SettableAttentionLevel } from "../../sdk.js";
+import type { PluginActionHandler, SettableAttentionLevel } from "../../../plugins-sdk/sdk.js";
 import type { TriviaQuestion } from "../core/types.js";
 
 interface UpdateCall {

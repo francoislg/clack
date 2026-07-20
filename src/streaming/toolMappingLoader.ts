@@ -1,8 +1,8 @@
 import { readdirSync, readFileSync } from "fs";
 import { resolve, basename } from "path";
 import { getDefaultConfigurationDir, getConfigurationDir, getConfig } from "../config.js";
-import { getLoadedPlugins } from "../plugins/state.js";
-import type { ToolMapping } from "../plugins/sdk.js";
+import { getLoadedPlugins } from "../plugins-core/state.js";
+import type { ToolMapping } from "../plugins-sdk/sdk.js";
 import { logger } from "../logger.js";
 
 // ---------------------------------------------------------------------------

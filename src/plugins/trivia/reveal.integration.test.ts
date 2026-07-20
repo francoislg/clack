@@ -15,7 +15,7 @@ import {
   primeTriviaConfig,
 } from "./testHelpers.fakeSdk.js";
 import { loadTriviaConfig } from "./core/configBridge.js";
-import { parseToolResult } from "../../tools/testHelpers.js";
+import { parseToolResult } from "../../plugins-sdk/testHelpers.js";
 import type { TriviaQuestion } from "./core/types.js";
 
 /**

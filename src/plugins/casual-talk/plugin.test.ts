@@ -4,11 +4,11 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
-import { createClackSdk } from "../sdk.js";
+import { createClackSdk } from "../../plugins-sdk/testHelpers.js";
 import { casualTalkPlugin } from "./index.js";
 import { DEFAULT_CONFIG, saveConfig } from "./config.js";
 import type { CasualTalkConfig } from "./types.js";
-import type { CronJob, CreateCronJobParams, UpdateCronJobParams } from "../../cronJobs.js";
+import type { CronJob, CreateCronJobParams, UpdateCronJobParams } from "../../plugins-sdk/sdk.js";
 
 async function* emptyClackQuery(): AsyncGenerator<SDKMessage, void, void> {}
 

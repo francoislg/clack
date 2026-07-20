@@ -1,4 +1,4 @@
-import type { ClackSdk } from "../../sdk.js";
+import type { ClackSdk } from "../../../plugins-sdk/sdk.js";
 import type { JudgeLeniency, TriviaFreeformAnswerShape } from "../core/configTypes.js";
 import { DEFAULT_JUDGE_LENIENCY } from "../core/configTypes.js";
 import type { TriviaQuestion } from "../core/types.js";

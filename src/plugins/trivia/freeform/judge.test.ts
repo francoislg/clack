@@ -7,7 +7,7 @@ import {
   parseSingleVerdict,
   type JudgeSubmission,
 } from "./judge.js";
-import type { ClackSdk } from "../../sdk.js";
+import type { ClackSdk } from "../../../plugins-sdk/sdk.js";
 import type { TriviaQuestion } from "../core/types.js";
 
 function makeQuestion(overrides: Partial<TriviaQuestion>): TriviaQuestion {

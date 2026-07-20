@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { tool } from "@anthropic-ai/claude-agent-sdk";
-import { textResult, errorResult } from "../../tools/helpers.js";
+import { textResult, errorResult } from "../../plugins-sdk/sdk.js";
 import { searchTenor, TenorError } from "./tenor.js";
 
 export interface FindGifDeps {

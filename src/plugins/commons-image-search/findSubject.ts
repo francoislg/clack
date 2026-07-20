@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { tool } from "@anthropic-ai/claude-agent-sdk";
-import { imageAndTextResult, sourceErrorResult, validateQuery } from "../imageSearchResult.js";
+import { imageAndTextResult, sourceErrorResult, validateQuery } from "../../plugins-sdk/sdk.js";
 import {
   fetchPageSummary,
   fetchImageInfo,

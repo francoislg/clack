@@ -1,7 +1,7 @@
 import { describe, it } from "vitest";
 import assert from "node:assert/strict";
 import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
-import { createClackSdk } from "../sdk.js";
+import { createClackSdk } from "../../plugins-sdk/testHelpers.js";
 import { coverartImageSearchPlugin } from "./index.js";
 
 async function* emptyClackQuery(): AsyncGenerator<SDKMessage, void, void> {}

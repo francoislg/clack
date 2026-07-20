@@ -9,7 +9,7 @@
  * taking an SDK parameter.
  */
 
-import type { PluginLogger } from "../../sdk.js";
+import type { PluginLogger } from "../../../plugins-sdk/sdk.js";
 
 const noopLogger: PluginLogger = {
   debug: () => {},

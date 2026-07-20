@@ -4,10 +4,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { mkdtempSync } from "node:fs";
 import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
-import { createClackSdk, type ClackSdkDeps } from "./sdk.js";
-import * as configModule from "../config.js";
-import * as loggerModule from "../logger.js";
-import type { RolesConfig } from "../roles.js";
+import { createClackSdk } from "./factory.js";
+import type { ClackSdkDeps } from "../sdk.js";
+import * as configModule from "../../config.js";
+import * as loggerModule from "../../logger.js";
+import type { RolesConfig } from "../../roles.js";
 
 const EMPTY_ROLES: RolesConfig = { owner: null, admins: [], devs: [] };
 

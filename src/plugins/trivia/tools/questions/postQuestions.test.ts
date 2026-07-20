@@ -10,12 +10,12 @@ import {
   createFakePostQuestionsSlackDeps,
   primeTriviaConfig,
 } from "../../testHelpers.fakeSdk.js";
-import { parseToolResult } from "../../../../tools/testHelpers.js";
+import { parseToolResult } from "../../../../plugins-sdk/testHelpers.js";
 import { PENDING_QUESTION_CREATION_CONTEXT } from "../../prompts/triviaCheckInstruction.js";
 import type { TriviaDataLayer, TriviaQuestion } from "../../core/types.js";
 import type { z } from "zod";
-import { BlockSchema } from "../../../../slack/blockSchema.js";
-import type { SlackBlocks } from "../../../../slack/blocks.js";
+import { BlockSchema } from "../../../../plugins-sdk/sdk.js";
+import type { SlackBlocks } from "../../../../plugins-sdk/sdk.js";
 
 type ZodBlock = z.infer<typeof BlockSchema>;
 

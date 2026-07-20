@@ -1,5 +1,5 @@
 import { CronExpressionParser } from "cron-parser";
-import type { ClackSdk } from "../sdk.js";
+import type { ClackSdk } from "../../plugins-sdk/sdk.js";
 import type { TriviaGame } from "./core/configTypes.js";
 
 /** Minimum answering time players must have left for a caught-up question to be worth posting. */

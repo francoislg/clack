@@ -49,6 +49,26 @@
       }
     },
     {
+      "files": ["src/plugins/**/*.ts"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              {
+                "group": ["**/plugins-sdk/internal/**"],
+                "message": "Plugins may only use the top-level plugins-sdk surface (sdk.js, testHelpers.js from tests, leaf modules) — never plugins-sdk/internal/**. The full boundary is enforced by src/plugins-core/pluginBoundary.guard.test.ts."
+              },
+              {
+                "group": ["**/plugins-core/**"],
+                "message": "Plugins must not import the plugin loader (src/plugins-core/**). Go through the plugins-sdk surface; if the SDK lacks the capability, grow it (src/plugins/CLAUDE.md)."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
       "files": ["**/*.integration.test.ts"],
       "rules": {
         "no-restricted-globals": "off",

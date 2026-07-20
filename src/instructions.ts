@@ -9,7 +9,7 @@ import {
   validateInstructionDirs,
   type VirtualDefaults,
 } from "./cascadingConfigResolver.js";
-import { getLoadedPlugins } from "./plugins/state.js";
+import { getLoadedPlugins } from "./plugins-core/state.js";
 
 export interface LoadInstructionsOptions {
   /** Whether changesWorkflow is enabled for this trigger */

@@ -6,7 +6,7 @@ import { booleanAnswerHandler } from "./boolean.js";
 import { choiceAnswerHandler } from "./choice.js";
 import { createTriviaDataLayer, FIXTURE_GAME_NAME } from "../testHelpers.js";
 import { createFakeSdk, primeTriviaConfig } from "../testHelpers.fakeSdk.js";
-import type { PluginActionHandler } from "../../sdk.js";
+import type { PluginActionHandler } from "../../../plugins-sdk/sdk.js";
 import type { TriviaQuestion } from "../core/types.js";
 
 /**
