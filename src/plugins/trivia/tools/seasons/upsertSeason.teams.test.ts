@@ -9,7 +9,7 @@ import {
 import { createFakeSdk, primeTriviaConfig } from "../../testHelpers.fakeSdk.js";
 import { createUpsertSeasonTool } from "./upsertSeason.js";
 import { createListSeasonsTool } from "./listSeasons.js";
-import { parseToolResult } from "../../../../tools/testHelpers.js";
+import { parseToolResult } from "../../../../plugins-sdk/testHelpers.js";
 import type { TeamDef } from "../../core/configTypes.js";
 
 const SESSION = { sessionId: "test" };

@@ -1,4 +1,4 @@
-import type { ClackSdk, ClackPlugin, CronJobSpec } from "../sdk.js";
+import type { ClackSdk, ClackPlugin, CronJobSpec } from "../../plugins-sdk/sdk.js";
 import { isOperational, loadConfig } from "./config.js";
 import {
   buildDeepSyncCron,

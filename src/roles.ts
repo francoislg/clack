@@ -4,7 +4,7 @@ import { z } from "zod";
 import type { App } from "@slack/bolt";
 import { logger } from "./logger.js";
 import { fileExists } from "./fs.js";
-import { zodErrorToResult } from "./plugins/zodResult.js";
+import { zodErrorToResult } from "./plugins-sdk/zodResult.js";
 import { freezeAndSnapshot, isFrozen, clearFreeze } from "./state/resilientCollection.js";
 import { emitStateQuarantine, registerQuarantineStore } from "./state/stateQuarantineRegistry.js";
 

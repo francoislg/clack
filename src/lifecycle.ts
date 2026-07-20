@@ -31,9 +31,9 @@ import { clearPreferencesCache } from "./userPreferences.js";
 import { clearAutoRespondCache } from "./autoRespond.js";
 import { clearCronJobsCache } from "./cronJobs.js";
 import { clearUserSkillBodyCache } from "./userSkillsBodyCache.js";
-import { loadAndInstallPlugins } from "./plugins/registry.js";
+import { loadAndInstallPlugins } from "./plugins-core/registry.js";
 import { startThreadConversation } from "./slack/handlers/core.js";
-import { getLoadedPlugins } from "./plugins/state.js";
+import { getLoadedPlugins } from "./plugins-core/state.js";
 import { unregisterByPluginName as unregisterPluginInteractivity } from "./slack/pluginActionRegistry.js";
 
 // ---------------------------------------------------------------------------

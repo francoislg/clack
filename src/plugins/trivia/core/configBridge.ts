@@ -9,7 +9,7 @@
  */
 
 import type { FSWatcher } from "node:fs";
-import type { ClackSdk, PluginLogger } from "../../sdk.js";
+import type { ClackSdk, PluginLogger } from "../../../plugins-sdk/sdk.js";
 import type { JsonObject, TriviaConfig, TriviaGame } from "./configTypes.js";
 import {
   isRevealResponsesMode,

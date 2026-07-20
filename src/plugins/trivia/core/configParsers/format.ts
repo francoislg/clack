@@ -35,7 +35,7 @@ import {
   validateTriviaDifficultyMap,
   validateTriviaDifficultyRatioMap,
 } from "./axes.js";
-import { type Result } from "../../../zodResult.js";
+import { type Result } from "../../../../plugins-sdk/sdk.js";
 
 export function dedupePreservingOrder(values: string[]): string[] {
   const seen = new Set<string>();

@@ -8,7 +8,7 @@ import {
   type FakeTriviaDataLayer,
 } from "../../testHelpers.js";
 import { createFakeSdk, primeTriviaConfig } from "../../testHelpers.fakeSdk.js";
-import { parseToolResult } from "../../../../tools/testHelpers.js";
+import { parseToolResult } from "../../../../plugins-sdk/testHelpers.js";
 import type { TriviaQuestion } from "../../core/types.js";
 import type { TriviaIncludeRevealInQuestions } from "../../core/configTypes.js";
 

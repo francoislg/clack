@@ -25,7 +25,7 @@ import {
 } from "../../testHelpers.js";
 import { createFakeSdk, primeTriviaConfig } from "../../testHelpers.fakeSdk.js";
 import { createUpsertSeasonTool } from "./upsertSeason.js";
-import { parseToolResult } from "../../../../tools/testHelpers.js";
+import { parseToolResult } from "../../../../plugins-sdk/testHelpers.js";
 
 const SESSION = { sessionId: "test" };
 const DAY = 24 * 60 * 60 * 1000;

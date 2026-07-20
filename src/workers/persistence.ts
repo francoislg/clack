@@ -12,7 +12,7 @@ import { z } from "zod";
 import { getStateDir, getWorktreesDir } from "../config.js";
 import { logger } from "../logger.js";
 import { errorMessage } from "../errors.js";
-import { zodErrorToResult } from "../plugins/zodResult.js";
+import { zodErrorToResult } from "../plugins-sdk/zodResult.js";
 import { getGitInstance } from "../repositories.js";
 import type { Worker, WorkerStatus } from "./types.js";
 

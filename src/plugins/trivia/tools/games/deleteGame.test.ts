@@ -2,7 +2,7 @@ import { describe, it } from "vitest";
 import assert from "node:assert/strict";
 import { createDeleteGameTool } from "./deleteGame.js";
 import { loadTriviaConfig } from "../../core/configBridge.js";
-import { parseToolResult } from "../../../../tools/testHelpers.js";
+import { parseToolResult } from "../../../../plugins-sdk/testHelpers.js";
 import { createFakeSdk, primeTriviaConfig } from "../../testHelpers.fakeSdk.js";
 import type { TriviaGame } from "../../core/configTypes.js";
 

@@ -4,7 +4,7 @@ import { z } from "zod";
 import { createTriviaDataLayer, FIXTURE_GAME_NAME, fixtureGetGames } from "../../testHelpers.js";
 import { createFakeSdk, primeTriviaConfig } from "../../testHelpers.fakeSdk.js";
 import { createRemoveCheatTool } from "./removeCheat.js";
-import { parseToolResult } from "../../../../tools/testHelpers.js";
+import { parseToolResult } from "../../../../plugins-sdk/testHelpers.js";
 
 const SESSION = { sessionId: "test" };
 

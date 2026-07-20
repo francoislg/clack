@@ -1,8 +1,8 @@
 import { z } from "zod";
 import { tool } from "@anthropic-ai/claude-agent-sdk";
 import type { KnownBlock } from "@slack/types";
-import { BlockSchema } from "../../../../slack/blockSchema.js";
-import { textResult, errorResult } from "../../../../tools/helpers.js";
+import { BlockSchema } from "../../../../plugins-sdk/sdk.js";
+import { textResult, errorResult } from "../../../../plugins-sdk/sdk.js";
 import {
   defaultGetGames,
   defaultGetTriviaConfig,

@@ -9,7 +9,7 @@ import {
   loadMcpServer as defaultLoadMcpServer,
   resolveEffectiveRegistry,
 } from "../mcp.js";
-import { getLoadedPluginIntegrations } from "../plugins/state.js";
+import { getLoadedPluginIntegrations } from "../plugins-core/state.js";
 import { updateSession as defaultUpdateSession } from "../sessions.js";
 import type { SessionContext } from "../sessions.js";
 

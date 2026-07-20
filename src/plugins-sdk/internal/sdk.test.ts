@@ -6,9 +6,10 @@ import { mkdtempSync } from "node:fs";
 import { z } from "zod";
 import { tool, type SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import { WebClient } from "@slack/web-api";
-import { createClackSdk, type ClackSdkDeps, type AttentionLevel } from "./sdk.js";
-import type { RolesConfig } from "../roles.js";
-import type { CronJob } from "../cronJobs.js";
+import { createClackSdk } from "./factory.js";
+import type { ClackSdkDeps, AttentionLevel } from "../sdk.js";
+import type { RolesConfig } from "../../roles.js";
+import type { CronJob } from "../../cronJobs.js";
 
 const EMPTY_ROLES: RolesConfig = { owner: null, admins: [], devs: [] };
 

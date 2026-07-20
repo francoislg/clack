@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { tool } from "@anthropic-ai/claude-agent-sdk";
-import { textResult, errorResult } from "../../../../tools/helpers.js";
+import { textResult, errorResult } from "../../../../plugins-sdk/sdk.js";
 import { ANSWER_TYPE_SAVE_FIELD_NAMES, getAnswerTypeHandler } from "../../answerTypes/registry.js";
 import {
   SAVE_QUESTION_HANDLER_FIELDS,

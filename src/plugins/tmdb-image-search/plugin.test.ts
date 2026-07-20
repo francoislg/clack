@@ -1,7 +1,7 @@
 import { describe, it } from "vitest";
 import assert from "node:assert/strict";
 import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
-import { createClackSdk } from "../sdk.js";
+import { createClackSdk } from "../../plugins-sdk/testHelpers.js";
 import { tmdbImageSearchPlugin } from "./index.js";
 import { createFindMovieTool } from "./findMovie.js";
 import { createFindTvTool } from "./findTv.js";

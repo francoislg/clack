@@ -12,7 +12,7 @@ import {
   primeTriviaConfig,
   createFakeLockSlackDeps,
 } from "../../testHelpers.fakeSdk.js";
-import { parseToolResult } from "../../../../tools/testHelpers.js";
+import { parseToolResult } from "../../../../plugins-sdk/testHelpers.js";
 import type { RosterEditClient } from "../../freeform/roster.js";
 import type { KnownBlock } from "@slack/types";
 import type { TriviaQuestion } from "../../core/types.js";

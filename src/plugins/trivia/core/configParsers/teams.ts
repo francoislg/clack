@@ -6,7 +6,7 @@
  */
 
 import { z } from "zod";
-import { zodErrorToResult, type Result } from "../../../zodResult.js";
+import { zodErrorToResult, type Result } from "../../../../plugins-sdk/sdk.js";
 import { TEAMS_SCORING_KEYS } from "../configTypes.js";
 import type { TeamDef, TeamsScoringMode } from "../configTypes.js";
 

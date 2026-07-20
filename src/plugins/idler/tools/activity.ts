@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { tool } from "@anthropic-ai/claude-agent-sdk";
-import type { ClackSdk } from "../../sdk.js";
-import { textResult } from "../helpers.js";
+import type { ClackSdk } from "../../../plugins-sdk/sdk.js";
+import { textResult } from "../../../plugins-sdk/sdk.js";
 import {
   appendActivity,
   clearActivity,

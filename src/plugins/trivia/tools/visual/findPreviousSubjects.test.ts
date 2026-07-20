@@ -8,7 +8,7 @@ import {
 } from "../../testHelpers.js";
 import { createFakeSdk, primeTriviaConfig } from "../../testHelpers.fakeSdk.js";
 import { createFindPreviousSubjectsTool } from "./findPreviousSubjects.js";
-import { parseToolResult } from "../../../../tools/testHelpers.js";
+import { parseToolResult } from "../../../../plugins-sdk/testHelpers.js";
 import type { TriviaQuestion } from "../../core/types.js";
 
 const SESSION = { sessionId: "test" };

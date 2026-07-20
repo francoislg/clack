@@ -1,9 +1,9 @@
 import { describe, it, afterEach } from "vitest";
 import assert from "node:assert/strict";
 import { readdirSync, readFileSync, mkdirSync, writeFileSync, rmSync, existsSync } from "node:fs";
-import { setLoadedPlugins } from "../plugins/state.js";
+import { setLoadedPlugins } from "../plugins-core/state.js";
 import { createSdkMcpServer } from "@anthropic-ai/claude-agent-sdk";
-import type { PluginLoadResult, ToolMapping } from "../plugins/sdk.js";
+import type { PluginLoadResult, ToolMapping } from "../plugins-sdk/sdk.js";
 import { resolve } from "node:path";
 import { truncate } from "../text.js";
 import {

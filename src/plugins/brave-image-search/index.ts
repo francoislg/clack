@@ -1,4 +1,4 @@
-import type { ClackSdk, ClackPlugin } from "../sdk.js";
+import type { ClackSdk, ClackPlugin } from "../../plugins-sdk/sdk.js";
 import { createFindImageTool } from "./findImage.js";
 
 export const braveImageSearchPlugin: ClackPlugin = async (sdk: ClackSdk) => {

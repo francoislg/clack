@@ -1,5 +1,5 @@
 import type { z } from "zod";
-import type { JsonObject } from "../config.js";
+import type { JsonObject } from "../../config.js";
 import {
   getMemory,
   listMemory,
@@ -13,8 +13,8 @@ import {
   type SearchMemoryArgs,
   type RememberInput,
   type BeforeExpireHook,
-} from "../memoryRegistry.js";
-import type { ClackSdkMemory, ClackSdkMemoryData } from "./sdk.js";
+} from "../../memoryRegistry.js";
+import type { ClackSdkMemory, ClackSdkMemoryData } from "../sdk.js";
 
 /**
  * The registry accessors backing `sdk.memory`. All optional so tests can omit them;

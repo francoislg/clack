@@ -6,8 +6,8 @@ import { fileURLToPath } from "node:url";
 
 const TEST_DIR = dirname(fileURLToPath(import.meta.url));
 import { createSdkMcpServer } from "@anthropic-ai/claude-agent-sdk";
-import { setLoadedPlugins } from "../plugins/state.js";
-import type { PluginLoadResult, RegisteredTool } from "../plugins/sdk.js";
+import { setLoadedPlugins } from "../plugins-core/state.js";
+import type { PluginLoadResult, RegisteredTool } from "../plugins-sdk/sdk.js";
 import { CLACK_CORE_TOOL_NAMES, validateRequiredToolNames } from "./toolNameValidator.js";
 
 /**

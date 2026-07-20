@@ -13,7 +13,7 @@ import { seeAnswerButton } from "./seeAnswerButton.js";
 import { tellMeMoreButton } from "./tellMeMoreButton.js";
 import { createTriviaDataLayer, FIXTURE_GAME_NAME } from "../testHelpers.js";
 import { createFakeSdk, primeTriviaConfig } from "../testHelpers.fakeSdk.js";
-import type { PluginActionHandler } from "../../sdk.js";
+import type { PluginActionHandler } from "../../../plugins-sdk/sdk.js";
 import type { TriviaQuestion } from "../core/types.js";
 
 const actionId = (k: string): string => `plugin:trivia:${k}`;

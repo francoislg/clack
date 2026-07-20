@@ -1,7 +1,7 @@
 import { describe, it } from "vitest";
 import assert from "node:assert/strict";
 import { createFindGifTool } from "./findGif.js";
-import { parseToolResult } from "../../tools/testHelpers.js";
+import { parseToolResult } from "../../plugins-sdk/testHelpers.js";
 import { TenorError, type SearchTenorParams } from "./tenor.js";
 import type { GifResult } from "./types.js";
 

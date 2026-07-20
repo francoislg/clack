@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { ClackSdk } from "../../sdk.js";
+import type { ClackSdk } from "../../../plugins-sdk/sdk.js";
 import { loadTriviaConfig } from "./configBridge.js";
 import { findCurrentSeason } from "./seasonTimeline.js";
 import type {

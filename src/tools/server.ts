@@ -19,7 +19,7 @@ import { postAnswerToChannel } from "../slack/handlers/dmActions.js";
 import { extractDisplayText } from "../slack/blockText.js";
 import { errorMessage } from "../errors.js";
 import { meetsMinimumRole } from "../permissions.js";
-import { getLoadedPlugins } from "../plugins/state.js";
+import { getLoadedPlugins } from "../plugins-core/state.js";
 import { logger } from "../logger.js";
 import type { McpSdkServerConfigWithInstance } from "@anthropic-ai/claude-agent-sdk";
 import { asSlackBlocks } from "../slack/blocks.js";

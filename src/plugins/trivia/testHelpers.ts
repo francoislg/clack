@@ -1,6 +1,6 @@
 import { vi } from "vitest";
 import type { Mock } from "vitest";
-import type { ClackSdk } from "../sdk.js";
+import type { ClackSdk } from "../../plugins-sdk/sdk.js";
 import type { TriviaGame } from "./core/configTypes.js";
 import { createSdkDataLayer } from "./core/dataLayer.js";
 import type { TriviaDataLayer, ScopedTriviaDataLayer } from "./core/types.js";

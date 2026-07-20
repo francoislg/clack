@@ -1,4 +1,4 @@
-import type { ClackSdk } from "../sdk.js";
+import type { ClackSdk } from "../../plugins-sdk/sdk.js";
 
 export const FETCH_INSTRUCTIONS_PATH = "fetch-instructions.md";
 

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { ClackSdk } from "../sdk.js";
+import type { ClackSdk } from "../../plugins-sdk/sdk.js";
 import type { IdlerConfig } from "./types.js";
 
 const CONFIG_PATH = "config.json";

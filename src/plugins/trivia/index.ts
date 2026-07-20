@@ -1,4 +1,4 @@
-import type { ClackSdk, ClackPlugin } from "../sdk.js";
+import type { ClackSdk, ClackPlugin } from "../../plugins-sdk/sdk.js";
 import { initTriviaConfigBridge, loadTriviaConfig } from "./core/configBridge.js";
 import type { TriviaGame, OffDay } from "./core/configTypes.js";
 import { setTriviaLogger } from "./core/pluginLogger.js";

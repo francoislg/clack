@@ -10,7 +10,7 @@ import {
 import { createFakeSdk, primeTriviaConfig } from "../../testHelpers.fakeSdk.js";
 import { createOverrideQuestionTool } from "./overrideQuestion.js";
 import { rewriteWorthBlock } from "./renderPoints.js";
-import { parseToolResult } from "../../../../tools/testHelpers.js";
+import { parseToolResult } from "../../../../plugins-sdk/testHelpers.js";
 import type { TriviaQuestion } from "../../core/types.js";
 
 // The card renderer is a collaborator: this file asserts that override_question CALLS

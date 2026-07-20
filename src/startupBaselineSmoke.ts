@@ -29,7 +29,7 @@ import {
 } from "./mcp.js";
 import { buildQueryContext as defaultBuildQueryContext } from "./tools/context.js";
 import { buildClackTools as defaultBuildClackTools } from "./tools/server.js";
-import { getLoadedPluginIntegrations } from "./plugins/state.js";
+import { getLoadedPluginIntegrations } from "./plugins-core/state.js";
 import type { QueryToolContext, ClackQueryToolsResult } from "./tools/types.js";
 import { logger as defaultLogger } from "./logger.js";
 import type { Config } from "./config.js";

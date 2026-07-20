@@ -1,6 +1,6 @@
 import { z } from "zod";
-import type { ClackSdk } from "../../sdk.js";
-import type { SlackBlocks } from "../../../slack/blocks.js";
+import type { ClackSdk } from "../../../plugins-sdk/sdk.js";
+import type { SlackBlocks } from "../../../plugins-sdk/sdk.js";
 import type { JsonValue } from "../core/configTypes.js";
 import { resolveCascade } from "../domain/resolveCascade.js";
 import type { SubmittedAnswer, TriviaQuestion, TriviaUser } from "../core/types.js";

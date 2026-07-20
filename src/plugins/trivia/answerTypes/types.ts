@@ -18,8 +18,8 @@
  * the roster footer can work off the base shape.
  */
 
-import type { SlackBlocks } from "../../../slack/blocks.js";
-import type { ClackSdk } from "../../sdk.js";
+import type { SlackBlocks } from "../../../plugins-sdk/sdk.js";
+import type { ClackSdk } from "../../../plugins-sdk/sdk.js";
 import type {
   JsonValue,
   ChoiceEmojiStyle,

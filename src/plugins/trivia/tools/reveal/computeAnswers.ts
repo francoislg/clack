@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { tool } from "@anthropic-ai/claude-agent-sdk";
 import type { KnownBlock } from "@slack/types";
-import { textResult, errorResult } from "../../../../tools/helpers.js";
+import { textResult, errorResult } from "../../../../plugins-sdk/sdk.js";
 import { triviaLogger as logger } from "../../core/pluginLogger.js";
 import {
   defaultGetGames,
@@ -32,7 +32,7 @@ import {
 import { pickSeasonMvp } from "./rollover.js";
 import { computeRoundSummary, type RoundAnswer } from "./roundSummary.js";
 import { buildExcludeSet, isScoredAnswer } from "../../answerTypes/cheaterFilter.js";
-import type { ClackSdk } from "../../../sdk.js";
+import type { ClackSdk } from "../../../../plugins-sdk/sdk.js";
 import type { TriviaDataLayer, TriviaQuestion, SubmittedAnswer } from "../../core/types.js";
 import { getAllAnswerTypeHandlers, getAnswerTypeHandler } from "../../answerTypes/registry.js";
 import type { ReStampAxis } from "../../answerTypes/types.js";

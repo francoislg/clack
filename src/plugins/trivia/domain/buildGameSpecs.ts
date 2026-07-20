@@ -1,5 +1,5 @@
 import { CronExpressionParser } from "cron-parser";
-import type { CronJobSpec } from "../../sdk.js";
+import type { CronJobSpec } from "../../../plugins-sdk/sdk.js";
 import type { TriviaGame, OffDay } from "../core/configTypes.js";
 import { triviaLogger as logger } from "../core/pluginLogger.js";
 import {

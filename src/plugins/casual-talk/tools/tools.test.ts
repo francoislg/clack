@@ -4,7 +4,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
-import { createClackSdk } from "../../sdk.js";
+import { createClackSdk } from "../../../plugins-sdk/testHelpers.js";
 import { en as casualTalkEn, fr as casualTalkFr } from "../i18n/strings.js";
 import { DEFAULT_CONFIG, loadConfig, saveConfig } from "../config.js";
 import { createSetConfigTool } from "./setConfig.js";

@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { tool } from "@anthropic-ai/claude-agent-sdk";
 import { CronExpressionParser } from "cron-parser";
-import { textResult } from "../../../../tools/helpers.js";
+import { textResult } from "../../../../plugins-sdk/sdk.js";
 import {
   defaultGetGames,
   defaultGetTriviaConfig,

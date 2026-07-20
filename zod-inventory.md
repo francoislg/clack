@@ -25,7 +25,7 @@ The sweep is sequenced into coherent changes by layer/philosophy:
 | Surface | Change | Notes |
 |---|---|---|
 | `src/plugins/trivia/core/configParsers/*` (axes, axisCheckers, format) | Change 1 | `collapse-trivia-config-validation-onto-zod` |
-| `src/plugins/zodResult.ts` (shared `Result<T>` + `zodErrorToResult` leaf) | Change 1 | imported by both plugins and bot core |
+| `src/plugins-sdk/zodResult.ts` (shared `Result<T>` + `zodErrorToResult` leaf) | Change 1 | imported by both plugins and bot core |
 | `src/workers/persistence.ts` (`loadPoolState`) | Change 3 | `persisted-state-loaders-onto-zod` |
 | `src/roles.ts` (`loadRoles`) | Change 3 | |
 | `src/userPreferences.ts` (`loadPreferences`) | Change 3 | |

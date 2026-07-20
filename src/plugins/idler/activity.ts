@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { ClackSdk } from "../sdk.js";
+import type { ClackSdk } from "../../plugins-sdk/sdk.js";
 
 /** The SDK surface activity I/O needs — narrowed so tests can supply a plain fake. */
 export type ActivitySdk = Pick<ClackSdk, "readFile" | "writeFile">;

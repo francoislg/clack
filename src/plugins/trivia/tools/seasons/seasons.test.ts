@@ -17,7 +17,7 @@ import { createSaveQuestionTool } from "../questions/saveQuestion.js";
 import { createAddCategoriesTool } from "../categories/addCategories.js";
 import { createRemoveCategoriesTool } from "../categories/removeCategories.js";
 import { createGetIdeasTool } from "../questions/getIdeas.js";
-import { parseToolResult } from "../../../../tools/testHelpers.js";
+import { parseToolResult } from "../../../../plugins-sdk/testHelpers.js";
 import {
   findCurrentSeason,
   findNextSeason,

@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { tool } from "@anthropic-ai/claude-agent-sdk";
-import type { ClackSdk } from "../../sdk.js";
-import { errorResult, textResult } from "../helpers.js";
+import type { ClackSdk } from "../../../plugins-sdk/sdk.js";
+import { errorResult, textResult } from "../../../plugins-sdk/sdk.js";
 import { computePriority, type WorkKind } from "../priority.js";
 import { idlerSlotSchema, parseSlot, type IdlerSlot } from "../slice.js";
 

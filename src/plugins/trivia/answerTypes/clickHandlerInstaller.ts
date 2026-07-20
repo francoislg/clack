@@ -12,7 +12,7 @@
  * it inlines its own registration inside `freeform.ts:registerInteractions`.
  */
 
-import type { ClackSdk } from "../../sdk.js";
+import type { ClackSdk } from "../../../plugins-sdk/sdk.js";
 import { triviaLogger as logger } from "../core/pluginLogger.js";
 import type { SubmittedAnswer, TriviaDataLayer } from "../core/types.js";
 import { editRosterIntoCard } from "../freeform/roster.js";

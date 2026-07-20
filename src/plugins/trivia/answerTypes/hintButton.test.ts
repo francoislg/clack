@@ -9,7 +9,7 @@ import {
   type FakeTriviaDataLayer,
 } from "../testHelpers.js";
 import { createFakeSdk, primeTriviaConfig, type FakeSdk } from "../testHelpers.fakeSdk.js";
-import type { PluginActionHandler } from "../../sdk.js";
+import type { PluginActionHandler } from "../../../plugins-sdk/sdk.js";
 import type { TriviaQuestion } from "../core/types.js";
 
 interface ViewsOpenCall {

@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { tool } from "@anthropic-ai/claude-agent-sdk";
-import { textResult, errorResult } from "../../tools/helpers.js";
+import { textResult, errorResult } from "../../plugins-sdk/sdk.js";
 import { searchGiphy, GiphyError } from "./giphy.js";
 
 export interface FindGifDeps {
