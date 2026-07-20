@@ -228,12 +228,44 @@ export function upsertLore(input: UpsertLoreInput): Promise<UpsertLoreResult> {
   });
 }
 
+/**
+ * Delete a lore entry. Deliberately NOT subject to the taught-wins guard: that guard exists to stop
+ * an inference from silently OVERWRITING a human's meaning, whereas a clear is explicit, targeted,
+ * and the only recourse for lore that is wrong rather than merely stale. Without it the store is a
+ * one-way ratchet — every message read prompts a create and nothing ever subtracts.
+ *
+ * Returns whether an entry was actually present; a clear on an unknown name is a no-op, not a
+ * failure, since the caller's intent is already satisfied.
+ */
+export function clearLore(name: string): Promise<boolean> {
+  return serialize(async () => {
+    const store = await loadEmojiLoreStore();
+    const key = normalizeEmojiName(name);
+    if (!store[key]) return false;
+
+    const { [key]: _removed, ...remaining } = store;
+    await loreStore.save(remaining);
+    return true;
+  });
+}
+
 // ============================================================================
 // Usage scanning + hint
 // ============================================================================
 
-/** Custom emoji names are lowercase alphanumerics plus `_ + -`; anything else isn't a shortcode. */
-const EMOJI_TOKEN_PATTERN = /:([a-z0-9_+-]+):/gi;
+/**
+ * Custom emoji names are lowercase alphanumerics plus `_ + -`. The digit lookarounds are what keep
+ * clock times and ISO timestamps out: in `19:48:30` the `:48:` candidate is digit-flanked, so it
+ * never matches. They are zero-width, so a name at a string edge (`:appywave: !`) still does.
+ * Timestamps are the single largest source of candidate tokens in real message text, and without
+ * this the `EmojiCache` intersection was doing 100% of the filtering.
+ */
+const EMOJI_TOKEN_PATTERN = /(?<![0-9]):([a-z0-9_+-]+):(?![0-9])/gi;
+
+/** Rejects `:50:` — no custom emoji is purely numeric, and a bare one survives the lookarounds. */
+function isAllDigits(name: string): boolean {
+  return /^[0-9]+$/.test(name);
+}
 
 /** How many unknown names a single hint will name before collapsing the rest into a count. */
 export const MAX_HINT_NAMES = 5;
@@ -264,7 +296,9 @@ export function collectEmojiNames(messages: readonly EmojiScannableMessage[]): S
     }
     if (!message.text) continue;
     for (const match of message.text.matchAll(EMOJI_TOKEN_PATTERN)) {
-      names.add(normalizeEmojiName(match[1]));
+      const name = normalizeEmojiName(match[1]);
+      if (isAllDigits(name)) continue;
+      names.add(name);
     }
   }
   return names;

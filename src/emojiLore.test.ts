@@ -6,6 +6,7 @@ import {
   loadEmojiLoreStore,
   listLore,
   upsertLore,
+  clearLore,
   toCompactLore,
   loreNeedle,
   matchesLore,
@@ -211,6 +212,50 @@ describe("emojiLore provenance rule", () => {
   });
 });
 
+describe("clearLore", () => {
+  it("removes an existing entry", async () => {
+    await upsertLore({ name: "crisis_cat", meaning: "on fire", source: "observed" });
+
+    expect(await clearLore("crisis_cat")).toBe(true);
+    expect(await readLore("crisis_cat")).toBeUndefined();
+  });
+
+  it("removes taught lore — the provenance guard does not apply to deletion", async () => {
+    await upsertLore({ name: "crisis_cat", meaning: "stated by a human", source: "taught" });
+
+    expect(await clearLore("crisis_cat")).toBe(true);
+    expect(await readLore("crisis_cat")).toBeUndefined();
+  });
+
+  it("reports false for a name that was never stored, without throwing", async () => {
+    expect(await clearLore("never_existed")).toBe(false);
+  });
+
+  it("normalizes the name so a decorated form still deletes", async () => {
+    await upsertLore({ name: "ship_it", meaning: "ready", source: "taught" });
+
+    expect(await clearLore(":Ship_It:")).toBe(true);
+    expect(await readLore("ship_it")).toBeUndefined();
+  });
+
+  it("leaves other entries untouched", async () => {
+    await upsertLore({ name: "keep_me", meaning: "still here", source: "taught" });
+    await upsertLore({ name: "drop_me", meaning: "gone", source: "taught" });
+
+    await clearLore("drop_me");
+
+    expect(Object.keys(await loadEmojiLoreStore())).toEqual(["keep_me"]);
+  });
+
+  it("survives a reload", async () => {
+    await upsertLore({ name: "crisis_cat", meaning: "on fire", source: "observed" });
+    await clearLore("crisis_cat");
+    clearEmojiLoreCache();
+
+    expect(await readLore("crisis_cat")).toBeUndefined();
+  });
+});
+
 describe("emojiLore projections and matching", () => {
   const entry: EmojiLoreEntry = {
     name: "crisis_cat",
@@ -261,6 +306,42 @@ describe("collectEmojiNames", () => {
   it("ignores tokens that cannot be emoji shortcodes", () => {
     const names = collectEmojiNames([{ text: "ratio 10:30 and a :bad token: here" }]);
     expect(names.size).toBe(0);
+  });
+
+  it("extracts nothing from clock times", () => {
+    expect(collectEmojiNames([{ text: "deploy finished at 19:48:30 today" }]).size).toBe(0);
+  });
+
+  it("extracts nothing from an ISO timestamp", () => {
+    expect(collectEmojiNames([{ text: "at 2026-07-20T19:48:30.383Z it broke" }]).size).toBe(0);
+  });
+
+  it("rejects a purely numeric token even at a string edge", () => {
+    // Leading `:50:` satisfies the digit lookarounds (nothing precedes it), so the all-numeric
+    // rule is what catches it — the two rules are independent for exactly this case.
+    expect(collectEmojiNames([{ text: ":50: past the hour" }]).size).toBe(0);
+  });
+
+  it("extracts a name at the start of the text", () => {
+    expect([...collectEmojiNames([{ text: ":appywave: !" }])]).toEqual(["appywave"]);
+  });
+
+  it("extracts names containing digits, hyphens, underscores and plus", () => {
+    const names = collectEmojiNames([{ text: ":appy-oh-no: :ship_it2: :c＋: :plus+one:" }]);
+    expect([...names].sort()).toEqual(["appy-oh-no", "plus+one", "ship_it2"]);
+  });
+
+  it("does not extract a shortcode flanked by a digit", () => {
+    // Accepted limitation of the boundary rule: failing toward silence is the safe direction
+    // for an advisory hint, and emoji are whitespace-delimited in real messages.
+    expect(collectEmojiNames([{ text: "win2:tada:" }]).size).toBe(0);
+  });
+
+  it("still collects reaction names regardless of the text rules", () => {
+    const names = collectEmojiNames([
+      { text: "shipped at 19:48:30", reactions: [{ emoji: "appywave" }] },
+    ]);
+    expect([...names]).toEqual(["appywave"]);
   });
 
   it("returns nothing for messages with no emoji", () => {
