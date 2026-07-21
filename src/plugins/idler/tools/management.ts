@@ -2,7 +2,7 @@ import { z } from "zod";
 import { tool } from "@anthropic-ai/claude-agent-sdk";
 import type { ClackSdk } from "../../../plugins-sdk/sdk.js";
 import { errorResult, textResult } from "../../../plugins-sdk/sdk.js";
-import { idlerConfigSchema, loadConfig, saveConfig } from "../config.js";
+import { idlerConfigSchema, loadConfig, saveConfig, WORK_EVERY_MINUTES_VALUES } from "../config.js";
 import { idlerSlotSchema, parseSlot } from "../slice.js";
 import type { IdlerConfig } from "../types.js";
 
@@ -40,6 +40,15 @@ export function createSetConfigTool(sdk: ClackSdk) {
         .describe(
           "Sync cadence in hours (1 = hourly, default 2). The fire just before the work window opens is always kept.",
         ),
+      workEveryMinutes: z
+        .number()
+        .int()
+        .min(5)
+        .max(60)
+        .optional()
+        .describe(
+          `Minutes between work fires inside the work window. Must be a divisor of 60 in [5, 60] (${WORK_EVERY_MINUTES_VALUES.join(", ")}); default 30. Lower = more fires = higher token cost.`,
+        ),
       trackerSource: z.boolean().optional().describe("Enable/disable the external-tracker source"),
       ownPrsSource: z.boolean().optional().describe("Enable/disable the own-PRs source"),
     },
@@ -58,6 +67,7 @@ export function createSetConfigTool(sdk: ClackSdk) {
         maxActionsPerFire: args.maxActionsPerFire ?? config.maxActionsPerFire,
         maxActionsPerNight: args.maxActionsPerNight ?? config.maxActionsPerNight,
         syncEveryHours: args.syncEveryHours ?? config.syncEveryHours,
+        workEveryMinutes: args.workEveryMinutes ?? config.workEveryMinutes,
         sources: {
           ...config.sources,
           tracker: args.trackerSource ?? config.sources.tracker,

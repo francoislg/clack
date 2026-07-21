@@ -54,6 +54,11 @@ export interface IdlerConfig {
    * hour just before the work window opens, so the ledger-priming handoff fire is always kept.
    */
   syncEveryHours: number;
+  /**
+   * Minutes between work-task fires inside `workHours` (default 30). Must be a divisor of 60 in
+   * [5, 60] so the cron minute field tiles each hour evenly. Fewer fires ⇒ lower nightly token cost.
+   */
+  workEveryMinutes: number;
   /** Repos the idler may act on. Empty ⇒ the plugin does nothing (safety default). */
   repoAllowlist: string[];
   /** What and where the idler reports. Absent `channel` ⇒ idler dormant. */

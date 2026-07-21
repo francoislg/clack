@@ -128,6 +128,43 @@ describe("idler plugin reconcile", () => {
     assert.equal(byKey(store, "summary"), undefined, "no summary spec when summary: false");
   });
 
+  it("work cron minute field derives from workEveryMinutes; hour/day fields unchanged", async () => {
+    const store30 = makeFakeStore();
+    const sdk30 = buildSdk(store30).sdk;
+    await saveConfig(
+      sdk30,
+      operationalConfig({ channel: "C123", tickUpdates: "none", summary: true }),
+    );
+    await idlerPlugin(sdk30);
+    const work30 = byKey(store30, "work");
+    assert.ok(work30);
+    assert.ok(
+      work30.cronExpression.startsWith("*/30 "),
+      `default cadence must yield */30, got ${work30.cronExpression}`,
+    );
+
+    const store15 = makeFakeStore();
+    const sdk15 = buildSdk(store15).sdk;
+    await saveConfig(sdk15, {
+      ...operationalConfig({ channel: "C123", tickUpdates: "none", summary: true }),
+      workEveryMinutes: 15,
+    });
+    await idlerPlugin(sdk15);
+    const work15 = byKey(store15, "work");
+    assert.ok(work15);
+    assert.ok(
+      work15.cronExpression.startsWith("*/15 "),
+      `configured cadence must yield */15, got ${work15.cronExpression}`,
+    );
+
+    const afterMinuteField = (expr: string) => expr.slice(expr.indexOf(" "));
+    assert.equal(
+      afterMinuteField(work15.cronExpression),
+      afterMinuteField(work30.cronExpression),
+      "only the minute field changes; hour/day fields stay put",
+    );
+  });
+
   it("reconciles five specs: deep sync (anchor, maintenance), discovery sync, light sync, work, summary", async () => {
     const store = makeFakeStore();
     const { sdk } = buildSdk(store);

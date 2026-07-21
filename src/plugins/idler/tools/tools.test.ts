@@ -219,6 +219,7 @@ function cfgArgs(o: Partial<CfgArgs>): CfgArgs {
     maxActionsPerFire: o.maxActionsPerFire,
     maxActionsPerNight: o.maxActionsPerNight,
     syncEveryHours: o.syncEveryHours,
+    workEveryMinutes: o.workEveryMinutes,
     trackerSource: o.trackerSource,
     ownPrsSource: o.ownPrsSource,
   };
@@ -470,6 +471,27 @@ describe("idler management tools", () => {
     assert.equal(config.reporting.channel, "C777");
     assert.equal(config.reporting.tickUpdates, "optional");
     assert.equal(config.reporting.summary, false);
+  });
+
+  it("set_idler_config persists a valid workEveryMinutes", async () => {
+    const sdk = buildSdk(tempDir);
+    const result = await invoke(createSetConfigTool(sdk), cfgArgs({ workEveryMinutes: 15 }));
+    assert.equal(result.ok, true);
+    const config = await loadConfig(sdk);
+    assert.equal(config.workEveryMinutes, 15);
+  });
+
+  it("set_idler_config rejects a non-divisor workEveryMinutes and does not save", async () => {
+    const sdk = buildSdk(tempDir);
+    const result = await invoke(createSetConfigTool(sdk), cfgArgs({ workEveryMinutes: 25 }));
+    assert.equal(result.ok, undefined, "invalid value must not report success");
+    assert.ok(result.error, "a validation error is surfaced to the caller");
+    const config = await loadConfig(sdk);
+    assert.equal(
+      config.workEveryMinutes,
+      30,
+      "config retains the default; the bad value is not persisted",
+    );
   });
 });
 

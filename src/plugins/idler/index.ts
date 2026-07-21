@@ -172,7 +172,7 @@ export const idlerPlugin: ClackPlugin = async (sdk: ClackSdk) => {
 
     specs.push({
       specKey: "work",
-      cronExpression: buildWindowCron(config.workHours, "*/15"),
+      cronExpression: buildWindowCron(config.workHours, `*/${config.workEveryMinutes}`),
       channel,
       prompt: buildWorkPrompt(config, fetchInstructions),
       timezone: tz,

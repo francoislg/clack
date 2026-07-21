@@ -1,6 +1,11 @@
 import { describe, it } from "vitest";
 import assert from "node:assert/strict";
-import { DEFAULT_CONFIG, idlerConfigSchema, isOperational } from "./config.js";
+import {
+  DEFAULT_CONFIG,
+  idlerConfigSchema,
+  isOperational,
+  WORK_EVERY_MINUTES_VALUES,
+} from "./config.js";
 import type { IdlerConfig } from "./types.js";
 
 function base(overrides: Partial<IdlerConfig> = {}): IdlerConfig {
@@ -81,6 +86,43 @@ describe("idlerConfigSchema", () => {
     assert.equal(idlerConfigSchema.parse({ ...minimal, syncEveryHours: 4 }).syncEveryHours, 4);
     assert.equal(idlerConfigSchema.safeParse({ ...minimal, syncEveryHours: 0 }).success, false);
     assert.equal(idlerConfigSchema.safeParse({ ...minimal, syncEveryHours: 13 }).success, false);
+  });
+
+  it("defaults workEveryMinutes to 30 when absent", () => {
+    const parsed = idlerConfigSchema.parse({
+      enabled: true,
+      workHours: { start: 18, end: 9, tz: "UTC", days: [1] },
+    });
+    assert.equal(parsed.workEveryMinutes, 30);
+  });
+
+  it("accepts valid divisor-of-60 workEveryMinutes values", () => {
+    const minimal = { enabled: true, workHours: { start: 18, end: 9, tz: "UTC", days: [1] } };
+    for (const value of WORK_EVERY_MINUTES_VALUES) {
+      assert.equal(
+        idlerConfigSchema.parse({ ...minimal, workEveryMinutes: value }).workEveryMinutes,
+        value,
+      );
+    }
+  });
+
+  it("rejects a non-divisor workEveryMinutes with a message naming the accepted set", () => {
+    const bad = idlerConfigSchema.safeParse({
+      enabled: true,
+      workHours: { start: 18, end: 9, tz: "UTC", days: [1] },
+      workEveryMinutes: 25,
+    });
+    assert.equal(bad.success, false);
+    assert.ok(
+      !bad.success &&
+        bad.error.issues.some((i) => i.message.includes("5, 6, 10, 12, 15, 20, 30, 60")),
+    );
+  });
+
+  it("rejects out-of-range workEveryMinutes values", () => {
+    const minimal = { enabled: true, workHours: { start: 18, end: 9, tz: "UTC", days: [1] } };
+    assert.equal(idlerConfigSchema.safeParse({ ...minimal, workEveryMinutes: 4 }).success, false);
+    assert.equal(idlerConfigSchema.safeParse({ ...minimal, workEveryMinutes: 61 }).success, false);
   });
 
   it("rejects a malformed channel id", () => {

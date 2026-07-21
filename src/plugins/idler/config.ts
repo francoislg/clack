@@ -44,11 +44,23 @@ const reportingSchema = z.object({
   summaryHour: z.number().int().min(0).max(23).optional(),
 });
 
+/** Divisors of 60 in [5, 60] — the `workEveryMinutes` values whose cron minute field tiles each hour evenly. */
+export const WORK_EVERY_MINUTES_VALUES = [5, 6, 10, 12, 15, 20, 30, 60] as const;
+
 const baseConfigSchema = z.object({
   enabled: z.boolean(),
   workHours: windowSchema,
   syncHours: windowSchema.optional(),
   syncEveryHours: z.number().int().min(1).max(12).default(2),
+  workEveryMinutes: z
+    .number()
+    .int()
+    .min(5)
+    .max(60)
+    .refine((n) => 60 % n === 0, {
+      message: `workEveryMinutes must be a divisor of 60 in [5, 60] (${WORK_EVERY_MINUTES_VALUES.join(", ")})`,
+    })
+    .default(30),
   repoAllowlist: z.array(z.string().min(1)).default([]),
   reporting: reportingSchema.default({ tickUpdates: "none", summary: true }),
   maxActionsPerFire: z.number().int().min(1).max(20).default(1),
@@ -81,6 +93,7 @@ export const DEFAULT_CONFIG: IdlerConfig = {
   enabled: false,
   workHours: { start: 18, end: 9, tz: "UTC", days: [1, 2, 3, 4, 5] },
   syncEveryHours: 2,
+  workEveryMinutes: 30,
   repoAllowlist: [],
   reporting: { tickUpdates: "none", summary: true },
   maxActionsPerFire: 1,
