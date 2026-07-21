@@ -1,5 +1,5 @@
 import type { App } from "@slack/bolt";
-import { getConfig } from "../../config.js";
+import { getConfig, type DmType } from "../../config.js";
 import { logger } from "../../logger.js";
 import { t } from "../../i18n/t.js";
 import { extractAttachments, type ExtractedAttachments } from "../fileExtractor.js";
@@ -9,7 +9,7 @@ import { stopThread, type StopResult } from "../stopPipeline.js";
 
 export interface ClassicDmDeps {
   getConfig: () => {
-    directMessages: { enabled: boolean; dmType: "assistant" | "classic" };
+    directMessages: { enabled: boolean; dmType: DmType };
     reactions?: { stop?: string | null };
   };
   stopThread: (

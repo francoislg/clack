@@ -544,6 +544,23 @@ describe("loadConfig", () => {
     assert.throws(() => loadConfig(configPath, true), /allowPublicSearch.*must be a boolean/);
   });
 
+  // ---- dmType ----
+
+  it("accepts dmType: agent", () => {
+    writeSlackAuth();
+    writeConfig(minimalConfig({ directMessages: { enabled: true, dmType: "agent" } }));
+
+    const cfg = loadConfig(configPath, true);
+    assert.equal(cfg.directMessages.dmType, "agent");
+  });
+
+  it("throws on an unknown dmType", () => {
+    writeSlackAuth();
+    writeConfig(minimalConfig({ directMessages: { enabled: true, dmType: "bogus" } }));
+
+    assert.throws(() => loadConfig(configPath, true), /dmType/);
+  });
+
   // ---- Validation errors ----
 
   it("throws when config is not an object", () => {

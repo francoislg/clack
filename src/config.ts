@@ -134,9 +134,9 @@ export interface ReactionsConfig {
  * switching requires a restart AND a manifest re-upload because the subscribed
  * bot events differ.
  */
-export type DmType = "assistant" | "classic";
+export type DmType = "assistant" | "classic" | "agent";
 
-export const VALID_DM_TYPES: readonly DmType[] = ["assistant", "classic"] as const;
+export const VALID_DM_TYPES: readonly DmType[] = ["assistant", "classic", "agent"] as const;
 
 export interface DirectMessagesConfig {
   enabled: boolean;

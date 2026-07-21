@@ -152,7 +152,7 @@ ANTHROPIC_API_KEY=sk-ant-api-your-key-here
 
 2. Edit `data/config.json` — see `data/config.example.json` for the full schema. The key sections:
    - **`reactions`** — Trigger emoji, thinking indicator, optional work-mode emoji
-   - **`directMessages`** / **`mentions`** — Enable/disable DM and @mention triggers. DMs additionally support `dmType: "assistant"` (default, Slack Agents & Assistants API) or `"classic"` (low-level `message.im` event, no `assistant:write` scope). Switching `dmType` requires regenerating + re-uploading the manifest.
+   - **`directMessages`** / **`mentions`** — Enable/disable DM and @mention triggers. DMs support three `dmType` modes: `"assistant"` (default, legacy Slack Assistant API / `assistant_view` — being deprecated by Slack), `"agent"` (the current **Agent messaging experience** / `agent_view` — requires Bolt 5, uses `app_home_opened` + `message.im`; the `agent_view` workspace switch is **irreversible**), or `"classic"` (low-level `message.im` event, no `assistant:write` scope, view-agnostic). Switching `dmType` requires regenerating + re-uploading the manifest and a restart; a reinstall is only needed when the switch adds a new scope.
    - **`repositories`** — Repos to index, with access control (`read`/`write` role thresholds) and merge strategy
    - **`changesWorkflow`** — Enable the Changes Workflow with timeout, concurrency, and monitoring settings
    - **`claudeCode.model`** — Claude model to use (default: `sonnet`)

@@ -56,7 +56,12 @@ npx tsc              # Type-check without emitting (use to verify changes)
 ### Three Trigger Modes
 
 - **Reactions** — User reacts with configured emoji. Response is ephemeral (only the reactor sees it) or delivered via DM (DM-first mode). User accepts to share publicly.
-- **Direct Messages** — User messages the bot directly. Responses posted visibly in thread. Thread replies continue the conversation. Sub-mode via `config.directMessages.dmType`: `"assistant"` (default — Slack Agents & Assistants API side-panel UX with channel-context awareness) or `"classic"` (low-level `message.im` event, plain Messages-tab UX, no `assistant:write` scope or `assistant_view` feature). **Switching `dmType` requires a full restart AND re-uploading the regenerated manifest — the subscribed bot events differ between the two modes.**
+- **Direct Messages** — User messages the bot directly. Responses posted visibly in thread. Thread replies continue the conversation. Sub-mode via `config.directMessages.dmType`, three siblings routed at boot in `src/slack/app.ts` (`registerAssistant` / `registerAgent` / `registerClassicDmHandlers`):
+  - `"assistant"` (default) — legacy Slack Assistant API (`assistant_view`, Bolt's `Assistant` middleware, `assistant_thread_started`/`_context_changed` events). Slack is **deprecating** this experience.
+  - `"agent"` — the current **Agent messaging experience** (`agent_view`). Requires Bolt 5. No `Assistant` middleware (its `isAssistantMessage` gate drops `thread_ts`-less agent messages); `src/slack/handlers/agent.ts` uses `app_home_opened` (tab `"messages"`) for DM-open + plain `message.im` for user turns (`thread_ts` optional), reusing classicDm's message path. Keeps the `assistant:write` scope for `assistant.threads.*` status/prompts. The `agent_view` workspace switch is **irreversible**. (Greeting / suggested-prompts / live status are a pending increment; core Q&A + thread continuity work.)
+  - `"classic"` — low-level `message.im`, plain Messages-tab UX, no `assistant:write` / view feature. View-agnostic (works under `assistant_view` or `agent_view`), so it's the in-workspace fallback once `agent_view` is committed.
+
+  **Switching `dmType` requires a full restart AND re-uploading the regenerated manifest** (the subscribed bot events differ between modes); a reinstall is only needed when the switch adds a scope. The Agent messaging experience needs `@slack/bolt` v5 + `@slack/web-api` ^8.
 - **@Mentions** — User @mentions the bot in a channel. Responses posted visibly in thread.
 
 Each mode is independently configured with its own thinking indicator and Changes Workflow toggle.

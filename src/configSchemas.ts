@@ -17,7 +17,7 @@ import type {
 // leaf — config.ts value-imports the validator, so importing values back would cycle.
 export const VALID_ROLES: readonly UserRole[] = ["member", "dev", "admin", "owner"];
 export const VALID_MERGE_STRATEGIES = ["squash", "merge", "rebase"] as const;
-export const VALID_DM_TYPES = ["assistant", "classic"] as const;
+export const VALID_DM_TYPES = ["assistant", "classic", "agent"] as const;
 const MAX_SUGGESTED_PROMPTS = 4;
 const MAX_ADDITIONAL_MESSAGES_MIN = 1;
 const MAX_ADDITIONAL_MESSAGES_MAX = 10;

@@ -26,17 +26,21 @@ interface CapturedRegistration {
   handler: PluginActionHandler;
 }
 
+// Kept a structural SUBSET of Bolt's real action args so the narrowing cast below stays
+// comparable. `respond` is deliberately NOT declared here: Bolt 5's RespondFn return type is no
+// longer comparable to `Promise<void>`, so including it would break the cast. It's supplied as an
+// extra runtime property on `minimal` instead (allowed on a non-literal), and the real handler
+// reads it off the passed object.
 interface MinimalActionArgs {
   ack: () => Promise<void>;
   body: { user: { id: string; name: string } };
   action: { action_id: string };
-  respond: (msg: { response_type?: string; text?: string }) => Promise<void>;
 }
 
 type MinimalActionHandler = (args: MinimalActionArgs) => Promise<void> | void;
 
 interface RespondLog {
-  calls: Array<{ response_type?: string; text?: string }>;
+  calls: Array<{ response_type?: "ephemeral" | "in_channel"; text?: string }>;
   ackCalled: boolean;
 }
 
@@ -45,15 +49,18 @@ async function invokeAction(
   opts: { actionId: string; userId: string; displayName?: string },
 ): Promise<RespondLog> {
   const log: RespondLog = { calls: [], ackCalled: false };
-  const minimal: MinimalActionArgs = {
-    ack: async () => {
+  const respond = async (
+    msg: string | { response_type?: "ephemeral" | "in_channel"; text?: string },
+  ): Promise<void> => {
+    if (typeof msg !== "string") log.calls.push(msg);
+  };
+  const minimal = {
+    ack: async (): Promise<void> => {
       log.ackCalled = true;
     },
     body: { user: { id: opts.userId, name: opts.displayName ?? opts.userId } },
     action: { action_id: opts.actionId },
-    respond: async (msg) => {
-      log.calls.push(msg);
-    },
+    respond,
   };
   const narrowed = reg.handler as MinimalActionHandler;
   await narrowed(minimal);

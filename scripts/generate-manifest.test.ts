@@ -96,6 +96,34 @@ describe("generateManifest — dmType branching", () => {
   });
 });
 
+describe("generateManifest — agent dmType", () => {
+  it("emits agent_view (not assistant_view) with assistant:write and no thread events", () => {
+    const manifest = generateManifest({
+      directMessages: { enabled: true, dmType: "agent" },
+    });
+    const scopes = getScopes(manifest);
+    const events = getEvents(manifest);
+
+    assert.ok(manifest.features && "agent_view" in manifest.features);
+    assert.equal(manifest.features && "assistant_view" in manifest.features, false);
+
+    assert.ok(scopes.includes("assistant:write"));
+    assert.ok(scopes.includes("im:history"));
+
+    assert.ok(events.includes("message.im"));
+    assert.ok(events.includes("app_home_opened"));
+    assert.equal(events.includes("assistant_thread_started"), false);
+    assert.equal(events.includes("assistant_thread_context_changed"), false);
+  });
+
+  it("leaves assistant and classic emission unchanged (no agent_view)", () => {
+    for (const dmType of ["assistant", "classic"] as const) {
+      const manifest = generateManifest({ directMessages: { enabled: true, dmType } });
+      assert.equal(manifest.features && "agent_view" in manifest.features, false);
+    }
+  });
+});
+
 describe("generateManifest — allowPublicSearch", () => {
   it("adds search:read.public when allowPublicSearch is true", () => {
     const manifest = generateManifest({ allowPublicSearch: true });
