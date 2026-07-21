@@ -114,7 +114,7 @@ The idler SHALL persist its per-unit work-state in the core memory faculty under
 
 ### Requirement: Four cooperating scheduled tasks
 
-The plugin SHALL own up to five distinct cron specs — a **light sync** task (specKey `sync-light`), a **deep sync** task (specKey `sync`, the maintenance pass), a **discovery sync** task (specKey `sync-discovery`), a **work** task (every ~15 minutes inside `workHours`), and a **summary** task (end of window) — each with its own prompt and `requiredTools`. The work task's `requiredTools` SHALL include the change-proposing and review tools; the sync and summary tasks SHALL NOT include change-proposing tools and SHALL NOT acquire a worktree. All sync specs SHALL be channelless with `submitResponseMode: "skipped"`.
+The plugin SHALL own up to five distinct cron specs — a **light sync** task (specKey `sync-light`), a **deep sync** task (specKey `sync`, the maintenance pass), a **discovery sync** task (specKey `sync-discovery`), a **work** task (every `workEveryMinutes` minutes inside `workHours`, default 30), and a **summary** task (end of window) — each with its own prompt and `requiredTools`. The work task's `requiredTools` SHALL include the change-proposing and review tools; the sync and summary tasks SHALL NOT include change-proposing tools and SHALL NOT acquire a worktree. All sync specs SHALL be channelless with `submitResponseMode: "skipped"`.
 
 The **deep sync** task SHALL fire exactly once per sync-window day, at the **anchor hour**: the last sync-window hour before the work window opens — `(workHours.start - 1) mod 24` when the sync window is the derived complement of `workHours`, or the window's own last hour `(syncHours.end - 1) mod 24` when an explicit `syncHours` window is configured.
 
@@ -122,7 +122,7 @@ The **discovery sync** task SHALL fire exactly once per sync-window day at the *
 
 The **light sync** task SHALL fire at the `syncEveryHours` cadence (integer 1–12, default 2) across the remaining sync-window hours, with thinning anchored on the anchor hour and BOTH the anchor hour and the discovery hour (when reconciled) excluded, so light ∪ discovery ∪ anchor equals the thinned sync schedule with each hour owned by exactly one spec. When the sync window contains only the anchor hour, only the deep spec SHALL be reconciled.
 
-The work task SHALL be reconciled with its destination channel set to `reporting.channel`. When `reporting.tickUpdates` is `"none"`, the work task SHALL be marked silent so it produces no Slack output while still executing changes; when `"optional"`, it SHALL post per-tick progress as before. The summary task SHALL be reconciled only when `reporting.summary` is true.
+The work task SHALL be reconciled with its destination channel set to `reporting.channel`, and its cron minute field SHALL be derived from the configured `workEveryMinutes` (`*/N`). When `reporting.tickUpdates` is `"none"`, the work task SHALL be marked silent so it produces no Slack output while still executing changes; when `"optional"`, it SHALL post per-tick progress as before. The summary task SHALL be reconciled only when `reporting.summary` is true.
 
 #### Scenario: Deep sync fires once per window-day at the anchor hour
 
@@ -173,6 +173,12 @@ The work task SHALL be reconciled with its destination channel set to `reporting
 
 - **WHEN** a light, deep, or discovery sync task fires
 - **THEN** it does not acquire a worktree and does not push any code
+
+#### Scenario: Configured cadence drives the work cron
+
+- **GIVEN** `workHours` 18→6 and `workEveryMinutes: 30`
+- **WHEN** the plugin reconciles
+- **THEN** the work spec's cron minute field is `*/30` across the work-window hours
 
 #### Scenario: Work task advances exactly one unit per fire
 
@@ -648,4 +654,30 @@ Every deep-tier sync prompt (deep/maintenance, discovery, and the combined fallb
 
 - **WHEN** the discovery or deep sync prompt is built
 - **THEN** it directs paging channel fetches with an explicit limit and bounded Reads, and forbids reading offloaded oversized results
+
+### Requirement: Configurable work-fire cadence
+
+The idler config SHALL expose a `workEveryMinutes` field — the number of minutes between work-task fires inside `workHours`. The value MUST be an integer divisor of 60 within [5, 60] (`5, 6, 10, 12, 15, 20, 30, 60`) so every accepted cadence tiles each hour evenly; validation SHALL reject any other value with an error naming the accepted set, never silently snapping. The field SHALL default to `30` when absent. The admin-gated `set_idler_config` tool SHALL accept a `workEveryMinutes` argument validated through the same schema, and a saved change SHALL take effect through the existing config-watcher → re-reconcile path without a restart.
+
+#### Scenario: Absent field defaults to 30
+
+- **GIVEN** an idler config file without `workEveryMinutes`
+- **WHEN** the config is loaded
+- **THEN** `workEveryMinutes` parses to `30`
+
+#### Scenario: Non-divisor cadence is rejected
+
+- **WHEN** a config with `workEveryMinutes: 25` is validated
+- **THEN** validation fails with an error naming the accepted divisors (`5, 6, 10, 12, 15, 20, 30, 60`)
+
+#### Scenario: Out-of-range cadence is rejected
+
+- **WHEN** a config with `workEveryMinutes: 4` or `workEveryMinutes: 61` is validated
+- **THEN** validation fails
+
+#### Scenario: Cadence change hot-reloads
+
+- **GIVEN** a running idler with `workEveryMinutes: 30`
+- **WHEN** an admin sets `workEveryMinutes: 15` via `set_idler_config`
+- **THEN** the config is re-validated and saved, and the next reconcile rebuilds the work spec at the new cadence without a process restart
 
