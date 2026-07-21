@@ -519,6 +519,31 @@ describe("loadConfig", () => {
     assert.equal(cfg.repositories[0].branch, "main");
   });
 
+  // ---- allowPublicSearch ----
+
+  it("treats absent allowPublicSearch as undefined (off)", () => {
+    writeSlackAuth();
+    writeConfig(minimalConfig());
+
+    const cfg = loadConfig(configPath, true);
+    assert.equal(cfg.allowPublicSearch, undefined);
+  });
+
+  it("reads allowPublicSearch: true", () => {
+    writeSlackAuth();
+    writeConfig(minimalConfig({ allowPublicSearch: true }));
+
+    const cfg = loadConfig(configPath, true);
+    assert.equal(cfg.allowPublicSearch, true);
+  });
+
+  it("throws when allowPublicSearch is not a boolean", () => {
+    writeSlackAuth();
+    writeConfig(minimalConfig({ allowPublicSearch: "yes" }));
+
+    assert.throws(() => loadConfig(configPath, true), /allowPublicSearch.*must be a boolean/);
+  });
+
   // ---- Validation errors ----
 
   it("throws when config is not an object", () => {

@@ -11,6 +11,7 @@ import {
   reusableFoldersZod,
   reactionsChangesWorkflowZod,
   triggerChangesWorkflowZod,
+  allowPublicSearchZod,
   mcpServersZod,
   skillPluginsZod,
   userSkillsZod,
@@ -287,6 +288,7 @@ export function validateConfig(config: unknown, slackAuth: SlackAuthConfig): Con
     submitResponse: parseOrThrow(submitResponseZod, c.submitResponse),
     admin: parseOrThrow(adminZod, c.admin),
     tester: parseOrThrow(testerZod, c.tester),
+    allowPublicSearch: parseOrThrow(allowPublicSearchZod, c.allowPublicSearch),
     language: isSupportedLanguage(c.language) ? c.language : undefined,
   };
 

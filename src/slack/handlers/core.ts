@@ -125,6 +125,12 @@ export interface ProcessMessageParams {
   workMode?: boolean;
   /** Channel the user is viewing in the assistant panel */
   assistantChannelId?: string;
+  /**
+   * Slack `action_token` from the triggering `message`/`app_mention` event. Enables
+   * `search_messages` (bot-token `assistant.search.context`). Absent for reaction/cron
+   * triggers. Threaded onto the Claude options, never persisted to the session.
+   */
+  actionToken?: string;
   /** Image files from the triggering message */
   imageFiles?: SlackImageFile[];
   /** Non-image file attachments from the triggering message */
@@ -217,6 +223,8 @@ interface ProcessingContext {
   /** When true, hints Claude to propose a change with auto-execute */
   readonly workMode: boolean;
   readonly additionalSystemPrompt?: string;
+  /** Slack `action_token` from the triggering event — see `ProcessMessageParams.actionToken`. */
+  readonly actionToken?: string;
   readonly requiredTools?: string[];
   readonly skipConditions?: string;
   /** Declarative submit_response mode override from the originating cron job. */
@@ -592,6 +600,7 @@ export async function processMessage(
       triggerType,
       workMode,
       additionalSystemPrompt: params.additionalSystemPrompt,
+      actionToken: params.actionToken,
       requiredTools: params.requiredTools,
       skipConditions: params.skipConditions,
       submitResponseMode: params.submitResponseMode,
@@ -681,6 +690,7 @@ export async function processMessage(
         workMode,
         availableImages,
         availableFiles,
+        actionToken: ctx.actionToken,
         requiredTools: ctx.requiredTools,
         skipConditions: ctx.skipConditions,
         submitResponseMode: ctx.submitResponseMode,

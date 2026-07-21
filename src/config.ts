@@ -427,6 +427,13 @@ export interface Config {
    */
   tester?: TesterConfig;
   /**
+   * Opt-in workspace-wide keyword search. When `true`, the generated manifest requests the
+   * `search:read.public` bot scope and the `search_messages` query tool is registered.
+   * Enabling requires re-uploading the manifest AND reinstalling the app to the workspace
+   * (a bot token does not retroactively gain scopes). Absent → `false`, fully inert.
+   */
+  allowPublicSearch?: boolean;
+  /**
    * Workspace-global user-facing language. BCP-47 short code. When absent or `"en"`,
    * the bot behaves identically to its pre-localization state. When set to `"fr"`,
    * `t()`-rendered UI strings and Claude's user-facing output flip to French.

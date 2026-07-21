@@ -310,6 +310,47 @@ describe("loadedSkills persistence", () => {
   });
 });
 
+describe("action_token is never persisted", () => {
+  const tmpBase = resolve(tmpdir(), `sessions-actiontoken-${process.pid}`);
+  const sessionsDir = join(tmpBase, "data", "sessions");
+  const originalCwd = process.cwd();
+
+  beforeEach(() => {
+    if (existsSync(tmpBase)) rmSync(tmpBase, { recursive: true });
+    mkdirSync(sessionsDir, { recursive: true });
+    process.chdir(tmpBase);
+  });
+
+  afterEach(() => {
+    process.chdir(originalCwd);
+    if (existsSync(tmpBase)) rmSync(tmpBase, { recursive: true });
+  });
+
+  // The action_token rides on the per-run tool context (AskClaudeOptions → QueryToolContext),
+  // never on SessionContext — so it must be absent from the persisted record. This guards
+  // against a future regression that adds the field to SessionContext and writes it to disk.
+  it("omits action_token from the persisted session record", async () => {
+    const session = await createSession({
+      channelId: "DACTION",
+      messageTs: "6000.0001",
+      threadTs: "6000.0001",
+      userId: "UACTION",
+      trigger: {
+        type: "directMessages",
+        userId: "UACTION",
+        messageTs: "6000.0001",
+        messageText: "search for :bob:",
+      },
+    });
+
+    assert.equal("actionToken" in session, false);
+    assert.equal("action_token" in session, false);
+
+    const onDisk = readFileSync(join(getSessionPath(session.sessionId), "context.json"), "utf-8");
+    assert.doesNotMatch(onDisk, /action_token|actionToken/i);
+  });
+});
+
 // ---------------------------------------------------------------------------
 // Unified conversation log — appendUserMessage / appendAssistantMessage behavior.
 // Exercises both the new `messages` array and the transitional dual-write to

@@ -95,3 +95,23 @@ describe("generateManifest — dmType branching", () => {
     }
   });
 });
+
+describe("generateManifest — allowPublicSearch", () => {
+  it("adds search:read.public when allowPublicSearch is true", () => {
+    const manifest = generateManifest({ allowPublicSearch: true });
+    assert.ok(getScopes(manifest).includes("search:read.public"));
+  });
+
+  it("omits search:read.public when allowPublicSearch is false or absent", () => {
+    for (const config of [{ allowPublicSearch: false }, {}]) {
+      const manifest = generateManifest(config);
+      assert.equal(getScopes(manifest).includes("search:read.public"), false);
+    }
+  });
+
+  it("does not change bot_events when toggled (no event subscription added)", () => {
+    const enabled = generateManifest({ allowPublicSearch: true });
+    const disabled = generateManifest({ allowPublicSearch: false });
+    assert.deepEqual(getEvents(enabled), getEvents(disabled));
+  });
+});

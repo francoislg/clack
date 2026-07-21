@@ -159,6 +159,16 @@ export const reactionsChangesWorkflowZod: z.ZodType<ReactionsChangesWorkflowConf
   .object({ enabled: z.boolean().catch(false), trigger: z.string().optional() })
   .transform((c) => ({ enabled: c.enabled ?? false, trigger: c.trigger }));
 
+/**
+ * Fail-fast optional boolean for the top-level `allowPublicSearch` flag. Absent → undefined
+ * (callers treat as `false`). A non-boolean value throws a formatted error at boot rather than
+ * silently degrading — this flag gates a Slack scope and a workspace reinstall, so a typo that
+ * quietly reads as `false` would be confusing to debug.
+ */
+export const allowPublicSearchZod: z.ZodType<boolean | undefined> = z
+  .boolean({ error: "Config 'allowPublicSearch' must be a boolean" })
+  .optional();
+
 export const triggerChangesWorkflowZod = z
   .object({ enabled: z.boolean().catch(false) })
   .transform((c) => ({ enabled: c.enabled ?? false }));

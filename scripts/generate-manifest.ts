@@ -56,6 +56,7 @@ interface PartialConfig {
   mentions?: MentionsConfig;
   autoRespond?: AutoRespondConfig;
   allowScheduledMessages?: boolean;
+  allowPublicSearch?: boolean;
 }
 
 const DEFAULTS: Required<SlackAppConfig> = {
@@ -123,6 +124,7 @@ interface ConfigFeatures {
   autoRespond: boolean;
   fetchUsernames: boolean;
   scheduledMessages: boolean;
+  publicSearch: boolean;
 }
 
 function getEnabledFeatures(config: PartialConfig): ConfigFeatures {
@@ -133,6 +135,7 @@ function getEnabledFeatures(config: PartialConfig): ConfigFeatures {
     autoRespond: config.autoRespond?.enabled ?? false,
     fetchUsernames: config.slack?.fetchAndStoreUsername ?? false,
     scheduledMessages: config.allowScheduledMessages ?? false,
+    publicSearch: config.allowPublicSearch ?? false,
   };
 }
 
@@ -148,6 +151,12 @@ function buildScopes(features: ConfigFeatures): BotScope[] {
 
   if (features.mentions) {
     scopes.push("app_mentions:read");
+  }
+
+  // Workspace-wide keyword search (assistant.search.context). No matching bot_events change —
+  // its action_token sources (message, app_mention) are already subscribed by the DM/mention features.
+  if (features.publicSearch) {
+    scopes.push("search:read.public");
   }
 
   // Always needed for DM delivery (per-user reaction preference)
@@ -264,6 +273,7 @@ function main(): void {
   console.log(`    - Auto-respond: ${features.autoRespond}`);
   console.log(`    - Fetch usernames: ${features.fetchUsernames}`);
   console.log(`    - Scheduled messages: ${features.scheduledMessages}`);
+  console.log(`    - Public message search: ${features.publicSearch}`);
   console.log(`  Scopes: ${manifest.oauth_config?.scopes?.bot?.join(", ")}`);
   console.log(`  Events: ${manifest.settings?.event_subscriptions?.bot_events?.join(", ")}`);
 

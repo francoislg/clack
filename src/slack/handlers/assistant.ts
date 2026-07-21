@@ -238,6 +238,8 @@ export function registerAssistant(app: App, deps: AssistantDeps = defaultAssista
         threadTs: msg.thread_ts,
         triggerType: "directMessages",
         assistantChannelId: contextChannelId,
+        // Slack mints action_token onto the DM message event; Bolt's types don't declare it.
+        actionToken: (event as { action_token?: string }).action_token,
         ...attachments,
       });
 

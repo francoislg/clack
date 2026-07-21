@@ -39,6 +39,7 @@ interface RawMessageEvent {
   text?: unknown;
   thread_ts?: unknown;
   files?: unknown;
+  action_token?: unknown;
 }
 
 interface ClassicDmMessage {
@@ -48,6 +49,8 @@ interface ClassicDmMessage {
   text?: string;
   thread_ts?: string;
   files?: object[];
+  /** Slack `action_token` for bot-token search; present on message events, absent otherwise. */
+  actionToken?: string;
 }
 
 function toClassicDmMessage(value: unknown): ClassicDmMessage | null {
@@ -65,6 +68,7 @@ function toClassicDmMessage(value: unknown): ClassicDmMessage | null {
     ts: e.ts,
     text: typeof e.text === "string" ? e.text : undefined,
     thread_ts: typeof e.thread_ts === "string" ? e.thread_ts : undefined,
+    actionToken: typeof e.action_token === "string" ? e.action_token : undefined,
     files: Array.isArray(e.files) ? (e.files as object[]) : undefined,
   };
 }
@@ -109,6 +113,7 @@ export async function handleClassicDmEvent(
     messageText,
     threadTs: msg.thread_ts,
     triggerType: "directMessages",
+    actionToken: msg.actionToken,
     ...attachments,
   });
 }

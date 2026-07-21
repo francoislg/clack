@@ -710,3 +710,54 @@ describe("buildClackTools — tester mode (kind: 'test')", () => {
     assert.equal(result.getStagedIntents().size, 0);
   });
 });
+
+// ---------------------------------------------------------------------------
+// search_messages registration gating (allowPublicSearch)
+// ---------------------------------------------------------------------------
+
+describe("buildClackTools — search_messages gating", () => {
+  beforeEach(() => {
+    setLoadedPlugins({ results: [] });
+  });
+  afterEach(() => {
+    setLoadedPlugins({ results: [] });
+  });
+
+  const withClient = () => new WebClient("xoxb-test");
+
+  it("omits search_messages when allowPublicSearch is off, even with a Slack client", () => {
+    const ctx = makeQueryCtx({
+      config: {} as Config,
+      slackClient: withClient(),
+    });
+    const result = buildClackTools(ctx);
+    assert.equal(result.toolNames.includes("search_messages"), false);
+  });
+
+  it("registers search_messages when allowPublicSearch is on and a Slack client is present", () => {
+    const ctx = makeQueryCtx({
+      config: Object.assign({} as Config, { allowPublicSearch: true }),
+      slackClient: withClient(),
+      actionToken: "AT-1",
+    });
+    const result = buildClackTools(ctx);
+    assert.ok(result.toolNames.includes("search_messages"));
+  });
+
+  it("omits search_messages when the flag is on but there is no Slack client", () => {
+    const ctx = makeQueryCtx({
+      config: Object.assign({} as Config, { allowPublicSearch: true }),
+    });
+    const result = buildClackTools(ctx);
+    assert.equal(result.toolNames.includes("search_messages"), false);
+  });
+
+  it("still registers search_messages (degraded) when the flag is on but no action_token", () => {
+    const ctx = makeQueryCtx({
+      config: Object.assign({} as Config, { allowPublicSearch: true }),
+      slackClient: withClient(),
+    });
+    const result = buildClackTools(ctx);
+    assert.ok(result.toolNames.includes("search_messages"));
+  });
+});
