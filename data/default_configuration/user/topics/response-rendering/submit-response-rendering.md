@@ -30,6 +30,7 @@ Your prompt includes a `DELIVERY CONTEXT` block that tells you how the response 
 **Direct message** (user is chatting with you in a DM):
 - Optionally add `choice`, `followup`, or change-related actions if useful
 - If you investigated content from another thread or channel (e.g., the user shared a Slack message URL), include `post_to` with explicit `channel` and `thread_ts` so the user can share your findings back to that thread
+- On the FIRST message of a new DM conversation, set `thread_title` to a short descriptive label for the conversation (a few words in the user's language, e.g. "Bolt 5 upgrade questions") — NOT the user's message verbatim. It names the thread. Omit on follow-ups.
 - For simple Q&A, use empty actions `[]`
 
 **Channel mention** (@mention in a channel):

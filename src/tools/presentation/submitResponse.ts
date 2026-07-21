@@ -496,6 +496,11 @@ export interface SubmitResponseDeps {
    */
   allowPostTopLevel?: boolean;
   /**
+   * When true (direct-message trigger only), the `thread_title` field is exposed — a short
+   * Claude-authored label used to name the DM thread. Consumed by the agent DM turn-end hook.
+   */
+  allowThreadTitle?: boolean;
+  /**
    * When true, the top-level `additional_messages` and `thread_replies` fields are
    * exposed on the schema. Only the scheduled (cron) trigger handler sets this. In DM,
    * @mention, reaction, auto-respond, thread-reply, and worker contexts the trigger
@@ -770,6 +775,16 @@ const postTopLevelField = z
       "that would duplicate the message and will be rejected.",
   );
 
+const threadTitleField = z
+  .string()
+  .max(60)
+  .optional()
+  .describe(
+    "Optional short label naming this DM conversation — a few descriptive words in the user's " +
+      'language (e.g. "Bolt 5 upgrade questions"), NOT the user\'s message verbatim. Used as the ' +
+      "thread title, set once on the opening turn. Omit to default to the opening message text.",
+  );
+
 const channelAttentionLevelReframeField = z
   .enum(["high", "medium", "low", "off"])
   .optional()
@@ -946,6 +961,7 @@ interface SubmitResponseArgs {
   attention_level?: AttentionLevel;
   default_delivery_mode?: DeliveryMode;
   post_top_level?: boolean;
+  thread_title?: string;
   additional_messages?: MessagePayload[];
   thread_replies?: MessagePayload[];
   deliver_to?: DeliverToEntry[];
@@ -972,6 +988,7 @@ export function buildSubmitResponseSchema(
     | "allowAttentionLevel"
     | "allowChannelAttentionLevel"
     | "allowPostTopLevel"
+    | "allowThreadTitle"
     | "allowMultiMessage"
     | "maxAdditionalMessages"
   >,
@@ -997,6 +1014,10 @@ export function buildSubmitResponseSchema(
 
   if (deps.allowPostTopLevel) {
     base.post_top_level = postTopLevelField;
+  }
+
+  if (deps.allowThreadTitle) {
+    base.thread_title = threadTitleField;
   }
 
   if (deps.allowChannelAttentionLevel) {
@@ -1353,6 +1374,7 @@ export function createSubmitResponseTool(deps: SubmitResponseDeps) {
         actions,
         ...(args.additional_messages && { additionalMessages: args.additional_messages }),
         ...(args.thread_replies && { threadReplies: args.thread_replies }),
+        ...(args.thread_title && { thread_title: args.thread_title }),
       };
 
       // Persist a replayable snapshot for each post_to action (deferred button-click delivery).

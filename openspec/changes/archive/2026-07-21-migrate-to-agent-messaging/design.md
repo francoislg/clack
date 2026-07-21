@@ -14,7 +14,7 @@ Bolt 5's agent guidance uses **plain event listeners** (`app_home_opened`, `app.
 **Goals:**
 - Restore working DMs under `agent_view` on a supported stack (Bolt 5, web-api ≥7.18).
 - Keep `@mention` and channel behavior unchanged.
-- Preserve the DM feature set that survives the switch: greeting, suggested prompts (relocated), live status, thread title, channel-context awareness.
+- Preserve the DM feature set that survives the switch: suggested prompts (relocated to the manifest), best-effort live status + thread title. (Greeting and channel-context awareness were later resolved as deliberate drops — see "Resolved (post-MVP)".)
 - Keep `dmType: "classic"` as a working, view-agnostic fallback throughout.
 
 **Non-Goals:**
@@ -85,9 +85,19 @@ Rollback within the app is impossible; the escape hatch is `dmType: "classic"`.
 - **No `app.agent()` / `sayStream` on `App`** — agent messaging is plain event listeners, confirming the `agent.ts` design.
 - **web-api 7.19 does NOT type `assistant.search.context`** — task 5 stays contingent on a re-check under web-api ^8.
 
-## Open Questions
+## Resolved (post-MVP, 2026-07-21)
 
-- **Does `assistant_thread_context_changed` survive under agent_view?** If not, how is the user's current channel surfaced (or is it dropped)? Needs a LIVE agent_view app (spike ran offline).
-- **Thread root resolution without `thread_ts`** — confirm empirically where the agent thread root comes from on the first turn (status-open response vs. a synthesized root), so DM continuity is deterministic.
-- **Suggested-prompts relocation** — behavior/placement differences now that prompts sit atop the Messages tab rather than in-thread.
-- **Is the workspace app already irreversibly on `agent_view`?** Determines whether the classic stopgap ships first.
+- **Workspace is committed to agent_view** (irreversible; DMs were down and we fixed forward). MVP shipped: `dmType: "agent"` answers DMs with thread continuity, confirmed live.
+- **Thread root without `thread_ts`**: the classic path's fallback (root = the message's own ts) is what shipped and works — `processMessage` keys the session by `threadTs || messageTs`. Whether Slack's `assistant.threads.*` calls ACCEPT that root as `thread_ts` remains the one live unknown, now scoped to the status/title probe below.
+- **Suggested prompts relocated to the manifest**: under agent_view, prompts are a STATIC manifest property (`agent_view.suggested_prompts`) rendered atop the Messages tab — not a per-thread `setSuggestedPrompts` call. The generator currently emits `[]`; populating it with the assistant-mode defaults (minus the channel-context prompt, meaningless atop the tab) is a pure manifest change with zero runtime risk. web-api 8 confirmed to type `assistant.threads.setStatus/setTitle/setSuggestedPrompts` (`types/request/assistant.d.ts`), so no `apiCall` workaround is needed if runtime calls ship.
+- **Greeting is DROPPED, not deferred** — a decision: `app_home_opened` fires on every Messages-tab visit, so greeting-on-open is spam; `agent_description` + static prompts natively fill the "what can I do" role. Recorded so it doesn't resurface as a missing feature.
+- **Channel-context is DROPPED under agent mode** — no confirmed agent_view equivalent of `assistant_thread_context_changed`; `assistantCurrentChannelId` stays unset for agent sessions, and downstream consumers already treat it as optional.
+
+## Polish increment: probe-gated status/title
+
+The remaining scope is a small, strictly-ordered increment:
+
+1. **Static prompts** (ship immediately): populate `agent_view.suggested_prompts` in the generator; re-upload manifest. No probe, no runtime change.
+2. **Live probe** (one deployed build, one DM turn; definition of done = answers to three questions):
+   (i) is `thread_ts` present on a turn-1 agent DM message? (ii) does `assistant.threads.setStatus({ channel_id, thread_ts: msg.thread_ts || msg.ts, status })` succeed — i.e. does the changelog's "setStatus auto-opens threads" claim hold for a bare message ts? (iii) does any context-like event fire under agent_view? Instrumentation: debug-log the raw message event + try/catch probe calls in `agent.ts`.
+3. **Conditional status/title** (only if the probe says yes, and only if the native pill adds value over Clack's own streamer — the streamer already shows live progress in-message, so this is a genuinely optional nicety): interleave `setStatus` before / clear + `setTitle` after `processMessage`. Seam decision is taken AFTER the probe: the shared `handleClassicDmEvent` owns its early-returns (bot-self, empty), so a wrapper can't work; the leading option is optional lifecycle hooks (`onTurnStart`/`onTurnEnd`) on the shared handler that agent supplies and classic omits — but if the probe shows status only works on threaded turns, the hook shape changes, so don't commit early.

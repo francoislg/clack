@@ -669,6 +669,12 @@ export interface SubmitResponsePayload {
    * was delivered with `post_top_level: true`. Bounded by a fixed sanity ceiling of 20.
    */
   threadReplies?: MessagePayload[];
+  /**
+   * Claude-authored short label naming the DM conversation. Only present on `directMessages`
+   * turns (gated by `allowThreadTitle`). Consumed by the agent DM turn-end hook to title the
+   * thread once on open; absent everywhere else.
+   */
+  thread_title?: string;
 }
 
 // ============================================================================

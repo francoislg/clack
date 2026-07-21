@@ -1,7 +1,7 @@
 import { describe, it, vi, beforeEach } from "vitest";
 import assert from "node:assert/strict";
 import type { App } from "@slack/bolt";
-import { handleClassicDmEvent, type ClassicDmDeps } from "./classicDm.js";
+import { handleClassicDmEvent, type ClassicDmDeps, type DmTurnHooks } from "./classicDm.js";
 
 // ============================================================================
 // Mocks
@@ -252,5 +252,116 @@ describe("classic DM inline stop emoji", () => {
     );
     assert.equal(mockStopThread.mock.calls.length, 0);
     assert.equal(mockProcessMessage.mock.calls.length, 1);
+  });
+});
+
+describe("classic DM turn hooks", () => {
+  function makeHooks(): {
+    hooks: DmTurnHooks;
+    onTurnStart: ReturnType<typeof vi.fn>;
+    onTurnEnd: ReturnType<typeof vi.fn>;
+  } {
+    const onTurnStart = vi.fn<NonNullable<DmTurnHooks["onTurnStart"]>>(async () => {});
+    const onTurnEnd = vi.fn<NonNullable<DmTurnHooks["onTurnEnd"]>>(async () => {});
+    return { hooks: { onTurnStart, onTurnEnd }, onTurnStart, onTurnEnd };
+  }
+
+  it("fires onTurnStart before processMessage and onTurnEnd after, with the resolved root", async () => {
+    const { hooks, onTurnStart, onTurnEnd } = makeHooks();
+    await handleClassicDmEvent(
+      { channel_type: "im", channel: "D001", ts: "1.0", user: "U1", text: "hello" },
+      FAKE_CLIENT,
+      makeDeps(),
+      hooks,
+    );
+
+    assert.equal(onTurnStart.mock.calls.length, 1);
+    assert.equal(onTurnEnd.mock.calls.length, 1);
+    assert.deepEqual(onTurnStart.mock.calls[0][0], {
+      client: FAKE_CLIENT,
+      channel: "D001",
+      threadRoot: "1.0",
+    });
+    assert.deepEqual(onTurnEnd.mock.calls[0][0], {
+      client: FAKE_CLIENT,
+      channel: "D001",
+      threadRoot: "1.0",
+      messageText: "hello",
+      isThreadStart: true,
+      threadTitle: undefined,
+    });
+    // Ordering: start → processMessage → end.
+    assert.ok(
+      onTurnStart.mock.invocationCallOrder[0] < mockProcessMessage.mock.invocationCallOrder[0],
+    );
+    assert.ok(
+      mockProcessMessage.mock.invocationCallOrder[0] < onTurnEnd.mock.invocationCallOrder[0],
+    );
+  });
+
+  it("threads Claude's submit_response.thread_title into onTurnEnd", async () => {
+    const { hooks, onTurnEnd } = makeHooks();
+    mockProcessMessage.mockResolvedValueOnce({
+      success: true,
+      answer: "",
+      response: { blocks: [], actions: [], thread_title: "Bolt 5 upgrade questions" },
+    });
+    await handleClassicDmEvent(
+      { channel_type: "im", channel: "D001", ts: "1.0", user: "U1", text: "hello" },
+      FAKE_CLIENT,
+      makeDeps(),
+      hooks,
+    );
+    assert.equal(onTurnEnd.mock.calls[0][0].threadTitle, "Bolt 5 upgrade questions");
+  });
+
+  it("resolves the root to the inbound thread_ts on a thread reply", async () => {
+    const { hooks, onTurnStart } = makeHooks();
+    await handleClassicDmEvent(
+      {
+        channel_type: "im",
+        channel: "D001",
+        ts: "2.0",
+        user: "U1",
+        text: "follow-up",
+        thread_ts: "1.0",
+      },
+      FAKE_CLIENT,
+      makeDeps(),
+      hooks,
+    );
+    assert.equal(onTurnStart.mock.calls[0][0].threadRoot, "1.0");
+  });
+
+  it("does not fire hooks for filtered events (subtype) or stop commands", async () => {
+    const { hooks, onTurnStart, onTurnEnd } = makeHooks();
+    await handleClassicDmEvent(
+      { channel_type: "im", channel: "D001", ts: "1.0", user: "U1", subtype: "message_changed" },
+      FAKE_CLIENT,
+      makeDeps(),
+      hooks,
+    );
+    await handleClassicDmEvent(
+      { channel_type: "im", channel: "D001", ts: "2.0", user: "U1", text: ":octagonal_sign:" },
+      FAKE_CLIENT,
+      makeDeps(),
+      hooks,
+    );
+    assert.equal(onTurnStart.mock.calls.length, 0);
+    assert.equal(onTurnEnd.mock.calls.length, 0);
+  });
+
+  it("still fires onTurnEnd when processMessage throws", async () => {
+    const { hooks, onTurnEnd } = makeHooks();
+    mockProcessMessage.mockRejectedValueOnce(new Error("boom"));
+    await assert.rejects(
+      handleClassicDmEvent(
+        { channel_type: "im", channel: "D001", ts: "1.0", user: "U1", text: "hello" },
+        FAKE_CLIENT,
+        makeDeps(),
+        hooks,
+      ),
+    );
+    assert.equal(onTurnEnd.mock.calls.length, 1);
   });
 });

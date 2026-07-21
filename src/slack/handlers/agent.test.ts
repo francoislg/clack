@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import assert from "node:assert/strict";
 import type { App } from "@slack/bolt";
-import { registerAgent, type AgentDeps } from "./agent.js";
+import { registerAgent, agentTurnHooks, type AgentDeps } from "./agent.js";
 
 // Minimal Bolt app stub that captures the event handlers registered by registerAgent, so the
 // test can drive them directly without a live Socket-Mode connection.
@@ -55,5 +55,93 @@ describe("registerAgent", () => {
     await homeHandler({ event: { tab: "home", channel: "D1" }, client: fakeClient });
 
     expect(handleDmMessageEvent).not.toHaveBeenCalled();
+  });
+});
+
+describe("agentTurnHooks", () => {
+  // `Object.create(null)` is typed `any` in lib.d.ts, so the assembled fake is assignable to
+  // App["client"] without a cast; the hooks only reach `client.assistant.threads.*`.
+  function makeThreadsClient(impl?: () => Promise<object>): {
+    client: App["client"];
+    setStatus: ReturnType<typeof vi.fn>;
+    setTitle: ReturnType<typeof vi.fn>;
+  } {
+    const setStatus = vi.fn(impl ?? (async () => ({})));
+    const setTitle = vi.fn(impl ?? (async () => ({})));
+    const client = Object.create(null);
+    client.assistant = { threads: { setStatus, setTitle } };
+    return { client, setStatus, setTitle };
+  }
+
+  it("sets the thinking status on turn start", async () => {
+    const { client, setStatus } = makeThreadsClient();
+    await agentTurnHooks.onTurnStart!({ client, channel: "D1", threadRoot: "1.0" });
+
+    expect(setStatus).toHaveBeenCalledTimes(1);
+    const arg = setStatus.mock.calls[0][0];
+    assert.equal(arg.channel_id, "D1");
+    assert.equal(arg.thread_ts, "1.0");
+    assert.ok(typeof arg.status === "string" && arg.status.length > 0);
+  });
+
+  it("on thread start, clears status and falls back to the truncated message text", async () => {
+    const { client, setStatus, setTitle } = makeThreadsClient();
+    const longText = "x".repeat(80);
+    await agentTurnHooks.onTurnEnd!({
+      client,
+      channel: "D1",
+      threadRoot: "1.0",
+      messageText: longText,
+      isThreadStart: true,
+    });
+
+    expect(setStatus).toHaveBeenCalledWith({ channel_id: "D1", thread_ts: "1.0", status: "" });
+    const titleArg = setTitle.mock.calls[0][0];
+    assert.equal(titleArg.channel_id, "D1");
+    assert.equal(titleArg.thread_ts, "1.0");
+    assert.ok(titleArg.title.length <= 50);
+    assert.ok(titleArg.title.endsWith("…"));
+  });
+
+  it("prefers Claude's thread_title over the message text on thread start", async () => {
+    const { client, setTitle } = makeThreadsClient();
+    await agentTurnHooks.onTurnEnd!({
+      client,
+      channel: "D1",
+      threadRoot: "1.0",
+      messageText: "hey can you help me figure out the thing",
+      isThreadStart: true,
+      threadTitle: "Bolt 5 upgrade questions",
+    });
+    assert.equal(setTitle.mock.calls[0][0].title, "Bolt 5 upgrade questions");
+  });
+
+  it("does not set a title on follow-up turns (still clears status)", async () => {
+    const { client, setStatus, setTitle } = makeThreadsClient();
+    await agentTurnHooks.onTurnEnd!({
+      client,
+      channel: "D1",
+      threadRoot: "1.0",
+      messageText: "follow-up",
+      isThreadStart: false,
+      threadTitle: "Some Label",
+    });
+    expect(setStatus).toHaveBeenCalledWith({ channel_id: "D1", thread_ts: "1.0", status: "" });
+    expect(setTitle).not.toHaveBeenCalled();
+  });
+
+  it("swallows Slack API failures so the turn is never affected", async () => {
+    const { client } = makeThreadsClient(async () => {
+      throw new Error("slack down");
+    });
+    await agentTurnHooks.onTurnStart!({ client, channel: "D1", threadRoot: "1.0" });
+    await agentTurnHooks.onTurnEnd!({
+      client,
+      channel: "D1",
+      threadRoot: "1.0",
+      messageText: "hi",
+      isThreadStart: true,
+    });
+    // No throw = pass.
   });
 });
