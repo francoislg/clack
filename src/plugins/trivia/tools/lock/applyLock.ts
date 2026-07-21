@@ -21,7 +21,7 @@ export interface LockTransitionResult {
  */
 export async function transitionLock(params: {
   scoped: ScopedTriviaDataLayer;
-  data: Pick<TriviaDataLayer, "loadUsers">;
+  data: Pick<TriviaDataLayer, "loadUsers" | "recordJoin" | "refreshIdentities">;
   client: RosterEditClient;
   targets: TriviaQuestion[];
   answerLocked: boolean;

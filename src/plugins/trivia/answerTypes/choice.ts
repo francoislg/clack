@@ -235,14 +235,14 @@ export const choiceAnswerHandler: ClickableAnswerHandler = {
     // prediction before it was settled. The raw button click is canonical and never
     // deleted.
     {
-      const rows = (await deps.scoped.loadAnswers()).filter((a) => a.questionId === question.id);
+      const rows = await deps.strategy.getFinalAnswers(question.id);
       for (const row of rows) {
         // A hand-overridden row (originalVerdict set) is admin-authoritative: keep
         // its stored verdict, don't recompute it from the key.
         if (row.originalVerdict !== undefined) continue;
         if (!deps.isReprocessMode && row.correct !== undefined) continue;
         const correct = row.answerIndex === question.correctIndex;
-        await deps.scoped.updateAnswer(row.userId, question.id, { correct });
+        await deps.strategy.applyVerdict(row.userId, question.id, { correct });
       }
     }
     await deps.scoped.updateQuestion(question.id, { processedAt: deps.now });
@@ -268,8 +268,7 @@ export const choiceAnswerHandler: ClickableAnswerHandler = {
     if (!Array.isArray(reactions)) return { ok: false, error: reactions.error };
 
     const cheaterIds = await loadQuestionCheaterIds(deps.scoped, question.id);
-    const allAnswers = await deps.scoped.loadAnswers();
-    const questionAnswers = allAnswers.filter((a) => a.questionId === question.id);
+    const questionAnswers = await deps.strategy.getFinalAnswers(question.id);
 
     const voters = assembleChoiceVoters(question, questionAnswers, reactions, cheaterIds, deps);
 

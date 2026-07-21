@@ -14,7 +14,8 @@
 
 import type { ClackSdk } from "../../../plugins-sdk/sdk.js";
 import { triviaLogger as logger } from "../core/pluginLogger.js";
-import type { SubmittedAnswer, TriviaDataLayer } from "../core/types.js";
+import type { TriviaDataLayer } from "../core/types.js";
+import { createIndividualAnswering } from "../answering/individual.js";
 import { editRosterIntoCard } from "../freeform/roster.js";
 import { t } from "../i18n/t.js";
 import type { ClickableAnswerHandler, InteractionRegistrationDeps } from "./types.js";
@@ -158,32 +159,15 @@ export function installClickableVoteHandler(
       return;
     }
 
-    const now = Date.now();
     // The patch's verdict is whatever `resolveClick` computed — `undefined` (pending)
     // when the question has no answer key yet (a deferred prediction), a real verdict
     // otherwise. The handler owns that decision; this installer stays format-agnostic.
     const patch = handler.toAnswerPatch(scored);
-    const allAnswers = await scoped.loadAnswers();
-    const existing = allAnswers.find((a) => a.userId === userId && a.questionId === questionId);
-
-    if (existing) {
-      // Re-click overwrite: apply the handler's patch (which clears the sibling
-      // payload field) and bump the timestamp so the roster sorts the editor
-      // to the top of their (possibly new) group.
-      await scoped.updateAnswer(userId, questionId, { ...patch, timestamp: now });
-    } else {
-      const seasonTag = question.season !== undefined ? { season: question.season } : {};
-      const row: SubmittedAnswer = {
-        userId,
-        questionId,
-        timestamp: now,
-        ...patch,
-        ...seasonTag,
-      };
-      await scoped.saveAnswer(row);
-      await data.recordJoin(userId);
-      await data.refreshIdentities([userId]);
-    }
+    // Upsert into the owning slot: a re-click overwrites in place (bumping the timestamp
+    // so the roster sorts the editor to the top of their group), a first click appends
+    // and records join side effects. Ownership lives in the strategy, not here.
+    const strategy = createIndividualAnswering(scoped, data);
+    await strategy.answer(userId, questionId, patch, { season: question.season });
 
     if (client !== null) {
       await editRosterIntoCard({ client, scoped, data, question, handler });

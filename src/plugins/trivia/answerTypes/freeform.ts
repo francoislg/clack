@@ -10,6 +10,7 @@ import type {
   TriviaUser,
 } from "../core/types.js";
 import { triviaLogger as logger } from "../core/pluginLogger.js";
+import { createIndividualAnswering } from "../answering/individual.js";
 import { t } from "../i18n/t.js";
 import { resolveCascade } from "../domain/resolveCascade.js";
 import { weightedPick } from "../domain/weightedPick.js";
@@ -237,8 +238,7 @@ export const freeformAnswerHandler: AnswerTypeHandler = {
       return { ok: false, error: "freeform question is missing messageLink" };
     }
 
-    const allAnswers = await deps.scoped.loadAnswers();
-    const ownRows = allAnswers.filter((a) => a.questionId === question.id);
+    const ownRows = await deps.strategy.getFinalAnswers(question.id);
 
     // Reprocess re-judges EVERY retained answer under the (re-stamped) judgeLeniency,
     // overwriting each verdict in place; default reveal judges only the never-judged
@@ -273,7 +273,7 @@ export const freeformAnswerHandler: AnswerTypeHandler = {
       }
       // Always write judgeReason so a re-judge overwrites any stale prior reason
       // (undefined clears it); on a fresh judge with no reason this is a no-op.
-      await deps.scoped.updateAnswer(submission.userId, question.id, {
+      await deps.strategy.applyVerdict(submission.userId, question.id, {
         correct: verdict.correct,
         judgeReason: verdict.reason,
       });
@@ -305,11 +305,11 @@ export const freeformAnswerHandler: AnswerTypeHandler = {
     // not just rows judged in a single pass — so re-projection after a partial
     // judge run still shows every scored submission. Freeform carries no Slack
     // reactions and no no-answer bucket (modal-only), matching buildFreeformVoters.
-    const allAnswers = await deps.scoped.loadAnswers();
+    const questionAnswers = await deps.strategy.getFinalAnswers(question.id);
     const correctVoters: Array<{ userId: string; displayName: string; answerText: string }> = [];
     const incorrectVoters: Array<{ userId: string; displayName: string; answerText: string }> = [];
-    for (const row of allAnswers) {
-      if (row.questionId !== question.id || row.correct === undefined) continue;
+    for (const row of questionAnswers) {
+      if (row.correct === undefined) continue;
       const voter = {
         userId: row.userId,
         displayName: deps.users.get(row.userId)?.displayName ?? row.userId,
@@ -437,8 +437,10 @@ export const freeformAnswerHandler: AnswerTypeHandler = {
         return;
       }
 
-      const answers = await scoped.loadAnswers();
-      const myRow = answers.find((a) => a.userId === userId && a.questionId === questionId);
+      const myRow = await createIndividualAnswering(scoped, data).getCurrentAnswerFor(
+        userId,
+        questionId,
+      );
       // Read-only once the round is revealed OR the question is locked (picks frozen).
       const locked = question.processedAt !== undefined || question.answerLocked === true;
 
@@ -508,26 +510,12 @@ export const freeformAnswerHandler: AnswerTypeHandler = {
       }
 
       const userId = body.user.id;
-      const existing = (await scoped.loadAnswers()).find(
-        (a) => a.userId === userId && a.questionId === meta.questionId,
+      await createIndividualAnswering(scoped, data).answer(
+        userId,
+        meta.questionId,
+        { answerText: text },
+        { season: question.season },
       );
-
-      if (existing) {
-        await scoped.updateAnswer(userId, meta.questionId, {
-          answerText: text,
-          timestamp: Date.now(),
-        });
-      } else {
-        await scoped.saveAnswer({
-          userId,
-          questionId: meta.questionId,
-          answerText: text,
-          timestamp: Date.now(),
-          ...(question.season !== undefined ? { season: question.season } : {}),
-        });
-        await data.recordJoin(userId);
-        await data.refreshIdentities([userId]);
-      }
 
       await ack();
 

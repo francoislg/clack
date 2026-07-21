@@ -10,6 +10,7 @@ import {
 } from "../../core/configBridge.js";
 import { requireWritableGame } from "../../core/gamesRegistry.js";
 import { getAnswerTypeHandler } from "../../answerTypes/registry.js";
+import { createIndividualAnswering } from "../../answering/individual.js";
 import { editRevealIntoCard, editInvalidatedIntoCard } from "../../revealCards/editCard.js";
 import { resolveLiveOrLockedCard } from "../../freeform/roster.js";
 import { findCurrentSeason } from "../../core/seasonTimeline.js";
@@ -101,6 +102,7 @@ export function createRefreshQuestionCardsTool(
 
       const projectDeps = {
         scoped,
+        strategy: createIndividualAnswering(scoped, data),
         users,
         botUserId,
         fetchMessageReactions: (channel: string, ts: string) =>

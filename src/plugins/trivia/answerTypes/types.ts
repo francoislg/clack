@@ -36,6 +36,7 @@ import type {
   TriviaUser,
 } from "../core/types.js";
 import type { ProcessRevealEntry, SlackReactionLike } from "../tools/reveal/types.js";
+import type { AnsweringStrategy } from "../answering/types.js";
 import type { SaveQuestionArgs } from "./saveSchema.js";
 
 export type { SaveQuestionArgs } from "./saveSchema.js";
@@ -73,6 +74,12 @@ export type ReStampAxis = "revealResponses" | "judgeLeniency";
  */
 export interface ProjectRevealDeps {
   scoped: ScopedTriviaDataLayer;
+  /**
+   * The answer-ownership strategy for this game. `projectReveal` reads answers
+   * through `getFinalAnswers`; `processReveal` also flips verdicts through
+   * `applyVerdict` (a write, alongside the other write seams below).
+   */
+  strategy: AnsweringStrategy;
   users: Map<string, TriviaUser>;
   botUserId: string;
   /** Slack message reactions fetcher; takes (channel, ts), returns normalized reactions. */
