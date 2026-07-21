@@ -82,7 +82,12 @@ Query tools (role-gated):
 - `list_repositories`, `git_log`, `deepen_history` — available to all
 - `find_sessions`, `find_changes`, `find_pull_requests`, `resolve_review_thread` — dev+ only
 - `find_user` — available when Slack client is present
+- `search_messages` — available to all when `config.allowPublicSearch` is on (see below)
 - `list_config_files`, `read_config_file` — admin+ only
+
+### Public message search (`allowPublicSearch`)
+
+Optional, opt-in via top-level `config.allowPublicSearch: boolean` (fail-fast zod, default `false` → fully inert). When `true`, the manifest generator adds the `search:read.public` bot scope (conditionally in `buildScopes`, no `bot_events` change) and the `search_messages` query tool is registered (member tier, query mode only). The tool does **literal** (non-semantic) keyword search over public-channel message text via `client.apiCall("assistant.search.context", …)` with fixed `disable_semantic_search: true` / `channel_types: "public_channel"` / `content_types: "messages"`; the `@slack/web-api` version in use ships no typed method, hence `apiCall`. **Enabling requires re-uploading the manifest AND reinstalling the app to the workspace** — a bot token does not retroactively gain scopes; a stale token surfaces `missing_scope` as a distinct error (never an empty result set). Bot-token search needs Slack's `action_token`, minted only onto `message`/`app_mention` events — so `search_messages` works from **DM and @mention** triggers but not reactions or cron. The token is captured off the event in the handlers, threaded `ProcessMessageParams → AskClaudeOptions → QueryToolContext.actionToken`, and **never persisted** to the session. Sessions without a token still register the tool in a **degraded shape** (no `query` param, returns an error naming the working triggers, makes no API call) so Claude knows the capability exists and how to reach it. Search covers message **text** only — reaction usage stays the domain of `fetch_channel_messages`'s emoji-lore `lore_hint`.
 
 Action tools:
 

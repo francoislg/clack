@@ -74,7 +74,7 @@ Clack authenticates with GitHub using a GitHub App. Each self-hosted deployment 
    - **Contents**: Read & write (clone repos, push branches)
    - **Pull requests**: Read & write (create/merge/close PRs)
    - **Metadata**: Read-only
-   - **Issues**: Read & write *(optional — enables issue tools in the GitHub MCP server)*
+   - **Issues**: Read & write _(optional — enables issue tools in the GitHub MCP server)_
 4. Click **Create GitHub App**
 5. On the app's General page, note the **App ID**
 6. Scroll to **Private keys** and click **Generate a private key** — save the `.pem` file
@@ -88,6 +88,7 @@ cp data/auth/github.example.json data/auth/github.json
 ```
 
 Edit `data/auth/github.json`:
+
 ```json
 {
   "appId": "123456",
@@ -97,6 +98,7 @@ Edit `data/auth/github.json`:
 ```
 
 Copy your `.pem` file:
+
 ```bash
 cp ~/Downloads/your-app-name.private-key.pem data/auth/github-app.pem
 ```
@@ -117,6 +119,7 @@ Use your existing Claude subscription with no additional API charges:
    ```
 
 For Docker, add to `data/auth/.env`:
+
 ```
 CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat01-your-token-here
 ```
@@ -132,6 +135,7 @@ Use the Anthropic API with pay-per-use billing:
    ```
 
 For Docker, add to `data/auth/.env`:
+
 ```
 ANTHROPIC_API_KEY=sk-ant-api-your-key-here
 ```
@@ -141,19 +145,21 @@ ANTHROPIC_API_KEY=sk-ant-api-your-key-here
 ### Configuration
 
 1. Copy the example config:
+
    ```bash
    cp data/config.example.json data/config.json
    ```
 
 2. Edit `data/config.json` — see `data/config.example.json` for the full schema. The key sections:
-
    - **`reactions`** — Trigger emoji, thinking indicator, optional work-mode emoji
    - **`directMessages`** / **`mentions`** — Enable/disable DM and @mention triggers. DMs additionally support `dmType: "assistant"` (default, Slack Agents & Assistants API) or `"classic"` (low-level `message.im` event, no `assistant:write` scope). Switching `dmType` requires regenerating + re-uploading the manifest.
    - **`repositories`** — Repos to index, with access control (`read`/`write` role thresholds) and merge strategy
    - **`changesWorkflow`** — Enable the Changes Workflow with timeout, concurrency, and monitoring settings
    - **`claudeCode.model`** — Claude model to use (default: `sonnet`)
+   - **`allowPublicSearch`** (optional, default `false`) — Enable the `search_messages` tool: workspace-wide **literal keyword** search over public-channel message text (via Slack's `assistant.search.context`). ⚠️ Enabling requires **re-uploading the manifest AND reinstalling the app to the workspace** — a bot token does not retroactively gain the added `search:read.public` scope. Search only works from **direct-message and @mention** triggers (Slack mints the required `action_token` only on those events; reaction- and schedule-triggered sessions cannot search). It searches message **text** only — an emoji used as a _reaction_ is not message content and is not findable this way; use the emoji-lore `lore_hint` on `fetch_channel_messages` for reaction usage.
 
 3. Generate the Slack app manifest:
+
    ```bash
    npm install
    npm run manifest
@@ -202,12 +208,12 @@ A background monitor detects externally merged or closed PRs and cleans up workt
 
 ## Role System
 
-| Role | Capabilities |
-|------|-------------|
-| **Owner** | Everything + transfer ownership |
-| **Admin** | Manage roles, edit instructions and configuration |
-| **Dev** | Propose code changes (per-repo write access) |
-| **Member** | Ask questions (default role) |
+| Role       | Capabilities                                      |
+| ---------- | ------------------------------------------------- |
+| **Owner**  | Everything + transfer ownership                   |
+| **Admin**  | Manage roles, edit instructions and configuration |
+| **Dev**    | Propose code changes (per-repo write access)      |
+| **Member** | Ask questions (default role)                      |
 
 Roles are managed from the Home Tab in Slack. Persisted in `data/state/roles.json`.
 

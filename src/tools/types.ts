@@ -162,6 +162,13 @@ export interface QueryToolContext {
   cronUserSchedules: boolean;
   /** Slack WebClient for API calls (absent in test/verify contexts) */
   slackClient?: App["client"];
+  /**
+   * Slack `action_token` minted onto the triggering `message`/`app_mention` event. Required by
+   * `assistant.search.context` for bot-token search. Absent on reaction- and cron-triggered
+   * sessions (those events carry no token). Short-lived and per-run — never persisted to the
+   * session. Consumed by `search_messages` to pick its full vs. degraded shape.
+   */
+  actionToken?: string;
   /** Delivery callback — when provided, submit_response delivers to Slack directly */
   deliver?: DeliverFn;
   /** Mid-run delivery-mode switch handle. Present only on interactive turns; enables the

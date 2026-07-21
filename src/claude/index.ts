@@ -97,6 +97,12 @@ export interface AskClaudeOptions {
   workMode?: boolean;
   /** Slack WebClient for tools that need Slack API access (e.g., find_user) */
   slackClient?: import("@slack/bolt").App["client"];
+  /**
+   * Slack `action_token` from the triggering `message`/`app_mention` event, forwarded to the
+   * tool context so `search_messages` can call `assistant.search.context`. Absent for reaction
+   * and cron triggers. Never persisted.
+   */
+  actionToken?: string;
   /** AbortController for cancelling in-flight queries */
   abortController?: AbortController;
   /** Callback for real-time streaming events (tool calls, text) */
@@ -286,6 +292,7 @@ async function buildQuerySetup(
     changesWorkflowEnabled: options?.changesWorkflowEnabled ?? false,
     cronUserSchedules: config.cron?.userSchedules ?? false,
     slackClient: options?.slackClient,
+    actionToken: options?.actionToken,
     deliver: wrapDeliverWithDeliveredMark(options?.deliver, markDelivered),
     deliveryControl: options?.deliveryControl,
     availableImages: options?.availableImages,

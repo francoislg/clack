@@ -100,6 +100,8 @@ export function registerMentionHandler(app: App, deps: MentionDeps = defaultMent
       messageText: messageText || fallbackText,
       threadTs: event.thread_ts,
       triggerType: "mentions",
+      // Slack mints action_token onto app_mention events; Bolt's types don't declare it.
+      actionToken: (event as { action_token?: string }).action_token,
       ...attachments,
     });
   });

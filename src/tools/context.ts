@@ -16,6 +16,8 @@ export interface BuildQueryContextParams {
   changesWorkflowEnabled: boolean;
   cronUserSchedules?: boolean;
   slackClient?: App["client"];
+  /** Slack `action_token` from the triggering event — see {@link QueryToolContext.actionToken}. */
+  actionToken?: string;
   deliver?: DeliverFn;
   /** Mid-run delivery-mode switch handle. Present only on interactive turns; enables the
    *  `switch_delivery_context` tool. */

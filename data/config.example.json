@@ -82,5 +82,6 @@
     "sessionExpiryHours": 24,
     "monitoringIntervalMinutes": 15
   },
+  "allowPublicSearch": false,
   "plugins": []
 }

@@ -166,6 +166,14 @@
       "group": "configuration",
       "itemDetail": "{path|config.json}"
     },
+    "search_messages": {
+      "label": {
+        "en": "Searching messages for \"{query}\"",
+        "fr": "Recherche de messages pour « {query} »"
+      },
+      "group": "messages",
+      "itemDetail": { "en": "search \"{query}\"", "fr": "recherche « {query} »" }
+    },
     "fetch_channel_messages": {
       "label": {
         "en": "Reading messages in <#{channel_id}>",

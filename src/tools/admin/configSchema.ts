@@ -602,5 +602,12 @@ export const CONFIG_SCHEMA: SchemaFor<Config> = {
       default: "en",
       required: false,
     },
+    allowPublicSearch: {
+      type: "boolean",
+      description:
+        "Opt-in workspace keyword search. Adds the search:read.public bot scope and the search_messages tool. Enabling requires re-uploading the manifest AND reinstalling the app to the workspace.",
+      default: false,
+      required: false,
+    },
   },
 };

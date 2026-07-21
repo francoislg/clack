@@ -61,6 +61,7 @@ import { createViewSlackFileTool } from "./query/viewSlackFile.js";
 import { createUploadFileTool } from "./query/uploadFile.js";
 import { createAddReactionTool } from "./query/addReaction.js";
 import { createFindChannelTool } from "./query/findChannel.js";
+import { createSearchMessagesTool } from "./query/searchMessages.js";
 import { createRemoveReactionTool } from "./query/removeReaction.js";
 import { createGetSessionTraceTool } from "./query/getSessionTrace.js";
 import { createAttachIntegrationTool } from "./query/attachIntegration.js";
@@ -427,6 +428,12 @@ function buildQueryTools(ctx: QueryToolContext): ClackQueryToolsResult {
     tools.push(createRemoveReactionTool(ctx));
     const channelsCache = createChannelsCache(ctx.slackClient);
     tools.push(createFindChannelTool(channelsCache));
+
+    // Workspace keyword search (member tier). Config-gated; registered in full or degraded
+    // shape depending on whether this session carries an action_token (the tool decides).
+    if (ctx.config.allowPublicSearch) {
+      tools.push(createSearchMessagesTool(ctx));
+    }
   }
 
   // Lazy MCP loading — attach_integration is available whenever the mcpManager is
