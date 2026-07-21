@@ -35,6 +35,7 @@ import { buildExcludeSet, isScoredAnswer } from "../../answerTypes/cheaterFilter
 import type { ClackSdk } from "../../../../plugins-sdk/sdk.js";
 import type { TriviaDataLayer, TriviaQuestion, SubmittedAnswer } from "../../core/types.js";
 import { getAllAnswerTypeHandlers, getAnswerTypeHandler } from "../../answerTypes/registry.js";
+import { createIndividualAnswering } from "../../answering/individual.js";
 import type { ReStampAxis } from "../../answerTypes/types.js";
 import type { CascadeContext } from "../../core/cascadeAxes.js";
 import { selectBatch } from "./batchSelection.js";
@@ -245,7 +246,8 @@ export function createComputeAnswersTool(
       // Warm answerer identities through the registry BEFORE loading the lookup so both the
       // voter lists rendered inside `processReveal` and the leaderboard built below see the
       // same fresh labels. The registry handles TTL-gated refresh and fetch failures.
-      const answersForRefresh = await scoped.loadAnswers();
+      const strategy = createIndividualAnswering(scoped, data);
+      const answersForRefresh = await strategy.getAllScoredAnswers();
       await data.refreshIdentities(answersForRefresh.map((a) => a.userId));
       const users = await data.loadUsers();
 
@@ -270,6 +272,7 @@ export function createComputeAnswersTool(
       }> = [];
       const revealDeps = {
         scoped,
+        strategy,
         data,
         users,
         botUserId,
@@ -367,7 +370,7 @@ export function createComputeAnswersTool(
       }
 
       // ── Leaderboard ─────────────────────────────────────────────────────
-      const refreshedAnswers = await scoped.loadAnswers();
+      const refreshedAnswers = await strategy.getAllScoredAnswers();
       const refreshedUsers = await data.loadUsers();
       const currentSlugForBoard = await scoped.getCurrentSeasonSlug();
       const seasonsEnabled = currentSlugForBoard !== null;

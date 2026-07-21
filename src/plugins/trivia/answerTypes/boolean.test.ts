@@ -4,6 +4,7 @@ import { booleanAnswerHandler } from "./boolean.js";
 import { isClickableHandler } from "./registry.js";
 import { composeWithKey } from "../questionTypes/compose.js";
 import { createTriviaDataLayer, FIXTURE_GAME_NAME } from "../testHelpers.js";
+import { createIndividualAnswering } from "../answering/individual.js";
 import { createFakeSdk, primeTriviaConfig } from "../testHelpers.fakeSdk.js";
 import type { TriviaQuestion } from "../core/types.js";
 import type { ProcessRevealDeps } from "./types.js";
@@ -167,8 +168,10 @@ describe("booleanAnswerHandler", () => {
       const { sdk } = createFakeSdk();
       primeTriviaConfig(sdk);
       const { dataLayer: data } = createTriviaDataLayer(sdk);
+      const scoped = data.forGame(FIXTURE_GAME_NAME);
       return {
-        scoped: data.forGame(FIXTURE_GAME_NAME),
+        scoped,
+        strategy: createIndividualAnswering(scoped, data),
         data,
         users: new Map(),
         botUserId: "",

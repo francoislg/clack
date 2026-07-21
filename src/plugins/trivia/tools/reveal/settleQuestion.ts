@@ -5,15 +5,17 @@ import { defaultGetGames, type GetGamesFn } from "../../core/configBridge.js";
 import { requireWritableGame } from "../../core/gamesRegistry.js";
 import { getAnswerTypeHandler } from "../../answerTypes/registry.js";
 import { repaintHint, reprocessThenRepaintHint } from "../../core/refreshHint.js";
-import type { ScopedTriviaDataLayer, TriviaDataLayer, TriviaQuestion } from "../../core/types.js";
+import { createIndividualAnswering } from "../../answering/individual.js";
+import type { AnsweringStrategy } from "../../answering/types.js";
+import type { TriviaDataLayer, TriviaQuestion } from "../../core/types.js";
 
 // Drops `correct` verdicts so the next compute_answers rescores from scratch; raw picks kept.
-async function clearVerdicts(scoped: ScopedTriviaDataLayer, questionId: string): Promise<number> {
-  const rows = (await scoped.loadAnswers()).filter((a) => a.questionId === questionId);
+async function clearVerdicts(strategy: AnsweringStrategy, questionId: string): Promise<number> {
+  const rows = await strategy.getFinalAnswers(questionId);
   let cleared = 0;
   for (const row of rows) {
     if (row.correct === undefined) continue;
-    await scoped.updateAnswer(row.userId, questionId, { correct: undefined });
+    await strategy.applyVerdict(row.userId, questionId, { correct: undefined });
     cleared++;
   }
   return cleared;
@@ -104,6 +106,7 @@ export function createSettleQuestionTool(
       }
 
       const scoped = data.forGame(args.game);
+      const strategy = createIndividualAnswering(scoped, data);
       const questions = await scoped.loadQuestions();
       const question = questions.find((q) => q.id === args.questionId);
       if (question === undefined) {
@@ -125,7 +128,7 @@ export function createSettleQuestionTool(
         });
         // An invalidated question scores 0 for everyone — drop any verdict already on its
         // answers so no leaderboard surface counts them.
-        const cleared = await clearVerdicts(scoped, question.id);
+        const cleared = await clearVerdicts(strategy, question.id);
         return textResult({
           invalidated: true,
           questionId: question.id,
@@ -188,7 +191,7 @@ export function createSettleQuestionTool(
       });
       // Re-settling leaves stale verdicts from the wrong key; clear them so the next
       // compute_answers rescores everyone against the corrected outcome.
-      const rescored = alreadyKeyed ? await clearVerdicts(scoped, question.id) : 0;
+      const rescored = alreadyKeyed ? await clearVerdicts(strategy, question.id) : 0;
       return textResult({
         settled: true,
         questionId: question.id,

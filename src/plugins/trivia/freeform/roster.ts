@@ -4,6 +4,7 @@ import { triviaLogger as logger } from "../core/pluginLogger.js";
 import { stripAnswerButtons } from "../revealCards/answerActions.js";
 import { t } from "../i18n/t.js";
 import { renderPlayerRef } from "../domain/tagPlayers.js";
+import { createIndividualAnswering } from "../answering/individual.js";
 import type { AnswerTypeHandler } from "../answerTypes/types.js";
 import type {
   ScopedTriviaDataLayer,
@@ -201,7 +202,7 @@ export interface EditRosterParams {
   client: RosterEditClient;
   scoped: ScopedTriviaDataLayer;
   /** Unscoped layer — used only to read the global users store for display names. */
-  data: Pick<TriviaDataLayer, "loadUsers">;
+  data: Pick<TriviaDataLayer, "loadUsers" | "recordJoin" | "refreshIdentities">;
   question: TriviaQuestion;
   handler: AnswerTypeHandler;
 }
@@ -226,7 +227,7 @@ export interface EditRosterParams {
  */
 export async function resolveLiveOrLockedCard(params: {
   scoped: ScopedTriviaDataLayer;
-  data: Pick<TriviaDataLayer, "loadUsers">;
+  data: Pick<TriviaDataLayer, "loadUsers" | "recordJoin" | "refreshIdentities">;
   question: TriviaQuestion;
   handler: AnswerTypeHandler;
 }): Promise<{ channel: string; ts: string; blocks: KnownBlock[] } | null> {
@@ -260,8 +261,9 @@ export async function resolveLiveOrLockedCard(params: {
   if (locked && revealResponses === "no") {
     blocks = [...stripAnswerButtons(question.postedBlocks), buildLockedNotice(question.id)];
   } else {
-    const allAnswers = await scoped.loadAnswers();
-    const forThisQuestion = allAnswers.filter((a) => a.questionId === question.id);
+    const forThisQuestion = await createIndividualAnswering(scoped, data).getFinalAnswers(
+      question.id,
+    );
     const cheats = await scoped.loadCheats();
     const cheaterIds = new Set(
       cheats.filter((c) => c.questionId === question.id).map((c) => c.cheaterUserId),
