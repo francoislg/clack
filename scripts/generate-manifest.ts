@@ -34,7 +34,7 @@ interface SlackConfig {
   fetchAndStoreUsername?: boolean;
 }
 
-type DmType = "assistant" | "classic";
+type DmType = "assistant" | "classic" | "agent";
 
 interface DirectMessagesConfig {
   enabled?: boolean;
@@ -144,7 +144,9 @@ function buildScopes(features: ConfigFeatures): BotScope[] {
 
   if (features.directMessages) {
     scopes.push("im:history", "im:read", "mpim:history", "mpim:read");
-    if (features.dmType === "assistant") {
+    // Both the assistant (assistant_view) and agent (agent_view) DM experiences use the
+    // assistant.threads.* API for status/title/prompts, so both need assistant:write.
+    if (features.dmType === "assistant" || features.dmType === "agent") {
       scopes.push("assistant:write");
     }
   }
@@ -225,6 +227,13 @@ export function generateManifest(config: PartialConfig): Manifest {
         features.dmType === "assistant" && {
           assistant_view: {
             assistant_description: description,
+            suggested_prompts: [],
+          },
+        }),
+      ...(features.directMessages &&
+        features.dmType === "agent" && {
+          agent_view: {
+            agent_description: description,
             suggested_prompts: [],
           },
         }),

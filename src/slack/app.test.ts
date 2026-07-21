@@ -40,7 +40,7 @@ const MockAppConstructor = vi.fn(function (_config: AppConstructorConfig) {
 
 type MockedConfig = {
   slack: { botToken: string; appToken: string; signingSecret: string };
-  directMessages: { enabled: boolean; dmType: "assistant" | "classic" };
+  directMessages: { enabled: boolean; dmType: "assistant" | "classic" | "agent" };
 };
 
 const mockGetConfig = vi.fn<() => MockedConfig>(() => ({
@@ -69,6 +69,7 @@ const mockRegisterRetryHandler = vi.fn(() => {});
 const mockRegisterResendHandler = vi.fn(() => {});
 const mockRegisterAssistant = vi.fn(() => {});
 const mockRegisterClassicDmHandlers = vi.fn(() => {});
+const mockRegisterAgent = vi.fn(() => {});
 const mockRegisterMentionHandler = vi.fn(() => {});
 const mockRegisterChoiceHandler = vi.fn(() => {});
 const mockRegisterFollowupHandler = vi.fn(() => {});
@@ -93,6 +94,7 @@ function makeDeps(): AppDeps {
     registerHomeTabHandler: mockRegisterHomeTabHandler,
     registerAssistant: mockRegisterAssistant,
     registerClassicDmHandlers: mockRegisterClassicDmHandlers,
+    registerAgent: mockRegisterAgent,
     registerMentionHandler: mockRegisterMentionHandler,
     registerChoiceHandler: mockRegisterChoiceHandler,
     registerFollowupHandler: mockRegisterFollowupHandler,
@@ -210,6 +212,26 @@ describe("createSlackApp", () => {
 
     assert.equal(mockRegisterClassicDmHandlers.mock.calls.length, 1);
     assert.equal(mockRegisterAssistant.mock.calls.length, 0);
+  });
+
+  it("registers agent handler when dmType is agent", () => {
+    mockGetConfig.mockReturnValueOnce({
+      slack: {
+        botToken: "xoxb-test-bot-token",
+        appToken: "xapp-test-app-token",
+        signingSecret: "test-signing-secret",
+      },
+      directMessages: {
+        enabled: true,
+        dmType: "agent",
+      },
+    });
+    const deps = makeDeps();
+    createSlackApp(deps);
+
+    assert.equal(mockRegisterAgent.mock.calls.length, 1);
+    assert.equal(mockRegisterAssistant.mock.calls.length, 0);
+    assert.equal(mockRegisterClassicDmHandlers.mock.calls.length, 0);
   });
 
   it("always registers mention handler", () => {

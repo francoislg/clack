@@ -13,6 +13,7 @@ import { registerResendHandler } from "./handlers/resend.js";
 import { registerHomeTabHandler } from "./handlers/homeTab.js";
 import { registerAssistant } from "./handlers/assistant.js";
 import { registerClassicDmHandlers } from "./handlers/classicDm.js";
+import { registerAgent } from "./handlers/agent.js";
 import { registerMentionHandler } from "./handlers/mention.js";
 import { registerChoiceHandler } from "./handlers/choice.js";
 import { registerFollowupHandler } from "./handlers/followup.js";
@@ -38,6 +39,7 @@ export interface AppDeps {
   registerHomeTabHandler: typeof registerHomeTabHandler;
   registerAssistant: typeof registerAssistant;
   registerClassicDmHandlers: typeof registerClassicDmHandlers;
+  registerAgent: typeof registerAgent;
   registerMentionHandler: typeof registerMentionHandler;
   registerChoiceHandler: typeof registerChoiceHandler;
   registerFollowupHandler: typeof registerFollowupHandler;
@@ -64,6 +66,7 @@ export const defaultAppDeps: AppDeps = {
   registerHomeTabHandler,
   registerAssistant,
   registerClassicDmHandlers,
+  registerAgent,
   registerMentionHandler,
   registerChoiceHandler,
   registerFollowupHandler,
@@ -126,6 +129,9 @@ export function createSlackApp(deps: AppDeps = defaultAppDeps): App {
   if (dmType === "classic") {
     deps.registerClassicDmHandlers(app);
     deps.logger.info("DM mode: classic (message.im listener)");
+  } else if (dmType === "agent") {
+    deps.registerAgent(app);
+    deps.logger.info("DM mode: agent (agent_view — message.im + app_home_opened)");
   } else {
     deps.registerAssistant(app);
     deps.logger.info("DM mode: assistant (Slack Agents & Assistants API)");
