@@ -84,6 +84,7 @@ function makeDeps(
     allowChannelAttentionLevel: boolean;
     setChannelAttentionLevel: (level: "high" | "medium" | "low" | "off") => Promise<void>;
     allowPostTopLevel: boolean;
+    allowThreadTitle: boolean;
     allowMultiMessage: boolean;
     maxAdditionalMessages: number;
     sessionThreadTs: string;
@@ -126,6 +127,7 @@ function makeDeps(
     allowChannelAttentionLevel: overrides.allowChannelAttentionLevel,
     setChannelAttentionLevel: overrides.setChannelAttentionLevel,
     allowPostTopLevel: overrides.allowPostTopLevel,
+    allowThreadTitle: overrides.allowThreadTitle,
     allowMultiMessage: overrides.allowMultiMessage,
     maxAdditionalMessages: overrides.maxAdditionalMessages,
     sessionThreadTs: overrides.sessionThreadTs,
@@ -200,6 +202,7 @@ interface CallToolRawArgs {
   attention_level?: AttentionLevel;
   default_delivery_mode?: DeliveryMode;
   post_top_level?: boolean;
+  thread_title?: string;
   suppress_unfurls?: boolean;
   escalate_to_owner?: string;
   channel_attention_level?: "high" | "medium" | "low" | "off";
@@ -820,6 +823,30 @@ describe("createSubmitResponseTool", () => {
         ],
       });
       assert.equal(rejected.success, false);
+    });
+  });
+
+  describe("thread_title (DM turns)", () => {
+    it("is exposed only when allowThreadTitle is set", () => {
+      const withFlag = buildSubmitResponseSchema({ allowThreadTitle: true });
+      assert.ok("thread_title" in withFlag);
+      const without = buildSubmitResponseSchema({});
+      assert.ok(!("thread_title" in without));
+      const scheduled = buildSubmitResponseSchema({ submitResponseMode: "optional-post-to" });
+      assert.ok(!("thread_title" in scheduled));
+    });
+
+    it("surfaces thread_title on the captured payload when provided", async () => {
+      const set = vi.fn<ResponseCapture["set"]>();
+      const deps = makeDeps({ allowThreadTitle: true, responseCapture: { set } });
+      await callToolRawTopLevel(deps, {
+        blocks: [{ type: "section", text: { type: "mrkdwn", text: "hi" } }],
+        actions: [],
+        thread_title: "Bolt 5 upgrade questions",
+      });
+
+      assert.equal(set.mock.calls.length, 1);
+      assert.equal(set.mock.calls[0][0].thread_title, "Bolt 5 upgrade questions");
     });
   });
 

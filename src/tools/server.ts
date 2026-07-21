@@ -389,6 +389,15 @@ export function shouldAllowPostTopLevel(triggerType: TriggerType): boolean {
   );
 }
 
+/**
+ * The `thread_title` field (a Claude-authored DM conversation label) is meaningful only for the
+ * direct-message trigger, where a persistent thread carries a title. Consumed by the agent DM
+ * turn-end hook; hidden from every other trigger's schema.
+ */
+export function shouldAllowThreadTitle(triggerType: TriggerType): boolean {
+  return triggerType === "directMessages";
+}
+
 // ============================================================================
 // Build Clack Tools (MCP Server)
 // ============================================================================
@@ -734,6 +743,7 @@ function buildQueryTools(ctx: QueryToolContext): ClackQueryToolsResult {
         },
       }),
       allowPostTopLevel: shouldAllowPostTopLevel(triggerType),
+      allowThreadTitle: shouldAllowThreadTitle(triggerType),
       // Formatting-hint gate: true when the response-rendering topic is loaded, either
       // pre-attached at session start or attached mid-session via attach_integration.
       isResponseRenderingAttached: () =>

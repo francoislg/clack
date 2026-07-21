@@ -12,6 +12,7 @@ import {
   shouldAllowSkip,
   shouldAllowAttentionLevel,
   shouldAllowPostTopLevel,
+  shouldAllowThreadTitle,
   computeAllowSkip,
 } from "./server.js";
 import type { QueryToolContext } from "./types.js";
@@ -654,6 +655,17 @@ describe("shouldAllowPostTopLevel", () => {
 
   it("denies for undefined triggerType", () => {
     assert.equal(shouldAllowPostTopLevel(undefined), false);
+  });
+});
+
+describe("shouldAllowThreadTitle", () => {
+  it("allows for directMessages only", () => {
+    assert.equal(shouldAllowThreadTitle("directMessages"), true);
+    assert.equal(shouldAllowThreadTitle("mentions"), false);
+    assert.equal(shouldAllowThreadTitle("reactions"), false);
+    assert.equal(shouldAllowThreadTitle("scheduled"), false);
+    assert.equal(shouldAllowThreadTitle("autoRespond"), false);
+    assert.equal(shouldAllowThreadTitle(undefined), false);
   });
 });
 

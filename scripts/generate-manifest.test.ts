@@ -10,6 +10,15 @@ function getEvents(m: ReturnType<typeof generateManifest>): readonly string[] {
   return (m.settings?.event_subscriptions?.bot_events ?? []) as readonly string[];
 }
 
+function getAgentPrompts(
+  m: ReturnType<typeof generateManifest>,
+): Array<{ title: string; message: string }> {
+  const features = m.features as {
+    agent_view?: { suggested_prompts?: Array<{ title: string; message: string }> };
+  };
+  return features.agent_view?.suggested_prompts ?? [];
+}
+
 describe("generateManifest — dmType branching", () => {
   it("emits assistant scope/events/feature when dmType is assistant", () => {
     const manifest = generateManifest({
@@ -114,6 +123,19 @@ describe("generateManifest — agent dmType", () => {
     assert.ok(events.includes("app_home_opened"));
     assert.equal(events.includes("assistant_thread_started"), false);
     assert.equal(events.includes("assistant_thread_context_changed"), false);
+  });
+
+  it("populates agent_view.suggested_prompts with well-formed static prompts", () => {
+    const manifest = generateManifest({
+      directMessages: { enabled: true, dmType: "agent" },
+    });
+    const prompts = getAgentPrompts(manifest);
+
+    assert.ok(prompts.length > 0);
+    for (const p of prompts) {
+      assert.ok(typeof p.title === "string" && p.title.length > 0);
+      assert.ok(typeof p.message === "string" && p.message.length > 0);
+    }
   });
 
   it("leaves assistant and classic emission unchanged (no agent_view)", () => {

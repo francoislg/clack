@@ -22,6 +22,31 @@ export interface ClassicDmDeps {
   extractAttachments: (files: unknown[] | undefined) => ExtractedAttachments;
 }
 
+/**
+ * Optional per-turn lifecycle hooks, fired only once a message has cleared every filter
+ * (real user DM, has content, not a stop command) and is about to be processed. The agent
+ * DM mode supplies these to drive the side-panel status + thread title via
+ * `assistant.threads.*`; the classic mode supplies none. Both are best-effort — implementers
+ * own their errors so a hook can never fail or delay the turn.
+ */
+export interface DmTurnHooks {
+  onTurnStart?: (ctx: {
+    client: App["client"];
+    channel: string;
+    threadRoot: string;
+  }) => Promise<void>;
+  onTurnEnd?: (ctx: {
+    client: App["client"];
+    channel: string;
+    threadRoot: string;
+    messageText: string;
+    /** True on the opening turn of a thread (no inbound `thread_ts`) — used to title once. */
+    isThreadStart: boolean;
+    /** Claude-authored thread label from `submit_response.thread_title`, when present. */
+    threadTitle?: string;
+  }) => Promise<void>;
+}
+
 export const defaultClassicDmDeps: ClassicDmDeps = {
   getConfig,
   processMessage,
@@ -82,6 +107,7 @@ export async function handleClassicDmEvent(
   event: unknown,
   client: App["client"],
   deps: ClassicDmDeps = defaultClassicDmDeps,
+  hooks?: DmTurnHooks,
 ): Promise<void> {
   if (!deps.getConfig().directMessages.enabled) return;
 
@@ -104,18 +130,32 @@ export async function handleClassicDmEvent(
   }
 
   const messageText = hasText ? msg.text! : t("assistant.fallback_image_only");
+  const threadRoot = msg.thread_ts || msg.ts;
 
-  await deps.processMessage({
-    client,
-    userId: msg.user,
-    channelId: msg.channel,
-    messageTs: msg.ts,
-    messageText,
-    threadTs: msg.thread_ts,
-    triggerType: "directMessages",
-    actionToken: msg.actionToken,
-    ...attachments,
-  });
+  await hooks?.onTurnStart?.({ client, channel: msg.channel, threadRoot });
+  let result: Awaited<ReturnType<typeof deps.processMessage>> | undefined;
+  try {
+    result = await deps.processMessage({
+      client,
+      userId: msg.user,
+      channelId: msg.channel,
+      messageTs: msg.ts,
+      messageText,
+      threadTs: msg.thread_ts,
+      triggerType: "directMessages",
+      actionToken: msg.actionToken,
+      ...attachments,
+    });
+  } finally {
+    await hooks?.onTurnEnd?.({
+      client,
+      channel: msg.channel,
+      threadRoot,
+      messageText,
+      isThreadStart: !msg.thread_ts,
+      threadTitle: result?.response?.thread_title,
+    });
+  }
 }
 
 export function registerClassicDmHandlers(

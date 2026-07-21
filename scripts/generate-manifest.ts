@@ -11,6 +11,22 @@ import { writeFileSync, readFileSync, existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Manifest } from "@slack/web-api/dist/types/request/manifest.js";
+import { en } from "../src/i18n/strings/en.js";
+
+/**
+ * Static suggested prompts for `agent_view`. Under agent_view, prompts are a manifest
+ * property rendered atop the Messages tab (not a per-thread runtime `setSuggestedPrompts`
+ * call as in assistant_view). Sourced from the i18n defaults to avoid drift; the
+ * channel-context prompt is omitted — it has no meaning without a viewed channel.
+ */
+const AGENT_SUGGESTED_PROMPTS: Array<{ title: string; message: string }> = [
+  {
+    title: en["assistant.prompt_capabilities_title"],
+    message: en["assistant.prompt_capabilities_message"],
+  },
+  { title: en["assistant.prompt_debug_title"], message: en["assistant.prompt_debug_message"] },
+  { title: en["assistant.prompt_funny_title"], message: en["assistant.prompt_funny_message"] },
+];
 
 // Extract BotScope and ManifestEvent types from Manifest (they're not exported directly)
 // Extended with `string` to support newer API fields not yet in @slack/web-api types (e.g. assistant:write)
@@ -234,7 +250,7 @@ export function generateManifest(config: PartialConfig): Manifest {
         features.dmType === "agent" && {
           agent_view: {
             agent_description: description,
-            suggested_prompts: [],
+            suggested_prompts: AGENT_SUGGESTED_PROMPTS,
           },
         }),
     },
