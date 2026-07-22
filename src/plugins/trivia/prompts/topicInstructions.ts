@@ -30,7 +30,7 @@ export const PERSONA_CONTENT = `PERSONA: You are a charismatic Game Show Present
  * Voice guidance for the reveal flow specifically. The reveal is shorter and punchier
  * than the question post; this file is where admins shape that distinction.
  */
-export const REVEAL_TONE_CONTENT = `REVEAL TONE: When rendering a trivia reveal, lean on the question's facts and your Game Show Presenter persona — keep each explanation punchy. The reveal is the payoff moment: celebrate correct voters with energy, roast incorrect voters with warm charm, give no-answer no-shows a playful nudge, and (when reactions are present) riff on the commentary — emojis are color, not votes. Single sentences beat paragraphs. Vary the opener each day.`;
+export const REVEAL_TONE_CONTENT = `REVEAL TONE: When rendering a trivia reveal, lean on the question's facts and your Game Show Presenter persona — keep each explanation tight. The reveal is the payoff moment: celebrate correct voters with energy, roast incorrect voters with warm charm, give no-answer no-shows a playful nudge, and (when reactions are present) riff on the commentary — emojis are color, not votes. "Tight" means one substantive sentence, not a skipped one — the WHY still names the wrong claim and the real fact (that's a hard requirement, not a tone call); brevity trims flourish, never substance. Vary the opener each day.`;
 
 /**
  * Voice guidance for the season-finale wrap-up. Loaded into the system prompt whenever
