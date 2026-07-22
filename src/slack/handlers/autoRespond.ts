@@ -1,4 +1,4 @@
-import type { App } from "@slack/bolt";
+import type { App, SlackEventMiddlewareArgs } from "@slack/bolt";
 import type { WebClient } from "@slack/web-api";
 import { getConfig, type Config } from "../../config.js";
 import { logger } from "../../logger.js";
@@ -656,68 +656,105 @@ async function resolveEphemeralConversation(
   };
 }
 
+export interface AutoRespondMessageDeps {
+  getConfig: typeof getConfig;
+  getBotIdentity: typeof getBotIdentity;
+}
+
+export const defaultAutoRespondMessageDeps: AutoRespondMessageDeps = {
+  getConfig,
+  getBotIdentity,
+};
+
+type MessageEvent = SlackEventMiddlewareArgs<"message">["event"];
+
+/**
+ * Pure handler — given a raw Slack message event and a client, run the auto-respond
+ * filtering + routing logic. Exported so tests can drive it directly without
+ * mocking Bolt's `app.event` registration.
+ */
+export async function handleAutoRespondMessageEvent(
+  event: MessageEvent,
+  client: App["client"],
+  deps: AutoRespondMessageDeps = defaultAutoRespondMessageDeps,
+): Promise<void> {
+  // DM channels are owned by the DM pipeline (classic/agent/assistant). Processing them
+  // here too would double-handle every DM thread reply — the second processMessage lands
+  // on the active run as a silent 👀 append with no visible reply. Only serve DMs when
+  // that pipeline is off (follow-ups on DM-first reaction deliveries with DMs disabled).
+  if (
+    "channel_type" in event &&
+    event.channel_type === "im" &&
+    deps.getConfig().directMessages.enabled
+  ) {
+    return;
+  }
+
+  // Skip non-message subtypes (edits, deletes, joins, etc.) — but allow bot_message through
+  if ("subtype" in event && event.subtype !== undefined && event.subtype !== "bot_message") {
+    return;
+  }
+
+  const { botUserId, botId } = await deps.getBotIdentity(client);
+  if (!botUserId) return;
+
+  const messageUser = "user" in event && typeof event.user === "string" ? event.user : undefined;
+  if (messageUser === botUserId) return;
+
+  const messageBotId =
+    "bot_id" in event && typeof event.bot_id === "string" ? event.bot_id : undefined;
+  if (messageBotId && messageBotId === botId) return;
+
+  // Skip @mentions — handled by mention handler
+  const rawText = "text" in event && typeof event.text === "string" ? event.text : undefined;
+  if (rawText && botUserId && rawText.includes(`<@${botUserId}>`)) return;
+
+  const config = deps.getConfig();
+  const threadTs =
+    "thread_ts" in event && typeof event.thread_ts === "string" ? event.thread_ts : undefined;
+
+  // Inline stop-emoji short-circuit: dispatched before pre-analysis and rule matching.
+  if (messageUser && matchesInlineStopEmoji(rawText, config.reactions?.stop)) {
+    const targetThread = threadTs || event.ts;
+    logger.info(
+      `Inline stop emoji in thread reply from ${messageUser} in ${event.channel} (thread ${targetThread})`,
+    );
+    // A top-level stop also closes the channel's conversation window, if one exists.
+    if (!threadTs) {
+      await deleteEphemeralRuleForChannel(event.channel);
+    }
+    await stopThread(event.channel, targetThread, messageUser, "stopped via inline emoji");
+    return;
+  }
+  const rawFiles = "files" in event && Array.isArray(event.files) ? event.files : undefined;
+
+  const context = await resolveAutoRespondContext(
+    event.channel,
+    event.ts,
+    messageUser,
+    messageBotId,
+    rawText,
+    threadTs,
+    config,
+    client,
+    botUserId,
+    botId,
+    undefined,
+    rawFiles,
+  );
+  if (!context) return;
+
+  // Concurrency: a thread-level lock is no longer needed here. `processMessage` itself
+  // consults the active-runs registry and routes a follow-up onto the live `ClaudeRunHandle`
+  // via `sendUpdate` if one exists. The previous in-process Set only protected against
+  // overlapping pre-analysis cycles within one node — duplicate work, not correctness —
+  // and the registry path replaces that with first-result-wins queueing on the run.
+  await respond(event, client, context, threadTs);
+}
+
 export function registerAutoRespondHandler(app: App): void {
   app.event("message", async ({ event, client }) => {
-    // Skip non-message subtypes (edits, deletes, joins, etc.) — but allow bot_message through
-    if ("subtype" in event && event.subtype !== undefined && event.subtype !== "bot_message") {
-      return;
-    }
-
-    const { botUserId, botId } = await getBotIdentity(client);
-    if (!botUserId) return;
-
-    const messageUser = "user" in event && typeof event.user === "string" ? event.user : undefined;
-    if (messageUser === botUserId) return;
-
-    const messageBotId =
-      "bot_id" in event && typeof event.bot_id === "string" ? event.bot_id : undefined;
-    if (messageBotId && messageBotId === botId) return;
-
-    // Skip @mentions — handled by mention handler
-    const rawText = "text" in event && typeof event.text === "string" ? event.text : undefined;
-    if (rawText && botUserId && rawText.includes(`<@${botUserId}>`)) return;
-
-    const config = getConfig();
-    const threadTs =
-      "thread_ts" in event && typeof event.thread_ts === "string" ? event.thread_ts : undefined;
-
-    // Inline stop-emoji short-circuit: dispatched before pre-analysis and rule matching.
-    if (messageUser && matchesInlineStopEmoji(rawText, config.reactions?.stop)) {
-      const targetThread = threadTs || event.ts;
-      logger.info(
-        `Inline stop emoji in thread reply from ${messageUser} in ${event.channel} (thread ${targetThread})`,
-      );
-      // A top-level stop also closes the channel's conversation window, if one exists.
-      if (!threadTs) {
-        await deleteEphemeralRuleForChannel(event.channel);
-      }
-      await stopThread(event.channel, targetThread, messageUser, "stopped via inline emoji");
-      return;
-    }
-    const rawFiles = "files" in event && Array.isArray(event.files) ? event.files : undefined;
-
-    const context = await resolveAutoRespondContext(
-      event.channel,
-      event.ts,
-      messageUser,
-      messageBotId,
-      rawText,
-      threadTs,
-      config,
-      client,
-      botUserId,
-      botId,
-      undefined,
-      rawFiles,
-    );
-    if (!context) return;
-
-    // Concurrency: a thread-level lock is no longer needed here. `processMessage` itself
-    // consults the active-runs registry and routes a follow-up onto the live `ClaudeRunHandle`
-    // via `sendUpdate` if one exists. The previous in-process Set only protected against
-    // overlapping pre-analysis cycles within one node — duplicate work, not correctness —
-    // and the registry path replaces that with first-result-wins queueing on the run.
-    await respond(event, client, context, threadTs);
+    await handleAutoRespondMessageEvent(event, client);
   });
 }
 

@@ -1,8 +1,14 @@
 import { describe, it, vi } from "vitest";
 import assert from "node:assert/strict";
+import type { SlackEventMiddlewareArgs } from "@slack/bolt";
 import type { Config } from "../../config.js";
 import type { SessionContext } from "../../sessions.js";
-import { resolveAutoRespondContext, type AutoRespondDeps } from "./autoRespond.js";
+import {
+  resolveAutoRespondContext,
+  handleAutoRespondMessageEvent,
+  type AutoRespondDeps,
+  type AutoRespondMessageDeps,
+} from "./autoRespond.js";
 import type { runPreAnalysis, runActiveRunPreAnalysis } from "../../claude/preAnalysis.js";
 import type { ClaudeRunHandle } from "../../claude/runHandle.js";
 
@@ -433,5 +439,59 @@ describe("resolveAutoRespondContext — elapsed-time signal", () => {
     const gap = activeRunPreAnalysis.mock.calls[0]?.[8];
     assert.equal(typeof gap, "number");
     assert.ok(Math.abs((gap as number) - 15) < 2, `expected ~15s, got ${gap}`);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// handleAutoRespondMessageEvent — DM ownership guard
+// ---------------------------------------------------------------------------
+
+type MessageEvent = SlackEventMiddlewareArgs<"message">["event"];
+
+describe("handleAutoRespondMessageEvent — DM ownership guard", () => {
+  function makeMessageDeps(dmEnabled: boolean): AutoRespondMessageDeps {
+    return {
+      getConfig: vi.fn(() =>
+        makeConfig({ directMessages: { enabled: dmEnabled } } as Partial<Config>),
+      ),
+      getBotIdentity: vi.fn(async () => ({ botUserId: "", botId: undefined })),
+    };
+  }
+
+  function messageEvent(channelType: "im" | "channel", channel: string): MessageEvent {
+    return {
+      type: "message",
+      subtype: undefined,
+      channel_type: channelType,
+      channel,
+      ts: "1700000002.000000",
+      event_ts: "1700000002.000000",
+      user: "U_USER",
+      text: "follow-up question?",
+    } as MessageEvent;
+  }
+
+  it("skips im-channel messages when the DM pipeline is enabled", async () => {
+    const deps = makeMessageDeps(true);
+
+    await handleAutoRespondMessageEvent(messageEvent("im", "D001"), makeClient(), deps);
+
+    assert.equal(vi.mocked(deps.getBotIdentity).mock.calls.length, 0);
+  });
+
+  it("processes im-channel messages when direct messages are disabled", async () => {
+    const deps = makeMessageDeps(false);
+
+    await handleAutoRespondMessageEvent(messageEvent("im", "D001"), makeClient(), deps);
+
+    assert.equal(vi.mocked(deps.getBotIdentity).mock.calls.length, 1);
+  });
+
+  it("processes channel messages regardless of the DM pipeline", async () => {
+    const deps = makeMessageDeps(true);
+
+    await handleAutoRespondMessageEvent(messageEvent("channel", "C001"), makeClient(), deps);
+
+    assert.equal(vi.mocked(deps.getBotIdentity).mock.calls.length, 1);
   });
 });
