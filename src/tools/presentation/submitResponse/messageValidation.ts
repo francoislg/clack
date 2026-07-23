@@ -1,8 +1,28 @@
-import type { AuthoredTableBlock, Block } from "../../../slack/blockSchema.js";
+import type { AuthoredChartBlock, AuthoredTableBlock, Block } from "../../../slack/blockSchema.js";
+import type { BlockValidationError } from "../../../slack/blockValidate.js";
 import {
   validateBlocks as _validateBlocks,
   validateTable as _validateTable,
+  validateChart as _validateChart,
 } from "../../../slack/blockValidate.js";
+
+/**
+ * Run a sibling-parameter validator (`table`/`chart`) when its value is present, namespacing the
+ * error field path under `pathPrefix`, and push each formatted error onto `errors`.
+ */
+function collectSiblingErrors<T>(
+  value: T | undefined,
+  name: string,
+  validate: (v: T, field: string) => BlockValidationError[],
+  pathPrefix: string,
+  errors: string[],
+): void {
+  if (value === undefined) return;
+  const field = pathPrefix ? `${pathPrefix}.${name}` : name;
+  for (const e of validate(value, field)) {
+    errors.push(`${e.field}: ${e.message}`);
+  }
+}
 import { extractDisplayText } from "../../../slack/blockText.js";
 
 /** Slack's `chat.postMessage` text limit — each message in a batch gets its own budget. */
@@ -22,6 +42,7 @@ export function buildTexts(blocks: readonly Block[], message?: string) {
 export interface BatchMessage {
   blocks: Block[];
   table?: AuthoredTableBlock;
+  chart?: AuthoredChartBlock;
   message?: string;
   pathPrefix: string;
 }
@@ -34,24 +55,21 @@ export interface BatchMessage {
 export function validateSingleMessage(args: {
   blocks: Block[];
   table?: AuthoredTableBlock;
+  chart?: AuthoredChartBlock;
   /** Optional preamble — counted toward this message's length budget. */
   message?: string;
   pathPrefix: string;
   validateBlocks: typeof _validateBlocks;
   validateTable: typeof _validateTable;
+  validateChart: typeof _validateChart;
 }): string[] {
   const errors: string[] = [];
   const blockErrors = args.validateBlocks(args.blocks);
   for (const e of blockErrors) {
     errors.push(`${args.pathPrefix}${args.pathPrefix ? "." : ""}${e.field}: ${e.message}`);
   }
-  if (args.table) {
-    const tableField = args.pathPrefix ? `${args.pathPrefix}.table` : "table";
-    const tableErrors = args.validateTable(args.table, tableField);
-    for (const e of tableErrors) {
-      errors.push(`${e.field}: ${e.message}`);
-    }
-  }
+  collectSiblingErrors(args.table, "table", args.validateTable, args.pathPrefix, errors);
+  collectSiblingErrors(args.chart, "chart", args.validateChart, args.pathPrefix, errors);
   const { displayText } = buildTexts(args.blocks, args.message);
   if (displayText.length > SLACK_MESSAGE_TEXT_LIMIT) {
     const where = args.pathPrefix || "primary";

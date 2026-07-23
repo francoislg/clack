@@ -1,4 +1,9 @@
-import type { AuthoredTableBlock, AuthoredTableCell, Block } from "./blockSchema.js";
+import type {
+  AuthoredChartBlock,
+  AuthoredTableBlock,
+  AuthoredTableCell,
+  Block,
+} from "./blockSchema.js";
 
 // ============================================================================
 // Slack Block Kit limits
@@ -14,8 +19,10 @@ const SECTION_FIELD_TEXT_LIMIT = 2000;
 const TOTAL_BLOCKS_LIMIT = 50;
 // Slack documents a 12,000-char cap across all markdown blocks per payload.
 const MARKDOWN_CUMULATIVE_TEXT_LIMIT = 12_000;
-// Slack table block constraints.
-const TABLE_MAX_ROWS = 100;
+// Slack table block constraints. The legacy `table` block caps at 100 rows; the interactive
+// `data_table` variant raises the data-row cap to 200.
+const TABLE_MAX_ROWS_LEGACY = 100;
+const TABLE_MAX_ROWS_DATA_TABLE = 200;
 const TABLE_MAX_CELLS_PER_ROW = 20;
 const TABLE_MAX_COLUMN_SETTINGS = 20;
 // Per-cell text cap (Slack does not publish a hard limit; mirroring the
@@ -27,6 +34,16 @@ const CARD_SUBTITLE_LIMIT = 150;
 const CARD_BODY_LIMIT = 200;
 const CAROUSEL_MIN_ELEMENTS = 1;
 const CAROUSEL_MAX_ELEMENTS = 10;
+// Slack data_visualization (chart) constraints.
+const CHART_TITLE_LIMIT = 50;
+const CHART_LABEL_LIMIT = 20;
+const CHART_AXIS_LABEL_LIMIT = 50;
+const CHART_MIN_SEGMENTS = 1;
+const CHART_MAX_SEGMENTS = 12;
+const CHART_MIN_SERIES = 1;
+const CHART_MAX_SERIES = 12;
+const CHART_MIN_POINTS = 1;
+const CHART_MAX_POINTS = 20;
 
 export interface BlockValidationError {
   field: string;
@@ -170,12 +187,14 @@ export function validateTable(
   const errors: BlockValidationError[] = [];
   const rows = block.rows;
 
-  if (rows.length > TABLE_MAX_ROWS) {
+  const maxRows =
+    block.variant === "data_table" ? TABLE_MAX_ROWS_DATA_TABLE : TABLE_MAX_ROWS_LEGACY;
+  if (rows.length > maxRows) {
     errors.push({
       field: `${pathPrefix}.rows`,
-      message: `${pathPrefix} has ${rows.length} rows, exceeding the ${TABLE_MAX_ROWS}-row limit. Reduce row count or split tabular data into a markdown table inside a markdown block (no row cap).`,
+      message: `${pathPrefix} has ${rows.length} rows, exceeding the ${maxRows}-row limit${block.variant === "data_table" ? "" : ' (use variant: "data_table" for up to 200 rows)'}. Reduce row count or split tabular data into a markdown table inside a markdown block (no row cap).`,
       currentLength: rows.length,
-      limit: TABLE_MAX_ROWS,
+      limit: maxRows,
     });
   }
 
@@ -249,6 +268,223 @@ export function validateTable(
         currentLength: block.column_settings.length,
         limit: firstRowWidth,
       });
+    }
+  }
+
+  return errors;
+}
+
+function chartError(field: string, message: string, current = 0, limit = 0): BlockValidationError {
+  return { field, message, currentLength: current, limit };
+}
+
+function validatePieChart(chart: AuthoredChartBlock, pathPrefix: string): BlockValidationError[] {
+  const errors: BlockValidationError[] = [];
+  if (chart.series !== undefined) {
+    errors.push(
+      chartError(
+        `${pathPrefix}.series`,
+        `${pathPrefix} chart_type "pie" takes \`segments\`, not \`series\`. Remove \`series\` (or switch chart_type to bar/area/line).`,
+      ),
+    );
+  }
+  const segments = chart.segments;
+  if (!segments || segments.length < CHART_MIN_SEGMENTS) {
+    errors.push(
+      chartError(
+        `${pathPrefix}.segments`,
+        `${pathPrefix} chart_type "pie" requires a \`segments\` array with at least ${CHART_MIN_SEGMENTS} entry.`,
+      ),
+    );
+    return errors;
+  }
+  if (segments.length > CHART_MAX_SEGMENTS) {
+    errors.push(
+      chartError(
+        `${pathPrefix}.segments`,
+        `${pathPrefix} has ${segments.length} segments, exceeding the ${CHART_MAX_SEGMENTS}-segment limit.`,
+        segments.length,
+        CHART_MAX_SEGMENTS,
+      ),
+    );
+  }
+  segments.forEach((seg, si) => {
+    if (seg.label.length > CHART_LABEL_LIMIT) {
+      errors.push(
+        chartError(
+          `${pathPrefix}.segments[${si}].label`,
+          `${pathPrefix} segment ${si} label (${seg.label.length} chars) exceeds the ${CHART_LABEL_LIMIT}-char limit.`,
+          seg.label.length,
+          CHART_LABEL_LIMIT,
+        ),
+      );
+    }
+  });
+  return errors;
+}
+
+function validateSeriesChart(
+  chart: AuthoredChartBlock,
+  pathPrefix: string,
+): BlockValidationError[] {
+  const errors: BlockValidationError[] = [];
+  if (chart.segments !== undefined) {
+    errors.push(
+      chartError(
+        `${pathPrefix}.segments`,
+        `${pathPrefix} chart_type "${chart.chart_type}" takes \`series\`, not \`segments\`. Remove \`segments\` (or switch chart_type to pie).`,
+      ),
+    );
+  }
+  const series = chart.series;
+  if (!series || series.length < CHART_MIN_SERIES) {
+    errors.push(
+      chartError(
+        `${pathPrefix}.series`,
+        `${pathPrefix} chart_type "${chart.chart_type}" requires a \`series\` array with at least ${CHART_MIN_SERIES} entry.`,
+      ),
+    );
+    return errors;
+  }
+  if (series.length > CHART_MAX_SERIES) {
+    errors.push(
+      chartError(
+        `${pathPrefix}.series`,
+        `${pathPrefix} has ${series.length} series, exceeding the ${CHART_MAX_SERIES}-series limit.`,
+        series.length,
+        CHART_MAX_SERIES,
+      ),
+    );
+  }
+  const seenNames = new Set<string>();
+  series.forEach((s, si) => {
+    if (s.name.length > CHART_LABEL_LIMIT) {
+      errors.push(
+        chartError(
+          `${pathPrefix}.series[${si}].name`,
+          `${pathPrefix} series ${si} name (${s.name.length} chars) exceeds the ${CHART_LABEL_LIMIT}-char limit.`,
+          s.name.length,
+          CHART_LABEL_LIMIT,
+        ),
+      );
+    }
+    if (seenNames.has(s.name)) {
+      errors.push(
+        chartError(
+          `${pathPrefix}.series[${si}].name`,
+          `${pathPrefix} series ${si} name "${s.name}" is duplicated — series names must be unique.`,
+        ),
+      );
+    }
+    seenNames.add(s.name);
+    if (s.data.length < CHART_MIN_POINTS || s.data.length > CHART_MAX_POINTS) {
+      errors.push(
+        chartError(
+          `${pathPrefix}.series[${si}].data`,
+          `${pathPrefix} series ${si} has ${s.data.length} data points — must be between ${CHART_MIN_POINTS} and ${CHART_MAX_POINTS} inclusive.`,
+          s.data.length,
+          CHART_MAX_POINTS,
+        ),
+      );
+    }
+    s.data.forEach((point, pi) => {
+      if (point.label.length > CHART_LABEL_LIMIT) {
+        errors.push(
+          chartError(
+            `${pathPrefix}.series[${si}].data[${pi}].label`,
+            `${pathPrefix} series ${si} data point ${pi} label (${point.label.length} chars) exceeds the ${CHART_LABEL_LIMIT}-char limit.`,
+            point.label.length,
+            CHART_LABEL_LIMIT,
+          ),
+        );
+      }
+    });
+  });
+
+  // Slack requires every data-point label to appear in axis_config.categories. When categories
+  // are omitted we auto-derive them at render, but an explicit list that misses a label would
+  // silently drop that point — reject it with the missing labels named.
+  const categories = chart.axis_config?.categories;
+  if (categories && categories.length > 0) {
+    const known = new Set(categories);
+    const missing = new Set<string>();
+    for (const s of series) {
+      for (const point of s.data) {
+        if (!known.has(point.label)) missing.add(point.label);
+      }
+    }
+    if (missing.size > 0) {
+      errors.push(
+        chartError(
+          `${pathPrefix}.axis_config.categories`,
+          `${pathPrefix} axis_config.categories is missing data-point label(s): ${[...missing]
+            .map((l) => `"${l}"`)
+            .join(
+              ", ",
+            )}. Every series data-point label must appear in categories, or omit categories to auto-derive them.`,
+        ),
+      );
+    }
+  }
+
+  return errors;
+}
+
+/**
+ * Validate the standalone `chart` parameter on `submit_response` or `post_to`. Enforces the
+ * pie⇄series exclusivity, segment/series/data-point counts, and label/title caps. `pathPrefix`
+ * namespaces error field paths for the caller (`"chart"` top-level, `"actions[2].chart"` for a
+ * post_to action). Returns an empty array on success.
+ */
+export function validateChart(
+  chart: AuthoredChartBlock,
+  pathPrefix: string,
+): BlockValidationError[] {
+  const errors: BlockValidationError[] = [];
+
+  if (chart.title !== undefined && chart.title.length > CHART_TITLE_LIMIT) {
+    errors.push(
+      chartError(
+        `${pathPrefix}.title`,
+        `${pathPrefix} title (${chart.title.length} chars) exceeds the ${CHART_TITLE_LIMIT}-char limit.`,
+        chart.title.length,
+        CHART_TITLE_LIMIT,
+      ),
+    );
+  }
+
+  errors.push(
+    ...(chart.chart_type === "pie"
+      ? validatePieChart(chart, pathPrefix)
+      : validateSeriesChart(chart, pathPrefix)),
+  );
+
+  const axis = chart.axis_config;
+  if (axis) {
+    axis.categories?.forEach((cat, ci) => {
+      if (cat.length > CHART_LABEL_LIMIT) {
+        errors.push(
+          chartError(
+            `${pathPrefix}.axis_config.categories[${ci}]`,
+            `${pathPrefix} axis category ${ci} (${cat.length} chars) exceeds the ${CHART_LABEL_LIMIT}-char limit.`,
+            cat.length,
+            CHART_LABEL_LIMIT,
+          ),
+        );
+      }
+    });
+    for (const key of ["x_label", "y_label"] as const) {
+      const label = axis[key];
+      if (label !== undefined && label.length > CHART_AXIS_LABEL_LIMIT) {
+        errors.push(
+          chartError(
+            `${pathPrefix}.axis_config.${key}`,
+            `${pathPrefix} axis ${key} (${label.length} chars) exceeds the ${CHART_AXIS_LABEL_LIMIT}-char limit.`,
+            label.length,
+            CHART_AXIS_LABEL_LIMIT,
+          ),
+        );
+      }
     }
   }
 

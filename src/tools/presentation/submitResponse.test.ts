@@ -171,6 +171,7 @@ interface CallToolArgs {
   actions: ToolAction[];
   reactions?: string[];
   table?: unknown;
+  chart?: unknown;
 }
 
 /** Call the tool's handler directly. */
@@ -268,6 +269,20 @@ describe("createSubmitResponseTool", () => {
       assert.equal(parsed.delivered, false);
       assert.equal(parsed.blocksCount, 1);
       assert.equal(parsed.actionsCount, 0);
+    });
+
+    it("passes the chart parameter through to the rendered payload", async () => {
+      const deps = makeDeps();
+      const chart = { chart_type: "pie", segments: [{ label: "Yes", value: 3 }] };
+      await callTool(deps, {
+        blocks: [{ type: "section", text: { type: "mrkdwn", text: "Results" } }],
+        chart,
+        actions: [],
+      });
+
+      assert.ok(mockGetStructuredResponseBlocks.mock.calls.length > 0);
+      const renderedPayload = mockGetStructuredResponseBlocks.mock.calls[0][0];
+      assert.deepEqual(renderedPayload.chart, chart);
     });
 
     it("captures response via responseCapture.set()", async () => {
@@ -3315,6 +3330,7 @@ describe("createSubmitResponseTool", () => {
         pathPrefix: "additional_messages[0]",
         validateBlocks: () => [],
         validateTable: () => [],
+        validateChart: () => [],
       });
       assert.deepEqual(errors, []);
     });
@@ -3329,6 +3345,7 @@ describe("createSubmitResponseTool", () => {
         pathPrefix: "thread_replies[2]",
         validateBlocks: () => [],
         validateTable: () => [],
+        validateChart: () => [],
       });
       assert.equal(errors.length, 1);
       assert.match(errors[0], /thread_replies\[2\]/);
@@ -3353,6 +3370,7 @@ describe("createSubmitResponseTool", () => {
           },
         ],
         validateTable: () => [],
+        validateChart: () => [],
       });
       assert.equal(errors.length, 1);
       assert.match(errors[0], /^additional_messages\[0\]\.blocks\[0\]\.text\.text:/);

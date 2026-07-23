@@ -28,12 +28,15 @@ import {
 import {
   BlockSchema,
   tableBlockSchema,
+  chartBlockSchema,
+  type AuthoredChartBlock,
   type AuthoredTableBlock,
   type Block,
 } from "../../slack/blockSchema.js";
 import {
   validateBlocks as _validateBlocks,
   validateTable as _validateTable,
+  validateChart as _validateChart,
 } from "../../slack/blockValidate.js";
 import {
   collectActionErrors,
@@ -106,7 +109,12 @@ const messageContentFields = {
   table: tableBlockSchema
     .optional()
     .describe(
-      "Optional Slack table block. Sibling of `blocks`, NOT a member of it: Slack always renders tables at the bottom of the message regardless of position, and rejects payloads with more than one. Use this when column alignment, wrap control, or rich-text cells matter; for inline tabular data prefer a markdown table inside a `markdown` block.",
+      'Optional Slack table. Sibling of `blocks`, NOT a member of it: Slack always renders tables at the bottom of the message regardless of position, and rejects payloads with more than one. Set `variant: "data_table"` for an INTERACTIVE table (pagination + sortable columns, up to 200 rows) — best for large result sets; it takes an optional `caption` but ignores `column_settings` (no per-column alignment). Omit `variant` (or `variant: "table"`) for the default static table when column alignment/wrap or rich-text cells matter (e.g. leaderboards). For inline tabular data prefer a markdown table inside a `markdown` block.',
+    ),
+  chart: chartBlockSchema
+    .optional()
+    .describe(
+      'Optional chart, rendered as a Slack data_visualization block below the content (and above the table if both are present). Sibling of `blocks`, NOT a member of it; at most one per message. `chart_type: "pie"` takes `segments: [{ label, value }]` (1–12). `chart_type: "bar" | "area" | "line"` takes `series: [{ name, data: [{ label, value }] }]` (1–12 series, 1–20 points each) plus optional `axis_config: { categories?, x_label?, y_label? }` (categories are auto-derived from the data-point labels when omitted). Optional `title` (≤50 chars); labels/series names ≤20 chars. Use for genuinely quantitative comparisons; prefer a table or text for everything else.',
     ),
   reactions: z
     .array(z.string())
@@ -395,6 +403,11 @@ const messagePayloadSchema: z.ZodType<MessagePayload> = z
     table: tableBlockSchema
       .optional()
       .describe("Optional Slack table block, appended at the bottom of this follow-up message."),
+    chart: chartBlockSchema
+      .optional()
+      .describe(
+        "Optional chart (data_visualization block), rendered above the table in this follow-up message. Same shape as the primary `chart` field.",
+      ),
     actions: z
       .array(z.lazy((): z.ZodType<Action> => actionSchema))
       .optional()
@@ -547,6 +560,7 @@ export interface SubmitResponseDeps {
   getStructuredResponseBlocks?: typeof _getStructuredResponseBlocks;
   validateBlocks?: typeof _validateBlocks;
   validateTable?: typeof _validateTable;
+  validateChart?: typeof _validateChart;
   validateActionButtonLabels?: typeof _validateActionButtonLabels;
   getResponseActionBlocks?: typeof _getResponseActionBlocks;
   /**
@@ -580,6 +594,7 @@ function enumerateBatchMessages(args: SubmitResponseArgs): BatchMessage[] {
     messages.push({
       blocks: args.blocks,
       ...(args.table && { table: args.table }),
+      ...(args.chart && { chart: args.chart }),
       ...(args.message && { message: args.message }),
       pathPrefix: "",
     });
@@ -588,6 +603,7 @@ function enumerateBatchMessages(args: SubmitResponseArgs): BatchMessage[] {
     messages.push({
       blocks: msg.blocks,
       ...(msg.table && { table: msg.table }),
+      ...(msg.chart && { chart: msg.chart }),
       pathPrefix: `additional_messages[${i}]`,
     });
   });
@@ -595,6 +611,7 @@ function enumerateBatchMessages(args: SubmitResponseArgs): BatchMessage[] {
     messages.push({
       blocks: msg.blocks,
       ...(msg.table && { table: msg.table }),
+      ...(msg.chart && { chart: msg.chart }),
       pathPrefix: `thread_replies[${i}]`,
     });
   });
@@ -603,12 +620,14 @@ function enumerateBatchMessages(args: SubmitResponseArgs): BatchMessage[] {
     messages.push({
       blocks: action.blocks,
       ...(action.table && { table: action.table }),
+      ...(action.chart && { chart: action.chart }),
       pathPrefix: `actions[${i}]`,
     });
     action.additional_messages?.forEach((msg, j) => {
       messages.push({
         blocks: msg.blocks,
         ...(msg.table && { table: msg.table }),
+        ...(msg.chart && { chart: msg.chart }),
         pathPrefix: `actions[${i}].additional_messages[${j}]`,
       });
     });
@@ -616,6 +635,7 @@ function enumerateBatchMessages(args: SubmitResponseArgs): BatchMessage[] {
       messages.push({
         blocks: msg.blocks,
         ...(msg.table && { table: msg.table }),
+        ...(msg.chart && { chart: msg.chart }),
         pathPrefix: `actions[${i}].thread_replies[${j}]`,
       });
     });
@@ -954,6 +974,7 @@ interface SubmitResponseArgs {
   message?: string;
   blocks?: Block[];
   table?: AuthoredTableBlock;
+  chart?: AuthoredChartBlock;
   reactions?: string[];
   actions?: Action[];
   suppress_unfurls?: boolean;
@@ -1054,6 +1075,7 @@ export function createSubmitResponseTool(deps: SubmitResponseDeps) {
     getStructuredResponseBlocks = _getStructuredResponseBlocks,
     validateBlocks = _validateBlocks,
     validateTable = _validateTable,
+    validateChart = _validateChart,
     validateActionButtonLabels = _validateActionButtonLabels,
     getResponseActionBlocks = _getResponseActionBlocks,
     appendStagedIntents = _appendStagedIntents,
@@ -1162,6 +1184,7 @@ export function createSubmitResponseTool(deps: SubmitResponseDeps) {
           sessionId,
           validateBlocks,
           validateTable,
+          validateChart,
           validateActionButtonLabels,
           getResponseActionBlocks,
         });
@@ -1297,6 +1320,8 @@ export function createSubmitResponseTool(deps: SubmitResponseDeps) {
 
       const table: AuthoredTableBlock | undefined =
         "table" in args && args.table ? (args.table as AuthoredTableBlock) : undefined;
+      const chart: AuthoredChartBlock | undefined =
+        "chart" in args && args.chart ? (args.chart as AuthoredChartBlock) : undefined;
       const wantsPostTopLevel = "post_top_level" in args && args.post_top_level === true;
 
       // When the response itself is posted top-level to the session's channel, guard against
@@ -1319,10 +1344,12 @@ export function createSubmitResponseTool(deps: SubmitResponseDeps) {
           ...validateSingleMessage({
             blocks: m.blocks,
             ...(m.table && { table: m.table }),
+            ...(m.chart && { chart: m.chart }),
             ...(m.message && { message: m.message }),
             pathPrefix: m.pathPrefix,
             validateBlocks,
             validateTable,
+            validateChart,
           }),
         );
       }
@@ -1371,6 +1398,7 @@ export function createSubmitResponseTool(deps: SubmitResponseDeps) {
         ...(message && { message }),
         blocks,
         ...(table && { table }),
+        ...(chart && { chart }),
         actions,
         ...(args.additional_messages && { additionalMessages: args.additional_messages }),
         ...(args.thread_replies && { threadReplies: args.thread_replies }),

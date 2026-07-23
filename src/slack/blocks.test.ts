@@ -162,6 +162,42 @@ describe("getStructuredResponseBlocks", () => {
     const out = getStructuredResponseBlocks(payload, "s1");
     assert.equal(out.length, 1);
   });
+
+  it("renders the chart after content and before the table", () => {
+    const payload: SubmitResponsePayload = {
+      blocks: [{ type: "section", text: { type: "mrkdwn", text: "Body" } }],
+      chart: { chart_type: "pie", segments: [{ label: "A", value: 1 }] },
+      table: { type: "table", rows: [[{ type: "raw_text", text: "A" }]] },
+      actions: [],
+    };
+    const out = getStructuredResponseBlocks(payload, "s1");
+    const types = out.map((b) => b.type);
+    assert.deepEqual(types, ["section", "data_visualization", "table"]);
+  });
+
+  it("renders the data_table variant as a data_table block", () => {
+    const payload: SubmitResponsePayload = {
+      blocks: [{ type: "section", text: { type: "mrkdwn", text: "Body" } }],
+      table: { type: "table", variant: "data_table", rows: [[{ type: "raw_text", text: "A" }]] },
+      actions: [],
+    };
+    const out = getStructuredResponseBlocks(payload, "s1");
+    assert.equal(out[out.length - 1].type, "data_table");
+  });
+
+  it("orders content, chart, then the data_table variant", () => {
+    const payload: SubmitResponsePayload = {
+      blocks: [{ type: "section", text: { type: "mrkdwn", text: "Body" } }],
+      chart: { chart_type: "pie", segments: [{ label: "A", value: 1 }] },
+      table: { type: "table", variant: "data_table", rows: [[{ type: "raw_text", text: "A" }]] },
+      actions: [],
+    };
+    const out = getStructuredResponseBlocks(payload, "s1");
+    assert.deepEqual(
+      out.map((b) => b.type),
+      ["section", "data_visualization", "data_table"],
+    );
+  });
 });
 
 // ============================================================================
@@ -176,6 +212,29 @@ describe("getStructuredAcceptedBlocks", () => {
     ];
     const out = getStructuredAcceptedBlocks(blocks);
     assert.equal(out.length, 2);
+  });
+
+  it("appends the chart before the table when both are present", () => {
+    const blocks: Block[] = [{ type: "section", text: { type: "mrkdwn", text: "Body" } }];
+    const out = getStructuredAcceptedBlocks(
+      blocks,
+      { type: "table", rows: [[{ type: "raw_text", text: "A" }]] },
+      { chart_type: "pie", segments: [{ label: "A", value: 1 }] },
+    );
+    assert.deepEqual(
+      out.map((b) => b.type),
+      ["section", "data_visualization", "table"],
+    );
+  });
+
+  it("renders the data_table variant when accepted", () => {
+    const blocks: Block[] = [{ type: "section", text: { type: "mrkdwn", text: "Body" } }];
+    const out = getStructuredAcceptedBlocks(blocks, {
+      type: "table",
+      variant: "data_table",
+      rows: [[{ type: "raw_text", text: "A" }]],
+    });
+    assert.equal(out[out.length - 1].type, "data_table");
   });
 });
 

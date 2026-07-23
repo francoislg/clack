@@ -406,6 +406,21 @@ describe("validateTable — standalone table parameter", () => {
     assert.equal(rowError.limit, 100);
   });
 
+  it("accepts 200 rows under the data_table variant", () => {
+    const rows = Array.from({ length: 200 }, (_, i) => [`row${i}`]);
+    const table: AuthoredTableBlock = { type: "table", variant: "data_table", rows };
+    const rowErrors = validateTable(table, "table").filter((e) => e.field === "table.rows");
+    assert.equal(rowErrors.length, 0);
+  });
+
+  it("rejects more than 200 rows under the data_table variant", () => {
+    const rows = Array.from({ length: 201 }, (_, i) => [`row${i}`]);
+    const table: AuthoredTableBlock = { type: "table", variant: "data_table", rows };
+    const rowError = validateTable(table, "table").find((e) => e.field === "table.rows");
+    assert.ok(rowError);
+    assert.equal(rowError.limit, 200);
+  });
+
   it("rejects a row with more than 20 cells", () => {
     const table: AuthoredTableBlock = {
       type: "table",

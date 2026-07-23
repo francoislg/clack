@@ -137,12 +137,95 @@ const tableColumnSettingSchema = z.looseObject({
  * `blocks`, and rejects payloads with more than one. The MCP-tool surface
  * encodes both constraints structurally by exposing tables as a sibling
  * parameter (single optional field) rather than a block type.
+ *
+ * `variant` selects the emitted Slack block at delivery: `"table"` (default)
+ * keeps the legacy static table with `column_settings` alignment/wrap; `"data_table"`
+ * emits Slack's interactive `data_table` (pagination + sorting, 200-row cap). Slack's
+ * `data_table` has no per-column alignment, so `column_settings` is ignored under that
+ * variant; `caption` (screen-reader/HTML label) applies to `data_table` only.
  */
 export const tableBlockSchema = z.looseObject({
   type: z.literal("table"),
+  variant: z.enum(["table", "data_table"]).optional(),
+  caption: z.string().optional(),
   rows: z.array(z.array(tableCellSchema)).min(1),
   column_settings: z.array(tableColumnSettingSchema).optional(),
 });
+
+// ----------------------------------------------------------------------------
+// Chart block (data_visualization) — top-level `chart` sibling parameter
+// ----------------------------------------------------------------------------
+// Curated shape mapping onto Slack's `data_visualization` block. Like `table`,
+// it is a sibling parameter (single optional field), NOT a member of the
+// `blocks` union — Slack renders one chart per block and validation caps are
+// easier to enforce structurally. `chart_type` selects pie (segments) vs
+// bar/area/line (series); the pie⇄series exclusivity and all caps live in
+// `validateChart` (not zod refinements — a refine-wrapped schema breaks
+// JSON-Schema generation and drops the whole tool registry).
+
+const chartSegmentSchema = z.looseObject({
+  label: z.string(),
+  value: z.number(),
+});
+
+const chartDataPointSchema = z.looseObject({
+  label: z.string(),
+  value: z.number(),
+});
+
+const chartSeriesSchema = z.looseObject({
+  name: z.string(),
+  data: z.array(chartDataPointSchema),
+});
+
+const chartAxisConfigSchema = z.looseObject({
+  categories: z.array(z.string()).optional(),
+  x_label: z.string().optional(),
+  y_label: z.string().optional(),
+});
+
+export const chartBlockSchema = z.looseObject({
+  chart_type: z.enum(["pie", "bar", "area", "line"]),
+  title: z.string().optional(),
+  segments: z.array(chartSegmentSchema).optional(),
+  series: z.array(chartSeriesSchema).optional(),
+  axis_config: chartAxisConfigSchema.optional(),
+});
+
+export interface AuthoredChartSegment {
+  label: string;
+  value: number;
+}
+
+export interface AuthoredChartDataPoint {
+  label: string;
+  value: number;
+}
+
+export interface AuthoredChartSeries {
+  name: string;
+  data: AuthoredChartDataPoint[];
+}
+
+export interface AuthoredChartAxisConfig {
+  categories?: string[];
+  x_label?: string;
+  y_label?: string;
+}
+
+/**
+ * Chart as Claude may author it in the top-level `chart` parameter. Maps at
+ * delivery onto a Slack `data_visualization` block (`chart_type` → `chart.type`,
+ * `segments`/`series`/`axis_config` under `chart`). Pie uses `segments`; the
+ * other three use `series` + `axis_config`.
+ */
+export interface AuthoredChartBlock {
+  chart_type: "pie" | "bar" | "area" | "line";
+  title?: string;
+  segments?: AuthoredChartSegment[];
+  series?: AuthoredChartSeries[];
+  axis_config?: AuthoredChartAxisConfig;
+}
 
 // ----------------------------------------------------------------------------
 // Card and Carousel blocks
@@ -274,8 +357,13 @@ export type AuthoredTableCell = string | RawTextElement | AuthoredRichTextCell;
 /**
  * Table block as Claude may author it, before prepareBlocks normalizes
  * bare-string cells. Slack's own TableBlock has the narrower post-prep shape.
+ * `variant` selects the emitted block at delivery (`"table"` default vs
+ * `"data_table"`); `caption` is the screen-reader/HTML label used only by the
+ * `data_table` variant.
  */
 export type AuthoredTableBlock = Omit<TableBlock, "rows"> & {
+  variant?: "table" | "data_table";
+  caption?: string;
   rows: AuthoredTableCell[][];
 };
 

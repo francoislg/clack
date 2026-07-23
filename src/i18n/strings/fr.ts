@@ -281,6 +281,7 @@ export const fr: Partial<Record<StringKey, string>> = {
   "blocks.action_label_config_revert": "Retirer la personnalisation",
   "blocks.action_label_config_delete": "Supprimer le fichier",
   "blocks.action_label_update": "Mettre à jour",
+  "blocks.data_table_default_caption": "Tableau",
 
   // ─── Error blocks ──────────────────────────────────────────────────
   "blocks.crash_error": ":warning: Claude semble avoir crashé, vous pouvez réessayer.",

@@ -2,7 +2,7 @@ import type { App } from "@slack/bolt";
 import type { Block as SlackRawBlock, KnownBlock } from "@slack/types";
 import type { SlackBlocks } from "../slack/blocks.js";
 import type { EphemeralAttentionLevel } from "../ephemeralRules.js";
-import type { AuthoredTableBlock, Block } from "../slack/blockSchema.js";
+import type { AuthoredChartBlock, AuthoredTableBlock, Block } from "../slack/blockSchema.js";
 import type {
   McpSdkServerConfigWithInstance,
   McpServerConfig,
@@ -92,6 +92,7 @@ export interface DeliveryControl {
 export interface DeliverToPayload {
   blocks: Block[];
   table?: AuthoredTableBlock;
+  chart?: AuthoredChartBlock;
   actions?: Action[];
   reactions?: string[];
   suppress_unfurls?: boolean;
@@ -452,6 +453,7 @@ export interface ResponseSnapshot {
    * sibling of `blocks` rather than a member of it.
    */
   table?: AuthoredTableBlock;
+  chart?: AuthoredChartBlock;
   actions?: Action[];
   reactions?: string[];
   /**
@@ -509,6 +511,7 @@ export interface PostToAction {
    * sibling of `blocks` rather than a member of it.
    */
   table?: AuthoredTableBlock;
+  chart?: AuthoredChartBlock;
   /**
    * Optional interactive buttons rendered on the cross-posted message. Same
    * action types as top-level (followup, choice, change, config_update, update).
@@ -637,6 +640,7 @@ export type ActionType = Action["type"];
 export interface MessagePayload {
   blocks: Block[];
   table?: AuthoredTableBlock;
+  chart?: AuthoredChartBlock;
   actions?: Action[];
   reactions?: string[];
 }
@@ -657,6 +661,7 @@ export interface SubmitResponsePayload {
    * surface exposes it as a sibling of `blocks` rather than a block type.
    */
   table?: AuthoredTableBlock;
+  chart?: AuthoredChartBlock;
   actions: Action[];
   /**
    * Sibling messages posted in the same thread as the primary. Only present when

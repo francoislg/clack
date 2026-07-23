@@ -28,6 +28,7 @@ function makeDeps(overrides: Partial<ValidateDeliverToDeps> = {}): ValidateDeliv
     sessionId: "sess-1",
     validateBlocks: () => [],
     validateTable: () => [],
+    validateChart: () => [],
     validateActionButtonLabels: () => [],
     getResponseActionBlocks: () => [],
     ...overrides,

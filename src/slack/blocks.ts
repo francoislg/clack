@@ -7,8 +7,10 @@ import type {
   SectionBlock,
 } from "@slack/types";
 import { z } from "zod";
-import type { AuthoredTableBlock, Block } from "./blockSchema.js";
+import type { AuthoredChartBlock, AuthoredTableBlock, Block } from "./blockSchema.js";
 import { prepareBlocks, prepareTable } from "./blockPrepare.js";
+import { renderTableForDelivery } from "./tableRender.js";
+import { renderChartForDelivery } from "./chartRender.js";
 import type { BlockValidationError } from "./blockValidate.js";
 import type { SubmitResponsePayload, Action } from "../tools/types.js";
 import { t } from "../i18n/t.js";
@@ -231,9 +233,10 @@ export function getResponseActionBlocks(actions: Action[], sessionId: string): A
  * Build the Slack Block Kit output for a submit_response payload:
  *   - Prepend `message` preamble as a section block (if present).
  *   - Include Claude-authored `blocks` (after markdown conversion + splits).
- *   - Append the optional `table` (sibling parameter — Slack always renders
- *     tables at the bottom of the message, so we place it after content but
- *     before action buttons; either ordering renders identically).
+ *   - Append the optional `chart` (rendered as a `data_visualization` block),
+ *     then the optional `table` (a `data_table` or legacy `table` block per its
+ *     `variant`). Slack always renders tables at the bottom of the message, so
+ *     chart-before-table keeps the chart visible above it.
  *   - Append action buttons with a divider separator.
  *
  * Validation is the caller's responsibility and should run on this output
@@ -257,8 +260,12 @@ export function getStructuredResponseBlocks(
     out.push(b);
   }
 
+  if (payload.chart) {
+    out.push(renderChartForDelivery(payload.chart));
+  }
+
   if (payload.table) {
-    out.push(prepareTable(payload.table));
+    out.push(renderTableForDelivery(prepareTable(payload.table)));
   }
 
   const actionBlocks = getResponseActionBlocks(payload.actions, sessionId);
@@ -271,18 +278,23 @@ export function getStructuredResponseBlocks(
 }
 
 /**
- * Build blocks for the accepted (shareable, post_to) payload — just the
- * authored blocks after markdown conversion + splitting, plus the optional
- * `table` appended at the end. Excludes the conversational `message`
- * preamble by contract.
+ * Build blocks for the accepted (shareable, post_to) payload — the authored
+ * blocks after markdown conversion + splitting, plus the optional `chart`
+ * (`data_visualization` block) and `table` (`data_table`/legacy `table` per its
+ * `variant`) appended at the end, chart before table. Excludes the
+ * conversational `message` preamble by contract.
  */
 export function getStructuredAcceptedBlocks(
   blocks: Block[],
   table?: AuthoredTableBlock,
+  chart?: AuthoredChartBlock,
 ): SlackBlocks {
   const out: SlackBlocks = prepareBlocks(blocks);
+  if (chart) {
+    out.push(renderChartForDelivery(chart));
+  }
   if (table) {
-    out.push(prepareTable(table));
+    out.push(renderTableForDelivery(prepareTable(table)));
   }
   return out;
 }
