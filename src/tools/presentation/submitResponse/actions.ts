@@ -252,6 +252,7 @@ export async function persistPostToSnapshots(
       text: extractDisplayText(action.blocks),
       blocks: action.blocks,
       ...(action.table && { table: action.table }),
+      ...(action.chart && { chart: action.chart }),
       ...(action.actions && action.actions.length > 0 && { actions: action.actions }),
       ...(action.reactions && action.reactions.length > 0 && { reactions: action.reactions }),
       ...(action.suppress_unfurls === true && { suppressUnfurls: true }),

@@ -7,6 +7,7 @@ import {
 import {
   validateBlocks as _validateBlocks,
   validateTable as _validateTable,
+  validateChart as _validateChart,
 } from "../../../slack/blockValidate.js";
 import { validateSingleMessage } from "./messageValidation.js";
 import { flattenActions, persistReferencedIntents, validateRefActions } from "./actions.js";
@@ -16,6 +17,7 @@ export interface ValidateDeliverToDeps {
   sessionId: string;
   validateBlocks: typeof _validateBlocks;
   validateTable: typeof _validateTable;
+  validateChart: typeof _validateChart;
   validateActionButtonLabels: typeof _validateActionButtonLabels;
   getResponseActionBlocks: typeof _getResponseActionBlocks;
 }
@@ -41,9 +43,11 @@ export function validateDeliverToEntries(
       ...validateSingleMessage({
         blocks: response.blocks,
         ...(response.table && { table: response.table }),
+        ...(response.chart && { chart: response.chart }),
         pathPrefix: `${base}.response`,
         validateBlocks: deps.validateBlocks,
         validateTable: deps.validateTable,
+        validateChart: deps.validateChart,
       }),
     );
 
@@ -52,9 +56,11 @@ export function validateDeliverToEntries(
         ...validateSingleMessage({
           blocks: reply.blocks,
           ...(reply.table && { table: reply.table }),
+          ...(reply.chart && { chart: reply.chart }),
           pathPrefix: `${base}.response.thread_replies[${ri}]`,
           validateBlocks: deps.validateBlocks,
           validateTable: deps.validateTable,
+          validateChart: deps.validateChart,
         }),
       );
     });

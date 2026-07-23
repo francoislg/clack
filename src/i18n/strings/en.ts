@@ -273,6 +273,7 @@ export const en = {
   "blocks.action_label_config_revert": "Remove Override",
   "blocks.action_label_config_delete": "Delete File",
   "blocks.action_label_update": "Update",
+  "blocks.data_table_default_caption": "Table",
 
   // ─── Error blocks ──────────────────────────────────────────────────
   "blocks.crash_error": ":warning: Claude seems to have crashed, maybe try again?",

@@ -16,7 +16,7 @@ import {
   decodeActionValue,
   asSlackBlocks,
 } from "../blocks.js";
-import type { AuthoredTableBlock, Block } from "../blockSchema.js";
+import type { AuthoredChartBlock, AuthoredTableBlock, Block } from "../blockSchema.js";
 import type { SectionBlock } from "@slack/types";
 import { addDeliveryReactions } from "../messageReactions.js";
 import { unfurlOptions } from "../unfurlOptions.js";
@@ -122,7 +122,11 @@ export async function postAnswerToChannel(
     suppressUnfurls?: boolean;
   } = {},
 ): Promise<{ ok: boolean; ts?: string }> {
-  const contentBlocks = deps.getStructuredAcceptedBlocks(snapshot.blocks, snapshot.table);
+  const contentBlocks = deps.getStructuredAcceptedBlocks(
+    snapshot.blocks,
+    snapshot.table,
+    snapshot.chart,
+  );
 
   // Append rendered action buttons when post_to.actions are present.
   // The original session's ID is passed through so click handlers resolve
@@ -184,7 +188,13 @@ export async function postAnswerToChannel(
 async function deliverFollower(
   client: App["client"],
   sessionId: string | undefined,
-  msg: { blocks: Block[]; table?: AuthoredTableBlock; actions?: Action[]; reactions?: string[] },
+  msg: {
+    blocks: Block[];
+    table?: AuthoredTableBlock;
+    chart?: AuthoredChartBlock;
+    actions?: Action[];
+    reactions?: string[];
+  },
   ctx: {
     channel: string;
     /** When set: posted as thread reply. When undefined: posted as top-level channel message. */
@@ -193,7 +203,7 @@ async function deliverFollower(
     deps: DmActionsDeps;
   },
 ): Promise<void> {
-  const contentBlocks = ctx.deps.getStructuredAcceptedBlocks(msg.blocks, msg.table);
+  const contentBlocks = ctx.deps.getStructuredAcceptedBlocks(msg.blocks, msg.table, msg.chart);
   const renderedActionBlocks =
     msg.actions && msg.actions.length > 0 && sessionId
       ? getResponseActionBlocks(msg.actions, sessionId)
