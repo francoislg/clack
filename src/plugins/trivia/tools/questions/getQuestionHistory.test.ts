@@ -399,3 +399,53 @@ describe("get_question_history — choice questions", () => {
     assert.equal(Object.prototype.hasOwnProperty.call(pendingRow, "judgeReason"), false);
   });
 });
+
+describe("get_question_history — shared-buzzer team slots", () => {
+  let data: FakeTriviaDataLayer;
+
+  beforeEach(async () => {
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk);
+    ({ dataLayer: data } = createTriviaDataLayer(sdk));
+    await data.forGame(FIXTURE_GAME_NAME).saveQuestion({
+      id: "q42",
+      category: "Science",
+      statement: "Octopuses have three hearts",
+      isTrue: true,
+      emojis: ["🐙"],
+      createdAt: 100,
+    });
+  });
+
+  it("surfaces team-answer slots (with ownerKey + lastAnsweredBy) for byTeam questions", async () => {
+    await data.forGame(FIXTURE_GAME_NAME).upsertTeamAnswer({
+      teamName: "Red",
+      questionId: "q42",
+      answer: true,
+      correct: true,
+      lastAnsweredBy: "U1",
+      timestamp: 500,
+    });
+    const tool = createGetQuestionHistoryTool(data, fixtureGetGames);
+
+    const parsed = parseToolResult(
+      await tool.handler({ game: FIXTURE_GAME_NAME, questionId: "q42" }, SESSION),
+    );
+    assert.equal(parsed.teamAnswers.length, 1);
+    assert.deepEqual(parsed.teamAnswers[0], {
+      ownerKey: "team:Red",
+      teamName: "Red",
+      lastAnsweredBy: "U1",
+      answer: true,
+      correct: true,
+    });
+  });
+
+  it("omits teamAnswers when the question has no team slots", async () => {
+    const tool = createGetQuestionHistoryTool(data, fixtureGetGames);
+    const parsed = parseToolResult(
+      await tool.handler({ game: FIXTURE_GAME_NAME, questionId: "q42" }, SESSION),
+    );
+    assert.equal(Object.prototype.hasOwnProperty.call(parsed, "teamAnswers"), false);
+  });
+});

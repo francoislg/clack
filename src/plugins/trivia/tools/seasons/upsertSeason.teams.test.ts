@@ -53,6 +53,7 @@ function makeArgs(overrides: Partial<UpsertArgs>): UpsertArgs {
     teamsEnabled: undefined,
     teamsFinaleIndividuals: undefined,
     teamsScoring: undefined,
+    answeringType: undefined,
     ...overrides,
   };
 }

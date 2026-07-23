@@ -1,4 +1,5 @@
 import type { SubmittedAnswer, TriviaQuestion, TriviaUser } from "../core/types.js";
+import { isTeamOwnerKey } from "../answering/teamKey.js";
 
 export interface LeaderboardEntry {
   userId: string;
@@ -112,16 +113,20 @@ export function computeLeaderboard(
 ): ComputeLeaderboardResult {
   const limit = options.limit ?? 10;
 
+  // The individual leaderboard never lists teams — shared-buzzer results render
+  // exclusively in team standings. Synthetic `team:` rows are filtered out here.
+  const individualAnswers = allAnswers.filter((a) => !isTeamOwnerKey(a.userId));
+
   const primaryAnswers =
     options.primaryFilterSeason === null
-      ? allAnswers
-      : allAnswers.filter((a) => a.season === options.primaryFilterSeason);
+      ? individualAnswers
+      : individualAnswers.filter((a) => a.season === options.primaryFilterSeason);
   const primaryMap = aggregate(primaryAnswers, questionPoints);
-  const allTimeMap = aggregate(allAnswers, questionPoints);
+  const allTimeMap = aggregate(individualAnswers, questionPoints);
   const currentSeasonMap =
     options.currentSeasonSlug !== null
       ? aggregate(
-          allAnswers.filter((a) => a.season === options.currentSeasonSlug),
+          individualAnswers.filter((a) => a.season === options.currentSeasonSlug),
           questionPoints,
         )
       : null;

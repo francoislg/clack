@@ -35,6 +35,7 @@ const emptyArgs = {
   teamsEnabled: undefined,
   teamsFinaleIndividuals: undefined,
   teamsScoring: undefined,
+  answeringType: undefined,
 };
 
 describe("set_workspace_config", () => {

@@ -64,6 +64,18 @@ export function createSaveCheatingTool(
       };
       const { totalAttempts } = await scoped.saveCheat(report);
 
+      // Shared-buzzer sweep: if the flagged user currently HOLDS their team's slot
+      // for this question, drop it so a clean teammate can re-answer. A slot held by
+      // a non-flagged member survives — one cheater can't cancel the team's play.
+      // Inert for individual games (team-answers.json absent → no slots).
+      const teamSlots = await scoped.loadTeamAnswers();
+      const heldByCheater = teamSlots.find(
+        (s) => s.questionId === args.questionId && s.lastAnsweredBy === args.cheaterUserId,
+      );
+      if (heldByCheater !== undefined) {
+        await scoped.removeTeamAnswer(heldByCheater.teamName, args.questionId);
+      }
+
       const ownerNotification = await sdk.dmOwner(
         formatOwnerNotification({
           cheaterUserId: args.cheaterUserId,

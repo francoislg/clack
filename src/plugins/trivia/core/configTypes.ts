@@ -356,6 +356,26 @@ export type TeamsScoringMode = "one-right-is-right" | "total-points";
 /** The accepted `teamsScoring` values, for zod/validator reuse. */
 export const TEAMS_SCORING_KEYS = ["one-right-is-right", "total-points"] as const;
 
+/**
+ * Answer-ownership model for a game/season/workspace.
+ *   - `"individual"` — every player owns their own `(userId, questionId)` answer
+ *     (the shipped model; `teamsScoring` still aggregates individual answers at
+ *     reveal when teams mode is on).
+ *   - `"byTeam"` — shared-buzzer: the TEAM owns one answer slot per question, any
+ *     member's click overrides it, and the live roster shows the team. Effective
+ *     only when the resolved teams config is enabled with a non-empty roster;
+ *     otherwise it falls back to `"individual"` (an `inertAnsweringType` warning).
+ * Structural-special (like `teamsEnabled`): cascades `season → game → workspace`,
+ * NOT a `CascadeAxes` member and no slot tier.
+ */
+export type TriviaAnsweringType = "individual" | "byTeam";
+
+/** The accepted `answeringType` values, for zod/validator reuse. */
+export const ANSWERING_TYPE_KEYS = ["individual", "byTeam"] as const;
+
+/** Built-in fallback when no `answeringType` is set at any tier. */
+export const DEFAULT_ANSWERING_TYPE: TriviaAnsweringType = "individual";
+
 /** Built-in fallback when no `teamsEnabled` is set at any tier: teams mode off. */
 export const DEFAULT_TEAMS_ENABLED = false;
 
@@ -502,6 +522,14 @@ export interface TriviaGame extends CascadeAxes {
    *   member. See `TeamsScoringMode` and `TEAM_SCORING_REGISTRY`.
    */
   teamsScoring?: TeamsScoringMode;
+  /**
+   * Per-game tier of the answer-ownership model (shared-buzzer). Cascade:
+   *   `season → game → workspace → "individual"`. NOT a CascadeAxes member.
+   * Effective only when the resolved teams config is enabled with a non-empty
+   * roster; otherwise inert (falls back to individual, `list_games` warning).
+   * See `TriviaAnsweringType` and `resolveTeamsConfig`.
+   */
+  answeringType?: TriviaAnsweringType;
 }
 
 /**
@@ -615,6 +643,12 @@ export interface TriviaConfig extends CascadeAxes {
    *   member.
    */
   teamsScoring?: TeamsScoringMode;
+  /**
+   * Workspace tier of the answer-ownership model (shared-buzzer). Cascade:
+   *   `season → game → workspace → "individual"`. NOT a CascadeAxes member.
+   * See `TriviaAnsweringType` and `resolveTeamsConfig`.
+   */
+  answeringType?: TriviaAnsweringType;
 }
 
 /** Defaults applied when `choices` is absent or only partially specified. */

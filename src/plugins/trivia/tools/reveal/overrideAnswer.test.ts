@@ -296,3 +296,145 @@ describe("override_answer tool", () => {
     assert.equal((await findRow(data))?.correct, false, "row unchanged");
   });
 });
+
+const ROSTER = [{ name: "Red", userIds: ["U1", "U2"] }];
+
+function byTeamQuestion(overrides: Partial<TriviaQuestion> = {}): TriviaQuestion {
+  return freeformQuestion({
+    answeringType: "byTeam",
+    teamsStamp: { teams: ROSTER },
+    ...overrides,
+  });
+}
+
+async function findSlot(data: FakeTriviaDataLayer, teamName = "Red", questionId = "q1") {
+  const slots = await data.forGame(FIXTURE_GAME_NAME).loadTeamAnswers();
+  return slots.find((s) => s.teamName === teamName && s.questionId === questionId);
+}
+
+describe("override_answer tool — shared-buzzer team slots", () => {
+  async function seedSlot(data: FakeTriviaDataLayer) {
+    const scoped = data.forGame(FIXTURE_GAME_NAME);
+    await scoped.saveQuestion(byTeamQuestion());
+    await scoped.upsertTeamAnswer({
+      teamName: "Red",
+      questionId: "q1",
+      answerText: "Lleida",
+      correct: false,
+      judgeReason: "too-broad",
+      lastAnsweredBy: "U2",
+      timestamp: 500,
+    });
+  }
+
+  it("overrides a team slot, capturing the machine verdict as originalVerdict", async () => {
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk);
+    const { dataLayer: data } = createTriviaDataLayer(sdk);
+    await seedSlot(data);
+    const tool = createOverrideAnswerTool(data, fixtureGetGames);
+
+    const body = parseToolResult(
+      await tool.handler(
+        {
+          game: FIXTURE_GAME_NAME,
+          questionId: "q1",
+          userId: "team:Red",
+          correct: true,
+          reason: "valid alternative",
+          restore: undefined,
+        },
+        SESSION,
+      ),
+    );
+    assert.equal(body.action, "overridden");
+    const slot = await findSlot(data);
+    assert.equal(slot?.correct, true);
+    assert.equal(slot?.judgeReason, "valid alternative");
+    assert.deepEqual(slot?.originalVerdict, { correct: false, judgeReason: "too-broad" });
+    assert.equal(slot?.lastAnsweredBy, "U2", "attribution preserved");
+  });
+
+  it("restores a team slot to its machine verdict", async () => {
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk);
+    const { dataLayer: data } = createTriviaDataLayer(sdk);
+    await seedSlot(data);
+    const tool = createOverrideAnswerTool(data, fixtureGetGames);
+
+    await tool.handler(
+      {
+        game: FIXTURE_GAME_NAME,
+        questionId: "q1",
+        userId: "team:Red",
+        correct: true,
+        reason: "x",
+        restore: undefined,
+      },
+      SESSION,
+    );
+    const restored = parseToolResult(
+      await tool.handler(
+        {
+          game: FIXTURE_GAME_NAME,
+          questionId: "q1",
+          userId: "team:Red",
+          correct: undefined,
+          reason: undefined,
+          restore: true,
+        },
+        SESSION,
+      ),
+    );
+    assert.equal(restored.action, "restored");
+    const slot = await findSlot(data);
+    assert.equal(slot?.correct, false);
+    assert.equal(slot?.originalVerdict, undefined);
+  });
+
+  it("errors when the team name is not in the stamped roster", async () => {
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk);
+    const { dataLayer: data } = createTriviaDataLayer(sdk);
+    await seedSlot(data);
+    const tool = createOverrideAnswerTool(data, fixtureGetGames);
+
+    const body = parseToolResult(
+      await tool.handler(
+        {
+          game: FIXTURE_GAME_NAME,
+          questionId: "q1",
+          userId: "team:Ghost",
+          correct: true,
+          reason: "x",
+          restore: undefined,
+        },
+        SESSION,
+      ),
+    );
+    assert.match(body.error, /not in the stamped roster/);
+  });
+
+  it("errors when the roster team has no slot yet", async () => {
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk);
+    const { dataLayer: data } = createTriviaDataLayer(sdk);
+    await data.forGame(FIXTURE_GAME_NAME).saveQuestion(byTeamQuestion());
+    const tool = createOverrideAnswerTool(data, fixtureGetGames);
+
+    const body = parseToolResult(
+      await tool.handler(
+        {
+          game: FIXTURE_GAME_NAME,
+          questionId: "q1",
+          userId: "team:Red",
+          correct: true,
+          reason: "x",
+          restore: undefined,
+        },
+        SESSION,
+      ),
+    );
+    assert.match(body.error, /has not answered/);
+  });
+});

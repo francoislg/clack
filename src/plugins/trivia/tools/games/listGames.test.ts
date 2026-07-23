@@ -1,6 +1,12 @@
 import { describe, it } from "vitest";
 import assert from "node:assert/strict";
-import { fixtureGetGames, FIXTURE_GAME_NAME, FIXTURE_GAMES } from "../../testHelpers.js";
+import {
+  createTriviaDataLayer,
+  fixtureGetGames,
+  FIXTURE_GAME_NAME,
+  FIXTURE_GAMES,
+} from "../../testHelpers.js";
+import { createFakeSdk, primeTriviaConfig } from "../../testHelpers.fakeSdk.js";
 import { createListGamesTool } from "./listGames.js";
 import { parseToolResult } from "../../../../plugins-sdk/testHelpers.js";
 import type { TriviaConfig, TriviaGame } from "../../core/configTypes.js";
@@ -832,5 +838,46 @@ describe("list_games — teams surfacing", () => {
     const tool = createListGamesTool(() => gameWith({ teamsEnabled: true }), triviaConfig);
     const parsed = parseToolResult(await tool.handler({ includeDisabled: undefined }, SESSION));
     assert.equal("teamsWarning" in parsed.games[0], false);
+  });
+
+  it("surfaces answeringType and warns when byTeam is inert (teams off)", async () => {
+    const tool = createListGamesTool(
+      () => gameWith({ answeringType: "byTeam", teamsEnabled: false, teams: ROSTER }),
+      emptyTriviaConfig,
+    );
+    const parsed = parseToolResult(await tool.handler({ includeDisabled: undefined }, SESSION));
+    assert.equal(parsed.games[0].answeringType, "byTeam");
+    assert.match(parsed.games[0].answeringTypeWarning, /INERT/);
+  });
+
+  it("does not warn when byTeam is effectively on (enabled + roster)", async () => {
+    const tool = createListGamesTool(
+      () => gameWith({ answeringType: "byTeam", teamsEnabled: true, teams: ROSTER }),
+      emptyTriviaConfig,
+    );
+    const parsed = parseToolResult(await tool.handler({ includeDisabled: undefined }, SESSION));
+    assert.equal("answeringTypeWarning" in parsed.games[0], false);
+  });
+
+  it("flags a byTeam-stamped live question while the current config resolves to individual", async () => {
+    const { sdk } = createFakeSdk();
+    const games = gameWith({ answeringType: "individual", teamsEnabled: true, teams: ROSTER });
+    primeTriviaConfig(sdk, { games: games.map((g) => ({ ...g })) });
+    const { dataLayer: data } = createTriviaDataLayer(sdk);
+    await data.forGame("teamsy").saveQuestion({
+      id: "q1",
+      category: "C",
+      statement: "s",
+      isTrue: true,
+      emojis: ["🎯"],
+      createdAt: 0,
+      postedAt: 1000,
+      answeringType: "byTeam",
+      teamsStamp: { teams: ROSTER },
+    });
+    const tool = createListGamesTool(() => games, emptyTriviaConfig, undefined, data);
+
+    const parsed = parseToolResult(await tool.handler({ includeDisabled: undefined }, SESSION));
+    assert.deepEqual(parsed.games[0].answeringTypeDivergence?.liveByTeamQuestions, 1);
   });
 });

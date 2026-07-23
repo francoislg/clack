@@ -30,6 +30,8 @@ describe("resolveTeamsConfig", () => {
       scoring: "one-right-is-right",
       finaleIndividuals: false,
       inertEnabled: false,
+      answeringType: "individual",
+      inertAnsweringType: false,
     });
   });
 
@@ -105,5 +107,59 @@ describe("resolveTeamsConfig", () => {
     );
     expect(r.enabled).toBe(false);
     expect(r.inertEnabled).toBe(false);
+  });
+});
+
+describe("resolveTeamsConfig — answeringType (shared buzzer)", () => {
+  it("defaults to individual, not inert", () => {
+    const r = resolveTeamsConfig(null, null, null);
+    expect(r.answeringType).toBe("individual");
+    expect(r.inertAnsweringType).toBe(false);
+  });
+
+  it("resolves byTeam when teams are effectively on", () => {
+    const r = resolveTeamsConfig(
+      null,
+      game({ teams: ROSTER_A, teamsEnabled: true, answeringType: "byTeam" }),
+      null,
+    );
+    expect(r.answeringType).toBe("byTeam");
+    expect(r.inertAnsweringType).toBe(false);
+  });
+
+  it("byTeam with teams disabled is inert → falls back to individual", () => {
+    const r = resolveTeamsConfig(
+      null,
+      game({ teams: ROSTER_A, teamsEnabled: false, answeringType: "byTeam" }),
+      null,
+    );
+    expect(r.answeringType).toBe("individual");
+    expect(r.inertAnsweringType).toBe(true);
+  });
+
+  it("byTeam with an empty roster is inert → falls back to individual", () => {
+    const r = resolveTeamsConfig(null, game({ teamsEnabled: true, answeringType: "byTeam" }), null);
+    expect(r.answeringType).toBe("individual");
+    expect(r.inertAnsweringType).toBe(true);
+  });
+
+  it("cascades independently: season sets byTeam, game supplies the enabled roster", () => {
+    const r = resolveTeamsConfig(
+      season({ answeringType: "byTeam" }),
+      game({ teams: ROSTER_A, teamsEnabled: true }),
+      null,
+    );
+    expect(r.answeringType).toBe("byTeam");
+    expect(r.inertAnsweringType).toBe(false);
+  });
+
+  it("season individual masks a lower-tier byTeam", () => {
+    const r = resolveTeamsConfig(
+      season({ answeringType: "individual" }),
+      game({ teams: ROSTER_A, teamsEnabled: true, answeringType: "byTeam" }),
+      null,
+    );
+    expect(r.answeringType).toBe("individual");
+    expect(r.inertAnsweringType).toBe(false);
   });
 });

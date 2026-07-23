@@ -8,6 +8,8 @@
 
 import { triviaLogger as logger } from "../core/pluginLogger.js";
 import { t } from "../i18n/t.js";
+import { buildTeamIndexByUser } from "../domain/teams/computeTeamStandings.js";
+import { projectTeamSlotToRow } from "../answering/byTeam.js";
 import type { PersistentPostGameButton } from "./postGameButtons.js";
 import { buildSeeAnswerModal } from "./seeAnswerModal.js";
 
@@ -31,9 +33,24 @@ export const seeAnswerButton: PersistentPostGameButton = {
       return;
     }
 
-    const myRow = (await ctx.scoped.loadAnswers()).find(
-      (a) => a.userId === userId && a.questionId === ctx.questionId,
-    );
+    // Shared-buzzer: a stamped-roster member sees the TEAM's slot (attribution
+    // suppressed — `projectTeamSlotToRow` drops `lastAnsweredBy`). Free agents and
+    // individual-mode players see their own row.
+    const roster =
+      ctx.question.answeringType === "byTeam" ? (ctx.question.teamsStamp?.teams ?? []) : [];
+    const teamIndex = buildTeamIndexByUser(roster).get(userId);
+    let myRow;
+    if (teamIndex !== undefined) {
+      const teamName = roster[teamIndex].name;
+      const slot = (await ctx.scoped.loadTeamAnswers()).find(
+        (s) => s.teamName === teamName && s.questionId === ctx.questionId,
+      );
+      myRow = slot === undefined ? undefined : projectTeamSlotToRow(slot);
+    } else {
+      myRow = (await ctx.scoped.loadAnswers()).find(
+        (a) => a.userId === userId && a.questionId === ctx.questionId,
+      );
+    }
     const view = buildSeeAnswerModal({ question: ctx.question, myRow });
     await ctx.client.views.open({ trigger_id: triggerId, view });
   },

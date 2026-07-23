@@ -25,6 +25,7 @@ import type {
 import {
   teamsRosterZod,
   teamsScoringZod,
+  answeringTypeZod,
   validateTeamsRoster,
 } from "../../core/configParsers/teams.js";
 import {
@@ -266,6 +267,12 @@ const structuralFieldsSchema = {
     .optional()
     .describe(
       'Per-game tier of the team scoring algorithm. `"one-right-is-right"` (the default): per question, ≥1 member correct earns the team the question\'s points once. `"total-points"`: per question, the team earns the sum of its correct members\' points (favors bigger teams — say so when an admin picks it). Stamped onto the season at close, so ended seasons keep the mode they were played under. Cascade: `season → game → workspace → "one-right-is-right"` (no slot tier). On UPDATE: explicit null clears the field.',
+    ),
+  answeringType: answeringTypeZod
+    .nullable()
+    .optional()
+    .describe(
+      'Per-game tier of the answer-ownership model (shared buzzer). `"individual"` (the default): every player owns their own answer; `teamsScoring` still aggregates individual answers at reveal when teams mode is on. `"byTeam"`: the TEAM owns ONE answer slot per question — any member\'s click OVERWRITES the previous member\'s, the live roster shows the team name, and non-members play individually. `"byTeam"` is EFFECTIVE only when teams mode resolves ON (enabled + non-empty roster); otherwise it is inert (falls back to individual, list_games surfaces a warning). Cascade: `season → game → workspace → "individual"` (no slot tier). On UPDATE: explicit null clears the field.',
     ),
 };
 
@@ -624,6 +631,7 @@ export function createUpsertGameTool(
           ? { teamsFinaleIndividuals: existing.teamsFinaleIndividuals }
           : {}),
         ...(existing?.teamsScoring !== undefined ? { teamsScoring: existing.teamsScoring } : {}),
+        ...(existing?.answeringType !== undefined ? { answeringType: existing.answeringType } : {}),
       };
       if (args.format === null) delete mergedStructural.format;
       else if (parsedFormat !== undefined) mergedStructural.format = parsedFormat;
@@ -673,6 +681,9 @@ export function createUpsertGameTool(
         mergedStructural.teamsFinaleIndividuals = args.teamsFinaleIndividuals;
       if (args.teamsScoring === null) mergedStructural.teamsScoring = undefined;
       else if (args.teamsScoring !== undefined) mergedStructural.teamsScoring = args.teamsScoring;
+      if (args.answeringType === null) mergedStructural.answeringType = undefined;
+      else if (args.answeringType !== undefined)
+        mergedStructural.answeringType = args.answeringType;
 
       const enabled = args.enabled ?? existing?.enabled ?? true;
 
@@ -722,6 +733,7 @@ export function createUpsertGameTool(
       if (wrote(args.teamsEnabled)) writtenFields.push("teamsEnabled");
       if (wrote(args.teamsFinaleIndividuals)) writtenFields.push("teamsFinaleIndividuals");
       if (wrote(args.teamsScoring)) writtenFields.push("teamsScoring");
+      if (wrote(args.answeringType)) writtenFields.push("answeringType");
 
       const shadowedBy =
         data !== undefined && writtenFields.length > 0
@@ -762,6 +774,7 @@ export function createUpsertGameTool(
         hasTeamsEnabled: mergedStructural.teamsEnabled !== undefined,
         hasTeamsFinaleIndividuals: mergedStructural.teamsFinaleIndividuals !== undefined,
         hasTeamsScoring: mergedStructural.teamsScoring !== undefined,
+        hasAnsweringType: mergedStructural.answeringType !== undefined,
         slotCount: mergedStructural.format?.questions.length ?? 0,
       });
     },

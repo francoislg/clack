@@ -212,6 +212,7 @@ describe("upsert_season tool", () => {
         teamsEnabled: undefined,
         teamsFinaleIndividuals: undefined,
         teamsScoring: undefined,
+        answeringType: undefined,
       },
       SESSION,
     );
@@ -261,6 +262,7 @@ describe("upsert_season tool", () => {
       teamsEnabled: undefined,
       teamsFinaleIndividuals: undefined,
       teamsScoring: undefined,
+      answeringType: undefined,
     };
 
     const created = parseToolResult(
@@ -312,6 +314,7 @@ describe("upsert_season tool", () => {
         teamsEnabled: undefined,
         teamsFinaleIndividuals: undefined,
         teamsScoring: undefined,
+        answeringType: undefined,
       },
       SESSION,
     );
@@ -354,6 +357,7 @@ describe("upsert_season tool", () => {
         teamsEnabled: undefined,
         teamsFinaleIndividuals: undefined,
         teamsScoring: undefined,
+        answeringType: undefined,
       },
       SESSION,
     );
@@ -398,6 +402,7 @@ describe("upsert_season tool", () => {
         teamsEnabled: undefined,
         teamsFinaleIndividuals: undefined,
         teamsScoring: undefined,
+        answeringType: undefined,
       },
       SESSION,
     );
@@ -444,6 +449,7 @@ describe("upsert_season tool", () => {
         teamsEnabled: undefined,
         teamsFinaleIndividuals: undefined,
         teamsScoring: undefined,
+        answeringType: undefined,
       },
       SESSION,
     );
@@ -491,6 +497,7 @@ describe("upsert_season tool", () => {
         teamsEnabled: undefined,
         teamsFinaleIndividuals: undefined,
         teamsScoring: undefined,
+        answeringType: undefined,
       },
       SESSION,
     );
@@ -539,6 +546,7 @@ describe("upsert_season tool", () => {
         teamsEnabled: undefined,
         teamsFinaleIndividuals: undefined,
         teamsScoring: undefined,
+        answeringType: undefined,
       },
       SESSION,
     );
@@ -583,6 +591,7 @@ describe("upsert_season tool", () => {
         teamsEnabled: undefined,
         teamsFinaleIndividuals: undefined,
         teamsScoring: undefined,
+        answeringType: undefined,
       },
       SESSION,
     );
@@ -625,6 +634,7 @@ describe("upsert_season tool", () => {
         teamsEnabled: undefined,
         teamsFinaleIndividuals: undefined,
         teamsScoring: undefined,
+        answeringType: undefined,
       },
       SESSION,
     );
@@ -666,6 +676,7 @@ describe("upsert_season tool", () => {
         teamsEnabled: undefined,
         teamsFinaleIndividuals: undefined,
         teamsScoring: undefined,
+        answeringType: undefined,
       },
       SESSION,
     );
@@ -707,6 +718,7 @@ describe("upsert_season tool", () => {
         teamsEnabled: undefined,
         teamsFinaleIndividuals: undefined,
         teamsScoring: undefined,
+        answeringType: undefined,
       },
       SESSION,
     );
@@ -751,6 +763,7 @@ describe("upsert_season tool", () => {
         teamsEnabled: undefined,
         teamsFinaleIndividuals: undefined,
         teamsScoring: undefined,
+        answeringType: undefined,
       },
       SESSION,
     );
@@ -797,6 +810,7 @@ describe("upsert_season tool", () => {
         teamsEnabled: undefined,
         teamsFinaleIndividuals: undefined,
         teamsScoring: undefined,
+        answeringType: undefined,
       },
       SESSION,
     );
@@ -839,6 +853,7 @@ describe("upsert_season tool", () => {
         teamsEnabled: undefined,
         teamsFinaleIndividuals: undefined,
         teamsScoring: undefined,
+        answeringType: undefined,
       },
       SESSION,
     );
@@ -888,6 +903,7 @@ describe("upsert_season tool", () => {
         teamsEnabled: undefined,
         teamsFinaleIndividuals: undefined,
         teamsScoring: undefined,
+        answeringType: undefined,
       },
       SESSION,
     );
@@ -934,6 +950,7 @@ describe("upsert_season tool", () => {
         teamsEnabled: undefined,
         teamsFinaleIndividuals: undefined,
         teamsScoring: undefined,
+        answeringType: undefined,
       },
       SESSION,
     );
@@ -975,6 +992,7 @@ describe("upsert_season tool", () => {
           teamsEnabled: undefined,
           teamsFinaleIndividuals: undefined,
           teamsScoring: undefined,
+          answeringType: undefined,
         },
         SESSION,
       );
@@ -1017,6 +1035,7 @@ describe("upsert_season tool", () => {
         teamsEnabled: undefined,
         teamsFinaleIndividuals: undefined,
         teamsScoring: undefined,
+        answeringType: undefined,
       },
       SESSION,
     );
@@ -1062,6 +1081,7 @@ describe("upsert_season tool", () => {
         teamsEnabled: undefined,
         teamsFinaleIndividuals: undefined,
         teamsScoring: undefined,
+        answeringType: undefined,
       },
       SESSION,
     );
@@ -1096,6 +1116,7 @@ describe("upsert_season tool", () => {
         teamsEnabled: undefined,
         teamsFinaleIndividuals: undefined,
         teamsScoring: undefined,
+        answeringType: undefined,
       },
       SESSION,
     );
@@ -1806,6 +1827,7 @@ describe("find_previous_questions with timeline-based current", () => {
         teamsEnabled: undefined,
         teamsFinaleIndividuals: undefined,
         teamsScoring: undefined,
+        answeringType: undefined,
       },
     ]);
     const tool = createFindPreviousQuestionsTool(data, fixtureGetGames);
@@ -1898,6 +1920,7 @@ describe("add_categories with target dispatch", () => {
         teamsEnabled: undefined,
         teamsFinaleIndividuals: undefined,
         teamsScoring: undefined,
+        answeringType: undefined,
       },
     ]);
     const tool = createAddCategoriesTool(data, fixtureGetGames);

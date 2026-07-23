@@ -10,7 +10,7 @@ import type {
   TriviaUser,
 } from "../core/types.js";
 import { triviaLogger as logger } from "../core/pluginLogger.js";
-import { createIndividualAnswering } from "../answering/individual.js";
+import { selectAnsweringStrategy } from "../answering/select.js";
 import { t } from "../i18n/t.js";
 import { resolveCascade } from "../domain/resolveCascade.js";
 import { weightedPick } from "../domain/weightedPick.js";
@@ -437,7 +437,7 @@ export const freeformAnswerHandler: AnswerTypeHandler = {
         return;
       }
 
-      const myRow = await createIndividualAnswering(scoped, data).getCurrentAnswerFor(
+      const myRow = await selectAnsweringStrategy(question, scoped, data).getCurrentAnswerFor(
         userId,
         questionId,
       );
@@ -510,7 +510,7 @@ export const freeformAnswerHandler: AnswerTypeHandler = {
       }
 
       const userId = body.user.id;
-      await createIndividualAnswering(scoped, data).answer(
+      await selectAnsweringStrategy(question, scoped, data).answer(
         userId,
         meta.questionId,
         { answerText: text },

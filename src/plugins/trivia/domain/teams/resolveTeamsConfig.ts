@@ -2,10 +2,12 @@ import type { SeasonEntry } from "../../core/types.js";
 import type {
   TeamDef,
   TeamsScoringMode,
+  TriviaAnsweringType,
   TriviaConfig,
   TriviaGame,
 } from "../../core/configTypes.js";
 import {
+  DEFAULT_ANSWERING_TYPE,
   DEFAULT_TEAMS_ENABLED,
   DEFAULT_TEAMS_FINALE_INDIVIDUALS,
   DEFAULT_TEAMS_SCORING,
@@ -27,6 +29,18 @@ export interface EffectiveTeamsConfig {
    * empty — teams mode is inert. Surfaced as a `list_games` warning.
    */
   inertEnabled: boolean;
+  /**
+   * The EFFECTIVE answer-ownership model. Resolves to `"byTeam"` only when a tier
+   * requested it AND teams mode is effectively on (`enabled`); otherwise
+   * `"individual"`. This is the value consumers act on.
+   */
+  answeringType: TriviaAnsweringType;
+  /**
+   * True when some tier set `answeringType: "byTeam"` but teams mode is not
+   * effectively on (disabled or empty roster) — the shared-buzzer request is
+   * inert and falls back to individual. Surfaced as a `list_games` warning.
+   */
+  inertAnsweringType: boolean;
 }
 
 function firstDefined<T>(...values: (T | undefined)[]): T | undefined {
@@ -59,12 +73,20 @@ export function resolveTeamsConfig(
       game?.teamsFinaleIndividuals,
       workspace?.teamsFinaleIndividuals,
     ) ?? DEFAULT_TEAMS_FINALE_INDIVIDUALS;
+  const answeringTypeRequested =
+    firstDefined(season?.answeringType, game?.answeringType, workspace?.answeringType) ??
+    DEFAULT_ANSWERING_TYPE;
+
+  const enabled = enabledRequested && roster.length > 0;
+  const byTeamRequested = answeringTypeRequested === "byTeam";
 
   return {
-    enabled: enabledRequested && roster.length > 0,
+    enabled,
     roster,
     scoring,
     finaleIndividuals,
     inertEnabled: enabledRequested && roster.length === 0,
+    answeringType: byTeamRequested && enabled ? "byTeam" : "individual",
+    inertAnsweringType: byTeamRequested && !enabled,
   };
 }

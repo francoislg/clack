@@ -14,8 +14,11 @@ import { dirname, join, sep } from "node:path";
 const TRIVIA_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 
 const ALLOWLIST = new Set([
-  // The ownership seam itself — the one place raw rows are read and projected.
+  // The ownership seam itself — the strategies + game-wide projection that read raw
+  // rows and project them (individual rows and team slots) into the scoring view.
   "answering/individual.ts",
+  "answering/byTeam.ts",
+  "answering/scoredAnswers.ts",
   // Audit-view tools: operate on a specific user's row by identity, bypass projections.
   "revealCards/seeAnswerButton.ts",
   "tools/questions/getQuestionHistory.ts",

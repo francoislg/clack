@@ -22,6 +22,7 @@ import { requireWritableGame } from "../../core/gamesRegistry.js";
 import { resolveCascade } from "../../domain/resolveCascade.js";
 import { buildCascadeContext } from "../../domain/cascadeContext.js";
 import { resolveTagPlayers } from "../../domain/tagPlayers.js";
+import { resolveTeamsConfig } from "../../domain/teams/resolveTeamsConfig.js";
 import { resolveScrollToTop } from "../../domain/scrollToTop.js";
 import { findSeasonBySlug } from "../../core/seasonTimeline.js";
 import { getAllAnswerTypeHandlers, getAnswerTypeHandler } from "../../answerTypes/registry.js";
@@ -365,6 +366,12 @@ export function createPostQuestionsTool(
           const revealResponses = resolveCascade("revealResponses", cascadeCtx).value;
           const tagPlayers = resolveTagPlayers(game, triviaConfig ?? null);
 
+          // Shared-buzzer: stamp the ownership model + frozen roster IFF byTeam is
+          // effectively on for this question, so a mid-round knob/roster edit never
+          // reshuffles or orphans a live question's team slots. Absent → individual.
+          const teamsConfig = resolveTeamsConfig(season, game, triviaConfig ?? null);
+          const byTeam = teamsConfig.answeringType === "byTeam";
+
           await scoped.updateQuestion(item.questionId, {
             postedAt: tsToPostedAt(ts),
             messageLink: permalink,
@@ -373,6 +380,9 @@ export function createPostQuestionsTool(
             liveAnswersVisible,
             revealResponses,
             tagPlayers,
+            ...(byTeam
+              ? { answeringType: "byTeam" as const, teamsStamp: { teams: teamsConfig.roster } }
+              : {}),
           });
 
           // Engage the question thread so a player's public clarification reply is answered

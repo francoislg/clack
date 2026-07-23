@@ -35,7 +35,9 @@ import { buildExcludeSet, isScoredAnswer } from "../../answerTypes/cheaterFilter
 import type { ClackSdk } from "../../../../plugins-sdk/sdk.js";
 import type { TriviaDataLayer, TriviaQuestion, SubmittedAnswer } from "../../core/types.js";
 import { getAllAnswerTypeHandlers, getAnswerTypeHandler } from "../../answerTypes/registry.js";
-import { createIndividualAnswering } from "../../answering/individual.js";
+import { selectAnsweringStrategy } from "../../answering/select.js";
+import { loadAllScoredAnswers } from "../../answering/scoredAnswers.js";
+import { isTeamOwnerKey, teamOwnerKey } from "../../answering/teamKey.js";
 import type { ReStampAxis } from "../../answerTypes/types.js";
 import type { CascadeContext } from "../../core/cascadeAxes.js";
 import { selectBatch } from "./batchSelection.js";
@@ -71,6 +73,7 @@ ${PER_FORMAT_ANSWER_SHAPES}
     - \`{ revealResponses: "just-winners", correct: Voter[], incorrectCount: number, noAnswerCount: number, reactions }\` — names the \`correct\` voters ONLY (freeform winners keep \`answerText\`); the missers are reduced to anonymous counts. There are NO \`incorrect\`/\`noAnswer\` named arrays.
     - \`{ revealResponses: "no", reactions }\` — reactions list only; no per-user vote info at all.
   - \`reactions\` (present in every variant) is the message's emoji reactions as COMMENTARY, not votes. Each \`ReactionVoter\` is \`{ userId, displayName, emojis: string[] }\`. The bot and cheaters are stripped from every list.
+  - SHARED-BUZZER voters: on a byTeam question a \`Voter\` represents a TEAM, not a person — its \`userId\` starts with \`team:\` and its \`displayName\` is the team name. Name such a voter by its \`displayName\` in bold (e.g. *Red Team*), NEVER as a \`<@...>\` mention (there is no user to ping). Free-agent voters on the same question are normal individuals. Count a team as ONE answerer.
 - \`leaderboard\`: same shape as retrieve_scores' return.
 - \`roundSummary\` (ALWAYS present): \`{ totalQuestions, perPlayer: Array<{ userId, displayName, correct, answered, roundMvp?, perfectRound? }> }\` — the per-player round scoreboard, an AGGREGATE derived from the scored answers (same source as \`leaderboard\`), INDEPENDENT of every entry's \`revealResponses\`. \`perPlayer\` is empty only when nobody answered this round. Cheaters/bot are excluded. \`perfectRound: true\` marks a player who answered EVERY question correctly on a fire of >= 3 questions.
 - \`seasonStatus\` (only when seasons enabled): \`{ currentSlug, isLastFireOfSeason, seasonClosed, hasPriorSeasons, mvp? }\`. This tool REPORTS the status but performs NO rollover — \`seasonClosed\` is always \`false\` here and no continuation season is created. When \`isLastFireOfSeason\` is true, the renderer SHALL call \`end_season({ game })\` to perform the close.
@@ -246,10 +249,25 @@ export function createComputeAnswersTool(
       // Warm answerer identities through the registry BEFORE loading the lookup so both the
       // voter lists rendered inside `processReveal` and the leaderboard built below see the
       // same fresh labels. The registry handles TTL-gated refresh and fetch failures.
-      const strategy = createIndividualAnswering(scoped, data);
-      const answersForRefresh = await strategy.getAllScoredAnswers();
-      await data.refreshIdentities(answersForRefresh.map((a) => a.userId));
+      // Warm identities for REAL answerers only — the synthetic `team:` keys that
+      // team slots project into never correspond to a registry user.
+      const preRefreshAnswers = await loadAllScoredAnswers(scoped);
+      await data.refreshIdentities(
+        preRefreshAnswers.filter((a) => !isTeamOwnerKey(a.userId)).map((a) => a.userId),
+      );
       const users = await data.loadUsers();
+
+      // Synthetic identities for shared-buzzer slots: a `team:<name>` key resolves to the
+      // team's NAME so every voter/response projection (handlers read `users.get(...)`)
+      // renders the team, never the raw key. Sourced from each byTeam question's frozen
+      // roster stamp — immune to later roster edits.
+      for (const q of targets) {
+        if (q.answeringType !== "byTeam") continue;
+        for (const team of q.teamsStamp?.teams ?? []) {
+          const key = teamOwnerKey(team.name);
+          if (!users.has(key)) users.set(key, { userId: key, displayName: team.name });
+        }
+      }
 
       const gameEntry = getGamesFn().find((g) => g.name === args.game) ?? null;
       const triviaConfig = getTriviaConfigFn();
@@ -270,9 +288,8 @@ export function createComputeAnswersTool(
         emojis: string[];
         invalidatedReason?: string;
       }> = [];
-      const revealDeps = {
+      const baseRevealDeps = {
         scoped,
-        strategy,
         data,
         users,
         botUserId,
@@ -284,6 +301,12 @@ export function createComputeAnswersTool(
       };
       for (const question of targets) {
         const handler = getAnswerTypeHandler(question.answersFormat);
+        // Ownership is per-question: a byTeam-stamped question reads/writes its team
+        // slots, an individual question its raw rows. The batch may mix both.
+        const revealDeps = {
+          ...baseRevealDeps,
+          strategy: selectAnsweringStrategy(question, scoped, data),
+        };
         // Invalidated → 0 points, never scored. Surface it (for the "invalidated" reveal
         // line + the card repaint) and stamp `processedAt` so it's terminal.
         if (question.invalidated === true) {
@@ -353,7 +376,10 @@ export function createComputeAnswersTool(
               ? { points: question.points }
               : {}),
           };
-          if (teamsConfig.enabled) {
+          // Aggregate path only: it projects INDIVIDUAL voters into teams. A byTeam
+          // question's voters are already one team-shaped row per team, so skip it —
+          // the roster lookup would find no `team:<name>` keys anyway.
+          if (teamsConfig.enabled && question.answeringType !== "byTeam") {
             const teamVoters = groupVotersByTeam(entry.voters, teamsConfig.roster);
             if (teamVoters !== undefined) entry.teamVoters = teamVoters;
           }
@@ -370,7 +396,10 @@ export function createComputeAnswersTool(
       }
 
       // ── Leaderboard ─────────────────────────────────────────────────────
-      const refreshedAnswers = await strategy.getAllScoredAnswers();
+      // Game-wide scored view = individual rows + every team slot projected. Re-read
+      // AFTER the loop so freeform verdicts flipped during it are reflected. The
+      // individual leaderboard filters `team:` rows out; team standings consume them.
+      const refreshedAnswers = await loadAllScoredAnswers(scoped);
       const refreshedUsers = await data.loadUsers();
       const currentSlugForBoard = await scoped.getCurrentSeasonSlug();
       const seasonsEnabled = currentSlugForBoard !== null;

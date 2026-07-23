@@ -21,6 +21,7 @@
 import type { DividerBlock, SectionBlock } from "@slack/types";
 import { t } from "../i18n/t.js";
 import { renderPlayerRef } from "../domain/tagPlayers.js";
+import { isTeamOwnerKey, teamNameFromOwnerKey } from "../answering/teamKey.js";
 import type {
   TeamBucketEntry,
   TeamVoterBuckets,
@@ -28,8 +29,15 @@ import type {
   VoterBuckets,
 } from "../tools/reveal/types.js";
 
+// A shared-buzzer question's voter rows carry synthetic `team:<name>` ids — render
+// them as the bold team name (never a mention). Individual rows use the player ref.
+function renderVoterName(v: Voter, tagPlayers: boolean): string {
+  if (isTeamOwnerKey(v.userId)) return `*${teamNameFromOwnerKey(v.userId)}*`;
+  return renderPlayerRef(v.userId, v.displayName, tagPlayers);
+}
+
 function renderNames(voters: readonly Voter[], tagPlayers: boolean): string {
-  return voters.map((v) => renderPlayerRef(v.userId, v.displayName, tagPlayers)).join(", ");
+  return voters.map((v) => renderVoterName(v, tagPlayers)).join(", ");
 }
 
 function teamNames(entries: readonly TeamBucketEntry[]): string[] {
@@ -47,7 +55,7 @@ function renderTeamBucket(
   freeAgents: readonly Voter[],
   tagPlayers: boolean,
 ): string {
-  const agentNames = freeAgents.map((v) => renderPlayerRef(v.userId, v.displayName, tagPlayers));
+  const agentNames = freeAgents.map((v) => renderVoterName(v, tagPlayers));
   return [...names, ...agentNames].join(", ");
 }
 

@@ -107,4 +107,72 @@ describe("computeTeamStandings", () => {
     expect(standings.map((s) => s.name).sort()).toEqual(["Blue", "Red"]);
     expect(standings.every((s) => s.points === 0)).toBe(true);
   });
+
+  describe("shared-buzzer slot rows", () => {
+    it("credits a correct team slot by name, paying stamped points", () => {
+      const answers = [
+        answer({ userId: "team:Red", questionId: "q1", correct: true }),
+        answer({ userId: "team:Blue", questionId: "q1", correct: false }),
+      ];
+      const points = new Map([["q1", 3]]);
+      const standings = computeTeamStandings(answers, ROSTER, "one-right-is-right", null, points);
+      expect(standings.find((s) => s.name === "Red")).toEqual({
+        name: "Red",
+        points: 3,
+        answeredQuestions: 1,
+      });
+      expect(standings.find((s) => s.name === "Blue")).toEqual({
+        name: "Blue",
+        points: 0,
+        answeredQuestions: 1,
+      });
+    });
+
+    it("matches the slot's team name case-insensitively", () => {
+      const answers = [answer({ userId: "team:red", questionId: "q1", correct: true })];
+      const standings = computeTeamStandings(answers, ROSTER, "total-points", null, NO_POINTS);
+      expect(standings.find((s) => s.name === "Red")?.points).toBe(1);
+    });
+
+    it("sums aggregate and slot paths per team in a mixed season", () => {
+      // Red earns 1 from an aggregate question (q1) and 1 from a slot question (q2).
+      const answers = [
+        answer({ userId: "U1", questionId: "q1", correct: true, season: "s1" }),
+        answer({ userId: "team:Red", questionId: "q2", correct: true, season: "s1" }),
+      ];
+      const standings = computeTeamStandings(
+        answers,
+        ROSTER,
+        "one-right-is-right",
+        "s1",
+        NO_POINTS,
+      );
+      expect(standings.find((s) => s.name === "Red")).toEqual({
+        name: "Red",
+        points: 2,
+        answeredQuestions: 2,
+      });
+    });
+
+    it("filters slot rows by season", () => {
+      const answers = [
+        answer({ userId: "team:Red", questionId: "q1", correct: true, season: "s1" }),
+        answer({ userId: "team:Red", questionId: "q2", correct: true, season: "s2" }),
+      ];
+      const standings = computeTeamStandings(
+        answers,
+        ROSTER,
+        "one-right-is-right",
+        "s2",
+        NO_POINTS,
+      );
+      expect(standings.find((s) => s.name === "Red")?.points).toBe(1);
+    });
+
+    it("ignores a slot whose team name is not in the roster", () => {
+      const answers = [answer({ userId: "team:Ghost", questionId: "q1", correct: true })];
+      const standings = computeTeamStandings(answers, ROSTER, "total-points", null, NO_POINTS);
+      expect(standings.every((s) => s.points === 0)).toBe(true);
+    });
+  });
 });

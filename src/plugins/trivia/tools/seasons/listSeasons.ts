@@ -153,6 +153,7 @@ export function createListSeasonsTool(
             ? { teamsFinaleIndividuals: entry.teamsFinaleIndividuals }
             : {}),
           ...(entry.teamsScoring !== undefined ? { teamsScoring: entry.teamsScoring } : {}),
+          ...(entry.answeringType !== undefined ? { answeringType: entry.answeringType } : {}),
           ...(entry.teamsStamp !== undefined ? { teamsStamp: entry.teamsStamp } : {}),
         };
       });

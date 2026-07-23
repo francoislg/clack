@@ -43,6 +43,7 @@ function baseArgs(slug: string, startedAt: number) {
     teamsEnabled: undefined,
     teamsFinaleIndividuals: undefined,
     teamsScoring: undefined,
+    answeringType: undefined,
   };
 }
 
