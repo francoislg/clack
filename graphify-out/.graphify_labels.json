@@ -310,9 +310,18 @@
   "308": "testCtx.ts",
   "309": "getSessionTrace.ts",
   "310": "catchUp.ts",
+  "311": "config.ts",
+  "312": "searchMessages.ts",
   "313": "activeRuns.ts",
   "314": "processTeardown.ts",
   "315": "configurationFiles.ts",
+  "316": "slackErrors.ts",
+  "317": "ClaudeMessageParser",
+  "318": "buildLoreHint",
+  "319": "clearLore",
+  "320": "pruneArchive.ts",
   "321": "gce-config-diff.sh",
+  "322": "PostQuestionsSlackDeps",
+  "323": "MinimalGit",
   "326": "tmdb-image-search"
 }

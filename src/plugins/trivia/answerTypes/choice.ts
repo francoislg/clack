@@ -363,7 +363,7 @@ export const choiceAnswerHandler: ClickableAnswerHandler = {
       ...(suggestedChoiceEmojiStyle === "themed"
         ? {
             choiceEmojiGuidance:
-              "Pick ONE Unicode emoji per option (actual emoji characters, never :shortcodes:), each visually evoking ITS OWN option's subject — all options get an equally fitting emoji, so the set must not hint at which is correct. Emojis must be unique within the question. Pass them to save_question as `choiceEmojis` (parallel to `choices`, same order). If no fitting set exists, OMIT choiceEmojis — buttons fall back to numbered prefixes.",
+              "Pick ONE Unicode emoji per option (actual emoji characters, never :shortcodes:), each visually evoking ITS OWN option's subject — all options get an equally fitting emoji, so the set must not hint at which is correct. Emojis must be unique within the question. SPOILER TEST — the emoji must identify the option, never answer the question: ask what property the question is testing (which one is a swimmer / a mountain / a mammal / blue), and if any option's emoji would encode THAT property, the set leaks even though every option has its own emoji. Only use themed emojis when each evokes the option as a standalone subject, ORTHOGONAL to the discriminating axis; otherwise OMIT choiceEmojis and fall back to numbered prefixes. Pass them to save_question as `choiceEmojis` (parallel to `choices`, same order). If no fitting set exists, OMIT choiceEmojis — buttons fall back to numbered prefixes.",
           }
         : {}),
     };
