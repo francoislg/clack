@@ -41,6 +41,7 @@ import {
 import {
   teamsRosterZod,
   teamsScoringZod,
+  answeringTypeZod,
   validateTeamsRoster,
 } from "../../core/configParsers/teams.js";
 
@@ -204,6 +205,12 @@ export function createSetWorkspaceConfigTool() {
         .optional()
         .describe(
           'Workspace tier of the team scoring algorithm. `"one-right-is-right"` (the built-in default): per question, ≥1 member correct earns the team the question\'s points once. `"total-points"`: per question, the team earns the sum of its correct members\' points (favors bigger teams). Cascade: `season → game → workspace → "one-right-is-right"`. null clears.',
+        ),
+      answeringType: answeringTypeZod
+        .nullable()
+        .optional()
+        .describe(
+          'Workspace tier of the answer-ownership model (shared buzzer). `"individual"` (the built-in default): every player owns their own answer. `"byTeam"`: the TEAM owns one answer slot per question (any member\'s click overrides it; the live roster shows the team; non-members play individually). `"byTeam"` is effective only when teams mode resolves ON (enabled + non-empty roster); otherwise inert (falls back to individual, list_games warning). Cascade: `season → game → workspace → "individual"`. null clears.',
         ),
     },
     async (args) => {
@@ -516,6 +523,15 @@ export function createSetWorkspaceConfigTool() {
       } else if (args.teamsScoring !== undefined) {
         next.teamsScoring = args.teamsScoring;
         updatedFields.push("teamsScoring");
+      }
+
+      // answeringType: apply or clear.
+      if (args.answeringType === null) {
+        next.answeringType = undefined;
+        updatedFields.push("answeringType (cleared)");
+      } else if (args.answeringType !== undefined) {
+        next.answeringType = args.answeringType;
+        updatedFields.push("answeringType");
       }
 
       if (issues.length > 0) {

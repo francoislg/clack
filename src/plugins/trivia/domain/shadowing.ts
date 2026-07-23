@@ -8,12 +8,13 @@ import type { TriviaGame } from "../core/configTypes.js";
  */
 export type WrittenField = keyof CascadeAxes | "format" | TeamsWrittenField;
 
-/** The four teams fields cascade `season → game → workspace` with NO slot tier. */
+/** The teams-family fields cascade `season → game → workspace` with NO slot tier. */
 const TEAMS_WRITTEN_FIELDS = [
   "teams",
   "teamsEnabled",
   "teamsFinaleIndividuals",
   "teamsScoring",
+  "answeringType",
 ] as const;
 export type TeamsWrittenField = (typeof TEAMS_WRITTEN_FIELDS)[number];
 

@@ -1,6 +1,7 @@
 import type { SubmittedAnswer } from "../../core/types.js";
 import type { TeamDef, TeamsScoringMode } from "../../core/configTypes.js";
 import type { QuestionPointsMap } from "../computeLeaderboard.js";
+import { isTeamOwnerKey, teamNameFromOwnerKey } from "../../answering/teamKey.js";
 import { TEAM_SCORING_REGISTRY, type ScoredMemberAnswer } from "./scoring.js";
 
 export interface TeamStanding {
@@ -32,9 +33,16 @@ export function buildTeamIndexByUser(roster: readonly TeamDef[]): Map<string, nu
  * callers pass cheaters + the bot via `excludeUserIds` (the same set the
  * reveal's round summary builds with `buildExcludeSet`).
  *
- * Every roster team gets a standing (0 points when no member answered), scored
- * per question through the mode's registry strategy and paid the question's
- * stamped points. Sorted points-desc, name-asc tiebreak.
+ * Two answer shapes coexist and sum per team:
+ *  - AGGREGATE (individual-mode questions): member rows keyed by userId → team,
+ *    scored per question through the mode's registry strategy.
+ *  - SLOT (byTeam-mode questions): a single synthetic `team:<name>` row per team
+ *    per question (the shared-buzzer answer), matched to the roster by NAME and
+ *    paid the question's stamped points on a correct verdict. The aggregate
+ *    scoring modes don't apply (one authoritative row, not member votes).
+ * A question is stamped exactly one of these, so a `(team, questionId)` pair is
+ * never counted twice. Every roster team gets a standing (0 when it never
+ * answered). Sorted points-desc, name-asc tiebreak.
  */
 export function computeTeamStandings(
   answers: readonly SubmittedAnswer[],
@@ -46,16 +54,24 @@ export function computeTeamStandings(
 ): TeamStanding[] {
   const strategy = TEAM_SCORING_REGISTRY[mode];
   const teamIndexByUser = buildTeamIndexByUser(roster);
+  const teamIndexByName = new Map(roster.map((team, i) => [team.name.toLowerCase(), i]));
 
-  // Per team: questionId → that team's scored member answers.
-  const perTeam: Map<string, ScoredMemberAnswer[]>[] = roster.map(() => new Map());
+  // Per team: questionId → member answers (aggregate) or a single slot verdict.
+  const perTeamAggregate: Map<string, ScoredMemberAnswer[]>[] = roster.map(() => new Map());
+  const perTeamSlots: Map<string, boolean>[] = roster.map(() => new Map());
   for (const answer of answers) {
     if (answer.correct === undefined) continue;
-    if (excludeUserIds?.has(answer.userId)) continue;
     if (filterSeason !== null && answer.season !== filterSeason) continue;
+    if (isTeamOwnerKey(answer.userId)) {
+      const teamIndex = teamIndexByName.get(teamNameFromOwnerKey(answer.userId).toLowerCase());
+      if (teamIndex === undefined) continue;
+      perTeamSlots[teamIndex].set(answer.questionId, answer.correct);
+      continue;
+    }
+    if (excludeUserIds?.has(answer.userId)) continue;
     const teamIndex = teamIndexByUser.get(answer.userId);
     if (teamIndex === undefined) continue;
-    const byQuestion = perTeam[teamIndex];
+    const byQuestion = perTeamAggregate[teamIndex];
     const rows = byQuestion.get(answer.questionId);
     if (rows === undefined) byQuestion.set(answer.questionId, [{ correct: answer.correct }]);
     else rows.push({ correct: answer.correct });
@@ -64,11 +80,15 @@ export function computeTeamStandings(
   return roster
     .map((team, i) => {
       let points = 0;
-      const byQuestion = perTeam[i];
-      for (const [questionId, memberAnswers] of byQuestion) {
+      const aggregate = perTeamAggregate[i];
+      for (const [questionId, memberAnswers] of aggregate) {
         points += strategy.scoreQuestion(memberAnswers, questionPoints.get(questionId) ?? 1);
       }
-      return { name: team.name, points, answeredQuestions: byQuestion.size };
+      const slots = perTeamSlots[i];
+      for (const [questionId, correct] of slots) {
+        if (correct) points += questionPoints.get(questionId) ?? 1;
+      }
+      return { name: team.name, points, answeredQuestions: aggregate.size + slots.size };
     })
     .sort((a, b) => b.points - a.points || a.name.localeCompare(b.name));
 }

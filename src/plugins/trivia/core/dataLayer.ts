@@ -7,6 +7,7 @@ import type {
   TriviaUser,
   SubmittedAnswer,
   CheatReport,
+  TeamAnswerSlot,
   SeasonsState,
   TriviaDataLayer,
   ScopedTriviaDataLayer,
@@ -24,6 +25,9 @@ const categoriesSchema = z.array(z.string());
 const questionsSchema = z.array(z.object({ id: z.string() }));
 const answersSchema = z.array(z.object({ userId: z.string(), questionId: z.string() }));
 const cheatsSchema = z.array(z.object({ cheaterUserId: z.string(), questionId: z.string() }));
+const teamAnswersSchema = z.array(
+  z.object({ teamName: z.string(), questionId: z.string(), lastAnsweredBy: z.string() }),
+);
 
 async function readSdkJson<T>(
   sdk: ClackSdk,
@@ -97,6 +101,7 @@ export function createSdkDataLayer(sdk: ClackSdk): TriviaDataLayer {
     const aPath = `games/${name}/answers.json`;
     const cPath = `games/${name}/cheats.json`;
     const sPath = `games/${name}/seasons.json`;
+    const taPath = `games/${name}/team-answers.json`;
 
     async function loadQuestions(): Promise<TriviaQuestion[]> {
       return readSdkJson<TriviaQuestion[]>(sdk, qPath, [], questionsSchema);
@@ -145,6 +150,29 @@ export function createSdkDataLayer(sdk: ClackSdk): TriviaDataLayer {
 
     async function loadCheats(): Promise<CheatReport[]> {
       return readSdkJson<CheatReport[]>(sdk, cPath, [], cheatsSchema);
+    }
+
+    async function loadTeamAnswers(): Promise<TeamAnswerSlot[]> {
+      return readSdkJson<TeamAnswerSlot[]>(sdk, taPath, [], teamAnswersSchema);
+    }
+
+    async function upsertTeamAnswer(slot: TeamAnswerSlot): Promise<void> {
+      const slots = await loadTeamAnswers();
+      const idx = slots.findIndex(
+        (s) => s.teamName === slot.teamName && s.questionId === slot.questionId,
+      );
+      if (idx === -1) slots.push(slot);
+      else slots[idx] = slot;
+      await sdk.writeFile(taPath, JSON.stringify(slots, null, 2));
+    }
+
+    async function removeTeamAnswer(teamName: string, questionId: string): Promise<void> {
+      const slots = await loadTeamAnswers();
+      const remaining = slots.filter(
+        (s) => !(s.teamName === teamName && s.questionId === questionId),
+      );
+      if (remaining.length === slots.length) return;
+      await sdk.writeFile(taPath, JSON.stringify(remaining, null, 2));
     }
 
     /**
@@ -232,6 +260,9 @@ export function createSdkDataLayer(sdk: ClackSdk): TriviaDataLayer {
       loadCheats,
       saveCheat,
       removeCheat,
+      loadTeamAnswers,
+      upsertTeamAnswer,
+      removeTeamAnswer,
       loadSeasonsState,
       saveSeasonsState,
       getCurrentSeasonSlug,

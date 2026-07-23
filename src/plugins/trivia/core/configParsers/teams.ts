@@ -7,8 +7,8 @@
 
 import { z } from "zod";
 import { zodErrorToResult, type Result } from "../../../../plugins-sdk/sdk.js";
-import { TEAMS_SCORING_KEYS } from "../configTypes.js";
-import type { TeamDef, TeamsScoringMode } from "../configTypes.js";
+import { TEAMS_SCORING_KEYS, ANSWERING_TYPE_KEYS } from "../configTypes.js";
+import type { TeamDef, TeamsScoringMode, TriviaAnsweringType } from "../configTypes.js";
 
 const teamDefSchema = z.object({
   name: z.string().trim().min(1, "team name must be a non-empty string"),
@@ -95,6 +95,24 @@ export function validateTeamsScoring(raw: unknown, fieldLabel: string): Result<T
     return {
       ok: false,
       error: `'${fieldLabel}' must be one of ${TEAMS_SCORING_KEYS.map((k) => `"${k}"`).join(", ")} (got ${JSON.stringify(raw)})`,
+    };
+  }
+  return { ok: true, value: r.data };
+}
+
+const answeringTypeSchema = z.enum(ANSWERING_TYPE_KEYS);
+
+export const answeringTypeZod = z.enum(ANSWERING_TYPE_KEYS);
+
+export function validateAnsweringType(
+  raw: unknown,
+  fieldLabel: string,
+): Result<TriviaAnsweringType> {
+  const r = answeringTypeSchema.safeParse(raw);
+  if (!r.success) {
+    return {
+      ok: false,
+      error: `'${fieldLabel}' must be one of ${ANSWERING_TYPE_KEYS.map((k) => `"${k}"`).join(", ")} (got ${JSON.stringify(raw)})`,
     };
   }
   return { ok: true, value: r.data };

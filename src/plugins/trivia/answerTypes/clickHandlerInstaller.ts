@@ -15,7 +15,7 @@
 import type { ClackSdk } from "../../../plugins-sdk/sdk.js";
 import { triviaLogger as logger } from "../core/pluginLogger.js";
 import type { TriviaDataLayer } from "../core/types.js";
-import { createIndividualAnswering } from "../answering/individual.js";
+import { selectAnsweringStrategy } from "../answering/select.js";
 import { editRosterIntoCard } from "../freeform/roster.js";
 import { t } from "../i18n/t.js";
 import type { ClickableAnswerHandler, InteractionRegistrationDeps } from "./types.js";
@@ -166,7 +166,7 @@ export function installClickableVoteHandler(
     // Upsert into the owning slot: a re-click overwrites in place (bumping the timestamp
     // so the roster sorts the editor to the top of their group), a first click appends
     // and records join side effects. Ownership lives in the strategy, not here.
-    const strategy = createIndividualAnswering(scoped, data);
+    const strategy = selectAnsweringStrategy(question, scoped, data);
     await strategy.answer(userId, questionId, patch, { season: question.season });
 
     if (client !== null) {

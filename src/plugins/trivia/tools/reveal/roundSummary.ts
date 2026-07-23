@@ -1,5 +1,6 @@
 import type { RoundSummary, RoundSummaryEntry } from "./types.js";
 import type { QuestionPointsMap } from "../../domain/computeLeaderboard.js";
+import { isTeamOwnerKey } from "../../answering/teamKey.js";
 
 /** Minimum question count for a clean sweep to earn `perfectRound`. */
 export const PERFECT_ROUND_MIN_QUESTIONS = 3;
@@ -52,6 +53,9 @@ export function computeRoundSummary(
   const perQuestion = new Map<string, Map<string, boolean>>();
   for (const a of scoredAnswers) {
     if (!revealed.has(a.questionId)) continue;
+    // The round scoreboard is an INDIVIDUAL honor (MVP / perfect round) — teams are
+    // credited in team standings, so synthetic `team:` rows never enter it.
+    if (isTeamOwnerKey(a.userId)) continue;
     let users = perQuestion.get(a.questionId);
     if (users === undefined) {
       users = new Map<string, boolean>();

@@ -44,6 +44,7 @@ function baseArgs(slug: string, future: number) {
     teamsEnabled: undefined,
     teamsFinaleIndividuals: undefined,
     teamsScoring: undefined,
+    answeringType: undefined,
   };
 }
 

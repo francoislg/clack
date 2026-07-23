@@ -3,8 +3,7 @@ import type { ContextBlock, DividerBlock, KnownBlock } from "@slack/types";
 import { triviaLogger as logger } from "../core/pluginLogger.js";
 import { stripAnswerButtons } from "../revealCards/answerActions.js";
 import { t } from "../i18n/t.js";
-import { renderPlayerRef } from "../domain/tagPlayers.js";
-import { createIndividualAnswering } from "../answering/individual.js";
+import { selectAnsweringStrategy } from "../answering/select.js";
 import type { AnswerTypeHandler } from "../answerTypes/types.js";
 import type {
   ScopedTriviaDataLayer,
@@ -261,9 +260,8 @@ export async function resolveLiveOrLockedCard(params: {
   if (locked && revealResponses === "no") {
     blocks = [...stripAnswerButtons(question.postedBlocks), buildLockedNotice(question.id)];
   } else {
-    const forThisQuestion = await createIndividualAnswering(scoped, data).getFinalAnswers(
-      question.id,
-    );
+    const strategy = selectAnsweringStrategy(question, scoped, data);
+    const forThisQuestion = await strategy.getFinalAnswers(question.id);
     const cheats = await scoped.loadCheats();
     const cheaterIds = new Set(
       cheats.filter((c) => c.questionId === question.id).map((c) => c.cheaterUserId),
@@ -272,8 +270,9 @@ export async function resolveLiveOrLockedCard(params: {
 
     const tagPlayers = question.tagPlayers ?? true;
     const users = await data.loadUsers();
-    const nameOf = (userId: string): string =>
-      renderPlayerRef(userId, users.get(userId)?.displayName ?? userId, tagPlayers);
+    // Routes team rows (`team:<name>`) to a bold team label and individual rows to
+    // the player reference — the strategy owns the whole naming surface.
+    const nameOf = (userId: string): string => strategy.ownerLabel(userId, { tagPlayers, users });
 
     if (locked) {
       // Voting is frozen, so `liveAnswersVisible` (anti-bandwagoning) no longer

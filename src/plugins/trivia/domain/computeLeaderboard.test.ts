@@ -32,6 +32,25 @@ describe("computeLeaderboard", () => {
     assert.equal(result.totalPlayers, 0);
   });
 
+  test("excludes synthetic team: rows — the individual board never lists teams", () => {
+    const answers = [
+      makeAnswer({ userId: "U1", correct: true }),
+      makeAnswer({ userId: "team:Red", correct: true }),
+      makeAnswer({ userId: "team:Blue", correct: true }),
+    ];
+    const users = new Map([makeUser("U1", "Alice")]);
+    const { leaderboard, totalPlayers } = computeLeaderboard(answers, users, ALL_ONE_POINT, {
+      sortBy: "totalCorrect",
+      primaryFilterSeason: null,
+      currentSeasonSlug: null,
+    });
+    assert.deepEqual(
+      leaderboard.map((e) => e.userId),
+      ["U1"],
+    );
+    assert.equal(totalPlayers, 1);
+  });
+
   test("single user — totals and accuracy", () => {
     const answers = [
       makeAnswer({ userId: "U1", correct: true }),

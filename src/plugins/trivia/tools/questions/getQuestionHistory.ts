@@ -7,6 +7,7 @@ import { requireGame } from "../../core/gamesRegistry.js";
 import type { JsonValue } from "../../core/configTypes.js";
 import type { TriviaDataLayer } from "../../core/types.js";
 import { mediaToJson } from "../../domain/mediaJson.js";
+import { teamOwnerKey } from "../../answering/teamKey.js";
 
 const PER_FORMAT_SHAPES = getAllAnswerTypeHandlers()
   .map((h) => `- ${h.historyResultShapeDescription}`)
@@ -51,10 +52,11 @@ export function createGetQuestionHistoryTool(
       }
 
       const scoped = data.forGame(args.game);
-      const [questions, cheats, answers, users] = await Promise.all([
+      const [questions, cheats, answers, teamSlots, users] = await Promise.all([
         scoped.loadQuestions(),
         scoped.loadCheats(),
         scoped.loadAnswers(),
+        scoped.loadTeamAnswers(),
         data.loadUsers(),
       ]);
 
@@ -95,6 +97,22 @@ export function createGetQuestionHistoryTool(
       if (question.context !== undefined) extras.context = question.context;
       if (question.sourceUrl !== undefined) extras.sourceUrl = question.sourceUrl;
       if (question.eventDate !== undefined) extras.eventDate = question.eventDate;
+
+      // Shared-buzzer slots for this question, admin-tier so `lastAnsweredBy` attribution is
+      // visible. `ownerKey` is the value to pass to override_answer's `userId` to correct a slot.
+      const matchingSlots = teamSlots.filter((s) => s.questionId === args.questionId);
+      if (matchingSlots.length > 0) {
+        extras.teamAnswers = matchingSlots.map((s) => ({
+          ownerKey: teamOwnerKey(s.teamName),
+          teamName: s.teamName,
+          lastAnsweredBy: s.lastAnsweredBy,
+          ...(s.answer !== undefined ? { answer: s.answer } : {}),
+          ...(s.answerIndex !== undefined ? { answerIndex: s.answerIndex } : {}),
+          ...(s.answerText !== undefined ? { answerText: s.answerText } : {}),
+          ...(s.correct !== undefined ? { correct: s.correct } : {}),
+          ...(s.judgeReason !== undefined ? { judgeReason: s.judgeReason } : {}),
+        }));
+      }
 
       return textResult({ ...perFormat, ...extras });
     },

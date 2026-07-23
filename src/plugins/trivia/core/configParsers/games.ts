@@ -16,6 +16,7 @@ import type {
   JudgeLeniency,
   TeamDef,
   TeamsScoringMode,
+  TriviaAnsweringType,
   TriviaAllTimeRowMode,
   TriviaFinalRevealSummary,
   TriviaChoicesConfig,
@@ -39,7 +40,7 @@ import {
   type ParseIssue,
 } from "./axes.js";
 import { validateFormat } from "./format.js";
-import { validateTeamsRoster, validateTeamsScoring } from "./teams.js";
+import { validateTeamsRoster, validateTeamsScoring, validateAnsweringType } from "./teams.js";
 
 /** Game-name format: filesystem-safe kebab-case, 1–32 chars. */
 const TRIVIA_GAME_NAME_RE = /^[a-z0-9-]+$/;
@@ -431,6 +432,13 @@ export function parseTriviaGame(
     else issues.push({ field: `${fieldPrefix}.teamsScoring`, error: r.error });
   }
 
+  let answeringType: TriviaAnsweringType | undefined;
+  if (e.answeringType !== undefined && e.answeringType !== null) {
+    const r = validateAnsweringType(e.answeringType, `${fieldPrefix}.answeringType`);
+    if (r.ok) answeringType = r.value;
+    else issues.push({ field: `${fieldPrefix}.answeringType`, error: r.error });
+  }
+
   seenNames.add(name);
   return {
     game: {
@@ -466,6 +474,7 @@ export function parseTriviaGame(
       ...(teamsEnabled !== undefined ? { teamsEnabled } : {}),
       ...(teamsFinaleIndividuals !== undefined ? { teamsFinaleIndividuals } : {}),
       ...(teamsScoring !== undefined ? { teamsScoring } : {}),
+      ...(answeringType !== undefined ? { answeringType } : {}),
     },
     issues,
   };

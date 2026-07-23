@@ -152,4 +152,70 @@ describe("seeAnswerButton", () => {
     assert.ok("text" in block && typeof block.text === "object" && block.text !== null);
     assert.match((block.text as { text: string }).text, /did not submit an answer/);
   });
+
+  const BYTEAM = {
+    answeringType: "byTeam" as const,
+    teamsStamp: { teams: [{ name: "Red", userIds: ["U1", "U2"] }] },
+  };
+
+  function lastBlockText(sdk: FakeSdk): string {
+    const block = sdk.opens[0].view.blocks[sdk.opens[0].view.blocks.length - 1];
+    assert.ok("text" in block && typeof block.text === "object" && block.text !== null);
+    return (block.text as { text: string }).text;
+  }
+
+  it("shows a roster member the TEAM's slot answer, not their own row", async () => {
+    const sdk = fakeSdk();
+    const { sdk: fakeSDK } = createFakeSdk();
+    primeTriviaConfig(fakeSDK);
+    const { dataLayer: data } = createTriviaDataLayer(fakeSDK);
+    const scoped = data.forGame(FIXTURE_GAME_NAME);
+    await scoped.saveQuestion(makeQuestion(BYTEAM));
+    // The team's slot says TRUE (held by teammate U2); no individual row for U1.
+    await scoped.upsertTeamAnswer({
+      teamName: "Red",
+      questionId: "Q1",
+      answer: true,
+      correct: true,
+      lastAnsweredBy: "U2",
+      timestamp: 5,
+    });
+    const handler = install(sdk, data);
+
+    await handler({
+      ack: async () => {},
+      body: { user: { id: "U1" }, trigger_id: "T1" },
+      action: { action_id: "plugin:trivia:reveal-see-answer:Q1" },
+    });
+
+    assert.equal(sdk.opens.length, 1);
+    const text = lastBlockText(sdk);
+    assert.match(text, /👍 TRUE/);
+    assert.doesNotMatch(text, /U2/, "attribution (lastAnsweredBy) is suppressed");
+  });
+
+  it("shows a free agent their own individual row on a byTeam question", async () => {
+    const sdk = fakeSdk();
+    const { sdk: fakeSDK } = createFakeSdk();
+    primeTriviaConfig(fakeSDK);
+    const { dataLayer: data } = createTriviaDataLayer(fakeSDK);
+    const scoped = data.forGame(FIXTURE_GAME_NAME);
+    await scoped.saveQuestion(makeQuestion(BYTEAM));
+    await scoped.saveAnswer({
+      userId: "U9",
+      questionId: "Q1",
+      answer: false,
+      correct: false,
+      timestamp: 3,
+    });
+    const handler = install(sdk, data);
+
+    await handler({
+      ack: async () => {},
+      body: { user: { id: "U9" }, trigger_id: "T1" },
+      action: { action_id: "plugin:trivia:reveal-see-answer:Q1" },
+    });
+
+    assert.match(lastBlockText(sdk), /👎 FALSE/);
+  });
 });

@@ -4,7 +4,7 @@ import { createFakeSdk, primeTriviaConfig } from "./testHelpers.fakeSdk.js";
 import { createTriviaDataLayer } from "./testHelpers.js";
 import type { FakeSdk, FakeSdkTestHelpers } from "./testHelpers.fakeSdk.js";
 import type { FakeTriviaDataLayer } from "./testHelpers.js";
-import type { CheatReport, TriviaDataLayer, TriviaQuestion } from "./core/types.js";
+import type { CheatReport, TeamAnswerSlot, TriviaDataLayer, TriviaQuestion } from "./core/types.js";
 
 /**
  * Contract tests for `createTriviaDataLayer` — the real `createSdkDataLayer`
@@ -142,5 +142,65 @@ describe("createTriviaDataLayer", () => {
     await dataLayer.recordJoin("U1");
     expect(await accessor.get("U1")).toEqual(first);
     expect(first?.joinedAt).toBeDefined();
+  });
+});
+
+function makeSlot(overrides: Partial<TeamAnswerSlot> = {}): TeamAnswerSlot {
+  return {
+    teamName: "Red",
+    questionId: "q1",
+    answer: true,
+    correct: true,
+    lastAnsweredBy: "U1",
+    timestamp: 100,
+    ...overrides,
+  };
+}
+
+describe("createTriviaDataLayer — team-answer store", () => {
+  let sdk: FakeSdk;
+  let dataLayer: FakeTriviaDataLayer;
+
+  beforeEach(() => {
+    ({ sdk } = createFakeSdk());
+    primeTriviaConfig(sdk);
+    ({ dataLayer } = createTriviaDataLayer(sdk));
+  });
+
+  it("returns [] when the store file is absent (graceful reader)", async () => {
+    expect(await dataLayer.forGame("main").loadTeamAnswers()).toEqual([]);
+  });
+
+  it("upsert creates then overwrites the same (teamName, questionId) slot", async () => {
+    const scoped = dataLayer.forGame("main");
+    await scoped.upsertTeamAnswer(makeSlot({ lastAnsweredBy: "U1", answer: true }));
+    await scoped.upsertTeamAnswer(makeSlot({ lastAnsweredBy: "U2", answer: false }));
+    const slots = await scoped.loadTeamAnswers();
+    expect(slots).toHaveLength(1);
+    expect(slots[0]).toMatchObject({ teamName: "Red", lastAnsweredBy: "U2", answer: false });
+  });
+
+  it("keeps distinct slots for different teams and questions", async () => {
+    const scoped = dataLayer.forGame("main");
+    await scoped.upsertTeamAnswer(makeSlot({ teamName: "Red", questionId: "q1" }));
+    await scoped.upsertTeamAnswer(makeSlot({ teamName: "Blue", questionId: "q1" }));
+    await scoped.upsertTeamAnswer(makeSlot({ teamName: "Red", questionId: "q2" }));
+    expect(await scoped.loadTeamAnswers()).toHaveLength(3);
+  });
+
+  it("removeTeamAnswer drops only the matching slot", async () => {
+    const scoped = dataLayer.forGame("main");
+    await scoped.upsertTeamAnswer(makeSlot({ teamName: "Red", questionId: "q1" }));
+    await scoped.upsertTeamAnswer(makeSlot({ teamName: "Blue", questionId: "q1" }));
+    await scoped.removeTeamAnswer("Red", "q1");
+    const slots = await scoped.loadTeamAnswers();
+    expect(slots).toHaveLength(1);
+    expect(slots[0].teamName).toBe("Blue");
+  });
+
+  it("removeTeamAnswer is a no-op write when nothing matches", async () => {
+    const scoped = dataLayer.forGame("main");
+    await scoped.removeTeamAnswer("Ghost", "q9");
+    expect(await scoped.loadTeamAnswers()).toEqual([]);
   });
 });

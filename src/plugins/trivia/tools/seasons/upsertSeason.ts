@@ -59,6 +59,7 @@ import type {
   SeasonFormatSlot,
   TeamDef,
   TeamsScoringMode,
+  TriviaAnsweringType,
   TriviaAnswersFormatWeights,
   TriviaQuestionTypeWeights,
   PromptMediumWeights,
@@ -73,6 +74,7 @@ import type {
 import {
   teamsRosterZod,
   teamsScoringZod,
+  answeringTypeZod,
   validateTeamsRoster,
 } from "../../core/configParsers/teams.js";
 
@@ -268,6 +270,12 @@ export function createUpsertSeasonTool(
         .describe(
           'Per-season tier of the team scoring algorithm. `"one-right-is-right"` (the default): per question, ≥1 member correct earns the team the question\'s points once. `"total-points"`: per question, the team earns the sum of its correct members\' points (favors bigger teams — say so when an admin picks it). Stamped onto the season at close. Cascade: `season → game → workspace → "one-right-is-right"` (no slot tier). On UPDATE: passing `null` clears the field.',
         ),
+      answeringType: answeringTypeZod
+        .nullable()
+        .optional()
+        .describe(
+          'Per-season tier of the answer-ownership model (shared buzzer). `"individual"` (the default): every player owns their own answer. `"byTeam"`: the TEAM owns one answer slot per question (any member\'s click overrides it; the live roster shows the team; non-members play individually). Effective only when teams mode resolves ON for the season (enabled + non-empty roster); otherwise inert (falls back to individual). Cascade: `season → game → workspace → "individual"` (no slot tier). On UPDATE: passing `null` clears the field. Only NEW questions posted after the change are affected — live questions keep the model they were posted under.',
+        ),
     },
     async (args) => {
       try {
@@ -452,6 +460,11 @@ export function createUpsertSeasonTool(
             ? undefined
             : args.teamsScoring;
 
+        const answeringType: TriviaAnsweringType | undefined =
+          args.answeringType === undefined || args.answeringType === null
+            ? undefined
+            : args.answeringType;
+
         const liveAnswersVisible: boolean | undefined =
           args.liveAnswersVisible === undefined || args.liveAnswersVisible === null
             ? undefined
@@ -493,6 +506,7 @@ export function createUpsertSeasonTool(
           ...(teamsEnabled !== undefined ? { teamsEnabled } : {}),
           ...(teamsFinaleIndividuals !== undefined ? { teamsFinaleIndividuals } : {}),
           ...(teamsScoring !== undefined ? { teamsScoring } : {}),
+          ...(answeringType !== undefined ? { answeringType } : {}),
         };
 
         try {
@@ -537,6 +551,7 @@ export function createUpsertSeasonTool(
           hasTeamsEnabled: entry.teamsEnabled !== undefined,
           hasTeamsFinaleIndividuals: entry.teamsFinaleIndividuals !== undefined,
           hasTeamsScoring: entry.teamsScoring !== undefined,
+          hasAnsweringType: entry.answeringType !== undefined,
         });
       }
 
@@ -767,6 +782,13 @@ export function createUpsertSeasonTool(
         updatedTeamsScoring = args.teamsScoring;
       }
 
+      let updatedAnsweringType: TriviaAnsweringType | undefined = existing.answeringType;
+      if (args.answeringType === null) {
+        updatedAnsweringType = undefined;
+      } else if (args.answeringType !== undefined) {
+        updatedAnsweringType = args.answeringType;
+      }
+
       const updated: SeasonEntry = {
         slug: existing.slug,
         startedAt: args.startedAt ?? existing.startedAt,
@@ -814,6 +836,7 @@ export function createUpsertSeasonTool(
           ? { teamsFinaleIndividuals: updatedTeamsFinaleIndividuals }
           : {}),
         ...(updatedTeamsScoring !== undefined ? { teamsScoring: updatedTeamsScoring } : {}),
+        ...(updatedAnsweringType !== undefined ? { answeringType: updatedAnsweringType } : {}),
         // Internal close-time stamp — not settable through this tool, but it MUST
         // survive the field-by-field entry rebuild or an update would erase history.
         ...(existing.teamsStamp !== undefined ? { teamsStamp: existing.teamsStamp } : {}),
@@ -865,6 +888,7 @@ export function createUpsertSeasonTool(
         hasChoiceEmojiStyle: updated.choiceEmojiStyle !== undefined,
         hasPoints: updated.points !== undefined,
         hasTeams: updated.teams !== undefined,
+        hasAnsweringType: updated.answeringType !== undefined,
         hasTeamsEnabled: updated.teamsEnabled !== undefined,
         hasTeamsFinaleIndividuals: updated.teamsFinaleIndividuals !== undefined,
         hasTeamsScoring: updated.teamsScoring !== undefined,

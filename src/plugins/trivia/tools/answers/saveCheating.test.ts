@@ -188,6 +188,67 @@ describe("save_cheating tool", () => {
     assert.equal(sdk.dmOwner.mock.calls.length, 0);
   });
 
+  it("sweeps the team slot when the flagged user currently holds it", async () => {
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk);
+    const { dataLayer: data } = createTriviaDataLayer(sdk);
+    const scoped = data.forGame(FIXTURE_GAME_NAME);
+    await scoped.upsertTeamAnswer({
+      teamName: "Red",
+      questionId: "q1",
+      answer: true,
+      correct: true,
+      lastAnsweredBy: "U1",
+      timestamp: 10,
+    });
+    const tool = createSaveCheatingTool(data, sdk, fixtureGetGames);
+
+    await tool.handler(
+      {
+        game: FIXTURE_GAME_NAME,
+        cheaterUserId: "U1",
+        questionId: "q1",
+        reason: "caught",
+        evidence: undefined,
+      },
+      SESSION,
+    );
+
+    assert.deepEqual(await scoped.loadTeamAnswers(), []);
+  });
+
+  it("leaves a team slot held by a clean teammate intact", async () => {
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk);
+    const { dataLayer: data } = createTriviaDataLayer(sdk);
+    const scoped = data.forGame(FIXTURE_GAME_NAME);
+    // The slot is held by U2; U1 (a teammate) is the one flagged.
+    await scoped.upsertTeamAnswer({
+      teamName: "Red",
+      questionId: "q1",
+      answer: true,
+      correct: true,
+      lastAnsweredBy: "U2",
+      timestamp: 10,
+    });
+    const tool = createSaveCheatingTool(data, sdk, fixtureGetGames);
+
+    await tool.handler(
+      {
+        game: FIXTURE_GAME_NAME,
+        cheaterUserId: "U1",
+        questionId: "q1",
+        reason: "caught",
+        evidence: undefined,
+      },
+      SESSION,
+    );
+
+    const slots = await scoped.loadTeamAnswers();
+    assert.equal(slots.length, 1);
+    assert.equal(slots[0].lastAnsweredBy, "U2");
+  });
+
   it("preserves existing user fields when incrementing counter", async () => {
     const { sdk, testHelpers } = createFakeSdk();
     primeTriviaConfig(sdk);

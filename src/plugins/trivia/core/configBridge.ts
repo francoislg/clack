@@ -26,7 +26,11 @@ import {
   type ParseIssue,
 } from "./configParsers/axes.js";
 import { parseOffDays, parseTriviaGames } from "./configParsers/games.js";
-import { validateTeamsRoster, validateTeamsScoring } from "./configParsers/teams.js";
+import {
+  validateTeamsRoster,
+  validateTeamsScoring,
+  validateAnsweringType,
+} from "./configParsers/teams.js";
 
 const CONFIG_FILENAME = "config.json";
 
@@ -265,6 +269,12 @@ function parseTriviaConfigObject(raw: JsonObject, logger: PluginLogger): TriviaC
     const r = validateTeamsScoring(raw.teamsScoring, "trivia.teamsScoring");
     if (r.ok) out.teamsScoring = r.value;
     else allIssues.push({ field: "trivia.teamsScoring", error: r.error });
+  }
+
+  if (raw.answeringType !== undefined && raw.answeringType !== null) {
+    const r = validateAnsweringType(raw.answeringType, "trivia.answeringType");
+    if (r.ok) out.answeringType = r.value;
+    else allIssues.push({ field: "trivia.answeringType", error: r.error });
   }
 
   if (raw.instructions !== undefined && raw.instructions !== null) {

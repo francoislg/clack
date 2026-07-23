@@ -8,7 +8,7 @@ import {
   type GetTriviaConfigFn,
 } from "../../core/configBridge.js";
 import { requireGame } from "../../core/gamesRegistry.js";
-import { createIndividualAnswering } from "../../answering/individual.js";
+import { loadAllScoredAnswers } from "../../answering/scoredAnswers.js";
 import { buildQuestionPointsMap, computeLeaderboard } from "../../domain/computeLeaderboard.js";
 import { findCurrentSeason } from "../../core/seasonTimeline.js";
 import { resolveTeamsConfig } from "../../domain/teams/resolveTeamsConfig.js";
@@ -53,7 +53,7 @@ export function createRetrieveScoresTool(
 
       const scoped = data.forGame(args.game);
       const users = await data.loadUsers();
-      const allAnswers = await createIndividualAnswering(scoped, data).getAllScoredAnswers();
+      const allAnswers = await loadAllScoredAnswers(scoped);
 
       const currentSlug = await scoped.getCurrentSeasonSlug();
       const seasonsEnabled = currentSlug !== null;

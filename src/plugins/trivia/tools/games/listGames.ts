@@ -12,6 +12,7 @@ import type {
   SeasonFormat,
   TeamDef,
   TeamsScoringMode,
+  TriviaAnsweringType,
   TriviaAllTimeRowMode,
   TriviaFinalRevealSummary,
   TriviaIncludeRevealInQuestions,
@@ -23,6 +24,7 @@ import type {
   OffDay,
 } from "../../core/configTypes.js";
 import type { CascadeAxes } from "../../core/cascadeAxes.js";
+import type { TriviaDataLayer } from "../../core/types.js";
 import { AXIS_KEYS, copyAxisIfSet } from "../../domain/resolveCascade.js";
 import { resolveTeamsConfig } from "../../domain/teams/resolveTeamsConfig.js";
 
@@ -85,8 +87,13 @@ interface ListGamesEntry {
   teamsEnabled?: boolean;
   teamsFinaleIndividuals?: boolean;
   teamsScoring?: TeamsScoringMode;
+  answeringType?: TriviaAnsweringType;
   /** Present when the effective teams config is enabled with an empty roster (inert misconfiguration). */
   teamsWarning?: string;
+  /** Present when `answeringType: "byTeam"` is set but teams mode is not effectively on (inert). */
+  answeringTypeWarning?: string;
+  /** Present when live (posted, un-revealed) questions carry a `byTeam` stamp the current config no longer resolves to. */
+  answeringTypeDivergence?: { liveByTeamQuestions: number; note: string };
 }
 
 export type FindOwnedCronJobsFn = () => Promise<Array<{ id: string; specKey: string }>>;
@@ -107,6 +114,7 @@ type WorkspaceDefaults = Partial<CascadeAxes> & {
   teamsEnabled?: boolean;
   teamsFinaleIndividuals?: boolean;
   teamsScoring?: TeamsScoringMode;
+  answeringType?: TriviaAnsweringType;
 };
 
 const DESCRIPTION = `List the trivia games configured in this deployment (data/plugins/trivia/config.json's \`games[]\`), plus the workspace tier of the cascading axis configuration (\`workspaceDefaults\`) AND each entry's per-game \`axisOverrides\`, so admins can audit configuration without reading the file by hand.
@@ -125,6 +133,7 @@ export function createListGamesTool(
   getGamesFn: GetGamesFn = defaultGetGames,
   getTriviaConfigFn: GetTriviaConfigFn = defaultGetTriviaConfig,
   findOwnedCronJobsFn: FindOwnedCronJobsFn = defaultFindOwnedCronJobs,
+  data?: TriviaDataLayer,
 ) {
   return tool(
     "list_games",
@@ -147,6 +156,29 @@ export function createListGamesTool(
       }
 
       const workspaceCfg = getTriviaConfigFn();
+
+      // Divergence audit (task 3.2): a game whose CURRENT resolved answeringType is
+      // individual may still carry live (posted, un-revealed) questions STAMPED
+      // "byTeam" — those stay shared-buzzer (the stamp governs), but new fires differ.
+      // Needs a per-game questions read, so it runs only when `data` is provided.
+      const divergenceByGame = new Map<string, number>();
+      if (data !== undefined) {
+        await Promise.all(
+          filtered.map(async (g) => {
+            if (resolveTeamsConfig(null, g, workspaceCfg).answeringType === "byTeam") return;
+            const questions = await data.forGame(g.name).loadQuestions();
+            const liveByTeam = questions.filter(
+              (q) =>
+                q.answeringType === "byTeam" &&
+                q.postedAt !== undefined &&
+                q.processedAt === undefined &&
+                q.invalidated !== true,
+            ).length;
+            if (liveByTeam > 0) divergenceByGame.set(g.name, liveByTeam);
+          }),
+        );
+      }
+
       const entries: ListGamesEntry[] = filtered.map((g) => {
         const axisOverrides: AxisOverrides = {};
         for (const key of AXIS_KEYS) copyAxisIfSet(axisOverrides, g, key);
@@ -216,10 +248,25 @@ export function createListGamesTool(
             ? { teamsFinaleIndividuals: g.teamsFinaleIndividuals }
             : {}),
           ...(g.teamsScoring !== undefined ? { teamsScoring: g.teamsScoring } : {}),
+          ...(g.answeringType !== undefined ? { answeringType: g.answeringType } : {}),
           ...(effectiveTeams.inertEnabled
             ? {
                 teamsWarning:
                   "teamsEnabled resolves to true but the effective roster is empty — teams mode is INERT (individual play). Define a roster via upsert_game/upsert_season/set_workspace_config `teams`, or clear teamsEnabled.",
+              }
+            : {}),
+          ...(effectiveTeams.inertAnsweringType
+            ? {
+                answeringTypeWarning:
+                  'answeringType resolves to "byTeam" but teams mode is not effectively on (disabled or empty roster) — shared-buzzer is INERT (individual play). Enable teams with a non-empty roster, or clear answeringType.',
+              }
+            : {}),
+          ...(divergenceByGame.get(g.name) !== undefined
+            ? {
+                answeringTypeDivergence: {
+                  liveByTeamQuestions: divergenceByGame.get(g.name) ?? 0,
+                  note: "Live (posted, un-revealed) questions here are stamped byTeam and STAY shared-buzzer (the stamp governs), but the current config resolves to individual — new fires will be individual.",
+                },
               }
             : {}),
         };
@@ -248,6 +295,8 @@ export function createListGamesTool(
           workspaceDefaults.teamsFinaleIndividuals = triviaCfg.teamsFinaleIndividuals;
         if (triviaCfg.teamsScoring !== undefined)
           workspaceDefaults.teamsScoring = triviaCfg.teamsScoring;
+        if (triviaCfg.answeringType !== undefined)
+          workspaceDefaults.answeringType = triviaCfg.answeringType;
       }
 
       return textResult({ games: entries, workspaceDefaults, total: entries.length });

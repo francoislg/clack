@@ -151,7 +151,7 @@ export const triviaPlugin: ClackPlugin = async (sdk: ClackSdk) => {
   sdk.registerTool("member", createRetrieveScoresTool(data), sdk.t("label.retrieve_scores"));
   sdk.registerTool(
     "member",
-    createListGamesTool(undefined, undefined, () => sdk.findOwnedCronJobs()),
+    createListGamesTool(undefined, undefined, () => sdk.findOwnedCronJobs(), data),
     sdk.t("label.list_games"),
   );
   sdk.registerTool("member", createExplainCascadeTool(data), sdk.t("label.explain_cascade"));

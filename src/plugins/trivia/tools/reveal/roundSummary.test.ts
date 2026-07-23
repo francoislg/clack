@@ -26,6 +26,20 @@ describe("computeRoundSummary", () => {
     assert.equal(out.perPlayer.length, 1);
   });
 
+  it("excludes synthetic team: rows — the round scoreboard is an individual honor", () => {
+    const out = computeRoundSummary(
+      ["q1"],
+      [ans("q1", "alice", true), ans("q1", "team:Red", true), ans("q1", "team:Blue", false)],
+      cap,
+      ALL_ONE_POINT,
+    );
+    assert.deepEqual(
+      out.perPlayer.map((p) => p.userId),
+      ["alice"],
+    );
+    assert.equal(out.perPlayer[0].roundMvp, true);
+  });
+
   it("length-1 single-correct result", () => {
     const out = computeRoundSummary(["q1"], [ans("q1", "alice", true)], cap, ALL_ONE_POINT);
     assert.equal(out.totalQuestions, 1);

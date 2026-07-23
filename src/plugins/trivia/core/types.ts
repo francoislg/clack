@@ -4,6 +4,7 @@ import type {
   SeasonFormatSlot,
   TeamDef,
   TeamsScoringMode,
+  TriviaAnsweringType,
   TriviaFreeformAnswerShape,
   JudgeLeniency,
   RevealResponsesMode,
@@ -225,6 +226,23 @@ export interface TriviaQuestion {
    */
   tagPlayers?: boolean;
   /**
+   * Answer-ownership model stamped at `post_questions` time, resolved once from
+   * the cascade via `resolveTeamsConfig`. Present IFF the question was posted in
+   * shared-buzzer mode (`"byTeam"`); absent → individual (the vast majority of
+   * rows). Read by `selectAnsweringStrategy` so a live question is answered/read
+   * by the model in effect when it was posed, immune to later config edits.
+   */
+  answeringType?: TriviaAnsweringType;
+  /**
+   * The team roster FROZEN for this question at post time (byTeam questions only).
+   * Membership for question Q is decided when Q is posted — a mid-round roster
+   * edit never orphans a slot or reshuffles who belongs to which team. Distinct
+   * from `SeasonEntry.teamsStamp` (same concept name, different shape/purpose:
+   * that one freezes `{ teams, teamsScoring }` at season close for history; this
+   * one freezes just the roster for one live question).
+   */
+  teamsStamp?: { teams: TeamDef[] };
+  /**
    * Voting-frozen flag. Set to `true` by `lock_questions` (fired by a game's optional
    * `lockCron`) and cleared by the admin `unlock_questions` tool. The live-card rebuild
    * (`editRosterIntoCard`) reads it: when `true` it strips the answer-actions block and
@@ -351,6 +369,37 @@ export interface CheatReport {
   season?: string;
 }
 
+/**
+ * One team's shared-buzzer answer slot for one question, persisted in
+ * `games/<game>/team-answers.json` (byTeam mode only). Keyed `(teamName,
+ * questionId)`: any member's click OVERWRITES the slot (last-click-wins), so
+ * exactly one slot exists per team per question. The payload/verdict fields
+ * mirror `SubmittedAnswer` so slots project cleanly into that shape for
+ * downstream consumers. Override is an overwrite of the slot — never a removal,
+ * never a write to an individual `answers.json` row.
+ */
+export interface TeamAnswerSlot {
+  /** Stable key within the question's stamped roster. */
+  teamName: string;
+  questionId: string;
+  /** Set for boolean questions. Mutually exclusive with `answerIndex` / `answerText`. */
+  answer?: boolean;
+  /** Set for choice questions (0-based). Mutually exclusive with `answer` / `answerText`. */
+  answerIndex?: number;
+  /** Set for freeform questions. Mutually exclusive with `answer` / `answerIndex`. */
+  answerText?: string;
+  /** Verdict, same semantics as `SubmittedAnswer.correct` (undefined = pending freeform). */
+  correct?: boolean;
+  /** Echoed freeform judge reason, same as `SubmittedAnswer.judgeReason`. */
+  judgeReason?: string;
+  /** Machine verdict captured on first `override_answer`, same as `SubmittedAnswer.originalVerdict`. */
+  originalVerdict?: { correct: boolean; judgeReason?: string };
+  /** Audit: the member whose click currently holds the slot (never rendered on-card). */
+  lastAnsweredBy: string;
+  timestamp: number;
+  season?: string;
+}
+
 export interface TriviaSeasonsConfig {
   enabled: boolean;
   prompt: string;
@@ -402,6 +451,8 @@ export interface SeasonEntry extends CascadeAxes {
   teamsFinaleIndividuals?: boolean;
   /** Season tier of the team scoring algorithm. See `TriviaGame.teamsScoring`. */
   teamsScoring?: TeamsScoringMode;
+  /** Season tier of the answer-ownership model (shared-buzzer). See `TriviaGame.answeringType`. */
+  answeringType?: TriviaAnsweringType;
   /**
    * EFFECTIVE teams roster + scoring mode, stamped at season close (by
    * `applySeasonRollover`) — present IFF teams mode was effectively ON when the
@@ -455,6 +506,22 @@ export interface ScopedTriviaDataLayer {
   ): Promise<void>;
   loadCheats(): Promise<CheatReport[]>;
   saveCheat(report: CheatReport): Promise<{ totalAttempts: number }>;
+  /**
+   * Shared-buzzer team slots (byTeam mode), from `games/<name>/team-answers.json`.
+   * Graceful reader: absent/corrupt file → `[]`. Individual-mode games never write
+   * this file, so it stays absent for them.
+   */
+  loadTeamAnswers(): Promise<TeamAnswerSlot[]>;
+  /**
+   * Overwrite (or create) the `(teamName, questionId)` slot with `slot` — the
+   * last-click-wins primitive. Exactly one slot per `(teamName, questionId)`.
+   */
+  upsertTeamAnswer(slot: TeamAnswerSlot): Promise<void>;
+  /**
+   * Remove the `(teamName, questionId)` slot, if present — used by the cheat-flag
+   * sweep when the flagged member holds the slot so a clean teammate can re-answer.
+   */
+  removeTeamAnswer(teamName: string, questionId: string): Promise<void>;
   /**
    * Inverse of `saveCheat`: drop every cheat report matching `(cheaterUserId,
    * questionId)` and decrement the global `cheatAttempts` counter by the number
