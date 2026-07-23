@@ -225,7 +225,7 @@ const CHOICE_FLOW_STEPS = `1. GET CATEGORY IDEAS AND SUGGESTIONS:
 
 6. Choose 1-4 emojis: apply the EMOJI SELECTION GATE (shared definition above).
 
-6b. CHOICE BUTTON EMOJIS (only when \`suggestedChoiceEmojiStyle\` is \`"themed"\`): follow the \`choiceEmojiGuidance\` from get_ideas — pick ONE unique Unicode emoji per option (actual emoji characters, never :shortcodes:), each evoking ITS OWN option's subject so the set gives away nothing about which is correct. These prefix the vote buttons and label the live answer roster. If no fitting set exists, skip this step (buttons fall back to numbered prefixes). When the style is \`"numbers"\`, skip this step and do NOT pass \`choiceEmojis\`.
+6b. CHOICE BUTTON EMOJIS (only when \`suggestedChoiceEmojiStyle\` is \`"themed"\`): follow the \`choiceEmojiGuidance\` from get_ideas — pick ONE unique Unicode emoji per option (actual emoji characters, never :shortcodes:), each evoking ITS OWN option's subject so the set gives away nothing about which is correct. Apply the SPOILER TEST from that guidance: if any option's emoji would encode the very property the question tests (the sport for a "which is a swimmer" question, the terrain for "which is a mountain", etc.), the set leaks — OMIT choiceEmojis and fall back to numbers. These prefix the vote buttons and label the live answer roster. If no fitting set exists, skip this step (buttons fall back to numbered prefixes). When the style is \`"numbers"\`, skip this step and do NOT pass \`choiceEmojis\`.
 
 7. HINT (optional): apply the HINT DRAFTING GATE (shared definition above). When \`suggestedHintMode\` is non-\`"none"\`, the gate produces an optional \`hint\` field to include in the save_question call below.
 
