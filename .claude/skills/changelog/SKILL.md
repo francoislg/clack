@@ -80,7 +80,7 @@ When in doubt about whether something is "minor", err on the side of dropping it
 Two grouping shapes carry most of the weight:
 
 - **Themed overhaul card** — when one area got several related improvements, make ONE card with a headline, then **bolded sub-lead-in bullets** underneath, each a facet. E.g. a *Trivia* card with `*More knobs* — ...`, `*Fairer judging* — ...`, `*Admin corrections* — ...`. The whole area reads as one shipped thing.
-- **Operations & polish bucket** — sweep the small, cross-cutting items (a cron tweak, a casual-talk nudge, an admin/config line, a reliability fix) into a SINGLE bucket card. Each item is a one-liner led by its own inline emoji: `Smarter crons :alarm_clock: — Missed fires caught up on boot.` This is where admin-only and operator-facing items ride along — compact, never their own headline.
+- **Operations & polish bucket** — sweep the small, cross-cutting items (a cron tweak, a casual-talk nudge, an admin/config line, a reliability fix) into a SINGLE bucket card. Each item is a one-liner led by its own leading emoji: `:alarm_clock: Smarter crons — Missed fires caught up on boot.` This is where admin-only and operator-facing items ride along — compact, never their own headline.
 
 One card = one coherent shipped area, not one commit. When in doubt, merge.
 
@@ -89,18 +89,18 @@ One card = one coherent shipped area, not one commit. When in doubt, merge.
 For every group, write a card as an **italic headline line** followed by its description, with a `---` horizontal divider between every card:
 
 ```
-_<Title> :<emoji>:_
+_:<emoji>: <Title>_
 
 <Description>
 
 ---
 ```
 
-The card headline is wrapped in `_..._` (italic). A standalone `---` divider line separates each card from the next and from section titles.
+The card headline is wrapped in `_..._` (italic) and **leads with its `:emoji:` shortcode**, followed by the title. A standalone `---` divider line separates each card from the next and from section titles.
 
 Card guidelines:
-- **Title**: short, user-facing phrasing — what changed from the user's perspective, not the commit subject. Avoid `feat:` prefixes and scope tags. The whole headline (including its trailing `:emoji:`) sits inside the italic markers.
-- **Emoji**: a single Slack shortcode (`:sparkles:`, `:zap:`, `:lock:`, `:wrench:`, `:art:`, `:rocket:`, `:bug:`, `:broom:`, etc.) that matches the card's vibe. Use the user-supplied `:emoji:` shortcode syntax — these get rendered by Slack.
+- **Title**: short, user-facing phrasing — what changed from the user's perspective, not the commit subject. Avoid `feat:` prefixes and scope tags. The whole headline (leading `:emoji:` + title) sits inside the italic markers.
+- **Emoji**: a single Slack shortcode (`:sparkles:`, `:zap:`, `:lock:`, `:wrench:`, `:art:`, `:rocket:`, `:bug:`, `:broom:`, etc.) that matches the card's vibe, placed at the **start** of the headline. Use the `:emoji:` shortcode syntax — these get rendered by Slack.
 - **Description**: 1–3 sentences. Plain language. Lead with the benefit, not the implementation. Mention configuration switches if the change is opt-in.
 - **Describe what IS.** Write each card in the present tense as the new reality — the capability a user now has or can count on. "Pick up a PR from any thread." "Reveal cards keep answers sealed until the reveal." "State loads entry by entry, quarantining a bad record." Titles are affirmative statements of the thing (`Resilient state loading`, `Continue a change from any conversation`). Let the improvement speak for itself; the reader infers the old pain from the new capability.
 - Use mrkdwn formatting: `*bold*` for facet lead-ins, backticks for `config.keys`.
@@ -110,7 +110,7 @@ Two richer card shapes, used when grouping (§4):
 
 - **Themed card with sub-bullets** — italic headline, then one bolded facet per line:
   ```
-  _Trivia: a full overhaul :trophy:_
+  _:trophy: Trivia: a full overhaul_
 
   *Redesigned reveal* — "This Round" leads the leaderboard; seasons close with a finale podium.
   *More knobs* — Choice-count bounds, emoji-styled buttons, leniency presets, no-ping mode.
@@ -121,9 +121,9 @@ Two richer card shapes, used when grouping (§4):
 - **Operations & polish bucket** — a plain (non-italic) label line, then inline-emoji one-liners, each sweeping up a small item (this is where admin/ops/internal-but-worth-mentioning rides):
   ```
   Operations & polish
-  Smarter crons :alarm_clock: — Missed fires caught up on boot; opt-in jitter so posts don't land at robotic times.
-  Casual-talk :speech_balloon: — Fallback topics, won't pile onto bots.
-  Admin & config :gear: — Search config files, edit per-repo instructions from Slack, new sudo keyword.
+  :alarm_clock: Smarter crons — Missed fires caught up on boot; opt-in jitter so posts don't land at robotic times.
+  :speech_balloon: Casual-talk — Fallback topics, won't pile onto bots.
+  :gear: Admin & config — Search config files, edit per-repo instructions from Slack, new sudo keyword.
   ```
 
 ### 6. Assemble the final post
@@ -140,13 +140,13 @@ Here's a roundup of everything that shipped in the latest update — new feature
 
 :tada: New Features
 
-_<Feature title> :emoji:_
+_:emoji: <Feature title>_
 
 <description>
 
 ---
 
-_<Feature title> :emoji:_
+_:emoji: <Feature title>_
 
 <description>
 
@@ -154,7 +154,7 @@ _<Feature title> :emoji:_
 
 :arrow_up: Improvements
 
-_<Improvement mega-card title> :emoji:_
+_:emoji: <Improvement mega-card title>_
 
 *<facet>* — <one line>
 *<facet>* — <one line>
@@ -168,7 +168,7 @@ Operations & polish
 
 :gear: Internal Changes
 
-_<Impact-framed title> :emoji:_
+_:emoji: <Impact-framed title>_
 
 <description>
 
@@ -189,7 +189,7 @@ Section order is always Features → Improvements → Internal Changes. The **Op
 
 ### 7. Sanity checks before output
 
-- Every card has a title, emoji, and description.
+- Every card has a title, a **leading** emoji, and description.
 - No card describes something trivial (typo, dep bump, lint fix, graphify/openspec housekeeping, test-only or style-only commits).
 - **Every card reads at user altitude** — a regular Slack user could follow it and see why they'd care. No commit-speak, no bare subsystem/file names as the headline.
 - **Admin/operator items are compressed, not headlined** — they belong in the Operations & polish bucket (one line each) or the Internal Changes section (framed for user impact), never as a marquee Feature.
