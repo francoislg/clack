@@ -98,6 +98,65 @@ describe("classic DM filter", () => {
     assert.equal(mockProcessMessage.mock.calls.length, 0);
   });
 
+  it("admits a file_share DM and forwards its attachments", async () => {
+    mockExtractAttachments.mockReturnValueOnce({
+      imageFiles: [
+        { id: "F1", name: "a.png", mimetype: "image/png", size: 100, url_private: "https://x" },
+      ],
+    });
+    await handleClassicDmEvent(
+      {
+        channel_type: "im",
+        channel: "D001",
+        ts: "1.0",
+        user: "U1",
+        subtype: "file_share",
+        text: "why did this fail?",
+        files: [{ id: "F1" }],
+      },
+      FAKE_CLIENT,
+      makeDeps(),
+    );
+    const call = mockProcessMessage.mock.calls[0][0];
+    assert.equal(call.messageText, "why did this fail?");
+    assert.equal(call.imageFiles?.length, 1);
+  });
+
+  it("admits thread_broadcast and me_message DMs", async () => {
+    for (const subtype of ["thread_broadcast", "me_message"]) {
+      mockProcessMessage.mockClear();
+      await handleClassicDmEvent(
+        {
+          channel_type: "im",
+          channel: "D001",
+          ts: "1.0",
+          user: "U1",
+          subtype,
+          text: "hello",
+        },
+        FAKE_CLIENT,
+        makeDeps(),
+      );
+      assert.equal(mockProcessMessage.mock.calls.length, 1, `expected ${subtype} to be admitted`);
+    }
+  });
+
+  it("ignores bot_message even though auto-respond admits it", async () => {
+    await handleClassicDmEvent(
+      {
+        channel_type: "im",
+        channel: "D001",
+        ts: "1.0",
+        user: "U1",
+        subtype: "bot_message",
+        text: "automated post",
+      },
+      FAKE_CLIENT,
+      makeDeps(),
+    );
+    assert.equal(mockProcessMessage.mock.calls.length, 0);
+  });
+
   it("ignores DMs with no text and no files", async () => {
     await handleClassicDmEvent(
       {
@@ -188,6 +247,7 @@ describe("classic DM routing", () => {
         channel: "D001",
         ts: "1.0",
         user: "U1",
+        subtype: "file_share",
         files: [{ id: "F1" }],
       },
       FAKE_CLIENT,

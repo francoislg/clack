@@ -38,6 +38,11 @@ import type { TriggerType } from "../../changes/types.js";
 
 const AUTO_RESPOND_USER_ID = "auto-respond";
 
+/** Subtypes that are still a real message: an upload (`file_share`), a thread reply also sent
+ *  to the channel (`thread_broadcast`), or `/me` (`me_message`) — plus bot posts, which
+ *  auto-respond rules deliberately target. Everything else is hidden or channel lifecycle. */
+const ADMITTED_SUBTYPES = new Set(["bot_message", "file_share", "thread_broadcast", "me_message"]);
+
 const MENTION_PATTERN = /<@([UW][A-Z0-9]+)>/g;
 
 const THREAD_PRE_ANALYSIS_CONTEXT =
@@ -154,6 +159,21 @@ async function fetchEnrichedContext(
     logger.warn(warnLabel, error);
     return { ...defaultEnrichment, historyUnavailable: true };
   }
+}
+
+/**
+ * Text to hand the pre-analysis classifier: the message's own words, or a placeholder
+ * describing its images when it carries only an upload. `null` means there is nothing to
+ * classify. Shared by all three resolution paths so they cannot drift apart.
+ */
+function resolveAnalysisText(
+  rawText: string | undefined,
+  rawFiles: unknown[] | undefined,
+): string | null {
+  const trimmed = rawText?.trim();
+  if (trimmed) return trimmed;
+  const { imageFiles } = extractAttachments(rawFiles);
+  return imageFiles?.length ? buildImageOnlyPreAnalysisText(imageFiles) : null;
 }
 
 interface AutoRespondContext {
@@ -280,18 +300,11 @@ export async function resolveAutoRespondContext(
       }
     }
 
-    // Pre-analysis: filter noise in thread replies. When text is empty but the
-    // message carries image uploads, synthesize a textual placeholder so
-    // pre-analysis can still classify based on thread history.
-    let textForAnalysis = rawText?.trim();
+    // Pre-analysis: filter noise in thread replies.
+    const textForAnalysis = resolveAnalysisText(rawText, rawFiles);
     if (!textForAnalysis) {
-      const { imageFiles } = extractAttachments(rawFiles);
-      if (imageFiles?.length) {
-        textForAnalysis = buildImageOnlyPreAnalysisText(imageFiles);
-      } else {
-        logger.debug(`Thread auto-respond: empty message, skipping${threadLink}`);
-        return null;
-      }
+      logger.debug(`Thread auto-respond: empty message, skipping${threadLink}`);
+      return null;
     }
 
     // "always" attention skips the pre-analysis gate entirely (both the standard and
@@ -457,7 +470,7 @@ export async function resolveAutoRespondContext(
 
   let topLevelVerdict: string | undefined;
   if (rule.preAnalysisContext) {
-    const textForAnalysis = rawText?.trim();
+    const textForAnalysis = resolveAnalysisText(rawText, rawFiles);
     if (!textForAnalysis) return null;
 
     const botName = config.slackApp?.name ?? "Clack";
@@ -560,15 +573,8 @@ async function resolveEphemeralConversation(
   deps: AutoRespondDeps,
   rawFiles?: unknown[],
 ): Promise<AutoRespondContext | null> {
-  let textForAnalysis = rawText?.trim();
-  if (!textForAnalysis) {
-    const { imageFiles } = extractAttachments(rawFiles);
-    if (imageFiles?.length) {
-      textForAnalysis = buildImageOnlyPreAnalysisText(imageFiles);
-    } else {
-      return null;
-    }
-  }
+  const textForAnalysis = resolveAnalysisText(rawText, rawFiles);
+  if (!textForAnalysis) return null;
 
   const botName = config.slackApp?.name ?? "Clack";
   const messageLink = await slackLink(client, channelId, messageTs);
@@ -690,8 +696,8 @@ export async function handleAutoRespondMessageEvent(
     return;
   }
 
-  // Skip non-message subtypes (edits, deletes, joins, etc.) — but allow bot_message through
-  if ("subtype" in event && event.subtype !== undefined && event.subtype !== "bot_message") {
+  // Skip subtypes with no conversational payload (edits, deletes, joins, etc.)
+  if ("subtype" in event && event.subtype !== undefined && !ADMITTED_SUBTYPES.has(event.subtype)) {
     return;
   }
 
