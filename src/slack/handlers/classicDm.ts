@@ -54,6 +54,14 @@ export const defaultClassicDmDeps: ClassicDmDeps = {
   stopThread,
 };
 
+/** Subtypes that are still a real user DM: an upload, a thread reply also sent to the
+ *  channel, or `/me`. `bot_message` is excluded — the DM pipeline never answers bots. */
+const ADMITTED_SUBTYPES = new Set(["file_share", "thread_broadcast", "me_message"]);
+
+function isAdmittedSubtype(subtype: unknown): boolean {
+  return typeof subtype === "string" && ADMITTED_SUBTYPES.has(subtype);
+}
+
 interface RawMessageEvent {
   bot_id?: unknown;
   subtype?: unknown;
@@ -82,7 +90,7 @@ function toClassicDmMessage(value: unknown): ClassicDmMessage | null {
   if (!value || typeof value !== "object") return null;
   const e = value as RawMessageEvent;
   if (e.bot_id !== undefined) return null;
-  if (e.subtype !== undefined) return null;
+  if (e.subtype !== undefined && !isAdmittedSubtype(e.subtype)) return null;
   if (e.channel_type !== "im") return null;
   if (typeof e.channel !== "string") return null;
   if (typeof e.ts !== "string") return null;
