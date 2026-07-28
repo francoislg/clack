@@ -1,4 +1,5 @@
 import { clackQuery as _clackQuery } from "./query.js";
+import { getConfig } from "../config.js";
 import { logger } from "../logger.js";
 import { truncate } from "../text.js";
 import { detectRuntime } from "./utilities.js";
@@ -9,15 +10,30 @@ import type { SDKMessage, Options } from "@anthropic-ai/claude-agent-sdk";
 // Dependency injection
 // ---------------------------------------------------------------------------
 
+/** Classifier model when `claudeCode.preAnalysisModel` is unset. */
+export const DEFAULT_PRE_ANALYSIS_MODEL = "sonnet";
+
+/** A config read must never break the gate, so an unloaded or malformed config
+ *  falls back to the default rather than throwing mid-classification. */
+function resolveConfiguredModel(): string {
+  try {
+    return getConfig().claudeCode.preAnalysisModel ?? DEFAULT_PRE_ANALYSIS_MODEL;
+  } catch {
+    return DEFAULT_PRE_ANALYSIS_MODEL;
+  }
+}
+
 export interface PreAnalysisDeps {
   clackQuery: (params: {
     prompt: string;
     options?: Omit<Options, "persistSession" | "resume" | "continue">;
   }) => AsyncIterable<SDKMessage>;
+  resolveModel: () => string;
 }
 
 export const defaultPreAnalysisDeps: PreAnalysisDeps = {
   clackQuery: _clackQuery,
+  resolveModel: resolveConfiguredModel,
 };
 
 export interface PreAnalysisMessage {
@@ -74,17 +90,20 @@ function buildTimingLine(
   return `\n\nTIMING: this message arrived ${formatElapsedSeconds(secondsSinceLastBotMessage)} after ${botName}'s last message in this ${location}.`;
 }
 
-type ClassifierRun =
+type ClassifierRun = { model: string } & (
   | { ok: true; text: string }
-  | { ok: false; reason: "error" | "no_result" | "non_success" };
+  | { ok: false; reason: "error" | "no_result" | "non_success" }
+);
 
 /** Drive one single-turn classifier call and normalize the outcome: the lowercased result
- *  text on success, or the failure reason. Verdict mapping stays with each caller. */
+ *  text on success, or the failure reason. Verdict mapping stays with each caller.
+ *  The model is echoed back so callers can attribute each logged verdict to it. */
 async function runClassifierQuery(
   systemPrompt: string,
   prompt: string,
   deps: PreAnalysisDeps,
 ): Promise<ClassifierRun> {
+  const model = deps.resolveModel();
   try {
     let lastAssistantText = "";
 
@@ -93,7 +112,7 @@ async function runClassifierQuery(
       options: {
         cwd: process.cwd(),
         executable: detectRuntime(),
-        model: "sonnet",
+        model,
         systemPrompt,
         disallowedTools: CLASSIFIER_DISALLOWED_TOOLS,
         maxTurns: 1,
@@ -111,15 +130,15 @@ async function runClassifierQuery(
         const resultText = ((message as { result?: string }).result || lastAssistantText)
           .trim()
           .toLowerCase();
-        if (message.subtype !== "success") return { ok: false, reason: "non_success" };
-        return { ok: true, text: resultText };
+        if (message.subtype !== "success") return { ok: false, reason: "non_success", model };
+        return { ok: true, text: resultText, model };
       }
     }
 
-    return { ok: false, reason: "no_result" };
+    return { ok: false, reason: "no_result", model };
   } catch (error) {
     logger.warn("Classifier call failed:", error);
-    return { ok: false, reason: "error" };
+    return { ok: false, reason: "error", model };
   }
 }
 
@@ -233,12 +252,14 @@ OUTPUT FORMAT: The single word ${outputVerdicts}. Nothing else.`;
     deps,
   );
   if (!run.ok) {
-    logger.warn(`Pre-analysis: ${run.reason} for "${truncate(messageText, 50)}"`);
+    logger.warn(
+      `Pre-analysis: ${run.reason} (model=${run.model}) for "${truncate(messageText, 50)}"`,
+    );
     return "skip";
   }
 
   logger.info(
-    `Pre-analysis result: text="${run.text}", message="${truncate(messageText, 50)}"${slackLink ?? ""}`,
+    `Pre-analysis result: text="${run.text}", model=${run.model}, message="${truncate(messageText, 50)}"${slackLink ?? ""}`,
   );
   if (run.text.includes("respond")) return "respond";
   // "stop" (auto-disengage) is honored only at the low rung; higher rungs never
@@ -312,13 +333,13 @@ OUTPUT FORMAT: The single word "respond", "skip", or "stop". Nothing else.`;
   );
   if (!run.ok) {
     logger.warn(
-      `Channel-continuation pre-analysis: ${run.reason} for "${truncate(messageText, 50)}"`,
+      `Channel-continuation pre-analysis: ${run.reason} (model=${run.model}) for "${truncate(messageText, 50)}"`,
     );
     return null;
   }
 
   logger.info(
-    `Channel-continuation pre-analysis: text="${run.text}", message="${truncate(messageText, 50)}"${slackLink ?? ""}`,
+    `Channel-continuation pre-analysis: text="${run.text}", model=${run.model}, message="${truncate(messageText, 50)}"${slackLink ?? ""}`,
   );
   if (run.text.includes("respond")) return "respond";
   if (run.text.includes("stop")) return "stop";
@@ -376,12 +397,14 @@ OUTPUT FORMAT: The single word "append" or "skip". Nothing else.`;
     deps,
   );
   if (!run.ok) {
-    logger.warn(`Active-run pre-analysis: ${run.reason} for "${truncate(messageText, 50)}"`);
+    logger.warn(
+      `Active-run pre-analysis: ${run.reason} (model=${run.model}) for "${truncate(messageText, 50)}"`,
+    );
     return "append";
   }
 
   logger.info(
-    `Active-run pre-analysis: text="${run.text}", message="${truncate(messageText, 50)}"${slackLink ?? ""}`,
+    `Active-run pre-analysis: text="${run.text}", model=${run.model}, message="${truncate(messageText, 50)}"${slackLink ?? ""}`,
   );
   if (run.text.includes("skip")) return "skip";
   return "append";

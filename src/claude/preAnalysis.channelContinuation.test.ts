@@ -72,6 +72,7 @@ function makeDeps(): PreAnalysisDeps {
       if (shouldThrow) throw new Error("api down");
       return yieldMessages(queuedMessages);
     },
+    resolveModel: () => "sonnet",
   };
 }
 
