@@ -1,6 +1,7 @@
 import { describe, it, beforeEach, vi } from "vitest";
 import assert from "node:assert/strict";
 import { z } from "zod";
+import { createResponseCapture } from "../server.js";
 import type { IntentStore, ResponseCapture, ToolCallRecorder } from "../server.js";
 import type { AttentionLevel, DeliveryMode } from "../../sessions.js";
 import type { StagedIntent, ResponseSnapshot } from "../types.js";
@@ -8,6 +9,7 @@ import { parseToolResult, toolResultText } from "../testHelpers.js";
 import {
   buildSubmitResponseSchema,
   createSubmitResponseTool,
+  ONE_SHOT_REMINDER,
   type SubmitResponseDeps,
 } from "./submitResponse.js";
 import { validateSingleMessage } from "./submitResponse/messageValidation.js";
@@ -3557,5 +3559,235 @@ describe("submit_response escalate_to_owner capture", () => {
     });
 
     assert.equal(diagnostics.length, 0);
+  });
+
+  it("captures the diagnostic even when the call is rejected by validation", async () => {
+    mockValidateBlocks.mockImplementation(() => [
+      { field: "section[0].text", message: "text too long", currentLength: 4000, limit: 3000 },
+    ]);
+    const { capture, diagnostics } = escalateTracker();
+    const deps = makeDeps({ responseCapture: capture });
+
+    const result = await callToolRawTopLevel(deps, {
+      blocks: [{ type: "section", text: { type: "mrkdwn", text: "too long" } }],
+      actions: [],
+      escalate_to_owner: "metabase card 758 is failing",
+    });
+
+    assert.equal("isError" in result && result.isError, true);
+    assert.deepEqual(diagnostics, ["metabase card 758 is failing"]);
+  });
+
+  it("captures the diagnostic even when the required-tools gate refuses the call", async () => {
+    const { capture, diagnostics } = escalateTracker();
+    const deps = makeDeps({
+      responseCapture: capture,
+      requiredTools: ["mcp__trivia__submit_answers"],
+    });
+
+    const result = await callToolRawTopLevel(deps, {
+      blocks: [{ type: "section", text: { type: "mrkdwn", text: "hi" } }],
+      actions: [],
+      escalate_to_owner: "credential missing",
+    });
+
+    assert.equal("isError" in result && result.isError, true);
+    assert.deepEqual(diagnostics, ["credential missing"]);
+  });
+
+  // Retention semantics run against the REAL capture — a stubbed one cannot express
+  // "the previous value survives", which is the whole property under test.
+  it("keeps an earlier diagnostic when a later successful call omits the field", async () => {
+    const capture = createResponseCapture();
+    const deps = makeDeps({
+      responseCapture: capture,
+      requiredTools: ["mcp__trivia__submit_answers"],
+    });
+
+    await callToolRawTopLevel(deps, {
+      blocks: [{ type: "section", text: { type: "mrkdwn", text: "hi" } }],
+      actions: [],
+      escalate_to_owner: "metabase grant is broken",
+    });
+
+    const second = makeDeps({ responseCapture: capture });
+    await callToolRawTopLevel(second, {
+      blocks: [{ type: "section", text: { type: "mrkdwn", text: "here is the report" } }],
+      actions: [],
+    });
+
+    assert.equal(capture.getEscalateToOwner(), "metabase grant is broken");
+  });
+
+  it("lets a later call revise an earlier diagnostic", async () => {
+    const capture = createResponseCapture();
+    const deps = makeDeps({
+      responseCapture: capture,
+      requiredTools: ["mcp__trivia__submit_answers"],
+    });
+
+    await callToolRawTopLevel(deps, {
+      blocks: [{ type: "section", text: { type: "mrkdwn", text: "hi" } }],
+      actions: [],
+      escalate_to_owner: "first read of the failure",
+    });
+    await callToolRawTopLevel(deps, {
+      blocks: [{ type: "section", text: { type: "mrkdwn", text: "hi" } }],
+      actions: [],
+      escalate_to_owner: "corrected read of the failure",
+    });
+
+    assert.equal(capture.getEscalateToOwner(), "corrected read of the failure");
+  });
+
+  it("captures nothing when no call in the run sets the field", async () => {
+    const capture = createResponseCapture();
+    const deps = makeDeps({ responseCapture: capture });
+
+    await callToolRawTopLevel(deps, {
+      blocks: [{ type: "section", text: { type: "mrkdwn", text: "all good" } }],
+      actions: [],
+    });
+
+    assert.equal(capture.getEscalateToOwner(), null);
+  });
+
+  it("captures the diagnostic even when the pending-input gate refuses the call", async () => {
+    const { capture, diagnostics } = escalateTracker();
+    const deps = makeDeps({
+      responseCapture: capture,
+      hasPendingInput: () => true,
+      consumePendingPushedTexts: () => ["wait, one more thing"],
+    });
+
+    const result = await callToolRawTopLevel(deps, {
+      blocks: [{ type: "section", text: { type: "mrkdwn", text: "hi" } }],
+      actions: [],
+      escalate_to_owner: "disk full",
+    });
+
+    assert.equal("isError" in result && result.isError, true);
+    assert.deepEqual(diagnostics, ["disk full"]);
+  });
+});
+
+describe("submit_response one-shot reminder on errors", () => {
+  beforeEach(resetBlockMocks);
+
+  it("rides a single validation error without altering the error string", async () => {
+    mockValidateBlocks.mockImplementation(() => [
+      { field: "section[0].text", message: "text too long", currentLength: 4000, limit: 3000 },
+    ]);
+    const deps = makeDeps();
+
+    const parsed = parseToolResult(
+      await callTool(deps, {
+        blocks: [{ type: "section", text: { type: "mrkdwn", text: "ok" } }],
+        actions: [],
+      }),
+    );
+
+    assert.equal(parsed.reminder, ONE_SHOT_REMINDER);
+    assert.match(parsed.error, /section\[0\]\.text/);
+    assert.equal(parsed.error.includes(ONE_SHOT_REMINDER), false);
+  });
+
+  it("rides an aggregated invalid_batch error without altering details", async () => {
+    mockValidateBlocks.mockImplementation(() => [
+      { field: "section[0].text", message: "text too long", currentLength: 4000, limit: 3000 },
+      { field: "section[1].text", message: "also too long", currentLength: 4000, limit: 3000 },
+    ]);
+    const deps = makeDeps();
+
+    const parsed = parseToolResult(
+      await callTool(deps, {
+        blocks: [{ type: "section", text: { type: "mrkdwn", text: "ok" } }],
+        actions: [],
+      }),
+    );
+
+    assert.equal(parsed.error, "invalid_batch");
+    assert.equal(Array.isArray(parsed.details), true);
+    assert.equal(parsed.reminder, ONE_SHOT_REMINDER);
+    assert.equal(
+      parsed.details.some((d: string) => d.includes(ONE_SHOT_REMINDER)),
+      false,
+    );
+  });
+
+  it("rides a required-tools gate rejection", async () => {
+    const deps = makeDeps({ requiredTools: ["mcp__trivia__submit_answers"] });
+
+    const parsed = parseToolResult(
+      await callTool(deps, {
+        blocks: [{ type: "section", text: { type: "mrkdwn", text: "Hello" } }],
+        actions: [],
+      }),
+    );
+
+    assert.match(parsed.error, /required tool/);
+    assert.equal(parsed.reminder, ONE_SHOT_REMINDER);
+  });
+
+  it("rides a pending-input gate rejection", async () => {
+    const deps = makeDeps({
+      hasPendingInput: () => true,
+      consumePendingPushedTexts: () => ["actually, hold on"],
+    });
+
+    const parsed = parseToolResult(
+      await callTool(deps, {
+        blocks: [{ type: "section", text: { type: "mrkdwn", text: "Hello" } }],
+        actions: [],
+      }),
+    );
+
+    assert.deepEqual(parsed.new_user_messages, ["actually, hold on"]);
+    assert.equal(parsed.reminder, ONE_SHOT_REMINDER);
+  });
+
+  it("rides a delivery failure", async () => {
+    const deps = makeDeps({
+      deliver: vi.fn(async () => ({ ok: false as const, error: "channel_not_found" })),
+    });
+
+    const parsed = parseToolResult(
+      await callTool(deps, {
+        blocks: [{ type: "section", text: { type: "mrkdwn", text: "Hello" } }],
+        actions: [],
+      }),
+    );
+
+    assert.equal(parsed.error, "delivery_failed");
+    assert.equal(parsed.reminder, ONE_SHOT_REMINDER);
+  });
+
+  it("is absent from a successful delivery", async () => {
+    const deps = makeDeps({ deliver: vi.fn(async () => ({ ok: true as const, ts: "ts-1" })) });
+
+    const parsed = parseToolResult(
+      await callTool(deps, {
+        blocks: [{ type: "section", text: { type: "mrkdwn", text: "Hello" } }],
+        actions: [],
+      }),
+    );
+
+    assert.equal(parsed.success, true);
+    assert.equal("reminder" in parsed, false);
+  });
+
+  it("is absent from a skip result", async () => {
+    const deps = makeDeps({ allowSkip: true });
+
+    const parsed = parseToolResult(
+      await callToolRawTopLevel(deps, {
+        skip_response: true,
+        message:
+          "I acknowledge that responding to this would serve no purpose, so I am skipping it.",
+      }),
+    );
+
+    assert.equal(parsed.skipped, true);
+    assert.equal("reminder" in parsed, false);
   });
 });

@@ -643,9 +643,22 @@ function enumerateBatchMessages(args: SubmitResponseArgs): BatchMessage[] {
   return messages;
 }
 
+/**
+ * Stated on every error because a run that has already failed twice has demonstrably stopped
+ * weighing the tool description, which says the same thing. One incident ended with a
+ * `{ type: "section", text: "test" }` probe sent to discover the argument format: it validated,
+ * delivered to a public channel, and consumed the only delivery slot the run had.
+ */
+export const ONE_SHOT_REMINDER =
+  "submit_response is one-shot: the next call that validates is what the user sees, and it " +
+  "cannot be replaced or followed up. Never send a probe, test, or placeholder payload to " +
+  "discover the format — correct the arguments and resend your complete response.";
+
 function recordError(recorder: ToolCallRecorder, args: unknown, errData: Record<string, unknown>) {
   recorder.record("submit_response", args as Record<string, unknown>, errData);
-  return { ...textResult(errData), isError: true as const };
+  // The reminder rides the result Claude sees but stays out of the recorded history above,
+  // which keeps session traces byte-identical to the raw failure.
+  return { ...textResult({ ...errData, reminder: ONE_SHOT_REMINDER }), isError: true as const };
 }
 
 interface SubmitResponseSuccessResult {
@@ -1113,6 +1126,18 @@ export function createSubmitResponseTool(deps: SubmitResponseDeps) {
       // per-variant field inference. The runtime checks below (`"x" in args` + ad-hoc Array.isArray)
       // narrow before each use; the cast just restores the field types after the runtime parse.
       const args = rawArgs as SubmitResponseArgs;
+
+      // Capture an owner escalation (if any) FIRST — ahead of every gate and all validation.
+      // A diagnostic is the operator's only signal that something broke, so it must survive a
+      // call that is subsequently rejected; capturing it later loses it on exactly the failing
+      // calls that most need reporting. Empty/whitespace counts as absent. Last non-empty wins
+      // and it is never cleared, so a retry can revise it but omitting it cannot erase it.
+      const escalateToOwner =
+        "escalate_to_owner" in args && typeof args.escalate_to_owner === "string"
+          ? args.escalate_to_owner.trim()
+          : "";
+      if (escalateToOwner) responseCapture.setEscalateToOwner(escalateToOwner);
+
       // --- Pending-input gate: refuse delivery while `sendUpdate` has queued user input
       // Claude hasn't observed yet. The error result inlines the queued texts so Claude
       // can address them in the current turn (the SDK only surfaces queued messages at
@@ -1144,14 +1169,6 @@ export function createSubmitResponseTool(deps: SubmitResponseDeps) {
           });
         }
       }
-
-      // Capture an owner escalation (if any) before path branching, so it's recorded on every
-      // success/skip outcome — normal, skip, and deliver_to. Empty/whitespace counts as absent.
-      const escalateToOwner =
-        "escalate_to_owner" in args && typeof args.escalate_to_owner === "string"
-          ? args.escalate_to_owner.trim()
-          : "";
-      if (escalateToOwner) responseCapture.setEscalateToOwner(escalateToOwner);
 
       // --- deliver_to path (optional-post-to / channelless) ---
       // This mode has no bound primary channel. The run resolves to exactly one of three
