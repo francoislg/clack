@@ -272,6 +272,16 @@ export const CONFIG_SCHEMA: SchemaFor<Config> = {
             "Model for worker-mode (worktree) runs — alias or concrete model ID. Falls back to 'model' when unset.",
           required: false,
         },
+        preAnalysisModel: {
+          type: "string",
+          description: [
+            "Model for the auto-respond pre-analysis classifier — alias or concrete model ID.",
+            "This gate runs on every message in a rule-covered channel, so it is the",
+            "highest-frequency model call; a cheaper model cuts cost but can degrade",
+            "respond/skip accuracy. Defaults to 'sonnet'.",
+          ].join(" "),
+          required: false,
+        },
         watchMcpConfig: {
           type: "boolean",
           description: "Reload mcp.json on disk changes without restarting Clack.",

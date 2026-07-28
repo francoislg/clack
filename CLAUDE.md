@@ -21,7 +21,7 @@ npm run build        # Compile TypeScript
 npm run dev          # Watch mode (tsc --watch & node --watch)
 npm run start        # Run compiled output
 npm run test         # Run tests (node --test)
-npx tsc              # Type-check without emitting (use to verify changes)
+npx tsc --noEmit     # Type-check (use to verify changes) — `--noEmit` is required, a bare `npx tsc` writes dist/
 ```
 
 **Linter:** **oxlint**, not ESLint. Run `npx oxlint <files>`.

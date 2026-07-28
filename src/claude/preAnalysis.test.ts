@@ -6,7 +6,9 @@ import {
   formatElapsedSeconds,
   type PreAnalysisDeps,
   defaultPreAnalysisDeps,
+  DEFAULT_PRE_ANALYSIS_MODEL,
 } from "./preAnalysis.js";
+import { logger } from "../logger.js";
 import type { clackQuery } from "./query.js";
 
 // ---------------------------------------------------------------------------
@@ -273,6 +275,79 @@ describe("runPreAnalysis", () => {
       makeDeps(),
     );
     assert.equal(result, "skip");
+  });
+
+  it("classifies with the model resolveModel returns", async () => {
+    let capturedOptions: QueryCallArg["options"];
+    mockQuery.mockImplementation((...args: unknown[]) => {
+      capturedOptions = (args[0] as QueryCallArg).options;
+      return asyncIterableOf([{ type: "result", subtype: "success", result: "respond" }]);
+    });
+
+    await runPreAnalysis(
+      "test message",
+      "Alice",
+      "Clack",
+      "Only respond to product questions",
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      { ...makeDeps(), resolveModel: () => "claude-haiku-4-5" },
+    );
+
+    assert.equal(capturedOptions?.model, "claude-haiku-4-5");
+  });
+
+  it("falls back to the default model when config resolution throws", async () => {
+    let capturedOptions: QueryCallArg["options"];
+    mockQuery.mockImplementation((...args: unknown[]) => {
+      capturedOptions = (args[0] as QueryCallArg).options;
+      return asyncIterableOf([{ type: "result", subtype: "success", result: "respond" }]);
+    });
+
+    // `defaultPreAnalysisDeps.resolveModel` reads the global config, which is
+    // unloaded here — the gate must still classify rather than throw.
+    await runPreAnalysis(
+      "test message",
+      "Alice",
+      "Clack",
+      "Only respond to product questions",
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      makeDeps(),
+    );
+
+    assert.equal(capturedOptions?.model, DEFAULT_PRE_ANALYSIS_MODEL);
+  });
+
+  it("names the model on the logged verdict so it is attributable", async () => {
+    const info = vi.spyOn(logger, "info").mockImplementation(() => {});
+    mockQuery.mockImplementation(() =>
+      asyncIterableOf([{ type: "result", subtype: "success", result: "skip" }]),
+    );
+
+    await runPreAnalysis(
+      "lol",
+      "Alice",
+      "Clack",
+      "Skip noise",
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      { ...makeDeps(), resolveModel: () => "claude-haiku-4-5" },
+    );
+
+    assert.ok(
+      info.mock.calls.some((call) => String(call[0]).includes("model=claude-haiku-4-5")),
+      `expected a verdict log naming the model, got: ${JSON.stringify(info.mock.calls)}`,
+    );
   });
 
   it("passes systemPrompt with preAnalysisContext and bot name to query", async () => {

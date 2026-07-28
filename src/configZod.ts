@@ -261,6 +261,7 @@ export function validateConfig(config: unknown, slackAuth: SlackAuthConfig): Con
     claudeCode: {
       model: claudeCodeRaw ? stringOr(claudeCodeRaw.model, "sonnet") : "sonnet",
       workerModel: claudeCodeRaw ? optStr(claudeCodeRaw.workerModel) : undefined,
+      preAnalysisModel: claudeCodeRaw ? optStr(claudeCodeRaw.preAnalysisModel) : undefined,
       watchMcpConfig: claudeCodeRaw ? boolOr(claudeCodeRaw.watchMcpConfig, false) : false,
     },
     changesWorkflow: cwRaw

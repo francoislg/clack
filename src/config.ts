@@ -47,6 +47,8 @@ export interface ClaudeCodeConfig {
   model?: string;
   /** Model for worker-mode (worktree) runs. Falls back to `model` when unset. */
   workerModel?: string;
+  /** Model for the auto-respond pre-analysis classifier. Falls back to `"sonnet"` when unset. */
+  preAnalysisModel?: string;
   watchMcpConfig?: boolean;
 }
 
