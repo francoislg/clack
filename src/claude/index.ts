@@ -370,7 +370,7 @@ function buildToolResults(clackTools: ClackToolsResult): {
   return { structuredResponse, renderedBlocks, stagedIntents };
 }
 
-function buildSuccessResponse(
+export function buildSuccessResponse(
   answer: string,
   conversationTrace: ConversationMessage[],
   clackTools: ClackToolsResult,
@@ -414,13 +414,17 @@ function buildSuccessResponse(
     };
   }
 
-  // No submit_response called — return raw text
+  // No submit_response called — return raw text. An escalation may still have been captured
+  // by a submit_response call that was rejected before it could deliver, and these two
+  // outcomes are exactly when the operator most needs to hear about it, so carry it through
+  // here as the skip and structured-response branches above already do.
   if (answer.trim()) {
     return {
       success: true,
       answer: answer.trim(),
       conversationTrace,
       toolCallHistory: optionalToolHistory,
+      escalateToOwner: clackTools.getEscalateToOwner() ?? undefined,
     };
   }
 
@@ -430,6 +434,7 @@ function buildSuccessResponse(
     error: "No response received from Claude",
     conversationTrace,
     toolCallHistory: optionalToolHistory,
+    escalateToOwner: clackTools.getEscalateToOwner() ?? undefined,
   };
 }
 

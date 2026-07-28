@@ -2621,7 +2621,7 @@
       "source_location": "L168",
       "_origin": "ast",
       "id": "src_changes_activestate_getactivechange",
-      "community": 80,
+      "community": 187,
       "norm_label": "getactivechange()"
     },
     {
@@ -2721,7 +2721,7 @@
       "source_location": "L285",
       "_origin": "ast",
       "id": "src_changes_activestate_detachactivechangeworktree",
-      "community": 187,
+      "community": 148,
       "norm_label": "detachactivechangeworktree()"
     },
     {
@@ -2771,7 +2771,7 @@
       "source_location": "L347",
       "_origin": "ast",
       "id": "src_changes_activestate_getactiveworkers",
-      "community": 187,
+      "community": 148,
       "norm_label": "getactiveworkers()"
     },
     {
@@ -3121,7 +3121,7 @@
       "source_location": "L34",
       "_origin": "ast",
       "id": "src_changes_monitor_monitordeps",
-      "community": 187,
+      "community": 148,
       "norm_label": "monitordeps"
     },
     {
@@ -3911,7 +3911,7 @@
       "source_location": "L83",
       "_origin": "ast",
       "id": "src_changes_types_changestatus",
-      "community": 187,
+      "community": 18,
       "norm_label": "changestatus"
     },
     {
@@ -4001,7 +4001,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "src_changes_verification_config",
-      "community": 80,
+      "community": 59,
       "norm_label": "config.ts"
     },
     {
@@ -4011,7 +4011,7 @@
       "source_location": "L9",
       "_origin": "ast",
       "id": "src_changes_verification_config_checkschema",
-      "community": 80,
+      "community": 59,
       "norm_label": "checkschema"
     },
     {
@@ -4021,7 +4021,7 @@
       "source_location": "L15",
       "_origin": "ast",
       "id": "src_changes_verification_config_configschema",
-      "community": 80,
+      "community": 59,
       "norm_label": "configschema"
     },
     {
@@ -4041,7 +4041,7 @@
       "source_location": "L21",
       "_origin": "ast",
       "id": "src_changes_verification_config_verificationconfig",
-      "community": 80,
+      "community": 59,
       "norm_label": "verificationconfig"
     },
     {
@@ -4051,7 +4051,7 @@
       "source_location": "L23",
       "_origin": "ast",
       "id": "src_changes_verification_config_readtextfile",
-      "community": 80,
+      "community": 59,
       "norm_label": "readtextfile"
     },
     {
@@ -4061,7 +4061,7 @@
       "source_location": "L25",
       "_origin": "ast",
       "id": "src_changes_verification_config_loadverificationconfigdeps",
-      "community": 80,
+      "community": 59,
       "norm_label": "loadverificationconfigdeps"
     },
     {
@@ -4071,7 +4071,7 @@
       "source_location": "L30",
       "_origin": "ast",
       "id": "src_changes_verification_config_defaultloadverificationconfigdeps",
-      "community": 80,
+      "community": 59,
       "norm_label": "defaultloadverificationconfigdeps"
     },
     {
@@ -4081,7 +4081,7 @@
       "source_location": "L35",
       "_origin": "ast",
       "id": "src_changes_verification_config_loadverificationconfig",
-      "community": 80,
+      "community": 59,
       "norm_label": "loadverificationconfig()"
     },
     {
@@ -4978,7 +4978,7 @@
       "label": "handleQueryError()",
       "file_type": "code",
       "source_file": "src/claude/index.ts",
-      "source_location": "L436",
+      "source_location": "L441",
       "_origin": "ast",
       "id": "src_claude_index_handlequeryerror",
       "community": 54,
@@ -4988,7 +4988,7 @@
       "label": "askClaude()",
       "file_type": "code",
       "source_file": "src/claude/index.ts",
-      "source_location": "L483",
+      "source_location": "L488",
       "_origin": "ast",
       "id": "src_claude_index_askclaude",
       "community": 1,
@@ -5271,7 +5271,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "src_claude_messageparser",
-      "community": 51,
+      "community": 78,
       "norm_label": "messageparser.ts"
     },
     {
@@ -5281,7 +5281,7 @@
       "source_location": "L7",
       "_origin": "ast",
       "id": "src_claude_messageparser_tooluseinfo",
-      "community": 51,
+      "community": 78,
       "norm_label": "tooluseinfo"
     },
     {
@@ -5291,7 +5291,7 @@
       "source_location": "L13",
       "_origin": "ast",
       "id": "src_claude_messageparser_parsedmessage",
-      "community": 51,
+      "community": 78,
       "norm_label": "parsedmessage"
     },
     {
@@ -5301,7 +5301,7 @@
       "source_location": "L24",
       "_origin": "ast",
       "id": "src_claude_messageparser_parsedresult",
-      "community": 51,
+      "community": 78,
       "norm_label": "parsedresult"
     },
     {
@@ -5351,7 +5351,7 @@
       "source_location": "L84",
       "_origin": "ast",
       "id": "src_claude_messageparser_extracttoolerrormessage",
-      "community": 51,
+      "community": 78,
       "norm_label": "extracttoolerrormessage()"
     },
     {
@@ -5361,7 +5361,7 @@
       "source_location": "L110",
       "_origin": "ast",
       "id": "src_claude_messageparser_pendingtooluse",
-      "community": 51,
+      "community": 78,
       "norm_label": "pendingtooluse"
     },
     {
@@ -5371,7 +5371,7 @@
       "source_location": "L116",
       "_origin": "ast",
       "id": "src_claude_messageparser_toolresulttextblock",
-      "community": 51,
+      "community": 78,
       "norm_label": "toolresulttextblock"
     },
     {
@@ -5381,7 +5381,7 @@
       "source_location": "L121",
       "_origin": "ast",
       "id": "src_claude_messageparser_toolresultotherblock",
-      "community": 51,
+      "community": 78,
       "norm_label": "toolresultotherblock"
     },
     {
@@ -5391,7 +5391,7 @@
       "source_location": "L126",
       "_origin": "ast",
       "id": "src_claude_messageparser_toolresultcontent",
-      "community": 51,
+      "community": 78,
       "norm_label": "toolresultcontent"
     },
     {
@@ -5401,7 +5401,7 @@
       "source_location": "L138",
       "_origin": "ast",
       "id": "src_claude_messageparser_stringifytoolresultcontent",
-      "community": 51,
+      "community": 78,
       "norm_label": "stringifytoolresultcontent()"
     },
     {
@@ -5411,7 +5411,7 @@
       "source_location": "L145",
       "_origin": "ast",
       "id": "src_claude_messageparser_joincontentblocks",
-      "community": 51,
+      "community": 78,
       "norm_label": "joincontentblocks()"
     },
     {
@@ -5421,7 +5421,7 @@
       "source_location": "L157",
       "_origin": "ast",
       "id": "src_claude_messageparser_claudemessageparser",
-      "community": 51,
+      "community": 78,
       "norm_label": "claudemessageparser"
     },
     {
@@ -5431,7 +5431,7 @@
       "source_location": "L166",
       "_origin": "ast",
       "id": "src_claude_messageparser_claudemessageparser_constructor",
-      "community": 51,
+      "community": 78,
       "norm_label": ".constructor()"
     },
     {
@@ -5441,7 +5441,7 @@
       "source_location": "L170",
       "_origin": "ast",
       "id": "src_claude_messageparser_claudemessageparser_lastassistanttext",
-      "community": 51,
+      "community": 78,
       "norm_label": ".lastassistanttext()"
     },
     {
@@ -5451,7 +5451,7 @@
       "source_location": "L174",
       "_origin": "ast",
       "id": "src_claude_messageparser_claudemessageparser_result",
-      "community": 51,
+      "community": 78,
       "norm_label": ".result()"
     },
     {
@@ -5461,7 +5461,7 @@
       "source_location": "L179",
       "_origin": "ast",
       "id": "src_claude_messageparser_claudemessageparser_platformlimit",
-      "community": 51,
+      "community": 78,
       "norm_label": ".platformlimit()"
     },
     {
@@ -5471,7 +5471,7 @@
       "source_location": "L187",
       "_origin": "ast",
       "id": "src_claude_messageparser_claudemessageparser_ratelimitsnapshot",
-      "community": 51,
+      "community": 78,
       "norm_label": ".ratelimitsnapshot()"
     },
     {
@@ -5481,7 +5481,7 @@
       "source_location": "L191",
       "_origin": "ast",
       "id": "src_claude_messageparser_claudemessageparser_process",
-      "community": 51,
+      "community": 78,
       "norm_label": ".process()"
     },
     {
@@ -12321,7 +12321,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "src_migrations_020_system_actor_on_plugin_crons",
-      "community": 69,
+      "community": 302,
       "norm_label": "020-system-actor-on-plugin-crons.ts"
     },
     {
@@ -12331,7 +12331,7 @@
       "source_location": "L13",
       "_origin": "ast",
       "id": "src_migrations_020_system_actor_on_plugin_crons_cronrun",
-      "community": 69,
+      "community": 302,
       "norm_label": "cronrun"
     },
     {
@@ -12341,7 +12341,7 @@
       "source_location": "L20",
       "_origin": "ast",
       "id": "src_migrations_020_system_actor_on_plugin_crons_cronjob",
-      "community": 69,
+      "community": 302,
       "norm_label": "cronjob"
     },
     {
@@ -12351,7 +12351,7 @@
       "source_location": "L41",
       "_origin": "ast",
       "id": "src_migrations_020_system_actor_on_plugin_crons_cronjobsfile",
-      "community": 69,
+      "community": 302,
       "norm_label": "cronjobsfile"
     },
     {
@@ -12361,7 +12361,7 @@
       "source_location": "L47",
       "_origin": "ast",
       "id": "src_migrations_020_system_actor_on_plugin_crons_migration",
-      "community": 69,
+      "community": 302,
       "norm_label": "migration"
     },
     {
@@ -13071,7 +13071,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "src_migrations_boot",
-      "community": 21,
+      "community": 69,
       "norm_label": "boot.ts"
     },
     {
@@ -13081,7 +13081,7 @@
       "source_location": "L13",
       "_origin": "ast",
       "id": "src_migrations_boot_runblockingmigrations",
-      "community": 21,
+      "community": 69,
       "norm_label": "runblockingmigrations()"
     },
     {
@@ -13091,7 +13091,7 @@
       "source_location": "L59",
       "_origin": "ast",
       "id": "src_migrations_boot_runenhancementmigrations",
-      "community": 21,
+      "community": 69,
       "norm_label": "runenhancementmigrations()"
     },
     {
@@ -13101,7 +13101,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "src_migrations_engine",
-      "community": 21,
+      "community": 69,
       "norm_label": "engine.ts"
     },
     {
@@ -13111,7 +13111,7 @@
       "source_location": "L10",
       "_origin": "ast",
       "id": "src_migrations_engine_getpendingmigrations",
-      "community": 21,
+      "community": 69,
       "norm_label": "getpendingmigrations()"
     },
     {
@@ -13121,7 +13121,7 @@
       "source_location": "L18",
       "_origin": "ast",
       "id": "src_migrations_engine_readmigrationfiles",
-      "community": 21,
+      "community": 69,
       "norm_label": "readmigrationfiles()"
     },
     {
@@ -13131,7 +13131,7 @@
       "source_location": "L33",
       "_origin": "ast",
       "id": "src_migrations_engine_applystaticresults",
-      "community": 21,
+      "community": 69,
       "norm_label": "applystaticresults()"
     },
     {
@@ -13141,7 +13141,7 @@
       "source_location": "L53",
       "_origin": "ast",
       "id": "src_migrations_engine_executemigration",
-      "community": 21,
+      "community": 69,
       "norm_label": "executemigration()"
     },
     {
@@ -13161,7 +13161,7 @@
       "source_location": "L30",
       "_origin": "ast",
       "id": "src_migrations_index_migrations",
-      "community": 21,
+      "community": 69,
       "norm_label": "migrations"
     },
     {
@@ -13181,7 +13181,7 @@
       "source_location": "L2",
       "_origin": "ast",
       "id": "src_migrations_types_staticfileresult",
-      "community": 33,
+      "community": 302,
       "norm_label": "staticfileresult"
     },
     {
@@ -13201,7 +13201,7 @@
       "source_location": "L27",
       "_origin": "ast",
       "id": "src_migrations_types_migrationstate",
-      "community": 21,
+      "community": 69,
       "norm_label": "migrationstate"
     },
     {
@@ -13221,7 +13221,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "src_migrations_version",
-      "community": 21,
+      "community": 69,
       "norm_label": "version.ts"
     },
     {
@@ -13231,7 +13231,7 @@
       "source_location": "L6",
       "_origin": "ast",
       "id": "src_migrations_version_getversionpath",
-      "community": 21,
+      "community": 69,
       "norm_label": "getversionpath()"
     },
     {
@@ -13241,7 +13241,7 @@
       "source_location": "L10",
       "_origin": "ast",
       "id": "src_migrations_version_readversion",
-      "community": 21,
+      "community": 69,
       "norm_label": "readversion()"
     },
     {
@@ -13251,7 +13251,7 @@
       "source_location": "L22",
       "_origin": "ast",
       "id": "src_migrations_version_writeversion",
-      "community": 21,
+      "community": 69,
       "norm_label": "writeversion()"
     },
     {
@@ -14221,7 +14221,7 @@
       "source_location": "L432",
       "_origin": "ast",
       "id": "src_plugins_sdk_sdk_clacksdk_readfile",
-      "community": 21,
+      "community": 69,
       "norm_label": ".readfile()"
     },
     {
@@ -14231,7 +14231,7 @@
       "source_location": "L433",
       "_origin": "ast",
       "id": "src_plugins_sdk_sdk_clacksdk_writefile",
-      "community": 21,
+      "community": 69,
       "norm_label": ".writefile()"
     },
     {
@@ -16601,7 +16601,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "src_plugins_idler_config",
-      "community": 186,
+      "community": 36,
       "norm_label": "config.ts"
     },
     {
@@ -16611,7 +16611,7 @@
       "source_location": "L9",
       "_origin": "ast",
       "id": "src_plugins_idler_config_isvalidtimezone",
-      "community": 186,
+      "community": 36,
       "norm_label": "isvalidtimezone()"
     },
     {
@@ -16621,7 +16621,7 @@
       "source_location": "L19",
       "_origin": "ast",
       "id": "src_plugins_idler_config_windowschema",
-      "community": 186,
+      "community": 36,
       "norm_label": "windowschema"
     },
     {
@@ -16631,7 +16631,7 @@
       "source_location": "L33",
       "_origin": "ast",
       "id": "src_plugins_idler_config_sourcesschema",
-      "community": 186,
+      "community": 36,
       "norm_label": "sourcesschema"
     },
     {
@@ -16641,7 +16641,7 @@
       "source_location": "L40",
       "_origin": "ast",
       "id": "src_plugins_idler_config_reportingschema",
-      "community": 186,
+      "community": 36,
       "norm_label": "reportingschema"
     },
     {
@@ -16661,7 +16661,7 @@
       "source_location": "L50",
       "_origin": "ast",
       "id": "src_plugins_idler_config_baseconfigschema",
-      "community": 186,
+      "community": 36,
       "norm_label": "baseconfigschema"
     },
     {
@@ -16671,7 +16671,7 @@
       "source_location": "L81",
       "_origin": "ast",
       "id": "src_plugins_idler_config_idlerconfigschema",
-      "community": 186,
+      "community": 36,
       "norm_label": "idlerconfigschema"
     },
     {
@@ -16681,7 +16681,7 @@
       "source_location": "L92",
       "_origin": "ast",
       "id": "src_plugins_idler_config_default_config",
-      "community": 186,
+      "community": 36,
       "norm_label": "default_config"
     },
     {
@@ -16701,7 +16701,7 @@
       "source_location": "L116",
       "_origin": "ast",
       "id": "src_plugins_idler_config_saveconfig",
-      "community": 186,
+      "community": 36,
       "norm_label": "saveconfig()"
     },
     {
@@ -16711,7 +16711,7 @@
       "source_location": "L125",
       "_origin": "ast",
       "id": "src_plugins_idler_config_isoperational",
-      "community": 186,
+      "community": 36,
       "norm_label": "isoperational()"
     },
     {
@@ -18381,7 +18381,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "src_plugins_trivia_answertypes_installinteractions",
-      "community": 32,
+      "community": 12,
       "norm_label": "installinteractions.ts"
     },
     {
@@ -18391,7 +18391,7 @@
       "source_location": "L18",
       "_origin": "ast",
       "id": "src_plugins_trivia_answertypes_installinteractions_interactivehandlerdeps",
-      "community": 32,
+      "community": 12,
       "norm_label": "interactivehandlerdeps"
     },
     {
@@ -18401,7 +18401,7 @@
       "source_location": "L28",
       "_origin": "ast",
       "id": "src_plugins_trivia_answertypes_installinteractions_registerinteractivehandlers",
-      "community": 32,
+      "community": 12,
       "norm_label": "registerinteractivehandlers()"
     },
     {
@@ -18501,7 +18501,7 @@
       "source_location": "L60",
       "_origin": "ast",
       "id": "src_plugins_trivia_answertypes_registry_getanswertypehandler",
-      "community": 78,
+      "community": 12,
       "norm_label": "getanswertypehandler()"
     },
     {
@@ -18511,7 +18511,7 @@
       "source_location": "L69",
       "_origin": "ast",
       "id": "src_plugins_trivia_answertypes_registry_getallanswertypehandlers",
-      "community": 32,
+      "community": 12,
       "norm_label": "getallanswertypehandlers()"
     },
     {
@@ -18991,7 +18991,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "src_plugins_trivia_answering_byteam",
-      "community": 297,
+      "community": 20,
       "norm_label": "byteam.ts"
     },
     {
@@ -19001,7 +19001,7 @@
       "source_location": "L14",
       "_origin": "ast",
       "id": "src_plugins_trivia_answering_byteam_projectteamslottorow",
-      "community": 297,
+      "community": 20,
       "norm_label": "projectteamslottorow()"
     },
     {
@@ -19011,7 +19011,7 @@
       "source_location": "L44",
       "_origin": "ast",
       "id": "src_plugins_trivia_answering_byteam_createbyteamanswering",
-      "community": 297,
+      "community": 20,
       "norm_label": "createbyteamanswering()"
     },
     {
@@ -19021,7 +19021,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "src_plugins_trivia_answering_individual",
-      "community": 297,
+      "community": 20,
       "norm_label": "individual.ts"
     },
     {
@@ -19031,7 +19031,7 @@
       "source_location": "L10",
       "_origin": "ast",
       "id": "src_plugins_trivia_answering_individual_createindividualanswering",
-      "community": 297,
+      "community": 20,
       "norm_label": "createindividualanswering()"
     },
     {
@@ -19041,7 +19041,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "src_plugins_trivia_answering_scoredanswers",
-      "community": 297,
+      "community": 20,
       "norm_label": "scoredanswers.ts"
     },
     {
@@ -19051,7 +19051,7 @@
       "source_location": "L15",
       "_origin": "ast",
       "id": "src_plugins_trivia_answering_scoredanswers_loadallscoredanswers",
-      "community": 297,
+      "community": 20,
       "norm_label": "loadallscoredanswers()"
     },
     {
@@ -19061,7 +19061,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "src_plugins_trivia_answering_select",
-      "community": 297,
+      "community": 20,
       "norm_label": "select.ts"
     },
     {
@@ -19071,7 +19071,7 @@
       "source_location": "L16",
       "_origin": "ast",
       "id": "src_plugins_trivia_answering_select_selectansweringstrategy",
-      "community": 297,
+      "community": 20,
       "norm_label": "selectansweringstrategy()"
     },
     {
@@ -19121,7 +19121,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "src_plugins_trivia_answering_types",
-      "community": 297,
+      "community": 20,
       "norm_label": "types.ts"
     },
     {
@@ -19131,7 +19131,7 @@
       "source_location": "L28",
       "_origin": "ast",
       "id": "src_plugins_trivia_answering_types_answerpatch",
-      "community": 297,
+      "community": 20,
       "norm_label": "answerpatch"
     },
     {
@@ -19141,7 +19141,7 @@
       "source_location": "L36",
       "_origin": "ast",
       "id": "src_plugins_trivia_answering_types_ownerlabeldeps",
-      "community": 297,
+      "community": 20,
       "norm_label": "ownerlabeldeps"
     },
     {
@@ -19151,7 +19151,7 @@
       "source_location": "L41",
       "_origin": "ast",
       "id": "src_plugins_trivia_answering_types_answeringstrategy",
-      "community": 297,
+      "community": 20,
       "norm_label": "answeringstrategy"
     },
     {
@@ -19161,7 +19161,7 @@
       "source_location": "L47",
       "_origin": "ast",
       "id": "src_plugins_trivia_answering_types_answeringstrategy_getcurrentanswerfor",
-      "community": 297,
+      "community": 20,
       "norm_label": ".getcurrentanswerfor()"
     },
     {
@@ -19171,7 +19171,7 @@
       "source_location": "L56",
       "_origin": "ast",
       "id": "src_plugins_trivia_answering_types_answeringstrategy_answer",
-      "community": 297,
+      "community": 20,
       "norm_label": ".answer()"
     },
     {
@@ -19181,7 +19181,7 @@
       "source_location": "L68",
       "_origin": "ast",
       "id": "src_plugins_trivia_answering_types_answeringstrategy_getfinalanswers",
-      "community": 297,
+      "community": 20,
       "norm_label": ".getfinalanswers()"
     },
     {
@@ -19191,7 +19191,7 @@
       "source_location": "L74",
       "_origin": "ast",
       "id": "src_plugins_trivia_answering_types_answeringstrategy_getallscoredanswers",
-      "community": 297,
+      "community": 20,
       "norm_label": ".getallscoredanswers()"
     },
     {
@@ -19201,7 +19201,7 @@
       "source_location": "L83",
       "_origin": "ast",
       "id": "src_plugins_trivia_answering_types_answeringstrategy_applyverdict",
-      "community": 297,
+      "community": 20,
       "norm_label": ".applyverdict()"
     },
     {
@@ -19211,7 +19211,7 @@
       "source_location": "L90",
       "_origin": "ast",
       "id": "src_plugins_trivia_answering_types_answeringstrategy_ownerlabel",
-      "community": 297,
+      "community": 20,
       "norm_label": ".ownerlabel()"
     },
     {
@@ -21241,7 +21241,7 @@
       "source_location": "L393",
       "_origin": "ast",
       "id": "src_plugins_trivia_core_configtypes_triviagame",
-      "community": 12,
+      "community": 306,
       "norm_label": "triviagame"
     },
     {
@@ -21281,7 +21281,7 @@
       "source_location": "L577",
       "_origin": "ast",
       "id": "src_plugins_trivia_core_configtypes_triviaconfig",
-      "community": 12,
+      "community": 306,
       "norm_label": "triviaconfig"
     },
     {
@@ -21391,7 +21391,7 @@
       "source_location": "L716",
       "_origin": "ast",
       "id": "src_plugins_trivia_core_configtypes_jsonvalue",
-      "community": 78,
+      "community": 12,
       "norm_label": "jsonvalue"
     },
     {
@@ -21551,7 +21551,7 @@
       "source_location": "L3",
       "_origin": "ast",
       "id": "src_plugins_trivia_core_gamesregistry_unknowngameerror",
-      "community": 78,
+      "community": 12,
       "norm_label": "unknowngameerror"
     },
     {
@@ -21561,7 +21561,7 @@
       "source_location": "L5",
       "_origin": "ast",
       "id": "src_plugins_trivia_core_gamesregistry_unknowngameerror_constructor",
-      "community": 78,
+      "community": 12,
       "norm_label": ".constructor()"
     },
     {
@@ -21771,7 +21771,7 @@
       "source_location": "L72",
       "_origin": "ast",
       "id": "src_plugins_trivia_core_seasontimeline_intervalsoverlap",
-      "community": 12,
+      "community": 306,
       "norm_label": "intervalsoverlap()"
     },
     {
@@ -21781,7 +21781,7 @@
       "source_location": "L82",
       "_origin": "ast",
       "id": "src_plugins_trivia_core_seasontimeline_validatenooverlap",
-      "community": 12,
+      "community": 306,
       "norm_label": "validatenooverlap()"
     },
     {
@@ -21851,7 +21851,7 @@
       "source_location": "L57",
       "_origin": "ast",
       "id": "src_plugins_trivia_core_types_questionmedia",
-      "community": 78,
+      "community": 12,
       "norm_label": "questionmedia"
     },
     {
@@ -21861,7 +21861,7 @@
       "source_location": "L78",
       "_origin": "ast",
       "id": "src_plugins_trivia_core_types_questionoverrideoriginals",
-      "community": 78,
+      "community": 12,
       "norm_label": "questionoverrideoriginals"
     },
     {
@@ -21901,7 +21901,7 @@
       "source_location": "L323",
       "_origin": "ast",
       "id": "src_plugins_trivia_core_types_submittedanswer",
-      "community": 297,
+      "community": 20,
       "norm_label": "submittedanswer"
     },
     {
@@ -21971,7 +21971,7 @@
       "source_location": "L490",
       "_origin": "ast",
       "id": "src_plugins_trivia_core_types_scopedtriviadatalayer",
-      "community": 297,
+      "community": 20,
       "norm_label": "scopedtriviadatalayer"
     },
     {
@@ -21981,7 +21981,7 @@
       "source_location": "L491",
       "_origin": "ast",
       "id": "src_plugins_trivia_core_types_scopedtriviadatalayer_loadquestions",
-      "community": 297,
+      "community": 20,
       "norm_label": ".loadquestions()"
     },
     {
@@ -21991,7 +21991,7 @@
       "source_location": "L492",
       "_origin": "ast",
       "id": "src_plugins_trivia_core_types_scopedtriviadatalayer_savequestion",
-      "community": 297,
+      "community": 20,
       "norm_label": ".savequestion()"
     },
     {
@@ -22001,7 +22001,7 @@
       "source_location": "L493",
       "_origin": "ast",
       "id": "src_plugins_trivia_core_types_scopedtriviadatalayer_updatequestion",
-      "community": 297,
+      "community": 20,
       "norm_label": ".updatequestion()"
     },
     {
@@ -22011,7 +22011,7 @@
       "source_location": "L494",
       "_origin": "ast",
       "id": "src_plugins_trivia_core_types_scopedtriviadatalayer_loadanswers",
-      "community": 297,
+      "community": 20,
       "norm_label": ".loadanswers()"
     },
     {
@@ -22021,7 +22021,7 @@
       "source_location": "L495",
       "_origin": "ast",
       "id": "src_plugins_trivia_core_types_scopedtriviadatalayer_saveanswer",
-      "community": 297,
+      "community": 20,
       "norm_label": ".saveanswer()"
     },
     {
@@ -22031,7 +22031,7 @@
       "source_location": "L502",
       "_origin": "ast",
       "id": "src_plugins_trivia_core_types_scopedtriviadatalayer_updateanswer",
-      "community": 297,
+      "community": 20,
       "norm_label": ".updateanswer()"
     },
     {
@@ -22041,7 +22041,7 @@
       "source_location": "L507",
       "_origin": "ast",
       "id": "src_plugins_trivia_core_types_scopedtriviadatalayer_loadcheats",
-      "community": 297,
+      "community": 20,
       "norm_label": ".loadcheats()"
     },
     {
@@ -22051,7 +22051,7 @@
       "source_location": "L508",
       "_origin": "ast",
       "id": "src_plugins_trivia_core_types_scopedtriviadatalayer_savecheat",
-      "community": 297,
+      "community": 20,
       "norm_label": ".savecheat()"
     },
     {
@@ -22061,7 +22061,7 @@
       "source_location": "L514",
       "_origin": "ast",
       "id": "src_plugins_trivia_core_types_scopedtriviadatalayer_loadteamanswers",
-      "community": 297,
+      "community": 20,
       "norm_label": ".loadteamanswers()"
     },
     {
@@ -22071,7 +22071,7 @@
       "source_location": "L519",
       "_origin": "ast",
       "id": "src_plugins_trivia_core_types_scopedtriviadatalayer_upsertteamanswer",
-      "community": 297,
+      "community": 20,
       "norm_label": ".upsertteamanswer()"
     },
     {
@@ -22081,7 +22081,7 @@
       "source_location": "L524",
       "_origin": "ast",
       "id": "src_plugins_trivia_core_types_scopedtriviadatalayer_removeteamanswer",
-      "community": 297,
+      "community": 20,
       "norm_label": ".removeteamanswer()"
     },
     {
@@ -22091,7 +22091,7 @@
       "source_location": "L530",
       "_origin": "ast",
       "id": "src_plugins_trivia_core_types_scopedtriviadatalayer_removecheat",
-      "community": 297,
+      "community": 20,
       "norm_label": ".removecheat()"
     },
     {
@@ -22101,7 +22101,7 @@
       "source_location": "L534",
       "_origin": "ast",
       "id": "src_plugins_trivia_core_types_scopedtriviadatalayer_loadseasonsstate",
-      "community": 297,
+      "community": 20,
       "norm_label": ".loadseasonsstate()"
     },
     {
@@ -22111,7 +22111,7 @@
       "source_location": "L535",
       "_origin": "ast",
       "id": "src_plugins_trivia_core_types_scopedtriviadatalayer_saveseasonsstate",
-      "community": 297,
+      "community": 20,
       "norm_label": ".saveseasonsstate()"
     },
     {
@@ -22121,7 +22121,7 @@
       "source_location": "L536",
       "_origin": "ast",
       "id": "src_plugins_trivia_core_types_scopedtriviadatalayer_getcurrentseasonslug",
-      "community": 297,
+      "community": 20,
       "norm_label": ".getcurrentseasonslug()"
     },
     {
@@ -22201,7 +22201,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "src_plugins_trivia_domain_alltimerow",
-      "community": 12,
+      "community": 306,
       "norm_label": "alltimerow.ts"
     },
     {
@@ -22211,7 +22211,7 @@
       "source_location": "L12",
       "_origin": "ast",
       "id": "src_plugins_trivia_domain_alltimerow_resolvealltimerow",
-      "community": 12,
+      "community": 306,
       "norm_label": "resolvealltimerow()"
     },
     {
@@ -22221,7 +22221,7 @@
       "source_location": "L34",
       "_origin": "ast",
       "id": "src_plugins_trivia_domain_alltimerow_shouldshowalltimerow",
-      "community": 12,
+      "community": 306,
       "norm_label": "shouldshowalltimerow()"
     },
     {
@@ -22231,7 +22231,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "src_plugins_trivia_domain_blockstojson",
-      "community": 78,
+      "community": 12,
       "norm_label": "blockstojson.ts"
     },
     {
@@ -22241,7 +22241,7 @@
       "source_location": "L11",
       "_origin": "ast",
       "id": "src_plugins_trivia_domain_blockstojson_blockstojson",
-      "community": 78,
+      "community": 12,
       "norm_label": "blockstojson()"
     },
     {
@@ -22601,7 +22601,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "src_plugins_trivia_domain_finalrevealsummary",
-      "community": 12,
+      "community": 306,
       "norm_label": "finalrevealsummary.ts"
     },
     {
@@ -22611,7 +22611,7 @@
       "source_location": "L13",
       "_origin": "ast",
       "id": "src_plugins_trivia_domain_finalrevealsummary_resolvefinalrevealsummary",
-      "community": 12,
+      "community": 306,
       "norm_label": "resolvefinalrevealsummary()"
     },
     {
@@ -22681,7 +22681,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "src_plugins_trivia_domain_includerevealinquestions",
-      "community": 12,
+      "community": 306,
       "norm_label": "includerevealinquestions.ts"
     },
     {
@@ -22691,7 +22691,7 @@
       "source_location": "L16",
       "_origin": "ast",
       "id": "src_plugins_trivia_domain_includerevealinquestions_resolveincluderevealinquestions",
-      "community": 12,
+      "community": 306,
       "norm_label": "resolveincluderevealinquestions()"
     },
     {
@@ -22701,7 +22701,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "src_plugins_trivia_domain_mediajson",
-      "community": 78,
+      "community": 12,
       "norm_label": "mediajson.ts"
     },
     {
@@ -22711,7 +22711,7 @@
       "source_location": "L10",
       "_origin": "ast",
       "id": "src_plugins_trivia_domain_mediajson_mediatojson",
-      "community": 78,
+      "community": 12,
       "norm_label": "mediatojson()"
     },
     {
@@ -23261,7 +23261,7 @@
       "source_location": "L46",
       "_origin": "ast",
       "id": "src_plugins_trivia_domain_teams_resolveteamsconfig_firstdefined",
-      "community": 12,
+      "community": 306,
       "norm_label": "firstdefined()"
     },
     {
@@ -23271,7 +23271,7 @@
       "source_location": "L58",
       "_origin": "ast",
       "id": "src_plugins_trivia_domain_teams_resolveteamsconfig_resolveteamsconfig",
-      "community": 12,
+      "community": 306,
       "norm_label": "resolveteamsconfig()"
     },
     {
@@ -24311,7 +24311,7 @@
       "source_location": "L62",
       "_origin": "ast",
       "id": "src_plugins_trivia_revealcards_editcard_editrevealparams",
-      "community": 12,
+      "community": 306,
       "norm_label": "editrevealparams"
     },
     {
@@ -24441,7 +24441,7 @@
       "source_location": "L55",
       "_origin": "ast",
       "id": "src_plugins_trivia_revealcards_postgamebuttons_postgamebuttoncontext",
-      "community": 12,
+      "community": 306,
       "norm_label": "postgamebuttoncontext"
     },
     {
@@ -25581,7 +25581,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "src_plugins_trivia_tools_questions_cardlayout",
-      "community": 21,
+      "community": 35,
       "norm_label": "cardlayout.ts"
     },
     {
@@ -25591,7 +25591,7 @@
       "source_location": "L8",
       "_origin": "ast",
       "id": "src_plugins_trivia_tools_questions_cardlayout_isactionsblock",
-      "community": 21,
+      "community": 35,
       "norm_label": "isactionsblock()"
     },
     {
@@ -25601,7 +25601,7 @@
       "source_location": "L18",
       "_origin": "ast",
       "id": "src_plugins_trivia_tools_questions_cardlayout_mrkdwncontext",
-      "community": 21,
+      "community": 35,
       "norm_label": "mrkdwncontext()"
     },
     {
@@ -25611,7 +25611,7 @@
       "source_location": "L29",
       "_origin": "ast",
       "id": "src_plugins_trivia_tools_questions_cardlayout_insertbeforeactions",
-      "community": 21,
+      "community": 35,
       "norm_label": "insertbeforeactions()"
     },
     {
@@ -25621,7 +25621,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "src_plugins_trivia_tools_questions_findpreviousquestions",
-      "community": 78,
+      "community": 12,
       "norm_label": "findpreviousquestions.ts"
     },
     {
@@ -25631,7 +25631,7 @@
       "source_location": "L19",
       "_origin": "ast",
       "id": "src_plugins_trivia_tools_questions_findpreviousquestions_questionwithgame",
-      "community": 78,
+      "community": 12,
       "norm_label": "questionwithgame"
     },
     {
@@ -25641,7 +25641,7 @@
       "source_location": "L28",
       "_origin": "ast",
       "id": "src_plugins_trivia_tools_questions_findpreviousquestions_keywordhaystackfor",
-      "community": 78,
+      "community": 12,
       "norm_label": "keywordhaystackfor()"
     },
     {
@@ -25651,7 +25651,7 @@
       "source_location": "L42",
       "_origin": "ast",
       "id": "src_plugins_trivia_tools_questions_findpreviousquestions_originalstojson",
-      "community": 78,
+      "community": 12,
       "norm_label": "originalstojson()"
     },
     {
@@ -25661,7 +25661,7 @@
       "source_location": "L49",
       "_origin": "ast",
       "id": "src_plugins_trivia_tools_questions_findpreviousquestions_tosearchresult",
-      "community": 78,
+      "community": 12,
       "norm_label": "tosearchresult()"
     },
     {
@@ -25721,7 +25721,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "src_plugins_trivia_tools_questions_getquestionhistory",
-      "community": 78,
+      "community": 12,
       "norm_label": "getquestionhistory.ts"
     },
     {
@@ -25731,7 +25731,7 @@
       "source_location": "L12",
       "_origin": "ast",
       "id": "src_plugins_trivia_tools_questions_getquestionhistory_per_format_shapes",
-      "community": 78,
+      "community": 12,
       "norm_label": "per_format_shapes"
     },
     {
@@ -25891,7 +25891,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "src_plugins_trivia_tools_questions_renderhint",
-      "community": 21,
+      "community": 35,
       "norm_label": "renderhint.ts"
     },
     {
@@ -25901,7 +25901,7 @@
       "source_location": "L20",
       "_origin": "ast",
       "id": "src_plugins_trivia_tools_questions_renderhint_applyhintrendering",
-      "community": 21,
+      "community": 35,
       "norm_label": "applyhintrendering()"
     },
     {
@@ -25911,7 +25911,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "src_plugins_trivia_tools_questions_renderpoints",
-      "community": 21,
+      "community": 35,
       "norm_label": "renderpoints.ts"
     },
     {
@@ -25921,7 +25921,7 @@
       "source_location": "L13",
       "_origin": "ast",
       "id": "src_plugins_trivia_tools_questions_renderpoints_worthblock",
-      "community": 21,
+      "community": 35,
       "norm_label": "worthblock()"
     },
     {
@@ -25931,7 +25931,7 @@
       "source_location": "L28",
       "_origin": "ast",
       "id": "src_plugins_trivia_tools_questions_renderpoints_applypointsrendering",
-      "community": 21,
+      "community": 35,
       "norm_label": "applypointsrendering()"
     },
     {
@@ -25941,7 +25941,7 @@
       "source_location": "L46",
       "_origin": "ast",
       "id": "src_plugins_trivia_tools_questions_renderpoints_rewriteworthblock",
-      "community": 21,
+      "community": 35,
       "norm_label": "rewriteworthblock()"
     },
     {
@@ -26051,7 +26051,7 @@
       "source_location": "L96",
       "_origin": "ast",
       "id": "src_plugins_trivia_tools_reveal_computeanswers_revealslackdeps",
-      "community": 12,
+      "community": 297,
       "norm_label": "revealslackdeps"
     },
     {
@@ -26061,7 +26061,7 @@
       "source_location": "L97",
       "_origin": "ast",
       "id": "src_plugins_trivia_tools_reveal_computeanswers_revealslackdeps_isavailable",
-      "community": 12,
+      "community": 297,
       "norm_label": ".isavailable()"
     },
     {
@@ -26071,7 +26071,7 @@
       "source_location": "L98",
       "_origin": "ast",
       "id": "src_plugins_trivia_tools_reveal_computeanswers_revealslackdeps_fetchbotuserid",
-      "community": 12,
+      "community": 297,
       "norm_label": ".fetchbotuserid()"
     },
     {
@@ -26081,7 +26081,7 @@
       "source_location": "L99",
       "_origin": "ast",
       "id": "src_plugins_trivia_tools_reveal_computeanswers_revealslackdeps_fetchmessagereactions",
-      "community": 12,
+      "community": 297,
       "norm_label": ".fetchmessagereactions()"
     },
     {
@@ -26091,7 +26091,7 @@
       "source_location": "L105",
       "_origin": "ast",
       "id": "src_plugins_trivia_tools_reveal_computeanswers_revealslackdeps_fetchuserdisplayname",
-      "community": 12,
+      "community": 297,
       "norm_label": ".fetchuserdisplayname()"
     },
     {
@@ -26241,7 +26241,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "src_plugins_trivia_tools_reveal_rollover",
-      "community": 12,
+      "community": 306,
       "norm_label": "rollover.ts"
     },
     {
@@ -26261,7 +26261,7 @@
       "source_location": "L44",
       "_origin": "ast",
       "id": "src_plugins_trivia_tools_reveal_rollover_derivenextmonthslug",
-      "community": 12,
+      "community": 306,
       "norm_label": "derivenextmonthslug()"
     },
     {
@@ -26271,7 +26271,7 @@
       "source_location": "L63",
       "_origin": "ast",
       "id": "src_plugins_trivia_tools_reveal_rollover_rolloveroutcome",
-      "community": 12,
+      "community": 306,
       "norm_label": "rolloveroutcome"
     },
     {
@@ -26281,7 +26281,7 @@
       "source_location": "L73",
       "_origin": "ast",
       "id": "src_plugins_trivia_tools_reveal_rollover_rolloverteamscontext",
-      "community": 12,
+      "community": 306,
       "norm_label": "rolloverteamscontext"
     },
     {
@@ -26291,7 +26291,7 @@
       "source_location": "L107",
       "_origin": "ast",
       "id": "src_plugins_trivia_tools_reveal_rollover_applyseasonrollover",
-      "community": 12,
+      "community": 306,
       "norm_label": "applyseasonrollover()"
     },
     {
@@ -29641,7 +29641,7 @@
       "source_location": "L19",
       "_origin": "ast",
       "id": "src_slack_channelscache_channelscache_resolve",
-      "community": 21,
+      "community": 69,
       "norm_label": ".resolve()"
     },
     {
@@ -29911,7 +29911,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "src_slack_filecache",
-      "community": 21,
+      "community": 69,
       "norm_label": "filecache.ts"
     },
     {
@@ -29921,7 +29921,7 @@
       "source_location": "L8",
       "_origin": "ast",
       "id": "src_slack_filecache_cachedfilemeta",
-      "community": 21,
+      "community": 69,
       "norm_label": "cachedfilemeta"
     },
     {
@@ -29931,7 +29931,7 @@
       "source_location": "L14",
       "_origin": "ast",
       "id": "src_slack_filecache_getcachedir",
-      "community": 21,
+      "community": 69,
       "norm_label": "getcachedir()"
     },
     {
@@ -29941,7 +29941,7 @@
       "source_location": "L18",
       "_origin": "ast",
       "id": "src_slack_filecache_extensionformime",
-      "community": 21,
+      "community": 69,
       "norm_label": "extensionformime()"
     },
     {
@@ -29951,7 +29951,7 @@
       "source_location": "L45",
       "_origin": "ast",
       "id": "src_slack_filecache_filepath",
-      "community": 21,
+      "community": 69,
       "norm_label": "filepath()"
     },
     {
@@ -29961,7 +29961,7 @@
       "source_location": "L49",
       "_origin": "ast",
       "id": "src_slack_filecache_metapath",
-      "community": 21,
+      "community": 69,
       "norm_label": "metapath()"
     },
     {
@@ -29971,7 +29971,7 @@
       "source_location": "L56",
       "_origin": "ast",
       "id": "src_slack_filecache_getcachedfile",
-      "community": 21,
+      "community": 69,
       "norm_label": "getcachedfile()"
     },
     {
@@ -29981,7 +29981,7 @@
       "source_location": "L71",
       "_origin": "ast",
       "id": "src_slack_filecache_cachefile",
-      "community": 21,
+      "community": 69,
       "norm_label": "cachefile()"
     },
     {
@@ -29991,7 +29991,7 @@
       "source_location": "L97",
       "_origin": "ast",
       "id": "src_slack_filecache_readcachedfilebase64",
-      "community": 21,
+      "community": 69,
       "norm_label": "readcachedfilebase64()"
     },
     {
@@ -30001,7 +30001,7 @@
       "source_location": "L117",
       "_origin": "ast",
       "id": "src_slack_filecache_readcachedfilebuffer",
-      "community": 21,
+      "community": 69,
       "norm_label": "readcachedfilebuffer()"
     },
     {
@@ -31171,7 +31171,7 @@
       "source_location": "L9",
       "_origin": "ast",
       "id": "src_slack_handlers_delivery_nulldelivery_nulldelivery",
-      "community": 316,
+      "community": 85,
       "norm_label": "nulldelivery"
     },
     {
@@ -31181,7 +31181,7 @@
       "source_location": "L10",
       "_origin": "ast",
       "id": "src_slack_handlers_delivery_nulldelivery_nulldelivery_windup",
-      "community": 316,
+      "community": 85,
       "norm_label": ".windup()"
     },
     {
@@ -31191,7 +31191,7 @@
       "source_location": "L12",
       "_origin": "ast",
       "id": "src_slack_handlers_delivery_nulldelivery_nulldelivery_handleevent",
-      "community": 316,
+      "community": 85,
       "norm_label": ".handleevent()"
     },
     {
@@ -31201,7 +31201,7 @@
       "source_location": "L14",
       "_origin": "ast",
       "id": "src_slack_handlers_delivery_nulldelivery_nulldelivery_deliver",
-      "community": 316,
+      "community": 85,
       "norm_label": ".deliver()"
     },
     {
@@ -31211,7 +31211,7 @@
       "source_location": "L18",
       "_origin": "ast",
       "id": "src_slack_handlers_delivery_nulldelivery_nulldelivery_winddown",
-      "community": 316,
+      "community": 85,
       "norm_label": ".winddown()"
     },
     {
@@ -38918,7 +38918,7 @@
       "label": "recordError()",
       "file_type": "code",
       "source_file": "src/tools/presentation/submitResponse.ts",
-      "source_location": "L646",
+      "source_location": "L657",
       "_origin": "ast",
       "id": "src_tools_presentation_submitresponse_recorderror",
       "community": 24,
@@ -38928,7 +38928,7 @@
       "label": "SubmitResponseSuccessResult",
       "file_type": "code",
       "source_file": "src/tools/presentation/submitResponse.ts",
-      "source_location": "L651",
+      "source_location": "L664",
       "_origin": "ast",
       "id": "src_tools_presentation_submitresponse_submitresponsesuccessresult",
       "community": 24,
@@ -38938,7 +38938,7 @@
       "label": "ChannelAttentionReframe",
       "file_type": "code",
       "source_file": "src/tools/presentation/submitResponse.ts",
-      "source_location": "L676",
+      "source_location": "L689",
       "_origin": "ast",
       "id": "src_tools_presentation_submitresponse_channelattentionreframe",
       "community": 24,
@@ -38948,7 +38948,7 @@
       "label": "applyChannelAttentionLevel()",
       "file_type": "code",
       "source_file": "src/tools/presentation/submitResponse.ts",
-      "source_location": "L682",
+      "source_location": "L695",
       "_origin": "ast",
       "id": "src_tools_presentation_submitresponse_applychannelattentionlevel",
       "community": 24,
@@ -38958,7 +38958,7 @@
       "label": "recordSuccess()",
       "file_type": "code",
       "source_file": "src/tools/presentation/submitResponse.ts",
-      "source_location": "L700",
+      "source_location": "L713",
       "_origin": "ast",
       "id": "src_tools_presentation_submitresponse_recordsuccess",
       "community": 24,
@@ -38968,7 +38968,7 @@
       "label": "suppressUnfurlsField",
       "file_type": "code",
       "source_file": "src/tools/presentation/submitResponse.ts",
-      "source_location": "L708",
+      "source_location": "L721",
       "_origin": "ast",
       "id": "src_tools_presentation_submitresponse_suppressunfurlsfield",
       "community": 24,
@@ -38978,7 +38978,7 @@
       "label": "escalateToOwnerField",
       "file_type": "code",
       "source_file": "src/tools/presentation/submitResponse.ts",
-      "source_location": "L724",
+      "source_location": "L737",
       "_origin": "ast",
       "id": "src_tools_presentation_submitresponse_escalatetoownerfield",
       "community": 24,
@@ -38988,7 +38988,7 @@
       "label": "normalResponseSchema",
       "file_type": "code",
       "source_file": "src/tools/presentation/submitResponse.ts",
-      "source_location": "L738",
+      "source_location": "L751",
       "_origin": "ast",
       "id": "src_tools_presentation_submitresponse_normalresponseschema",
       "community": 24,
@@ -38998,7 +38998,7 @@
       "label": "attentionLevelField",
       "file_type": "code",
       "source_file": "src/tools/presentation/submitResponse.ts",
-      "source_location": "L757",
+      "source_location": "L770",
       "_origin": "ast",
       "id": "src_tools_presentation_submitresponse_attentionlevelfield",
       "community": 24,
@@ -39008,7 +39008,7 @@
       "label": "deliveryModeField",
       "file_type": "code",
       "source_file": "src/tools/presentation/submitResponse.ts",
-      "source_location": "L773",
+      "source_location": "L786",
       "_origin": "ast",
       "id": "src_tools_presentation_submitresponse_deliverymodefield",
       "community": 24,
@@ -39018,7 +39018,7 @@
       "label": "postTopLevelField",
       "file_type": "code",
       "source_file": "src/tools/presentation/submitResponse.ts",
-      "source_location": "L784",
+      "source_location": "L797",
       "_origin": "ast",
       "id": "src_tools_presentation_submitresponse_posttoplevelfield",
       "community": 24,
@@ -39028,7 +39028,7 @@
       "label": "threadTitleField",
       "file_type": "code",
       "source_file": "src/tools/presentation/submitResponse.ts",
-      "source_location": "L798",
+      "source_location": "L811",
       "_origin": "ast",
       "id": "src_tools_presentation_submitresponse_threadtitlefield",
       "community": 24,
@@ -39038,7 +39038,7 @@
       "label": "channelAttentionLevelReframeField",
       "file_type": "code",
       "source_file": "src/tools/presentation/submitResponse.ts",
-      "source_location": "L808",
+      "source_location": "L821",
       "_origin": "ast",
       "id": "src_tools_presentation_submitresponse_channelattentionlevelreframefield",
       "community": 24,
@@ -39048,7 +39048,7 @@
       "label": "attentionLevelEnabledResponseSchema",
       "file_type": "code",
       "source_file": "src/tools/presentation/submitResponse.ts",
-      "source_location": "L820",
+      "source_location": "L833",
       "_origin": "ast",
       "id": "src_tools_presentation_submitresponse_attentionlevelenabledresponseschema",
       "community": 24,
@@ -39058,7 +39058,7 @@
       "label": "skipResponseField",
       "file_type": "code",
       "source_file": "src/tools/presentation/submitResponse.ts",
-      "source_location": "L826",
+      "source_location": "L839",
       "_origin": "ast",
       "id": "src_tools_presentation_submitresponse_skipresponsefield",
       "community": 24,
@@ -39068,7 +39068,7 @@
       "label": "skipOptionalBlocks",
       "file_type": "code",
       "source_file": "src/tools/presentation/submitResponse.ts",
-      "source_location": "L834",
+      "source_location": "L847",
       "_origin": "ast",
       "id": "src_tools_presentation_submitresponse_skipoptionalblocks",
       "community": 24,
@@ -39078,7 +39078,7 @@
       "label": "skipOptionalActions",
       "file_type": "code",
       "source_file": "src/tools/presentation/submitResponse.ts",
-      "source_location": "L840",
+      "source_location": "L853",
       "_origin": "ast",
       "id": "src_tools_presentation_submitresponse_skipoptionalactions",
       "community": 24,
@@ -39088,7 +39088,7 @@
       "label": "skipEnabledResponseSchema",
       "file_type": "code",
       "source_file": "src/tools/presentation/submitResponse.ts",
-      "source_location": "L847",
+      "source_location": "L860",
       "_origin": "ast",
       "id": "src_tools_presentation_submitresponse_skipenabledresponseschema",
       "community": 24,
@@ -39098,7 +39098,7 @@
       "label": "skipOnlyResponseSchema",
       "file_type": "code",
       "source_file": "src/tools/presentation/submitResponse.ts",
-      "source_location": "L860",
+      "source_location": "L873",
       "_origin": "ast",
       "id": "src_tools_presentation_submitresponse_skiponlyresponseschema",
       "community": 24,
@@ -39108,7 +39108,7 @@
       "label": "skippedOnlyResponseSchema",
       "file_type": "code",
       "source_file": "src/tools/presentation/submitResponse.ts",
-      "source_location": "L872",
+      "source_location": "L885",
       "_origin": "ast",
       "id": "src_tools_presentation_submitresponse_skippedonlyresponseschema",
       "community": 24,
@@ -39118,7 +39118,7 @@
       "label": "deliverToResponseSchema",
       "file_type": "code",
       "source_file": "src/tools/presentation/submitResponse.ts",
-      "source_location": "L890",
+      "source_location": "L903",
       "_origin": "ast",
       "id": "src_tools_presentation_submitresponse_delivertoresponseschema",
       "community": 24,
@@ -39128,7 +39128,7 @@
       "label": "deliverToEntrySchema",
       "file_type": "code",
       "source_file": "src/tools/presentation/submitResponse.ts",
-      "source_location": "L911",
+      "source_location": "L924",
       "_origin": "ast",
       "id": "src_tools_presentation_submitresponse_delivertoentryschema",
       "community": 24,
@@ -39138,7 +39138,7 @@
       "label": "optionalPostToResponseSchema",
       "file_type": "code",
       "source_file": "src/tools/presentation/submitResponse.ts",
-      "source_location": "L940",
+      "source_location": "L953",
       "_origin": "ast",
       "id": "src_tools_presentation_submitresponse_optionalposttoresponseschema",
       "community": 24,
@@ -39148,7 +39148,7 @@
       "label": "SubmitResponseArgs",
       "file_type": "code",
       "source_file": "src/tools/presentation/submitResponse.ts",
-      "source_location": "L973",
+      "source_location": "L986",
       "_origin": "ast",
       "id": "src_tools_presentation_submitresponse_submitresponseargs",
       "community": 24,
@@ -39158,7 +39158,7 @@
       "label": "buildSubmitResponseSchema()",
       "file_type": "code",
       "source_file": "src/tools/presentation/submitResponse.ts",
-      "source_location": "L1004",
+      "source_location": "L1017",
       "_origin": "ast",
       "id": "src_tools_presentation_submitresponse_buildsubmitresponseschema",
       "community": 24,
@@ -39168,7 +39168,7 @@
       "label": "createSubmitResponseTool()",
       "file_type": "code",
       "source_file": "src/tools/presentation/submitResponse.ts",
-      "source_location": "L1057",
+      "source_location": "L1070",
       "_origin": "ast",
       "id": "src_tools_presentation_submitresponse_createsubmitresponsetool",
       "community": 26,
@@ -42871,7 +42871,7 @@
       "source_location": "L29",
       "_origin": "ast",
       "id": "src_tools_worker_closepr_createcloseprtool",
-      "community": 26,
+      "community": 309,
       "norm_label": "createcloseprtool()"
     },
     {
@@ -42891,7 +42891,7 @@
       "source_location": "L13",
       "_origin": "ast",
       "id": "src_tools_worker_ensurepr_ensureprdeps",
-      "community": 187,
+      "community": 18,
       "norm_label": "ensureprdeps"
     },
     {
@@ -43091,7 +43091,7 @@
       "source_location": "L32",
       "_origin": "ast",
       "id": "src_tools_worker_mergepr_createmergeprtool",
-      "community": 309,
+      "community": 26,
       "norm_label": "createmergeprtool()"
     },
     {
@@ -46101,7 +46101,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "vitest_config",
-      "community": 186,
+      "community": 34,
       "norm_label": "vitest.config.ts"
     },
     {
@@ -55231,292 +55231,6 @@
       "weight": 1.0,
       "source": "scripts_migration_tests_types",
       "target": "scripts_migration_tests_types_testcase",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "imports_from",
-      "context": "import",
-      "confidence": "EXTRACTED",
-      "source_file": "src/plugins-sdk/sdk.ts",
-      "source_location": "L15",
-      "weight": 1.0,
-      "source": "src_plugins_sdk_sdk",
-      "target": "scripts_migration_tests_types",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "imports_from",
-      "context": "import",
-      "confidence": "EXTRACTED",
-      "source_file": "src/plugins/trivia/core/types.ts",
-      "source_location": "L1",
-      "weight": 1.0,
-      "source": "src_plugins_trivia_core_types",
-      "target": "scripts_migration_tests_types",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "imports_from",
-      "context": "import",
-      "confidence": "EXTRACTED",
-      "source_file": "src/plugins/trivia/domain/blocksToJson.ts",
-      "source_location": "L1",
-      "weight": 1.0,
-      "source": "src_plugins_trivia_domain_blockstojson",
-      "target": "scripts_migration_tests_types",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "imports_from",
-      "context": "import",
-      "confidence": "EXTRACTED",
-      "source_file": "src/plugins/trivia/freeform/roster.ts",
-      "source_location": "L2",
-      "weight": 1.0,
-      "source": "src_plugins_trivia_freeform_roster",
-      "target": "scripts_migration_tests_types",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "imports_from",
-      "context": "import",
-      "confidence": "EXTRACTED",
-      "source_file": "src/plugins/trivia/revealCards/answerActions.ts",
-      "source_location": "L1",
-      "weight": 1.0,
-      "source": "src_plugins_trivia_revealcards_answeractions",
-      "target": "scripts_migration_tests_types",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "imports_from",
-      "context": "import",
-      "confidence": "EXTRACTED",
-      "source_file": "src/plugins/trivia/revealCards/editCard.ts",
-      "source_location": "L17",
-      "weight": 1.0,
-      "source": "src_plugins_trivia_revealcards_editcard",
-      "target": "scripts_migration_tests_types",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "imports_from",
-      "context": "import",
-      "confidence": "EXTRACTED",
-      "source_file": "src/plugins/trivia/revealCards/footer.ts",
-      "source_location": "L21",
-      "weight": 1.0,
-      "source": "src_plugins_trivia_revealcards_footer",
-      "target": "scripts_migration_tests_types",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "imports_from",
-      "context": "import",
-      "confidence": "EXTRACTED",
-      "source_file": "src/plugins/trivia/revealCards/postGameButtons.ts",
-      "source_location": "L19",
-      "weight": 1.0,
-      "source": "src_plugins_trivia_revealcards_postgamebuttons",
-      "target": "scripts_migration_tests_types",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "imports_from",
-      "context": "import",
-      "confidence": "EXTRACTED",
-      "source_file": "src/plugins/trivia/tools/questions/cardLayout.ts",
-      "source_location": "L1",
-      "weight": 1.0,
-      "source": "src_plugins_trivia_tools_questions_cardlayout",
-      "target": "scripts_migration_tests_types",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "imports_from",
-      "context": "import",
-      "confidence": "EXTRACTED",
-      "source_file": "src/plugins/trivia/tools/questions/postQuestions.ts",
-      "source_location": "L3",
-      "weight": 1.0,
-      "source": "src_plugins_trivia_tools_questions_postquestions",
-      "target": "scripts_migration_tests_types",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "imports_from",
-      "context": "import",
-      "confidence": "EXTRACTED",
-      "source_file": "src/plugins/trivia/tools/questions/renderHint.ts",
-      "source_location": "L1",
-      "weight": 1.0,
-      "source": "src_plugins_trivia_tools_questions_renderhint",
-      "target": "scripts_migration_tests_types",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "imports_from",
-      "context": "import",
-      "confidence": "EXTRACTED",
-      "source_file": "src/plugins/trivia/tools/questions/renderPoints.ts",
-      "source_location": "L1",
-      "weight": 1.0,
-      "source": "src_plugins_trivia_tools_questions_renderpoints",
-      "target": "scripts_migration_tests_types",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "imports_from",
-      "context": "import",
-      "confidence": "EXTRACTED",
-      "source_file": "src/plugins/trivia/tools/questions/setRevealNarrative.ts",
-      "source_location": "L3",
-      "weight": 1.0,
-      "source": "src_plugins_trivia_tools_questions_setrevealnarrative",
-      "target": "scripts_migration_tests_types",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "imports_from",
-      "context": "import",
-      "confidence": "EXTRACTED",
-      "source_file": "src/plugins/trivia/tools/reveal/computeAnswers.ts",
-      "source_location": "L3",
-      "weight": 1.0,
-      "source": "src_plugins_trivia_tools_reveal_computeanswers",
-      "target": "scripts_migration_tests_types",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "imports_from",
-      "context": "import",
-      "confidence": "EXTRACTED",
-      "source_file": "src/slack/blockPrepare.ts",
-      "source_location": "L1",
-      "weight": 1.0,
-      "source": "src_slack_blockprepare",
-      "target": "scripts_migration_tests_types",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "imports_from",
-      "context": "import",
-      "confidence": "EXTRACTED",
-      "source_file": "src/slack/blocks.ts",
-      "source_location": "L1",
-      "weight": 1.0,
-      "source": "src_slack_blocks",
-      "target": "scripts_migration_tests_types",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "imports_from",
-      "context": "import",
-      "confidence": "EXTRACTED",
-      "source_file": "src/slack/blockSchema.ts",
-      "source_location": "L2",
-      "weight": 1.0,
-      "source": "src_slack_blockschema",
-      "target": "scripts_migration_tests_types",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "imports_from",
-      "context": "import",
-      "confidence": "EXTRACTED",
-      "source_file": "src/slack/chartRender.ts",
-      "source_location": "L1",
-      "weight": 1.0,
-      "source": "src_slack_chartrender",
-      "target": "scripts_migration_tests_types",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "imports_from",
-      "context": "import",
-      "confidence": "EXTRACTED",
-      "source_file": "src/slack/handlers/delivery/types.ts",
-      "source_location": "L1",
-      "weight": 1.0,
-      "source": "src_slack_handlers_delivery_types",
-      "target": "scripts_migration_tests_types",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "imports_from",
-      "context": "import",
-      "confidence": "EXTRACTED",
-      "source_file": "src/slack/handlers/dmActions.ts",
-      "source_location": "L20",
-      "weight": 1.0,
-      "source": "src_slack_handlers_dmactions",
-      "target": "scripts_migration_tests_types",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "imports_from",
-      "context": "import",
-      "confidence": "EXTRACTED",
-      "source_file": "src/slack/homeTab.ts",
-      "source_location": "L1",
-      "weight": 1.0,
-      "source": "src_slack_hometab",
-      "target": "scripts_migration_tests_types",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "imports_from",
-      "context": "import",
-      "confidence": "EXTRACTED",
-      "source_file": "src/slack/messageBuilder.ts",
-      "source_location": "L2",
-      "weight": 1.0,
-      "source": "src_slack_messagebuilder",
-      "target": "scripts_migration_tests_types",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "imports_from",
-      "context": "import",
-      "confidence": "EXTRACTED",
-      "source_file": "src/slack/tableRender.ts",
-      "source_location": "L1",
-      "weight": 1.0,
-      "source": "src_slack_tablerender",
-      "target": "scripts_migration_tests_types",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "imports_from",
-      "context": "import",
-      "confidence": "EXTRACTED",
-      "source_file": "src/slack/userSkillsHomeTab.ts",
-      "source_location": "L1",
-      "weight": 1.0,
-      "source": "src_slack_userskillshometab",
-      "target": "scripts_migration_tests_types",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "imports_from",
-      "context": "import",
-      "confidence": "EXTRACTED",
-      "source_file": "src/streaming/slackStreamer.ts",
-      "source_location": "L2",
-      "weight": 1.0,
-      "source": "src_streaming_slackstreamer",
-      "target": "scripts_migration_tests_types",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "imports_from",
-      "context": "import",
-      "confidence": "EXTRACTED",
-      "source_file": "src/tools/types.ts",
-      "source_location": "L2",
-      "weight": 1.0,
-      "source": "src_tools_types",
-      "target": "scripts_migration_tests_types",
       "confidence_score": 1.0
     },
     {
@@ -69053,7 +68767,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "src/claude/index.ts",
-      "source_location": "L483",
+      "source_location": "L488",
       "weight": 1.0,
       "source": "src_claude_index",
       "target": "src_claude_index_askclaude",
@@ -69133,7 +68847,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "src/claude/index.ts",
-      "source_location": "L436",
+      "source_location": "L441",
       "weight": 1.0,
       "source": "src_claude_index",
       "target": "src_claude_index_handlequeryerror",
@@ -70567,7 +70281,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "src/claude/index.ts",
-      "source_location": "L492",
+      "source_location": "L497",
       "weight": 1.0,
       "source": "src_claude_index_askclaude",
       "target": "src_claude_index_buildquerysetup",
@@ -70732,7 +70446,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "src/claude/index.ts",
-      "source_location": "L444",
+      "source_location": "L449",
       "weight": 1.0,
       "source": "src_claude_index_handlequeryerror",
       "target": "src_claude_index_optionalhistory",
@@ -70753,19 +70467,19 @@
       "relation": "calls",
       "context": "call",
       "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
       "source_file": "src/claude/index.ts",
       "source_location": "L400",
       "weight": 1.0,
       "source": "src_claude_index_buildsuccessresponse",
-      "target": "src_slack_blocktext_extractdisplaytext",
-      "confidence_score": 1.0
+      "target": "src_slack_blocktext_extractdisplaytext"
     },
     {
       "relation": "calls",
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "src/claude/index.ts",
-      "source_location": "L468",
+      "source_location": "L473",
       "weight": 1.0,
       "source": "src_claude_index_handlequeryerror",
       "target": "src_errors_errormessage",
@@ -70777,7 +70491,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "src/claude/index.ts",
-      "source_location": "L514",
+      "source_location": "L519",
       "weight": 1.0,
       "source": "src_claude_index_askclaude",
       "target": "src_claude_query_clacksession"
@@ -70788,7 +70502,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "src/claude/index.ts",
-      "source_location": "L538",
+      "source_location": "L543",
       "weight": 1.0,
       "source": "src_claude_index_askclaude",
       "target": "src_claude_utilities_detectruntime"
@@ -70799,7 +70513,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "src/claude/index.ts",
-      "source_location": "L543",
+      "source_location": "L548",
       "weight": 1.0,
       "source": "src_claude_index_askclaude",
       "target": "src_skillplugins_discovereagerskillplugins"
@@ -87469,7 +87183,7 @@
       "context": "field",
       "confidence": "EXTRACTED",
       "source_file": "src/tools/presentation/submitResponse.ts",
-      "source_location": "L673",
+      "source_location": "L686",
       "weight": 1.0,
       "source": "src_tools_presentation_submitresponse_submitresponsesuccessresult",
       "target": "src_ephemeralrules_ephemeralattentionlevel",
@@ -108900,6 +108614,17 @@
       "relation": "imports_from",
       "context": "import",
       "confidence": "EXTRACTED",
+      "source_file": "src/plugins-sdk/sdk.ts",
+      "source_location": "L15",
+      "weight": 1.0,
+      "source": "src_plugins_sdk_sdk",
+      "target": "src_tools_query_conversationstats_types",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "imports_from",
+      "context": "import",
+      "confidence": "EXTRACTED",
       "source_file": "src/plugins/tenor-gif/findGif.ts",
       "source_location": "L3",
       "weight": 1.0,
@@ -111985,7 +111710,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "src/tools/presentation/submitResponse.ts",
-      "source_location": "L648",
+      "source_location": "L661",
       "weight": 1.0,
       "source": "src_tools_presentation_submitresponse_recorderror",
       "target": "src_plugins_sdk_toolresults_textresult",
@@ -114369,6 +114094,17 @@
       "source_location": "L4",
       "weight": 1.0,
       "source": "src_plugins_casual_talk_tools_workhours",
+      "target": "src_plugins_casual_talk_config",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "imports_from",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "vitest.config.ts",
+      "source_location": "L1",
+      "weight": 1.0,
+      "source": "vitest_config",
       "target": "src_plugins_casual_talk_config",
       "confidence_score": 1.0
     },
@@ -117875,17 +117611,6 @@
       "source_location": "L5",
       "weight": 1.0,
       "source": "src_plugins_idler_tools_management",
-      "target": "src_plugins_idler_config",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "imports_from",
-      "context": "import",
-      "confidence": "EXTRACTED",
-      "source_file": "vitest.config.ts",
-      "source_location": "L1",
-      "weight": 1.0,
-      "source": "vitest_config",
       "target": "src_plugins_idler_config",
       "confidence_score": 1.0
     },
@@ -140579,6 +140304,17 @@
       "relation": "imports_from",
       "context": "import",
       "confidence": "EXTRACTED",
+      "source_file": "src/plugins/trivia/core/types.ts",
+      "source_location": "L1",
+      "weight": 1.0,
+      "source": "src_plugins_trivia_core_types",
+      "target": "src_tools_query_conversationstats_types",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "imports_from",
+      "context": "import",
+      "confidence": "EXTRACTED",
       "source_file": "src/plugins/trivia/domain/boardState.ts",
       "source_location": "L1",
       "weight": 1.0,
@@ -142617,6 +142353,17 @@
       "weight": 1.0,
       "source": "src_plugins_trivia_domain_blockstojson",
       "target": "src_plugins_trivia_domain_blockstojson_blockstojson",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "imports_from",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "src/plugins/trivia/domain/blocksToJson.ts",
+      "source_location": "L1",
+      "weight": 1.0,
+      "source": "src_plugins_trivia_domain_blockstojson",
+      "target": "src_tools_query_conversationstats_types",
       "confidence_score": 1.0
     },
     {
@@ -146163,6 +145910,17 @@
       "relation": "imports_from",
       "context": "import",
       "confidence": "EXTRACTED",
+      "source_file": "src/plugins/trivia/freeform/roster.ts",
+      "source_location": "L2",
+      "weight": 1.0,
+      "source": "src_plugins_trivia_freeform_roster",
+      "target": "src_tools_query_conversationstats_types",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "imports_from",
+      "context": "import",
+      "confidence": "EXTRACTED",
       "source_file": "src/plugins/trivia/tools/lock/applyLock.ts",
       "source_location": "L3",
       "weight": 1.0,
@@ -148463,6 +148221,17 @@
       "relation": "imports_from",
       "context": "import",
       "confidence": "EXTRACTED",
+      "source_file": "src/plugins/trivia/revealCards/answerActions.ts",
+      "source_location": "L1",
+      "weight": 1.0,
+      "source": "src_plugins_trivia_revealcards_answeractions",
+      "target": "src_tools_query_conversationstats_types",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "imports_from",
+      "context": "import",
+      "confidence": "EXTRACTED",
       "source_file": "src/plugins/trivia/revealCards/editCard.ts",
       "source_location": "L28",
       "weight": 1.0,
@@ -148651,6 +148420,17 @@
       "weight": 1.0,
       "source": "src_plugins_trivia_revealcards_editcard",
       "target": "src_plugins_trivia_tools_reveal_types_processrevealentry",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "imports_from",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "src/plugins/trivia/revealCards/editCard.ts",
+      "source_location": "L17",
+      "weight": 1.0,
+      "source": "src_plugins_trivia_revealcards_editcard",
+      "target": "src_tools_query_conversationstats_types",
       "confidence_score": 1.0
     },
     {
@@ -148888,6 +148668,17 @@
       "weight": 1.0,
       "source": "src_plugins_trivia_revealcards_footer",
       "target": "src_plugins_trivia_tools_reveal_types_voterbuckets",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "imports_from",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "src/plugins/trivia/revealCards/footer.ts",
+      "source_location": "L21",
+      "weight": 1.0,
+      "source": "src_plugins_trivia_revealcards_footer",
+      "target": "src_tools_query_conversationstats_types",
       "confidence_score": 1.0
     },
     {
@@ -149152,6 +148943,17 @@
       "weight": 1.0,
       "source": "src_plugins_trivia_revealcards_postgamebuttons",
       "target": "src_slack_pluginactionregistry_pluginactionhandler",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "imports_from",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "src/plugins/trivia/revealCards/postGameButtons.ts",
+      "source_location": "L19",
+      "weight": 1.0,
+      "source": "src_plugins_trivia_revealcards_postgamebuttons",
+      "target": "src_tools_query_conversationstats_types",
       "confidence_score": 1.0
     },
     {
@@ -150476,6 +150278,17 @@
       "relation": "imports_from",
       "context": "import",
       "confidence": "EXTRACTED",
+      "source_file": "src/plugins/trivia/tools/questions/cardLayout.ts",
+      "source_location": "L1",
+      "weight": 1.0,
+      "source": "src_plugins_trivia_tools_questions_cardlayout",
+      "target": "src_tools_query_conversationstats_types",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "imports_from",
+      "context": "import",
+      "confidence": "EXTRACTED",
       "source_file": "src/plugins/trivia/tools/questions/renderHint.ts",
       "source_location": "L5",
       "weight": 1.0,
@@ -151014,6 +150827,17 @@
       "confidence_score": 1.0
     },
     {
+      "relation": "imports_from",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "src/plugins/trivia/tools/questions/postQuestions.ts",
+      "source_location": "L3",
+      "weight": 1.0,
+      "source": "src_plugins_trivia_tools_questions_postquestions",
+      "target": "src_tools_query_conversationstats_types",
+      "confidence_score": 1.0
+    },
+    {
       "relation": "method",
       "confidence": "EXTRACTED",
       "source_file": "src/plugins/trivia/tools/questions/postQuestions.ts",
@@ -151077,6 +150901,17 @@
       "confidence_score": 1.0
     },
     {
+      "relation": "imports_from",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "src/plugins/trivia/tools/questions/renderHint.ts",
+      "source_location": "L1",
+      "weight": 1.0,
+      "source": "src_plugins_trivia_tools_questions_renderhint",
+      "target": "src_tools_query_conversationstats_types",
+      "confidence_score": 1.0
+    },
+    {
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "src/plugins/trivia/tools/questions/renderPoints.ts",
@@ -151115,6 +150950,17 @@
       "weight": 1.0,
       "source": "src_plugins_trivia_tools_questions_renderpoints",
       "target": "src_slack_blocks_slackblocks",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "imports_from",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "src/plugins/trivia/tools/questions/renderPoints.ts",
+      "source_location": "L1",
+      "weight": 1.0,
+      "source": "src_plugins_trivia_tools_questions_renderpoints",
+      "target": "src_tools_query_conversationstats_types",
       "confidence_score": 1.0
     },
     {
@@ -151200,6 +151046,17 @@
       "weight": 1.0,
       "source": "src_plugins_trivia_tools_questions_setrevealnarrative",
       "target": "src_slack_blockschema_blockschema",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "imports_from",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "src/plugins/trivia/tools/questions/setRevealNarrative.ts",
+      "source_location": "L3",
+      "weight": 1.0,
+      "source": "src_plugins_trivia_tools_questions_setrevealnarrative",
+      "target": "src_tools_query_conversationstats_types",
       "confidence_score": 1.0
     },
     {
@@ -151551,6 +151408,17 @@
       "weight": 1.0,
       "source": "src_plugins_trivia_tools_reveal_computeanswers",
       "target": "src_plugins_trivia_tools_reveal_types_teamstandingsout",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "imports_from",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "src/plugins/trivia/tools/reveal/computeAnswers.ts",
+      "source_location": "L3",
+      "weight": 1.0,
+      "source": "src_plugins_trivia_tools_reveal_computeanswers",
+      "target": "src_tools_query_conversationstats_types",
       "confidence_score": 1.0
     },
     {
@@ -156865,7 +156733,7 @@
       "context": "field",
       "confidence": "EXTRACTED",
       "source_file": "src/tools/presentation/submitResponse.ts",
-      "source_location": "L982",
+      "source_location": "L995",
       "weight": 1.0,
       "source": "src_tools_presentation_submitresponse_submitresponseargs",
       "target": "src_sessions_attentionlevel",
@@ -156876,7 +156744,7 @@
       "context": "field",
       "confidence": "EXTRACTED",
       "source_file": "src/tools/presentation/submitResponse.ts",
-      "source_location": "L655",
+      "source_location": "L668",
       "weight": 1.0,
       "source": "src_tools_presentation_submitresponse_submitresponsesuccessresult",
       "target": "src_sessions_attentionlevel",
@@ -157030,7 +156898,7 @@
       "context": "field",
       "confidence": "EXTRACTED",
       "source_file": "src/tools/presentation/submitResponse.ts",
-      "source_location": "L983",
+      "source_location": "L996",
       "weight": 1.0,
       "source": "src_tools_presentation_submitresponse_submitresponseargs",
       "target": "src_sessions_deliverymode",
@@ -157041,7 +156909,7 @@
       "context": "field",
       "confidence": "EXTRACTED",
       "source_file": "src/tools/presentation/submitResponse.ts",
-      "source_location": "L657",
+      "source_location": "L670",
       "weight": 1.0,
       "source": "src_tools_presentation_submitresponse_submitresponsesuccessresult",
       "target": "src_sessions_deliverymode",
@@ -161739,6 +161607,17 @@
       "relation": "imports_from",
       "context": "import",
       "confidence": "EXTRACTED",
+      "source_file": "src/slack/blockPrepare.ts",
+      "source_location": "L1",
+      "weight": 1.0,
+      "source": "src_slack_blockprepare",
+      "target": "src_tools_query_conversationstats_types",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "imports_from",
+      "context": "import",
+      "confidence": "EXTRACTED",
       "source_file": "src/slack/blocks.ts",
       "source_location": "L11",
       "weight": 1.0,
@@ -162324,6 +162203,17 @@
       "relation": "imports_from",
       "context": "import",
       "confidence": "EXTRACTED",
+      "source_file": "src/slack/blockSchema.ts",
+      "source_location": "L2",
+      "weight": 1.0,
+      "source": "src_slack_blockschema",
+      "target": "src_tools_query_conversationstats_types",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "imports_from",
+      "context": "import",
+      "confidence": "EXTRACTED",
       "source_file": "src/slack/blockText.ts",
       "source_location": "L1",
       "weight": 1.0,
@@ -162534,7 +162424,7 @@
       "context": "field",
       "confidence": "EXTRACTED",
       "source_file": "src/tools/presentation/submitResponse.ts",
-      "source_location": "L977",
+      "source_location": "L990",
       "weight": 1.0,
       "source": "src_tools_presentation_submitresponse_submitresponseargs",
       "target": "src_slack_blockschema_authoredchartblock",
@@ -162754,7 +162644,7 @@
       "context": "field",
       "confidence": "EXTRACTED",
       "source_file": "src/tools/presentation/submitResponse.ts",
-      "source_location": "L976",
+      "source_location": "L989",
       "weight": 1.0,
       "source": "src_tools_presentation_submitresponse_submitresponseargs",
       "target": "src_slack_blockschema_authoredtableblock",
@@ -162919,7 +162809,7 @@
       "context": "field",
       "confidence": "EXTRACTED",
       "source_file": "src/tools/presentation/submitResponse.ts",
-      "source_location": "L975",
+      "source_location": "L988",
       "weight": 1.0,
       "source": "src_tools_presentation_submitresponse_submitresponseargs",
       "target": "src_slack_blockschema_block",
@@ -164067,6 +163957,17 @@
       "weight": 1.0,
       "source": "src_slack_blocks",
       "target": "src_tools_types_submitresponsepayload",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "imports_from",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "src/slack/blocks.ts",
+      "source_location": "L1",
+      "weight": 1.0,
+      "source": "src_slack_blocks",
+      "target": "src_tools_query_conversationstats_types",
       "confidence_score": 1.0
     },
     {
@@ -166042,6 +165943,17 @@
       "weight": 1.0,
       "source": "src_slack_chartrender",
       "target": "src_slack_chartrender_serieschart",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "imports_from",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "src/slack/chartRender.ts",
+      "source_location": "L1",
+      "weight": 1.0,
+      "source": "src_slack_chartrender",
+      "target": "src_tools_query_conversationstats_types",
       "confidence_score": 1.0
     },
     {
@@ -170993,6 +170905,17 @@
       "relation": "imports_from",
       "context": "import",
       "confidence": "EXTRACTED",
+      "source_file": "src/slack/handlers/delivery/types.ts",
+      "source_location": "L1",
+      "weight": 1.0,
+      "source": "src_slack_handlers_delivery_types",
+      "target": "src_tools_query_conversationstats_types",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "imports_from",
+      "context": "import",
+      "confidence": "EXTRACTED",
       "source_file": "src/slack/handlers/handlerResponse.ts",
       "source_location": "L14",
       "weight": 1.0,
@@ -171399,6 +171322,17 @@
       "weight": 1.0,
       "source": "src_slack_handlers_dmactions",
       "target": "src_tools_types_responsesnapshot",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "imports_from",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "src/slack/handlers/dmActions.ts",
+      "source_location": "L20",
+      "weight": 1.0,
+      "source": "src_slack_handlers_dmactions",
+      "target": "src_tools_query_conversationstats_types",
       "confidence_score": 1.0
     },
     {
@@ -175677,6 +175611,17 @@
       "confidence_score": 1.0
     },
     {
+      "relation": "imports_from",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "src/slack/homeTab.ts",
+      "source_location": "L1",
+      "weight": 1.0,
+      "source": "src_slack_hometab",
+      "target": "src_tools_query_conversationstats_types",
+      "confidence_score": 1.0
+    },
+    {
       "relation": "references",
       "context": "field",
       "confidence": "EXTRACTED",
@@ -176488,6 +176433,17 @@
       "weight": 1.0,
       "source": "src_slack_messagebuilder",
       "target": "src_slack_usercache_userinfo",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "imports_from",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "src/slack/messageBuilder.ts",
+      "source_location": "L2",
+      "weight": 1.0,
+      "source": "src_slack_messagebuilder",
+      "target": "src_tools_query_conversationstats_types",
       "confidence_score": 1.0
     },
     {
@@ -178326,6 +178282,17 @@
       "confidence_score": 1.0
     },
     {
+      "relation": "imports_from",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "src/slack/tableRender.ts",
+      "source_location": "L1",
+      "weight": 1.0,
+      "source": "src_slack_tablerender",
+      "target": "src_tools_query_conversationstats_types",
+      "confidence_score": 1.0
+    },
+    {
       "relation": "calls",
       "context": "call",
       "confidence": "EXTRACTED",
@@ -178874,6 +178841,17 @@
       "weight": 1.0,
       "source": "src_slack_userskillshometab",
       "target": "src_userskills_userskill",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "imports_from",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "src/slack/userSkillsHomeTab.ts",
+      "source_location": "L1",
+      "weight": 1.0,
+      "source": "src_slack_userskillshometab",
+      "target": "src_tools_query_conversationstats_types",
       "confidence_score": 1.0
     },
     {
@@ -180995,6 +180973,17 @@
       "weight": 1.0,
       "source": "src_streaming_slackstreamer",
       "target": "src_streaming_types_streamevent",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "imports_from",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "src/streaming/slackStreamer.ts",
+      "source_location": "L2",
+      "weight": 1.0,
+      "source": "src_streaming_slackstreamer",
+      "target": "src_tools_query_conversationstats_types",
       "confidence_score": 1.0
     },
     {
@@ -188353,7 +188342,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "src/tools/presentation/submitResponse.ts",
-      "source_location": "L682",
+      "source_location": "L695",
       "weight": 1.0,
       "source": "src_tools_presentation_submitresponse",
       "target": "src_tools_presentation_submitresponse_applychannelattentionlevel",
@@ -188363,7 +188352,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "src/tools/presentation/submitResponse.ts",
-      "source_location": "L820",
+      "source_location": "L833",
       "weight": 1.0,
       "source": "src_tools_presentation_submitresponse",
       "target": "src_tools_presentation_submitresponse_attentionlevelenabledresponseschema",
@@ -188373,7 +188362,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "src/tools/presentation/submitResponse.ts",
-      "source_location": "L757",
+      "source_location": "L770",
       "weight": 1.0,
       "source": "src_tools_presentation_submitresponse",
       "target": "src_tools_presentation_submitresponse_attentionlevelfield",
@@ -188393,7 +188382,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "src/tools/presentation/submitResponse.ts",
-      "source_location": "L1004",
+      "source_location": "L1017",
       "weight": 1.0,
       "source": "src_tools_presentation_submitresponse",
       "target": "src_tools_presentation_submitresponse_buildsubmitresponseschema",
@@ -188433,7 +188422,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "src/tools/presentation/submitResponse.ts",
-      "source_location": "L808",
+      "source_location": "L821",
       "weight": 1.0,
       "source": "src_tools_presentation_submitresponse",
       "target": "src_tools_presentation_submitresponse_channelattentionlevelreframefield",
@@ -188453,7 +188442,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "src/tools/presentation/submitResponse.ts",
-      "source_location": "L676",
+      "source_location": "L689",
       "weight": 1.0,
       "source": "src_tools_presentation_submitresponse",
       "target": "src_tools_presentation_submitresponse_channelattentionreframe",
@@ -188483,7 +188472,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "src/tools/presentation/submitResponse.ts",
-      "source_location": "L1057",
+      "source_location": "L1070",
       "weight": 1.0,
       "source": "src_tools_presentation_submitresponse",
       "target": "src_tools_presentation_submitresponse_createsubmitresponsetool",
@@ -188536,7 +188525,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "src/tools/presentation/submitResponse.ts",
-      "source_location": "L911",
+      "source_location": "L924",
       "weight": 1.0,
       "source": "src_tools_presentation_submitresponse",
       "target": "src_tools_presentation_submitresponse_delivertoentryschema",
@@ -188546,7 +188535,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "src/tools/presentation/submitResponse.ts",
-      "source_location": "L890",
+      "source_location": "L903",
       "weight": 1.0,
       "source": "src_tools_presentation_submitresponse",
       "target": "src_tools_presentation_submitresponse_delivertoresponseschema",
@@ -188556,7 +188545,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "src/tools/presentation/submitResponse.ts",
-      "source_location": "L773",
+      "source_location": "L786",
       "weight": 1.0,
       "source": "src_tools_presentation_submitresponse",
       "target": "src_tools_presentation_submitresponse_deliverymodefield",
@@ -188576,7 +188565,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "src/tools/presentation/submitResponse.ts",
-      "source_location": "L724",
+      "source_location": "L737",
       "weight": 1.0,
       "source": "src_tools_presentation_submitresponse",
       "target": "src_tools_presentation_submitresponse_escalatetoownerfield",
@@ -188659,7 +188648,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "src/tools/presentation/submitResponse.ts",
-      "source_location": "L738",
+      "source_location": "L751",
       "weight": 1.0,
       "source": "src_tools_presentation_submitresponse",
       "target": "src_tools_presentation_submitresponse_normalresponseschema",
@@ -188669,7 +188658,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "src/tools/presentation/submitResponse.ts",
-      "source_location": "L940",
+      "source_location": "L953",
       "weight": 1.0,
       "source": "src_tools_presentation_submitresponse",
       "target": "src_tools_presentation_submitresponse_optionalposttoresponseschema",
@@ -188689,7 +188678,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "src/tools/presentation/submitResponse.ts",
-      "source_location": "L784",
+      "source_location": "L797",
       "weight": 1.0,
       "source": "src_tools_presentation_submitresponse",
       "target": "src_tools_presentation_submitresponse_posttoplevelfield",
@@ -188709,7 +188698,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "src/tools/presentation/submitResponse.ts",
-      "source_location": "L646",
+      "source_location": "L657",
       "weight": 1.0,
       "source": "src_tools_presentation_submitresponse",
       "target": "src_tools_presentation_submitresponse_recorderror",
@@ -188719,7 +188708,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "src/tools/presentation/submitResponse.ts",
-      "source_location": "L700",
+      "source_location": "L713",
       "weight": 1.0,
       "source": "src_tools_presentation_submitresponse",
       "target": "src_tools_presentation_submitresponse_recordsuccess",
@@ -188789,7 +188778,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "src/tools/presentation/submitResponse.ts",
-      "source_location": "L847",
+      "source_location": "L860",
       "weight": 1.0,
       "source": "src_tools_presentation_submitresponse",
       "target": "src_tools_presentation_submitresponse_skipenabledresponseschema",
@@ -188799,7 +188788,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "src/tools/presentation/submitResponse.ts",
-      "source_location": "L860",
+      "source_location": "L873",
       "weight": 1.0,
       "source": "src_tools_presentation_submitresponse",
       "target": "src_tools_presentation_submitresponse_skiponlyresponseschema",
@@ -188809,7 +188798,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "src/tools/presentation/submitResponse.ts",
-      "source_location": "L840",
+      "source_location": "L853",
       "weight": 1.0,
       "source": "src_tools_presentation_submitresponse",
       "target": "src_tools_presentation_submitresponse_skipoptionalactions",
@@ -188819,7 +188808,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "src/tools/presentation/submitResponse.ts",
-      "source_location": "L834",
+      "source_location": "L847",
       "weight": 1.0,
       "source": "src_tools_presentation_submitresponse",
       "target": "src_tools_presentation_submitresponse_skipoptionalblocks",
@@ -188829,7 +188818,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "src/tools/presentation/submitResponse.ts",
-      "source_location": "L872",
+      "source_location": "L885",
       "weight": 1.0,
       "source": "src_tools_presentation_submitresponse",
       "target": "src_tools_presentation_submitresponse_skippedonlyresponseschema",
@@ -188839,7 +188828,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "src/tools/presentation/submitResponse.ts",
-      "source_location": "L826",
+      "source_location": "L839",
       "weight": 1.0,
       "source": "src_tools_presentation_submitresponse",
       "target": "src_tools_presentation_submitresponse_skipresponsefield",
@@ -188849,7 +188838,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "src/tools/presentation/submitResponse.ts",
-      "source_location": "L973",
+      "source_location": "L986",
       "weight": 1.0,
       "source": "src_tools_presentation_submitresponse",
       "target": "src_tools_presentation_submitresponse_submitresponseargs",
@@ -188869,7 +188858,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "src/tools/presentation/submitResponse.ts",
-      "source_location": "L651",
+      "source_location": "L664",
       "weight": 1.0,
       "source": "src_tools_presentation_submitresponse",
       "target": "src_tools_presentation_submitresponse_submitresponsesuccessresult",
@@ -188879,7 +188868,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "src/tools/presentation/submitResponse.ts",
-      "source_location": "L708",
+      "source_location": "L721",
       "weight": 1.0,
       "source": "src_tools_presentation_submitresponse",
       "target": "src_tools_presentation_submitresponse_suppressunfurlsfield",
@@ -188909,7 +188898,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "src/tools/presentation/submitResponse.ts",
-      "source_location": "L798",
+      "source_location": "L811",
       "weight": 1.0,
       "source": "src_tools_presentation_submitresponse",
       "target": "src_tools_presentation_submitresponse_threadtitlefield",
@@ -189073,7 +189062,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "src/tools/presentation/submitResponse.ts",
-      "source_location": "L1050",
+      "source_location": "L1063",
       "weight": 1.0,
       "source": "src_tools_presentation_submitresponse_buildsubmitresponseschema",
       "target": "src_tools_presentation_submitresponse_buildadditionalmessagesfield",
@@ -189084,7 +189073,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "src/tools/presentation/submitResponse.ts",
-      "source_location": "L1051",
+      "source_location": "L1064",
       "weight": 1.0,
       "source": "src_tools_presentation_submitresponse_buildsubmitresponseschema",
       "target": "src_tools_presentation_submitresponse_buildthreadrepliesfield",
@@ -189172,7 +189161,7 @@
       "context": "field",
       "confidence": "EXTRACTED",
       "source_file": "src/tools/presentation/submitResponse.ts",
-      "source_location": "L979",
+      "source_location": "L992",
       "weight": 1.0,
       "source": "src_tools_presentation_submitresponse_submitresponseargs",
       "target": "src_tools_types_action",
@@ -189183,7 +189172,7 @@
       "context": "field",
       "confidence": "EXTRACTED",
       "source_file": "src/tools/presentation/submitResponse.ts",
-      "source_location": "L988",
+      "source_location": "L1001",
       "weight": 1.0,
       "source": "src_tools_presentation_submitresponse_submitresponseargs",
       "target": "src_tools_types_delivertoentry",
@@ -189194,7 +189183,7 @@
       "context": "field",
       "confidence": "EXTRACTED",
       "source_file": "src/tools/presentation/submitResponse.ts",
-      "source_location": "L986",
+      "source_location": "L999",
       "weight": 1.0,
       "source": "src_tools_presentation_submitresponse_submitresponseargs",
       "target": "src_tools_types_messagepayload",
@@ -189205,7 +189194,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "src/tools/presentation/submitResponse.ts",
-      "source_location": "L1090",
+      "source_location": "L1103",
       "weight": 1.0,
       "source": "src_tools_presentation_submitresponse_createsubmitresponsetool",
       "target": "src_tools_presentation_submitresponse_buildsubmitresponseschema",
@@ -191179,6 +191168,17 @@
       "weight": 1.0,
       "source": "src_tools_query_conversationstats_types",
       "target": "src_tools_query_conversationstats_types_verbositystat",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "imports_from",
+      "context": "import",
+      "confidence": "EXTRACTED",
+      "source_file": "src/tools/types.ts",
+      "source_location": "L2",
+      "weight": 1.0,
+      "source": "src_tools_types",
+      "target": "src_tools_query_conversationstats_types",
       "confidence_score": 1.0
     },
     {
@@ -207804,5 +207804,5 @@
       "source_file": ".claude/skills/migrate-skill-pack/SKILL.md"
     }
   ],
-  "built_at_commit": "ed39b7db978829d0cdc07b63d397508b192b3302"
+  "built_at_commit": "34901d5837f506f4552bfbc8ecb0dde3d40d2b2d"
 }
