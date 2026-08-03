@@ -70,9 +70,21 @@ describe("casual-talk engagement topic content", () => {
     );
     assert.ok(ENGAGEMENT_CONTENT.includes("**React-only**"));
     assert.ok(ENGAGEMENT_CONTENT.includes("**React-and-post**"));
-    assert.match(ENGAGEMENT_CONTENT, /`attention_level: "high"` is MANDATORY/);
+    assert.match(ENGAGEMENT_CONTENT, /Setting `attention_level` is MANDATORY/);
     assert.match(ENGAGEMENT_CONTENT, /`default_delivery_mode: "invisible"` is MANDATORY/);
     assert.ok(ENGAGEMENT_CONTENT.includes("INVISIBLE scheduled tick"));
+  });
+
+  it("picks the attention level by whose thread it is", () => {
+    assert.match(ENGAGEMENT_CONTENT, /\*\*Opening a fresh top-level thread\*\*.*`"high"`/);
+    assert.match(ENGAGEMENT_CONTENT, /\*\*Joining a thread that already exists\*\*/);
+    assert.match(ENGAGEMENT_CONTENT, /`"off"` or `"low"`, never higher/);
+    assert.ok(ENGAGEMENT_CONTENT.includes('clamps a joined thread to `"low"`'));
+  });
+
+  it("never mandates high attention unconditionally", () => {
+    assert.ok(!/`attention_level: "high"` is MANDATORY/.test(ENGAGEMENT_CONTENT));
+    assert.ok(!ENGAGEMENT_CONTENT.includes('When in doubt, it is "high"'));
   });
 
   it("extends the persona's never-reveal rule to reactions without restating the persona", () => {

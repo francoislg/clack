@@ -14,7 +14,7 @@ import type {
   SendMessageResult,
   StartThreadConversationOptions,
 } from "../sdk.js";
-import type { AttentionLevel } from "../../sessions.js";
+import type { AttentionLevel, ThreadEngagementOrigin } from "../../sessions.js";
 
 export function createMessagingSurface(
   pluginName: string,
@@ -142,13 +142,18 @@ export function createMessagingSurface(
     async engageThread(
       channel: string,
       threadTs: string,
-      opts: { attentionLevel?: AttentionLevel; creationContext?: string },
+      opts: {
+        attentionLevel?: AttentionLevel;
+        origin: ThreadEngagementOrigin;
+        creationContext?: string;
+      },
     ): Promise<void> {
       if (!opts.attentionLevel || opts.attentionLevel === "off" || !deps.registerThreadSession) {
         return;
       }
       await deps.registerThreadSession(channel, threadTs, {
         attentionLevel: opts.attentionLevel,
+        origin: opts.origin,
         ...(opts.creationContext !== undefined && { creationContext: opts.creationContext }),
       });
     },

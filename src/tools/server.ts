@@ -671,6 +671,7 @@ function buildQueryTools(ctx: QueryToolContext): ClackQueryToolsResult {
               try {
                 await registerThreadSession(channel, root, {
                   attentionLevel,
+                  origin: threadTs ? "joined" : "opened",
                   creationContext,
                   ...(deliveryMode && { deliveryMode }),
                 });

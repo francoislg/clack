@@ -48,8 +48,12 @@ import type {
 } from "../cronJobs.js";
 import type { registerDelayedBootHandler, computeMissedRuns } from "../cronCatchUp.js";
 import type { registerThreadSession } from "../sessions.js";
-import type { SettableAttentionLevel, AttentionLevel } from "../sessions.js";
-export type { SettableAttentionLevel, AttentionLevel };
+import type {
+  SettableAttentionLevel,
+  AttentionLevel,
+  ThreadEngagementOrigin,
+} from "../sessions.js";
+export type { SettableAttentionLevel, AttentionLevel, ThreadEngagementOrigin };
 import type { clackQuery as defaultClackQuery } from "../claude/query.js";
 
 // ============================================================================
@@ -518,11 +522,18 @@ export interface ClackSdk {
    * with `creationContext` surfaced to both the auto-respond judge and the reply turn.
    * `attentionLevel: "off"` (or omitted) is a no-op. This is the ONLY engagement path for
    * plugins — never import core session modules.
+   *
+   * `origin` says whether the thread is one the plugin opened (its own posted message is the
+   * root) or a pre-existing conversation it joined; a joined thread is clamped to `"low"`.
    */
   engageThread(
     channel: string,
     threadTs: string,
-    opts: { attentionLevel?: AttentionLevel; creationContext?: string },
+    opts: {
+      attentionLevel?: AttentionLevel;
+      origin: ThreadEngagementOrigin;
+      creationContext?: string;
+    },
   ): Promise<void>;
   /**
    * Lazily resolves the Slack WebClient at call time. Returns `null` when Slack

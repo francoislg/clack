@@ -40,6 +40,7 @@ describe("plugin thread engagement — seed → resolve → reply-turn prompt", 
     // The seeding the delivery adapter performs after a successful post.
     await registerThreadSession("C_DEST", "1700000000.000100", {
       attentionLevel: "high",
+      origin: "opened",
       creationContext: CREATION_CONTEXT,
     });
 
@@ -62,6 +63,7 @@ describe("plugin thread engagement — seed → resolve → reply-turn prompt", 
     // The seeding a casual-talk deliver_to entry performs: high attention + invisible mode.
     await registerThreadSession("C_DEST_INV", "1700000000.000300", {
       attentionLevel: "high",
+      origin: "opened",
       deliveryMode: "invisible",
     });
 
@@ -72,9 +74,25 @@ describe("plugin thread engagement — seed → resolve → reply-turn prompt", 
     assert.ok(isEngaged(seeded), "seeded session must be engaged");
   });
 
+  it("a high-attention delivery INTO an existing thread engages it only at low", async () => {
+    // The seeding a deliver_to entry carrying an explicit thread_ts performs: the entry joins a
+    // conversation that already existed, so the requested "high" is clamped at the seam.
+    await registerThreadSession("C_DEST_JOIN", "1700000000.000400", {
+      attentionLevel: "high",
+      origin: "joined",
+      creationContext: "Dropped into an existing thread.",
+    });
+
+    const seeded = await findSessionByThread("C_DEST_JOIN", "1700000000.000400");
+    assert.ok(seeded, "destination thread must resolve to a seeded session");
+    assert.equal(seeded.attentionLevel, "low");
+    assert.ok(isEngaged(seeded), "a clamped session is still engaged");
+  });
+
   it("an off / absent attention level seeds nothing (fire-and-forget preserved)", async () => {
     const off = await registerThreadSession("C_DEST2", "1700000000.000200", {
       attentionLevel: "off",
+      origin: "opened",
       creationContext: "ignored",
     });
     assert.equal(off, null);

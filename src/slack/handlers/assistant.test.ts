@@ -614,7 +614,7 @@ describe("assistant userMessage — inline stop emoji", () => {
     assert.equal(mockProcessMessage.mock.calls.length, 0);
   });
 
-  it("does NOT stop on long messages containing the emoji", async () => {
+  it("stops on long messages containing the emoji", async () => {
     await capturedAssistantHandlers!.userMessage({
       event: {
         user: "U001",
@@ -627,8 +627,8 @@ describe("assistant userMessage — inline stop emoji", () => {
       setTitle: stubTitle,
       getThreadContext: stubThreadCtx,
     });
-    assert.equal(mockAssistantStopThread.mock.calls.length, 0);
-    assert.equal(mockProcessMessage.mock.calls.length, 1);
+    assert.equal(mockAssistantStopThread.mock.calls.length, 1);
+    assert.equal(mockProcessMessage.mock.calls.length, 0);
   });
 
   it("does NOT stop when config.reactions.stop is null", async () => {

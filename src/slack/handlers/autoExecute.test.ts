@@ -13,7 +13,7 @@ import type {
 } from "../../tools/types.js";
 import type { UserRole } from "../../roles.js";
 import type { UserSkill } from "../../userSkills.js";
-import type { SessionContext, AttentionLevel, DeliveryMode } from "../../sessions.js";
+import type { SessionContext } from "../../sessions.js";
 import type { SessionInfo } from "../activeSessions.js";
 import type { SlackDeliveryContext } from "./changeAction.js";
 import { handleAutoExecuteActions, type AutoExecuteDeps } from "./autoExecute.js";
@@ -53,13 +53,7 @@ const mockGetSession = vi.fn<(sessionId: string) => Promise<SessionContext | nul
 const mockUpdateSession = vi.fn<
   (sessionId: string, updates: { responseTs: string }) => Promise<SessionContext | null>
 >(async () => null);
-const mockRegisterThreadSession = vi.fn<
-  (
-    channel: string,
-    threadRoot: string,
-    opts: { attentionLevel: AttentionLevel; followUpContext?: string; deliveryMode?: DeliveryMode },
-  ) => Promise<SessionContext | null>
->(async () => null);
+const mockRegisterThreadSession = vi.fn<AutoExecuteDeps["registerThreadSession"]>(async () => null);
 const mockPostAnswerToChannel = vi.fn<
   (
     client: App["client"],
@@ -348,7 +342,7 @@ describe("handleAutoExecuteActions — post_to thread engagement", () => {
     assert.deepEqual(mockRegisterThreadSession.mock.calls[0], [
       "C200",
       "1700000000.999999",
-      { attentionLevel: "high", creationContext: "ctx" },
+      { attentionLevel: "high", origin: "opened", creationContext: "ctx" },
     ]);
   });
 
@@ -370,6 +364,7 @@ describe("handleAutoExecuteActions — post_to thread engagement", () => {
     assert.equal(mockRegisterThreadSession.mock.calls.length, 1);
     assert.deepEqual(mockRegisterThreadSession.mock.calls[0][2], {
       attentionLevel: "high",
+      origin: "opened",
       creationContext: "why this was posted",
       deliveryMode: "invisible",
     });
@@ -392,6 +387,7 @@ describe("handleAutoExecuteActions — post_to thread engagement", () => {
 
     assert.equal(mockRegisterThreadSession.mock.calls.length, 1);
     assert.equal(mockRegisterThreadSession.mock.calls[0][1], "1700000000.111111");
+    assert.equal(mockRegisterThreadSession.mock.calls[0][2].origin, "joined");
   });
 
   it("does not seed when attention_level is omitted", async () => {

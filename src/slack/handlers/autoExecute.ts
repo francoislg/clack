@@ -625,6 +625,7 @@ async function handlePostToAutoExecute(
           try {
             await deps.registerThreadSession(targetChannel, root, {
               attentionLevel: action.attention_level,
+              origin: targetThreadTs ? "joined" : "opened",
               ...(action.creation_context && { creationContext: action.creation_context }),
               ...(action.default_delivery_mode && {
                 deliveryMode: action.default_delivery_mode,

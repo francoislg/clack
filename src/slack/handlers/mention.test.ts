@@ -1,18 +1,22 @@
 import { describe, it, vi, beforeEach } from "vitest";
 import assert from "node:assert/strict";
 import type { App } from "@slack/bolt";
+import type { AttentionLevel, SessionContext } from "../../sessions.js";
 import { registerMentionHandler, type MentionDeps } from "./mention.js";
 
 // ============================================================================
 // Helpers
 // ============================================================================
 
-const mockProcessMessage = vi.fn<(...args: never[]) => Promise<void>>(async () => {});
+const mockProcessMessage = vi.fn<MentionDeps["processMessage"]>(async () => ({
+  success: true,
+  answer: "ok",
+}));
 
 function makeDeps(): MentionDeps {
   return {
     getConfig: () => ({ mentions: { enabled: true } }) as never,
-    processMessage: mockProcessMessage as never,
+    processMessage: mockProcessMessage,
     findSessionByThread: async () => null,
     setAttentionLevel: async () => {},
     stopThread: mockStopThread,
@@ -414,7 +418,7 @@ describe("registerMentionHandler — inline stop emoji", () => {
     assert.equal(mockStopThread.mock.calls[0]?.[1], "1700000000.000001");
   });
 
-  it("does NOT stop when the mention body exceeds 60 chars even with the emoji", async () => {
+  it("stops when the mention body is long and carries the emoji", async () => {
     const client = makeClient();
     const longText = `<@B001> \u{1F6D1} ${"x".repeat(70)}`;
     await capturedHandler({
@@ -426,8 +430,8 @@ describe("registerMentionHandler — inline stop emoji", () => {
       },
       client,
     });
-    assert.equal(mockStopThread.mock.calls.length, 0);
-    assert.equal(mockInlineProcess.mock.calls.length, 1);
+    assert.equal(mockStopThread.mock.calls.length, 1);
+    assert.equal(mockInlineProcess.mock.calls.length, 0);
   });
 
   it("does NOT stop when config.reactions.stop is null", async () => {
@@ -445,5 +449,158 @@ describe("registerMentionHandler — inline stop emoji", () => {
     });
     assert.equal(mockStopThread.mock.calls.length, 0);
     assert.equal(mockInlineProcess.mock.calls.length, 1);
+  });
+});
+
+describe("registerMentionHandler — re-engagement of a disengaged thread", () => {
+  const mockSetAttentionLevel = vi.fn<MentionDeps["setAttentionLevel"]>(async () => {});
+
+  function session(attentionLevel: AttentionLevel): SessionContext {
+    return {
+      sessionId: "S1",
+      channelId: "C001",
+      messageTs: "1700000000.000001",
+      threadTs: "1700000000.000001",
+      userId: "U001",
+      trigger: {
+        type: "mentions",
+        userId: "U001",
+        messageTs: "1700000000.000001",
+        messageText: "<@B001> hi",
+      },
+      messages: [],
+      threadContext: [],
+      errors: [],
+      lastActivity: 0,
+      createdAt: 0,
+      attentionLevel,
+    };
+  }
+
+  function makeReengageDeps(attentionLevel: AttentionLevel): MentionDeps {
+    return {
+      ...makeDeps(),
+      findSessionByThread: async () => session(attentionLevel),
+      setAttentionLevel: mockSetAttentionLevel,
+    };
+  }
+
+  async function mentionInThread(): Promise<void> {
+    await capturedHandler({
+      event: {
+        user: "U001",
+        channel: "C001",
+        text: "<@B001> which model are you running on?",
+        ts: "1700000000.000002",
+        thread_ts: "1700000000.000001",
+      },
+      client: makeClient(),
+    });
+  }
+
+  beforeEach(() => {
+    mockSetAttentionLevel.mockClear();
+    mockProcessMessage.mockClear();
+    mockProcessMessage.mockImplementation(async () => ({ success: true, answer: "ok" }));
+  });
+
+  it("lifts the stop to low BEFORE the turn runs, so a mid-turn reply is still evaluated", async () => {
+    const levelDuringTurn: (string | undefined)[] = [];
+    mockProcessMessage.mockImplementation(async () => {
+      levelDuringTurn.push(mockSetAttentionLevel.mock.calls.at(-1)?.[1]);
+      return { success: true, answer: "ok" };
+    });
+    registerMentionHandler(makeApp(), makeReengageDeps("off"));
+
+    await mentionInThread();
+
+    assert.deepEqual(levelDuringTurn, ["low"]);
+  });
+
+  it("keeps the thread at low when the turn produced an answer", async () => {
+    registerMentionHandler(makeApp(), makeReengageDeps("off"));
+
+    await mentionInThread();
+
+    assert.deepEqual(mockSetAttentionLevel.mock.calls, [["S1", "low"]]);
+    assert.equal(mockProcessMessage.mock.calls.length, 1);
+  });
+
+  it("restores the stop when the turn skipped the response", async () => {
+    mockProcessMessage.mockImplementation(async () => ({
+      success: true,
+      answer: "",
+      skipped: true,
+    }));
+    registerMentionHandler(makeApp(), makeReengageDeps("off"));
+
+    await mentionInThread();
+
+    assert.deepEqual(mockSetAttentionLevel.mock.calls, [
+      ["S1", "low"],
+      ["S1", "off"],
+    ]);
+  });
+
+  it("restores the stop when the turn failed", async () => {
+    mockProcessMessage.mockImplementation(async () => ({
+      success: false,
+      answer: "",
+      error: "boom",
+    }));
+    registerMentionHandler(makeApp(), makeReengageDeps("off"));
+
+    await mentionInThread();
+
+    assert.deepEqual(mockSetAttentionLevel.mock.calls.at(-1), ["S1", "off"]);
+  });
+
+  it("restores the stop when the turn was cancelled", async () => {
+    mockProcessMessage.mockImplementation(async () => ({
+      success: false,
+      answer: "",
+      cancelled: true,
+    }));
+    registerMentionHandler(makeApp(), makeReengageDeps("off"));
+
+    await mentionInThread();
+
+    assert.deepEqual(mockSetAttentionLevel.mock.calls.at(-1), ["S1", "off"]);
+  });
+
+  it("defers to a level Claude chose itself rather than settling the floor", async () => {
+    mockProcessMessage.mockImplementation(async () => ({
+      success: true,
+      answer: "ok",
+      attentionLevel: "high",
+    }));
+    registerMentionHandler(makeApp(), makeReengageDeps("off"));
+
+    await mentionInThread();
+
+    // Only the pre-turn floor; the delivery layer already persisted Claude's "high".
+    assert.deepEqual(mockSetAttentionLevel.mock.calls, [["S1", "low"]]);
+  });
+
+  it("does not restore the stop when Claude disengaged the thread itself", async () => {
+    mockProcessMessage.mockImplementation(async () => ({
+      success: true,
+      answer: "ok",
+      attentionLevel: "off",
+    }));
+    registerMentionHandler(makeApp(), makeReengageDeps("off"));
+
+    await mentionInThread();
+
+    assert.deepEqual(mockSetAttentionLevel.mock.calls, [["S1", "low"]]);
+  });
+
+  it("leaves an already-engaged thread's level untouched", async () => {
+    registerMentionHandler(makeApp(), makeReengageDeps("high"));
+
+    await mentionInThread();
+
+    assert.equal(mockSetAttentionLevel.mock.calls.length, 0);
+    assert.equal(mockProcessMessage.mock.calls.length, 1);
   });
 });

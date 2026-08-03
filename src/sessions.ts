@@ -630,9 +630,23 @@ export async function createSession(opts: CreateSessionOptions): Promise<Session
 /** Synthetic author for plugin-seeded thread-engagement sessions (no human author yet). */
 const THREAD_ENGAGEMENT_USER_ID = "thread-engagement";
 
+/**
+ * Whether the thread being seeded is one the bot opened (`"opened"` — the root is the bot's own
+ * post, or a thread that exists only because a human replied to the bot) or a pre-existing thread
+ * the bot inserted itself into (`"joined"`). Callers derive it from the delivery shape: an explicit
+ * destination `thread_ts` means `"joined"`; a posted message that becomes the root means `"opened"`.
+ */
+export type ThreadEngagementOrigin = "opened" | "joined";
+
+/** Ceiling for a joined thread — the bot may answer people who address it, nothing more. */
+const JOINED_THREAD_MAX_LEVEL = "low" as const;
+
 export interface EngageThreadOptions {
-  /** Attention level to seed onto the destination thread. `"off"` makes the call a no-op. */
+  /** Attention level to seed onto the destination thread. `"off"` makes the call a no-op.
+   *  On a `"joined"` thread any higher level is clamped to `"low"`. */
   attentionLevel: AttentionLevel;
+  /** Required so every call site decides explicitly; drives the joined-thread clamp. */
+  origin: ThreadEngagementOrigin;
   /** Provenance/background to seed onto the session's `creationContext` — read by both the
    *  pre-analysis judge and the answer turn. */
   creationContext?: string;
@@ -649,6 +663,10 @@ export interface EngageThreadOptions {
  *
  * `attentionLevel: "off"` is a no-op (today's fire-and-forget behavior). When a session already
  * exists for the thread it is left untouched — a real conversation already owns it.
+ *
+ * Seeding a thread the bot merely joined clamps the level to `"low"`, so no prompt can turn
+ * someone else's conversation into one the bot answers wholesale. The clamp binds seeding only —
+ * a real exchange can still raise the level later via `submit_response`.
  */
 export async function registerThreadSession(
   channel: string,
@@ -664,13 +682,22 @@ export async function registerThreadSession(
     return existing;
   }
 
+  let attentionLevel = opts.attentionLevel;
+  if (opts.origin === "joined" && attentionLevel !== JOINED_THREAD_MAX_LEVEL) {
+    logger.info(
+      `Seeding joined thread ${channel}/${threadRoot} at "${JOINED_THREAD_MAX_LEVEL}" ` +
+        `(requested "${attentionLevel}")`,
+    );
+    attentionLevel = JOINED_THREAD_MAX_LEVEL;
+  }
+
   return createSession({
     channelId: channel,
     messageTs: threadRoot,
     threadTs: threadRoot,
     userId: THREAD_ENGAGEMENT_USER_ID,
     trigger: { type: "scheduled", prompt: "Seeded thread engagement (awaiting human reply)." },
-    attentionLevel: opts.attentionLevel,
+    attentionLevel,
     creationContext: opts.creationContext,
     ...(opts.deliveryMode && { deliveryMode: opts.deliveryMode }),
   });

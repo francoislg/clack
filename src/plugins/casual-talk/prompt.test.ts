@@ -99,7 +99,7 @@ describe("casual-talk lean triggering prompt", () => {
     assert.ok(!prompt.includes("last_reply"));
     assert.ok(!prompt.includes("add_reaction"));
     assert.ok(!prompt.includes("find_emoji"));
-    assert.ok(!prompt.includes('attention_level: "high"'));
+    assert.ok(!prompt.includes("attention_level"));
     assert.ok(!prompt.includes("default_delivery_mode"));
     assert.ok(!prompt.includes("React-only"));
   });
