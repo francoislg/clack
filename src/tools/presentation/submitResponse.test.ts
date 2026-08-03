@@ -3791,3 +3791,72 @@ describe("submit_response one-shot reminder on errors", () => {
     assert.equal("reminder" in parsed, false);
   });
 });
+
+describe("stringified-param hint", () => {
+  const block = { type: "section", text: { type: "mrkdwn", text: "hi" } };
+  const HINT_MARKERS = [
+    "JSON-encoded STRING",
+    "select:mcp__clack__submit_response",
+    "IDENTICAL content",
+  ];
+
+  const issueMessages = (error: z.ZodError): string[] => error.issues.map((i) => i.message);
+
+  it("replaces the invalid_type error when blocks arrives as a JSON string", () => {
+    const schema = z.object(buildSubmitResponseSchema({}));
+    const result = schema.safeParse({
+      blocks: JSON.stringify([block]),
+      actions: [],
+    });
+
+    assert.ok(!result.success);
+    const messages = issueMessages(result.error);
+    const blocksMessage = messages.find((m) => m.startsWith("`blocks`"));
+    assert.ok(blocksMessage, `no blocks hint in: ${messages.join(" | ")}`);
+    for (const marker of HINT_MARKERS) {
+      assert.ok(blocksMessage.includes(marker), `missing "${marker}" in: ${blocksMessage}`);
+    }
+  });
+
+  it("hints on stringified actions too", () => {
+    const schema = z.object(buildSubmitResponseSchema({}));
+    const result = schema.safeParse({
+      blocks: [block],
+      actions: "[]",
+    });
+
+    assert.ok(!result.success);
+    const actionsMessage = issueMessages(result.error).find((m) => m.startsWith("`actions`"));
+    assert.ok(actionsMessage);
+    assert.ok(actionsMessage.includes("JSON-encoded STRING"));
+  });
+
+  it("hints on the scheduled skip-variant schema (optional blocks/actions)", () => {
+    const schema = z.object(buildSubmitResponseSchema({ allowSkip: true }));
+    const result = schema.safeParse({
+      blocks: JSON.stringify([block]),
+      actions: "[]",
+    });
+
+    assert.ok(!result.success);
+    const messages = issueMessages(result.error);
+    assert.ok(messages.some((m) => m.startsWith("`blocks`")));
+    assert.ok(messages.some((m) => m.startsWith("`actions`")));
+  });
+
+  it("keeps the default error for non-string wrong types", () => {
+    const schema = z.object(buildSubmitResponseSchema({}));
+    const result = schema.safeParse({ blocks: 42, actions: [] });
+
+    assert.ok(!result.success);
+    const messages = issueMessages(result.error);
+    assert.ok(messages.every((m) => !m.includes("JSON-encoded STRING")));
+  });
+
+  it("leaves valid structured input unaffected", () => {
+    const schema = z.object(buildSubmitResponseSchema({}));
+    const result = schema.safeParse({ blocks: [block], actions: [] });
+
+    assert.equal(result.success, true);
+  });
+});
