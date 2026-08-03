@@ -12,7 +12,7 @@ import { getReactionDelivery, getUserPreference } from "../userPreferences.js";
 import { getVisibleRepos, canWriteRepo } from "../repoAccess.js";
 import { getMigrationErrors } from "../migrations/admin.js";
 import { discoverSkillPluginInfo } from "../skillPlugins.js";
-import { discoverUserSkills } from "../userSkills.js";
+import { type UserSkill } from "../userSkills.js";
 import { buildUserSkillsSection } from "./userSkillsHomeTab.js";
 import { getRules, type AutoRespondRule } from "../autoRespond.js";
 import { isEphemeralRule } from "../ephemeralRules.js";
@@ -165,48 +165,44 @@ export async function buildHomeView(
     blocks.push(...buildClaimOwnershipSection(true));
   }
 
-  // Role management section (only for admins/owner)
-  if (userIsAdmin) {
-    blocks.push(...(await buildRoleManagementSection(role, deps)));
-  }
-
-  // Auto-respond section (admin only)
-  if (userIsAdmin) {
-    blocks.push(...(await buildAutoRespondSection(deps)));
-  }
-
-  // Investigations section (admin only)
-  if (userIsAdmin) {
-    blocks.push(...buildInvestigationsSection(deps));
-  }
-
-  // Scheduled messages section (admins see all, others see own)
-  const scheduledBlocks = await buildScheduledMessagesSection(userId, userIsAdmin, deps);
-  if (scheduledBlocks.length > 0) {
-    blocks.push(...scheduledBlocks);
-  }
-
   // Quarantined schedules + freeze banner (admin only; renders only when something needs recovery)
   if (userIsAdmin) {
     blocks.push(...(await buildStateQuarantineSection()));
   }
 
-  // Configuration & preferences section (config editing for admins, preferences for all)
-  blocks.push(...buildConfigurationSection(userCanEdit, deps));
-
-  // User-created skills section — feature-gated; everyone can view, member+ can create,
-  // owner-or-admin can edit per-row. Guarded against unloaded config (tests rarely call
-  // loadConfig before exercising buildHomeView).
+  // Role, investigations, auto-respond, scheduled-messages, skills, plugins, and MCP servers
+  // are reached through buttons in the Configuration section and rendered as modals, keeping
+  // the Home view under Slack's 100-block ceiling. Feature gating is resolved from config
+  // (guarded against an unloaded config — tests rarely call loadConfig before buildHomeView).
   let userSkillsEnabled = false;
+  let userSchedulesEnabled = false;
+  let investigationsEnabled = false;
   try {
-    userSkillsEnabled = getConfig().userSkills?.enabled === true;
+    const config = getConfig();
+    userSkillsEnabled = config.userSkills?.enabled === true;
+    userSchedulesEnabled = config.cron?.userSchedules === true;
+    investigationsEnabled = config.investigations?.enabled === true;
   } catch {
-    // Config not loaded — feature off.
+    // Config not loaded — features off.
   }
-  if (userSkillsEnabled) {
-    const userSkills = discoverUserSkills();
-    blocks.push(...buildUserSkillsSection(userId, role, userSkills));
-  }
+
+  // Configuration & preferences section (config editing for admins, preferences for all)
+  blocks.push(
+    ...buildConfigurationSection(
+      {
+        showEditButtons: userCanEdit,
+        showRolesButton: userIsAdmin,
+        showInvestigationsButton: userIsAdmin && investigationsEnabled,
+        showAutoRespondButton: userIsAdmin,
+        showSchedulesButton: userIsAdmin || userSchedulesEnabled,
+        showSkillsButton: userSkillsEnabled,
+        showPluginsButton: true,
+        showMcpButton: true,
+        showStatusButton: true,
+      },
+      deps,
+    ),
+  );
 
   // Workers section — unified view of active changes (disposable mode) or
   // the physical worker pool (reusable mode). Visible to devs and higher;
@@ -214,9 +210,6 @@ export async function buildHomeView(
   if (userIsDev) {
     blocks.push(...buildWorkersSection(deps));
   }
-
-  // Status section (visible to all)
-  blocks.push(...buildStatusSection(role, deps));
 
   // Help section (visible to all)
   blocks.push(...buildHelpSection(deps));
@@ -456,24 +449,50 @@ const roleEmojis: Record<string, string> = {
   "pre-analysis": ":brain:",
 };
 
+export interface ConfigurationSectionOptions {
+  /** Config-file + repo edit buttons (admin/config-editor only). */
+  showEditButtons: boolean;
+  /** "See roles" button → Role Management modal. */
+  showRolesButton: boolean;
+  /** "See investigations" button → Investigations modal. */
+  showInvestigationsButton: boolean;
+  /** "See auto-responses" button → Auto-Respond modal. */
+  showAutoRespondButton: boolean;
+  /** "See schedules" button → Scheduled Messages modal. */
+  showSchedulesButton: boolean;
+  /** "See skills" button → Skills modal. */
+  showSkillsButton: boolean;
+  /** "Plugins" button → Plugins modal. */
+  showPluginsButton: boolean;
+  /** "MCP Servers" button → MCP Servers modal. */
+  showMcpButton: boolean;
+  /** "Status" button → Status modal (repositories + trigger methods). */
+  showStatusButton: boolean;
+}
+
+function groupHeader(text: string): KnownBlock {
+  return { type: "header", text: { type: "plain_text", text, emoji: true } };
+}
+
+function featureButton(text: string, actionId: string): object {
+  return {
+    type: "button",
+    text: { type: "plain_text", text, emoji: true },
+    action_id: actionId,
+  };
+}
+
 export function buildConfigurationSection(
-  showEditButtons: boolean,
+  opts: ConfigurationSectionOptions,
   deps: HomeTabDeps = defaultHomeTabDeps,
 ): KnownBlock[] {
   const blocks: KnownBlock[] = [];
 
-  blocks.push({
-    type: "header",
-    text: {
-      type: "plain_text",
-      text: t("home.config.header"),
-      emoji: true,
-    },
-  });
+  // ── Instructions (role config + pre-analysis) and Repositories ──────────────
+  const configButtons: object[] = [];
+  const repoButtons: object[] = [];
 
-  const buttons: object[] = [];
-
-  if (showEditButtons) {
+  if (opts.showEditButtons) {
     const listing = deps.listInstructionFiles();
 
     for (const roleEntry of listing.roles) {
@@ -484,7 +503,7 @@ export function buildConfigurationSection(
         prefix: emoji ? `${emoji} ` : "",
         label: roleLabel,
       });
-      buttons.push({
+      configButtons.push({
         type: "button",
         text: { type: "plain_text", text: label, emoji: true },
         action_id: `view_config_dir:${roleEntry.role}`,
@@ -497,7 +516,7 @@ export function buildConfigurationSection(
     const preAnalysisLabel = t("home.config.edit_pre_analysis_button", {
       prefix: preAnalysisEmoji ? `${preAnalysisEmoji} ` : "",
     });
-    buttons.push({
+    configButtons.push({
       type: "button",
       text: { type: "plain_text", text: preAnalysisLabel, emoji: true },
       action_id: `view_config_dir:pre-analysis`,
@@ -506,7 +525,7 @@ export function buildConfigurationSection(
 
     // Repo directories
     for (const repoEntry of listing.repos) {
-      buttons.push({
+      repoButtons.push({
         type: "button",
         text: {
           type: "plain_text",
@@ -519,20 +538,70 @@ export function buildConfigurationSection(
     }
   }
 
-  // Personal Preferences button — always visible
-  buttons.push({
-    type: "button",
-    text: {
-      type: "plain_text",
-      text: t("home.config.personal_preferences_button"),
-      emoji: true,
-    },
-    action_id: "open_settings",
-  });
+  if (configButtons.length > 0) {
+    blocks.push(groupHeader(t("home.config.group_instructions")));
+    blocks.push({ type: "actions", elements: configButtons } as KnownBlock);
+  }
+  if (repoButtons.length > 0) {
+    blocks.push(groupHeader(t("home.config.group_repositories")));
+    blocks.push({ type: "actions", elements: repoButtons } as KnownBlock);
+  }
 
-  blocks.push({ type: "actions", elements: buttons } as KnownBlock);
+  // ── Clack Features — each button opens the section as a modal ──────────────
+  const featureButtons: object[] = [];
+  if (opts.showRolesButton) {
+    featureButtons.push(featureButton(t("home.config.see_roles_button"), "home_open_roles"));
+  }
+  if (opts.showInvestigationsButton) {
+    featureButtons.push(
+      featureButton(t("home.config.see_investigations_button"), "home_open_investigations"),
+    );
+  }
+  if (opts.showAutoRespondButton) {
+    featureButtons.push(
+      featureButton(t("home.config.see_auto_responses_button"), "home_open_auto_respond"),
+    );
+  }
+  if (opts.showSchedulesButton) {
+    featureButtons.push(
+      featureButton(t("home.config.see_schedules_button"), "home_open_schedules"),
+    );
+  }
+  if (opts.showSkillsButton) {
+    featureButtons.push(featureButton(t("home.config.see_skills_button"), "home_open_skills"));
+  }
+  if (opts.showPluginsButton) {
+    featureButtons.push(featureButton(t("home.config.see_plugins_button"), "home_open_plugins"));
+  }
+  if (opts.showMcpButton) {
+    featureButtons.push(featureButton(t("home.config.see_mcp_button"), "home_open_mcp"));
+  }
+  if (opts.showStatusButton) {
+    featureButtons.push(featureButton(t("home.config.see_status_button"), "home_open_status"));
+  }
+  if (featureButtons.length > 0) {
+    blocks.push(groupHeader(t("home.config.group_features")));
+    blocks.push({ type: "actions", elements: featureButtons } as KnownBlock);
+  }
 
-  if (showEditButtons) {
+  // ── Personal ───────────────────────────────────────────────────────────────
+  blocks.push(groupHeader(t("home.config.group_personal")));
+  blocks.push({
+    type: "actions",
+    elements: [
+      {
+        type: "button",
+        text: {
+          type: "plain_text",
+          text: t("home.config.personal_preferences_button"),
+          emoji: true,
+        },
+        action_id: "open_settings",
+      },
+    ],
+  } as KnownBlock);
+
+  if (opts.showEditButtons) {
     blocks.push({
       type: "context",
       elements: [
@@ -543,188 +612,6 @@ export function buildConfigurationSection(
       ],
     });
   }
-
-  blocks.push({ type: "divider" });
-
-  return blocks;
-}
-
-function formatAccessTag(role: UserRole): string {
-  return role === "member" ? t("home.status.access_all") : t("home.status.access_plus", { role });
-}
-
-export function buildStatusSection(
-  role: UserRole,
-  deps: HomeTabDeps = defaultHomeTabDeps,
-): KnownBlock[] {
-  const config = deps.getConfig();
-  const mcpServers = deps.getConfiguredMcpServerNames();
-  const showAccessTags = deps.canRequestChanges(role); // dev+
-  const userIsAdmin = deps.canManageRoles(role);
-
-  const blocks: KnownBlock[] = [
-    {
-      type: "header",
-      text: {
-        type: "plain_text",
-        text: t("home.status.header"),
-        emoji: true,
-      },
-    },
-  ];
-
-  // Repositories (filtered by role)
-  const visibleRepos = deps.getVisibleRepos(role, config.repositories);
-  const repoList = visibleRepos
-    .map((r) => {
-      let line = `• *${r.name}*: ${r.description}`;
-      if (showAccessTags) {
-        const readTag = formatAccessTag(r.access?.read ?? "member");
-        if (deps.canWriteRepo(role, r)) {
-          const writeTag = formatAccessTag(r.access!.write!);
-          line += `\n   ${t("home.status.repo_access_writable", { read: readTag, write: writeTag })}`;
-        } else {
-          line += `\n   ${t("home.status.repo_access_readonly", { read: readTag })}`;
-        }
-      }
-      return line;
-    })
-    .join("\n");
-
-  blocks.push({
-    type: "section",
-    text: {
-      type: "mrkdwn",
-      text: t("home.status.repositories_block", { list: repoList }),
-    },
-  });
-
-  // MCP Servers — split into always-loaded (session-start) vs on-demand (lazy).
-  // The effective registry is the source of truth for the alwaysLoad flag;
-  // servers in mcp.json with no registry entry fall back to alwaysLoad=true
-  // (see `resolveEffectiveRegistry`), so they surface in the Always group.
-  if (mcpServers.length > 0) {
-    const failed = deps.getFailedMcpServers();
-    const { registry } = resolveEffectiveRegistry({
-      configRegistry: config.mcpServers,
-      mcpServerNames: mcpServers,
-      githubAutoInjected: mcpServers.includes("github"),
-      pluginIntegrations: getLoadedPluginIntegrations(),
-    });
-
-    const always: string[] = [];
-    const onDemand: string[] = [];
-    for (const name of mcpServers) {
-      const marker = failed.has(name) ? `${name} :warning:` : name;
-      // Unknown → default to always (legacy behaviour parity).
-      if (registry[name]?.alwaysLoad !== false) {
-        always.push(marker);
-      } else {
-        onDemand.push(marker);
-      }
-    }
-
-    blocks.push({
-      type: "section",
-      text: {
-        type: "mrkdwn",
-        text: t("home.status.mcp_servers_block", {
-          always: always.length > 0 ? always.join(", ") : t("common.none_paren"),
-          onDemand: onDemand.length > 0 ? onDemand.join(", ") : t("common.none_paren"),
-        }),
-      },
-    });
-  }
-
-  // SDK Skill Plugins (Claude Code skill packs from data/skill-plugins/)
-  // Split into eager (passed via --plugin-dir at session start) and lazy
-  // (excluded from baseline; loaded on demand via list_skill_pack_skills /
-  // load_skill). Mirrors the MCP Always/On-demand split.
-  const skillPlugins = deps.discoverSkillPluginInfo();
-  if (skillPlugins.length > 0) {
-    const format = (p: SkillPluginInfo) =>
-      t("home.status.skill_plugin_entry", {
-        name: p.name,
-        suffix:
-          p.skillCount > 0 ? t("home.status.skill_count_suffix", { count: p.skillCount }) : "",
-      });
-    const eager = skillPlugins
-      .filter((p) => !p.lazyLoad)
-      .map(format)
-      .join("\n");
-    const lazy = skillPlugins
-      .filter((p) => p.lazyLoad)
-      .map(format)
-      .join("\n");
-    const sections: string[] = [];
-    if (eager) sections.push(t("home.status.skill_eager_section", { list: eager }));
-    if (lazy) sections.push(t("home.status.skill_lazy_section", { list: lazy }));
-    blocks.push({
-      type: "section",
-      text: {
-        type: "mrkdwn",
-        text: t("home.status.skill_plugins_block", { sections: sections.join("\n\n") }),
-      },
-    });
-  }
-
-  // Clack Plugins (loaded via plugins config). Rendered as a header + one row per plugin
-  // so a failing plugin's error banner can sit directly beneath its row. The banner is
-  // admin-only — non-admins see the plugin row but not the failure details.
-  const clackPlugins = deps.getLoadedClackPlugins();
-  if (clackPlugins.length > 0) {
-    blocks.push({
-      type: "section",
-      text: {
-        type: "mrkdwn",
-        text: t("home.status.clack_plugins_header"),
-      },
-    });
-    for (const p of clackPlugins) {
-      const hasErrors = p.errors.length > 0;
-      const statusIcon = hasErrors ? ":x: " : "";
-      blocks.push({
-        type: "section",
-        text: {
-          type: "mrkdwn",
-          text:
-            statusIcon + t("home.status.clack_plugin_entry", { name: p.name, count: p.toolCount }),
-        },
-      });
-      if (hasErrors && userIsAdmin) {
-        blocks.push({
-          type: "context",
-          elements: [
-            {
-              type: "mrkdwn",
-              text: t("home.status.clack_plugin_error", {
-                reasons: p.errors.map((e) => `:warning: ${e}`).join("\n"),
-              }),
-            },
-          ],
-        });
-      }
-    }
-  }
-
-  // Trigger methods
-  const methods: string[] = [
-    t("home.status.trigger_reaction", { emoji: config.reactions.trigger }),
-  ];
-  if (config.directMessages.enabled) {
-    methods.push(t("home.status.trigger_dm"));
-  }
-  if (config.mentions.enabled) {
-    methods.push(t("home.status.trigger_mention"));
-  }
-
-  blocks.push({
-    type: "section",
-    text: {
-      type: "mrkdwn",
-      text: t("home.status.trigger_methods", { methods: methods.join(", ") }),
-    },
-  });
 
   blocks.push({ type: "divider" });
 
@@ -1540,7 +1427,7 @@ export function buildRemoveUserModal(title: string, actionId: string, users: str
 // Auto-Respond Section
 // ============================================================================
 
-async function buildAutoRespondSection(
+export async function buildAutoRespondSection(
   deps: HomeTabDeps = defaultHomeTabDeps,
 ): Promise<(KnownBlock | Block)[]> {
   const blocks: (KnownBlock | Block)[] = [];
@@ -1662,14 +1549,12 @@ function buildInvestigationsSection(
 
   const channel = deps.getInvestigationsChannel();
 
+  // A section+accessory picker (not an input block) so it dispatches on change inside the
+  // modal without needing a submit button. The action fires investigations_select_channel.
   blocks.push({
-    type: "input",
-    block_id: "investigations_channel_block",
-    label: {
-      type: "plain_text",
-      text: t("investigations.home_channel_label"),
-    },
-    element: {
+    type: "section",
+    text: { type: "mrkdwn", text: `*${t("investigations.home_channel_label")}*` },
+    accessory: {
       type: "conversations_select",
       action_id: "investigations_select_channel",
       filter: {
@@ -1911,7 +1796,7 @@ function escapeMrkdwn(value: string): string {
   return value.replace(/[*_~<>&]/g, "");
 }
 
-async function buildScheduledMessagesSection(
+export async function buildScheduledMessagesSection(
   userId: string,
   isAdmin: boolean,
   deps: HomeTabDeps = defaultHomeTabDeps,
@@ -2029,6 +1914,252 @@ async function buildScheduledMessagesSection(
   }
 
   return blocks;
+}
+
+// ── List-modal wrappers ─────────────────────────────────────────────────────
+// The heavy Home Tab sections (roles, auto-respond, scheduled, skills) are reached
+// through buttons in the Configuration section and rendered inside modals, keeping
+// the Home view itself well under Slack's 100-block ceiling.
+
+function stripLeadingDividers(blocks: (KnownBlock | Block)[]): (KnownBlock | Block)[] {
+  let start = 0;
+  while (start < blocks.length && blocks[start]?.type === "divider") start++;
+  return blocks.slice(start);
+}
+
+function wrapListModal(
+  callbackId: string,
+  title: string,
+  blocks: (KnownBlock | Block)[],
+  emptyText?: string,
+): View {
+  const body = stripLeadingDividers(blocks);
+  return {
+    type: "modal",
+    callback_id: callbackId,
+    title: { type: "plain_text", text: title, emoji: true },
+    close: { type: "plain_text", text: t("common.close") },
+    blocks:
+      body.length > 0
+        ? body
+        : [{ type: "section", text: { type: "mrkdwn", text: emptyText ?? " " } }],
+  };
+}
+
+export async function buildRolesModalView(
+  role: UserRole,
+  deps: HomeTabDeps = defaultHomeTabDeps,
+): Promise<View> {
+  const blocks = await buildRoleManagementSection(role, deps);
+  return wrapListModal("roles_modal_view", t("home.roles.modal_title"), blocks);
+}
+
+export async function buildAutoRespondModalView(
+  deps: HomeTabDeps = defaultHomeTabDeps,
+): Promise<View> {
+  const blocks = await buildAutoRespondSection(deps);
+  return wrapListModal("auto_respond_modal_view", t("home.auto_respond.modal_title"), blocks);
+}
+
+export async function buildSchedulesModalView(
+  userId: string,
+  isAdmin: boolean,
+  deps: HomeTabDeps = defaultHomeTabDeps,
+): Promise<View> {
+  const blocks = await buildScheduledMessagesSection(userId, isAdmin, deps);
+  return wrapListModal(
+    "schedules_modal_view",
+    t("home.scheduled.modal_title"),
+    blocks,
+    t("home.scheduled.modal_empty"),
+  );
+}
+
+export function buildSkillsModalView(userId: string, role: UserRole, skills: UserSkill[]): View {
+  const blocks = buildUserSkillsSection(userId, role, skills);
+  return wrapListModal("skills_modal_view", t("userSkills.modal_list_title"), blocks);
+}
+
+export function buildInvestigationsModalView(deps: HomeTabDeps = defaultHomeTabDeps): View {
+  const blocks = buildInvestigationsSection(deps);
+  return wrapListModal("investigations_modal_view", t("investigations.home_section_title"), blocks);
+}
+
+export function buildMcpModalView(deps: HomeTabDeps = defaultHomeTabDeps): View {
+  const config = deps.getConfig();
+  const mcpServers = deps.getConfiguredMcpServerNames();
+  const blocks: (KnownBlock | Block)[] = [];
+
+  // MCP Servers — split into always-loaded (session-start) vs on-demand (lazy).
+  // Servers in mcp.json with no registry entry fall back to alwaysLoad=true.
+  if (mcpServers.length > 0) {
+    const failed = deps.getFailedMcpServers();
+    const { registry } = resolveEffectiveRegistry({
+      configRegistry: config.mcpServers,
+      mcpServerNames: mcpServers,
+      githubAutoInjected: mcpServers.includes("github"),
+      pluginIntegrations: getLoadedPluginIntegrations(),
+    });
+
+    const always: string[] = [];
+    const onDemand: string[] = [];
+    for (const name of mcpServers) {
+      const marker = failed.has(name) ? `${name} :warning:` : name;
+      if (registry[name]?.alwaysLoad !== false) {
+        always.push(marker);
+      } else {
+        onDemand.push(marker);
+      }
+    }
+
+    blocks.push({
+      type: "section",
+      text: {
+        type: "mrkdwn",
+        text: t("home.status.mcp_servers_block", {
+          always: always.length > 0 ? always.join(", ") : t("common.none_paren"),
+          onDemand: onDemand.length > 0 ? onDemand.join(", ") : t("common.none_paren"),
+        }),
+      },
+    });
+  }
+
+  return wrapListModal(
+    "mcp_modal_view",
+    t("home.config.mcp_modal_title"),
+    blocks,
+    t("home.config.mcp_empty"),
+  );
+}
+
+export function buildPluginsModalView(
+  role: UserRole,
+  deps: HomeTabDeps = defaultHomeTabDeps,
+): View {
+  const userIsAdmin = deps.canManageRoles(role);
+  const blocks: (KnownBlock | Block)[] = [];
+
+  // SDK skill plugins (Claude Code skill packs), split eager vs lazy.
+  const skillPlugins = deps.discoverSkillPluginInfo();
+  if (skillPlugins.length > 0) {
+    const format = (p: SkillPluginInfo) =>
+      t("home.status.skill_plugin_entry", {
+        name: p.name,
+        suffix:
+          p.skillCount > 0 ? t("home.status.skill_count_suffix", { count: p.skillCount }) : "",
+      });
+    const eager = skillPlugins
+      .filter((p) => !p.lazyLoad)
+      .map(format)
+      .join("\n");
+    const lazy = skillPlugins
+      .filter((p) => p.lazyLoad)
+      .map(format)
+      .join("\n");
+    const sections: string[] = [];
+    if (eager) sections.push(t("home.status.skill_eager_section", { list: eager }));
+    if (lazy) sections.push(t("home.status.skill_lazy_section", { list: lazy }));
+    blocks.push({
+      type: "section",
+      text: {
+        type: "mrkdwn",
+        text: t("home.status.skill_plugins_block", { sections: sections.join("\n\n") }),
+      },
+    });
+  }
+
+  // Clack plugins — one row per plugin, admin-only error banner beneath a failing row.
+  const clackPlugins = deps.getLoadedClackPlugins();
+  if (clackPlugins.length > 0) {
+    blocks.push({
+      type: "section",
+      text: { type: "mrkdwn", text: t("home.status.clack_plugins_header") },
+    });
+    for (const p of clackPlugins) {
+      const hasErrors = p.errors.length > 0;
+      const statusIcon = hasErrors ? ":x: " : "";
+      blocks.push({
+        type: "section",
+        text: {
+          type: "mrkdwn",
+          text:
+            statusIcon + t("home.status.clack_plugin_entry", { name: p.name, count: p.toolCount }),
+        },
+      });
+      if (hasErrors && userIsAdmin) {
+        blocks.push({
+          type: "context",
+          elements: [
+            {
+              type: "mrkdwn",
+              text: t("home.status.clack_plugin_error", {
+                reasons: p.errors.map((e) => `:warning: ${e}`).join("\n"),
+              }),
+            },
+          ],
+        });
+      }
+    }
+  }
+
+  return wrapListModal(
+    "plugins_modal_view",
+    t("home.config.plugins_modal_title"),
+    blocks,
+    t("home.config.plugins_empty"),
+  );
+}
+
+function formatAccessTag(role: UserRole): string {
+  return role === "member" ? t("home.status.access_all") : t("home.status.access_plus", { role });
+}
+
+export function buildStatusModalView(role: UserRole, deps: HomeTabDeps = defaultHomeTabDeps): View {
+  const config = deps.getConfig();
+  const showAccessTags = deps.canRequestChanges(role); // dev+
+  const blocks: (KnownBlock | Block)[] = [];
+
+  // Repositories (filtered by role), with access tags for dev+.
+  const visibleRepos = deps.getVisibleRepos(role, config.repositories);
+  const repoList = visibleRepos
+    .map((r) => {
+      let line = `• *${r.name}*: ${r.description}`;
+      if (showAccessTags) {
+        const readTag = formatAccessTag(r.access?.read ?? "member");
+        if (deps.canWriteRepo(role, r)) {
+          const writeTag = formatAccessTag(r.access!.write!);
+          line += `\n   ${t("home.status.repo_access_writable", { read: readTag, write: writeTag })}`;
+        } else {
+          line += `\n   ${t("home.status.repo_access_readonly", { read: readTag })}`;
+        }
+      }
+      return line;
+    })
+    .join("\n");
+  blocks.push({
+    type: "section",
+    text: { type: "mrkdwn", text: t("home.status.repositories_block", { list: repoList }) },
+  });
+
+  // Trigger methods
+  const methods: string[] = [
+    t("home.status.trigger_reaction", { emoji: config.reactions.trigger }),
+  ];
+  if (config.directMessages.enabled) {
+    methods.push(t("home.status.trigger_dm"));
+  }
+  if (config.mentions.enabled) {
+    methods.push(t("home.status.trigger_mention"));
+  }
+  blocks.push({
+    type: "section",
+    text: {
+      type: "mrkdwn",
+      text: t("home.status.trigger_methods", { methods: methods.join(", ") }),
+    },
+  });
+
+  return wrapListModal("status_modal_view", t("home.status.header"), blocks);
 }
 
 /**

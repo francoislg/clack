@@ -1,4 +1,5 @@
 import type { App, BlockAction, ViewSubmitAction } from "@slack/bolt";
+import type { View } from "@slack/types";
 import { logger } from "../../logger.js";
 import {
   loadRoles,
@@ -22,6 +23,14 @@ import {
   buildConfigCreateFileModal,
   buildAutoRespondModal,
   buildCronJobModal,
+  buildRolesModalView,
+  buildAutoRespondModalView,
+  buildSchedulesModalView,
+  buildSkillsModalView,
+  buildInvestigationsModalView,
+  buildMcpModalView,
+  buildPluginsModalView,
+  buildStatusModalView,
   type ConfigFilePickerEntry,
   type ConfigFileState,
 } from "../homeTab.js";
@@ -35,6 +44,9 @@ import {
 } from "../../configurationFiles.js";
 import { setUserPreference } from "../../userPreferences.js";
 import type { ReactionDelivery } from "../../userPreferences.js";
+import { getConfig } from "../../config.js";
+import { discoverUserSkills } from "../../userSkills.js";
+import { t } from "../../i18n/t.js";
 import { toggleJob, deleteJob, getJob, updateJob, MAX_JITTER_MINUTES } from "../../cronJobs.js";
 import { getQuarantineStore } from "../../state/stateQuarantineRegistry.js";
 import { runJobNow } from "../../cronScheduler.js";
@@ -54,6 +66,22 @@ function viewIdFromBody(body: object): string | undefined {
   if (typeof view !== "object" || view === null || !("id" in view)) return undefined;
   const id = view.id;
   return typeof id === "string" ? id : undefined;
+}
+
+// Open a modal, or stack it via views.push when the interaction came from within an
+// already-open modal (Slack rejects views.open there). Child editors reached from the
+// Configuration list modals go through this so they stack instead of erroring.
+export async function openOrPushModal(
+  client: App["client"],
+  body: object,
+  triggerId: string,
+  view: View,
+): Promise<void> {
+  if (viewIdFromBody(body)) {
+    await client.views.push({ trigger_id: triggerId, view });
+  } else {
+    await client.views.open({ trigger_id: triggerId, view });
+  }
 }
 
 // ============================================================================
@@ -152,6 +180,21 @@ function parseKeywords(raw: string | null | undefined): string[] | undefined {
   return keywords.length > 0 ? keywords : undefined;
 }
 
+// Slack rejects an App Home view with more than 100 blocks — a single overflow blanks
+// the whole tab. Cap defensively so a future section can never silently break it.
+const MAX_HOME_BLOCKS = 100;
+
+function capHomeViewBlocks(view: View): void {
+  if (view.blocks.length <= MAX_HOME_BLOCKS) return;
+  logger.warn(
+    `Home view had ${view.blocks.length} blocks (limit ${MAX_HOME_BLOCKS}); truncating the tail.`,
+  );
+  view.blocks = [
+    ...view.blocks.slice(0, MAX_HOME_BLOCKS - 1),
+    { type: "context", elements: [{ type: "mrkdwn", text: t("home.truncated_notice") }] },
+  ];
+}
+
 export async function publishHomeView(
   client: App["client"],
   userId: string,
@@ -166,6 +209,7 @@ export async function publishHomeView(
   }
 
   const view = await deps.buildHomeView({ userId, ownerDisabled });
+  capHomeViewBlocks(view);
 
   await client.views.publish({
     user_id: userId,
@@ -189,10 +233,12 @@ function registerAddRoleHandlers(
   app.action<BlockAction>(buttonId, async ({ ack, body, client }) => {
     await ack();
     try {
-      await client.views.open({
-        trigger_id: body.trigger_id,
-        view: deps.buildUserSelectModal(title, modalId, `Select user to ${title.toLowerCase()}`),
-      });
+      await openOrPushModal(
+        client,
+        body,
+        body.trigger_id,
+        deps.buildUserSelectModal(title, modalId, `Select user to ${title.toLowerCase()}`),
+      );
     } catch (error) {
       logger.error(`Failed to open ${title} modal:`, error);
     }
@@ -248,10 +294,12 @@ function registerRemoveRoleHandlers(
     try {
       const roles = await deps.loadRoles();
       if (roles[listKey].length === 0) return;
-      await client.views.open({
-        trigger_id: body.trigger_id,
-        view: deps.buildRemoveUserModal(title, modalId, roles[listKey]),
-      });
+      await openOrPushModal(
+        client,
+        body,
+        body.trigger_id,
+        deps.buildRemoveUserModal(title, modalId, roles[listKey]),
+      );
     } catch (error) {
       logger.error(`Failed to open ${title} modal:`, error);
     }
@@ -336,14 +384,16 @@ export function registerHomeTabHandler(app: App, deps: HomeTabDeps = defaultHome
     await ack();
 
     try {
-      await client.views.open({
-        trigger_id: body.trigger_id,
-        view: deps.buildUserSelectModal(
+      await openOrPushModal(
+        client,
+        body,
+        body.trigger_id,
+        deps.buildUserSelectModal(
           "Transfer Ownership",
           "transfer_ownership_modal",
           "Select new owner",
         ),
-      });
+      );
     } catch (error) {
       logger.error("Failed to open transfer ownership modal:", error);
     }
@@ -466,6 +516,117 @@ export function registerHomeTabHandler(app: App, deps: HomeTabDeps = defaultHome
 
     // Refresh the Home Tab
     await publishHomeView(client, userId, deps);
+  });
+
+  // =========================================================================
+  // "See …" buttons — open the relocated sections as modals
+  // =========================================================================
+
+  app.action<BlockAction>("home_open_roles", async ({ ack, body, client }) => {
+    await ack();
+    try {
+      if (!(await deps.userCanManageRoles(body.user.id))) return;
+      const role = await deps.getRole(body.user.id);
+      await client.views.open({
+        trigger_id: body.trigger_id,
+        view: await buildRolesModalView(role),
+      });
+    } catch (error) {
+      logger.error("Failed to open roles modal:", error);
+    }
+  });
+
+  app.action<BlockAction>("home_open_auto_respond", async ({ ack, body, client }) => {
+    await ack();
+    try {
+      if (!(await deps.userCanManageRoles(body.user.id))) return;
+      await client.views.open({
+        trigger_id: body.trigger_id,
+        view: await buildAutoRespondModalView(),
+      });
+    } catch (error) {
+      logger.error("Failed to open auto-respond modal:", error);
+    }
+  });
+
+  app.action<BlockAction>("home_open_schedules", async ({ ack, body, client }) => {
+    await ack();
+    try {
+      const isAdmin = await deps.userCanManageRoles(body.user.id);
+      await client.views.open({
+        trigger_id: body.trigger_id,
+        view: await buildSchedulesModalView(body.user.id, isAdmin),
+      });
+    } catch (error) {
+      logger.error("Failed to open schedules modal:", error);
+    }
+  });
+
+  app.action<BlockAction>("home_open_skills", async ({ ack, body, client }) => {
+    await ack();
+    try {
+      if (getConfig().userSkills?.enabled !== true) return;
+      const role = await deps.getRole(body.user.id);
+      const skills = discoverUserSkills();
+      await client.views.open({
+        trigger_id: body.trigger_id,
+        view: buildSkillsModalView(body.user.id, role, skills),
+      });
+    } catch (error) {
+      logger.error("Failed to open skills modal:", error);
+    }
+  });
+
+  app.action<BlockAction>("home_open_investigations", async ({ ack, body, client }) => {
+    await ack();
+    try {
+      if (!(await deps.userCanManageRoles(body.user.id))) return;
+      if (getConfig().investigations?.enabled !== true) return;
+      await client.views.open({
+        trigger_id: body.trigger_id,
+        view: buildInvestigationsModalView(),
+      });
+    } catch (error) {
+      logger.error("Failed to open investigations modal:", error);
+    }
+  });
+
+  app.action<BlockAction>("home_open_plugins", async ({ ack, body, client }) => {
+    await ack();
+    try {
+      const role = await deps.getRole(body.user.id);
+      await client.views.open({
+        trigger_id: body.trigger_id,
+        view: buildPluginsModalView(role),
+      });
+    } catch (error) {
+      logger.error("Failed to open plugins modal:", error);
+    }
+  });
+
+  app.action<BlockAction>("home_open_mcp", async ({ ack, body, client }) => {
+    await ack();
+    try {
+      await client.views.open({
+        trigger_id: body.trigger_id,
+        view: buildMcpModalView(),
+      });
+    } catch (error) {
+      logger.error("Failed to open MCP modal:", error);
+    }
+  });
+
+  app.action<BlockAction>("home_open_status", async ({ ack, body, client }) => {
+    await ack();
+    try {
+      const role = await deps.getRole(body.user.id);
+      await client.views.open({
+        trigger_id: body.trigger_id,
+        view: buildStatusModalView(role),
+      });
+    } catch (error) {
+      logger.error("Failed to open status modal:", error);
+    }
   });
 
   // =========================================================================
@@ -721,10 +882,7 @@ export function registerHomeTabHandler(app: App, deps: HomeTabDeps = defaultHome
     await ack();
     try {
       if (!(await deps.userCanManageRoles(body.user.id))) return;
-      await client.views.open({
-        trigger_id: body.trigger_id,
-        view: deps.buildAutoRespondModal(),
-      });
+      await openOrPushModal(client, body, body.trigger_id, deps.buildAutoRespondModal());
     } catch (error) {
       logger.error("Failed to open add auto-respond rule modal:", error);
     }
@@ -738,10 +896,7 @@ export function registerHomeTabHandler(app: App, deps: HomeTabDeps = defaultHome
       const ruleId = (action as { action_id: string }).action_id.split(":")[1];
       const rule = await deps.getRule(ruleId);
       if (!rule) return;
-      await client.views.open({
-        trigger_id: body.trigger_id,
-        view: deps.buildAutoRespondModal(rule),
-      });
+      await openOrPushModal(client, body, body.trigger_id, deps.buildAutoRespondModal(rule));
     } catch (error) {
       logger.error("Failed to open edit auto-respond rule modal:", error);
     }
@@ -771,13 +926,18 @@ export function registerHomeTabHandler(app: App, deps: HomeTabDeps = defaultHome
   });
 
   // Stop following button on an ephemeral conversation row (admin only) — deletes the
-  // channel's conversation window and re-renders the Home Tab. No modal involved.
+  // channel's conversation window. The row lives inside the Auto-Respond modal, so refresh
+  // that modal in place, then re-render the Home Tab underneath.
   app.action<BlockAction>(/^ai_stop_following:/, async ({ ack, body, client, action }) => {
     await ack();
     try {
       if (!(await deps.userCanManageRoles(body.user.id))) return;
       const ruleId = (action as { action_id: string }).action_id.split(":")[1];
       await deps.deleteRule(ruleId);
+      const viewId = viewIdFromBody(body);
+      if (viewId) {
+        await client.views.update({ view_id: viewId, view: await buildAutoRespondModalView() });
+      }
       await publishHomeView(client, body.user.id, deps);
     } catch (error) {
       logger.error("Failed to stop following channel conversation:", error);
@@ -950,10 +1110,7 @@ export function registerHomeTabHandler(app: App, deps: HomeTabDeps = defaultHome
       const job = await deps.getJob(jobId);
       if (!job) return;
       const viewerTz = (await getUserInfo(client, body.user.id))?.tz;
-      await client.views.open({
-        trigger_id: body.trigger_id,
-        view: deps.buildCronJobModal(job, viewerTz),
-      });
+      await openOrPushModal(client, body, body.trigger_id, deps.buildCronJobModal(job, viewerTz));
     } catch (error) {
       logger.error("Failed to open edit cron job modal:", error);
     }

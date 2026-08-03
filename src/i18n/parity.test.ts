@@ -62,6 +62,7 @@ const IDENTICAL_OK = new Set<StringKey>([
   "home.role.dev",
   // French cognates spelled identically.
   "home.config.header", // "Configuration"
+  "home.config.group_instructions", // "Instructions" — identical in FR
   "home.config.role_suffix", // "Config"
   "home.config.instructions_title", // "{dir}/ Instructions"
   "home.status.trigger_mention", // ":mega: @Mentions"

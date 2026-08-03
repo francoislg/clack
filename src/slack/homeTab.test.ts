@@ -11,7 +11,12 @@ import {
   buildHomeView,
   buildRoleManagementSection,
   buildConfigurationSection,
-  buildStatusSection,
+  type ConfigurationSectionOptions,
+  buildAutoRespondModalView,
+  buildSchedulesModalView,
+  buildMcpModalView,
+  buildPluginsModalView,
+  buildStatusModalView,
   buildWorkersSection,
   buildHelpSection,
   buildSettingsModal,
@@ -126,6 +131,25 @@ function isActionBlock(
   block: KnownBlock,
 ): block is KnownBlock & { type: "actions"; elements: ActionsBlockElement[] } {
   return block.type === "actions" && Array.isArray((block as { elements?: unknown }).elements);
+}
+
+/** Collect every element action_id across a view's action blocks. */
+function getActionIds(blocks: KnownBlock[]): string[] {
+  return blocks
+    .filter(isActionBlock)
+    .flatMap((b) => b.elements)
+    .map((e) => (e as { action_id?: string }).action_id)
+    .filter((id): id is string => typeof id === "string");
+}
+
+/**
+ * Scheduled-messages rows now render inside the Scheduled Messages modal. This mirrors the
+ * `buildHomeView({ userId }, deps)` shape (resolving isAdmin the same way) so the row-rendering
+ * describes can shadow `buildHomeView` with it and keep their bodies unchanged.
+ */
+async function renderSchedulesAsView(opts: { userId: string }, deps: HomeTabDeps): Promise<View> {
+  const role = await deps.getRole(opts.userId);
+  return buildSchedulesModalView(opts.userId, deps.canManageRoles(role), deps);
 }
 
 function isInputBlock(block: KnownBlock): block is KnownBlock & {
@@ -256,7 +280,7 @@ describe("buildHomeView — followed conversations", () => {
       ephemeralRule(),
       { id: "std-1", channels: ["C_STD"], enabled: true },
     ]);
-    const view = await buildHomeView({ userId: "U001" }, makeDeps());
+    const view = await buildAutoRespondModalView(makeDeps());
     const texts = getSectionTexts(view.blocks as KnownBlock[]);
 
     const row = texts.find((tx) => tx.includes("<#C_CONV>"));
@@ -276,7 +300,7 @@ describe("buildHomeView — followed conversations", () => {
     mockGetRules.mockImplementation(async () => [
       ephemeralRule({ expiresAt: Date.now() - 60 * 1000 }),
     ]);
-    const view = await buildHomeView({ userId: "U001" }, makeDeps());
+    const view = await buildAutoRespondModalView(makeDeps());
     const blocks = view.blocks as KnownBlock[];
     const texts = getSectionTexts(blocks);
 
@@ -293,7 +317,7 @@ describe("buildHomeView — followed conversations", () => {
   it("does not render the conversations sub-group when only standing rules exist", async () => {
     setDefaultMocks("admin");
     mockGetRules.mockImplementation(async () => [{ id: "std-1", channels: ["C1"], enabled: true }]);
-    const view = await buildHomeView({ userId: "U001" }, makeDeps());
+    const view = await buildAutoRespondModalView(makeDeps());
     const texts = getSectionTexts(view.blocks as KnownBlock[]);
     assert.ok(!texts.some((tx) => tx.includes("Conversations being followed")));
   });
@@ -359,20 +383,22 @@ describe("buildHomeView", () => {
     assert.equal(claimSection, undefined);
   });
 
-  it("includes role management section for admins", async () => {
+  it("exposes the See-roles button for admins (role management moved to a modal)", async () => {
     setDefaultMocks("admin");
     const deps = makeDeps();
     const view = await buildHomeView({ userId: "U001" }, deps);
+    const actionIds = getActionIds(view.blocks as KnownBlock[]);
     const headers = getHeaderTexts(view.blocks as KnownBlock[]);
-    assert.ok(headers.includes("Role Management"));
+    assert.ok(actionIds.includes("home_open_roles"));
+    assert.ok(!headers.includes("Role Management"));
   });
 
-  it("does not include role management section for members", async () => {
+  it("hides the See-roles button for members", async () => {
     setDefaultMocks("member");
     const deps = makeDeps();
     const view = await buildHomeView({ userId: "U001" }, deps);
-    const headers = getHeaderTexts(view.blocks as KnownBlock[]);
-    assert.ok(!headers.includes("Role Management"));
+    const actionIds = getActionIds(view.blocks as KnownBlock[]);
+    assert.ok(!actionIds.includes("home_open_roles"));
   });
 
   it("includes configuration section for admins", async () => {
@@ -380,7 +406,8 @@ describe("buildHomeView", () => {
     const deps = makeDeps();
     const view = await buildHomeView({ userId: "U001" }, deps);
     const headers = getHeaderTexts(view.blocks as KnownBlock[]);
-    assert.ok(headers.includes("Configuration"));
+    assert.ok(headers.includes("Instructions"));
+    assert.ok(headers.includes("Personal"));
   });
 
   it("shows configuration section for members with only Personal Preferences", async () => {
@@ -388,7 +415,7 @@ describe("buildHomeView", () => {
     const deps = makeDeps();
     const view = await buildHomeView({ userId: "U001" }, deps);
     const headers = getHeaderTexts(view.blocks as KnownBlock[]);
-    assert.ok(headers.includes("Configuration"));
+    assert.ok(headers.includes("Personal"));
     // Members should not have any view_config_dir buttons
     const actionsBlocks = (view.blocks as KnownBlock[]).filter(isActionBlock);
     const configButtons = actionsBlocks.flatMap((b) =>
@@ -415,12 +442,11 @@ describe("buildHomeView", () => {
     assert.ok(!headers.includes("Workers"));
   });
 
-  it("always includes status and help sections", async () => {
+  it("always includes the help section", async () => {
     setDefaultMocks("member");
     const deps = makeDeps();
     const view = await buildHomeView({ userId: "U001" }, deps);
     const headers = getHeaderTexts(view.blocks as KnownBlock[]);
-    assert.ok(headers.includes("Status"));
     assert.ok(headers.includes("Help"));
   });
 
@@ -611,16 +637,64 @@ describe("buildRoleManagementSection", () => {
 // ============================================================================
 
 describe("buildConfigurationSection", () => {
+  const cfgOpts = (
+    extra: Partial<ConfigurationSectionOptions> = {},
+  ): ConfigurationSectionOptions => ({
+    showEditButtons: false,
+    showRolesButton: false,
+    showInvestigationsButton: false,
+    showAutoRespondButton: false,
+    showSchedulesButton: false,
+    showSkillsButton: false,
+    showPluginsButton: false,
+    showMcpButton: false,
+    showStatusButton: false,
+    ...extra,
+  });
+
   beforeEach(() => {
     setDefaultMocks("admin");
   });
 
-  it("starts with a Configuration header", () => {
+  it("renders the See-buttons for the enabled sections with their action_ids", () => {
     const deps = makeDeps();
-    const blocks = buildConfigurationSection(true, deps);
+    const blocks = buildConfigurationSection(
+      cfgOpts({
+        showRolesButton: true,
+        showAutoRespondButton: true,
+        showSchedulesButton: true,
+        showSkillsButton: true,
+      }),
+      deps,
+    );
+    const actionIds = blocks
+      .filter(isActionBlock)
+      .flatMap((b) => b.elements)
+      .map((e) => (e as { action_id?: string }).action_id);
+    assert.ok(actionIds.includes("home_open_roles"));
+    assert.ok(actionIds.includes("home_open_auto_respond"));
+    assert.ok(actionIds.includes("home_open_schedules"));
+    assert.ok(actionIds.includes("home_open_skills"));
+  });
+
+  it("omits a See-button when its section flag is false", () => {
+    const deps = makeDeps();
+    const blocks = buildConfigurationSection(cfgOpts({ showRolesButton: true }), deps);
+    const actionIds = blocks
+      .filter(isActionBlock)
+      .flatMap((b) => b.elements)
+      .map((e) => (e as { action_id?: string }).action_id);
+    assert.ok(actionIds.includes("home_open_roles"));
+    assert.ok(!actionIds.includes("home_open_skills"));
+    assert.ok(!actionIds.includes("home_open_schedules"));
+  });
+
+  it("starts with an Instructions group header when edit buttons are shown", () => {
+    const deps = makeDeps();
+    const blocks = buildConfigurationSection(cfgOpts({ showEditButtons: true }), deps);
     assert.equal(blocks[0].type, "header");
     const headerBlock = blocks[0] as KnownBlock & { text: { text: string } };
-    assert.equal(headerBlock.text.text, "Configuration");
+    assert.equal(headerBlock.text.text, "Instructions");
   });
 
   it("renders directory buttons in a single actions row", () => {
@@ -630,7 +704,7 @@ describe("buildConfigurationSection", () => {
       preAnalysis: [],
       repos: [],
     }));
-    const blocks = buildConfigurationSection(true, deps);
+    const blocks = buildConfigurationSection(cfgOpts({ showEditButtons: true }), deps);
     const actionsBlocks = blocks.filter(isActionBlock);
     assert.ok(actionsBlocks.length > 0);
     assert.ok(actionsBlocks[0].elements.length > 0);
@@ -651,7 +725,7 @@ describe("buildConfigurationSection", () => {
         },
       ],
     }));
-    const blocks = buildConfigurationSection(true, deps);
+    const blocks = buildConfigurationSection(cfgOpts({ showEditButtons: true }), deps);
     const actionsBlocks = blocks.filter(isActionBlock);
     const allElements = actionsBlocks.flatMap((b) => b.elements);
     const repoButtons = allElements.filter((e) => (e as { value?: string }).value === "my-repo");
@@ -660,7 +734,7 @@ describe("buildConfigurationSection", () => {
 
   it("shows chat hint at the end", () => {
     const deps = makeDeps();
-    const blocks = buildConfigurationSection(true, deps);
+    const blocks = buildConfigurationSection(cfgOpts({ showEditButtons: true }), deps);
     const contextBlocks = blocks.filter((b) => b.type === "context");
     assert.ok(
       contextBlocks.some((b) => {
@@ -673,13 +747,13 @@ describe("buildConfigurationSection", () => {
 
   it("ends with a divider", () => {
     const deps = makeDeps();
-    const blocks = buildConfigurationSection(true, deps);
+    const blocks = buildConfigurationSection(cfgOpts({ showEditButtons: true }), deps);
     assert.equal(blocks[blocks.length - 1].type, "divider");
   });
 
   it("shows only Personal Preferences when showEditButtons is false", () => {
     const deps = makeDeps();
-    const blocks = buildConfigurationSection(false, deps);
+    const blocks = buildConfigurationSection(cfgOpts({ showEditButtons: false }), deps);
     const actionsBlocks = blocks.filter(isActionBlock);
     const allElements = actionsBlocks.flatMap((b) => b.elements);
     const configButtons = allElements.filter((e) =>
@@ -694,7 +768,7 @@ describe("buildConfigurationSection", () => {
 
   it("hides chat hint when showEditButtons is false", () => {
     const deps = makeDeps();
-    const blocks = buildConfigurationSection(false, deps);
+    const blocks = buildConfigurationSection(cfgOpts({ showEditButtons: false }), deps);
     const contextBlocks = blocks.filter((b) => b.type === "context");
     const chatHint = contextBlocks.find((b) => {
       const contextBlock = b as KnownBlock & { elements: { text?: string }[] };
@@ -706,85 +780,24 @@ describe("buildConfigurationSection", () => {
 });
 
 // ============================================================================
-// buildStatusSection
+// buildMcpModalView / buildPluginsModalView (relocated from the Status section)
 // ============================================================================
 
-describe("buildStatusSection", () => {
+describe("buildMcpModalView", () => {
   beforeEach(() => {
     setDefaultMocks("member");
   });
 
-  it("starts with a Status header", () => {
-    const deps = makeDeps();
-    const blocks = buildStatusSection("member", deps);
-    assert.equal(blocks[0].type, "header");
-    const headerBlock = blocks[0] as KnownBlock & { text: { text: string } };
-    assert.equal(headerBlock.text.text, "Status");
+  it("is an mcp_modal_view modal", () => {
+    const view = buildMcpModalView(makeDeps());
+    assert.equal(view.callback_id, "mcp_modal_view");
   });
 
-  it("lists repositories", () => {
-    const deps = makeDeps();
-    mockGetVisibleRepos.mockImplementation(() => [
-      { name: "my-repo", url: "https://github.com/test/my-repo", description: "Test repo" },
-    ]);
-    const blocks = buildStatusSection("member", deps);
-    const texts = getSectionTexts(blocks);
-    const repoBlock = texts.find((t) => t.includes("my-repo"));
-    assert.ok(repoBlock);
-  });
-
-  it("shows access tags for dev+ roles", () => {
-    const deps = makeDeps();
-    mockCanRequestChanges.mockImplementation(() => true);
-    mockGetVisibleRepos.mockImplementation(() => [
-      { name: "my-repo", url: "u", description: "d", access: { read: "member" as UserRole } },
-    ]);
-    mockCanWriteRepo.mockImplementation(() => false);
-    const blocks = buildStatusSection("dev", deps);
-    const texts = getSectionTexts(blocks);
-    const repoBlock = texts.find((t) => t.includes("my-repo"));
-    assert.ok(repoBlock);
-    assert.ok(repoBlock.includes("read: all"));
-    assert.ok(repoBlock.includes("read-only"));
-  });
-
-  it("shows write tags for writable repos", () => {
-    const deps = makeDeps();
-    mockCanRequestChanges.mockImplementation(() => true);
-    mockGetVisibleRepos.mockImplementation(() => [
-      {
-        name: "my-repo",
-        url: "u",
-        description: "d",
-        access: { read: "member" as UserRole, write: "dev" as UserRole },
-      },
-    ]);
-    mockCanWriteRepo.mockImplementation(() => true);
-    const blocks = buildStatusSection("dev", deps);
-    const texts = getSectionTexts(blocks);
-    const repoBlock = texts.find((t) => t.includes("my-repo"));
-    assert.ok(repoBlock);
-    assert.ok(repoBlock.includes("write: dev+"));
-  });
-
-  it("does not show access tags for members", () => {
-    const deps = makeDeps();
-    mockCanRequestChanges.mockImplementation(() => false);
-    mockGetVisibleRepos.mockImplementation(() => [
-      { name: "my-repo", url: "u", description: "d", access: { read: "member" as UserRole } },
-    ]);
-    const blocks = buildStatusSection("member", deps);
-    const texts = getSectionTexts(blocks);
-    const repoBlock = texts.find((t) => t.includes("my-repo"));
-    assert.ok(repoBlock);
-    assert.ok(!repoBlock.includes("read:"));
-  });
-
-  it("shows MCP servers when configured", () => {
+  it("lists configured MCP servers", () => {
     const deps = makeDeps();
     mockGetConfiguredMcpServerNames.mockImplementation(() => ["filesystem", "github"]);
-    const blocks = buildStatusSection("member", deps);
-    const texts = getSectionTexts(blocks);
+    const view = buildMcpModalView(deps);
+    const texts = getSectionTexts(view.blocks as KnownBlock[]);
     const mcpBlock = texts.find((t) => t.includes("MCP Servers"));
     assert.ok(mcpBlock);
     assert.ok(mcpBlock.includes("filesystem"));
@@ -795,35 +808,31 @@ describe("buildStatusSection", () => {
     const deps = makeDeps();
     mockGetConfiguredMcpServerNames.mockImplementation(() => ["filesystem", "github"]);
     mockGetFailedMcpServers.mockImplementation(() => new Set(["github"]));
-    const blocks = buildStatusSection("member", deps);
-    const texts = getSectionTexts(blocks);
+    const view = buildMcpModalView(deps);
+    const texts = getSectionTexts(view.blocks as KnownBlock[]);
     const mcpBlock = texts.find((t) => t.includes("MCP Servers"));
     assert.ok(mcpBlock);
     assert.ok(mcpBlock.includes("github :warning:"));
     assert.ok(!mcpBlock.includes("filesystem :warning:"));
   });
 
-  it("does not show MCP servers section when none configured", () => {
+  it("shows an empty-state when none configured", () => {
     const deps = makeDeps();
     mockGetConfiguredMcpServerNames.mockImplementation(() => []);
-    const blocks = buildStatusSection("member", deps);
-    const texts = getSectionTexts(blocks);
-    const mcpBlock = texts.find((t) => t.includes("MCP Servers"));
-    assert.equal(mcpBlock, undefined);
+    const view = buildMcpModalView(deps);
+    const texts = getSectionTexts(view.blocks as KnownBlock[]);
+    assert.ok(texts.some((t) => t.includes("No MCP servers")));
+  });
+});
+
+describe("buildPluginsModalView", () => {
+  beforeEach(() => {
+    setDefaultMocks("member");
   });
 
-  it("shows skill plugins when discovered", () => {
-    const deps = makeDeps();
-    mockDiscoverSkillPluginInfo.mockImplementation(() => [
-      { name: "my-plugin", path: "/some/path", skillCount: 3, lazyLoad: false },
-    ]);
-    const blocks = buildStatusSection("member", deps);
-    const texts = getSectionTexts(blocks);
-    const pluginBlock = texts.find((t) => t.includes("Skill Plugins"));
-    assert.ok(pluginBlock);
-    assert.ok(pluginBlock.includes("my-plugin"));
-    assert.ok(pluginBlock.includes("3 skills"));
-    assert.ok(pluginBlock.includes("Eager"));
+  it("is a plugins_modal_view modal", () => {
+    const view = buildPluginsModalView("member", makeDeps());
+    assert.equal(view.callback_id, "plugins_modal_view");
   });
 
   it("groups skill plugins into Eager and Lazy sections", () => {
@@ -832,173 +841,115 @@ describe("buildStatusSection", () => {
       { name: "devtools", path: "/a", skillCount: 2, lazyLoad: false },
       { name: "marketingskills", path: "/b", skillCount: 32, lazyLoad: true },
     ]);
-    const blocks = buildStatusSection("member", deps);
-    const texts = getSectionTexts(blocks);
+    const view = buildPluginsModalView("member", deps);
+    const texts = getSectionTexts(view.blocks as KnownBlock[]);
     const pluginBlock = texts.find((t) => t.includes("Skill Plugins"));
     assert.ok(pluginBlock);
     assert.ok(pluginBlock.includes("Eager"));
     assert.ok(pluginBlock.includes("Lazy"));
-    const eagerIdx = pluginBlock.indexOf("Eager");
-    const lazyIdx = pluginBlock.indexOf("Lazy");
-    const devtoolsIdx = pluginBlock.indexOf("devtools");
-    const marketingIdx = pluginBlock.indexOf("marketingskills");
-    assert.ok(eagerIdx < devtoolsIdx);
-    assert.ok(devtoolsIdx < lazyIdx);
-    assert.ok(lazyIdx < marketingIdx);
+    assert.ok(pluginBlock.includes("devtools"));
+    assert.ok(pluginBlock.includes("marketingskills"));
   });
 
-  it("shows only the Lazy section when every plugin is lazy-tagged", () => {
-    const deps = makeDeps();
-    mockDiscoverSkillPluginInfo.mockImplementation(() => [
-      { name: "marketingskills", path: "/b", skillCount: 32, lazyLoad: true },
-    ]);
-    const blocks = buildStatusSection("member", deps);
-    const texts = getSectionTexts(blocks);
-    const pluginBlock = texts.find((t) => t.includes("Skill Plugins"));
-    assert.ok(pluginBlock);
-    assert.ok(pluginBlock.includes("Lazy"));
-    assert.ok(!pluginBlock.includes("Eager"));
-  });
-
-  it("does not show skill plugins section when none found", () => {
-    const deps = makeDeps();
-    mockDiscoverSkillPluginInfo.mockImplementation(() => []);
-    const blocks = buildStatusSection("member", deps);
-    const texts = getSectionTexts(blocks);
-    const pluginBlock = texts.find((t) => t.includes("Skill Plugins"));
-    assert.equal(pluginBlock, undefined);
-  });
-
-  it("shows clack plugins when loaded", () => {
+  it("shows clack plugin rows", () => {
     const deps = makeDeps();
     mockGetLoadedClackPlugins.mockImplementation(() => [
       { name: "trivia", toolCount: 5, errors: [] },
     ]);
-    const blocks = buildStatusSection("member", deps);
-    const texts = getSectionTexts(blocks);
-    const headerBlock = texts.find((t) => t.includes(":package:") && t.includes("Plugins"));
-    assert.ok(headerBlock);
-    const entryBlock = texts.find((t) => t.includes("trivia") && t.includes("5 tools"));
-    assert.ok(entryBlock);
+    const view = buildPluginsModalView("member", deps);
+    const texts = getSectionTexts(view.blocks as KnownBlock[]);
+    assert.ok(texts.some((t) => t.includes("trivia") && t.includes("5 tools")));
   });
 
-  it("does not show clack plugins section when none loaded", () => {
-    const deps = makeDeps();
-    mockGetLoadedClackPlugins.mockImplementation(() => []);
-    const blocks = buildStatusSection("member", deps);
-    const texts = getSectionTexts(blocks);
-    const pluginBlock = texts.find((t) => t.includes(":package:"));
-    assert.equal(pluginBlock, undefined);
-  });
-
-  it("renders a per-plugin error banner for admins when errors are present", () => {
-    const deps = makeDeps();
-    mockGetLoadedClackPlugins.mockImplementation(() => [
-      {
-        name: "trivia",
-        toolCount: 0,
-        errors: ["Trivia requires the cron scheduler. Enable it via `config.cron.enabled: true`."],
-      },
-    ]);
-    const blocks = buildStatusSection("admin", deps);
-    const contextBlock = blocks.find(
-      (b) =>
-        b.type === "context" &&
-        b.elements?.some(
-          (e) => e.type === "mrkdwn" && e.text.includes("Trivia requires the cron scheduler"),
-        ),
-    );
-    assert.ok(contextBlock, "expected a context block with the error reason");
-    const entryTexts = getSectionTexts(blocks);
-    const entryBlock = entryTexts.find((t) => t.includes("trivia") && t.includes(":x:"));
-    assert.ok(entryBlock, "expected the failing plugin's row to be prefixed with :x:");
-  });
-
-  it("renders multiple errors as separate lines in the banner", () => {
-    const deps = makeDeps();
-    mockGetLoadedClackPlugins.mockImplementation(() => [
-      { name: "p", toolCount: 0, errors: ["reason A", "reason B"] },
-    ]);
-    const blocks = buildStatusSection("admin", deps);
-    const contextBlock = blocks.find(
-      (b) =>
-        b.type === "context" &&
-        b.elements?.some(
-          (e) => e.type === "mrkdwn" && e.text.includes("reason A") && e.text.includes("reason B"),
-        ),
-    );
-    assert.ok(contextBlock);
-  });
-
-  it("does not render the banner for non-admins even when errors exist", () => {
+  it("renders a per-plugin error banner for admins", () => {
     const deps = makeDeps();
     mockGetLoadedClackPlugins.mockImplementation(() => [
       { name: "trivia", toolCount: 0, errors: ["Trivia requires the cron scheduler."] },
     ]);
-    const blocks = buildStatusSection("member", deps);
+    const view = buildPluginsModalView("admin", deps);
+    const blocks = view.blocks as KnownBlock[];
     const contextBlock = blocks.find(
-      (b) =>
+      (b): b is KnownBlock & { type: "context"; elements: { type: string; text: string }[] } =>
         b.type === "context" &&
-        b.elements?.some(
+        (b as { elements?: { type: string; text: string }[] }).elements?.some(
           (e) => e.type === "mrkdwn" && e.text.includes("Trivia requires the cron scheduler"),
-        ),
+        ) === true,
     );
-    assert.equal(contextBlock, undefined);
+    assert.ok(contextBlock, "expected an error banner for admins");
   });
 
-  it("does not render a banner when errors[] is empty", () => {
+  it("hides the error banner for non-admins", () => {
     const deps = makeDeps();
     mockGetLoadedClackPlugins.mockImplementation(() => [
-      { name: "tenor-gif", toolCount: 1, errors: [] },
+      { name: "trivia", toolCount: 0, errors: ["Trivia requires the cron scheduler."] },
     ]);
-    const blocks = buildStatusSection("admin", deps);
-    const entryTexts = getSectionTexts(blocks);
-    const entryBlock = entryTexts.find((t) => t.includes("tenor-gif"));
-    assert.ok(entryBlock);
-    assert.equal(entryBlock.includes(":x:"), false);
-    const contextBlocks = blocks.filter((b) => b.type === "context");
-    assert.equal(contextBlocks.length, 0);
+    const view = buildPluginsModalView("member", deps);
+    const blocks = view.blocks as KnownBlock[];
+    assert.equal(
+      blocks.filter((b) => b.type === "context").length,
+      0,
+      "non-admins should not see the error banner",
+    );
   });
 
-  it("always shows reaction trigger method", () => {
+  it("shows an empty-state when nothing is loaded", () => {
     const deps = makeDeps();
-    const blocks = buildStatusSection("member", deps);
-    const texts = getSectionTexts(blocks);
+    mockDiscoverSkillPluginInfo.mockImplementation(() => []);
+    mockGetLoadedClackPlugins.mockImplementation(() => []);
+    const view = buildPluginsModalView("member", deps);
+    const texts = getSectionTexts(view.blocks as KnownBlock[]);
+    assert.ok(texts.some((t) => t.includes("No plugins")));
+  });
+});
+
+describe("buildStatusModalView", () => {
+  beforeEach(() => {
+    setDefaultMocks("member");
+  });
+
+  it("is a status_modal_view modal", () => {
+    const view = buildStatusModalView("member", makeDeps());
+    assert.equal(view.callback_id, "status_modal_view");
+  });
+
+  it("lists repositories", () => {
+    const deps = makeDeps();
+    mockGetVisibleRepos.mockImplementation(() => [
+      { name: "my-repo", url: "u", description: "Test repo" },
+    ]);
+    const view = buildStatusModalView("member", deps);
+    const texts = getSectionTexts(view.blocks as KnownBlock[]);
+    assert.ok(texts.some((t) => t.includes("my-repo")));
+  });
+
+  it("shows access tags for dev+ but not members", () => {
+    const deps = makeDeps();
+    mockCanRequestChanges.mockImplementation(() => true);
+    mockGetVisibleRepos.mockImplementation(() => [
+      { name: "my-repo", url: "u", description: "d", access: { read: "member" as UserRole } },
+    ]);
+    mockCanWriteRepo.mockImplementation(() => false);
+    const devView = buildStatusModalView("dev", deps);
+    const devRepo = getSectionTexts(devView.blocks as KnownBlock[]).find((t) =>
+      t.includes("my-repo"),
+    );
+    assert.ok(devRepo?.includes("read: all"));
+
+    mockCanRequestChanges.mockImplementation(() => false);
+    const memberView = buildStatusModalView("member", deps);
+    const memberRepo = getSectionTexts(memberView.blocks as KnownBlock[]).find((t) =>
+      t.includes("my-repo"),
+    );
+    assert.ok(!memberRepo?.includes("read:"));
+  });
+
+  it("always shows the reaction trigger method", () => {
+    const deps = makeDeps();
+    const view = buildStatusModalView("member", deps);
+    const texts = getSectionTexts(view.blocks as KnownBlock[]);
     const triggerBlock = texts.find((t) => t.includes("Trigger Methods"));
     assert.ok(triggerBlock);
     assert.ok(triggerBlock.includes("Reaction"));
-  });
-
-  it("shows DM trigger when enabled", () => {
-    const deps = makeDeps();
-    mockGetConfig.mockImplementation(() => ({
-      ...defaultConfig(),
-      directMessages: { enabled: true, dmType: "assistant" },
-    }));
-    const blocks = buildStatusSection("member", deps);
-    const texts = getSectionTexts(blocks);
-    const triggerBlock = texts.find((t) => t.includes("Trigger Methods"));
-    assert.ok(triggerBlock);
-    assert.ok(triggerBlock.includes("Direct Messages"));
-  });
-
-  it("shows mentions trigger when enabled", () => {
-    const deps = makeDeps();
-    mockGetConfig.mockImplementation(() => ({
-      ...defaultConfig(),
-      mentions: { enabled: true },
-    }));
-    const blocks = buildStatusSection("member", deps);
-    const texts = getSectionTexts(blocks);
-    const triggerBlock = texts.find((t) => t.includes("Trigger Methods"));
-    assert.ok(triggerBlock);
-    assert.ok(triggerBlock.includes("@Mentions"));
-  });
-
-  it("ends with a divider", () => {
-    const deps = makeDeps();
-    const blocks = buildStatusSection("member", deps);
-    assert.equal(blocks[blocks.length - 1].type, "divider");
   });
 });
 
@@ -1517,6 +1468,8 @@ describe("buildConfigCreateFileModal", () => {
 // ============================================================================
 
 describe("buildHomeView — Scheduled Messages skipConditions", () => {
+  const buildHomeView = renderSchedulesAsView;
+
   function baseJob(overrides: Partial<CronJob> = {}): CronJob {
     return {
       id: "job-1",
@@ -1874,6 +1827,8 @@ describe("buildCronJobModal — name input", () => {
 });
 
 describe("buildHomeView — schedule name prefix", () => {
+  const buildHomeView = renderSchedulesAsView;
+
   function baseJob(overrides: Partial<CronJob> = {}): CronJob {
     return {
       id: "job-1",
@@ -1939,6 +1894,8 @@ describe("buildHomeView — schedule name prefix", () => {
 });
 
 describe("buildHomeView — channelless plugin schedules", () => {
+  const buildHomeView = renderSchedulesAsView;
+
   function channellessPluginJob(overrides: Partial<CronJob> = {}): CronJob {
     return {
       id: "plugin-cl-1",
