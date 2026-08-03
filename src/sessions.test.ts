@@ -754,3 +754,93 @@ describe("addSessionUsage", () => {
     assert.equal(result, null);
   });
 });
+
+// ---------------------------------------------------------------------------
+// followedThreads (split investigations) persistence + graceful load
+// ---------------------------------------------------------------------------
+describe("followedThreads persistence", () => {
+  const tmpBase = resolve(tmpdir(), `sessions-followed-${process.pid}`);
+  const sessionsDir = join(tmpBase, "data", "sessions");
+  const originalCwd = process.cwd();
+
+  const VALID = {
+    channel: "CSIDE",
+    threadTs: "1.1",
+    mode: "follow" as const,
+    lastInjectedTs: "0",
+    pendingCount: 0,
+    addedBy: "U1",
+  };
+
+  beforeEach(() => {
+    if (existsSync(tmpBase)) rmSync(tmpBase, { recursive: true });
+    mkdirSync(sessionsDir, { recursive: true });
+    process.chdir(tmpBase);
+  });
+
+  afterEach(() => {
+    process.chdir(originalCwd);
+    if (existsSync(tmpBase)) rmSync(tmpBase, { recursive: true });
+  });
+
+  function writeColdSession(sessionId: string, followedThreads: unknown): void {
+    const dir = join(sessionsDir, sessionId);
+    mkdirSync(dir, { recursive: true });
+    const record = {
+      sessionId,
+      channelId: "CMAIN",
+      messageTs: "7000.0001",
+      threadTs: "7000.0001",
+      userId: "UOWN",
+      trigger: {
+        type: "mentions",
+        userId: "UOWN",
+        messageTs: "7000.0001",
+        messageText: "investigation session",
+      },
+      messages: [],
+      ...(followedThreads === undefined ? {} : { followedThreads }),
+    };
+    writeFileSync(join(dir, "context.json"), JSON.stringify(record), "utf-8");
+  }
+
+  it("round-trips followedThreads via updateSession + getSession", async () => {
+    const session = await createSession({
+      channelId: "CMAIN",
+      messageTs: "7100.0001",
+      threadTs: "7100.0001",
+      userId: "UOWN",
+      trigger: {
+        type: "mentions",
+        userId: "UOWN",
+        messageTs: "7100.0001",
+        messageText: "round trip",
+      },
+    });
+    await updateSession(session.sessionId, { followedThreads: [VALID] });
+    const reloaded = await getSession(session.sessionId);
+    assert.deepEqual(reloaded?.followedThreads, [VALID]);
+  });
+
+  it("drops malformed entries on cold load, keeping valid ones", async () => {
+    const id = "C700-7000-0001-UOWN-7000000000001";
+    writeColdSession(id, [VALID, { channel: "CBAD" }, { mode: "bogus" }]);
+    const loaded = await getSession(id);
+    assert.deepEqual(loaded?.followedThreads, [VALID]);
+  });
+
+  it("leaves legacy sessions (no followedThreads) undefined", async () => {
+    const id = "C701-7000-0002-UOWN-7000000000002";
+    writeColdSession(id, undefined);
+    const loaded = await getSession(id);
+    assert.ok(loaded);
+    assert.equal(loaded.followedThreads, undefined);
+  });
+
+  it("drops a non-array followedThreads to undefined", async () => {
+    const id = "C702-7000-0003-UOWN-7000000000003";
+    writeColdSession(id, { not: "an array" });
+    const loaded = await getSession(id);
+    assert.equal(loaded?.followedThreads, undefined);
+  });
+});

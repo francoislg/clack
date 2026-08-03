@@ -98,6 +98,8 @@ const mockStoreRetry = vi.fn<(key: string) => Promise<{ ok: boolean; error?: str
   }),
 );
 const mockStoreRemove = vi.fn<(key: string) => Promise<boolean>>(async () => true);
+const mockGetInvestigationsChannel = vi.fn<() => string | null>(() => null);
+const mockListOpenInvestigations = vi.fn<() => object[]>(() => []);
 
 function makeDeps(): HomeTabDeps {
   return {
@@ -137,6 +139,8 @@ function makeDeps(): HomeTabDeps {
     getJob: mockGetJob,
     getRole: async () => "member",
     clearQuarantinedWorker: async () => ({ ok: false, reason: "stubbed in tests" }),
+    getInvestigationsChannel: mockGetInvestigationsChannel,
+    listOpenInvestigations: mockListOpenInvestigations,
     updateJob: mockUpdateJob as Function as HomeTabDeps["updateJob"],
     runJobNow: mockRunJobNow as Function as HomeTabDeps["runJobNow"],
   };

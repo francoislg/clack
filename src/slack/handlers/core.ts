@@ -106,6 +106,23 @@ export const defaultCoreDeps: CoreDeps = {
   withThreadLock,
 };
 
+/**
+ * Optional per-round hook for split investigations: when a session follows threads, this
+ * drains them and rebuilds its investigation delivery context before the turn. Registered by
+ * the investigations engine at boot (a nullable seam so core carries no static dependency on
+ * the feature). Null → no-op.
+ */
+type InvestigationSessionRefresher = (
+  session: SessionContext,
+  client: App["client"],
+) => Promise<SessionContext>;
+
+let investigationSessionRefresher: InvestigationSessionRefresher | null = null;
+
+export function setInvestigationSessionRefresher(fn: InvestigationSessionRefresher | null): void {
+  investigationSessionRefresher = fn;
+}
+
 export interface ProcessMessageParams {
   client: App["client"];
   userId: string;
@@ -409,6 +426,11 @@ async function setupSession(ctx: ProcessingContext, deps: CoreDeps): Promise<Ses
     if (!session.channelName && channelInfo?.name) updates.channelName = channelInfo.name;
     await deps.updateSession(session.sessionId, updates);
     session = (await deps.getSession(session.sessionId))!;
+  }
+
+  // Split investigations: drain followed threads + refresh delivery context before the turn.
+  if (session.followedThreads?.length && investigationSessionRefresher) {
+    session = await investigationSessionRefresher(session, ctx.client);
   }
 
   deps.setSessionInfo(session.sessionId, {

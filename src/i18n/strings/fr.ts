@@ -181,6 +181,32 @@ export const fr: Partial<Record<StringKey, string>> = {
   "home.user_remove.placeholder": "Sélectionner un utilisateur à retirer",
   "home.user_remove.label": "Utilisateur",
 
+  // ─── Enquêtes ──────────────────────────────────────────────────────
+  "investigations.parent_channel": "🔎 Enquête sur {link}…",
+  "investigations.parent_dm": "🔎 Continuation de {link}…",
+  "investigations.breadcrumb_channel": "🔎 Enquête en cours dans {link}.",
+  "investigations.breadcrumb_dm": "🔎 Continuation de cette conversation en DM.",
+  "investigations.reactor_started": "🔎 Enquête lancée : {link}",
+  "investigations.reactor_duplicate": "Ce fil est déjà en cours d'enquête : {link}",
+  "investigations.reactor_resolve_failed":
+    "Impossible de retrouver le fil du message. Veuillez réessayer.",
+  "investigations.reactor_cycle":
+    "Impossible d'enquêter sur un fil qui se trouve déjà dans le canal d'enquête.",
+  "investigations.reactor_unconfigured":
+    "Le mode Enquête n'est pas configuré — un admin doit choisir un canal d'enquête depuis l'onglet Accueil. Le propriétaire a été notifié.",
+  "investigations.owner_unconfigured":
+    "{user} a tenté de lancer une enquête, mais aucun canal d'enquête n'est configuré. Choisissez-en un dans l'onglet Accueil → Enquêtes.",
+  "investigations.owner_degraded":
+    "Une enquête a commencé à suivre {link}, mais le bot n'a pas pu rejoindre ce canal public — elle est passée en mode suivi passif (pas de mises à jour en direct ; le contenu est tout de même récupéré à chaque tour). Ajoutez le bot au canal pour rétablir le suivi en direct.",
+  "investigations.home_section_title": "🔎 Enquêtes",
+  "investigations.home_channel_label": "Canal d'enquête",
+  "investigations.home_channel_placeholder": "Sélectionnez un canal",
+  "investigations.home_unconfigured_warning":
+    "⚠️ Aucun canal d'enquête sélectionné. Les réactions d'enquête notifieront le propriétaire jusqu'à ce que vous en choisissiez un.",
+  "investigations.home_open_none": "Aucune enquête en cours.",
+  "investigations.home_open_item": "{link} · suivi de {count} fil(s) · lancée par {user}",
+  "investigations.home_close_button": "Fermer",
+
   // ─── Auto-respond ──────────────────────────────────────────────────
   "home.auto_respond.header": "Réponse automatique",
   "home.auto_respond.conversations_header": "*Conversations suivies*",

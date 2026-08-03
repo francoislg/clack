@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   runPreAnalysis,
   runActiveRunPreAnalysis,
+  runInvestigationPreAnalysis,
   formatElapsedSeconds,
   type PreAnalysisDeps,
   defaultPreAnalysisDeps,
@@ -864,6 +865,355 @@ describe("runActiveRunPreAnalysis", () => {
       makeDeps(),
     );
     assert.ok(!capturedPrompt.includes("TIMING:"));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// runInvestigationPreAnalysis — investigation follow-up gate (respond/skip only)
+// ---------------------------------------------------------------------------
+describe("runInvestigationPreAnalysis", () => {
+  beforeEach(() => {
+    mockQuery = vi.fn<typeof clackQuery>();
+  });
+
+  it("returns 'respond' when Claude responds with 'respond'", async () => {
+    mockQuery.mockImplementation(() =>
+      asyncIterableOf([{ type: "result", subtype: "success", result: "respond" }]),
+    );
+
+    const result = await runInvestigationPreAnalysis(
+      "server outage",
+      "the server came back up",
+      "Clack",
+      "context",
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      makeDeps(),
+    );
+    assert.equal(result, "respond");
+  });
+
+  it("returns 'skip' when Claude responds with 'skip'", async () => {
+    mockQuery.mockImplementation(() =>
+      asyncIterableOf([{ type: "result", subtype: "success", result: "skip" }]),
+    );
+
+    const result = await runInvestigationPreAnalysis(
+      "server outage",
+      "lol nothing interesting",
+      "Clack",
+      "context",
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      makeDeps(),
+    );
+    assert.equal(result, "skip");
+  });
+
+  it("defaults to 'skip' on error (fail-closed)", async () => {
+    mockQuery.mockImplementation(() => {
+      throw new Error("SDK failure");
+    });
+
+    const result = await runInvestigationPreAnalysis(
+      "server outage",
+      "message",
+      "Clack",
+      "context",
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      makeDeps(),
+    );
+    assert.equal(result, "skip");
+  });
+
+  it("defaults to 'skip' on malformed response (fail-closed)", async () => {
+    mockQuery.mockImplementation(() =>
+      asyncIterableOf([{ type: "result", subtype: "error", result: "respond" }]),
+    );
+
+    const result = await runInvestigationPreAnalysis(
+      "server outage",
+      "message",
+      "Clack",
+      "context",
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      makeDeps(),
+    );
+    assert.equal(result, "skip");
+  });
+
+  it("includes the investigation subject in the system prompt when provided", async () => {
+    let capturedOptions: QueryCallArg["options"];
+    mockQuery.mockImplementation((...args: unknown[]) => {
+      capturedOptions = (args[0] as QueryCallArg).options;
+      return asyncIterableOf([{ type: "result", subtype: "success", result: "respond" }]);
+    });
+
+    await runInvestigationPreAnalysis(
+      "database performance degradation",
+      "query times increased",
+      "Clack",
+      "context",
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      makeDeps(),
+    );
+
+    const systemPrompt = capturedOptions!.systemPrompt!;
+    assert.ok(systemPrompt.includes("INVESTIGATION SUBJECT:"));
+    assert.ok(systemPrompt.includes("database performance degradation"));
+  });
+
+  it("uses generic prompt when investigation subject is absent", async () => {
+    let capturedOptions: QueryCallArg["options"];
+    mockQuery.mockImplementation((...args: unknown[]) => {
+      capturedOptions = (args[0] as QueryCallArg).options;
+      return asyncIterableOf([{ type: "result", subtype: "success", result: "skip" }]);
+    });
+
+    await runInvestigationPreAnalysis(
+      undefined,
+      "some message",
+      "Clack",
+      "context",
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      makeDeps(),
+    );
+
+    const systemPrompt = capturedOptions!.systemPrompt!;
+    assert.ok(
+      systemPrompt.includes("no specific subject"),
+      "should use generic prompt when subject is undefined",
+    );
+    assert.ok(!systemPrompt.includes("INVESTIGATION SUBJECT:"));
+  });
+
+  it("detects 'respond' in verbose response", async () => {
+    mockQuery.mockImplementation(() =>
+      asyncIterableOf([
+        {
+          type: "result",
+          subtype: "success",
+          result: "I would respond with new information here",
+        },
+      ]),
+    );
+
+    const result = await runInvestigationPreAnalysis(
+      "issue",
+      "message",
+      "Clack",
+      "context",
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      makeDeps(),
+    );
+    assert.equal(result, "respond");
+  });
+
+  it("passes systemPrompt with bot name to query", async () => {
+    let capturedOptions: QueryCallArg["options"];
+    mockQuery.mockImplementation((...args: unknown[]) => {
+      capturedOptions = (args[0] as QueryCallArg).options;
+      return asyncIterableOf([{ type: "result", subtype: "success", result: "skip" }]);
+    });
+
+    await runInvestigationPreAnalysis(
+      "subject",
+      "message",
+      "MyBot",
+      "context",
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      makeDeps(),
+    );
+
+    assert.ok(typeof capturedOptions?.systemPrompt === "string");
+    const systemPrompt = capturedOptions!.systemPrompt!;
+    assert.ok(systemPrompt.includes("MyBot"));
+    assert.ok(systemPrompt.includes('"respond"'));
+    assert.ok(systemPrompt.includes('"skip"'));
+    assert.equal(capturedOptions!.model, "sonnet");
+    assert.equal(capturedOptions!.maxTurns, 1);
+  });
+
+  it("includes new messages text in the prompt", async () => {
+    let capturedPrompt = "";
+    mockQuery.mockImplementation((...args: unknown[]) => {
+      capturedPrompt = (args[0] as QueryCallArg).prompt;
+      return asyncIterableOf([{ type: "result", subtype: "success", result: "respond" }]);
+    });
+
+    await runInvestigationPreAnalysis(
+      "server outage",
+      "the root cause was a memory leak",
+      "Clack",
+      "context",
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      makeDeps(),
+    );
+
+    assert.ok(capturedPrompt.includes("the root cause was a memory leak"));
+    assert.ok(capturedPrompt.includes("NEW MESSAGES TO CLASSIFY:"));
+  });
+
+  it("includes recent messages in the conversation context", async () => {
+    let capturedPrompt = "";
+    mockQuery.mockImplementation((...args: unknown[]) => {
+      capturedPrompt = (args[0] as QueryCallArg).prompt;
+      return asyncIterableOf([{ type: "result", subtype: "success", result: "skip" }]);
+    });
+
+    await runInvestigationPreAnalysis(
+      "subject",
+      "new message",
+      "Clack",
+      "context",
+      undefined,
+      [
+        { author: "Alice", text: "something happened", isBot: false },
+        { author: "Clack", text: "investigating", isBot: true },
+      ],
+      undefined,
+      undefined,
+      undefined,
+      makeDeps(),
+    );
+
+    assert.ok(capturedPrompt.includes("RECENT CHANNEL HISTORY"));
+    assert.ok(capturedPrompt.includes("[Alice]: something happened"));
+    assert.ok(capturedPrompt.includes("[Clack]: investigating"));
+  });
+
+  it("includes timing line when secondsSinceLastBotMessage is provided", async () => {
+    let capturedPrompt = "";
+    mockQuery.mockImplementation((...args: unknown[]) => {
+      capturedPrompt = (args[0] as QueryCallArg).prompt;
+      return asyncIterableOf([{ type: "result", subtype: "success", result: "skip" }]);
+    });
+
+    await runInvestigationPreAnalysis(
+      "subject",
+      "message",
+      "Clack",
+      "context",
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      120,
+      makeDeps(),
+    );
+
+    assert.ok(
+      capturedPrompt.includes("TIMING: this message arrived 2m after Clack's last message"),
+    );
+  });
+
+  it("names the model on the logged verdict", async () => {
+    const info = vi.spyOn(logger, "info").mockImplementation(() => {});
+    mockQuery.mockImplementation(() =>
+      asyncIterableOf([{ type: "result", subtype: "success", result: "respond" }]),
+    );
+
+    await runInvestigationPreAnalysis(
+      "subject",
+      "message",
+      "Clack",
+      "context",
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      { ...makeDeps(), resolveModel: () => "claude-haiku-4-5" },
+    );
+
+    assert.ok(
+      info.mock.calls.some((call) => String(call[0]).includes("model=claude-haiku-4-5")),
+      `expected a verdict log naming the model, got: ${JSON.stringify(info.mock.calls)}`,
+    );
+  });
+
+  it("logs subject in verdict when provided", async () => {
+    const info = vi.spyOn(logger, "info").mockImplementation(() => {});
+    mockQuery.mockImplementation(() =>
+      asyncIterableOf([{ type: "result", subtype: "success", result: "respond" }]),
+    );
+
+    await runInvestigationPreAnalysis(
+      "server degradation",
+      "message",
+      "Clack",
+      "context",
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      makeDeps(),
+    );
+
+    assert.ok(
+      info.mock.calls.some((call) => String(call[0]).includes('subject="server degradation"')),
+      `expected subject in log, got: ${JSON.stringify(info.mock.calls)}`,
+    );
+  });
+
+  it("logs (none) when subject is undefined", async () => {
+    const info = vi.spyOn(logger, "info").mockImplementation(() => {});
+    mockQuery.mockImplementation(() =>
+      asyncIterableOf([{ type: "result", subtype: "success", result: "skip" }]),
+    );
+
+    await runInvestigationPreAnalysis(
+      undefined,
+      "message",
+      "Clack",
+      "context",
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      makeDeps(),
+    );
+
+    assert.ok(
+      info.mock.calls.some((call) => String(call[0]).includes('subject="(none)"')),
+      `expected subject=(none) in log, got: ${JSON.stringify(info.mock.calls)}`,
+    );
   });
 });
 

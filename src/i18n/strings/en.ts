@@ -176,6 +176,32 @@ export const en = {
   "home.user_remove.placeholder": "Select user to remove",
   "home.user_remove.label": "User",
 
+  // ─── Home Tab: investigations ─────────────────────────────────────
+  "investigations.parent_channel": "🔎 Investigating {link}…",
+  "investigations.parent_dm": "🔎 Continuing from {link}…",
+  "investigations.breadcrumb_channel": "🔎 Investigating this in {link}.",
+  "investigations.breadcrumb_dm": "🔎 Continuing this conversation in a DM.",
+  "investigations.reactor_started": "🔎 Investigation started: {link}",
+  "investigations.reactor_duplicate": "This thread is already being investigated: {link}",
+  "investigations.reactor_resolve_failed":
+    "Could not resolve the message thread. Please try again.",
+  "investigations.reactor_cycle":
+    "You can't investigate a thread that is already in the investigations channel.",
+  "investigations.reactor_unconfigured":
+    "Investigate mode isn't set up yet — an admin needs to pick an investigations channel from the Home Tab. The owner has been notified.",
+  "investigations.owner_unconfigured":
+    "{user} tried to start an investigation, but no investigations channel is configured. Pick one in the Home Tab → Investigations.",
+  "investigations.owner_degraded":
+    "An investigation started following {link}, but the bot couldn't join that public channel — it degraded to passive follow mode (no live updates; content is still picked up on each round). Add the bot to the channel to restore live following.",
+  "investigations.home_section_title": "🔎 Investigations",
+  "investigations.home_channel_label": "Investigations channel",
+  "investigations.home_channel_placeholder": "Select a channel",
+  "investigations.home_unconfigured_warning":
+    "⚠️ No investigations channel selected. Investigate reactions will notify the owner until you pick one.",
+  "investigations.home_open_none": "No open investigations.",
+  "investigations.home_open_item": "{link} · following {count} thread(s) · started by {user}",
+  "investigations.home_close_button": "Close",
+
   // ─── Home Tab: auto-respond ────────────────────────────────────────
   "home.auto_respond.header": "Auto-Respond",
   "home.auto_respond.conversations_header": "*Conversations being followed*",

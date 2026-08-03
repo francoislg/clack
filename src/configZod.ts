@@ -12,6 +12,7 @@ import {
   reactionsChangesWorkflowZod,
   triggerChangesWorkflowZod,
   allowPublicSearchZod,
+  investigationsZod,
   mcpServersZod,
   skillPluginsZod,
   userSkillsZod,
@@ -290,6 +291,7 @@ export function validateConfig(config: unknown, slackAuth: SlackAuthConfig): Con
     admin: parseOrThrow(adminZod, c.admin),
     tester: parseOrThrow(testerZod, c.tester),
     allowPublicSearch: parseOrThrow(allowPublicSearchZod, c.allowPublicSearch),
+    investigations: parseOrThrow(investigationsZod, c.investigations),
     language: isSupportedLanguage(c.language) ? c.language : undefined,
   };
 

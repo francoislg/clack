@@ -16,6 +16,10 @@ A self-hosted Slack bot that answers codebase questions using Claude Code. React
 
 Send a question directly to Clack or @mention it in a channel. Responses are posted visibly in the thread — no accept/reject step needed. Reply in the thread to continue the conversation.
 
+### Investigations (optional)
+
+React with the configured emoji (e.g., 🔍) to spin a question or discussion off into a dedicated investigations channel. Clack follows the original thread for new context while conducting the investigation on the side. Requires admin to pick the investigations channel in the Home Tab. **Enabling requires re-uploading the manifest and reinstalling the app.**
+
 ## Features
 
 - **Multi-repo support** — Configure multiple repositories with per-repo access control

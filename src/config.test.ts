@@ -544,6 +544,80 @@ describe("loadConfig", () => {
     assert.throws(() => loadConfig(configPath, true), /allowPublicSearch.*must be a boolean/);
   });
 
+  // ---- investigations ----
+
+  it("treats absent investigations as undefined", () => {
+    writeSlackAuth();
+    writeConfig(minimalConfig());
+
+    const cfg = loadConfig(configPath, true);
+    assert.equal(cfg.investigations, undefined);
+  });
+
+  it("accepts { enabled: true } with default emoji", () => {
+    writeSlackAuth();
+    writeConfig(minimalConfig({ investigations: { enabled: true } }));
+
+    const cfg = loadConfig(configPath, true);
+    assert.deepEqual(cfg.investigations, { enabled: true, emoji: "mag" });
+  });
+
+  it("accepts { enabled: true, emoji: 'telescope' }", () => {
+    writeSlackAuth();
+    writeConfig(minimalConfig({ investigations: { enabled: true, emoji: "telescope" } }));
+
+    const cfg = loadConfig(configPath, true);
+    assert.deepEqual(cfg.investigations, { enabled: true, emoji: "telescope" });
+  });
+
+  it("accepts { enabled: false } with default emoji", () => {
+    writeSlackAuth();
+    writeConfig(minimalConfig({ investigations: { enabled: false } }));
+
+    const cfg = loadConfig(configPath, true);
+    assert.deepEqual(cfg.investigations, { enabled: false, emoji: "mag" });
+  });
+
+  it("throws when enabled is not a boolean", () => {
+    writeSlackAuth();
+    writeConfig(minimalConfig({ investigations: { enabled: "yes" } }));
+
+    assert.throws(() => loadConfig(configPath, true), /investigations.enabled.*must be a boolean/);
+  });
+
+  it("throws when emoji has colons", () => {
+    writeSlackAuth();
+    writeConfig(minimalConfig({ investigations: { enabled: true, emoji: ":mag:" } }));
+
+    assert.throws(
+      () => loadConfig(configPath, true),
+      /investigations.emoji.*must be.*without colons/,
+    );
+  });
+
+  it("throws when emoji has whitespace", () => {
+    writeSlackAuth();
+    writeConfig(minimalConfig({ investigations: { enabled: true, emoji: "mag search" } }));
+
+    assert.throws(
+      () => loadConfig(configPath, true),
+      /investigations.emoji.*must be.*without.*whitespace/,
+    );
+  });
+
+  it("throws when investigations contains unknown key", () => {
+    writeSlackAuth();
+    writeConfig(minimalConfig({ investigations: { enabled: true, bogus: 1 } }));
+
+    assert.throws(
+      () => loadConfig(configPath, true),
+      (err: unknown) =>
+        err instanceof Error &&
+        err.message.includes("investigations") &&
+        err.message.includes("bogus"),
+    );
+  });
+
   // ---- dmType ----
 
   it("accepts dmType: agent", () => {

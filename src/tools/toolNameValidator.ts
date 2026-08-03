@@ -56,6 +56,12 @@ export const CLACK_CORE_TOOL_NAMES: readonly string[] = [
   "request_update",
   "cancel_worker_run",
   "run_test",
+  // Investigation tools
+  "start_investigation",
+  "follow_thread",
+  "unfollow_thread",
+  "list_followed_threads",
+  "close_investigation",
   "propose_skill_create",
   "propose_skill_update",
   "propose_skill_disable",
