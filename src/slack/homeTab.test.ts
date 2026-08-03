@@ -1344,6 +1344,32 @@ describe("buildSettingsModal", () => {
     });
     assert.ok(notifyBlock);
   });
+
+  it("includes investigation tag block", async () => {
+    const deps = makeDeps();
+    mockGetReactionDelivery.mockImplementation(async () => "dm");
+    mockGetUserPreference.mockImplementation(async () => false);
+    const modal = await buildSettingsModal("U001", deps);
+    const blocks = modal.blocks as KnownBlock[];
+    const tagBlock = blocks.find((b) => {
+      const blockWithId = b as { block_id?: string };
+      return blockWithId.block_id === "investigation_tag_block";
+    });
+    assert.ok(tagBlock);
+  });
+
+  it("includes investigation breadcrumb block", async () => {
+    const deps = makeDeps();
+    mockGetReactionDelivery.mockImplementation(async () => "dm");
+    mockGetUserPreference.mockImplementation(async () => false);
+    const modal = await buildSettingsModal("U001", deps);
+    const blocks = modal.blocks as KnownBlock[];
+    const breadcrumbBlock = blocks.find((b) => {
+      const blockWithId = b as { block_id?: string };
+      return blockWithId.block_id === "investigation_breadcrumb_block";
+    });
+    assert.ok(breadcrumbBlock);
+  });
 });
 
 // ============================================================================

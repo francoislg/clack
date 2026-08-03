@@ -19,6 +19,12 @@ vi.mock("../slack/botIdentity.js", () => ({
 vi.mock("../claude/preAnalysis.js", () => ({
   runInvestigationPreAnalysis: vi.fn(),
 }));
+vi.mock("../slack/userCache.js", () => ({
+  getUserInfo: vi.fn(() => Promise.resolve({ userId: "U1", displayName: "Requester Name" })),
+}));
+vi.mock("../slack/channelResolver.js", () => ({
+  openDmChannel: vi.fn(() => Promise.resolve("DMROOM")),
+}));
 vi.mock("../config.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../config.js")>();
   const getConfig = (): Config => {
@@ -51,6 +57,8 @@ import {
 import { createSession, getSession, updateSession } from "../sessions.js";
 import { runInvestigationPreAnalysis } from "../claude/preAnalysis.js";
 import { processMessage } from "../slack/handlers/core.js";
+import { getUserInfo } from "../slack/userCache.js";
+import { setUserPreference, clearPreferencesCache } from "../userPreferences.js";
 import type { FollowedThread } from "./types.js";
 
 function inMemoryStateDeps(): InvestigationsStateDeps {
@@ -70,7 +78,7 @@ function inMemoryStateDeps(): InvestigationsStateDeps {
 
 function makeClient(
   byChannel: Record<string, DrainMessage[]> = {},
-  opts: { joinError?: unknown } = {},
+  opts: { joinError?: unknown; isMember?: boolean; infoError?: unknown } = {},
 ): App["client"] {
   const client = new WebClient();
   vi.spyOn(client.conversations, "replies").mockImplementation((args) => {
@@ -78,6 +86,13 @@ function makeClient(
     const oldest = args?.oldest;
     const messages = oldest ? all.filter((m) => m.ts != null && m.ts >= oldest) : all;
     return Promise.resolve({ ok: true, messages });
+  });
+  vi.spyOn(client.conversations, "info").mockImplementation(() => {
+    if (opts.infoError !== undefined) return Promise.reject(opts.infoError);
+    return Promise.resolve({
+      ok: true,
+      channel: { is_member: opts.isMember ?? false },
+    });
   });
   const join = vi.spyOn(client.conversations, "join");
   if (opts.joinError !== undefined) join.mockRejectedValue(opts.joinError);
@@ -131,6 +146,7 @@ describe("investigations engine (integration)", () => {
     resetInvestigationsStateDeps();
     setInvestigationsStateDeps(inMemoryStateDeps());
     await loadInvestigationsState();
+    clearPreferencesCache();
     vi.mocked(processMessage).mockClear();
     vi.mocked(runInvestigationPreAnalysis).mockReset();
   });
@@ -250,6 +266,167 @@ describe("investigations engine (integration)", () => {
       const session = await getSession(result.sessionId);
       expect(session?.followedThreads?.[0].mode).toBe("follow");
       expect(processMessage).toHaveBeenCalledTimes(1);
+    });
+
+    it("already a member → no join, no degrade", async () => {
+      await setInvestigationsChannel("CINV");
+      const client = makeClient({}, { isMember: true });
+      const result = await bootstrapInvestigation({
+        client,
+        surface: "channel",
+        originChannel: "CSIDE",
+        originThreadTs: "1.1",
+        requester: "U1",
+      });
+      expect(result.status).toBe("ok");
+      if (result.status !== "ok") throw new Error("expected ok");
+      expect(result.degraded).toBe(false);
+      expect(vi.mocked(client.conversations.join).mock.calls).toHaveLength(0);
+      const session = await getSession(result.sessionId);
+      expect(session?.followedThreads?.[0].mode).toBe("followAndInteract");
+    });
+
+    it("conversations.info error falls through to join", async () => {
+      await setInvestigationsChannel("CINV");
+      const client = makeClient({}, { infoError: { data: { error: "channel_not_found" } } });
+      const result = await bootstrapInvestigation({
+        client,
+        surface: "channel",
+        originChannel: "CSIDE",
+        originThreadTs: "1.1",
+        requester: "U1",
+      });
+      expect(result.status).toBe("ok");
+      if (result.status !== "ok") throw new Error("expected ok");
+      expect(result.degraded).toBe(false);
+      expect(vi.mocked(client.conversations.join).mock.calls.length).toBeGreaterThan(0);
+    });
+
+    it("parent attributes requester as plain text when tag off (default)", async () => {
+      await setInvestigationsChannel("CINV");
+      const client = makeClient({});
+      await bootstrapInvestigation({
+        client,
+        surface: "channel",
+        originChannel: "CSIDE",
+        originThreadTs: "1.1",
+        requester: "U1",
+      });
+      const postCalls = vi.mocked(client.chat.postMessage).mock.calls;
+      const cinvCall = postCalls.find((c) => c[0]?.channel === "CINV");
+      expect((cinvCall?.[0] as { text?: string })?.text).toContain("@Requester Name");
+      expect((cinvCall?.[0] as { text?: string })?.text).not.toContain("<@U1>");
+    });
+
+    it("parent tags requester when tag on", async () => {
+      await setInvestigationsChannel("CINV");
+      await setUserPreference("U1", "investigationTag", true);
+      const client = makeClient({});
+      await bootstrapInvestigation({
+        client,
+        surface: "channel",
+        originChannel: "CSIDE",
+        originThreadTs: "1.1",
+        requester: "U1",
+      });
+      const postCalls = vi.mocked(client.chat.postMessage).mock.calls;
+      const cinvCall = postCalls.find((c) => c[0]?.channel === "CINV");
+      expect((cinvCall?.[0] as { text?: string })?.text).toContain("<@U1>");
+    });
+
+    it("username fallback when displayName missing", async () => {
+      await setInvestigationsChannel("CINV");
+      vi.mocked(getUserInfo).mockResolvedValueOnce({ userId: "U1", username: "requester_user" });
+      const client = makeClient({});
+      await bootstrapInvestigation({
+        client,
+        surface: "channel",
+        originChannel: "CSIDE",
+        originThreadTs: "1.1",
+        requester: "U1",
+      });
+      const postCalls = vi.mocked(client.chat.postMessage).mock.calls;
+      const cinvCall = postCalls.find((c) => c[0]?.channel === "CINV");
+      expect((cinvCall?.[0] as { text?: string })?.text).toContain("@requester_user");
+    });
+
+    it("user-ID fallback when displayName and username missing", async () => {
+      await setInvestigationsChannel("CINV");
+      vi.mocked(getUserInfo).mockResolvedValueOnce({ userId: "U1" });
+      const client = makeClient({});
+      await bootstrapInvestigation({
+        client,
+        surface: "channel",
+        originChannel: "CSIDE",
+        originThreadTs: "1.1",
+        requester: "U1",
+      });
+      const postCalls = vi.mocked(client.chat.postMessage).mock.calls;
+      const cinvCall = postCalls.find((c) => c[0]?.channel === "CINV");
+      expect((cinvCall?.[0] as { text?: string })?.text).toContain("@U1");
+    });
+
+    it("DM parent attributes the requester (tag off default)", async () => {
+      const client = makeClient({});
+      await bootstrapInvestigation({
+        client,
+        surface: "dm",
+        originChannel: "CSIDE",
+        originThreadTs: "1.1",
+        requester: "U1",
+      });
+      const postCalls = vi.mocked(client.chat.postMessage).mock.calls;
+      const dmCall = postCalls.find((c) => c[0]?.channel === "DMROOM");
+      expect((dmCall?.[0] as { text?: string })?.text).toContain("@Requester Name");
+      expect((dmCall?.[0] as { text?: string })?.text).not.toContain("<@U1>");
+    });
+
+    it("DM explicit breadcrumb posts to origin", async () => {
+      await setUserPreference("U1", "investigationBreadcrumb", "explicit");
+      const client = makeClient({});
+      await bootstrapInvestigation({
+        client,
+        surface: "dm",
+        originChannel: "CSIDE",
+        originThreadTs: "1.1",
+        requester: "U1",
+      });
+      const postCalls = vi.mocked(client.chat.postMessage).mock.calls;
+      const originCall = postCalls.find((c) => c[0]?.channel === "CSIDE" && c[0]?.thread_ts);
+      expect(originCall).toBeDefined();
+    });
+
+    it("silent breadcrumb (default) posts no origin breadcrumb", async () => {
+      await setInvestigationsChannel("CINV");
+      const client = makeClient({});
+      await bootstrapInvestigation({
+        client,
+        surface: "channel",
+        originChannel: "CSIDE",
+        originThreadTs: "1.1",
+        requester: "U1",
+      });
+      const postCalls = vi.mocked(client.chat.postMessage).mock.calls;
+      const csideThreadCall = postCalls.find((c) => c[0]?.channel === "CSIDE" && c[0]?.thread_ts);
+      expect(csideThreadCall).toBeUndefined();
+    });
+
+    it("explicit breadcrumb posts one origin breadcrumb", async () => {
+      await setInvestigationsChannel("CINV");
+      await setUserPreference("U1", "investigationBreadcrumb", "explicit");
+      const client = makeClient({});
+      await bootstrapInvestigation({
+        client,
+        surface: "channel",
+        originChannel: "CSIDE",
+        originThreadTs: "1.1",
+        requester: "U1",
+      });
+      const postCalls = vi.mocked(client.chat.postMessage).mock.calls;
+      const csideThreadCall = postCalls.find(
+        (c) => c[0]?.channel === "CSIDE" && c[0]?.thread_ts === "1.1",
+      );
+      expect(csideThreadCall).toBeDefined();
     });
   });
 

@@ -187,6 +187,19 @@ export const en = {
     "If the response takes longer than 60 seconds, post a follow-up so you get a Slack notification.",
   "home.settings.notify_off_label": "Off",
   "home.settings.notify_off_description": "No extra message — just the streamed answer.",
+  "home.settings.investigation_tag_label": "🔎 Investigation tagging",
+  "home.settings.investigation_tag_on_label": "Tag me",
+  "home.settings.investigation_tag_on_description":
+    "Mention (ping) me in the investigation's opening message.",
+  "home.settings.investigation_tag_off_label": "Don't tag me",
+  "home.settings.investigation_tag_off_description": "Show my name as plain text, without a ping.",
+  "home.settings.investigation_breadcrumb_label": "🔎 Investigation breadcrumb",
+  "home.settings.investigation_breadcrumb_explicit_label": "Post a breadcrumb",
+  "home.settings.investigation_breadcrumb_explicit_description":
+    "Leave a note in the original thread linking the investigation.",
+  "home.settings.investigation_breadcrumb_silent_label": "Stay silent",
+  "home.settings.investigation_breadcrumb_silent_description":
+    "Start the investigation without posting in the original thread.",
 
   // ─── Home Tab: user select / remove modals ─────────────────────────
   "home.user_select.label": "Select User",
@@ -195,11 +208,9 @@ export const en = {
   "home.user_remove.label": "User",
 
   // ─── Home Tab: investigations ─────────────────────────────────────
-  "investigations.parent_channel": "🔎 Investigating {link}…",
-  "investigations.parent_dm": "🔎 Continuing from {link}…",
+  "investigations.parent": "🔎 {requester} requested an investigation of: {link}",
   "investigations.breadcrumb_channel": "🔎 Investigating this in {link}.",
   "investigations.breadcrumb_dm": "🔎 Continuing this conversation in a DM.",
-  "investigations.reactor_started": "🔎 Investigation started: {link}",
   "investigations.reactor_duplicate": "This thread is already being investigated: {link}",
   "investigations.reactor_resolve_failed":
     "Could not resolve the message thread. Please try again.",
@@ -210,7 +221,7 @@ export const en = {
   "investigations.owner_unconfigured":
     "{user} tried to start an investigation, but no investigations channel is configured. Pick one in the Home Tab → Investigations.",
   "investigations.owner_degraded":
-    "An investigation started following {link}, but the bot couldn't join that public channel — it degraded to passive follow mode (no live updates; content is still picked up on each round). Add the bot to the channel to restore live following.",
+    "An investigation started following {link}, but the bot lacks the `channels:join` scope required to join it, so it degraded to passive follow mode (no live updates; content is still picked up on each round). Re-upload the manifest and reinstall the app to grant `channels:join`, then live following resumes.",
   "investigations.home_section_title": "🔎 Investigations",
   "investigations.home_channel_label": "Investigations channel",
   "investigations.home_channel_placeholder": "Select a channel",

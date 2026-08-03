@@ -889,6 +889,12 @@ describe("settings_modal submission", () => {
             notify_on_response_block: {
               notify_on_response: { selected_option: null },
             },
+            investigation_tag_block: {
+              investigation_tag: { selected_option: null },
+            },
+            investigation_breadcrumb_block: {
+              investigation_breadcrumb: { selected_option: null },
+            },
           },
         },
       },
@@ -898,6 +904,142 @@ describe("settings_modal submission", () => {
 
     assert.equal(mockBuildHomeView.mock.calls.length, 1);
     assert.equal(client.views.publish.mock.calls.length, 1);
+  });
+
+  it("saves investigation tag preference when true", async () => {
+    const client = makeClient();
+    const handler = capturedViewHandlers.get("settings_modal")!;
+
+    await handler({
+      ack: async () => {},
+      view: {
+        state: {
+          values: {
+            response_delivery_block: {
+              response_delivery: { selected_option: null },
+            },
+            notify_on_response_block: {
+              notify_on_response: { selected_option: null },
+            },
+            investigation_tag_block: {
+              investigation_tag: { selected_option: { value: "true" } },
+            },
+            investigation_breadcrumb_block: {
+              investigation_breadcrumb: { selected_option: null },
+            },
+          },
+        },
+      },
+      body: { user: { id: "U001" } },
+      client,
+    });
+
+    const tagCall = mockSetUserPreference.mock.calls.find((c) => c[1] === "investigationTag");
+    assert.ok(tagCall);
+    assert.equal(tagCall![2], true);
+  });
+
+  it("saves investigation tag preference when false", async () => {
+    const client = makeClient();
+    const handler = capturedViewHandlers.get("settings_modal")!;
+
+    await handler({
+      ack: async () => {},
+      view: {
+        state: {
+          values: {
+            response_delivery_block: {
+              response_delivery: { selected_option: null },
+            },
+            notify_on_response_block: {
+              notify_on_response: { selected_option: null },
+            },
+            investigation_tag_block: {
+              investigation_tag: { selected_option: { value: "false" } },
+            },
+            investigation_breadcrumb_block: {
+              investigation_breadcrumb: { selected_option: null },
+            },
+          },
+        },
+      },
+      body: { user: { id: "U001" } },
+      client,
+    });
+
+    const tagCall = mockSetUserPreference.mock.calls.find((c) => c[1] === "investigationTag");
+    assert.ok(tagCall);
+    assert.equal(tagCall![2], false);
+  });
+
+  it("saves investigation breadcrumb preference when explicit", async () => {
+    const client = makeClient();
+    const handler = capturedViewHandlers.get("settings_modal")!;
+
+    await handler({
+      ack: async () => {},
+      view: {
+        state: {
+          values: {
+            response_delivery_block: {
+              response_delivery: { selected_option: null },
+            },
+            notify_on_response_block: {
+              notify_on_response: { selected_option: null },
+            },
+            investigation_tag_block: {
+              investigation_tag: { selected_option: null },
+            },
+            investigation_breadcrumb_block: {
+              investigation_breadcrumb: { selected_option: { value: "explicit" } },
+            },
+          },
+        },
+      },
+      body: { user: { id: "U001" } },
+      client,
+    });
+
+    const breadcrumbCall = mockSetUserPreference.mock.calls.find(
+      (c) => c[1] === "investigationBreadcrumb",
+    );
+    assert.ok(breadcrumbCall);
+    assert.equal(breadcrumbCall![2], "explicit");
+  });
+
+  it("saves investigation breadcrumb preference when silent", async () => {
+    const client = makeClient();
+    const handler = capturedViewHandlers.get("settings_modal")!;
+
+    await handler({
+      ack: async () => {},
+      view: {
+        state: {
+          values: {
+            response_delivery_block: {
+              response_delivery: { selected_option: null },
+            },
+            notify_on_response_block: {
+              notify_on_response: { selected_option: null },
+            },
+            investigation_tag_block: {
+              investigation_tag: { selected_option: null },
+            },
+            investigation_breadcrumb_block: {
+              investigation_breadcrumb: { selected_option: { value: "silent" } },
+            },
+          },
+        },
+      },
+      body: { user: { id: "U001" } },
+      client,
+    });
+
+    const breadcrumbCall = mockSetUserPreference.mock.calls.find(
+      (c) => c[1] === "investigationBreadcrumb",
+    );
+    assert.ok(breadcrumbCall);
+    assert.equal(breadcrumbCall![2], "silent");
   });
 });
 

@@ -138,12 +138,6 @@ export async function handleInvestigateReaction(
 
   switch (result.status) {
     case "ok": {
-      const link = result.permalink ?? `<#${result.mainChannel}>`;
-      await client.chat.postEphemeral({
-        channel,
-        user: userId,
-        text: t("investigations.reactor_started", { link }),
-      });
       // Join failed on a public origin channel → degraded to passive follow. Note the owner.
       if (result.degraded) {
         const ownerUserId = await deps.getOwnerUserId();

@@ -40,11 +40,17 @@ export interface UserPreferences {
   reactionDelivery: ReactionDelivery;
   /** Post a short follow-up message after streaming so the user gets a Slack notification. */
   notifyOnResponse: boolean;
+  /** Tag (ping) the requester in the investigation parent message. */
+  investigationTag: boolean;
+  /** Whether starting an investigation posts a breadcrumb reply in the origin thread. */
+  investigationBreadcrumb: "silent" | "explicit";
 }
 
 const DEFAULT_PREFERENCES: UserPreferences = {
   reactionDelivery: "dm",
   notifyOnResponse: false,
+  investigationTag: false,
+  investigationBreadcrumb: "silent",
 };
 
 type PreferencesMap = Record<string, Partial<UserPreferences>>;
@@ -57,6 +63,8 @@ type PreferencesMap = Record<string, Partial<UserPreferences>>;
 const preferencesEntryZod = z.object({
   reactionDelivery: z.enum(["dm", "thread"]).optional(),
   notifyOnResponse: z.boolean().optional(),
+  investigationTag: z.boolean().optional(),
+  investigationBreadcrumb: z.enum(["silent", "explicit"]).optional(),
 });
 
 // Standing prefs ride the shared resilient RECORD store (per-user quarantine + freeze). The store

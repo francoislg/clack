@@ -204,6 +204,45 @@ describe("getUserPreference", () => {
 
     assert.equal(result, false);
   });
+
+  it("returns default false for investigationTag when unset", async () => {
+    mockFileExists.mockImplementation(async () => true);
+    mockReadFile.mockImplementation(async () => JSON.stringify({}));
+
+    const result = await getUserPreference("UNKNOWN", "investigationTag");
+
+    assert.equal(result, false);
+  });
+
+  it("returns default 'silent' for investigationBreadcrumb when unset", async () => {
+    clearPreferencesCache();
+    mockFileExists.mockImplementation(async () => true);
+    mockReadFile.mockImplementation(async () => JSON.stringify({}));
+
+    const result = await getUserPreference("UNKNOWN", "investigationBreadcrumb");
+
+    assert.equal(result, "silent");
+  });
+
+  it("returns stored investigationTag value", async () => {
+    const stored = { U1: { investigationTag: true } };
+    mockFileExists.mockImplementation(async () => true);
+    mockReadFile.mockImplementation(async () => JSON.stringify(stored));
+
+    const result = await getUserPreference("U1", "investigationTag");
+
+    assert.equal(result, true);
+  });
+
+  it("returns stored investigationBreadcrumb value", async () => {
+    const stored = { U1: { investigationBreadcrumb: "explicit" } };
+    mockFileExists.mockImplementation(async () => true);
+    mockReadFile.mockImplementation(async () => JSON.stringify(stored));
+
+    const result = await getUserPreference("U1", "investigationBreadcrumb");
+
+    assert.equal(result, "explicit");
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -245,6 +284,30 @@ describe("setUserPreference", () => {
     assert.deepEqual(written, {
       entries: { U1: { reactionDelivery: "dm", notifyOnResponse: true } },
     });
+  });
+
+  it("round-trip: investigationTag can be set and retrieved", async () => {
+    mockFileExists.mockImplementation(async () => true);
+    mockReadFile.mockImplementation(async () => JSON.stringify({}));
+    mockWriteFile.mockImplementation(async () => {});
+
+    await setUserPreference("U_NEW", "investigationTag", true);
+
+    assert.equal(mockWriteFile.mock.calls.length, 1);
+    const written = JSON.parse(mockWriteFile.mock.calls[0][1] as string);
+    assert.deepEqual(written, { entries: { U_NEW: { investigationTag: true } } });
+  });
+
+  it("round-trip: investigationBreadcrumb can be set and retrieved", async () => {
+    mockFileExists.mockImplementation(async () => true);
+    mockReadFile.mockImplementation(async () => JSON.stringify({}));
+    mockWriteFile.mockImplementation(async () => {});
+
+    await setUserPreference("U_NEW", "investigationBreadcrumb", "explicit");
+
+    assert.equal(mockWriteFile.mock.calls.length, 1);
+    const written = JSON.parse(mockWriteFile.mock.calls[0][1] as string);
+    assert.deepEqual(written, { entries: { U_NEW: { investigationBreadcrumb: "explicit" } } });
   });
 });
 
