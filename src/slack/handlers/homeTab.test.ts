@@ -1506,3 +1506,76 @@ describe("registerHomeTabHandler — state quarantine actions", () => {
     assert.equal(client.views.publish.mock.calls.length, 1);
   });
 });
+
+describe("See-… modal open handlers", () => {
+  it("home_open_roles denies a non-admin (opens nothing)", async () => {
+    mockUserCanManageRoles.mockResolvedValue(false);
+    const client = makeClient();
+    const handler = getActionHandler("home_open_roles")!;
+    await handler({ ack: async () => {}, body: { user: { id: "U1" }, trigger_id: "t1" }, client });
+    assert.equal(client.views.open.mock.calls.length, 0);
+  });
+
+  it("home_open_roles opens the Role Management modal for an admin", async () => {
+    mockUserCanManageRoles.mockResolvedValue(true);
+    const client = makeClient();
+    const handler = getActionHandler("home_open_roles")!;
+    await handler({ ack: async () => {}, body: { user: { id: "U1" }, trigger_id: "t1" }, client });
+    assert.equal(client.views.open.mock.calls.length, 1);
+    const opened = client.views.open.mock.calls[0][0] as { view: { callback_id?: string } };
+    assert.equal(opened.view.callback_id, "roles_modal_view");
+  });
+
+  it("home_open_auto_respond denies a non-admin", async () => {
+    mockUserCanManageRoles.mockResolvedValue(false);
+    const client = makeClient();
+    const handler = getActionHandler("home_open_auto_respond")!;
+    await handler({ ack: async () => {}, body: { user: { id: "U1" }, trigger_id: "t1" }, client });
+    assert.equal(client.views.open.mock.calls.length, 0);
+  });
+
+  it("home_open_investigations denies a non-admin", async () => {
+    mockUserCanManageRoles.mockResolvedValue(false);
+    const client = makeClient();
+    const handler = getActionHandler("home_open_investigations")!;
+    await handler({ ack: async () => {}, body: { user: { id: "U1" }, trigger_id: "t1" }, client });
+    assert.equal(client.views.open.mock.calls.length, 0);
+  });
+
+  it("registers the plugins, MCP, status, and investigations open handlers", () => {
+    assert.ok(getActionHandler("home_open_plugins"));
+    assert.ok(getActionHandler("home_open_mcp"));
+    assert.ok(getActionHandler("home_open_status"));
+    assert.ok(getActionHandler("home_open_investigations"));
+  });
+});
+
+describe("openOrPushModal (via transfer_ownership)", () => {
+  it("pushes onto the stack when the interaction came from inside a modal", async () => {
+    const client = makeClient();
+    const handler = getActionHandler("transfer_ownership")!;
+    await handler({
+      ack: async () => {},
+      body: { user: { id: "U1" }, trigger_id: "t1", view: { id: "V1" } },
+      client,
+    });
+    assert.equal(client.views.push.mock.calls.length, 1);
+    assert.equal(client.views.open.mock.calls.length, 0);
+  });
+});
+
+describe("publishHomeView block cap", () => {
+  it("truncates a home view that exceeds Slack's 100-block limit", async () => {
+    mockLoadRoles.mockResolvedValue({ owner: null, admins: [], devs: [] });
+    mockBuildHomeView.mockResolvedValue({
+      type: "home",
+      blocks: Array.from({ length: 150 }, () => ({ type: "divider" })),
+    } as View);
+    const client = makeClient();
+    const handler = capturedEventHandlers.get("app_home_opened")!;
+    await handler({ event: { user: "U001" }, client });
+    const published = client.views.publish.mock.calls[0][0] as { view: View };
+    assert.equal(published.view.blocks.length, 100);
+    assert.equal(published.view.blocks[99].type, "context");
+  });
+});

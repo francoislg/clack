@@ -51,13 +51,32 @@ export const fr: Partial<Record<StringKey, string>> = {
   "home.roles.remove_admin": "- Retirer un admin",
   "home.roles.add_dev": "+ Ajouter un dev",
   "home.roles.remove_dev": "- Retirer un dev",
+  "home.roles.modal_title": "Gestion des rôles",
 
   // ─── Configuration ─────────────────────────────────────────────────
   "home.config.header": "Configuration",
+  "home.truncated_notice":
+    "_Certaines sections sont masquées pour respecter la limite d'affichage de 100 blocs de Slack._",
   "home.config.edit_role_button": "{prefix}Modifier la config {label}",
   "home.config.edit_pre_analysis_button": "{prefix}Modifier le contexte de pré-analyse",
   "home.config.edit_repo_button": ":file_folder: Modifier la config de {repo}",
   "home.config.personal_preferences_button": ":gear: Préférences personnelles",
+  "home.config.see_roles_button": ":busts_in_silhouette: Rôles",
+  "home.config.see_auto_responses_button": ":speech_balloon: Réponses auto",
+  "home.config.see_schedules_button": ":calendar: Messages programmés",
+  "home.config.see_skills_button": ":jigsaw: Compétences",
+  "home.config.see_investigations_button": ":mag: Enquêtes",
+  "home.config.see_plugins_button": ":electric_plug: Extensions",
+  "home.config.see_mcp_button": ":satellite_antenna: Serveurs MCP",
+  "home.config.see_status_button": ":information_source: État",
+  "home.config.group_instructions": "Instructions",
+  "home.config.group_repositories": "Dépôts",
+  "home.config.group_features": "Fonctionnalités Clack",
+  "home.config.group_personal": "Personnel",
+  "home.config.mcp_modal_title": "Serveurs MCP",
+  "home.config.plugins_modal_title": "Extensions",
+  "home.config.mcp_empty": "_Aucun serveur MCP configuré._",
+  "home.config.plugins_empty": "_Aucune extension chargée._",
   "home.config.chat_hint":
     "_Discutez avec moi pour modifier les fichiers de config principaux (config.json, mcp.json, .env, tool mappings) ou redémarrer l'app._",
   "home.config.role_suffix": "Config",
@@ -209,6 +228,7 @@ export const fr: Partial<Record<StringKey, string>> = {
 
   // ─── Auto-respond ──────────────────────────────────────────────────
   "home.auto_respond.header": "Réponse automatique",
+  "home.auto_respond.modal_title": "Règles de réponse auto",
   "home.auto_respond.conversations_header": "*Conversations suivies*",
   "home.auto_respond.conversation_level": "attention : {level}",
   "home.auto_respond.conversation_expires": "expire dans {time}",
@@ -247,6 +267,8 @@ export const fr: Partial<Record<StringKey, string>> = {
 
   // ─── Scheduled messages ────────────────────────────────────────────
   "home.scheduled.header": "Messages programmés",
+  "home.scheduled.modal_title": "Messages programmés (liste)",
+  "home.scheduled.modal_empty": "_Aucun message programmé pour l'instant._",
   "home.scheduled.plugin_header": "Messages programmés des plugins",
   "home.scheduled.plugin_hint":
     "Lecture seule — réconciliés depuis la config plugin. Modifiez `data/config.json` pour changer la programmation/le prompt ; pause/reprise depuis ici.",
@@ -462,6 +484,7 @@ export const fr: Partial<Record<StringKey, string>> = {
     "Vous n'avez pas la permission de modifier la compétence `{slug}`. Seul le propriétaire ou un administrateur peut la modifier.",
   "userSkills.expired": "Désolé, cette demande de compétence a expiré. Veuillez réessayer.",
   "userSkills.section_header": "Compétences",
+  "userSkills.modal_list_title": "Compétences",
   "userSkills.section_subheader":
     "Compétences créées par l'organisation, disponibles à Claude dans chaque session.",
   "userSkills.empty_state":

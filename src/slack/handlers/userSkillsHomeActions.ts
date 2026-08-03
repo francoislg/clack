@@ -40,7 +40,7 @@ import {
   ACTION_EDITABLE_INPUT,
   EDITABLE_OPTION_VALUE,
 } from "../userSkillsHomeTab.js";
-import { publishHomeView } from "./homeTab.js";
+import { publishHomeView, openOrPushModal } from "./homeTab.js";
 import { t } from "../../i18n/t.js";
 
 /**
@@ -72,10 +72,7 @@ function registerOpenCreateModal(app: App): void {
     }
     const trigger = (body as { trigger_id?: string }).trigger_id;
     if (!trigger) return;
-    await client.views.open({
-      trigger_id: trigger,
-      view: buildCreateSkillModal(),
-    });
+    await openOrPushModal(client, body, trigger, buildCreateSkillModal());
   });
 }
 
@@ -96,14 +93,16 @@ function registerOpenEditModal(app: App): void {
         return;
       const trigger = (body as { trigger_id?: string }).trigger_id;
       if (!trigger) return;
-      await client.views.open({
-        trigger_id: trigger,
-        view: buildEditSkillModal(
+      await openOrPushModal(
+        client,
+        body,
+        trigger,
+        buildEditSkillModal(
           skill,
           canManageUserSkill(role, skill.ownerUserId, userId),
           canDeleteUserSkill(role),
         ),
-      });
+      );
     },
   );
 }

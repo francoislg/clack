@@ -50,13 +50,31 @@ export const en = {
   "home.roles.remove_admin": "- Remove Admin",
   "home.roles.add_dev": "+ Add Dev",
   "home.roles.remove_dev": "- Remove Dev",
+  "home.roles.modal_title": "Role Management",
 
   // ─── Home Tab: configuration section ───────────────────────────────
   "home.config.header": "Configuration",
+  "home.truncated_notice": "_Some sections are hidden to fit Slack's 100-block display limit._",
   "home.config.edit_role_button": "{prefix}Edit {label}",
   "home.config.edit_pre_analysis_button": "{prefix}Edit Pre-Analysis Context",
   "home.config.edit_repo_button": ":file_folder: Edit {repo} Config",
   "home.config.personal_preferences_button": ":gear: Personal Preferences",
+  "home.config.see_roles_button": ":busts_in_silhouette: Roles",
+  "home.config.see_auto_responses_button": ":speech_balloon: Auto-Responses",
+  "home.config.see_schedules_button": ":calendar: Schedules",
+  "home.config.see_skills_button": ":jigsaw: Skills",
+  "home.config.see_investigations_button": ":mag: Investigations",
+  "home.config.see_plugins_button": ":electric_plug: Plugins",
+  "home.config.see_mcp_button": ":satellite_antenna: MCP Servers",
+  "home.config.see_status_button": ":information_source: Status",
+  "home.config.group_instructions": "Instructions",
+  "home.config.group_repositories": "Repositories",
+  "home.config.group_features": "Clack Features",
+  "home.config.group_personal": "Personal",
+  "home.config.mcp_modal_title": "MCP Servers",
+  "home.config.plugins_modal_title": "Plugins",
+  "home.config.mcp_empty": "_No MCP servers configured._",
+  "home.config.plugins_empty": "_No plugins loaded._",
   "home.config.chat_hint":
     "_Chat with me to edit core config files (config.json, mcp.json, .env, tool mappings) or restart the app._",
   "home.config.role_suffix": "Config",
@@ -204,6 +222,7 @@ export const en = {
 
   // ─── Home Tab: auto-respond ────────────────────────────────────────
   "home.auto_respond.header": "Auto-Respond",
+  "home.auto_respond.modal_title": "Auto-Respond Rules",
   "home.auto_respond.conversations_header": "*Conversations being followed*",
   "home.auto_respond.conversation_level": "attention: {level}",
   "home.auto_respond.conversation_expires": "expires in {time}",
@@ -241,6 +260,8 @@ export const en = {
 
   // ─── Home Tab: scheduled messages ──────────────────────────────────
   "home.scheduled.header": "Scheduled Messages",
+  "home.scheduled.modal_title": "Scheduled Messages",
+  "home.scheduled.modal_empty": "_No scheduled messages yet._",
   "home.scheduled.plugin_header": "Plugin Scheduled Messages",
   "home.scheduled.plugin_hint":
     "Read-only — these are reconciled from plugin config. Edit `data/config.json` to change schedule/prompt; pause/resume from here.",
@@ -451,6 +472,7 @@ export const en = {
     "You don't have permission to edit skill `{slug}`. Only the owner or an admin can edit.",
   "userSkills.expired": "Sorry, this skill request has expired. Please try again.",
   "userSkills.section_header": "Skills",
+  "userSkills.modal_list_title": "Skills",
   "userSkills.section_subheader": "Org-authored skills available to Claude in every session.",
   "userSkills.empty_state": "No user skills yet. Click *+ Create skill* to add the first one.",
   "userSkills.create_button": "+ Create skill",
