@@ -74,7 +74,9 @@ Clack authenticates with GitHub using a GitHub App. Each self-hosted deployment 
    - **Contents**: Read & write (clone repos, push branches)
    - **Pull requests**: Read & write (create/merge/close PRs)
    - **Metadata**: Read-only
+   - **Checks**: Read-only (lets the worker read CI check-runs via `await_ci`; without it every poll 403s and `await_ci` fails with "could not read CI status")
    - **Issues**: Read & write _(optional — enables issue tools in the GitHub MCP server)_
+   - **Commit statuses**: Read-only _(optional — only if your CI reports through the legacy Statuses API rather than Check Runs)_
 4. Click **Create GitHub App**
 5. On the app's General page, note the **App ID**
 6. Scroll to **Private keys** and click **Generate a private key** — save the `.pem` file
