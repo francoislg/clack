@@ -193,6 +193,20 @@ export const fr: Partial<Record<StringKey, string>> = {
     "Si la réponse prend plus de 60 secondes, publier un suivi pour vous notifier sur Slack.",
   "home.settings.notify_off_label": "Désactivé",
   "home.settings.notify_off_description": "Pas de message supplémentaire — juste la réponse.",
+  "home.settings.investigation_tag_label": "🔎 Mention lors des enquêtes",
+  "home.settings.investigation_tag_on_label": "Me mentionner",
+  "home.settings.investigation_tag_on_description":
+    "Me mentionner (notification) dans le message d'ouverture de l'enquête.",
+  "home.settings.investigation_tag_off_label": "Ne pas me mentionner",
+  "home.settings.investigation_tag_off_description":
+    "Afficher mon nom en texte simple, sans notification.",
+  "home.settings.investigation_breadcrumb_label": "🔎 Fil d'Ariane d'enquête",
+  "home.settings.investigation_breadcrumb_explicit_label": "Publier un repère",
+  "home.settings.investigation_breadcrumb_explicit_description":
+    "Laisser une note dans le fil d'origine avec un lien vers l'enquête.",
+  "home.settings.investigation_breadcrumb_silent_label": "Rester silencieux",
+  "home.settings.investigation_breadcrumb_silent_description":
+    "Démarrer l'enquête sans rien publier dans le fil d'origine.",
 
   // ─── User select / remove modals ───────────────────────────────────
   "home.user_select.label": "Sélectionner un utilisateur",
@@ -201,11 +215,9 @@ export const fr: Partial<Record<StringKey, string>> = {
   "home.user_remove.label": "Utilisateur",
 
   // ─── Enquêtes ──────────────────────────────────────────────────────
-  "investigations.parent_channel": "🔎 Enquête sur {link}…",
-  "investigations.parent_dm": "🔎 Continuation de {link}…",
+  "investigations.parent": "🔎 {requester} a demandé une enquête sur : {link}",
   "investigations.breadcrumb_channel": "🔎 Enquête en cours dans {link}.",
   "investigations.breadcrumb_dm": "🔎 Continuation de cette conversation en DM.",
-  "investigations.reactor_started": "🔎 Enquête lancée : {link}",
   "investigations.reactor_duplicate": "Ce fil est déjà en cours d'enquête : {link}",
   "investigations.reactor_resolve_failed":
     "Impossible de retrouver le fil du message. Veuillez réessayer.",
@@ -216,7 +228,7 @@ export const fr: Partial<Record<StringKey, string>> = {
   "investigations.owner_unconfigured":
     "{user} a tenté de lancer une enquête, mais aucun canal d'enquête n'est configuré. Choisissez-en un dans l'onglet Accueil → Enquêtes.",
   "investigations.owner_degraded":
-    "Une enquête a commencé à suivre {link}, mais le bot n'a pas pu rejoindre ce canal public — elle est passée en mode suivi passif (pas de mises à jour en direct ; le contenu est tout de même récupéré à chaque tour). Ajoutez le bot au canal pour rétablir le suivi en direct.",
+    "Une enquête a démarré en suivant {link}, mais le bot n'a pas la permission `channels:join` requise pour le rejoindre ; il est donc passé en mode suivi passif (aucune mise à jour en direct ; le contenu est tout de même récupéré à chaque tour). Régénérez le manifeste et réinstallez l'application pour accorder `channels:join`, et le suivi en direct reprendra.",
   "investigations.home_section_title": "🔎 Enquêtes",
   "investigations.home_channel_label": "Canal d'enquête",
   "investigations.home_channel_placeholder": "Sélectionnez un canal",

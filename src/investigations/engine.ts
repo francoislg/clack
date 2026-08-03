@@ -16,6 +16,8 @@ import { createSession, getSession, updateSession, type SessionContext } from ".
 import { processMessage, setInvestigationSessionRefresher } from "../slack/handlers/core.js";
 import { runInvestigationPreAnalysis } from "../claude/preAnalysis.js";
 import { isBotMessage } from "../slack/isBotMessage.js";
+import { getUserPreference } from "../userPreferences.js";
+import { getUserInfo } from "../slack/userCache.js";
 import { drainFollowedThreads, type DrainClient } from "./drain.js";
 import { buildInvestigationDeliveryContext } from "./deliveryContext.js";
 import {
@@ -65,11 +67,23 @@ async function getPermalink(
 }
 
 /**
- * Attempt to join a public origin channel so live events arrive. Returns whether the bot can
- * receive events: private channels (`method_not_supported_for_channel_type`) and
- * already-member channels are fine; any other failure means the thread degrades to `follow`.
+ * Check whether the bot is already a member of a channel before attempting to join.
+ * Returns whether the bot can receive events: already-member channels, DMs, and
+ * private channels (inherently joined or not supportable) are fine; a genuine join failure
+ * means the thread degrades to `follow`.
  */
 async function ensureChannelMembership(client: SlackClient, channel: string): Promise<boolean> {
+  // Already a member (or an inherently-joined DM/MPIM) → events already flow; no join needed.
+  try {
+    const info = await client.conversations.info({ channel });
+    const ch = info.channel;
+    if (ch?.is_member || ch?.is_im || ch?.is_mpim) return true;
+  } catch (err) {
+    logger.debug(
+      `investigations: conversations.info failed for ${channel} (${slackErrorCode(err) ?? String(err)}); attempting join`,
+    );
+  }
+  // Genuinely absent from a public channel → attempt to join.
   try {
     await client.conversations.join({ channel });
     return true;
@@ -81,6 +95,16 @@ async function ensureChannelMembership(client: SlackClient, channel: string): Pr
     logger.warn(`investigations: could not join channel ${channel} (${code ?? String(err)})`);
     return false;
   }
+}
+
+/** Render the requester for the parent message: a pinging mention when the user opted in,
+ *  else a plain-text @name that does not notify. */
+async function renderRequesterLabel(client: SlackClient, requester: string): Promise<string> {
+  const tag = await getUserPreference(requester, "investigationTag");
+  if (tag) return `<@${requester}>`;
+  const info = await getUserInfo(client, requester);
+  const name = info?.displayName ?? info?.username ?? requester;
+  return `@${name}`;
 }
 
 /**
@@ -204,12 +228,12 @@ export async function bootstrapInvestigation(params: BootstrapParams): Promise<B
     ? (params.originMode ?? "followAndInteract")
     : "follow";
 
-  const originPermalink = await getPermalink(client, originChannel, originThreadTs);
+  const [originPermalink, requesterLabel] = await Promise.all([
+    getPermalink(client, originChannel, originThreadTs),
+    renderRequesterLabel(client, requester),
+  ]);
   const linkVar = originPermalink ?? `<#${originChannel}>`;
-  const parentText =
-    surface === "dm"
-      ? t("investigations.parent_dm", { link: linkVar })
-      : t("investigations.parent_channel", { link: linkVar });
+  const parentText = t("investigations.parent", { requester: requesterLabel, link: linkVar });
 
   const parent = await client.chat.postMessage({ channel: mainChannel, text: parentText });
   const mainThreadTs = parent.ts;
@@ -262,19 +286,24 @@ export async function bootstrapInvestigation(params: BootstrapParams): Promise<B
     logger.warn(`investigations: first round failed for ${session.sessionId}: ${String(err)}`);
   }
 
-  const mainPermalink = await getPermalink(client, mainChannel, mainThreadTs);
-  const breadcrumb =
-    surface === "dm"
-      ? t("investigations.breadcrumb_dm")
-      : t("investigations.breadcrumb_channel", { link: mainPermalink ?? `<#${mainChannel}>` });
-  try {
-    await client.chat.postMessage({
-      channel: originChannel,
-      thread_ts: originThreadTs,
-      text: breadcrumb,
-    });
-  } catch (err) {
-    logger.warn(`investigations: failed to post breadcrumb in ${originChannel}: ${String(err)}`);
+  const [mainPermalink, breadcrumbPref] = await Promise.all([
+    getPermalink(client, mainChannel, mainThreadTs),
+    getUserPreference(requester, "investigationBreadcrumb"),
+  ]);
+  if (breadcrumbPref === "explicit") {
+    const breadcrumb =
+      surface === "dm"
+        ? t("investigations.breadcrumb_dm")
+        : t("investigations.breadcrumb_channel", { link: mainPermalink ?? `<#${mainChannel}>` });
+    try {
+      await client.chat.postMessage({
+        channel: originChannel,
+        thread_ts: originThreadTs,
+        text: breadcrumb,
+      });
+    } catch (err) {
+      logger.warn(`investigations: failed to post breadcrumb in ${originChannel}: ${String(err)}`);
+    }
   }
 
   return {

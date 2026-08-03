@@ -490,22 +490,40 @@ export function registerHomeTabHandler(app: App, deps: HomeTabDeps = defaultHome
   app.view<ViewSubmitAction>("settings_modal", async ({ ack, view, body, client }) => {
     const userId = body.user.id;
 
-    // Extract preference values from modal
     const deliveryValue =
       view.state.values.response_delivery_block?.response_delivery?.selected_option?.value;
     const notifyValue =
       view.state.values.notify_on_response_block?.notify_on_response?.selected_option?.value;
+    const investigationTagValue =
+      view.state.values.investigation_tag_block?.investigation_tag?.selected_option?.value;
+    const investigationBreadcrumbValue =
+      view.state.values.investigation_breadcrumb_block?.investigation_breadcrumb?.selected_option
+        ?.value;
 
     const updates: string[] = [];
+
+    // Persist a "true"/"false" radio value onto a boolean preference.
+    const saveBooleanPref = async (
+      value: string | undefined,
+      key: "notifyOnResponse" | "investigationTag",
+    ): Promise<void> => {
+      if (value === "true" || value === "false") {
+        await deps.setUserPreference(userId, key, value === "true");
+        updates.push(`${key}=${value}`);
+      }
+    };
 
     if (deliveryValue === "dm" || deliveryValue === "thread") {
       await deps.setUserPreference(userId, "reactionDelivery", deliveryValue as ReactionDelivery);
       updates.push(`reactionDelivery=${deliveryValue}`);
     }
 
-    if (notifyValue === "true" || notifyValue === "false") {
-      await deps.setUserPreference(userId, "notifyOnResponse", notifyValue === "true");
-      updates.push(`notifyOnResponse=${notifyValue}`);
+    await saveBooleanPref(notifyValue, "notifyOnResponse");
+    await saveBooleanPref(investigationTagValue, "investigationTag");
+
+    if (investigationBreadcrumbValue === "silent" || investigationBreadcrumbValue === "explicit") {
+      await deps.setUserPreference(userId, "investigationBreadcrumb", investigationBreadcrumbValue);
+      updates.push(`investigationBreadcrumb=${investigationBreadcrumbValue}`);
     }
 
     if (updates.length > 0) {
@@ -514,7 +532,6 @@ export function registerHomeTabHandler(app: App, deps: HomeTabDeps = defaultHome
 
     await ack();
 
-    // Refresh the Home Tab
     await publishHomeView(client, userId, deps);
   });
 

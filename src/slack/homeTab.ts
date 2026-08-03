@@ -967,6 +967,8 @@ export async function buildSettingsModal(
 ): Promise<View> {
   const delivery = await deps.getReactionDelivery(userId);
   const notifyOnResponse = await deps.getUserPreference(userId, "notifyOnResponse");
+  const investigationTag = await deps.getUserPreference(userId, "investigationTag");
+  const investigationBreadcrumb = await deps.getUserPreference(userId, "investigationBreadcrumb");
 
   const dmOption = {
     text: { type: "plain_text" as const, text: t("home.settings.delivery_dm_label") },
@@ -1000,6 +1002,46 @@ export async function buildSettingsModal(
       text: t("home.settings.notify_off_description"),
     },
     value: "false",
+  };
+
+  const investigationTagOnOption = {
+    text: { type: "plain_text" as const, text: t("home.settings.investigation_tag_on_label") },
+    description: {
+      type: "plain_text" as const,
+      text: t("home.settings.investigation_tag_on_description"),
+    },
+    value: "true",
+  };
+  const investigationTagOffOption = {
+    text: { type: "plain_text" as const, text: t("home.settings.investigation_tag_off_label") },
+    description: {
+      type: "plain_text" as const,
+      text: t("home.settings.investigation_tag_off_description"),
+    },
+    value: "false",
+  };
+
+  const investigationBreadcrumbExplicitOption = {
+    text: {
+      type: "plain_text" as const,
+      text: t("home.settings.investigation_breadcrumb_explicit_label"),
+    },
+    description: {
+      type: "plain_text" as const,
+      text: t("home.settings.investigation_breadcrumb_explicit_description"),
+    },
+    value: "explicit",
+  };
+  const investigationBreadcrumbSilentOption = {
+    text: {
+      type: "plain_text" as const,
+      text: t("home.settings.investigation_breadcrumb_silent_label"),
+    },
+    description: {
+      type: "plain_text" as const,
+      text: t("home.settings.investigation_breadcrumb_silent_description"),
+    },
+    value: "silent",
   };
 
   return {
@@ -1054,6 +1096,49 @@ export async function buildSettingsModal(
             action_id: "notify_on_response",
             initial_option: notifyOnResponse ? notifyOnOption : notifyOffOption,
             options: [notifyOnOption, notifyOffOption],
+          },
+        ],
+      },
+      { type: "divider" },
+      {
+        type: "section",
+        text: {
+          type: "mrkdwn",
+          text: t("home.settings.investigation_tag_label"),
+        },
+      },
+      {
+        type: "actions",
+        block_id: "investigation_tag_block",
+        elements: [
+          {
+            type: "radio_buttons",
+            action_id: "investigation_tag",
+            initial_option: investigationTag ? investigationTagOnOption : investigationTagOffOption,
+            options: [investigationTagOnOption, investigationTagOffOption],
+          },
+        ],
+      },
+      { type: "divider" },
+      {
+        type: "section",
+        text: {
+          type: "mrkdwn",
+          text: t("home.settings.investigation_breadcrumb_label"),
+        },
+      },
+      {
+        type: "actions",
+        block_id: "investigation_breadcrumb_block",
+        elements: [
+          {
+            type: "radio_buttons",
+            action_id: "investigation_breadcrumb",
+            initial_option:
+              investigationBreadcrumb === "explicit"
+                ? investigationBreadcrumbExplicitOption
+                : investigationBreadcrumbSilentOption,
+            options: [investigationBreadcrumbExplicitOption, investigationBreadcrumbSilentOption],
           },
         ],
       },

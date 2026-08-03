@@ -146,7 +146,7 @@ describe("handleInvestigateReaction", () => {
     );
   });
 
-  it("bootstrap ok status: posts reactor ephemeral with permalink", async () => {
+  it("bootstrap ok status (non-degraded): does not post reactor ephemeral", async () => {
     const deps = makeDeps({
       bootstrapInvestigation: vi.fn(async () => ({
         status: "ok" as const,
@@ -160,33 +160,30 @@ describe("handleInvestigateReaction", () => {
     const client = makeClient();
     await handleInvestigateReaction(makeEvent("mag", "U001"), client, deps);
 
-    expect(mockPostEphemeralFn).toHaveBeenCalledWith(
-      expect.objectContaining({
-        channel: "C001",
-        user: "U001",
-        text: expect.stringContaining("Investigation started"),
-      }),
-    );
+    expect(mockPostEphemeralFn).not.toHaveBeenCalled();
   });
 
-  it("bootstrap ok status: posts reactor ephemeral with mainChannel when no permalink", async () => {
+  it("bootstrap ok status (degraded): sends owner DM, no reactor ephemeral", async () => {
+    const mockGetOwnerUserId = vi.fn(async () => "U_OWNER");
+    const mockSendOwnerDm = vi.fn(async () => true);
+
     const deps = makeDeps({
       bootstrapInvestigation: vi.fn(async () => ({
         status: "ok" as const,
         sessionId: "S001",
         mainChannel: "C002",
-        degraded: false,
+        degraded: true,
       })),
+      getOwnerUserId: mockGetOwnerUserId,
+      sendOwnerDm: mockSendOwnerDm,
     });
 
     const client = makeClient();
     await handleInvestigateReaction(makeEvent("mag", "U001"), client, deps);
 
-    expect(mockPostEphemeralFn).toHaveBeenCalledWith(
-      expect.objectContaining({
-        text: expect.stringContaining("Investigation started"),
-      }),
-    );
+    expect(mockGetOwnerUserId).toHaveBeenCalledTimes(1);
+    expect(mockSendOwnerDm).toHaveBeenCalledWith("U_OWNER", expect.stringContaining("<#C001>"));
+    expect(mockPostEphemeralFn).not.toHaveBeenCalled();
   });
 
   it("duplicate status: posts reactor ephemeral with permalink", async () => {
