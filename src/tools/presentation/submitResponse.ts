@@ -99,9 +99,28 @@ const choiceActionSchema = z.object({
 //     needs `z.lazy(...)` to break the cycle, while top-level `actions` (declared
 //     after `actionSchema`) can reference it directly. Sharing one declaration would
 //     force both to use lazy and lose type inference for the top-level path.
+// Tool Search defers MCP tool schemas, so Claude can compose this call schema-blind — the
+// characteristic mistake is passing structured params as JSON-encoded strings. The default
+// invalid_type message names the wrong shape but not the fix, inviting retries that mutate
+// content instead of encoding; this error map hands Claude the exact corrective action.
+const stringifiedParamHint = (
+  field: string,
+): { error: (issue: z.core.$ZodRawIssue) => string | undefined } => ({
+  error: (issue) =>
+    issue.code === "invalid_type" && typeof issue.input === "string"
+      ? [
+          `\`${field}\` arrived as a JSON-encoded STRING; it must be actual JSON, not a string containing JSON.`,
+          "If this tool's full schema is not loaded in your context, load it first with ToolSearch",
+          '(query: "select:mcp__clack__submit_response").',
+          "Then re-send the IDENTICAL content with the string unwrapped into real JSON —",
+          "fix only the encoding; do NOT change any content (text, emoji, table cells, labels).",
+        ].join(" ")
+      : undefined,
+});
+
 const messageContentFields = {
   blocks: z
-    .array(BlockSchema)
+    .array(BlockSchema, stringifiedParamHint("blocks"))
     .min(1)
     .describe(
       "Slack Block Kit blocks (Clack's curated subset: divider, header, section, context, image, markdown, card, carousel) shown to the user. Default to a single section block with mrkdwn text; add structure only when the content genuinely has structure.",
@@ -209,7 +228,7 @@ const postToActionSchema = z.object({
   ...messageContentFields,
   // Override the fragment's `blocks` description for post_to context.
   blocks: z
-    .array(BlockSchema)
+    .array(BlockSchema, stringifiedParamHint("blocks"))
     .min(1)
     .describe(
       "The exact Block Kit payload to post. Each post_to action posts only its own blocks. When presenting multiple options, each action's blocks hold only that option's content.",
@@ -217,7 +236,10 @@ const postToActionSchema = z.object({
   // Optional interactive buttons rendered on the cross-posted message.
   // `z.lazy` breaks the recursion cycle (actionSchema → postToActionSchema → actionSchema).
   actions: z
-    .array(z.lazy((): z.ZodType<Action> => actionSchema))
+    .array(
+      z.lazy((): z.ZodType<Action> => actionSchema),
+      stringifiedParamHint("actions"),
+    )
     .optional()
     .describe(
       "Optional interactive buttons rendered on the cross-posted message. Same action types as top-level (followup, choice, change, config_update, update). Nested `post_to` is rejected. Click handlers route back to the original session, so ref-based actions resolve against the original intentStore.",
@@ -395,7 +417,7 @@ export const actionSchema = z.discriminatedUnion(
 const messagePayloadSchema: z.ZodType<MessagePayload> = z
   .object({
     blocks: z
-      .array(BlockSchema)
+      .array(BlockSchema, stringifiedParamHint("blocks"))
       .min(1)
       .describe(
         "Slack Block Kit blocks (Clack's curated subset) for this follow-up message. Same rules as the primary blocks field.",
@@ -409,7 +431,10 @@ const messagePayloadSchema: z.ZodType<MessagePayload> = z
         "Optional chart (data_visualization block), rendered above the table in this follow-up message. Same shape as the primary `chart` field.",
       ),
     actions: z
-      .array(z.lazy((): z.ZodType<Action> => actionSchema))
+      .array(
+        z.lazy((): z.ZodType<Action> => actionSchema),
+        stringifiedParamHint("actions"),
+      )
       .optional()
       .describe(
         "Optional interactive buttons rendered on this follow-up message. Same action types as the primary actions field. Nested `post_to` inside this follow-up's actions is NOT allowed when this follow-up is itself inside a `post_to` (the existing nested-post_to rule extends to walk through followers).",
@@ -759,7 +784,7 @@ const normalResponseSchema = {
     ),
   ...messageContentFields,
   actions: z
-    .array(actionSchema)
+    .array(actionSchema, stringifiedParamHint("actions"))
     .describe(
       "Interactive buttons for the user to click. Use an empty array for casual/conversational responses that don't need actions.",
     ),
@@ -845,13 +870,13 @@ const skipResponseField = z
   );
 
 const skipOptionalBlocks = z
-  .array(BlockSchema)
+  .array(BlockSchema, stringifiedParamHint("blocks"))
   .min(1)
   .optional()
   .describe("Slack Block Kit blocks shown to the user (not required when skip_response is true)");
 
 const skipOptionalActions = z
-  .array(actionSchema)
+  .array(actionSchema, stringifiedParamHint("actions"))
   .optional()
   .describe("Interactive buttons for the user to click (not required when skip_response is true)");
 
@@ -904,7 +929,10 @@ const deliverToResponseSchema = z
   .object({
     ...messageContentFields,
     actions: z
-      .array(z.lazy((): z.ZodType<Action> => actionSchema))
+      .array(
+        z.lazy((): z.ZodType<Action> => actionSchema),
+        stringifiedParamHint("actions"),
+      )
       .optional()
       .describe(
         "Optional interactive buttons rendered on this delivered message. Same action types as a " +
