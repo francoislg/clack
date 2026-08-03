@@ -144,7 +144,7 @@ describe("casual-talk plugin load", () => {
     assert.ok(engagement, "engagement topic instruction must be registered");
     assert.equal(engagement.role, "user");
     assert.match(engagement.content, /fetch_channel_messages/);
-    assert.match(engagement.content, /attention_level: "high"/);
+    assert.match(engagement.content, /Setting `attention_level` is MANDATORY/);
     // Instructions-only server: no tool is bound to the engagement server.
     assert.ok(
       result.tools.every((t) => t.serverKey !== "engagement"),

@@ -7,7 +7,7 @@ import { z } from "zod";
 import { tool, type SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import { WebClient } from "@slack/web-api";
 import { createClackSdk } from "./factory.js";
-import type { ClackSdkDeps, AttentionLevel } from "../sdk.js";
+import type { ClackSdkDeps, AttentionLevel, ThreadEngagementOrigin } from "../sdk.js";
 import type { RolesConfig } from "../../roles.js";
 import type { CronJob } from "../../cronJobs.js";
 
@@ -506,11 +506,12 @@ describe("ClackSdk", () => {
   });
 
   describe("engageThread", () => {
-    it("forwards a non-off level + creationContext to the core helper", async () => {
+    it("forwards a non-off level + origin + creationContext to the core helper", async () => {
       const calls: {
         channel: string;
         threadRoot: string;
         attentionLevel: AttentionLevel;
+        origin: ThreadEngagementOrigin;
         creationContext?: string;
       }[] = [];
       const { sdk } = makeSdk("trivia", {
@@ -519,6 +520,7 @@ describe("ClackSdk", () => {
             channel,
             threadRoot,
             attentionLevel: opts.attentionLevel,
+            origin: opts.origin,
             creationContext: opts.creationContext,
           });
           return null;
@@ -527,6 +529,7 @@ describe("ClackSdk", () => {
 
       await sdk.engageThread("C1", "1700000000.000100", {
         attentionLevel: "high",
+        origin: "opened",
         creationContext: "ctx",
       });
 
@@ -534,7 +537,24 @@ describe("ClackSdk", () => {
       assert.equal(calls[0].channel, "C1");
       assert.equal(calls[0].threadRoot, "1700000000.000100");
       assert.equal(calls[0].attentionLevel, "high");
+      assert.equal(calls[0].origin, "opened");
       assert.equal(calls[0].creationContext, "ctx");
+    });
+
+    it("forwards a joined origin so the core helper can clamp it", async () => {
+      const origins: ThreadEngagementOrigin[] = [];
+      const { sdk } = makeSdk("trivia", {
+        registerThreadSession: async (channel, threadRoot, opts) => {
+          assert.equal(channel, "C1");
+          assert.equal(threadRoot, "T");
+          origins.push(opts.origin);
+          return null;
+        },
+      });
+
+      await sdk.engageThread("C1", "T", { attentionLevel: "high", origin: "joined" });
+
+      assert.deepEqual(origins, ["joined"]);
     });
 
     it("is a no-op for an omitted or off attention level", async () => {
@@ -546,8 +566,8 @@ describe("ClackSdk", () => {
         },
       });
 
-      await sdk.engageThread("C1", "T", {});
-      await sdk.engageThread("C1", "T", { attentionLevel: "off" });
+      await sdk.engageThread("C1", "T", { origin: "opened" });
+      await sdk.engageThread("C1", "T", { attentionLevel: "off", origin: "opened" });
 
       assert.equal(called, 0);
     });

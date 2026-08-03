@@ -357,6 +357,9 @@ async function seedChannelReplyThreadHandoff(ctx: DeliveryContext): Promise<void
   try {
     const seeded = await ctx.deps.registerThreadSession(ctx.targetChannel, ctx.targetThread, {
       attentionLevel: "medium",
+      // The thread exists only because a human replied to Clack's own channel post — a
+      // conversation aimed at Clack, not one Clack inserted itself into.
+      origin: "opened",
       ...(ctx.session.additionalSystemPrompt && {
         creationContext: ctx.session.additionalSystemPrompt,
       }),

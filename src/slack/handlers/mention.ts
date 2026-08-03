@@ -77,22 +77,18 @@ export function registerMentionHandler(app: App, deps: MentionDeps = defaultMent
       return;
     }
 
-    // Re-activate auto-respond tracking if the thread was disengaged
-    if (event.thread_ts) {
-      const existingSession = await deps.findSessionByThread(event.channel, event.thread_ts);
-      if (existingSession && !isEngaged(existingSession)) {
-        logger.info(
-          `Re-activating auto-respond for session ${existingSession.sessionId}${await slackLink(client, event.channel, event.thread_ts)}`,
-        );
-        await deps.setAttentionLevel(existingSession.sessionId, "medium");
-      }
-    }
+    // A mention on a disengaged thread lifts the stop to "low" for the duration of the turn, so
+    // a clarification typed while Clack is still answering is evaluated rather than dropped by
+    // the isEngaged gate. Whether the lift outlives the turn is decided once the answer lands.
+    const revivedSessionId = event.thread_ts
+      ? await liftStopForTurn(client, event.channel, event.thread_ts, deps)
+      : undefined;
 
     const fallbackText = event.thread_ts
       ? "Read the conversation above and provide an answer or investigation based on what's being discussed."
       : "Answer based on the attached image(s).";
 
-    await deps.processMessage({
+    const response = await deps.processMessage({
       client,
       userId: event.user,
       channelId: event.channel,
@@ -104,5 +100,50 @@ export function registerMentionHandler(app: App, deps: MentionDeps = defaultMent
       actionToken: (event as { action_token?: string }).action_token,
       ...attachments,
     });
+
+    if (revivedSessionId) {
+      await settleRevivedThread(revivedSessionId, response, deps);
+    }
   });
+}
+
+/**
+ * Raise a disengaged thread to `"low"` before its mention turn runs. Returns the session id when
+ * a stop was actually lifted (so the caller must settle it afterwards), `undefined` otherwise.
+ */
+async function liftStopForTurn(
+  client: App["client"],
+  channel: string,
+  threadTs: string,
+  deps: MentionDeps,
+): Promise<string | undefined> {
+  const existingSession = await deps.findSessionByThread(channel, threadTs);
+  if (!existingSession || isEngaged(existingSession)) return undefined;
+
+  logger.info(
+    `Lifting stop to "low" for the mention turn on session ${existingSession.sessionId}${await slackLink(client, channel, threadTs)}`,
+  );
+  await deps.setAttentionLevel(existingSession.sessionId, "low");
+  return existingSession.sessionId;
+}
+
+/**
+ * Decide whether a lifted stop outlives its turn, now that the answer's outcome is known.
+ * A turn that produced no answer restores the stop; otherwise tracking stays at the `"low"`
+ * floor. A level Claude chose itself is already persisted by the delivery layer and wins.
+ */
+async function settleRevivedThread(
+  sessionId: string,
+  response: Awaited<ReturnType<typeof processMessage>>,
+  deps: MentionDeps,
+): Promise<void> {
+  if (response.attentionLevel) return;
+
+  const answered = response.success && !response.skipped && !response.cancelled;
+  if (answered) return;
+
+  logger.info(
+    `Mention turn produced no answer — restoring the stop on session ${sessionId} (success=${response.success}, skipped=${response.skipped ?? false}, cancelled=${response.cancelled ?? false})`,
+  );
+  await deps.setAttentionLevel(sessionId, "off");
 }

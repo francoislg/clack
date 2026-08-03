@@ -1,5 +1,3 @@
-const MAX_INLINE_LENGTH = 60;
-
 /**
  * Mapping from Slack emoji shortcode to Unicode codepoint for the standard
  * emoji most likely to be configured as the stop reaction. Custom workspace
@@ -25,9 +23,10 @@ export function slackEmojiToUnicode(name: string): string | undefined {
  * Returns true when the message text should be interpreted as an inline stop
  * signal for the configured stop emoji.
  *
- * Rule B: trimmed text ≤ 60 chars AND contains either `:<stopEmoji>:` or the
- * emoji's Unicode form. If `stopEmoji` is null, undefined, or empty, the
- * feature is disabled and this always returns `false`.
+ * A message either carries the stop signal or it does not — length is not part
+ * of the test, so a stop emoji alongside a pasted link still stops the thread.
+ * Matches `:<stopEmoji>:` or the emoji's Unicode form. If `stopEmoji` is null,
+ * undefined, or empty, the feature is disabled and this always returns `false`.
  */
 export function matchesInlineStopEmoji(
   text: string | undefined,
@@ -37,7 +36,6 @@ export function matchesInlineStopEmoji(
   if (!text) return false;
   const trimmed = text.trim();
   if (trimmed.length === 0) return false;
-  if (trimmed.length > MAX_INLINE_LENGTH) return false;
   if (trimmed.includes(`:${stopEmoji}:`)) return true;
   const unicode = slackEmojiToUnicode(stopEmoji);
   if (unicode && trimmed.includes(unicode)) return true;

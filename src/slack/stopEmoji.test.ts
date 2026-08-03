@@ -5,7 +5,7 @@ import { matchesInlineStopEmoji, slackEmojiToUnicode } from "./stopEmoji.js";
 const OCTAGONAL_SIGN = "\u{1F6D1}"; // 🛑
 const STOP = "octagonal_sign";
 
-describe("matchesInlineStopEmoji (Rule B)", () => {
+describe("matchesInlineStopEmoji", () => {
   it("matches the Unicode form alone", () => {
     assert.equal(matchesInlineStopEmoji(OCTAGONAL_SIGN, STOP), true);
   });
@@ -26,20 +26,23 @@ describe("matchesInlineStopEmoji (Rule B)", () => {
     assert.equal(matchesInlineStopEmoji(`${OCTAGONAL_SIGN} :octagonal_sign:`, STOP), true);
   });
 
-  it("matches at exactly 60 characters", () => {
-    const padding = "x".repeat(58);
-    assert.equal(matchesInlineStopEmoji(`${padding}${OCTAGONAL_SIGN}`, STOP), true);
-  });
-
-  it("does NOT match when text exceeds 60 characters", () => {
+  it("matches a long message carrying the Unicode form", () => {
     const long = "I was thinking about this and wanted to flag: 🛑 the rollout graph shape today";
     assert.ok(long.trim().length > 60);
-    assert.equal(matchesInlineStopEmoji(long, STOP), false);
+    assert.equal(matchesInlineStopEmoji(long, STOP), true);
   });
 
-  it("does NOT match a long colon-form message", () => {
+  it("matches a long colon-form message", () => {
     const text = "The :octagonal_sign: emoji is handy to use for highlighting errors in docs";
-    assert.equal(matchesInlineStopEmoji(text, STOP), false);
+    assert.ok(text.trim().length > 60);
+    assert.equal(matchesInlineStopEmoji(text, STOP), true);
+  });
+
+  it("matches a stop emoji followed by a pasted link and a mention", () => {
+    const text =
+      ":clack-stop:\n\n<@U0382LJ3KPB> <https://github.com/ApplauzRecognition/applauz-monorepo/pull/4831>";
+    assert.ok(text.trim().length > 60);
+    assert.equal(matchesInlineStopEmoji(text, "clack-stop"), true);
   });
 
   it("does NOT match when text does not contain the configured emoji", () => {
@@ -72,7 +75,7 @@ describe("matchesInlineStopEmoji (Rule B)", () => {
     assert.equal(matchesInlineStopEmoji("🛑", "clack-stop"), false);
   });
 
-  it("trims the message before the length check", () => {
+  it("matches a whitespace-padded emoji-only message", () => {
     const text = `\n\n   ${OCTAGONAL_SIGN}   \n\n`;
     assert.equal(matchesInlineStopEmoji(text, STOP), true);
   });

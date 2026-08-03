@@ -390,6 +390,7 @@ export function createPostQuestionsTool(
           try {
             await sdk.engageThread(game.channel, ts, {
               attentionLevel: "high",
+              origin: "opened",
               creationContext: PENDING_QUESTION_CREATION_CONTEXT,
             });
           } catch (err) {

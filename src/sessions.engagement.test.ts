@@ -34,6 +34,7 @@ describe("registerThreadSession", () => {
   it("is a no-op for attentionLevel 'off' — nothing is seeded", async () => {
     const result = await registerThreadSession("C100", "1700000000.000100", {
       attentionLevel: "off",
+      origin: "opened",
       creationContext: "should not be stored",
     });
     assert.equal(result, null);
@@ -43,6 +44,7 @@ describe("registerThreadSession", () => {
   it("seeds a discoverable, engaged session for a non-off level", async () => {
     const seeded = await registerThreadSession("C101", "1700000000.000200", {
       attentionLevel: "high",
+      origin: "opened",
       creationContext: "Answer clarifications while pending.",
     });
     assert.ok(seeded);
@@ -60,6 +62,7 @@ describe("registerThreadSession", () => {
   it("stores no creationContext when it is omitted", async () => {
     const seeded = await registerThreadSession("C102", "1700000000.000300", {
       attentionLevel: "medium",
+      origin: "opened",
     });
     assert.ok(seeded);
     assert.equal(seeded.creationContext, undefined);
@@ -68,6 +71,7 @@ describe("registerThreadSession", () => {
   it("seeds deliveryMode onto the engaged session when supplied", async () => {
     const seeded = await registerThreadSession("C104", "1700000000.000500", {
       attentionLevel: "high",
+      origin: "opened",
       deliveryMode: "invisible",
     });
     assert.ok(seeded);
@@ -81,6 +85,7 @@ describe("registerThreadSession", () => {
   it("leaves deliveryMode unset when omitted (reads as streamer)", async () => {
     const seeded = await registerThreadSession("C105", "1700000000.000600", {
       attentionLevel: "high",
+      origin: "opened",
     });
     assert.ok(seeded);
     assert.equal(seeded.deliveryMode, undefined);
@@ -103,6 +108,7 @@ describe("registerThreadSession", () => {
 
     const result = await registerThreadSession("C103", "1700000000.000400", {
       attentionLevel: "always",
+      origin: "opened",
       creationContext: "should be ignored",
     });
 
@@ -113,5 +119,88 @@ describe("registerThreadSession", () => {
     assert.ok(reread);
     assert.equal(reread.attentionLevel, "medium");
     assert.equal(reread.additionalSystemPrompt, undefined);
+  });
+
+  describe("joined-thread clamp", () => {
+    it("clamps 'high' down to 'low' on a joined thread", async () => {
+      const seeded = await registerThreadSession("C200", "1700000000.000700", {
+        attentionLevel: "high",
+        origin: "joined",
+      });
+      assert.ok(seeded);
+      assert.equal(seeded.attentionLevel, "low");
+    });
+
+    it("clamps 'always' down to 'low' on a joined thread", async () => {
+      const seeded = await registerThreadSession("C201", "1700000000.000800", {
+        attentionLevel: "always",
+        origin: "joined",
+      });
+      assert.ok(seeded);
+      assert.equal(seeded.attentionLevel, "low");
+    });
+
+    it("clamps 'medium' down to 'low' on a joined thread", async () => {
+      const seeded = await registerThreadSession("C202", "1700000000.000900", {
+        attentionLevel: "medium",
+        origin: "joined",
+      });
+      assert.ok(seeded);
+      assert.equal(seeded.attentionLevel, "low");
+    });
+
+    it("seeds 'low' unchanged on a joined thread", async () => {
+      const seeded = await registerThreadSession("C203", "1700000000.001000", {
+        attentionLevel: "low",
+        origin: "joined",
+      });
+      assert.ok(seeded);
+      assert.equal(seeded.attentionLevel, "low");
+    });
+
+    it("stays a no-op for 'off' on a joined thread", async () => {
+      const result = await registerThreadSession("C204", "1700000000.001100", {
+        attentionLevel: "off",
+        origin: "joined",
+      });
+      assert.equal(result, null);
+      assert.equal(await findSessionByThread("C204", "1700000000.001100"), null);
+    });
+
+    it("leaves 'high' intact on an opened thread", async () => {
+      const seeded = await registerThreadSession("C205", "1700000000.001200", {
+        attentionLevel: "high",
+        origin: "opened",
+      });
+      assert.ok(seeded);
+      assert.equal(seeded.attentionLevel, "high");
+    });
+
+    it("does not clamp an existing session's level when joining", async () => {
+      const existing = await createSession({
+        channelId: "C206",
+        messageTs: "1700000000.001300",
+        threadTs: "1700000000.001300",
+        userId: "UREAL",
+        trigger: {
+          type: "mentions",
+          userId: "UREAL",
+          messageTs: "1700000000.001300",
+          messageText: "a real conversation",
+        },
+        attentionLevel: "high",
+      });
+
+      const result = await registerThreadSession("C206", "1700000000.001300", {
+        attentionLevel: "high",
+        origin: "joined",
+      });
+
+      assert.ok(result);
+      assert.equal(result.sessionId, existing.sessionId);
+      const reread = await getSession(existing.sessionId);
+      assert.ok(reread);
+      assert.equal(reread.attentionLevel, "high");
+    });
   });
 });
