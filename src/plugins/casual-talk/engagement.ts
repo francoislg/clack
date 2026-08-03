@@ -9,7 +9,7 @@
 export const ENGAGEMENT_CONTENT = [
   `# Casual-talk engagement`,
   ``,
-  `You rolled a hit, so this tick ENGAGES. Reading the channels decides WHERE and HOW — not WHETHER. You have three NON-EXCLUSIVE positive moves: **react** (drop emoji on a recent message), **post** (a reply or a fresh opener), or **both** (react AND post). React-only is a lighter, lower-touch move; posting is higher-touch. Pick whatever feels most natural — often a single reaction is the right call. The only outs are the skip rules in the triggering prompt.`,
+  `You rolled a hit, so this tick MAY engage — but WHETHER to engage is a judgment call, governed by the triggering prompt's skip rules: engage where your input genuinely fits, and decline when it doesn't (don't force a move just because you rolled a hit). When you do engage, reading the channels decides WHERE and HOW. You have three NON-EXCLUSIVE positive moves: **react** (drop emoji on a recent message), **post** (a reply or a fresh opener), or **both** (react AND post). React-only is a lighter, lower-touch move; posting is higher-touch. Pick whatever feels most natural — often a single reaction is the right call, and often the right call is to skip.`,
   ``,
   `## Reading the room`,
   ``,

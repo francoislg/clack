@@ -36,16 +36,26 @@ export function buildPrompt(args: BuildPromptArgs): string {
     ? smallTalkTopics.map((t) => `- ${t}`).join("\n")
     : "(no fallback topics configured)";
 
-  // A hit means "post this tick." When fallback topics exist, a quiet day is no excuse to
-  // skip — open fresh small talk instead. Skipping is reserved for genuine impossibility.
-  // With NO topics, the plugin is chip-in-only, so a quiet day legitimately ends in a skip.
+  // A hit is a LICENCE to engage, not an obligation. When fallback topics exist, a fresh
+  // opener on a quiet day and joining a lively human thread are both welcome — but injecting
+  // an unwanted take into a focused work discussion is not, so declining is a legitimate
+  // judgment. With NO topics, the plugin is chip-in-only, so a quiet day legitimately skips.
   const skipRules = hasTopics
     ? [
-        `## Skip rules — skipping a hit is RARE`,
+        `## Skip rules — engaging is a judgment call`,
         ``,
-        `On a hit, this tick engages. Reading the channels decides WHERE and HOW, never WHETHER. "Nothing is active right now" is NOT a reason to skip — that is exactly when you post a fresh small-talk opener, or react to a recent message. A quiet day is the normal case, not an error.`,
+        `On a hit you MAY engage, but YOU decide WHETHER, not just where. Weigh whether your input is actually wanted here:`,
+        `- A fresh small-talk opener on a quiet day is welcome — that is the plugin working as intended, not butting in.`,
+        `- Reacting to a recent human message, or joining a genuinely lively human thread, is welcome.`,
+        `- Injecting an opinion into a focused work discussion that does not need a bot's take is NOT — that reads as interrupting. Honor each channel's \`hint:\` (e.g. a channel that says "only reply to what's already being discussed" means don't force a take).`,
         ``,
-        `Only skip — \`submit_response({ skip_response: true })\` with no \`deliver_to\` AND no reactions — when engaging is genuinely impossible: every candidate channel errored or was inaccessible when you tried to read it. A channel being full of OTHER bots' posts (trivia, digests, notices) is NOT impossibility — a fresh opener is a new conversation, so post it. Do NOT use the skip as a default escape hatch; if you have at least one readable channel, you engage.`,
+        `When nothing warrants engagement — the only active threads are functional conversations you'd merely be interrupting, and no channel is a natural fit for a light opener — decline. That is a legitimate "decided not to weigh in" outcome, NOT an error. Don't force a post or a reaction just because you rolled a hit.`,
+        ``,
+        `To decline, call \`submit_response\` with exactly \`{ skip_response: true }\` — the literal \`true\`, with no \`deliver_to\`, no reactions, and no other fields (\`blocks\`, \`message\`, etc. are rejected):`,
+        ``,
+        "```",
+        `submit_response({ skip_response: true })`,
+        "```",
       ]
     : [
         `## Skip rules — chip-in-only mode`,
