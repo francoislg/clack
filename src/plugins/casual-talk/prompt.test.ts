@@ -124,16 +124,20 @@ describe("casual-talk lean triggering prompt", () => {
     assert.ok(prompt.includes("(no fallback topics configured)"));
   });
 
-  it("with topics, skipping a hit is rare (genuine impossibility only)", () => {
+  it("with topics, whether to engage is a judgment call with a proper skip example", () => {
     const prompt = buildPrompt({
       die: 28,
       rateLabel: "daily (1/28)",
       channels: ["C111"],
       smallTalkTopics: ["food", "weekend plans"],
     });
-    assert.ok(prompt.includes("skipping a hit is RARE"));
-    assert.ok(prompt.includes("genuinely impossible"));
-    assert.ok(prompt.includes("is NOT impossibility"));
+    assert.ok(prompt.includes("engaging is a judgment call"));
+    assert.ok(prompt.includes("YOU decide WHETHER"));
+    assert.ok(prompt.includes("decided not to weigh in"));
+    // Declining is framed as a legitimate outcome, not the genuine-impossibility-only exit.
+    assert.ok(!prompt.includes("genuinely impossible"));
+    // The proper skip shape is shown as a concrete example.
+    assert.ok(prompt.includes("submit_response({ skip_response: true })"));
   });
 
   it("without topics, the run is chip-in-only and a quiet day legitimately skips", () => {
@@ -146,7 +150,7 @@ describe("casual-talk lean triggering prompt", () => {
     assert.ok(prompt.includes("chip-in-only"));
     assert.ok(prompt.includes("chip into already-active conversations"));
     assert.ok(prompt.includes("expected outcome in this configuration"));
-    assert.ok(!prompt.includes("skipping a hit is RARE"));
+    assert.ok(!prompt.includes("engaging is a judgment call"));
   });
 
   it("instructs Claude to never reveal the trigger mechanism", () => {
