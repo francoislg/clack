@@ -15,6 +15,28 @@ import type { SlackImageFile, SlackFile } from "./slack/slackFileBase.js";
 import type { ChangeStatus, TriggerType } from "./changes/types.js";
 import type { ActiveChangeState } from "./changes/activeState.js";
 import { getActiveChange, clearActiveChange } from "./changes/activeState.js";
+import { z } from "zod";
+import type { FollowedThread } from "./investigations/types.js";
+
+/** Graceful validator for the persisted `followedThreads` array — drops malformed entries
+ *  rather than failing session load (permissive state-reader philosophy). */
+const followedThreadZod: z.ZodType<FollowedThread> = z.object({
+  channel: z.string(),
+  threadTs: z.string(),
+  mode: z.enum(["follow", "followAndInteract"]),
+  lastInjectedTs: z.string(),
+  pendingCount: z.number(),
+  addedBy: z.string(),
+});
+
+function sanitizeFollowedThreads(raw: unknown): FollowedThread[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const kept = raw.flatMap((entry) => {
+    const parsed = followedThreadZod.safeParse(entry);
+    return parsed.success ? [parsed.data] : [];
+  });
+  return kept.length > 0 ? kept : undefined;
+}
 
 export interface SlackAttachmentField {
   title?: string;
@@ -281,6 +303,13 @@ export interface SessionContext {
    * {@link addSessionUsage}). Absent on sessions persisted before usage tracking existed.
    */
   usage?: SessionUsage;
+  /**
+   * Split-investigations: threads this session follows read-only. Absent → the session is not
+   * an investigation (no follows, no read-time migration). Source of truth for each thread's
+   * cursor and pending count; the routing index in `data/state/investigations.json` carries
+   * only a projection. See `src/investigations/`.
+   */
+  followedThreads?: FollowedThread[];
 }
 
 function generateSessionId(channelId: string, messageTs: string, userId: string): string {
@@ -755,6 +784,12 @@ export async function getSession(sessionId: string): Promise<SessionContext | nu
       if (!session.triggerType) session.triggerType = synth.trigger.type;
     }
     if (!session.messages) session.messages = [];
+
+    // Graceful: keep only well-formed followed-thread entries; a malformed array drops to
+    // undefined (session behaves as a non-investigation) rather than failing the load.
+    if ("followedThreads" in session) {
+      session.followedThreads = sanitizeFollowedThreads(session.followedThreads);
+    }
 
     // Merge active change state from dedicated module
     const ac = getActiveChange(sessionId);

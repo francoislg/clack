@@ -73,6 +73,7 @@ interface PartialConfig {
   autoRespond?: AutoRespondConfig;
   allowScheduledMessages?: boolean;
   allowPublicSearch?: boolean;
+  investigations?: { enabled?: boolean };
 }
 
 const DEFAULTS: Required<SlackAppConfig> = {
@@ -141,6 +142,7 @@ interface ConfigFeatures {
   fetchUsernames: boolean;
   scheduledMessages: boolean;
   publicSearch: boolean;
+  investigations: boolean;
 }
 
 function getEnabledFeatures(config: PartialConfig): ConfigFeatures {
@@ -152,6 +154,7 @@ function getEnabledFeatures(config: PartialConfig): ConfigFeatures {
     fetchUsernames: config.slack?.fetchAndStoreUsername ?? false,
     scheduledMessages: config.allowScheduledMessages ?? false,
     publicSearch: config.allowPublicSearch ?? false,
+    investigations: config.investigations?.enabled ?? false,
   };
 }
 
@@ -177,13 +180,17 @@ function buildScopes(features: ConfigFeatures): BotScope[] {
     scopes.push("search:read.public");
   }
 
+  if (features.investigations) {
+    scopes.push("channels:join");
+  }
+
   // Always needed for DM delivery (per-user reaction preference)
   scopes.push("im:write");
 
   // users:read is now in CORE_SCOPES (needed for role management)
   // fetchUsernames feature doesn't need additional scopes
 
-  return scopes.sort((a, b) => a.localeCompare(b));
+  return [...new Set(scopes)].sort((a, b) => a.localeCompare(b));
 }
 
 function buildEvents(features: ConfigFeatures): ManifestEvent[] {
@@ -204,7 +211,11 @@ function buildEvents(features: ConfigFeatures): ManifestEvent[] {
     events.push("message.channels", "message.groups");
   }
 
-  return events.sort((a, b) => a.localeCompare(b));
+  if (features.investigations) {
+    events.push("message.channels", "message.groups");
+  }
+
+  return [...new Set(events)].sort((a, b) => a.localeCompare(b));
 }
 
 export function generateManifest(config: PartialConfig): Manifest {
@@ -299,6 +310,7 @@ function main(): void {
   console.log(`    - Fetch usernames: ${features.fetchUsernames}`);
   console.log(`    - Scheduled messages: ${features.scheduledMessages}`);
   console.log(`    - Public message search: ${features.publicSearch}`);
+  console.log(`    - Investigations: ${features.investigations}`);
   console.log(`  Scopes: ${manifest.oauth_config?.scopes?.bot?.join(", ")}`);
   console.log(`  Events: ${manifest.settings?.event_subscriptions?.bot_events?.join(", ")}`);
 

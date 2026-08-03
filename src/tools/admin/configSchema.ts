@@ -619,5 +619,23 @@ export const CONFIG_SCHEMA: SchemaFor<Config> = {
       default: false,
       required: false,
     },
+    investigations: {
+      type: "object",
+      description:
+        "Split-investigation feature. Absent or disabled → fully inert. Enabling requires re-uploading the manifest AND reinstalling the app.",
+      required: false,
+      fields: {
+        enabled: {
+          type: "boolean",
+          description: "Enable the investigations feature.",
+        },
+        emoji: {
+          type: "string",
+          description: "Emoji name (no colons) that starts an investigation.",
+          default: "mag",
+          required: false,
+        },
+      },
+    },
   },
 };

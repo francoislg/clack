@@ -6,7 +6,12 @@ import { loadConfig, getConfig } from "./config.js";
 import { loadGitHubCredentials, validateGitHubApp, gitHubCredentialsExist } from "./github.js";
 import { logger } from "./logger.js";
 import { initializeRepositories, syncAllRepositories } from "./repositories.js";
-import { createSlackApp, startSlackApp, stopSlackApp } from "./slack/app.js";
+import { createSlackApp, startSlackApp, stopSlackApp, getSlackClient } from "./slack/app.js";
+import { loadInvestigationsState } from "./investigations/state.js";
+import {
+  initInvestigationsEngine,
+  reconcileInvestigationsOnBoot,
+} from "./investigations/engine.js";
 import { ensureWorktreeDirectories, cleanupWorktrees } from "./worktrees.js";
 import { discoverSkillPluginInfo } from "./skillPlugins.js";
 import { loadAndInstallPlugins } from "./plugins-core/registry.js";
@@ -266,6 +271,18 @@ async function main(): Promise<void> {
     logger.warn("Failed to register memory-review cron:", error);
   }
 
+  // Step 3.95: Split investigations — load the routing index and register the per-round drain
+  // hook BEFORE the Slack app registers handlers, so followed-thread events route correctly.
+  if (getConfig().investigations?.enabled) {
+    try {
+      await loadInvestigationsState();
+      initInvestigationsEngine();
+      logger.info("Split investigations enabled");
+    } catch (error) {
+      logger.warn("Failed to initialize split investigations:", error);
+    }
+  }
+
   // Step 4: Create and start Slack app
   logger.info("Starting Slack app...");
   try {
@@ -297,6 +314,20 @@ async function main(): Promise<void> {
   runEnhancementMigrations().catch((error) => {
     logger.error("Enhancement migration error:", error);
   });
+
+  // Background: reconcile split investigations after a delay — recover followed-thread triggers
+  // missed while the process was down (the delayed-boot idiom, matching cron catch-up).
+  if (getConfig().investigations?.enabled) {
+    const delayMs = (getConfig().cron?.catchUp?.delayMinutes ?? 3) * 60_000;
+    const timer = setTimeout(() => {
+      const client = getSlackClient();
+      if (!client) return;
+      reconcileInvestigationsOnBoot(client).catch((error) =>
+        logger.warn("Investigation boot reconciliation failed:", error),
+      );
+    }, delayMs);
+    timer.unref();
+  }
 
   async function shutdown(signal: string): Promise<void> {
     logger.startup(`Received ${signal}, shutting down gracefully...`);

@@ -358,6 +358,12 @@ export interface TesterConfig {
   serviceImageAllowlist?: string[];
 }
 
+export interface InvestigationsConfig {
+  enabled: boolean;
+  /** Reaction emoji name (no colons) that starts an investigation. Default "mag". */
+  emoji: string;
+}
+
 export const DEFAULT_TESTER_APP_HOST = "clack";
 
 export const DEFAULT_TESTER_MAX_CONCURRENT = 1;
@@ -435,6 +441,14 @@ export interface Config {
    * (a bot token does not retroactively gain scopes). Absent → `false`, fully inert.
    */
   allowPublicSearch?: boolean;
+  /**
+   * Split-investigation feature. Absent or `enabled: false` → fully inert (no reaction
+   * handler, no tools, no event routing, no manifest scopes). The investigations *channel*
+   * is NOT here — it lives in Home-Tab-managed `data/state/investigations.json`. Enabling
+   * requires re-uploading the manifest AND reinstalling the app (conditional scopes), same
+   * operator note as `allowPublicSearch`.
+   */
+  investigations?: InvestigationsConfig;
   /**
    * Workspace-global user-facing language. BCP-47 short code. When absent or `"en"`,
    * the bot behaves identically to its pre-localization state. When set to `"fr"`,

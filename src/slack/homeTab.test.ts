@@ -94,6 +94,8 @@ function makeDeps(): HomeTabDeps {
     getWorkerPoolSnapshot: () => ({ reusable: false, byRepo: [] }),
     getActiveTesterRuns: () => [],
     getUsageLimits: mockGetUsageLimits,
+    getInvestigationsChannel: () => null,
+    listOpenInvestigations: () => [],
   };
 }
 

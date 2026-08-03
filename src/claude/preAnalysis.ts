@@ -409,3 +409,70 @@ OUTPUT FORMAT: The single word "append" or "skip". Nothing else.`;
   if (run.text.includes("skip")) return "skip";
   return "append";
 }
+
+/** Verdict for investigation pre-analysis: the new messages add information, or they are noise. */
+export type InvestigationPreAnalysisResult = "respond" | "skip";
+
+/**
+ * Investigation pre-analysis gate: when an investigation is being tracked in a followed thread,
+ * decide whether newly-posted side-thread messages carry NEW information worth running an
+ * investigation round. Returns "respond" if the new messages add relevant information,
+ * or "skip" if they are noise/off-topic. Defaults to "skip" on error (fail-closed).
+ */
+export async function runInvestigationPreAnalysis(
+  investigationSubject: string | undefined,
+  newMessagesText: string,
+  botName: string,
+  preAnalysisContext?: string,
+  sharedContext?: string,
+  recentMessages?: PreAnalysisMessage[],
+  channelName?: string,
+  slackLink?: string,
+  secondsSinceLastBotMessage?: number,
+  deps: PreAnalysisDeps = defaultPreAnalysisDeps,
+): Promise<InvestigationPreAnalysisResult> {
+  const subjectLine = investigationSubject
+    ? `INVESTIGATION SUBJECT:\n"""${investigationSubject}"""\n\n`
+    : "The investigation has no specific subject — evaluate whether the new messages contain any newsworthy or relevant information.\n\n";
+
+  const contextSection = preAnalysisContext
+    ? sharedContext
+      ? `${sharedContext}\n\nAdditional context: ${preAnalysisContext}`
+      : preAnalysisContext
+    : sharedContext || "";
+
+  const conversationContext = buildConversationContext(recentMessages);
+  const timingLine = buildTimingLine(botName, "thread", secondsSinceLastBotMessage);
+
+  const systemPrompt = `You are a classifier. You output exactly one word, nothing else.
+
+A Slack bot named "${botName}" is tracking an investigation in this thread. New messages have appeared in side threads or as follow-ups. Your job: decide whether these new messages contain information that is NEW and RELEVANT to the investigation, warranting a new investigation round.
+
+${subjectLine}NEW MESSAGES TO EVALUATE:
+Consider the messages below in context. Do they add new, relevant information? (A follow-up question, new evidence, progress update, or clarification.) Or are they noise/off-topic chatter?
+
+- "respond" — the new messages contain information NEW and RELEVANT to the investigation. They warrant ${botName} running another investigation round.
+- "skip" — the messages are off-topic, duplicate, side-talk, or add no new signal. The investigation stands as-is; no new round is needed. This is the default unless the messages clearly add relevant information.
+
+TIMING: when you are told how long ago ${botName} last spoke in this thread, use it as context only. Elapsed time alone is never grounds to skip; judge by content.
+
+${contextSection}
+
+OUTPUT FORMAT: The single word "respond" or "skip". Nothing else.`;
+
+  const prompt = `${conversationContext}${timingLine}\n\nNEW MESSAGES TO CLASSIFY:\nFrom: side-thread\n\n"""${newMessagesText}"""`;
+
+  const run = await runClassifierQuery(systemPrompt, prompt, deps);
+  if (!run.ok) {
+    logger.warn(
+      `Investigation pre-analysis: ${run.reason} (model=${run.model}) for "${truncate(newMessagesText, 50)}"`,
+    );
+    return "skip";
+  }
+
+  logger.info(
+    `Investigation pre-analysis: text="${run.text}", model=${run.model}, subject="${truncate(investigationSubject ?? "(none)", 30)}", message="${truncate(newMessagesText, 50)}"${slackLink ?? ""}`,
+  );
+  if (run.text.includes("respond")) return "respond";
+  return "skip";
+}

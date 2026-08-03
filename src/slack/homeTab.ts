@@ -35,6 +35,8 @@ import type { Config, RepositoryConfig } from "../config.js";
 import type { SkillPluginInfo } from "../skillPlugins.js";
 import type { MigrationError } from "../migrations/types.js";
 import { getLoadedPlugins, getLoadedPluginIntegrations } from "../plugins-core/state.js";
+import { getInvestigationsChannel, listOpenInvestigations } from "../investigations/state.js";
+import type { InvestigationSummary } from "../investigations/types.js";
 
 export interface ClackPluginSummary {
   name: string;
@@ -83,6 +85,8 @@ export interface HomeTabDeps {
     viewerTimezone?: string,
   ) => string;
   getUsageLimits: () => Promise<UsageLimitsState>;
+  getInvestigationsChannel: () => string | null;
+  listOpenInvestigations: () => InvestigationSummary[];
 }
 
 export const defaultHomeTabDeps: HomeTabDeps = {
@@ -121,6 +125,8 @@ export const defaultHomeTabDeps: HomeTabDeps = {
   },
   humanReadableSchedule,
   getUsageLimits: readUsageLimits,
+  getInvestigationsChannel,
+  listOpenInvestigations,
 };
 
 interface HomeViewOptions {
@@ -167,6 +173,11 @@ export async function buildHomeView(
   // Auto-respond section (admin only)
   if (userIsAdmin) {
     blocks.push(...(await buildAutoRespondSection(deps)));
+  }
+
+  // Investigations section (admin only)
+  if (userIsAdmin) {
+    blocks.push(...buildInvestigationsSection(deps));
   }
 
   // Scheduled messages section (admins see all, others see own)
@@ -1624,6 +1635,115 @@ async function buildAutoRespondSection(
     ],
   });
 
+  return blocks;
+}
+
+function buildInvestigationsSection(
+  deps: HomeTabDeps = defaultHomeTabDeps,
+): (KnownBlock | Block)[] {
+  const config = deps.getConfig();
+  const isInvestigationsEnabled = config.investigations?.enabled === true;
+
+  if (!isInvestigationsEnabled) {
+    return [];
+  }
+
+  const blocks: (KnownBlock | Block)[] = [];
+
+  blocks.push({ type: "divider" });
+  blocks.push({
+    type: "header",
+    text: {
+      type: "plain_text",
+      text: t("investigations.home_section_title"),
+      emoji: true,
+    },
+  });
+
+  const channel = deps.getInvestigationsChannel();
+
+  blocks.push({
+    type: "input",
+    block_id: "investigations_channel_block",
+    label: {
+      type: "plain_text",
+      text: t("investigations.home_channel_label"),
+    },
+    element: {
+      type: "conversations_select",
+      action_id: "investigations_select_channel",
+      filter: {
+        include: ["public", "private"],
+        exclude_bot_users: true,
+      },
+      placeholder: {
+        type: "plain_text",
+        text: t("investigations.home_channel_placeholder"),
+      },
+      ...(channel && { initial_conversation: channel }),
+    },
+  });
+
+  if (!channel) {
+    blocks.push({
+      type: "context",
+      elements: [
+        {
+          type: "mrkdwn",
+          text: t("investigations.home_unconfigured_warning"),
+        },
+      ],
+    });
+  }
+
+  const openInvestigations = deps.listOpenInvestigations();
+  if (openInvestigations.length === 0) {
+    blocks.push({
+      type: "section",
+      text: {
+        type: "mrkdwn",
+        text: t("investigations.home_open_none"),
+      },
+    });
+  } else {
+    blocks.push({
+      type: "section",
+      text: {
+        type: "mrkdwn",
+        text: "*Open Investigations*",
+      },
+    });
+
+    for (const investigation of openInvestigations) {
+      const permalink = `https://slack.com/archives/${investigation.mainChannel}/p${investigation.mainThreadTs.replace(".", "")}`;
+      const link = `<${permalink}|View Investigation>`;
+      const text = t("investigations.home_open_item", {
+        link,
+        count: String(investigation.followedCount),
+        user: `<@${investigation.startedBy}>`,
+      });
+
+      blocks.push({
+        type: "section",
+        text: {
+          type: "mrkdwn",
+          text,
+        },
+        accessory: {
+          type: "button",
+          text: {
+            type: "plain_text",
+            text: t("investigations.home_close_button"),
+          },
+          action_id: "investigations_close",
+          value: investigation.sessionId,
+          style: "danger",
+        },
+      });
+    }
+  }
+
+  blocks.push({ type: "divider" });
   return blocks;
 }
 

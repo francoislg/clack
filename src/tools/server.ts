@@ -96,6 +96,13 @@ import { createToggleAutoRespondRuleTool } from "./actions/toggleAutoRespondRule
 import { createDeleteAutoRespondRuleTool } from "./actions/deleteAutoRespondRule.js";
 import { createListAutoRespondRulesTool } from "./query/listAutoRespondRules.js";
 
+// Investigation tools
+import { createStartInvestigationTool } from "./actions/startInvestigation.js";
+import { createFollowThreadTool } from "./actions/followThread.js";
+import { createUnfollowThreadTool } from "./actions/unfollowThread.js";
+import { createListFollowedThreadsTool } from "./query/listFollowedThreads.js";
+import { createCloseInvestigationTool } from "./actions/closeInvestigation.js";
+
 // Admin tools
 import { createAdminReadFileTool } from "./admin/adminReadFile.js";
 import { createAdminWriteFileTool } from "./admin/adminWriteFile.js";
@@ -443,6 +450,15 @@ function buildQueryTools(ctx: QueryToolContext): ClackQueryToolsResult {
     if (ctx.config.allowPublicSearch) {
       tools.push(createSearchMessagesTool(ctx));
     }
+  }
+
+  // Split-investigations tools (all roles, query mode only). Config-gated.
+  if (ctx.config.investigations?.enabled) {
+    tools.push(createStartInvestigationTool(ctx));
+    tools.push(createFollowThreadTool(ctx));
+    tools.push(createUnfollowThreadTool(ctx));
+    tools.push(createListFollowedThreadsTool(ctx));
+    tools.push(createCloseInvestigationTool(ctx));
   }
 
   // Lazy MCP loading — attach_integration is available whenever the mcpManager is

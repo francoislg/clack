@@ -42,6 +42,7 @@ import { openDmChannel } from "../channelResolver.js";
 import { getUserInfo } from "../userCache.js";
 import { CronExpressionParser } from "cron-parser";
 import { z } from "zod";
+import { getInvestigationsChannel, listOpenInvestigations } from "../../investigations/state.js";
 
 const configFileModalMetaZod = z.object({ dir: z.string(), filename: z.string() });
 const configCreateModalMetaZod = z.object({ dir: z.string() });
@@ -96,6 +97,8 @@ export interface HomeTabDeps {
   runJobNow: typeof runJobNow;
   getRole: typeof getRole;
   clearQuarantinedWorker: typeof clearQuarantinedWorker;
+  getInvestigationsChannel: () => string | null;
+  listOpenInvestigations: () => object[];
 }
 
 export const defaultHomeTabDeps: HomeTabDeps = {
@@ -135,6 +138,8 @@ export const defaultHomeTabDeps: HomeTabDeps = {
   runJobNow,
   getRole,
   clearQuarantinedWorker,
+  getInvestigationsChannel,
+  listOpenInvestigations,
 };
 
 /** Parse comma-separated keywords input into a trimmed array, or undefined if empty. */

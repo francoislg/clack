@@ -165,3 +165,43 @@ describe("generateManifest — allowPublicSearch", () => {
     assert.deepEqual(getEvents(enabled), getEvents(disabled));
   });
 });
+
+describe("generateManifest — investigations", () => {
+  it("adds channels:join scope when investigations is enabled", () => {
+    const manifest = generateManifest({ investigations: { enabled: true } });
+    assert.ok(getScopes(manifest).includes("channels:join"));
+  });
+
+  it("adds message.channels and message.groups events when investigations is enabled", () => {
+    const manifest = generateManifest({ investigations: { enabled: true } });
+    const events = getEvents(manifest);
+    assert.ok(events.includes("message.channels"));
+    assert.ok(events.includes("message.groups"));
+  });
+
+  it("does not duplicate message.channels/message.groups when both investigations and autoRespond are enabled", () => {
+    const manifest = generateManifest({
+      investigations: { enabled: true },
+      autoRespond: { enabled: true },
+    });
+    const events = getEvents(manifest);
+    const channelsCount = events.filter((e) => e === "message.channels").length;
+    const groupsCount = events.filter((e) => e === "message.groups").length;
+    assert.equal(channelsCount, 1, "message.channels should appear exactly once");
+    assert.equal(groupsCount, 1, "message.groups should appear exactly once");
+  });
+
+  it("omits channels:join and investigation events when investigations is false or absent", () => {
+    for (const config of [{ investigations: { enabled: false } }, {}]) {
+      const manifest = generateManifest(config);
+      assert.equal(getScopes(manifest).includes("channels:join"), false);
+    }
+  });
+
+  it("generates identical manifest when investigations is disabled vs absent", () => {
+    const disabled = generateManifest({ investigations: { enabled: false } });
+    const absent = generateManifest({});
+    assert.deepEqual(getScopes(disabled), getScopes(absent));
+    assert.deepEqual(getEvents(disabled), getEvents(absent));
+  });
+});

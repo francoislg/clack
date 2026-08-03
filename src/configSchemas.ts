@@ -5,6 +5,7 @@ import type {
   Config,
   CronConfig,
   BackupConfig,
+  InvestigationsConfig,
   JsonObject,
   JsonValue,
   ThinkingFeedbackConfig,
@@ -556,6 +557,57 @@ export const testerZod = z.unknown().transform((raw, ctx): Config["tester"] => {
     ...(serviceImageAllowlist !== undefined && { serviceImageAllowlist }),
   };
 });
+
+export const investigationsZod = z
+  .unknown()
+  .transform((raw, ctx): InvestigationsConfig | undefined => {
+    if (raw === undefined) return undefined;
+    if (!isPlainObject(raw as JsonValue)) {
+      ctx.addIssue({ code: "custom", message: "Config 'investigations' must be an object" });
+      return z.NEVER;
+    }
+    const obj = raw as JsonObject;
+    for (const key of Object.keys(obj)) {
+      if (key !== "enabled" && key !== "emoji") {
+        ctx.addIssue({
+          code: "custom",
+          message: `Config 'investigations' contains unknown key '${key}'`,
+        });
+        return z.NEVER;
+      }
+    }
+    if (typeof obj.enabled !== "boolean") {
+      ctx.addIssue({
+        code: "custom",
+        message: "Config 'investigations.enabled' must be a boolean",
+      });
+      return z.NEVER;
+    }
+    let emoji = "mag";
+    if (obj.emoji !== undefined) {
+      if (typeof obj.emoji !== "string") {
+        ctx.addIssue({
+          code: "custom",
+          message:
+            "Config 'investigations.emoji' must be an emoji name without colons or whitespace",
+        });
+        return z.NEVER;
+      }
+      const emojiVal = obj.emoji;
+      if (emojiVal.length > 0) {
+        if (emojiVal.includes(":") || /\s/.test(emojiVal)) {
+          ctx.addIssue({
+            code: "custom",
+            message:
+              "Config 'investigations.emoji' must be an emoji name without colons or whitespace (e.g., 'mag', not ':mag:')",
+          });
+          return z.NEVER;
+        }
+        emoji = emojiVal;
+      }
+    }
+    return { enabled: obj.enabled, emoji };
+  });
 
 export const cronCatchUpZod = z.unknown().transform((raw, ctx): CronConfig["catchUp"] => {
   if (raw === undefined) return undefined;

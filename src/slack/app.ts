@@ -26,6 +26,9 @@ import { registerDmActionHandlers } from "./handlers/dmActions.js";
 import { registerMessageChangedHandler } from "./handlers/messageChanged.js";
 import { registerAutoRespondHandler } from "./handlers/autoRespond.js";
 import { registerStopReactionHandler } from "./handlers/stopReaction.js";
+import { registerInvestigateReactionHandler } from "./handlers/investigateReaction.js";
+import { registerInvestigationFollowHandler } from "./handlers/investigationFollow.js";
+import { registerInvestigationsHomeActions } from "./handlers/investigationsHomeActions.js";
 import { registerStateQuarantineNotifier } from "../state/stateQuarantineNotifier.js";
 import { registerCronQuarantineStore } from "../state/cronQuarantineAdapter.js";
 
@@ -142,6 +145,16 @@ export function createSlackApp(deps: AppDeps = defaultAppDeps): App {
   deps.registerMentionHandler(app);
   deps.registerMessageChangedHandler(app);
   deps.registerAutoRespondHandler(app);
+
+  // Split investigations: reaction entry point, followed-thread event tee (a second
+  // `message` listener alongside auto-respond), and Home Tab actions. Registered only when
+  // the feature is enabled — its scopes/events require a manifest re-upload + reinstall.
+  if (config.investigations?.enabled) {
+    registerInvestigateReactionHandler(app);
+    registerInvestigationFollowHandler(app);
+    registerInvestigationsHomeActions(app);
+    deps.logger.info("Split investigations handlers registered");
+  }
 
   // Plugin-owned interactivity: one wildcard listener routes every
   // `plugin:`-prefixed action_id / callback_id through the central registry.
