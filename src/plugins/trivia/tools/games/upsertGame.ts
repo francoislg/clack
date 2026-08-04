@@ -14,6 +14,7 @@ import type { SeasonEntry, TriviaDataLayer } from "../../core/types.js";
 import type {
   JsonObject,
   JsonValue,
+  PerfectRoundsAward,
   RevealResponsesMode,
   TeamDef,
   TriviaChoicesConfig,
@@ -28,6 +29,7 @@ import {
   answeringTypeZod,
   validateTeamsRoster,
 } from "../../core/configParsers/teams.js";
+import { perfectRoundsAwardZod } from "../../core/configParsers/axes.js";
 import {
   REVEAL_RESPONSES_VALUES,
   answersFormatZod,
@@ -273,6 +275,14 @@ const structuralFieldsSchema = {
     .optional()
     .describe(
       'Per-game tier of the answer-ownership model (shared buzzer). `"individual"` (the default): every player owns their own answer; `teamsScoring` still aggregates individual answers at reveal when teams mode is on. `"byTeam"`: the TEAM owns ONE answer slot per question — any member\'s click OVERWRITES the previous member\'s, the live roster shows the team name, and non-members play individually. `"byTeam"` is EFFECTIVE only when teams mode resolves ON (enabled + non-empty roster); otherwise it is inert (falls back to individual, list_games surfaces a warning). Cascade: `season → game → workspace → "individual"` (no slot tier). On UPDATE: explicit null clears the field.',
+    ),
+  perfectRoundsAward: perfectRoundsAwardZod
+    .nullable()
+    .optional()
+    .describe(
+      "Per-game tier of the perfect rounds award knob (`{ enabled: boolean }`). When enabled, " +
+        "awards a 🎖️ medal at season finale to the player(s) with the most perfect rounds. " +
+        "Cascade: `season → game → workspace → { enabled: false }`. On UPDATE: explicit null clears.",
     ),
 };
 
@@ -591,6 +601,14 @@ export function createUpsertGameTool(
             ? args.disableAfterRound
             : existing?.disableAfterRound;
 
+      type PerfectRoundsAwardValue = PerfectRoundsAward | undefined;
+      const nextPerfectRoundsAward: PerfectRoundsAwardValue =
+        args.perfectRoundsAward === null
+          ? undefined
+          : args.perfectRoundsAward !== undefined
+            ? args.perfectRoundsAward
+            : existing?.perfectRoundsAward;
+
       const mergedStructural: Partial<TriviaGame> = {
         ...(existing?.format !== undefined ? { format: existing.format } : {}),
         ...(existing?.categories !== undefined ? { categories: existing.categories } : {}),
@@ -612,6 +630,9 @@ export function createUpsertGameTool(
         ...(nextScrollToTop !== undefined ? { scrollToTop: nextScrollToTop } : {}),
         ...(nextDisableAfterRound !== undefined
           ? { disableAfterRound: nextDisableAfterRound }
+          : {}),
+        ...(nextPerfectRoundsAward !== undefined
+          ? { perfectRoundsAward: nextPerfectRoundsAward }
           : {}),
         ...(existing?.includeRevealInQuestions !== undefined
           ? { includeRevealInQuestions: existing.includeRevealInQuestions }
@@ -684,6 +705,9 @@ export function createUpsertGameTool(
       if (args.answeringType === null) mergedStructural.answeringType = undefined;
       else if (args.answeringType !== undefined)
         mergedStructural.answeringType = args.answeringType;
+      if (args.perfectRoundsAward === null) mergedStructural.perfectRoundsAward = undefined;
+      else if (args.perfectRoundsAward !== undefined)
+        mergedStructural.perfectRoundsAward = args.perfectRoundsAward;
 
       const enabled = args.enabled ?? existing?.enabled ?? true;
 
@@ -734,6 +758,7 @@ export function createUpsertGameTool(
       if (wrote(args.teamsFinaleIndividuals)) writtenFields.push("teamsFinaleIndividuals");
       if (wrote(args.teamsScoring)) writtenFields.push("teamsScoring");
       if (wrote(args.answeringType)) writtenFields.push("answeringType");
+      if (wrote(args.perfectRoundsAward)) writtenFields.push("perfectRoundsAward");
 
       const shadowedBy =
         data !== undefined && writtenFields.length > 0
@@ -775,6 +800,7 @@ export function createUpsertGameTool(
         hasTeamsFinaleIndividuals: mergedStructural.teamsFinaleIndividuals !== undefined,
         hasTeamsScoring: mergedStructural.teamsScoring !== undefined,
         hasAnsweringType: mergedStructural.answeringType !== undefined,
+        hasPerfectRoundsAward: mergedStructural.perfectRoundsAward !== undefined,
         slotCount: mergedStructural.format?.questions.length ?? 0,
       });
     },

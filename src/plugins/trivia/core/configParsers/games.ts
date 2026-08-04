@@ -12,6 +12,7 @@ import type {
   JsonObject,
   JsonValue,
   OffDay,
+  PerfectRoundsAward,
   RevealResponsesMode,
   JudgeLeniency,
   TeamDef,
@@ -35,6 +36,7 @@ import {
   validateHintConfig,
   validateIncludeRevealInQuestions,
   validateJudgeLeniency,
+  validatePerfectRoundsAward,
   validateTellMeMore,
   validateTriviaChoicesConfig,
   type ParseIssue,
@@ -439,6 +441,13 @@ export function parseTriviaGame(
     else issues.push({ field: `${fieldPrefix}.answeringType`, error: r.error });
   }
 
+  let perfectRoundsAward: PerfectRoundsAward | undefined;
+  if (e.perfectRoundsAward !== undefined && e.perfectRoundsAward !== null) {
+    const r = validatePerfectRoundsAward(e.perfectRoundsAward, `${fieldPrefix}.perfectRoundsAward`);
+    if (r.ok) perfectRoundsAward = r.value;
+    else issues.push({ field: `${fieldPrefix}.perfectRoundsAward`, error: r.error });
+  }
+
   seenNames.add(name);
   return {
     game: {
@@ -475,6 +484,7 @@ export function parseTriviaGame(
       ...(teamsFinaleIndividuals !== undefined ? { teamsFinaleIndividuals } : {}),
       ...(teamsScoring !== undefined ? { teamsScoring } : {}),
       ...(answeringType !== undefined ? { answeringType } : {}),
+      ...(perfectRoundsAward !== undefined ? { perfectRoundsAward } : {}),
     },
     issues,
   };

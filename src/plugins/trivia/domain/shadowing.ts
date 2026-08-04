@@ -4,22 +4,25 @@ import type { TriviaGame } from "../core/configTypes.js";
 
 /**
  * A field name an `upsert_game` call wrote: a cascading axis, the `format`
- * pseudo-field, one of the season-tier-only teams fields, or game-tier structural flags.
+ * pseudo-field, a structural-special field (season tier but no slot tier), or a
+ * game-tier structural flag.
  */
-export type WrittenField = keyof CascadeAxes | "format" | TeamsWrittenField | "disableAfterRound";
+export type WrittenField = keyof CascadeAxes | "format" | NoSlotTierField | "disableAfterRound";
 
-/** The teams-family fields cascade `season → game → workspace` with NO slot tier. */
-const TEAMS_WRITTEN_FIELDS = [
+// Structural-special fields: they cascade season → game → workspace with NO
+// slot tier, so a game write can only ever be season-shadowed, never slot-shadowed.
+const NO_SLOT_TIER_FIELDS = [
   "teams",
   "teamsEnabled",
   "teamsFinaleIndividuals",
   "teamsScoring",
   "answeringType",
+  "perfectRoundsAward",
 ] as const;
-export type TeamsWrittenField = (typeof TEAMS_WRITTEN_FIELDS)[number];
+export type NoSlotTierField = (typeof NO_SLOT_TIER_FIELDS)[number];
 
-function isTeamsField(field: WrittenField): field is TeamsWrittenField {
-  return (TEAMS_WRITTEN_FIELDS as readonly string[]).includes(field);
+function isNoSlotTierField(field: WrittenField): field is NoSlotTierField {
+  return (NO_SLOT_TIER_FIELDS as readonly string[]).includes(field);
 }
 
 /** Which higher-precedence tier masks the game-tier write, and the masked field names. */
@@ -61,8 +64,8 @@ export function detectGameWriteShadowing(
       seasonShadowed.push(field);
       continue;
     }
-    // Teams fields have no slot tier — season shadowing is the only kind possible.
-    if (isTeamsField(field)) continue;
+    // Structural-special fields have no slot tier — season shadowing is the only kind possible.
+    if (isNoSlotTierField(field)) continue;
     if (
       season?.format === undefined &&
       game.format !== undefined &&

@@ -1,6 +1,11 @@
 import { describe, it } from "vitest";
 import assert from "node:assert/strict";
-import { computeRoundSummary, type RoundAnswer } from "./roundSummary.js";
+import {
+  computeRoundSummary,
+  perfectRoundSweepers,
+  aggregateSeasonPerfectRounds,
+  type RoundAnswer,
+} from "./roundSummary.js";
 
 function ans(questionId: string, userId: string, correct: boolean): RoundAnswer {
   return { questionId, userId, correct };
@@ -307,5 +312,225 @@ describe("computeRoundSummary", () => {
       assert.equal(bob?.roundMvp, true);
       assert.equal(bob?.points, 10);
     });
+  });
+});
+
+describe("perfectRoundSweepers", () => {
+  it("returns all users who got every question correct", () => {
+    const answers = [
+      ans("q1", "alice", true),
+      ans("q2", "alice", true),
+      ans("q3", "alice", true),
+      ans("q1", "bob", true),
+      ans("q2", "bob", true),
+      ans("q3", "bob", false),
+    ];
+    const sweepers = perfectRoundSweepers(["q1", "q2", "q3"], answers);
+    assert.deepEqual([...sweepers].sort(), ["alice"]);
+  });
+
+  it("returns empty set for a 2-question fire (below threshold)", () => {
+    const answers = [ans("q1", "alice", true), ans("q2", "alice", true)];
+    const sweepers = perfectRoundSweepers(["q1", "q2"], answers);
+    assert.equal(sweepers.size, 0);
+  });
+
+  it("returns empty set for a 1-question fire", () => {
+    const answers = [ans("q1", "alice", true)];
+    const sweepers = perfectRoundSweepers(["q1"], answers);
+    assert.equal(sweepers.size, 0);
+  });
+
+  it("excludes team: owner keys (perfect rounds are individual)", () => {
+    const answers = [
+      ans("q1", "alice", true),
+      ans("q2", "alice", true),
+      ans("q3", "alice", true),
+      ans("q1", "team:Red", true),
+      ans("q2", "team:Red", true),
+      ans("q3", "team:Red", true),
+    ];
+    const sweepers = perfectRoundSweepers(["q1", "q2", "q3"], answers);
+    assert.deepEqual([...sweepers].sort(), ["alice"]);
+  });
+
+  it("requires answers for EVERY question, not just some", () => {
+    const answers = [ans("q1", "alice", true), ans("q2", "alice", true)];
+    // alice answered q1 and q2 (both correct) but there's also q3
+    const sweepers = perfectRoundSweepers(["q1", "q2", "q3"], answers);
+    assert.equal(sweepers.has("alice"), false, "missing q3 disqualifies");
+  });
+
+  it("dedupes per (question, user) — correct if ANY row is correct", () => {
+    const answers = [
+      ans("q1", "alice", false),
+      ans("q1", "alice", true),
+      ans("q2", "alice", true),
+      ans("q3", "alice", true),
+    ];
+    const sweepers = perfectRoundSweepers(["q1", "q2", "q3"], answers);
+    assert.deepEqual([...sweepers].sort(), ["alice"]);
+  });
+
+  it("ignores answers outside the fire's question set", () => {
+    const answers = [
+      ans("q1", "alice", true),
+      ans("q2", "alice", true),
+      ans("q3", "alice", true),
+      ans("q4", "alice", true),
+    ];
+    const sweepers = perfectRoundSweepers(["q1", "q2", "q3"], answers);
+    assert.deepEqual([...sweepers].sort(), ["alice"]);
+  });
+});
+
+describe("aggregateSeasonPerfectRounds", () => {
+  it("tallies perfect rounds across multiple fires and names the champion", () => {
+    const questions = [
+      { id: "q1", batchId: "fire1" },
+      { id: "q2", batchId: "fire1" },
+      { id: "q3", batchId: "fire1" },
+      { id: "q4", batchId: "fire2" },
+      { id: "q5", batchId: "fire2" },
+      { id: "q6", batchId: "fire2" },
+    ];
+    const answers = [
+      ans("q1", "alice", true),
+      ans("q2", "alice", true),
+      ans("q3", "alice", true),
+      ans("q4", "alice", true),
+      ans("q5", "alice", true),
+      ans("q6", "alice", true),
+      ans("q1", "bob", true),
+      ans("q2", "bob", true),
+      ans("q3", "bob", true),
+      ans("q4", "bob", true),
+      ans("q5", "bob", true),
+      ans("q6", "bob", false),
+    ];
+    const result = aggregateSeasonPerfectRounds(questions, answers);
+    assert.deepEqual(result?.userIds, ["alice"]);
+    assert.equal(result?.count, 2);
+  });
+
+  it("returns null when nobody swept any fire", () => {
+    const questions = [
+      { id: "q1", batchId: "fire1" },
+      { id: "q2", batchId: "fire1" },
+      { id: "q3", batchId: "fire1" },
+    ];
+    const answers = [ans("q1", "alice", true), ans("q2", "alice", true), ans("q3", "alice", false)];
+    const result = aggregateSeasonPerfectRounds(questions, answers);
+    assert.equal(result, null);
+  });
+
+  it("handles multiple users tied for max perfect rounds", () => {
+    const questions = [
+      { id: "q1", batchId: "fire1" },
+      { id: "q2", batchId: "fire1" },
+      { id: "q3", batchId: "fire1" },
+      { id: "q4", batchId: "fire2" },
+      { id: "q5", batchId: "fire2" },
+      { id: "q6", batchId: "fire2" },
+    ];
+    const answers = [
+      ans("q1", "alice", true),
+      ans("q2", "alice", true),
+      ans("q3", "alice", true),
+      ans("q4", "alice", true),
+      ans("q5", "alice", true),
+      ans("q6", "alice", true),
+      ans("q1", "bob", true),
+      ans("q2", "bob", true),
+      ans("q3", "bob", true),
+      ans("q4", "bob", true),
+      ans("q5", "bob", true),
+      ans("q6", "bob", true),
+    ];
+    const result = aggregateSeasonPerfectRounds(questions, answers);
+    assert.deepEqual(result?.userIds, ["alice", "bob"]);
+    assert.equal(result?.count, 2);
+  });
+
+  it("treats legacy undefined batchId questions as singletons", () => {
+    const questions = [
+      { id: "q1" },
+      { id: "q2" },
+      { id: "q3", batchId: "fire1" },
+      { id: "q4", batchId: "fire1" },
+      { id: "q5", batchId: "fire1" },
+    ];
+    const answers = [
+      ans("q1", "alice", true),
+      ans("q2", "alice", false),
+      ans("q3", "alice", true),
+      ans("q4", "alice", true),
+      ans("q5", "alice", true),
+    ];
+    const result = aggregateSeasonPerfectRounds(questions, answers);
+    // alice swept fire1 (3 questions) but singletons q1 and q2 are not perfect-eligible
+    assert.deepEqual(result?.userIds, ["alice"]);
+    assert.equal(result?.count, 1);
+  });
+
+  it("excludes a 2-question fire from the season tally", () => {
+    const questions = [
+      { id: "q1", batchId: "fire1" },
+      { id: "q2", batchId: "fire1" },
+      { id: "q3", batchId: "fire1" },
+      { id: "q4", batchId: "fire2" },
+      { id: "q5", batchId: "fire2" },
+    ];
+    const answers = [
+      ans("q1", "alice", true),
+      ans("q2", "alice", true),
+      ans("q3", "alice", true),
+      ans("q4", "alice", true),
+      ans("q5", "alice", true),
+    ];
+    const result = aggregateSeasonPerfectRounds(questions, answers);
+    // alice swept both fires, but the 2-question fire2 is below the threshold.
+    assert.deepEqual(result?.userIds, ["alice"]);
+    assert.equal(result?.count, 1);
+  });
+
+  it("excludes team: owner keys from the season champion", () => {
+    const questions = [
+      { id: "q1", batchId: "fire1" },
+      { id: "q2", batchId: "fire1" },
+      { id: "q3", batchId: "fire1" },
+    ];
+    const answers = [
+      ans("q1", "alice", true),
+      ans("q2", "alice", true),
+      ans("q3", "alice", true),
+      ans("q1", "team:Red", true),
+      ans("q2", "team:Red", true),
+      ans("q3", "team:Red", true),
+    ];
+    const result = aggregateSeasonPerfectRounds(questions, answers);
+    assert.deepEqual(result?.userIds, ["alice"]);
+    assert.equal(result?.count, 1);
+  });
+
+  it("returns userIds sorted for determinism", () => {
+    const questions = [
+      { id: "q1", batchId: "fire1" },
+      { id: "q2", batchId: "fire1" },
+      { id: "q3", batchId: "fire1" },
+    ];
+    const answers = [
+      ans("q1", "zoe", true),
+      ans("q2", "zoe", true),
+      ans("q3", "zoe", true),
+      ans("q1", "alice", true),
+      ans("q2", "alice", true),
+      ans("q3", "alice", true),
+      ans("q1", "bob", true),
+      ans("q2", "bob", true),
+      ans("q3", "bob", true),
+    ];
+    const result = aggregateSeasonPerfectRounds(questions, answers);
+    assert.deepEqual(result?.userIds, ["alice", "bob", "zoe"]);
   });
 });

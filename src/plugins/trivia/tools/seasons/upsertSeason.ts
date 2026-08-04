@@ -54,6 +54,7 @@ import {
 import type {
   ChoiceEmojiStyle,
   JudgeLeniency,
+  PerfectRoundsAward,
   RevealResponsesMode,
   SeasonFormat,
   SeasonFormatSlot,
@@ -77,6 +78,7 @@ import {
   answeringTypeZod,
   validateTeamsRoster,
 } from "../../core/configParsers/teams.js";
+import { perfectRoundsAwardZod } from "../../core/configParsers/axes.js";
 
 const SLOT_OVERRIDES_VS_FORMAT_MSG =
   "A season cannot set both `format` and `slotOverrides`: `format` declares the question count/structure, while `slotOverrides` layers count-decoupled per-slot deltas over the game format. Pick one.";
@@ -276,6 +278,14 @@ export function createUpsertSeasonTool(
         .describe(
           'Per-season tier of the answer-ownership model (shared buzzer). `"individual"` (the default): every player owns their own answer. `"byTeam"`: the TEAM owns one answer slot per question (any member\'s click overrides it; the live roster shows the team; non-members play individually). Effective only when teams mode resolves ON for the season (enabled + non-empty roster); otherwise inert (falls back to individual). Cascade: `season → game → workspace → "individual"` (no slot tier). On UPDATE: passing `null` clears the field. Only NEW questions posted after the change are affected — live questions keep the model they were posted under.',
         ),
+      perfectRoundsAward: perfectRoundsAwardZod
+        .nullable()
+        .optional()
+        .describe(
+          "Per-season tier of the perfect rounds award knob (`{ enabled: boolean }`). When enabled, " +
+            "awards a 🎖️ medal at season finale to the player(s) with the most perfect rounds. " +
+            "Cascade: `season → game → workspace → { enabled: false }`. On UPDATE: passing `null` clears.",
+        ),
     },
     async (args) => {
       try {
@@ -465,6 +475,11 @@ export function createUpsertSeasonTool(
             ? undefined
             : args.answeringType;
 
+        const perfectRoundsAward: PerfectRoundsAward | undefined =
+          args.perfectRoundsAward === undefined || args.perfectRoundsAward === null
+            ? undefined
+            : args.perfectRoundsAward;
+
         const liveAnswersVisible: boolean | undefined =
           args.liveAnswersVisible === undefined || args.liveAnswersVisible === null
             ? undefined
@@ -507,6 +522,7 @@ export function createUpsertSeasonTool(
           ...(teamsFinaleIndividuals !== undefined ? { teamsFinaleIndividuals } : {}),
           ...(teamsScoring !== undefined ? { teamsScoring } : {}),
           ...(answeringType !== undefined ? { answeringType } : {}),
+          ...(perfectRoundsAward !== undefined ? { perfectRoundsAward } : {}),
         };
 
         try {
@@ -552,6 +568,7 @@ export function createUpsertSeasonTool(
           hasTeamsFinaleIndividuals: entry.teamsFinaleIndividuals !== undefined,
           hasTeamsScoring: entry.teamsScoring !== undefined,
           hasAnsweringType: entry.answeringType !== undefined,
+          hasPerfectRoundsAward: entry.perfectRoundsAward !== undefined,
         });
       }
 
@@ -789,6 +806,13 @@ export function createUpsertSeasonTool(
         updatedAnsweringType = args.answeringType;
       }
 
+      let updatedPerfectRoundsAward: PerfectRoundsAward | undefined = existing.perfectRoundsAward;
+      if (args.perfectRoundsAward === null) {
+        updatedPerfectRoundsAward = undefined;
+      } else if (args.perfectRoundsAward !== undefined) {
+        updatedPerfectRoundsAward = args.perfectRoundsAward;
+      }
+
       const updated: SeasonEntry = {
         slug: existing.slug,
         startedAt: args.startedAt ?? existing.startedAt,
@@ -837,6 +861,9 @@ export function createUpsertSeasonTool(
           : {}),
         ...(updatedTeamsScoring !== undefined ? { teamsScoring: updatedTeamsScoring } : {}),
         ...(updatedAnsweringType !== undefined ? { answeringType: updatedAnsweringType } : {}),
+        ...(updatedPerfectRoundsAward !== undefined
+          ? { perfectRoundsAward: updatedPerfectRoundsAward }
+          : {}),
         // Internal close-time stamp — not settable through this tool, but it MUST
         // survive the field-by-field entry rebuild or an update would erase history.
         ...(existing.teamsStamp !== undefined ? { teamsStamp: existing.teamsStamp } : {}),
@@ -889,6 +916,7 @@ export function createUpsertSeasonTool(
         hasPoints: updated.points !== undefined,
         hasTeams: updated.teams !== undefined,
         hasAnsweringType: updated.answeringType !== undefined,
+        hasPerfectRoundsAward: updated.perfectRoundsAward !== undefined,
         hasTeamsEnabled: updated.teamsEnabled !== undefined,
         hasTeamsFinaleIndividuals: updated.teamsFinaleIndividuals !== undefined,
         hasTeamsScoring: updated.teamsScoring !== undefined,

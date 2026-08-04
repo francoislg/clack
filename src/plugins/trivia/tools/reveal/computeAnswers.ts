@@ -24,13 +24,19 @@ import { hasUnrevealedPostedQuestions } from "../../domain/boardState.js";
 import { resolveCascade } from "../../domain/resolveCascade.js";
 import { buildCascadeContext } from "../../domain/cascadeContext.js";
 import { nextCronFireAfter, isLastFireBeforeSeasonEnd } from "../../domain/seasonStatus.js";
+import { resolvePerfectRoundsAward } from "../../domain/resolvePerfectRoundsAward.js";
 import {
   fetchMessageReactions as fetchReactionsViaSlackClient,
   fetchBotUserId as fetchBotUserIdViaSlackClient,
   fetchUserDisplayName as fetchUserDisplayNameViaSlackClient,
 } from "./slack.js";
 import { pickSeasonMvp } from "./rollover.js";
-import { computeRoundSummary, type RoundAnswer } from "./roundSummary.js";
+import {
+  computeRoundSummary,
+  type RoundAnswer,
+  aggregateSeasonPerfectRounds,
+  batchKeyOf,
+} from "./roundSummary.js";
 import { buildExcludeSet, isScoredAnswer } from "../../answerTypes/cheaterFilter.js";
 import type { ClackSdk } from "../../../../plugins-sdk/sdk.js";
 import type { TriviaDataLayer, TriviaQuestion, SubmittedAnswer } from "../../core/types.js";
@@ -477,6 +483,42 @@ export function createComputeAnswersTool(
         questionPoints,
       );
 
+      // Wire perfect rounds champion into the finale when the knob is enabled
+      // and this is the season's last fire. Uses cheaterIdsByQuestion which is
+      // now in scope, plus cheats loaded above.
+      if (
+        seasonStatus?.isLastFireOfSeason === true &&
+        resolvePerfectRoundsAward(currentSeasonForResolution, gameEntry, triviaConfig).enabled
+      ) {
+        const seasonQuestions = await scoped.loadQuestions();
+        const questionsByIdInSeason = new Map<string, { id: string; batchId?: string }>();
+        for (const q of seasonQuestions) {
+          if (q.season === currentSlugForBoard && q.processedAt !== null) {
+            questionsByIdInSeason.set(q.id, { id: q.id, batchId: q.batchId });
+          }
+        }
+        const seasonQuestionsForAggregation = [...questionsByIdInSeason.values()];
+        const seasonScored: RoundAnswer[] = [];
+        for (const a of refreshedAnswers) {
+          if (!questionsByIdInSeason.has(a.questionId)) continue;
+          const cheaterIds = cheaterIdsByQuestion.get(a.questionId) ?? EMPTY_CHEATER_SET;
+          if (isScoredAnswer(a, cheaterIds, botUserId)) {
+            seasonScored.push({
+              questionId: a.questionId,
+              userId: a.userId,
+              correct: a.correct === true,
+            });
+          }
+        }
+        const perfectChampion = aggregateSeasonPerfectRounds(
+          seasonQuestionsForAggregation,
+          seasonScored,
+        );
+        if (perfectChampion !== null && seasonStatus !== undefined) {
+          seasonStatus.perfectRoundsChampion = perfectChampion;
+        }
+      }
+
       // Teams-mode standings block. Present ONLY when teams mode is effectively
       // ON — the teams-off payload stays byte-identical to pre-teams behavior.
       let teamStandingsOut: TeamStandingsOut | undefined;
@@ -599,7 +641,7 @@ function selectOldestPendingBatch(questions: TriviaQuestion[]): TriviaQuestion[]
     { key: string; minPostedAt: number; questions: TriviaQuestion[] }
   >();
   for (const q of pending) {
-    const key = q.batchId ?? `__singleton__:${q.id}`;
+    const key = batchKeyOf(q);
     const existing = groups.get(key);
     const postedAt = q.postedAt ?? 0;
     if (existing === undefined) {

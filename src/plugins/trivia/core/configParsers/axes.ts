@@ -20,6 +20,7 @@ import type {
   JsonObject,
   JsonValue,
   JudgeLeniency,
+  PerfectRoundsAward,
   RevealResponsesMode,
   TriviaAllTimeRowMode,
   TriviaAnswersFormatWeights,
@@ -308,6 +309,17 @@ export function validateTellMeMore(
   return safeParseToResult(tellMeMoreSchema, raw, fieldLabel);
 }
 
+const perfectRoundsAwardSchema: z.ZodType<PerfectRoundsAward> = z.object({
+  enabled: z.boolean(),
+});
+
+export function validatePerfectRoundsAward(
+  raw: unknown,
+  fieldLabel: string,
+): Result<PerfectRoundsAward> {
+  return safeParseToResult(perfectRoundsAwardSchema, raw, fieldLabel);
+}
+
 const judgeLeniencySchema: z.ZodType<JudgeLeniency> = schemaFromChecker(
   (raw) => enumCheck(raw, JUDGE_LENIENCY_KEYS),
   (raw) => raw as JudgeLeniency,
@@ -550,6 +562,9 @@ export const triviaFinalRevealSummaryZod = z.enum(
 
 /** Shared zod schema for the `tellMeMore` field (game+workspace; not a cascade axis). */
 export const triviaTellMeMoreZod = z.object({ enabled: z.boolean() }).strict();
+
+/** Shared zod schema for the `perfectRoundsAward` field (season+game+workspace; not a cascade axis). */
+export const perfectRoundsAwardZod = z.object({ enabled: z.boolean() }).strict();
 
 /** Shared zod schema for the `judgeLeniency` axis (structural; semantics in `validateJudgeLeniency`). */
 export const triviaJudgeLeniencyZod = z.enum(

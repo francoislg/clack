@@ -66,6 +66,7 @@ function args(overrides: Partial<UpsertGameArgs> & Pick<UpsertGameArgs, "name">)
     teamsFinaleIndividuals: undefined,
     teamsScoring: undefined,
     answeringType: undefined,
+    perfectRoundsAward: undefined,
     initialSeason: undefined,
     ...overrides,
   };

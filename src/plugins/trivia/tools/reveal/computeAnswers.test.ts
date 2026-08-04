@@ -1778,3 +1778,399 @@ describe("compute_answers — predictions & invalidation", () => {
     assert.notEqual(after.find((q) => q.id === "void1")?.processedAt, undefined);
   });
 });
+
+describe("compute_answers — perfectRoundsChampion", () => {
+  function makeToolWithPerfectRoundsEnabled(
+    data: FakeTriviaDataLayer,
+    sdk: ReturnType<typeof createFakeSdk>["sdk"],
+  ) {
+    const getGames = () =>
+      fixtureGetGames().map((g) =>
+        g.name === FIXTURE_GAME_NAME
+          ? {
+              ...g,
+              revealCron: "0 0 1 1 *",
+              timezone: "UTC",
+              perfectRoundsAward: { enabled: true },
+            }
+          : g,
+      );
+    const getTriviaConfig = () => ({ perfectRoundsAward: { enabled: true } });
+    return createComputeAnswersTool(
+      data,
+      sdk,
+      getGames,
+      createFakeRevealSlackDeps({ fetchBotUserId: async () => "UBOT" }),
+      getTriviaConfig,
+    );
+  }
+
+  async function runDefault(tool: ReturnType<typeof createComputeAnswersTool>) {
+    return parseToolResult(
+      await tool.handler(
+        {
+          game: FIXTURE_GAME_NAME,
+          reprocessQuestionIds: undefined,
+          reprocessBatchId: undefined,
+        },
+        SESSION,
+      ),
+    );
+  }
+
+  it("is absent when the knob is disabled (default)", async () => {
+    const { sdk, dataLayer: data, testHelpers } = makeData();
+    await seedCurrentSeason(data, Date.now() + 60_000);
+    const scoped = data.forGame(FIXTURE_GAME_NAME);
+    testHelpers.saveUser({ userId: "U1", displayName: "Alice" });
+    await scoped.saveQuestion(
+      makeQuestion({
+        id: "q1",
+        batchId: "fire1",
+        postedAt: 1_000,
+        season: "s1",
+        slot: { index: 0 },
+      }),
+    );
+    await scoped.saveQuestion(
+      makeQuestion({
+        id: "q2",
+        batchId: "fire1",
+        postedAt: 1_001,
+        season: "s1",
+        slot: { index: 0 },
+      }),
+    );
+    await scoped.saveQuestion(
+      makeQuestion({
+        id: "q3",
+        batchId: "fire1",
+        postedAt: 1_002,
+        season: "s1",
+        slot: { index: 0 },
+      }),
+    );
+    await scoped.saveAnswer({
+      userId: "U1",
+      questionId: "q1",
+      answer: true,
+      correct: true,
+      timestamp: 500,
+    });
+    await scoped.saveAnswer({
+      userId: "U1",
+      questionId: "q2",
+      answer: true,
+      correct: true,
+      timestamp: 600,
+    });
+    await scoped.saveAnswer({
+      userId: "U1",
+      questionId: "q3",
+      answer: true,
+      correct: true,
+      timestamp: 700,
+    });
+
+    const tool = createComputeAnswersTool(data, sdk, fixtureGetGames, createFakeRevealSlackDeps());
+    const res = await runDefault(tool);
+    assert.equal("perfectRoundsChampion" in res.seasonStatus, false);
+  });
+
+  it("is absent on a non-finale fire even with the knob enabled", async () => {
+    const { sdk, dataLayer: data, testHelpers } = makeData();
+    // Season ends in 30 days; reveal cron fires every minute (next fire is ~now, before season end)
+    await seedCurrentSeason(data, Date.now() + DAY * 30);
+    const scoped = data.forGame(FIXTURE_GAME_NAME);
+    testHelpers.saveUser({ userId: "U1", displayName: "Alice" });
+    await scoped.saveQuestion(
+      makeQuestion({
+        id: "q1",
+        batchId: "fire1",
+        postedAt: 1_000,
+        season: "s1",
+        slot: { index: 0 },
+      }),
+    );
+    await scoped.saveQuestion(
+      makeQuestion({
+        id: "q2",
+        batchId: "fire1",
+        postedAt: 1_001,
+        season: "s1",
+        slot: { index: 0 },
+      }),
+    );
+    await scoped.saveQuestion(
+      makeQuestion({
+        id: "q3",
+        batchId: "fire1",
+        postedAt: 1_002,
+        season: "s1",
+        slot: { index: 0 },
+      }),
+    );
+    await scoped.saveAnswer({
+      userId: "U1",
+      questionId: "q1",
+      answer: true,
+      correct: true,
+      timestamp: 500,
+    });
+    await scoped.saveAnswer({
+      userId: "U1",
+      questionId: "q2",
+      answer: true,
+      correct: true,
+      timestamp: 600,
+    });
+    await scoped.saveAnswer({
+      userId: "U1",
+      questionId: "q3",
+      answer: true,
+      correct: true,
+      timestamp: 700,
+    });
+
+    // Use every-minute reveal cron (next fire is ~now, before season end) instead of yearly
+    const getGames = () =>
+      fixtureGetGames().map((g) =>
+        g.name === FIXTURE_GAME_NAME
+          ? {
+              ...g,
+              revealCron: "* * * * *",
+              timezone: "UTC",
+              perfectRoundsAward: { enabled: true },
+            }
+          : g,
+      );
+    const tool = createComputeAnswersTool(
+      data,
+      sdk,
+      getGames,
+      createFakeRevealSlackDeps({ fetchBotUserId: async () => "UBOT" }),
+      () => ({ perfectRoundsAward: { enabled: false } }),
+    );
+    const res = await runDefault(tool);
+    assert.equal(res.seasonStatus?.isLastFireOfSeason, false);
+    assert.equal("perfectRoundsChampion" in res.seasonStatus, false);
+  });
+
+  it("is absent when no player earned a perfect round", async () => {
+    const { sdk, dataLayer: data, testHelpers } = makeData();
+    await seedCurrentSeason(data, Date.now() + 60_000);
+    const scoped = data.forGame(FIXTURE_GAME_NAME);
+    testHelpers.saveUser({ userId: "U1", displayName: "Alice" });
+    await scoped.saveQuestion(
+      makeQuestion({
+        id: "q1",
+        batchId: "fire1",
+        postedAt: 1_000,
+        season: "s1",
+        slot: { index: 0 },
+      }),
+    );
+    await scoped.saveQuestion(
+      makeQuestion({
+        id: "q2",
+        batchId: "fire1",
+        postedAt: 1_001,
+        season: "s1",
+        slot: { index: 0 },
+      }),
+    );
+    await scoped.saveQuestion(
+      makeQuestion({
+        id: "q3",
+        batchId: "fire1",
+        postedAt: 1_002,
+        season: "s1",
+        slot: { index: 0 },
+      }),
+    );
+    await scoped.saveAnswer({
+      userId: "U1",
+      questionId: "q1",
+      answer: true,
+      correct: true,
+      timestamp: 500,
+    });
+    await scoped.saveAnswer({
+      userId: "U1",
+      questionId: "q2",
+      answer: true,
+      correct: true,
+      timestamp: 600,
+    });
+    await scoped.saveAnswer({
+      userId: "U1",
+      questionId: "q3",
+      answer: true,
+      correct: false,
+      timestamp: 700,
+    });
+
+    const tool = makeToolWithPerfectRoundsEnabled(data, sdk);
+    const res = await runDefault(tool);
+    assert.equal(res.seasonStatus?.isLastFireOfSeason, true);
+    assert.equal("perfectRoundsChampion" in res.seasonStatus, false);
+  });
+
+  it("is present with a single champion at the finale", async () => {
+    const { sdk, dataLayer: data, testHelpers } = makeData();
+    await seedCurrentSeason(data, Date.now() + 60_000);
+    const scoped = data.forGame(FIXTURE_GAME_NAME);
+    testHelpers.saveUser({ userId: "U1", displayName: "Alice" });
+    testHelpers.saveUser({ userId: "U2", displayName: "Bob" });
+    await scoped.saveQuestion(
+      makeQuestion({
+        id: "q1",
+        batchId: "fire1",
+        postedAt: 1_000,
+        season: "s1",
+        slot: { index: 0 },
+      }),
+    );
+    await scoped.saveQuestion(
+      makeQuestion({
+        id: "q2",
+        batchId: "fire1",
+        postedAt: 1_001,
+        season: "s1",
+        slot: { index: 0 },
+      }),
+    );
+    await scoped.saveQuestion(
+      makeQuestion({
+        id: "q3",
+        batchId: "fire1",
+        postedAt: 1_002,
+        season: "s1",
+        slot: { index: 0 },
+      }),
+    );
+    await scoped.saveQuestion(
+      makeQuestion({
+        id: "q4",
+        batchId: "fire2",
+        postedAt: 2_000,
+        season: "s1",
+        slot: { index: 0 },
+      }),
+    );
+    await scoped.saveQuestion(
+      makeQuestion({
+        id: "q5",
+        batchId: "fire2",
+        postedAt: 2_001,
+        season: "s1",
+        slot: { index: 0 },
+      }),
+    );
+    await scoped.saveQuestion(
+      makeQuestion({
+        id: "q6",
+        batchId: "fire2",
+        postedAt: 2_002,
+        season: "s1",
+        slot: { index: 0 },
+      }),
+    );
+    // Alice swept fire1 and fire2; Bob only swept fire1
+    for (const qid of ["q1", "q2", "q3", "q4", "q5", "q6"]) {
+      await scoped.saveAnswer({
+        userId: "U1",
+        questionId: qid,
+        answer: true,
+        correct: true,
+        timestamp: 500,
+      });
+    }
+    for (const qid of ["q1", "q2", "q3"]) {
+      await scoped.saveAnswer({
+        userId: "U2",
+        questionId: qid,
+        answer: true,
+        correct: true,
+        timestamp: 600,
+      });
+    }
+    // Bob's fire2 answers are partial
+    await scoped.saveAnswer({
+      userId: "U2",
+      questionId: "q4",
+      answer: true,
+      correct: false,
+      timestamp: 700,
+    });
+
+    const tool = makeToolWithPerfectRoundsEnabled(data, sdk);
+    const res = await runDefault(tool);
+    assert.ok(res.seasonStatus !== undefined, "seasonStatus should be present");
+    assert.equal(res.seasonStatus?.isLastFireOfSeason, true);
+    assert.deepEqual(res.seasonStatus?.perfectRoundsChampion, {
+      userIds: ["U1"],
+      count: 2,
+    });
+  });
+
+  it("is present with multiple tied champions at the finale", async () => {
+    const { sdk, dataLayer: data, testHelpers } = makeData();
+    await seedCurrentSeason(data, Date.now() + 60_000);
+    const scoped = data.forGame(FIXTURE_GAME_NAME);
+    testHelpers.saveUser({ userId: "U1", displayName: "Alice" });
+    testHelpers.saveUser({ userId: "U2", displayName: "Bob" });
+    await scoped.saveQuestion(
+      makeQuestion({
+        id: "q1",
+        batchId: "fire1",
+        postedAt: 1_000,
+        season: "s1",
+        slot: { index: 0 },
+      }),
+    );
+    await scoped.saveQuestion(
+      makeQuestion({
+        id: "q2",
+        batchId: "fire1",
+        postedAt: 1_001,
+        season: "s1",
+        slot: { index: 0 },
+      }),
+    );
+    await scoped.saveQuestion(
+      makeQuestion({
+        id: "q3",
+        batchId: "fire1",
+        postedAt: 1_002,
+        season: "s1",
+        slot: { index: 0 },
+      }),
+    );
+    // Both swept the single fire
+    for (const qid of ["q1", "q2", "q3"]) {
+      await scoped.saveAnswer({
+        userId: "U1",
+        questionId: qid,
+        answer: true,
+        correct: true,
+        timestamp: 500,
+      });
+      await scoped.saveAnswer({
+        userId: "U2",
+        questionId: qid,
+        answer: true,
+        correct: true,
+        timestamp: 600,
+      });
+    }
+
+    const tool = makeToolWithPerfectRoundsEnabled(data, sdk);
+    const res = await runDefault(tool);
+    assert.equal(res.seasonStatus?.isLastFireOfSeason, true);
+    assert.deepEqual(res.seasonStatus?.perfectRoundsChampion, {
+      userIds: ["U1", "U2"],
+      count: 1,
+    });
+  });
+});

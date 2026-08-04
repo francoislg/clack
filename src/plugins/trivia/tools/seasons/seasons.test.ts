@@ -213,6 +213,7 @@ describe("upsert_season tool", () => {
         teamsFinaleIndividuals: undefined,
         teamsScoring: undefined,
         answeringType: undefined,
+        perfectRoundsAward: undefined,
       },
       SESSION,
     );
@@ -263,6 +264,7 @@ describe("upsert_season tool", () => {
       teamsFinaleIndividuals: undefined,
       teamsScoring: undefined,
       answeringType: undefined,
+      perfectRoundsAward: undefined,
     };
 
     const created = parseToolResult(
@@ -315,6 +317,7 @@ describe("upsert_season tool", () => {
         teamsFinaleIndividuals: undefined,
         teamsScoring: undefined,
         answeringType: undefined,
+        perfectRoundsAward: undefined,
       },
       SESSION,
     );
@@ -358,6 +361,7 @@ describe("upsert_season tool", () => {
         teamsFinaleIndividuals: undefined,
         teamsScoring: undefined,
         answeringType: undefined,
+        perfectRoundsAward: undefined,
       },
       SESSION,
     );
@@ -403,6 +407,7 @@ describe("upsert_season tool", () => {
         teamsFinaleIndividuals: undefined,
         teamsScoring: undefined,
         answeringType: undefined,
+        perfectRoundsAward: undefined,
       },
       SESSION,
     );
@@ -450,6 +455,7 @@ describe("upsert_season tool", () => {
         teamsFinaleIndividuals: undefined,
         teamsScoring: undefined,
         answeringType: undefined,
+        perfectRoundsAward: undefined,
       },
       SESSION,
     );
@@ -498,6 +504,7 @@ describe("upsert_season tool", () => {
         teamsFinaleIndividuals: undefined,
         teamsScoring: undefined,
         answeringType: undefined,
+        perfectRoundsAward: undefined,
       },
       SESSION,
     );
@@ -547,6 +554,7 @@ describe("upsert_season tool", () => {
         teamsFinaleIndividuals: undefined,
         teamsScoring: undefined,
         answeringType: undefined,
+        perfectRoundsAward: undefined,
       },
       SESSION,
     );
@@ -592,6 +600,7 @@ describe("upsert_season tool", () => {
         teamsFinaleIndividuals: undefined,
         teamsScoring: undefined,
         answeringType: undefined,
+        perfectRoundsAward: undefined,
       },
       SESSION,
     );
@@ -635,6 +644,7 @@ describe("upsert_season tool", () => {
         teamsFinaleIndividuals: undefined,
         teamsScoring: undefined,
         answeringType: undefined,
+        perfectRoundsAward: undefined,
       },
       SESSION,
     );
@@ -677,6 +687,7 @@ describe("upsert_season tool", () => {
         teamsFinaleIndividuals: undefined,
         teamsScoring: undefined,
         answeringType: undefined,
+        perfectRoundsAward: undefined,
       },
       SESSION,
     );
@@ -719,6 +730,7 @@ describe("upsert_season tool", () => {
         teamsFinaleIndividuals: undefined,
         teamsScoring: undefined,
         answeringType: undefined,
+        perfectRoundsAward: undefined,
       },
       SESSION,
     );
@@ -764,6 +776,7 @@ describe("upsert_season tool", () => {
         teamsFinaleIndividuals: undefined,
         teamsScoring: undefined,
         answeringType: undefined,
+        perfectRoundsAward: undefined,
       },
       SESSION,
     );
@@ -811,6 +824,7 @@ describe("upsert_season tool", () => {
         teamsFinaleIndividuals: undefined,
         teamsScoring: undefined,
         answeringType: undefined,
+        perfectRoundsAward: undefined,
       },
       SESSION,
     );
@@ -854,6 +868,7 @@ describe("upsert_season tool", () => {
         teamsFinaleIndividuals: undefined,
         teamsScoring: undefined,
         answeringType: undefined,
+        perfectRoundsAward: undefined,
       },
       SESSION,
     );
@@ -904,6 +919,7 @@ describe("upsert_season tool", () => {
         teamsFinaleIndividuals: undefined,
         teamsScoring: undefined,
         answeringType: undefined,
+        perfectRoundsAward: undefined,
       },
       SESSION,
     );
@@ -951,6 +967,7 @@ describe("upsert_season tool", () => {
         teamsFinaleIndividuals: undefined,
         teamsScoring: undefined,
         answeringType: undefined,
+        perfectRoundsAward: undefined,
       },
       SESSION,
     );
@@ -993,6 +1010,7 @@ describe("upsert_season tool", () => {
           teamsFinaleIndividuals: undefined,
           teamsScoring: undefined,
           answeringType: undefined,
+          perfectRoundsAward: undefined,
         },
         SESSION,
       );
@@ -1036,6 +1054,7 @@ describe("upsert_season tool", () => {
         teamsFinaleIndividuals: undefined,
         teamsScoring: undefined,
         answeringType: undefined,
+        perfectRoundsAward: undefined,
       },
       SESSION,
     );
@@ -1082,6 +1101,7 @@ describe("upsert_season tool", () => {
         teamsFinaleIndividuals: undefined,
         teamsScoring: undefined,
         answeringType: undefined,
+        perfectRoundsAward: undefined,
       },
       SESSION,
     );
@@ -1117,6 +1137,7 @@ describe("upsert_season tool", () => {
         teamsFinaleIndividuals: undefined,
         teamsScoring: undefined,
         answeringType: undefined,
+        perfectRoundsAward: undefined,
       },
       SESSION,
     );

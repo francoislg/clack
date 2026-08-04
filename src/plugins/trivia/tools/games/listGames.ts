@@ -9,6 +9,7 @@ import {
   type GetTriviaConfigFn,
 } from "../../core/configBridge.js";
 import type {
+  PerfectRoundsAward,
   SeasonFormat,
   TeamDef,
   TeamsScoringMode,
@@ -80,6 +81,7 @@ interface ListGamesEntry {
   tagPlayers?: boolean;
   scrollToTop?: boolean;
   disableAfterRound?: boolean;
+  perfectRoundsAward?: PerfectRoundsAward;
   includeRevealInQuestions?: TriviaIncludeRevealInQuestions;
   finalRevealSummary?: TriviaFinalRevealSummary;
   tellMeMore?: TriviaTellMeMoreConfig;
@@ -107,6 +109,7 @@ type WorkspaceDefaults = Partial<CascadeAxes> & {
   allTimeRow?: TriviaAllTimeRowMode;
   tagPlayers?: boolean;
   scrollToTop?: boolean;
+  perfectRoundsAward?: PerfectRoundsAward;
   includeRevealInQuestions?: TriviaIncludeRevealInQuestions;
   finalRevealSummary?: TriviaFinalRevealSummary;
   tellMeMore?: TriviaTellMeMoreConfig;
@@ -234,6 +237,9 @@ export function createListGamesTool(
           ...(g.tagPlayers !== undefined ? { tagPlayers: g.tagPlayers } : {}),
           ...(g.disableAfterRound !== undefined ? { disableAfterRound: g.disableAfterRound } : {}),
           ...(g.scrollToTop !== undefined ? { scrollToTop: g.scrollToTop } : {}),
+          ...(g.perfectRoundsAward !== undefined
+            ? { perfectRoundsAward: g.perfectRoundsAward }
+            : {}),
           ...(g.includeRevealInQuestions !== undefined
             ? { includeRevealInQuestions: g.includeRevealInQuestions }
             : {}),
@@ -283,6 +289,8 @@ export function createListGamesTool(
         if (triviaCfg.tagPlayers !== undefined) workspaceDefaults.tagPlayers = triviaCfg.tagPlayers;
         if (triviaCfg.scrollToTop !== undefined)
           workspaceDefaults.scrollToTop = triviaCfg.scrollToTop;
+        if (triviaCfg.perfectRoundsAward !== undefined)
+          workspaceDefaults.perfectRoundsAward = triviaCfg.perfectRoundsAward;
         if (triviaCfg.includeRevealInQuestions !== undefined)
           workspaceDefaults.includeRevealInQuestions = triviaCfg.includeRevealInQuestions;
         if (triviaCfg.finalRevealSummary !== undefined)

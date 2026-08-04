@@ -44,6 +44,7 @@ function baseArgs(slug: string, startedAt: number) {
     teamsFinaleIndividuals: undefined,
     teamsScoring: undefined,
     answeringType: undefined,
+    perfectRoundsAward: undefined,
   };
 }
 
