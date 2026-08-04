@@ -177,7 +177,6 @@ describe("trivia config relocation — end-to-end smoke", () => {
           tagPlayers: undefined,
           scrollToTop: undefined,
           disableAfterRound: undefined,
-          remindMissedPlayers: undefined,
           includeRevealInQuestions: undefined,
           finalRevealSummary: undefined,
           judgeLeniency: undefined,

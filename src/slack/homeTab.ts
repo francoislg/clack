@@ -1148,10 +1148,19 @@ export async function buildSettingsModal(
 
     const slice = await deps.getPluginPreferenceSlice(plugin, userId);
 
+    let headerText = plugin;
+    if (preferences.title !== undefined) {
+      try {
+        headerText = preferences.translate(preferences.title);
+      } catch {
+        headerText = plugin;
+      }
+    }
+
     blocks.push({ type: "divider" });
     blocks.push({
       type: "section",
-      text: { type: "mrkdwn", text: `*${plugin}*` },
+      text: { type: "mrkdwn", text: `*${headerText}*` },
     });
 
     for (const field of preferences.fields) {

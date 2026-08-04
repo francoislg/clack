@@ -349,6 +349,12 @@ export interface PreferenceFieldDescriptor {
 export interface RegisterPreferencesInput<T> {
   schema: z.ZodType<T>;
   fields: PreferenceFieldDescriptor[];
+  /**
+   * Optional dictionary key for the section header shown above this plugin's fields in the
+   * settings modal (resolved via the plugin's own `sdk.t` in the viewer's language). When
+   * absent, the section falls back to the plugin's name.
+   */
+  title?: string;
 }
 
 /**
@@ -358,7 +364,12 @@ export interface RegisterPreferencesInput<T> {
 export interface RegisteredPreferences {
   fields: PreferenceFieldDescriptor[];
   schema: z.ZodType<object>;
-  /** Resolve a field label key via the plugin's dictionary, in the viewer's active language. */
+  /** Optional dictionary key for the modal section header (falls back to the plugin name). */
+  title?: string;
+  /**
+   * Resolve a label key via the plugin's dictionary, in the viewer's active language. A key with
+   * no translation (e.g. a per-item literal like a game name) surfaces via the caller's fallback.
+   */
   translate: (key: string) => string;
 }
 

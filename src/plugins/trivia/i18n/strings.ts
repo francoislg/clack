@@ -138,8 +138,8 @@ export const en = {
   "label.delete_season": "Deleting trivia season — {game}/{slug}",
   "label.list_seasons": "Listing trivia seasons — {game}",
 
-  // User preference for reveal reminders.
-  "prefs.reveal_reminders": "Remind me before the answer is revealed if I haven't played yet",
+  // Section title for the per-game reveal-reminder toggles in the settings modal.
+  "prefs.reveal_reminders.title": "Trivia reveal reminders — pick which games to be nudged about",
 };
 
 export const fr: Partial<Record<keyof typeof en, string>> = {
@@ -248,6 +248,6 @@ export const fr: Partial<Record<keyof typeof en, string>> = {
   "label.delete_season": "Suppression de la saison trivia — {game}/{slug}",
   "label.list_seasons": "Liste des saisons trivia — {game}",
 
-  "prefs.reveal_reminders":
-    "Me rappeler avant la révélation de la réponse si je n'ai pas encore joué",
+  "prefs.reveal_reminders.title":
+    "Rappels de trivia — choisissez les jeux pour lesquels être relancé",
 };

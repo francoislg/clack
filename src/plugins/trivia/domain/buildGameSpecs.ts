@@ -195,26 +195,25 @@ export function buildGameSpecs(games: TriviaGame[], offDays?: OffDay[]): CronJob
       ...(skipDates ? { skipDates } : {}),
     });
 
-    // Reminder spec — only emitted when the game opts in via `remindMissedPlayers`.
+    // Reminder spec — emitted for every game when the reveal cron can be shifted.
     // Channelless (no `channel` field) so the SDK locks `submit_response` to
     // `{ skip_response: true }`, AND `requiredTools` is just `remind_unplayed`
     // (no post/message tools). Fires one hour before the reveal to nudge players.
-    if (game.remindMissedPlayers === true) {
-      const reminderCron = deriveReminderCron(game.revealCron);
-      if (reminderCron !== null) {
-        specs.push({
-          specKey: `${game.name}:reminder`,
-          name: `Trivia: ${game.name} — reminder`,
-          cronExpression: reminderCron,
-          // Intentionally NO `channel` field — channelless cron.
-          prompt: substituteGame(REMIND_UNPLAYED_INSTRUCTIONS, game.name),
-          timezone: game.timezone,
-          requiredTools: REMINDER_REQUIRED_TOOLS,
-          submitResponseMode: "skipped",
-          attachedTopics: ["trivia"],
-          ...(skipDates ? { skipDates } : {}),
-        });
-      }
+    // Opt-in moved to a per-user preference.
+    const reminderCron = deriveReminderCron(game.revealCron);
+    if (reminderCron !== null) {
+      specs.push({
+        specKey: `${game.name}:reminder`,
+        name: `Trivia: ${game.name} — reminder`,
+        cronExpression: reminderCron,
+        // Intentionally NO `channel` field — channelless cron.
+        prompt: substituteGame(REMIND_UNPLAYED_INSTRUCTIONS, game.name),
+        timezone: game.timezone,
+        requiredTools: REMINDER_REQUIRED_TOOLS,
+        submitResponseMode: "skipped",
+        attachedTopics: ["trivia"],
+        ...(skipDates ? { skipDates } : {}),
+      });
     }
   }
 

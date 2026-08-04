@@ -94,7 +94,7 @@ describe("trivia boot catch-up", () => {
   });
 
   it("never queries or fires the reminder spec", async () => {
-    const h = makeHarness([makeGame({ remindMissedPlayers: true })], RECOVERABLE_NOW, {
+    const h = makeHarness([makeGame()], RECOVERABLE_NOW, {
       "daily:reminder": [new Date("2026-06-10T15:00:00.000Z")],
     });
 

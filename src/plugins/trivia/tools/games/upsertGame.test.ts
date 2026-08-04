@@ -54,7 +54,6 @@ function args(overrides: Partial<UpsertGameArgs> & Pick<UpsertGameArgs, "name">)
     tagPlayers: undefined,
     scrollToTop: undefined,
     disableAfterRound: undefined,
-    remindMissedPlayers: undefined,
     includeRevealInQuestions: undefined,
     finalRevealSummary: undefined,
     judgeLeniency: undefined,
@@ -230,34 +229,6 @@ describe("upsert_game — create branch", () => {
     await tool.handler(args({ name: "engineering", disableAfterRound: null }), SESSION);
     assert.equal(loadTriviaConfig()?.games?.[0]?.disableAfterRound, undefined);
     assert.equal("disableAfterRound" in (loadTriviaConfig()?.games?.[0] ?? {}), false);
-  });
-
-  it("persists remindMissedPlayers, keeps it on omit, and clears it on null", async () => {
-    const { sdk } = createFakeSdk();
-    primeTriviaConfig(sdk, { games: [] });
-    const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
-    const result = parseToolResult(
-      await tool.handler(
-        args({
-          name: "engineering",
-          channel: "C1",
-          questionCron: "0 9 * * *",
-          revealCron: "0 17 * * *",
-          timezone: "UTC",
-          remindMissedPlayers: true,
-        }),
-        SESSION,
-      ),
-    );
-    assert.equal(result.hasRemindMissedPlayers, true);
-    assert.equal(loadTriviaConfig()?.games?.[0]?.remindMissedPlayers, true);
-
-    await tool.handler(args({ name: "engineering", theme: "space" }), SESSION);
-    assert.equal(loadTriviaConfig()?.games?.[0]?.remindMissedPlayers, true, "omit keeps the flag");
-
-    await tool.handler(args({ name: "engineering", remindMissedPlayers: null }), SESSION);
-    assert.equal(loadTriviaConfig()?.games?.[0]?.remindMissedPlayers, undefined);
-    assert.equal("remindMissedPlayers" in (loadTriviaConfig()?.games?.[0] ?? {}), false);
   });
 
   it("persists finalRevealSummary and clears it on null", async () => {

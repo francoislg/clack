@@ -1757,6 +1757,32 @@ describe("ClackSdk", () => {
       assert.equal(result.preferences.translate("notify_pref"), "Daily Notifications");
     });
 
+    it("harvests an optional localized section title when provided", () => {
+      const { sdk, harvest } = makeSdk();
+      sdk.registerDictionary({ en: { section_title: "My Preferences", x: "X" } });
+      sdk.registerPreferences({
+        schema: z.record(z.string(), z.boolean()),
+        title: "section_title",
+        fields: [{ key: "a", type: "toggle", label: "x", default: false }],
+      });
+      const result = harvest();
+      assert.ok(result.preferences);
+      assert.equal(result.preferences.title, "section_title");
+      assert.equal(result.preferences.translate(result.preferences.title!), "My Preferences");
+    });
+
+    it("leaves the title absent when not provided", () => {
+      const { sdk, harvest } = makeSdk();
+      sdk.registerDictionary({ en: { x: "X" } });
+      sdk.registerPreferences({
+        schema: z.record(z.string(), z.boolean()),
+        fields: [{ key: "a", type: "toggle", label: "x", default: false }],
+      });
+      const result = harvest();
+      assert.ok(result.preferences);
+      assert.equal(result.preferences.title, undefined);
+    });
+
     it("drops non-toggle field types", () => {
       const { sdk, harvest } = makeSdk();
       sdk.registerDictionary({ en: { x: "X" } });
