@@ -154,6 +154,9 @@ export function createListSeasonsTool(
             : {}),
           ...(entry.teamsScoring !== undefined ? { teamsScoring: entry.teamsScoring } : {}),
           ...(entry.answeringType !== undefined ? { answeringType: entry.answeringType } : {}),
+          ...(entry.perfectRoundsAward !== undefined
+            ? { perfectRoundsAward: entry.perfectRoundsAward }
+            : {}),
           ...(entry.teamsStamp !== undefined ? { teamsStamp: entry.teamsStamp } : {}),
         };
       });

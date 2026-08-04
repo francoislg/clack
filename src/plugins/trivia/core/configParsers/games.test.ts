@@ -163,6 +163,56 @@ describe("parseTriviaGames — per-game format / categories / theme", () => {
     });
   });
 
+  describe("perfectRoundsAward", () => {
+    it("accepts a valid perfectRoundsAward and stores it on the game", () => {
+      const { games, issues } = parseTriviaGames([
+        { ...validBase, perfectRoundsAward: { enabled: true } },
+      ]);
+      assert.equal(issues.length, 0);
+      assert.equal(games?.length, 1);
+      assert.deepEqual(games?.[0].perfectRoundsAward, { enabled: true });
+    });
+
+    it("leaves the field absent when not provided (legacy shape unchanged)", () => {
+      const { games, issues } = parseTriviaGames([{ ...validBase }]);
+      assert.equal(issues.length, 0);
+      assert.equal(games?.[0].perfectRoundsAward, undefined);
+      assert.equal("perfectRoundsAward" in (games?.[0] ?? {}), false);
+    });
+
+    it("drops the field with an issue when the value is not an object", () => {
+      const { games, issues } = parseTriviaGames([{ ...validBase, perfectRoundsAward: "yes" }]);
+      assert.equal(games?.length, 1);
+      assert.equal(games?.[0].perfectRoundsAward, undefined);
+      assert.equal(issues[0].field, "trivia.games[0].perfectRoundsAward");
+    });
+
+    it("drops the field with an issue when enabled is not a boolean", () => {
+      const { games, issues } = parseTriviaGames([
+        { ...validBase, perfectRoundsAward: { enabled: "no" } },
+      ]);
+      assert.equal(games?.length, 1);
+      assert.equal(games?.[0].perfectRoundsAward, undefined);
+      assert.equal(issues[0].field, "trivia.games[0].perfectRoundsAward");
+    });
+
+    it("drops the field and retains sibling fields when invalid", () => {
+      const { games, issues } = parseTriviaGames([
+        {
+          ...validBase,
+          theme: "Halloween",
+          tagPlayers: true,
+          perfectRoundsAward: { enabled: "no" },
+        },
+      ]);
+      assert.equal(games?.length, 1);
+      assert.equal(games?.[0].perfectRoundsAward, undefined);
+      assert.equal(games?.[0].theme, "Halloween");
+      assert.equal(games?.[0].tagPlayers, true);
+      assert.equal(issues[0].field, "trivia.games[0].perfectRoundsAward");
+    });
+  });
+
   describe("instructions", () => {
     it("accepts a trimmed non-empty string", () => {
       const { games, issues } = parseTriviaGames([{ ...validBase, instructions: "  Be dry.  " }]);

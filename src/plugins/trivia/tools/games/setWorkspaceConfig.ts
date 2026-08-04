@@ -26,6 +26,7 @@ import {
   triviaPointsZod,
   triviaJudgeLeniencyZod,
   triviaTellMeMoreZod,
+  perfectRoundsAwardZod,
   validateHintConfig,
   validateTriviaChoicesConfig,
   validateTriviaPoints,
@@ -211,6 +212,14 @@ export function createSetWorkspaceConfigTool() {
         .optional()
         .describe(
           'Workspace tier of the answer-ownership model (shared buzzer). `"individual"` (the built-in default): every player owns their own answer. `"byTeam"`: the TEAM owns one answer slot per question (any member\'s click overrides it; the live roster shows the team; non-members play individually). `"byTeam"` is effective only when teams mode resolves ON (enabled + non-empty roster); otherwise inert (falls back to individual, list_games warning). Cascade: `season → game → workspace → "individual"`. null clears.',
+        ),
+      perfectRoundsAward: perfectRoundsAwardZod
+        .nullable()
+        .optional()
+        .describe(
+          "Workspace tier of the perfect rounds award knob (`{ enabled: boolean }`). When enabled, " +
+            "awards a 🎖️ medal at season finale to the player(s) with the most perfect rounds. " +
+            "Cascade: `season → game → workspace → { enabled: false }`. null clears.",
         ),
     },
     async (args) => {
@@ -532,6 +541,15 @@ export function createSetWorkspaceConfigTool() {
       } else if (args.answeringType !== undefined) {
         next.answeringType = args.answeringType;
         updatedFields.push("answeringType");
+      }
+
+      // perfectRoundsAward: apply or clear.
+      if (args.perfectRoundsAward === null) {
+        next.perfectRoundsAward = undefined;
+        updatedFields.push("perfectRoundsAward (cleared)");
+      } else if (args.perfectRoundsAward !== undefined) {
+        next.perfectRoundsAward = args.perfectRoundsAward;
+        updatedFields.push("perfectRoundsAward");
       }
 
       if (issues.length > 0) {

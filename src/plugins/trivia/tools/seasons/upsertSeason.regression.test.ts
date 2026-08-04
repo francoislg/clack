@@ -76,6 +76,7 @@ describe("upsert_season — schema unification regressions", () => {
         teamsFinaleIndividuals: undefined,
         teamsScoring: undefined,
         answeringType: undefined,
+        perfectRoundsAward: undefined,
       },
       SESSION,
     );
@@ -126,6 +127,7 @@ describe("upsert_season — schema unification regressions", () => {
         teamsFinaleIndividuals: undefined,
         teamsScoring: undefined,
         answeringType: undefined,
+        perfectRoundsAward: undefined,
       },
       SESSION,
     );
@@ -174,6 +176,7 @@ describe("upsert_season — schema unification regressions", () => {
         teamsFinaleIndividuals: undefined,
         teamsScoring: undefined,
         answeringType: undefined,
+        perfectRoundsAward: undefined,
       },
       SESSION,
     );
@@ -210,6 +213,7 @@ describe("upsert_season — schema unification regressions", () => {
         teamsFinaleIndividuals: undefined,
         teamsScoring: undefined,
         answeringType: undefined,
+        perfectRoundsAward: undefined,
       },
       SESSION,
     );

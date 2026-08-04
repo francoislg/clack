@@ -174,6 +174,13 @@ export interface TeamStandingsOut {
   finaleIndividuals?: true;
 }
 
+export interface PerfectRoundsChampion {
+  /** Every player tied at the maximum perfect-round count. */
+  userIds: string[];
+  /** The maximum perfect-round count (≥ 1 when this field is present). */
+  count: number;
+}
+
 export interface SeasonStatusOut {
   currentSlug: string;
   isLastFireOfSeason: boolean;
@@ -192,6 +199,12 @@ export interface SeasonStatusOut {
    * should drop the redundant All Time row from the leaderboard table.
    */
   hasPriorSeasons: boolean;
+  /**
+   * Perfect rounds champion(s) — present only at the season finale when the knob
+   * is enabled AND at least one player earned a perfect round. Individual honor
+   * (team rows excluded).
+   */
+  perfectRoundsChampion?: PerfectRoundsChampion;
 }
 
 export interface RoundSummaryEntry {

@@ -230,6 +230,21 @@ export const DEFAULT_ALL_TIME_ROW: TriviaAllTimeRowMode = "end-of-season-only";
 export const DEFAULT_TAG_PLAYERS = true;
 
 /**
+ * Perfect rounds award configuration. Awards a bonus 🎖️ medal at the season
+ * finale to the player(s) with the most perfect rounds. Cascades
+ * `season → game → workspace → { enabled: false }`. NOT a CascadeAxes member —
+ * structural-special, game+workspace+season tier only.
+ */
+export interface PerfectRoundsAward {
+  enabled: boolean;
+}
+
+/**
+ * Built-in fallback when no `perfectRoundsAward` is set at any tier.
+ */
+export const DEFAULT_PERFECT_ROUNDS_AWARD: PerfectRoundsAward = { enabled: false };
+
+/**
  * Built-in fallback for the `scrollToTop` knob. `false` preserves the legacy
  * behavior: a question batch posts nothing after its last question. `true`
  * makes `post_questions` append one trailing "scroll to the first question"
@@ -530,6 +545,12 @@ export interface TriviaGame extends CascadeAxes {
    * See `TriviaAnsweringType` and `resolveTeamsConfig`.
    */
   answeringType?: TriviaAnsweringType;
+  /**
+   * Per-game tier of the perfect rounds award knob. Cascade:
+   *   `season → game → workspace → { enabled: false }`. NOT a CascadeAxes member.
+   * See `PerfectRoundsAward` and `resolvePerfectRoundsAward`.
+   */
+  perfectRoundsAward?: PerfectRoundsAward;
 }
 
 /**
@@ -649,6 +670,12 @@ export interface TriviaConfig extends CascadeAxes {
    * See `TriviaAnsweringType` and `resolveTeamsConfig`.
    */
   answeringType?: TriviaAnsweringType;
+  /**
+   * Workspace tier of the perfect rounds award knob. Cascade:
+   *   `season → game → workspace → { enabled: false }`. NOT a CascadeAxes member.
+   * See `PerfectRoundsAward` and `resolvePerfectRoundsAward`.
+   */
+  perfectRoundsAward?: PerfectRoundsAward;
 }
 
 /** Defaults applied when `choices` is absent or only partially specified. */

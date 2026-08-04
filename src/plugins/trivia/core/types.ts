@@ -8,6 +8,7 @@ import type {
   TriviaFreeformAnswerShape,
   JudgeLeniency,
   RevealResponsesMode,
+  PerfectRoundsAward,
 } from "./configTypes.js";
 // SeasonEntry extends CascadeAxes (the per-season tier of every cascading axis).
 // Type-only circular import with cascadeAxes.ts — no runtime cycle.
@@ -453,6 +454,8 @@ export interface SeasonEntry extends CascadeAxes {
   teamsScoring?: TeamsScoringMode;
   /** Season tier of the answer-ownership model (shared-buzzer). See `TriviaGame.answeringType`. */
   answeringType?: TriviaAnsweringType;
+  /** Season tier of the perfect rounds award knob. See `TriviaGame.perfectRoundsAward`. */
+  perfectRoundsAward?: PerfectRoundsAward;
   /**
    * EFFECTIVE teams roster + scoring mode, stamped at season close (by
    * `applySeasonRollover`) — present IFF teams mode was effectively ON when the

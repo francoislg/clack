@@ -21,6 +21,7 @@ import {
   validateFinalRevealSummary,
   validateIncludeRevealInQuestions,
   validateJudgeLeniency,
+  validatePerfectRoundsAward,
   validateTellMeMore,
   validateTriviaChoicesConfig,
   type ParseIssue,
@@ -275,6 +276,12 @@ function parseTriviaConfigObject(raw: JsonObject, logger: PluginLogger): TriviaC
     const r = validateAnsweringType(raw.answeringType, "trivia.answeringType");
     if (r.ok) out.answeringType = r.value;
     else allIssues.push({ field: "trivia.answeringType", error: r.error });
+  }
+
+  if (raw.perfectRoundsAward !== undefined && raw.perfectRoundsAward !== null) {
+    const r = validatePerfectRoundsAward(raw.perfectRoundsAward, "trivia.perfectRoundsAward");
+    if (r.ok) out.perfectRoundsAward = r.value;
+    else allIssues.push({ field: "trivia.perfectRoundsAward", error: r.error });
   }
 
   if (raw.instructions !== undefined && raw.instructions !== null) {
