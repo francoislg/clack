@@ -4,6 +4,7 @@ import type { TriviaGame, OffDay } from "./core/configTypes.js";
 import { setTriviaLogger } from "./core/pluginLogger.js";
 import { en as triviaEn, fr as triviaFr } from "./i18n/strings.js";
 import { setTriviaT } from "./i18n/t.js";
+import { TRIVIA_USER_PREFS_SCHEMA } from "./core/userPrefs.js";
 import { createSdkDataLayer } from "./core/dataLayer.js";
 import { SEED_CATEGORIES } from "./core/seedCategories.js";
 import { createAddCategoriesTool } from "./tools/categories/addCategories.js";
@@ -34,6 +35,7 @@ import { createOverrideQuestionTool } from "./tools/questions/overrideQuestion.j
 import { createSettleQuestionTool } from "./tools/reveal/settleQuestion.js";
 import { createLockQuestionsTool } from "./tools/lock/lockQuestions.js";
 import { createUnlockQuestionsTool } from "./tools/lock/unlockQuestions.js";
+import { createRemindUnplayedTool } from "./tools/reminders/remindUnplayed.js";
 import { createRemoveCheatTool } from "./tools/answers/removeCheat.js";
 import {
   getTriviaCheckInstruction,
@@ -69,6 +71,13 @@ export const triviaPlugin: ClackPlugin = async (sdk: ClackSdk) => {
 
   sdk.registerDictionary({ en: triviaEn, fr: triviaFr });
   setTriviaT(sdk.t);
+
+  sdk.registerPreferences({
+    schema: TRIVIA_USER_PREFS_SCHEMA,
+    fields: [
+      { key: "revealReminders", type: "toggle", label: "prefs.reveal_reminders", default: false },
+    ],
+  });
 
   // Warm the trivia plugin's own config cache (data/plugins/trivia/config.json).
   // After this, every tool/resolver reads from the in-memory cache synchronously.
@@ -126,6 +135,7 @@ export const triviaPlugin: ClackPlugin = async (sdk: ClackSdk) => {
   );
   sdk.registerTool("admin", createPostQuestionsTool(data, sdk), sdk.t("label.post_questions"));
   sdk.registerTool("admin", createLockQuestionsTool(data, sdk), sdk.t("label.lock_questions"));
+  sdk.registerTool("admin", createRemindUnplayedTool(data, sdk), sdk.t("label.remind_unplayed"));
   sdk.registerTool("member", createFindPreviousQuestionsTool(data), sdk.t("label.find_previous"));
   sdk.registerTool(
     "member",

@@ -8,7 +8,11 @@ import { getActiveWorkers } from "../changes/activeState.js";
 import { getWorkerPoolSnapshot, type WorkerPoolSnapshot } from "../workers/index.js";
 import { getActiveTesterRuns, type ActiveTesterRun } from "../tester/concurrency.js";
 import { listInstructionFiles } from "../configurationFiles.js";
-import { getReactionDelivery, getUserPreference } from "../userPreferences.js";
+import {
+  getReactionDelivery,
+  getUserPreference,
+  getPluginPreferenceSlice,
+} from "../userPreferences.js";
 import { getVisibleRepos, canWriteRepo } from "../repoAccess.js";
 import { getMigrationErrors } from "../migrations/admin.js";
 import { discoverSkillPluginInfo } from "../skillPlugins.js";
@@ -31,10 +35,15 @@ import { truncate } from "../text.js";
 import { t } from "../i18n/t.js";
 import type { ActiveWorker } from "../changes/activeState.js";
 import type { InstructionFileListing } from "../configurationFiles.js";
-import type { Config, RepositoryConfig } from "../config.js";
+import type { Config, RepositoryConfig, JsonObject } from "../config.js";
+import type { RegisteredPreferences } from "../plugins-sdk/sdk.js";
 import type { SkillPluginInfo } from "../skillPlugins.js";
 import type { MigrationError } from "../migrations/types.js";
-import { getLoadedPlugins, getLoadedPluginIntegrations } from "../plugins-core/state.js";
+import {
+  getLoadedPlugins,
+  getLoadedPluginIntegrations,
+  getLoadedPluginPreferences,
+} from "../plugins-core/state.js";
 import { getInvestigationsChannel, listOpenInvestigations } from "../investigations/state.js";
 import type { InvestigationSummary } from "../investigations/types.js";
 
@@ -87,6 +96,8 @@ export interface HomeTabDeps {
   getUsageLimits: () => Promise<UsageLimitsState>;
   getInvestigationsChannel: () => string | null;
   listOpenInvestigations: () => InvestigationSummary[];
+  getLoadedPluginPreferences: () => Array<{ plugin: string; preferences: RegisteredPreferences }>;
+  getPluginPreferenceSlice: (plugin: string, userId: string) => Promise<JsonObject | null>;
 }
 
 export const defaultHomeTabDeps: HomeTabDeps = {
@@ -127,6 +138,8 @@ export const defaultHomeTabDeps: HomeTabDeps = {
   getUsageLimits: readUsageLimits,
   getInvestigationsChannel,
   listOpenInvestigations,
+  getLoadedPluginPreferences,
+  getPluginPreferenceSlice,
 };
 
 interface HomeViewOptions {
@@ -1044,6 +1057,129 @@ export async function buildSettingsModal(
     value: "silent",
   };
 
+  const blocks: (KnownBlock | Block)[] = [
+    {
+      type: "section",
+      text: {
+        type: "mrkdwn",
+        text: t("home.settings.delivery_label"),
+      },
+    },
+    {
+      type: "actions",
+      block_id: "response_delivery_block",
+      elements: [
+        {
+          type: "radio_buttons",
+          action_id: "response_delivery",
+          initial_option: delivery === "dm" ? dmOption : threadOption,
+          options: [dmOption, threadOption],
+        },
+      ],
+    },
+    { type: "divider" },
+    {
+      type: "section",
+      text: {
+        type: "mrkdwn",
+        text: t("home.settings.notify_label"),
+      },
+    },
+    {
+      type: "actions",
+      block_id: "notify_on_response_block",
+      elements: [
+        {
+          type: "radio_buttons",
+          action_id: "notify_on_response",
+          initial_option: notifyOnResponse ? notifyOnOption : notifyOffOption,
+          options: [notifyOnOption, notifyOffOption],
+        },
+      ],
+    },
+    { type: "divider" },
+    {
+      type: "section",
+      text: {
+        type: "mrkdwn",
+        text: t("home.settings.investigation_tag_label"),
+      },
+    },
+    {
+      type: "actions",
+      block_id: "investigation_tag_block",
+      elements: [
+        {
+          type: "radio_buttons",
+          action_id: "investigation_tag",
+          initial_option: investigationTag ? investigationTagOnOption : investigationTagOffOption,
+          options: [investigationTagOnOption, investigationTagOffOption],
+        },
+      ],
+    },
+    { type: "divider" },
+    {
+      type: "section",
+      text: {
+        type: "mrkdwn",
+        text: t("home.settings.investigation_breadcrumb_label"),
+      },
+    },
+    {
+      type: "actions",
+      block_id: "investigation_breadcrumb_block",
+      elements: [
+        {
+          type: "radio_buttons",
+          action_id: "investigation_breadcrumb",
+          initial_option:
+            investigationBreadcrumb === "explicit"
+              ? investigationBreadcrumbExplicitOption
+              : investigationBreadcrumbSilentOption,
+          options: [investigationBreadcrumbExplicitOption, investigationBreadcrumbSilentOption],
+        },
+      ],
+    },
+  ];
+
+  // Add plugin preference sections
+  for (const { plugin, preferences } of deps.getLoadedPluginPreferences()) {
+    if (preferences.fields.length === 0) continue;
+
+    const slice = await deps.getPluginPreferenceSlice(plugin, userId);
+
+    blocks.push({ type: "divider" });
+    blocks.push({
+      type: "section",
+      text: { type: "mrkdwn", text: `*${plugin}*` },
+    });
+
+    for (const field of preferences.fields) {
+      let label: string;
+      try {
+        label = preferences.translate(field.label);
+      } catch {
+        label = field.label;
+      }
+      const current =
+        typeof slice?.[field.key] === "boolean" ? (slice[field.key] as boolean) : field.default;
+      const option = { text: { type: "plain_text" as const, text: label }, value: field.key };
+
+      blocks.push({
+        type: "actions",
+        block_id: `plugin_pref:${plugin}:${field.key}`,
+        elements: [
+          {
+            type: "checkboxes",
+            action_id: field.key,
+            options: [option],
+            ...(current ? { initial_options: [option] } : {}),
+          },
+        ],
+      });
+    }
+  }
+
   return {
     type: "modal",
     callback_id: "settings_modal",
@@ -1059,90 +1195,7 @@ export async function buildSettingsModal(
       type: "plain_text",
       text: t("common.cancel"),
     },
-    blocks: [
-      {
-        type: "section",
-        text: {
-          type: "mrkdwn",
-          text: t("home.settings.delivery_label"),
-        },
-      },
-      {
-        type: "actions",
-        block_id: "response_delivery_block",
-        elements: [
-          {
-            type: "radio_buttons",
-            action_id: "response_delivery",
-            initial_option: delivery === "dm" ? dmOption : threadOption,
-            options: [dmOption, threadOption],
-          },
-        ],
-      },
-      { type: "divider" },
-      {
-        type: "section",
-        text: {
-          type: "mrkdwn",
-          text: t("home.settings.notify_label"),
-        },
-      },
-      {
-        type: "actions",
-        block_id: "notify_on_response_block",
-        elements: [
-          {
-            type: "radio_buttons",
-            action_id: "notify_on_response",
-            initial_option: notifyOnResponse ? notifyOnOption : notifyOffOption,
-            options: [notifyOnOption, notifyOffOption],
-          },
-        ],
-      },
-      { type: "divider" },
-      {
-        type: "section",
-        text: {
-          type: "mrkdwn",
-          text: t("home.settings.investigation_tag_label"),
-        },
-      },
-      {
-        type: "actions",
-        block_id: "investigation_tag_block",
-        elements: [
-          {
-            type: "radio_buttons",
-            action_id: "investigation_tag",
-            initial_option: investigationTag ? investigationTagOnOption : investigationTagOffOption,
-            options: [investigationTagOnOption, investigationTagOffOption],
-          },
-        ],
-      },
-      { type: "divider" },
-      {
-        type: "section",
-        text: {
-          type: "mrkdwn",
-          text: t("home.settings.investigation_breadcrumb_label"),
-        },
-      },
-      {
-        type: "actions",
-        block_id: "investigation_breadcrumb_block",
-        elements: [
-          {
-            type: "radio_buttons",
-            action_id: "investigation_breadcrumb",
-            initial_option:
-              investigationBreadcrumb === "explicit"
-                ? investigationBreadcrumbExplicitOption
-                : investigationBreadcrumbSilentOption,
-            options: [investigationBreadcrumbExplicitOption, investigationBreadcrumbSilentOption],
-          },
-        ],
-      },
-    ],
+    blocks,
   };
 }
 

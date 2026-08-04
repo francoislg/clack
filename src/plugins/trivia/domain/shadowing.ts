@@ -4,9 +4,14 @@ import type { TriviaGame } from "../core/configTypes.js";
 
 /**
  * A field name an `upsert_game` call wrote: a cascading axis, the `format`
- * pseudo-field, or one of the season-tier-only teams fields.
+ * pseudo-field, one of the season-tier-only teams fields, or game-tier structural flags.
  */
-export type WrittenField = keyof CascadeAxes | "format" | TeamsWrittenField;
+export type WrittenField =
+  | keyof CascadeAxes
+  | "format"
+  | TeamsWrittenField
+  | "disableAfterRound"
+  | "remindMissedPlayers";
 
 /** The teams-family fields cascade `season → game → workspace` with NO slot tier. */
 const TEAMS_WRITTEN_FIELDS = [
@@ -55,6 +60,8 @@ export function detectGameWriteShadowing(
       if (season?.format !== undefined) seasonShadowed.push("format");
       continue;
     }
+    // Game-tier-only structural flags have no higher-tier shadowing.
+    if (field === "disableAfterRound" || field === "remindMissedPlayers") continue;
     if (season !== null && season[field] !== undefined) {
       seasonShadowed.push(field);
       continue;

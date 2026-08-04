@@ -329,6 +329,55 @@ export interface ClackSdkUsers {
 }
 
 /**
+ * Declarative preference field shown in the Home Tab settings modal. The field name
+ * must match a property on the zod schema passed to `registerPreferences`.
+ */
+export interface PreferenceFieldDescriptor {
+  /** Field key; must be a property on the registered schema. */
+  key: string;
+  /** v1 supports only boolean on/off toggles. */
+  type: "toggle";
+  /** Translation key resolved via the plugin's own dictionary at render time. */
+  label: string;
+  /** Default value when the user has not set this field. */
+  default: boolean;
+}
+
+/**
+ * Input to `sdk.registerPreferences`: declarative preference schema and fields.
+ */
+export interface RegisterPreferencesInput<T> {
+  schema: z.ZodType<T>;
+  fields: PreferenceFieldDescriptor[];
+}
+
+/**
+ * Per-plugin preferences declaration captured in the plugin's `PluginLoadResult`.
+ * Provides field rendering hints and a translate function for label keys.
+ */
+export interface RegisteredPreferences {
+  fields: PreferenceFieldDescriptor[];
+  schema: z.ZodType<object>;
+  /** Resolve a field label key via the plugin's dictionary, in the viewer's active language. */
+  translate: (key: string) => string;
+}
+
+/**
+ * Per-user preferences surface — read the calling plugin's preference slice
+ * validated against its schema.
+ *
+ * Distinct from {@link ClackSdkUserData} (`sdk.users.data`): `users.data` is a
+ * bot-managed per-user namespace the plugin reads AND writes freely (extension
+ * state). `preferences` is a USER-owned choice store — the user sets it from the
+ * Home Tab settings modal (via {@link ClackSdk.registerPreferences}) and the
+ * plugin only reads it here; there is no plugin-side write path.
+ */
+export interface ClackSdkPreferences {
+  /** Read this plugin's preference slice for a user, validated against `schema`; null if unset or invalid. */
+  get<T>(userId: string, schema: z.ZodType<T>): Promise<T | null>;
+}
+
+/**
  * Read/merge access to the calling plugin's own namespace slice on a memory entry, validated by
  * the plugin-supplied zod schema. Auto-scoped to the plugin. `merge` rejects when no core entry
  * exists for `id` (memory is core-first — remember the entry before attaching a slice). The
@@ -509,6 +558,15 @@ export interface ClackSdk {
     options?: { suppressUnfurls?: boolean },
   ): Promise<{ ok: true } | { ok: false; error: string }>;
   /**
+   * DM an arbitrary user by opening (or reusing) their DM channel. Plugin-trusted plumbing —
+   * distinct from the query-tool guard that blocks user-directed third-party DMs. Fail-soft.
+   */
+  dmUser(
+    userId: string,
+    text: string,
+    options?: { suppressUnfurls?: boolean },
+  ): Promise<{ ok: true } | { ok: false; error: string }>;
+  /**
    * Post a single Slack message — top-level in `channel`, or a threaded reply when
    * `threadTs` is given. The narrow, fail-soft alternative to reaching for the raw
    * client via {@link getSlackClient}: returns a `Result` (never throws) and applies
@@ -555,6 +613,14 @@ export interface ClackSdk {
    * `onBeforeExpire` registers a pre-expire veto hook. See {@link ClackSdkMemory}.
    */
   memory: ClackSdkMemory;
+  /**
+   * Per-user preferences surfaced in the Home Tab settings modal. Read this plugin's slice.
+   */
+  preferences: ClackSdkPreferences;
+  /**
+   * Declare per-user preference fields rendered into the Home Tab settings modal.
+   */
+  registerPreferences<T>(input: RegisterPreferencesInput<T>): void;
   /**
    * Register a Slack action handler scoped to this plugin. The `key` is the
    * suffix the plugin owns; the SDK prefixes it as `plugin:<pluginName>:<key>`
@@ -710,6 +776,8 @@ export interface PluginLoadResult {
   actionHandlers: RegisteredActionEntry[];
   /** Slack view-submission handlers registered via `sdk.registerView`. */
   viewHandlers: RegisteredViewEntry[];
+  /** Personal-preferences fields declared via sdk.registerPreferences. Absent when none registered. */
+  preferences?: RegisteredPreferences;
 }
 
 // ============================================================================

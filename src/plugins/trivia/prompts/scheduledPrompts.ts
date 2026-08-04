@@ -779,6 +779,21 @@ ${PER_SLOT_GENERATION_PATHS}
 ${FORMAT_AND_POST_SECTION}`;
 
 /**
+ * Reminder-cron prompt — drives the `<game>:reminder` cron spec when the game has
+ * `remindMissedPlayers: true`. A single tool call: `remind_unplayed` sends a friendly
+ * reminder DM to players who haven't answered the current round, nudging them to play
+ * before the reveal one hour from now. The cron is channelless and `submitResponseMode: "skipped"`,
+ * so the run posts no Slack message and terminates with `submit_response({ skip_response: true })`.
+ */
+export const REMIND_UNPLAYED_INSTRUCTIONS = `Send a friendly reminder to players who haven't answered yet for game \`{game}\`.
+
+The current trivia round for game \`{game}\` will be revealed in one hour. Call \`remind_unplayed({ message: "<short friendly message>" })\` exactly once with a brief, localized reminder message that nudges players to go answer before the reveal. The message MUST NOT name or @-mention any specific users — the tool fans out DMs to the opted-in audience automatically.
+
+Example message format: "Don't miss out! There's still time to play this round of {game} — answers close in 1 hour."
+
+Then call \`submit_response({ skip_response: true })\` to terminate the run.`;
+
+/**
  * LOCK-cron prompt — drives the `<game>:lock` cron spec when the game has `lockCron`
  * configured. A single mechanical tool call: `lock_questions` freezes every posted,
  * not-yet-revealed question (strips the answer buttons, shows a "locked in" notice).

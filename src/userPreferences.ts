@@ -4,6 +4,7 @@ import { z } from "zod";
 import { logger } from "./logger.js";
 import { fileExists } from "./fs.js";
 import { createRecordStore } from "./state/resilientStore.js";
+import type { JsonObject } from "./config.js";
 
 // ============================================================================
 // Dependency Injection
@@ -44,6 +45,8 @@ export interface UserPreferences {
   investigationTag: boolean;
   /** Whether starting an investigation posts a breadcrumb reply in the origin thread. */
   investigationBreadcrumb: "silent" | "explicit";
+  /** Per-plugin user-chosen preference slice, surfaced in the Personal Preferences modal. Keyed by plugin name. */
+  plugins?: { [plugin: string]: JsonObject };
 }
 
 const DEFAULT_PREFERENCES: UserPreferences = {
@@ -65,6 +68,7 @@ const preferencesEntryZod = z.object({
   notifyOnResponse: z.boolean().optional(),
   investigationTag: z.boolean().optional(),
   investigationBreadcrumb: z.enum(["silent", "explicit"]).optional(),
+  plugins: z.record(z.string(), z.custom<JsonObject>()).optional(),
 });
 
 // Standing prefs ride the shared resilient RECORD store (per-user quarantine + freeze). The store
@@ -113,6 +117,37 @@ export async function setUserPreference<K extends keyof UserPreferences>(
     prefs[userId] = {};
   }
   prefs[userId][key] = value;
+  await savePreferences(prefs);
+}
+
+/**
+ * Read one plugin's preference slice for a user, or null if unset.
+ */
+export async function getPluginPreferenceSlice(
+  plugin: string,
+  userId: string,
+): Promise<JsonObject | null> {
+  const prefs = await loadPreferences();
+  const slice = prefs[userId]?.plugins?.[plugin];
+  return (slice as JsonObject | undefined) ?? null;
+}
+
+/**
+ * Merge a partial slice into one plugin's preferences for a user, preserving core fields, other plugins, and untouched keys.
+ */
+export async function mergePluginPreferenceSlice(
+  plugin: string,
+  userId: string,
+  partial: JsonObject,
+): Promise<void> {
+  const prefs = await loadPreferences();
+  const entry = prefs[userId] ?? {};
+  const existingPlugins = entry.plugins ?? {};
+  const existingSlice = existingPlugins[plugin] ?? {};
+  prefs[userId] = {
+    ...entry,
+    plugins: { ...existingPlugins, [plugin]: { ...existingSlice, ...partial } },
+  };
   await savePreferences(prefs);
 }
 

@@ -2,11 +2,13 @@ import { CronExpressionParser } from "cron-parser";
 import type { CronJobSpec } from "../../../plugins-sdk/sdk.js";
 import type { TriviaGame, OffDay } from "../core/configTypes.js";
 import { triviaLogger as logger } from "../core/pluginLogger.js";
+import { deriveReminderCron } from "./deriveReminderCron.js";
 import {
   SEND_QUESTIONS_INSTRUCTIONS,
   PREP_QUESTIONS_INSTRUCTIONS,
   POST_QUESTIONS_INSTRUCTIONS,
   LOCK_QUESTIONS_INSTRUCTIONS,
+  REMIND_UNPLAYED_INSTRUCTIONS,
   buildProcessRevealInstructions,
 } from "../prompts/scheduledPrompts.js";
 
@@ -54,6 +56,13 @@ const PREP_REQUIRED_TOOLS = ["mcp__trivia__get_ideas", "mcp__trivia__find_previo
  * never deliver a new message. Either restriction alone would suffice; both are present.
  */
 const LOCK_REQUIRED_TOOLS = ["mcp__trivia__lock_questions"];
+
+/**
+ * Reminder-cron required-tools list — the single tool `remind_unplayed`. Like the prep and lock
+ * specs, the reminder spec is channelless (so `submit_response` is locked to `{ skip_response: true }`)
+ * and delivers via DM inside the tool, never posts a message.
+ */
+const REMINDER_REQUIRED_TOOLS = ["mcp__trivia__remind_unplayed"];
 
 // Reveal required-tools list. `compute_answers` is the ONLY tool called on every reveal — it
 // scores and returns the payload even on an empty batch (`reveals: []`). `settle_question`
@@ -185,6 +194,28 @@ export function buildGameSpecs(games: TriviaGame[], offDays?: OffDay[]): CronJob
       attentionLevel: "low",
       ...(skipDates ? { skipDates } : {}),
     });
+
+    // Reminder spec — only emitted when the game opts in via `remindMissedPlayers`.
+    // Channelless (no `channel` field) so the SDK locks `submit_response` to
+    // `{ skip_response: true }`, AND `requiredTools` is just `remind_unplayed`
+    // (no post/message tools). Fires one hour before the reveal to nudge players.
+    if (game.remindMissedPlayers === true) {
+      const reminderCron = deriveReminderCron(game.revealCron);
+      if (reminderCron !== null) {
+        specs.push({
+          specKey: `${game.name}:reminder`,
+          name: `Trivia: ${game.name} — reminder`,
+          cronExpression: reminderCron,
+          // Intentionally NO `channel` field — channelless cron.
+          prompt: substituteGame(REMIND_UNPLAYED_INSTRUCTIONS, game.name),
+          timezone: game.timezone,
+          requiredTools: REMINDER_REQUIRED_TOOLS,
+          submitResponseMode: "skipped",
+          attachedTopics: ["trivia"],
+          ...(skipDates ? { skipDates } : {}),
+        });
+      }
+    }
   }
 
   return specs;

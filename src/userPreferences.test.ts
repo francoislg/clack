@@ -8,6 +8,8 @@ import {
   getReactionDelivery,
   clearPreferencesCache,
   setUserPreferencesDeps,
+  getPluginPreferenceSlice,
+  mergePluginPreferenceSlice,
   type UserPreferencesDeps,
 } from "./userPreferences.js";
 
@@ -376,5 +378,125 @@ describe("clearPreferencesCache", () => {
     const result = await loadPreferences();
     assert.equal(mockReadFile.mock.calls.length, 2);
     assert.deepEqual(result, { U2: { notifyOnResponse: true } });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Plugin preferences fold
+// ---------------------------------------------------------------------------
+
+describe("plugin preferences fold", () => {
+  beforeEach(() => {
+    clearPreferencesCache();
+    mockReadFile.mockClear();
+    mockWriteFile.mockClear();
+    mockMkdir.mockClear();
+    mockFileExists.mockClear();
+    setUserPreferencesDeps(makeDeps());
+  });
+
+  it("merge then get round-trips the slice", async () => {
+    mockFileExists.mockImplementation(async () => true);
+    mockReadFile.mockImplementation(async () => JSON.stringify({}));
+    mockWriteFile.mockImplementation(async () => {});
+
+    await mergePluginPreferenceSlice("myplugin", "U1", { setting: "value" });
+
+    clearPreferencesCache();
+    mockReadFile.mockImplementation(async () =>
+      JSON.stringify({ U1: { plugins: { myplugin: { setting: "value" } } } }),
+    );
+
+    const result = await getPluginPreferenceSlice("myplugin", "U1");
+    assert.deepEqual(result, { setting: "value" });
+  });
+
+  it("merging plugin 'a' leaves plugin 'b' and core reactionDelivery untouched", async () => {
+    const stored = {
+      U1: {
+        reactionDelivery: "thread" as const,
+        plugins: { pluginb: { b_key: "b_value" } },
+      },
+    };
+    mockFileExists.mockImplementation(async () => true);
+    mockReadFile.mockImplementation(async () => JSON.stringify(stored));
+    mockWriteFile.mockImplementation(async () => {});
+
+    await mergePluginPreferenceSlice("plugina", "U1", { a_key: "a_value" });
+
+    const written = JSON.parse(mockWriteFile.mock.calls[0][1] as string);
+    assert.deepEqual(written, {
+      entries: {
+        U1: {
+          reactionDelivery: "thread",
+          plugins: {
+            plugina: { a_key: "a_value" },
+            pluginb: { b_key: "b_value" },
+          },
+        },
+      },
+    });
+  });
+
+  it("merging a partial preserves previously-set keys in the same plugin slice", async () => {
+    const stored = {
+      U1: {
+        plugins: { myplugin: { existing: "old", other: "stays" } },
+      },
+    };
+    mockFileExists.mockImplementation(async () => true);
+    mockReadFile.mockImplementation(async () => JSON.stringify(stored));
+    mockWriteFile.mockImplementation(async () => {});
+
+    await mergePluginPreferenceSlice("myplugin", "U1", { existing: "new" });
+
+    const written = JSON.parse(mockWriteFile.mock.calls[0][1] as string);
+    assert.deepEqual(written, {
+      entries: {
+        U1: {
+          plugins: { myplugin: { existing: "new", other: "stays" } },
+        },
+      },
+    });
+  });
+
+  it("stored entry with valid core field and plugins fold loads with core field intact", async () => {
+    const stored = {
+      U1: {
+        reactionDelivery: "thread" as const,
+        notifyOnResponse: true,
+        plugins: { myplugin: { setting: "value" } },
+      },
+    };
+    mockFileExists.mockImplementation(async () => true);
+    mockReadFile.mockImplementation(async () => JSON.stringify(stored));
+
+    const result = await loadPreferences();
+
+    assert.deepEqual(result, {
+      U1: {
+        reactionDelivery: "thread",
+        notifyOnResponse: true,
+        plugins: { myplugin: { setting: "value" } },
+      },
+    });
+  });
+
+  it("getPluginPreferenceSlice returns null for unset plugin", async () => {
+    mockFileExists.mockImplementation(async () => true);
+    mockReadFile.mockImplementation(async () => JSON.stringify({ U1: { reactionDelivery: "dm" } }));
+
+    const result = await getPluginPreferenceSlice("nonexistent", "U1");
+
+    assert.equal(result, null);
+  });
+
+  it("getPluginPreferenceSlice returns null for user with no plugins at all", async () => {
+    mockFileExists.mockImplementation(async () => true);
+    mockReadFile.mockImplementation(async () => JSON.stringify({ U1: { reactionDelivery: "dm" } }));
+
+    const result = await getPluginPreferenceSlice("myplugin", "U1");
+
+    assert.equal(result, null);
   });
 });

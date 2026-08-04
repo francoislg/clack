@@ -93,6 +93,18 @@ describe("trivia boot catch-up", () => {
     expect(queried).not.toContain("daily:prep");
   });
 
+  it("never queries or fires the reminder spec", async () => {
+    const h = makeHarness([makeGame({ remindMissedPlayers: true })], RECOVERABLE_NOW, {
+      "daily:reminder": [new Date("2026-06-10T15:00:00.000Z")],
+    });
+
+    await h.run();
+
+    expect(firedKeys(h)).toEqual([]);
+    const queried = h.sdk.missedRuns.mock.calls.map((c) => c[0]);
+    expect(queried).not.toContain("daily:reminder");
+  });
+
   it("skips the lock query for a game without lockCron", async () => {
     const h = makeHarness([makeGame({ lockCron: undefined })], RECOVERABLE_NOW, {});
 

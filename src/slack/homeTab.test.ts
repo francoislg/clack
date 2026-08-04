@@ -1,5 +1,6 @@
 import { describe, it, vi, beforeEach, afterEach } from "vitest";
 import assert from "node:assert/strict";
+import { z } from "zod";
 import type { UserRole, RolesConfig } from "../roles.js";
 import type { RepositoryConfig, Config } from "../config.js";
 import type { InstructionFileListing } from "../configurationFiles.js";
@@ -101,6 +102,8 @@ function makeDeps(): HomeTabDeps {
     getUsageLimits: mockGetUsageLimits,
     getInvestigationsChannel: () => null,
     listOpenInvestigations: () => [],
+    getLoadedPluginPreferences: () => [],
+    getPluginPreferenceSlice: async () => null,
   };
 }
 
@@ -1369,6 +1372,91 @@ describe("buildSettingsModal", () => {
       return blockWithId.block_id === "investigation_breadcrumb_block";
     });
     assert.ok(breadcrumbBlock);
+  });
+
+  it("renders plugin preference section with checkbox when preferences provided", async () => {
+    const deps = makeDeps();
+    mockGetReactionDelivery.mockImplementation(async () => "dm");
+    mockGetUserPreference.mockImplementation(async () => false);
+
+    const sliceValue: { [key: string]: boolean } = { revealReminders: true };
+    deps.getLoadedPluginPreferences = () => [
+      {
+        plugin: "trivia",
+        preferences: {
+          fields: [
+            {
+              key: "revealReminders",
+              type: "toggle",
+              label: "reveal.reminders.label",
+              default: false,
+            },
+          ],
+          schema: z.object({ revealReminders: z.boolean() }),
+          translate: (key: string) => key,
+        },
+      },
+    ];
+    deps.getPluginPreferenceSlice = async () => sliceValue;
+
+    const modal = await buildSettingsModal("U001", deps);
+    const blocks = modal.blocks as KnownBlock[];
+    const pluginBlock = blocks.find(
+      (b): b is KnownBlock & { block_id?: string } =>
+        b.block_id === "plugin_pref:trivia:revealReminders",
+    );
+    assert.ok(pluginBlock);
+  });
+
+  it("falls back to the raw label key when the plugin translate throws", async () => {
+    const deps = makeDeps();
+    mockGetReactionDelivery.mockImplementation(async () => "dm");
+    mockGetUserPreference.mockImplementation(async () => false);
+
+    deps.getLoadedPluginPreferences = () => [
+      {
+        plugin: "trivia",
+        preferences: {
+          fields: [
+            {
+              key: "revealReminders",
+              type: "toggle",
+              label: "reveal.reminders.label",
+              default: false,
+            },
+          ],
+          schema: z.object({ revealReminders: z.boolean() }),
+          translate: () => {
+            throw new Error("missing dictionary");
+          },
+        },
+      },
+    ];
+    deps.getPluginPreferenceSlice = async () => null;
+
+    const modal = await buildSettingsModal("U001", deps);
+    const blocks = modal.blocks as KnownBlock[];
+    const pluginBlock = blocks.find(
+      (b): b is KnownBlock & { block_id?: string } =>
+        b.block_id === "plugin_pref:trivia:revealReminders",
+    );
+    // The modal still renders the field, using the raw key as the visible label.
+    assert.ok(pluginBlock);
+    assert.match(JSON.stringify(pluginBlock), /reveal\.reminders\.label/);
+  });
+
+  it("skips plugin section when no preferences registered", async () => {
+    const deps = makeDeps();
+    mockGetReactionDelivery.mockImplementation(async () => "dm");
+    mockGetUserPreference.mockImplementation(async () => false);
+    deps.getLoadedPluginPreferences = () => [];
+
+    const modal = await buildSettingsModal("U001", deps);
+    const blocks = modal.blocks as KnownBlock[];
+    const pluginBlocks = blocks.filter((b): b is KnownBlock & { block_id?: string } =>
+      (b.block_id as string)?.startsWith("plugin_pref:"),
+    );
+    assert.equal(pluginBlocks.length, 0);
   });
 });
 

@@ -1,5 +1,6 @@
 import { describe, it, vi, beforeEach } from "vitest";
 import assert from "node:assert/strict";
+import { z } from "zod";
 import type { App } from "@slack/bolt";
 import type { View } from "@slack/types";
 import type { HomeTabDeps } from "./homeTab.js";
@@ -9,6 +10,8 @@ import {
   clearQuarantineStores,
 } from "../../state/stateQuarantineRegistry.js";
 import type { AutoRespondRule } from "../../autoRespond.js";
+import type { JsonObject } from "../../config.js";
+import type { RegisteredPreferences } from "../../plugins-sdk/sdk.js";
 
 // ============================================================================
 // Mock Functions
@@ -100,6 +103,12 @@ const mockStoreRetry = vi.fn<(key: string) => Promise<{ ok: boolean; error?: str
 const mockStoreRemove = vi.fn<(key: string) => Promise<boolean>>(async () => true);
 const mockGetInvestigationsChannel = vi.fn<() => string | null>(() => null);
 const mockListOpenInvestigations = vi.fn<() => object[]>(() => []);
+const mockMergePluginPreferenceSlice = vi.fn<
+  (plugin: string, userId: string, partial: JsonObject) => Promise<void>
+>(async () => {});
+const mockGetLoadedPluginPreferences = vi.fn<
+  () => Array<{ plugin: string; preferences: RegisteredPreferences }>
+>(() => []);
 
 function makeDeps(): HomeTabDeps {
   return {
@@ -138,6 +147,8 @@ function makeDeps(): HomeTabDeps {
     deleteJob: mockDeleteJob as Function as HomeTabDeps["deleteJob"],
     getJob: mockGetJob,
     getRole: async () => "member",
+    mergePluginPreferenceSlice: mockMergePluginPreferenceSlice,
+    getLoadedPluginPreferences: mockGetLoadedPluginPreferences,
     clearQuarantinedWorker: async () => ({ ok: false, reason: "stubbed in tests" }),
     getInvestigationsChannel: mockGetInvestigationsChannel,
     listOpenInvestigations: mockListOpenInvestigations,
@@ -267,6 +278,8 @@ function resetAllMocks() {
   mockGetEffectiveContentLength.mockClear();
   mockStoreRetry.mockClear();
   mockStoreRemove.mockClear();
+  mockMergePluginPreferenceSlice.mockClear();
+  mockGetLoadedPluginPreferences.mockClear();
   clearQuarantineStores();
 
   capturedEventHandlers.clear();
@@ -299,6 +312,8 @@ function setDefaultMocks() {
   mockWriteInstructionFile.mockImplementation(() => {});
   mockDeleteInstructionFile.mockImplementation(() => {});
   mockGetEffectiveContentLength.mockImplementation(() => 100);
+  mockMergePluginPreferenceSlice.mockImplementation(async () => {});
+  mockGetLoadedPluginPreferences.mockImplementation(() => []);
 }
 
 beforeEach(() => {
@@ -1040,6 +1055,135 @@ describe("settings_modal submission", () => {
     );
     assert.ok(breadcrumbCall);
     assert.equal(breadcrumbCall![2], "silent");
+  });
+
+  it("persists plugin preferences and core prefs in one submit", async () => {
+    mockGetLoadedPluginPreferences.mockReturnValue([
+      {
+        plugin: "trivia",
+        preferences: {
+          fields: [
+            {
+              key: "revealReminders",
+              type: "toggle",
+              label: "prefs.reveal_reminders",
+              default: false,
+            },
+          ],
+          schema: z.object({ revealReminders: z.boolean() }),
+          translate: (key: string) => key,
+        },
+      },
+    ]);
+    const client = makeClient();
+    const handler = capturedViewHandlers.get("settings_modal")!;
+
+    await handler({
+      ack: async () => {},
+      view: {
+        state: {
+          values: {
+            response_delivery_block: { response_delivery: { selected_option: { value: "dm" } } },
+            notify_on_response_block: { notify_on_response: { selected_option: null } },
+            investigation_tag_block: { investigation_tag: { selected_option: null } },
+            investigation_breadcrumb_block: { investigation_breadcrumb: { selected_option: null } },
+            "plugin_pref:trivia:revealReminders": {
+              revealReminders: { selected_options: [{ value: "revealReminders" }] },
+            },
+          },
+        },
+      },
+      body: { user: { id: "U001" } },
+      client,
+    });
+
+    // Plugin slice merged with the parsed boolean value.
+    assert.equal(mockMergePluginPreferenceSlice.mock.calls.length, 1);
+    assert.deepEqual(mockMergePluginPreferenceSlice.mock.calls[0], [
+      "trivia",
+      "U001",
+      { revealReminders: true },
+    ]);
+    // Core preference persisted in the same submit.
+    assert.ok(
+      mockSetUserPreference.mock.calls.some(
+        (call) => call[1] === "reactionDelivery" && call[2] === "dm",
+      ),
+    );
+  });
+
+  it("leaves the plugin slice unchanged when its value fails the schema", async () => {
+    // Schema expects a string, so the boolean the modal produces is rejected.
+    mockGetLoadedPluginPreferences.mockReturnValue([
+      {
+        plugin: "trivia",
+        preferences: {
+          fields: [
+            {
+              key: "revealReminders",
+              type: "toggle",
+              label: "prefs.reveal_reminders",
+              default: false,
+            },
+          ],
+          schema: z.object({ revealReminders: z.string() }),
+          translate: (key: string) => key,
+        },
+      },
+    ]);
+    const client = makeClient();
+    const handler = capturedViewHandlers.get("settings_modal")!;
+
+    await handler({
+      ack: async () => {},
+      view: {
+        state: {
+          values: {
+            response_delivery_block: { response_delivery: { selected_option: { value: "dm" } } },
+            notify_on_response_block: { notify_on_response: { selected_option: null } },
+            investigation_tag_block: { investigation_tag: { selected_option: null } },
+            investigation_breadcrumb_block: { investigation_breadcrumb: { selected_option: null } },
+            "plugin_pref:trivia:revealReminders": {
+              revealReminders: { selected_options: [{ value: "revealReminders" }] },
+            },
+          },
+        },
+      },
+      body: { user: { id: "U001" } },
+      client,
+    });
+
+    // Invalid slice never written; core preference still persisted.
+    assert.equal(mockMergePluginPreferenceSlice.mock.calls.length, 0);
+    assert.ok(
+      mockSetUserPreference.mock.calls.some(
+        (call) => call[1] === "reactionDelivery" && call[2] === "dm",
+      ),
+    );
+  });
+
+  it("skips plugin fan-out when no plugins loaded", async () => {
+    const client = makeClient();
+    const handler = capturedViewHandlers.get("settings_modal")!;
+
+    await handler({
+      ack: async () => {},
+      view: {
+        state: {
+          values: {
+            response_delivery_block: { response_delivery: { selected_option: null } },
+            notify_on_response_block: { notify_on_response: { selected_option: null } },
+            investigation_tag_block: { investigation_tag: { selected_option: null } },
+            investigation_breadcrumb_block: { investigation_breadcrumb: { selected_option: null } },
+          },
+        },
+      },
+      body: { user: { id: "U001" } },
+      client,
+    });
+
+    assert.equal(mockMergePluginPreferenceSlice.mock.calls.length, 0);
+    assert.equal(client.views.publish.mock.calls.length, 1);
   });
 });
 

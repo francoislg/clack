@@ -505,6 +505,104 @@ describe("ClackSdk", () => {
     });
   });
 
+  describe("dmUser", () => {
+    it("posts to the DM channel for the specified user", async () => {
+      const client = new WebClient();
+      const postSpy = vi.spyOn(client.chat, "postMessage").mockImplementation(async () => ({
+        ok: true,
+        ts: "123.456",
+      }));
+      const { sdk } = makeSdk("trivia", {
+        getSlackClient: () => client,
+        openDmChannel: async () => "D_USER",
+      });
+
+      const result = await sdk.dmUser("U_USER", "Hello user");
+
+      assert.deepEqual(result, { ok: true });
+      assert.equal(postSpy.mock.calls.length, 1);
+      const args = postSpy.mock.calls[0][0];
+      assert.equal(args?.channel, "D_USER");
+      const text = args && "text" in args ? (args.text ?? "") : "";
+      assert.equal(text, "Hello user");
+    });
+
+    it("fails cleanly when the Slack client is not connected", async () => {
+      const { sdk } = makeSdk("trivia", { getSlackClient: () => null });
+      const result = await sdk.dmUser("U_USER", "hi");
+      assert.equal(result.ok, false);
+      if (!result.ok) assert.match(result.error, /not connected/);
+    });
+
+    it("fails cleanly when the DM channel cannot be opened", async () => {
+      const client = new WebClient();
+      const postSpy = vi
+        .spyOn(client.chat, "postMessage")
+        .mockImplementation(async () => ({ ok: true }));
+      const { sdk } = makeSdk("trivia", {
+        getSlackClient: () => client,
+        openDmChannel: async () => null,
+      });
+      const result = await sdk.dmUser("U_USER", "hi");
+      assert.equal(result.ok, false);
+      if (!result.ok) assert.match(result.error, /Could not open a DM/);
+      assert.equal(postSpy.mock.calls.length, 0);
+    });
+
+    it("returns the error string when chat.postMessage throws", async () => {
+      const client = new WebClient();
+      vi.spyOn(client.chat, "postMessage").mockImplementation(async () => {
+        throw new Error("channel_not_found");
+      });
+      const { sdk } = makeSdk("trivia", {
+        getSlackClient: () => client,
+        openDmChannel: async () => "D_USER",
+      });
+      const result = await sdk.dmUser("U_USER", "hi");
+      assert.equal(result.ok, false);
+      if (!result.ok) assert.match(result.error, /channel_not_found/);
+    });
+
+    it("omits unfurl flags when suppressUnfurls is not set", async () => {
+      const client = new WebClient();
+      const postSpy = vi.spyOn(client.chat, "postMessage").mockImplementation(async () => ({
+        ok: true,
+        ts: "1.0",
+      }));
+      const { sdk } = makeSdk("trivia", {
+        getSlackClient: () => client,
+        openDmChannel: async () => "D_USER",
+      });
+
+      await sdk.dmUser("U_USER", "hi");
+
+      const args = postSpy.mock.calls[0][0];
+      assert.ok(args);
+      assert.equal("unfurl_links" in args, false);
+      assert.equal("unfurl_media" in args, false);
+    });
+
+    it("sets unfurl_links and unfurl_media to false when suppressUnfurls is true", async () => {
+      const client = new WebClient();
+      const postSpy = vi.spyOn(client.chat, "postMessage").mockImplementation(async () => ({
+        ok: true,
+        ts: "1.0",
+      }));
+      const { sdk } = makeSdk("trivia", {
+        getSlackClient: () => client,
+        openDmChannel: async () => "D_USER",
+      });
+
+      await sdk.dmUser("U_USER", "hi", { suppressUnfurls: true });
+
+      const args = postSpy.mock.calls[0][0];
+      assert.ok(args && "unfurl_links" in args);
+      assert.equal(args.unfurl_links, false);
+      assert.ok(args && "unfurl_media" in args);
+      assert.equal(args.unfurl_media, false);
+    });
+  });
+
   describe("engageThread", () => {
     it("forwards a non-off level + origin + creationContext to the core helper", async () => {
       const calls: {
@@ -1631,6 +1729,97 @@ describe("ClackSdk", () => {
       const { harvest } = makeSdk();
       const result = harvest();
       assert.deepEqual(result.errors, []);
+    });
+  });
+
+  describe("registerPreferences", () => {
+    it("registers toggle fields with schema and translates labels", () => {
+      const { sdk, harvest } = makeSdk();
+      sdk.registerDictionary({
+        en: { notify_pref: "Daily Notifications", vibrate_pref: "Vibrate on Answer" },
+      });
+      sdk.registerPreferences({
+        schema: z.object({
+          notifyDaily: z.boolean().optional(),
+          vibrateOnAnswer: z.boolean().optional(),
+        }),
+        fields: [
+          { key: "notifyDaily", type: "toggle", label: "notify_pref", default: false },
+          { key: "vibrateOnAnswer", type: "toggle", label: "vibrate_pref", default: true },
+        ],
+      });
+      const result = harvest();
+      assert.ok(result.preferences);
+      assert.equal(result.preferences.fields.length, 2);
+      assert.equal(result.preferences.fields[0].key, "notifyDaily");
+      assert.equal(result.preferences.fields[0].type, "toggle");
+      assert.equal(result.preferences.fields[0].default, false);
+      assert.equal(result.preferences.translate("notify_pref"), "Daily Notifications");
+    });
+
+    it("drops non-toggle field types", () => {
+      const { sdk, harvest } = makeSdk();
+      sdk.registerDictionary({ en: { x: "X" } });
+      sdk.registerPreferences({
+        schema: z.object({ a: z.boolean(), b: z.number() }),
+        fields: [
+          { key: "a", type: "toggle", label: "x", default: false },
+          // @ts-expect-error — testing invalid field type
+          { key: "b", type: "text", label: "x", default: false },
+        ],
+      });
+      const result = harvest();
+      assert.ok(result.preferences);
+      assert.equal(result.preferences.fields.length, 1);
+      assert.equal(result.preferences.fields[0].key, "a");
+    });
+
+    it("drops fields whose key is not on the schema", () => {
+      const { sdk, harvest } = makeSdk();
+      sdk.registerDictionary({ en: { x: "X" } });
+      sdk.registerPreferences({
+        schema: z.object({ aField: z.boolean() }),
+        fields: [
+          { key: "aField", type: "toggle", label: "x", default: false },
+          { key: "bField", type: "toggle", label: "x", default: false },
+        ],
+      });
+      const result = harvest();
+      assert.ok(result.preferences);
+      assert.equal(result.preferences.fields.length, 1);
+      assert.equal(result.preferences.fields[0].key, "aField");
+    });
+
+    it("records an error when input is null or invalid", () => {
+      const { sdk, harvest } = makeSdk();
+      // @ts-expect-error — testing runtime guard
+      sdk.registerPreferences(null);
+      const result = harvest();
+      assert.equal(result.errors.length, 1);
+      assert.match(result.errors[0], /registerPreferences requires/);
+    });
+
+    it("leaves preferences absent when all fields are dropped", () => {
+      const { sdk, harvest } = makeSdk();
+      sdk.registerDictionary({ en: {} });
+      sdk.registerPreferences({
+        schema: z.object({ a: z.boolean() }),
+        fields: [{ key: "b", type: "toggle", label: "x", default: false }],
+      });
+      const result = harvest();
+      assert.equal(result.preferences, undefined);
+    });
+
+    it("includes preferences in harvest when fields are present", () => {
+      const { sdk, harvest } = makeSdk();
+      sdk.registerDictionary({ en: { label: "Label" } });
+      sdk.registerPreferences({
+        schema: z.object({ enabled: z.boolean() }),
+        fields: [{ key: "enabled", type: "toggle", label: "label", default: true }],
+      });
+      const result = harvest();
+      assert.ok(result.preferences);
+      assert.equal(result.preferences.fields.length, 1);
     });
   });
 });

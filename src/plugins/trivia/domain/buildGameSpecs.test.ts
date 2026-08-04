@@ -419,6 +419,105 @@ describe("buildGameSpecs", () => {
     });
   });
 
+  describe("remindMissedPlayers — opt-in reminder schedule", () => {
+    it("game without remindMissedPlayers emits no reminder spec", () => {
+      const specs = buildGameSpecs([baseGame]);
+      assert.equal(specs.length, 2);
+      assert.deepEqual(
+        specs.map((s) => s.specKey),
+        ["ops:question", "ops:reveal"],
+      );
+      assert.ok(!specs.some((s) => s.specKey === "ops:reminder"));
+    });
+
+    it("game with remindMissedPlayers: false emits no reminder spec", () => {
+      const specs = buildGameSpecs([{ ...baseGame, remindMissedPlayers: false }]);
+      assert.equal(specs.length, 2);
+      assert.ok(!specs.some((s) => s.specKey === "ops:reminder"));
+    });
+
+    it("game with remindMissedPlayers: true and shiftable revealCron emits a reminder spec", () => {
+      const specs = buildGameSpecs([
+        { ...baseGame, revealCron: "0 16 * * 1-5", remindMissedPlayers: true },
+      ]);
+      assert.equal(specs.length, 3);
+      const reminder = specs.find((s) => s.specKey === "ops:reminder");
+      assert.ok(reminder);
+      assert.equal(reminder.name, "Trivia: ops — reminder");
+    });
+
+    it("reminder spec is channelless (no channel field)", () => {
+      const reminder = buildGameSpecs([
+        { ...baseGame, revealCron: "0 16 * * 1-5", remindMissedPlayers: true },
+      ]).find((s) => s.specKey === "ops:reminder");
+      assert.ok(reminder);
+      assert.equal(reminder.channel, undefined);
+    });
+
+    it("reminder spec carries the derived cron (reveal hour minus 1) + game timezone", () => {
+      const reminder = buildGameSpecs([
+        { ...baseGame, revealCron: "0 16 * * 1-5", remindMissedPlayers: true },
+      ]).find((s) => s.specKey === "ops:reminder");
+      assert.ok(reminder);
+      assert.equal(reminder.cronExpression, "0 15 * * 1-5");
+      assert.equal(reminder.timezone, "America/Montreal");
+    });
+
+    it("reminder spec's requiredTools is just remind_unplayed", () => {
+      const reminder = buildGameSpecs([
+        { ...baseGame, revealCron: "0 16 * * 1-5", remindMissedPlayers: true },
+      ]).find((s) => s.specKey === "ops:reminder");
+      assert.ok(reminder);
+      assert.deepEqual(reminder.requiredTools, ["mcp__trivia__remind_unplayed"]);
+    });
+
+    it("reminder spec is set to skipped submitResponseMode and attaches the trivia topic", () => {
+      const reminder = buildGameSpecs([
+        { ...baseGame, revealCron: "0 16 * * 1-5", remindMissedPlayers: true },
+      ]).find((s) => s.specKey === "ops:reminder");
+      assert.ok(reminder);
+      assert.equal(reminder.submitResponseMode, "skipped");
+      assert.deepEqual(reminder.attachedTopics, ["trivia"]);
+    });
+
+    it("reminder spec uses the REMIND_UNPLAYED_INSTRUCTIONS prompt with {game} substituted", () => {
+      const reminder = buildGameSpecs([
+        { ...baseGame, revealCron: "0 16 * * 1-5", remindMissedPlayers: true },
+      ]).find((s) => s.specKey === "ops:reminder");
+      assert.ok(reminder);
+      assert.match(reminder.prompt, /remind_unplayed/);
+      assert.match(reminder.prompt, /game `ops`/);
+    });
+
+    it("game with remindMissedPlayers: true but non-shiftable revealCron (hour 0) emits no reminder spec", () => {
+      const specs = buildGameSpecs([
+        { ...baseGame, revealCron: "30 0 * * *", remindMissedPlayers: true },
+      ]);
+      // Only question and reveal, no reminder
+      assert.equal(specs.length, 2);
+      assert.ok(!specs.some((s) => s.specKey === "ops:reminder"));
+    });
+
+    it("game with remindMissedPlayers: true but non-shiftable revealCron (list hour) emits no reminder spec", () => {
+      const specs = buildGameSpecs([
+        { ...baseGame, revealCron: "0 9,17 * * *", remindMissedPlayers: true },
+      ]);
+      // Only question and reveal, no reminder
+      assert.equal(specs.length, 2);
+      assert.ok(!specs.some((s) => s.specKey === "ops:reminder"));
+    });
+
+    it("skipDates propagates to the reminder spec", () => {
+      const offDays = [{ date: "12-25", label: "Christmas" }];
+      const reminder = buildGameSpecs(
+        [{ ...baseGame, revealCron: "0 16 * * 1-5", remindMissedPlayers: true }],
+        offDays,
+      ).find((s) => s.specKey === "ops:reminder");
+      assert.ok(reminder);
+      assert.deepEqual(reminder.skipDates, offDays);
+    });
+  });
+
   describe("offDays propagation", () => {
     it("propagates offDays into every emitted spec's skipDates", () => {
       const offDays = [
