@@ -617,4 +617,8 @@ export const fr: Partial<Record<StringKey, string>> = {
 
   // ─── Scheduled reminder attribution ────────────────────────────────
   "reminder.attribution_prefix": "🔔 Rappel de {user} :",
+
+  // ─── Graceful shutdown ────────────────────────────────────────────
+  "shutdown.restarting_notice":
+    "🔄 Clack redémarre pour une petite mise à jour — réessayez dans un instant.",
 };

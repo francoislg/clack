@@ -20,6 +20,7 @@ import { openDmChannel } from "./slack/channelResolver.js";
 import { unfurlOptions } from "./slack/unfurlOptions.js";
 import { errorMessage as toErrorMessage } from "./errors.js";
 import { isSlackAccessError } from "./slackErrors.js";
+import { isQuiescing } from "./shutdown.js";
 import { humanReadableSchedule } from "./cronFormatter.js";
 import { resolveJobActor, actorDmTarget, actorDisplay, type Actor } from "./actor.js";
 import { loadRoles } from "./roles.js";
@@ -281,6 +282,13 @@ export async function executeJob(
   deps: CronSchedulerDeps = defaultDeps,
   asOf?: Date,
 ): Promise<void> {
+  if (isQuiescing()) {
+    logger.info(
+      `Cron job ${job.id} skipped — process is shutting down; catch-up will recover it on the next boot`,
+    );
+    return;
+  }
+
   runningJobs.add(job.id);
   if (job.channel !== undefined) {
     const channelLabel = await resolveChannelLabel(client, job.channel);

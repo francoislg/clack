@@ -6,6 +6,7 @@ import { logger } from "./logger.js";
 import { snapshot as activeRunsSnapshot, type ActiveRunInfo } from "./slack/activeRuns.js";
 import { snapshotRunningChanges, type RunningChangeInfo } from "./changes/activeState.js";
 import { buildSystemPrompt } from "./claude/promptBuilder.js";
+import { isQuiescing } from "./shutdown.js";
 import type { UserRole } from "./roles.js";
 
 export interface StatusPayload {
@@ -14,6 +15,8 @@ export interface StatusPayload {
   activeRuns: { count: number; runs: ActiveRunInfo[] };
   workers: { active: number; changes: RunningChangeInfo[] };
   busy: boolean;
+  /** Lifecycle state: `"draining"` once a graceful-shutdown drain has begun, else `"running"`. */
+  state: "running" | "draining";
 }
 
 export interface PromptRenderParams {
@@ -29,6 +32,16 @@ export interface StatusDeps {
   uptimeSec: () => number;
   version: string;
   renderSystemPrompt: (params: PromptRenderParams) => string;
+  quiescing: () => boolean;
+}
+
+/**
+ * The `busy` union: the process is busy when any query run OR any executing Changes-Workflow
+ * run is in flight. Single source of truth shared by `buildStatus` and the graceful-shutdown
+ * drain, so `/status` and the drain agree on "busy" by construction.
+ */
+export function computeBusy(activeRunsCount: number, executingChangesCount: number): boolean {
+  return activeRunsCount > 0 || executingChangesCount > 0;
 }
 
 /** Assemble the live status payload. `busy` is the union of the two work sources. */
@@ -40,7 +53,8 @@ export function buildStatus(deps: StatusDeps): StatusPayload {
     uptimeSec: Math.floor(deps.uptimeSec()),
     activeRuns,
     workers,
-    busy: activeRuns.count > 0 || workers.active > 0,
+    busy: computeBusy(activeRuns.count, workers.active),
+    state: deps.quiescing() ? "draining" : "running",
   };
 }
 
@@ -60,6 +74,7 @@ export function defaultStatusDeps(): StatusDeps {
     runningChanges: snapshotRunningChanges,
     uptimeSec: () => process.uptime(),
     version: readPackageVersion(),
+    quiescing: isQuiescing,
     renderSystemPrompt: (params) =>
       buildSystemPrompt({
         role: params.role,

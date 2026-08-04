@@ -218,41 +218,6 @@ else
 fi
 echo ""
 
-# ============================================
-# Phase 1.5: Drain — wait for the running bot to go idle before the swap
-# ============================================
-# Bounded wait (then proceed) so the hard `docker stop` lands on an idle bot
-# instead of killing an in-flight Claude run. Probes the running container's
-# status endpoint via `docker exec ... node` — guaranteed present in the image,
-# so no dependency on curl/jq being on the COS host. Unreachable endpoint (e.g.
-# an older image without /status) => skip and proceed.
-echo -e "${YELLOW}Draining: waiting for active runs to finish (up to ${DRAIN_MAX_WAIT}s)...${NC}"
-
-gcloud compute ssh "$INSTANCE_NAME" --zone="$ZONE" --quiet --command="bash -s ${STATUS_PORT} ${DRAIN_MAX_WAIT}" <<'REMOTE' || true
-PORT="$1"
-MAX="$2"
-deadline=$(( $(date +%s) + MAX ))
-probe() {
-    docker exec -e SP="$PORT" clack node -e 'fetch("http://127.0.0.1:"+process.env.SP+"/status").then(r=>r.json()).then(j=>process.stdout.write(j.busy+" "+j.activeRuns.count+" "+j.workers.active)).catch(()=>process.exit(2))' 2>/dev/null
-}
-while :; do
-    out=$(probe) || { echo "Drain check skipped (status endpoint unreachable)."; exit 0; }
-    set -- $out
-    busy="$1"; runs="$2"; workers="$3"
-    if [ "$busy" != "true" ] && [ "$busy" != "false" ]; then
-        echo "Drain check skipped (status endpoint returned unexpected output)."; exit 0
-    fi
-    if [ "$busy" = "false" ]; then echo "Bot idle — proceeding."; exit 0; fi
-    if [ "$(date +%s)" -ge "$deadline" ]; then
-        echo "Drain timeout — still busy ($runs runs, $workers workers). Proceeding with swap."
-        exit 0
-    fi
-    echo "Draining: ($runs runs, $workers workers) waiting..."
-    sleep 5
-done
-REMOTE
-
-echo ""
 
 # ============================================
 # Phase 2: Swap container (downtime starts here)
@@ -267,13 +232,14 @@ if [ "$TESTER_ENABLED" = "true" ]; then
 fi
 
 DOWNTIME_START=$(date +%s)
+echo -e "${YELLOW}Draining old container in-process (docker stop -t ${DRAIN_MAX_WAIT}s)...${NC}"
 
 gcloud compute ssh "$INSTANCE_NAME" --zone="$ZONE" --quiet --command="
     set -e
     TOTAL_MB=\$(free -m | grep Mem | tr -s ' ' | cut -d' ' -f2)
     CLACK_MEM_MB=\$((TOTAL_MB - $HOST_RESERVE_MB - $SIDECAR_RESERVE_MB))
     echo \"Memory cap: \${CLACK_MEM_MB}m of \${TOTAL_MB}m (host reserve ${HOST_RESERVE_MB}m, sidecar reserve ${SIDECAR_RESERVE_MB}m)\"
-    docker stop clack 2>/dev/null || true
+    docker stop -t ${DRAIN_MAX_WAIT} clack 2>/dev/null || true
     docker rm clack 2>/dev/null || true
     docker run -d \\
         --name clack \\

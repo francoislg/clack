@@ -252,42 +252,41 @@ The GCE image-update deploy SHALL run the container with the runtime status port
 
 ### Requirement: Pre-Swap Drain Gate
 
-Before stopping the old container, the deploy SHALL wait for the running bot to become idle by polling `GET /status` until `busy` is `false`, subject to a bounded maximum wait. The drain gate SHALL run after the no-downtime preparation phases and before the container swap, so the downtime window lands on an idle bot.
+Before starting the new container, the deploy SHALL drain the running bot by stopping the old container with a bounded stop timeout (`docker stop -t <budget>`), delegating the drain to the in-process graceful-shutdown sequence. The stop timeout SHALL be at least the process grace budget so the process is allowed to finish in-flight runs and exit cleanly before Docker escalates to SIGKILL. The deploy SHALL NOT poll `GET /status` externally to gate the swap.
 
-#### Scenario: Idle bot proceeds immediately
+#### Scenario: Old container stopped with a bounded timeout
 
-- **WHEN** the drain gate polls `GET /status`
-- **AND** the response has `busy == false`
-- **THEN** the deploy proceeds to the container swap without waiting
+- **WHEN** the deploy reaches the container swap
+- **THEN** it stops the old container with `docker stop -t <budget>`, where `<budget>` is at least the process grace budget
+- **AND** the process drains its in-flight runs in-process before exiting
 
-#### Scenario: Busy bot is waited on
+#### Scenario: Idle bot exits promptly
 
-- **WHEN** the drain gate polls `GET /status`
-- **AND** the response has `busy == true`
-- **AND** the maximum wait has not been exceeded
-- **THEN** the deploy keeps waiting and re-polls
-- **AND** it prints a progress line indicating the number of active runs and busy workers
+- **WHEN** the old container is stopped
+- **AND** the process has no in-flight runs
+- **THEN** the process exits promptly and the deploy proceeds to start the new container without waiting the full timeout
 
-#### Scenario: Bounded wait then proceed
+#### Scenario: Busy bot is allowed to finish within the timeout
 
-- **WHEN** the bot is still `busy` after the maximum wait elapses
-- **THEN** the deploy prints the still-active counts (active query runs and executing changes)
-- **AND** proceeds with the container swap anyway
+- **WHEN** the old container is stopped
+- **AND** in-flight runs are still executing
+- **THEN** the process is allowed up to its grace budget to finish those runs
+- **AND** the deploy proceeds to start the new container once the process has exited
 
-#### Scenario: Status unreachable does not block deploy
+#### Scenario: Wedged run does not block the deploy indefinitely
 
-- **WHEN** the drain gate cannot reach `GET /status` (e.g. an older image without the endpoint)
-- **THEN** the deploy logs that the drain check was skipped
-- **AND** proceeds with the container swap
+- **WHEN** in-flight runs have not finished by the grace budget
+- **THEN** the process stops the stragglers and exits
+- **AND** Docker's stop timeout ensures the swap proceeds regardless
 
 ### Requirement: Deploy Skill Surfaces the Drain Phase
 
-The `/deploy` skill SHALL surface the drain phase to the operator: its Monitor output filter SHALL match the drain progress markers, and its phase-acknowledgement guidance SHALL include the drain phase so the operator understands why the deploy may pause before the swap.
+The `/deploy` skill SHALL surface the drain phase to the operator: its Monitor output filter SHALL match the deploy script's drain-phase marker (the progress line the script prints before the bounded `docker stop -t`), and its phase-acknowledgement guidance SHALL include the drain phase so the operator understands why the deploy may pause on `docker stop` before the swap. (The in-process drain's own log lines go to `docker logs`, not the deploy script's stdout, so the filter keys off the script marker.)
 
 #### Scenario: Skill acknowledges the drain phase
 
-- **WHEN** the deploy emits drain-phase output
-- **THEN** the skill's Monitor filter captures the drain markers
+- **WHEN** the deploy prints its drain-phase marker before stopping the old container
+- **THEN** the skill's Monitor filter captures that marker
 - **AND** the skill has a phase-acknowledgement entry for the drain phase
 
 ### Requirement: Tools Base Image

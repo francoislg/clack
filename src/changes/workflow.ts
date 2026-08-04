@@ -66,6 +66,7 @@ import { defaultSpinoffGitOps } from "./spinoff.js";
 import type { StreamEvent } from "../streaming/types.js";
 import { errorMessage } from "../errors.js";
 import { logger } from "../logger.js";
+import { isQuiescing } from "../shutdown.js";
 import type { Config as AppConfig, RepositoryConfig } from "../config.js";
 import type { McpServerConfig } from "@anthropic-ai/claude-agent-sdk";
 
@@ -324,6 +325,10 @@ export async function startChangeWorkflow(
     bypassUserCap?: boolean;
   },
 ): Promise<ChangeResult> {
+  if (isQuiescing()) {
+    return { success: false, error: t("shutdown.restarting_notice") };
+  }
+
   const config = deps.getConfig();
 
   // Per-user concurrent-change cap. Default 1 preserves legacy behavior;
@@ -842,6 +847,10 @@ export async function handleFollowUp(
   deps: WorkflowDeps = defaultWorkflowDeps,
   userFeedback?: string,
 ): Promise<ChangeResult> {
+  if (isQuiescing()) {
+    return { success: false, error: t("shutdown.restarting_notice") };
+  }
+
   const activeChange = session.activeChange;
   if (!activeChange) {
     return { success: false, error: "No active change in this thread." };

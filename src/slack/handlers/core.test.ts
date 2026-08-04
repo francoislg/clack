@@ -1,4 +1,4 @@
-import { describe, it, vi, beforeEach } from "vitest";
+import { describe, it, vi, beforeEach, afterEach } from "vitest";
 import assert from "node:assert/strict";
 import type { App } from "@slack/bolt";
 import type { SessionContext } from "../../sessions.js";
@@ -10,6 +10,7 @@ import {
   register as registerActiveRun,
   _resetForTesting as resetActiveRuns,
 } from "../activeRuns.js";
+import { beginQuiesce, _resetForTesting as resetShutdown } from "../../shutdown.js";
 import type { ClaudeRunHandle } from "../../claude/runHandle.js";
 import type { SessionInfo } from "../activeSessions.js";
 import type { TriggerType } from "../../changes/types.js";
@@ -48,6 +49,7 @@ function makeClient(): App["client"] {
     },
     chat: {
       postMessage: vi.fn(async () => ({ ok: true, ts: "1700000000.000099" })),
+      postEphemeral: vi.fn(async () => ({ ok: true })),
       getPermalink: vi.fn(async () => ({ permalink: "https://slack.com/link" })),
     },
     conversations: {
@@ -195,6 +197,10 @@ describe("processMessage — session setup", () => {
     resetAllMocks();
   });
 
+  afterEach(() => {
+    resetShutdown();
+  });
+
   it("creates a new session when no threadTs", async () => {
     const deps = makeDeps();
     await processMessage(makeParams({ threadTs: undefined }), deps);
@@ -221,6 +227,10 @@ describe("processMessage — session setup", () => {
 describe("processMessage — reaction delivery preference", () => {
   beforeEach(() => {
     resetAllMocks();
+  });
+
+  afterEach(() => {
+    resetShutdown();
   });
 
   it("calls getReactionDelivery for reaction triggers", async () => {
@@ -255,6 +265,10 @@ describe("processMessage — reaction delivery preference", () => {
 describe("processMessage — executeAndDeliver delegation", () => {
   beforeEach(() => {
     resetAllMocks();
+  });
+
+  afterEach(() => {
+    resetShutdown();
   });
 
   it("calls executeAndDeliver with correct params", async () => {
@@ -335,6 +349,10 @@ describe("processMessage — concurrent same-thread dedup", () => {
   beforeEach(() => {
     resetAllMocks();
     resetActiveRuns();
+  });
+
+  afterEach(() => {
+    resetShutdown();
   });
 
   it("routes to an already-registered run via sendUpdate instead of spawning", async () => {
@@ -498,6 +516,10 @@ describe("processMessage — resumeSessionId", () => {
     resetAllMocks();
   });
 
+  afterEach(() => {
+    resetShutdown();
+  });
+
   it("reuses session when resumeSessionId is set and getSession resolves", async () => {
     const resumedSession = makeSession({ sessionId: "resumed-session-123" });
     mockGetSession.mockImplementation(async () => resumedSession);
@@ -607,6 +629,10 @@ describe("processMessage — built-in topic auto-attach", () => {
     resetAllMocks();
   });
 
+  afterEach(() => {
+    resetShutdown();
+  });
+
   function deliveredTopics(): string[] | undefined {
     return mockExecuteAndDeliver.mock.calls[0]![0].claudeOptions.preAttachedTopics;
   }
@@ -654,5 +680,152 @@ describe("processMessage — built-in topic auto-attach", () => {
     );
 
     assert.deepEqual(deliveredTopics(), ["response-rendering"]);
+  });
+});
+
+describe("processMessage — graceful-shutdown quiesce gate", () => {
+  beforeEach(() => {
+    resetAllMocks();
+    resetActiveRuns();
+  });
+
+  afterEach(() => {
+    resetShutdown();
+  });
+
+  it("refuses an interactive trigger with an ephemeral notice when quiescing", async () => {
+    beginQuiesce();
+
+    const client = makeClient();
+    const deps = makeDeps();
+
+    const result = await processMessage(
+      makeParams({
+        client,
+        triggerType: "directMessages",
+        userId: "U001",
+        channelId: "C001",
+      }),
+      deps,
+    );
+
+    // Verify result indicates skip
+    assert.equal(result.success, true);
+    assert.equal(result.skipped, true);
+    assert.equal(result.answer, "");
+
+    // Verify ephemeral notice was posted
+    assert.equal(vi.mocked(client.chat.postEphemeral!).mock.calls.length, 1);
+    const call = vi.mocked(client.chat.postEphemeral!).mock.calls[0]![0];
+    assert.equal(call.channel, "C001");
+    assert.equal(call.user, "U001");
+
+    // Verify the normal path did NOT run
+    assert.equal(mockExecuteAndDeliver.mock.calls.length, 0);
+  });
+
+  it("posts ephemeral notice for all interactive trigger types when quiescing", async () => {
+    beginQuiesce();
+
+    const interactiveTriggers: TriggerType[] = [
+      "directMessages",
+      "mentions",
+      "reactions",
+      "threadReply",
+      "channelReply",
+    ];
+
+    for (const triggerType of interactiveTriggers) {
+      resetAllMocks();
+      const client = makeClient();
+      const deps = makeDeps();
+
+      await processMessage(
+        makeParams({
+          client,
+          triggerType,
+          userId: "U001",
+          channelId: "C001",
+        }),
+        deps,
+      );
+
+      assert.equal(
+        vi.mocked(client.chat.postEphemeral!).mock.calls.length,
+        1,
+        `postEphemeral should be called for ${triggerType}`,
+      );
+    }
+  });
+
+  it("skips a proactive trigger silently when quiescing", async () => {
+    beginQuiesce();
+
+    const client = makeClient();
+    const deps = makeDeps();
+
+    const result = await processMessage(
+      makeParams({
+        client,
+        triggerType: "scheduled",
+      }),
+      deps,
+    );
+
+    // Verify result indicates skip
+    assert.equal(result.success, true);
+    assert.equal(result.skipped, true);
+    assert.equal(result.answer, "");
+
+    // Verify ephemeral notice was NOT posted
+    assert.equal(vi.mocked(client.chat.postEphemeral!).mock.calls.length, 0);
+
+    // Verify the normal path did NOT run
+    assert.equal(mockExecuteAndDeliver.mock.calls.length, 0);
+  });
+
+  it("skips autoRespond silently when quiescing", async () => {
+    beginQuiesce();
+
+    const client = makeClient();
+    const deps = makeDeps();
+
+    const result = await processMessage(
+      makeParams({
+        client,
+        triggerType: "autoRespond",
+      }),
+      deps,
+    );
+
+    // Verify result indicates skip
+    assert.equal(result.success, true);
+    assert.equal(result.skipped, true);
+
+    // Verify ephemeral notice was NOT posted
+    assert.equal(vi.mocked(client.chat.postEphemeral!).mock.calls.length, 0);
+
+    // Verify the normal path did NOT run
+    assert.equal(mockExecuteAndDeliver.mock.calls.length, 0);
+  });
+
+  it("allows new runs when NOT quiescing", async () => {
+    // Ensure we're not quiescing (the default state after resetShutdown)
+    const client = makeClient();
+    const deps = makeDeps();
+
+    await processMessage(
+      makeParams({
+        client,
+        triggerType: "directMessages",
+      }),
+      deps,
+    );
+
+    // Verify ephemeral notice was NOT posted
+    assert.equal(vi.mocked(client.chat.postEphemeral!).mock.calls.length, 0);
+
+    // Verify the normal path DID run
+    assert.equal(mockExecuteAndDeliver.mock.calls.length, 1);
   });
 });

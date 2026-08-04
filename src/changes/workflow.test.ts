@@ -1,7 +1,8 @@
-import { describe, it, beforeEach, vi } from "vitest";
+import { describe, it, beforeEach, afterEach, vi } from "vitest";
 import assert from "node:assert/strict";
 import type { ChangeRequest, ChangePlan, ExecutionResult, ChangeStatus } from "./types.js";
 import type { ActiveChangeState } from "./activeState.js";
+import { beginQuiesce, _resetForTesting } from "../shutdown.js";
 import type { SessionContext } from "../sessions.js";
 import type { WorktreeInfo } from "../worktrees.js";
 import type { RepositoryConfig, Config as AppConfig } from "../config.js";
@@ -379,6 +380,10 @@ function resetMocks(): void {
 }
 
 beforeEach(resetMocks);
+
+afterEach(() => {
+  _resetForTesting();
+});
 
 // ============================================================================
 // startChangeWorkflow
@@ -1969,5 +1974,47 @@ describe("handleFollowUp detached re-acquire resume mode", () => {
 
     assert.equal(result.success, false);
     assert.ok(result.error?.includes("Remote branch"));
+  });
+});
+
+// ============================================================================
+// Graceful shutdown quiesce gates
+// ============================================================================
+
+describe("quiesce gates", () => {
+  it("startChangeWorkflow refuses when quiescing", async () => {
+    beginQuiesce();
+
+    const result = await startChangeWorkflow(
+      makeRequest(),
+      makePlan(),
+      "session-123",
+      undefined,
+      makeDeps(),
+    );
+
+    assert.equal(result.success, false);
+    assert.ok(result.error);
+    assert.ok(result.error.length > 0);
+    // Verify no worker or deps operations were invoked
+    assert.equal(mockSetActiveChange.mock.calls.length, 0);
+    assert.equal(mockCountActiveChangesForUser.mock.calls.length, 0);
+  });
+
+  it("handleFollowUp refuses when quiescing", async () => {
+    beginQuiesce();
+    const session = makeSessionContext({
+      activeChange: makeActiveChangeState({ status: "pr_created" }),
+    });
+
+    const result = await handleFollowUp(session, "review", undefined, undefined, makeDeps());
+
+    assert.equal(result.success, false);
+    assert.ok(result.error);
+    assert.ok(result.error.length > 0);
+    // Verify no execution deps were invoked
+    assert.equal(mockUpdateActiveChangeStatus.mock.calls.length, 0);
+    assert.equal(mockFetchPRReviewContext.mock.calls.length, 0);
+    assert.equal(mockRunClaudeInWorktree.mock.calls.length, 0);
   });
 });
