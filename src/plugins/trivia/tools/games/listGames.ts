@@ -80,7 +80,6 @@ interface ListGamesEntry {
   tagPlayers?: boolean;
   scrollToTop?: boolean;
   disableAfterRound?: boolean;
-  remindMissedPlayers?: boolean;
   includeRevealInQuestions?: TriviaIncludeRevealInQuestions;
   finalRevealSummary?: TriviaFinalRevealSummary;
   tellMeMore?: TriviaTellMeMoreConfig;
@@ -234,9 +233,6 @@ export function createListGamesTool(
           ...(g.allTimeRow !== undefined ? { allTimeRow: g.allTimeRow } : {}),
           ...(g.tagPlayers !== undefined ? { tagPlayers: g.tagPlayers } : {}),
           ...(g.disableAfterRound !== undefined ? { disableAfterRound: g.disableAfterRound } : {}),
-          ...(g.remindMissedPlayers !== undefined
-            ? { remindMissedPlayers: g.remindMissedPlayers }
-            : {}),
           ...(g.scrollToTop !== undefined ? { scrollToTop: g.scrollToTop } : {}),
           ...(g.includeRevealInQuestions !== undefined
             ? { includeRevealInQuestions: g.includeRevealInQuestions }

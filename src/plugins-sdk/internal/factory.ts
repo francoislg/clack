@@ -441,6 +441,7 @@ export function createClackSdk(
       registeredPreferences = {
         fields: valid,
         schema: input.schema as z.ZodType<object>,
+        ...(input.title !== undefined ? { title: input.title } : {}),
         translate: (key: string) => translate(key),
       };
     },

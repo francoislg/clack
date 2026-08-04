@@ -10,8 +10,12 @@ import {
 import { createFakeSdk, primeTriviaConfig } from "../../testHelpers.fakeSdk.js";
 import { parseToolResult } from "../../../../plugins-sdk/testHelpers.js";
 import type { TriviaQuestion } from "../../core/types.js";
+import { revealReminderKey } from "../../core/userPrefs.js";
 
 const SESSION = { sessionId: "test" };
+
+// Per-game opt-in key for the fixture game — what a user's slice must carry to be reminded.
+const REMINDER_KEY = revealReminderKey(FIXTURE_GAME_NAME);
 
 interface RemindResult {
   reminded?: number;
@@ -79,8 +83,8 @@ describe("remind_unplayed", () => {
       timestamp: 100,
     });
 
-    testHelpers.savePreference("u2", { revealReminders: true });
-    testHelpers.savePreference("u3", { revealReminders: false });
+    testHelpers.savePreference("u2", { [REMINDER_KEY]: true });
+    testHelpers.savePreference("u3", { [REMINDER_KEY]: false });
 
     const res = await run(data, sdk, "Hurry up!");
 
@@ -123,8 +127,8 @@ describe("remind_unplayed", () => {
       timestamp: 100,
     });
 
-    testHelpers.savePreference("u1", { revealReminders: true });
-    testHelpers.savePreference("u2", { revealReminders: true });
+    testHelpers.savePreference("u1", { [REMINDER_KEY]: true });
+    testHelpers.savePreference("u2", { [REMINDER_KEY]: true });
 
     const res = await run(data, sdk, "Hurry up!");
 
@@ -139,8 +143,8 @@ describe("remind_unplayed", () => {
     testHelpers.saveUser({ userId: "u1", displayName: "Alice" });
     testHelpers.saveUser({ userId: "u2", displayName: "Bob" });
 
-    testHelpers.savePreference("u1", { revealReminders: true });
-    testHelpers.savePreference("u2", { revealReminders: false });
+    testHelpers.savePreference("u1", { [REMINDER_KEY]: true });
+    testHelpers.savePreference("u2", { [REMINDER_KEY]: false });
 
     const res = await run(data, sdk, "Hurry up!");
 
@@ -155,8 +159,8 @@ describe("remind_unplayed", () => {
     testHelpers.saveUser({ userId: "u1", displayName: "Alice" });
     testHelpers.saveUser({ userId: "u2", displayName: "Bob" });
 
-    testHelpers.savePreference("u1", { revealReminders: true });
-    testHelpers.savePreference("u2", { revealReminders: true });
+    testHelpers.savePreference("u1", { [REMINDER_KEY]: true });
+    testHelpers.savePreference("u2", { [REMINDER_KEY]: true });
 
     sdk.dmUser.mockImplementation(async (userId) => {
       if (userId === "u1") {
@@ -183,8 +187,8 @@ describe("remind_unplayed", () => {
     testHelpers.saveUser({ userId: "u1", displayName: "Alice" });
     testHelpers.saveUser({ userId: "u2", displayName: "Bob" });
 
-    testHelpers.savePreference("u1", { revealReminders: true });
-    testHelpers.savePreference("u2", { revealReminders: true });
+    testHelpers.savePreference("u1", { [REMINDER_KEY]: true });
+    testHelpers.savePreference("u2", { [REMINDER_KEY]: true });
 
     sdk.dmUser.mockImplementation(async (userId) => {
       if (userId === "u1") {
@@ -221,7 +225,7 @@ describe("remind_unplayed", () => {
     testHelpers.saveUser({ userId: "u1", displayName: "Alice" });
     testHelpers.saveUser({ userId: "team:alpha", displayName: "Team Alpha" });
 
-    testHelpers.savePreference("u1", { revealReminders: true });
+    testHelpers.savePreference("u1", { [REMINDER_KEY]: true });
 
     await scoped.saveAnswer({
       userId: "team:alpha",

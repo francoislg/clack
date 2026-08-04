@@ -4,7 +4,7 @@ import type { TriviaGame, OffDay } from "./core/configTypes.js";
 import { setTriviaLogger } from "./core/pluginLogger.js";
 import { en as triviaEn, fr as triviaFr } from "./i18n/strings.js";
 import { setTriviaT } from "./i18n/t.js";
-import { TRIVIA_USER_PREFS_SCHEMA } from "./core/userPrefs.js";
+import { TRIVIA_USER_PREFS_SCHEMA, revealReminderKey, prettifyGameName } from "./core/userPrefs.js";
 import { createSdkDataLayer } from "./core/dataLayer.js";
 import { SEED_CATEGORIES } from "./core/seedCategories.js";
 import { createAddCategoriesTool } from "./tools/categories/addCategories.js";
@@ -72,19 +72,27 @@ export const triviaPlugin: ClackPlugin = async (sdk: ClackSdk) => {
   sdk.registerDictionary({ en: triviaEn, fr: triviaFr });
   setTriviaT(sdk.t);
 
-  sdk.registerPreferences({
-    schema: TRIVIA_USER_PREFS_SCHEMA,
-    fields: [
-      { key: "revealReminders", type: "toggle", label: "prefs.reveal_reminders", default: false },
-    ],
-  });
-
   // Warm the trivia plugin's own config cache (data/plugins/trivia/config.json).
   // After this, every tool/resolver reads from the in-memory cache synchronously.
   await initTriviaConfigBridge(sdk);
 
   const data = createSdkDataLayer(sdk);
   const seasonsEnabled = loadTriviaConfig()?.seasons?.enabled === true;
+
+  // Reveal reminders are opt-in PER GAME: one toggle per enabled game. Registered after the
+  // config bridge warms so the game list is available; a config change soft-restarts the
+  // plugin, re-running init and refreshing these fields.
+  const reminderGames = (loadTriviaConfig()?.games ?? []).filter((g) => g.enabled !== false);
+  sdk.registerPreferences({
+    schema: TRIVIA_USER_PREFS_SCHEMA,
+    title: "prefs.reveal_reminders.title",
+    fields: reminderGames.map((g) => ({
+      key: revealReminderKey(g.name),
+      type: "toggle" as const,
+      label: prettifyGameName(g.name),
+      default: false,
+    })),
+  });
 
   // Seed global categories on first load
   const categories = await data.loadCategories();

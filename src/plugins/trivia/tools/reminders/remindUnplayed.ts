@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { tool } from "@anthropic-ai/claude-agent-sdk";
 import { textResult, errorResult } from "../../../../plugins-sdk/sdk.js";
-import { TRIVIA_USER_PREFS_SCHEMA } from "../../core/userPrefs.js";
+import { TRIVIA_USER_PREFS_SCHEMA, revealReminderKey } from "../../core/userPrefs.js";
 import type { TriviaDataLayer } from "../../core/types.js";
 import { defaultGetGames, type GetGamesFn } from "../../core/configBridge.js";
 import { requireWritableGame } from "../../core/gamesRegistry.js";
@@ -69,9 +69,10 @@ export function createRemindUnplayedTool(
       let reminded = 0;
       let skipped = 0;
 
+      const reminderKey = revealReminderKey(args.game);
       for (const userId of unplayed) {
         const prefs = await sdk.preferences.get(userId, TRIVIA_USER_PREFS_SCHEMA);
-        if (prefs?.revealReminders !== true) {
+        if (prefs?.[reminderKey] !== true) {
           skipped++;
           continue;
         }

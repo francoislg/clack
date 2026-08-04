@@ -1379,21 +1379,22 @@ describe("buildSettingsModal", () => {
     mockGetReactionDelivery.mockImplementation(async () => "dm");
     mockGetUserPreference.mockImplementation(async () => false);
 
-    const sliceValue: { [key: string]: boolean } = { revealReminders: true };
+    const sliceValue: { [key: string]: boolean } = { "game:daily": true };
     deps.getLoadedPluginPreferences = () => [
       {
         plugin: "trivia",
         preferences: {
+          title: "prefs.title",
           fields: [
             {
-              key: "revealReminders",
+              key: "game:daily",
               type: "toggle",
-              label: "reveal.reminders.label",
+              label: "Daily Trivia",
               default: false,
             },
           ],
-          schema: z.object({ revealReminders: z.boolean() }),
-          translate: (key: string) => key,
+          schema: z.record(z.string(), z.boolean()),
+          translate: (key: string) => (key === "prefs.title" ? "Localized Reminders" : key),
         },
       },
     ];
@@ -1403,9 +1404,12 @@ describe("buildSettingsModal", () => {
     const blocks = modal.blocks as KnownBlock[];
     const pluginBlock = blocks.find(
       (b): b is KnownBlock & { block_id?: string } =>
-        b.block_id === "plugin_pref:trivia:revealReminders",
+        b.block_id === "plugin_pref:trivia:game:daily",
     );
     assert.ok(pluginBlock);
+    // The section header uses the localized title, not the raw plugin name.
+    assert.match(JSON.stringify(blocks), /Localized Reminders/);
+    assert.doesNotMatch(JSON.stringify(blocks), /\*trivia\*/);
   });
 
   it("falls back to the raw label key when the plugin translate throws", async () => {
