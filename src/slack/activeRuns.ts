@@ -178,6 +178,15 @@ export function withThreadLock<T>(
   });
 }
 
+/**
+ * Enumerate the live run handles for graceful-shutdown drain. Unlike `snapshot()` (which
+ * returns identity-only `ActiveRunInfo`), this exposes the handles themselves so the drain
+ * loop can await each `futureResponse` and `stop()` stragglers.
+ */
+export function snapshotHandles(): ClaudeRunHandle[] {
+  return [...registry.values()].map((entry) => entry.handle);
+}
+
 /** Test-only: clear all entries. Not exported from index. */
 export function _resetForTesting(): void {
   registry.clear();

@@ -8,9 +8,11 @@ import {
   unregister,
   size,
   snapshot,
+  snapshotHandles,
   withThreadLock,
   _resetForTesting,
 } from "./activeRuns.js";
+import { makeFakeRunHandle } from "../claude/runHandle.testFixtures.js";
 
 /** A manually-resolvable promise, for ordering assertions without real timers. */
 function deferred<T = void>(): { promise: Promise<T>; resolve: (v: T) => void } {
@@ -282,5 +284,29 @@ describe("activeRuns snapshot", () => {
     // The slot is still held — snapshot only observes.
     assert.equal(size(), 1);
     assert.ok(getByThread("C1", "T1"));
+  });
+});
+
+describe("snapshotHandles", () => {
+  beforeEach(() => {
+    _resetForTesting();
+  });
+
+  it("returns an empty array when nothing is registered", () => {
+    const handles = snapshotHandles();
+    assert.deepEqual(handles, []);
+  });
+
+  it("returns all registered handles after two register calls", () => {
+    const handle1 = makeFakeRunHandle();
+    const handle2 = makeFakeRunHandle();
+
+    register({ channelId: "C1", threadTs: "T1" }, handle1);
+    register({ channelId: "C2", threadTs: "T2" }, handle2);
+
+    const handles = snapshotHandles();
+    assert.equal(handles.length, 2);
+    assert.ok(handles.includes(handle1));
+    assert.ok(handles.includes(handle2));
   });
 });

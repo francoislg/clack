@@ -14,6 +14,7 @@ function makeDeps(overrides: Partial<StatusDeps> = {}): StatusDeps {
     uptimeSec: () => 0,
     version: "9.9.9",
     renderSystemPrompt: vi.fn(() => "RENDERED PROMPT"),
+    quiescing: () => false,
     ...overrides,
   };
 }
@@ -96,6 +97,25 @@ describe("buildStatus", () => {
 
   it("floors uptimeSec", () => {
     assert.equal(buildStatus(makeDeps({ uptimeSec: () => 12.9 })).uptimeSec, 12);
+  });
+
+  it("reports state 'running' when not quiescing", () => {
+    assert.equal(buildStatus(makeDeps({ quiescing: () => false })).state, "running");
+  });
+
+  it("reports state 'draining' when quiescing, without altering busy semantics", () => {
+    const s = buildStatus(
+      makeDeps({
+        quiescing: () => true,
+        activeRuns: () => ({
+          count: 1,
+          runs: [{ channel: "C1", thread: "T1", status: "running", ageMs: 5 }],
+        }),
+      }),
+    );
+    assert.equal(s.state, "draining");
+    assert.equal(s.busy, true);
+    assert.equal(s.activeRuns.count, 1);
   });
 });
 

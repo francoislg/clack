@@ -11,6 +11,7 @@ import {
   getActiveWorkers,
   getActiveChangeBranches,
   snapshotRunningChanges,
+  snapshotExecutingHandles,
   setActiveStateDeps,
   getActiveChangeRef,
   findActiveChangeByBranch,
@@ -682,5 +683,39 @@ describe("snapshotRunningChanges", () => {
       makeRef(),
     );
     assert.equal(snapshotRunningChanges().active, 2);
+  });
+});
+
+// ============================================================================
+// snapshotExecutingHandles
+// ============================================================================
+
+describe("snapshotExecutingHandles", () => {
+  beforeEach(() => {
+    setActiveStateDeps(makeDeps());
+    clearActiveChange("session-1");
+    clearActiveChange("session-2");
+    clearActiveChange("session-3");
+  });
+
+  it("returns only the running handles", () => {
+    const runningHandle = makeFakeRunHandle("running");
+    const stoppedHandle = makeFakeRunHandle("stopped");
+
+    setActiveChange("session-1", makeChange({ handle: runningHandle }), makeRef());
+    setActiveChange("session-2", makeChange({ handle: stoppedHandle }), makeRef());
+    setActiveChange("session-3", makeChange({ handle: undefined }), makeRef());
+
+    const handles = snapshotExecutingHandles();
+    assert.equal(handles.length, 1);
+    assert.strictEqual(handles[0], runningHandle);
+  });
+
+  it("returns an empty array when no change has a running handle", () => {
+    setActiveChange("session-1", makeChange({ handle: makeFakeRunHandle("stopped") }), makeRef());
+    setActiveChange("session-2", makeChange({ handle: undefined }), makeRef());
+
+    const handles = snapshotExecutingHandles();
+    assert.deepEqual(handles, []);
   });
 });

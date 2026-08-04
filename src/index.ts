@@ -21,7 +21,14 @@ import { runWorktreeInstall, runWorktreeSetup } from "./changes/execution.js";
 import { initializePoolForBoot, provisionMinimumWorkers } from "./workers/index.js";
 import { notifyOwnerOfQuarantine } from "./workers/quarantineNotifier.js";
 import { cleanupStaleSessionFolders } from "./changes/persistence.js";
-import { getActiveChangeBranches } from "./changes/activeState.js";
+import {
+  getActiveChangeBranches,
+  snapshotRunningChanges,
+  snapshotExecutingHandles,
+} from "./changes/activeState.js";
+import { snapshot as activeRunsSnapshot, snapshotHandles } from "./slack/activeRuns.js";
+import { drainAndExit } from "./shutdown.js";
+import { computeBusy } from "./statusServer.js";
 import { validateInstructionFiles } from "./instructions.js";
 import { runBlockingMigrations, runEnhancementMigrations } from "./migrations/boot.js";
 import { startAll, stopAll, requestSoftRestart } from "./lifecycle.js";
@@ -329,19 +336,30 @@ async function main(): Promise<void> {
     timer.unref();
   }
 
-  async function shutdown(signal: string): Promise<void> {
+  // Signal-driven graceful shutdown: quiesce, drain in-flight runs within the grace budget,
+  // then tear down and exit. A second signal forces an immediate exit (handled inside
+  // `drainAndExit`). Fatal boot errors below take the immediate `process.exit(1)` path and
+  // never route through the drain — drain is signal-driven only.
+  function handleSignal(signal: string): void {
     logger.startup(`Received ${signal}, shutting down gracefully...`);
-
-    stopAll();
-    statusServer?.close();
-    await stopSlackApp();
-
-    logger.startup("Shutdown complete");
-    process.exit(0);
+    drainAndExit({
+      queryHandles: snapshotHandles,
+      workerHandles: snapshotExecutingHandles,
+      isBusy: () => computeBusy(activeRunsSnapshot().count, snapshotRunningChanges().active),
+      teardown: async () => {
+        stopAll();
+        statusServer?.close();
+        await stopSlackApp();
+      },
+      exit: (code) => process.exit(code),
+    }).catch((error) => {
+      logger.error("Graceful shutdown failed:", error);
+      process.exit(1);
+    });
   }
 
-  process.on("SIGINT", () => shutdown("SIGINT"));
-  process.on("SIGTERM", () => shutdown("SIGTERM"));
+  process.on("SIGINT", () => handleSignal("SIGINT"));
+  process.on("SIGTERM", () => handleSignal("SIGTERM"));
 }
 
 main().catch((error) => {

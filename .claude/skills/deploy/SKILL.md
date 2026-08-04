@@ -34,7 +34,7 @@ Monitor(
   description: "deploy progress",
   timeout_ms: 900000,    # 15 min — safely above the script's 5-min readiness wait
   persistent: false,
-  command: "tail -f <OUTPUT_FILE> | grep -E --line-buffered \"✓|✗|ERROR|error:|failed|denied|no space|Artifact Registry|Pre-pulling|Draining|Bot idle|Drain timeout|Drain check skipped|Stopping old|Waiting for|Bot is ready|downtime|Step [0-9]+/[0-9]+ : FROM|Successfully built|Successfully tagged|^DONE|New image pulled|Total reclaimed|worker-settings|Worker settings|overlay detected\""
+  command: "tail -f <OUTPUT_FILE> | grep -E --line-buffered \"✓|✗|ERROR|error:|failed|denied|no space|Artifact Registry|Pre-pulling|Draining old container|Stopping old|Waiting for|Bot is ready|downtime|Step [0-9]+/[0-9]+ : FROM|Successfully built|Successfully tagged|^DONE|New image pulled|Total reclaimed|worker-settings|Worker settings|overlay detected\""
 )
 ```
 
@@ -60,10 +60,7 @@ One sentence per event, matching the marker:
 | `New image pulled` | `Pulled.` |
 | `Worker settings pushed` | `Worker settings synced.` |
 | `No local data/worker-settings.json` | `No local worker settings; VM copy untouched.` |
-| `Draining: (N runs, M workers) waiting...` | `Draining — N runs, M workers active.` |
-| `Bot idle — proceeding` | `Drained.` |
-| `Drain timeout — still busy` | `Drain timed out; swapping anyway.` |
-| `Drain check skipped` | `No status endpoint; skipped drain.` |
+| `Draining old container in-process` | `Draining — app finishing in-flight runs before exit.` |
 | `Stopping old container and starting new one` | `Downtime clock running.` |
 | `Waiting for bot to reach 'Clack is ready'` | `Polling.` |
 
@@ -138,16 +135,15 @@ command. Forward it to the user verbatim.
 
 ## Drain phase (before swap)
 
-Phase 1.5 waits for the running bot to go idle before the hard `docker stop`, so
-an in-flight Claude run isn't killed mid-answer. It probes the running container's
-`/status` endpoint (`busy` = active query runs OR executing Changes-Workflow runs)
-and proceeds the instant the bot is idle.
+The app drains itself: `docker stop -t <DRAIN_MAX_WAIT>` sends SIGTERM, and the
+process quiesces (refuses new runs), waits for in-flight runs (query + worker/tester)
+to finish, then exits — all before Docker's stop timeout elapses.
 
-- A **long drain wait is expected, not a hang** — the bot is busy. The gate is
-  bounded (`DRAIN_MAX_WAIT`, default 300s) and then swaps anyway, printing what
-  was still active. Don't kill the deploy just because draining takes a while.
-- `Drain check skipped` means the running image predates the `/status` endpoint
-  (e.g. the very first deploy of this feature). Harmless — it proceeds.
+- A **long stop is expected, not a hang** — the app is finishing in-flight work. The
+  wait is bounded by `DRAIN_MAX_WAIT` (default 300s); the app stops any stragglers and
+  exits, and Docker SIGKILLs at the timeout as a backstop.
+- An older running image (predating in-process drain) simply exits immediately on
+  SIGTERM — the `docker stop -t` still works, just without the drain wait.
 
 ## Gotchas
 

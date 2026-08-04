@@ -405,6 +405,22 @@ export function snapshotRunningChanges(): { active: number; changes: RunningChan
 }
 
 /**
+ * Enumerate the run handles of changes currently EXECUTING Claude, for graceful-shutdown
+ * drain. Same `handle?.status === "running"` filter as `snapshotRunningChanges()` — idle
+ * changes awaiting a follow-up are excluded — but returns the handles so the drain loop can
+ * await each `futureResponse` and `stop()` stragglers through the run's own cancellation path.
+ */
+export function snapshotExecutingHandles(): ClaudeRunHandle[] {
+  const handles: ClaudeRunHandle[] = [];
+  for (const change of activeChanges.values()) {
+    if (change.handle?.status === "running") {
+      handles.push(change.handle);
+    }
+  }
+  return handles;
+}
+
+/**
  * Get the set of branches that have active (non-terminal) changes.
  * Used by worktree cleanup to avoid removing worktrees for active sessions.
  */

@@ -600,6 +600,10 @@ export const en = {
 
   // ─── Scheduled reminder attribution ────────────────────────────────
   "reminder.attribution_prefix": "🔔 Reminder from {user}:",
+
+  // ─── Graceful shutdown ────────────────────────────────────────────
+  "shutdown.restarting_notice":
+    "🔄 Clack is restarting for a quick update — please try again in a moment.",
 } as const;
 
 export type StringKey = keyof typeof en;

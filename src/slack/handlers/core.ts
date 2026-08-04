@@ -15,6 +15,8 @@ import {
 } from "../../sessions.js";
 import { getConfig, type Config } from "../../config.js";
 import { logger } from "../../logger.js";
+import { isQuiescing } from "../../shutdown.js";
+import { t } from "../../i18n/t.js";
 import { activeSessions } from "../activeSessions.js";
 import { fetchThreadContext } from "../messagesApi.js";
 import { transformUserMentions, getUserInfo } from "../userCache.js";
@@ -539,6 +541,32 @@ export async function processMessage(
     workMode = false,
     silentThinking = false,
   } = params;
+
+  // Graceful-shutdown quiesce gate: once a shutdown drain has begun, refuse to start new
+  // runs so the in-flight set only shrinks. User-initiated triggers get an ephemeral
+  // "restarting" notice; proactive triggers (autoRespond) and cron fires skip silently.
+  if (isQuiescing()) {
+    const interactive =
+      triggerType === "directMessages" ||
+      triggerType === "mentions" ||
+      triggerType === "reactions" ||
+      triggerType === "threadReply" ||
+      triggerType === "channelReply";
+    if (interactive) {
+      try {
+        await client.chat.postEphemeral({
+          channel: channelId,
+          user: userId,
+          text: t("shutdown.restarting_notice"),
+        });
+      } catch (err) {
+        logger.warn(
+          `Quiesce ephemeral notice failed: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
+    return { success: true, skipped: true, answer: "" };
+  }
 
   const config = deps.getConfig();
 

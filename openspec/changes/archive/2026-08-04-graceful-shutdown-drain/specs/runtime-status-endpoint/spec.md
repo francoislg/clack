@@ -1,29 +1,4 @@
-# runtime-status-endpoint Specification
-
-## Purpose
-TBD - created by archiving change add-runtime-status-endpoint. Update Purpose after archive.
-## Requirements
-### Requirement: Runtime Status HTTP Server
-
-The system SHALL run an HTTP server, separate from the Slack Socket Mode connection, that serves runtime status. The server SHALL bind to the loopback interface (`127.0.0.1`) only, on a configurable port (env/config, default `8787`). The server SHALL be started during the boot sequence and SHALL NOT affect Slack connectivity. If the server fails to start (e.g. port in use), the failure SHALL be logged and the bot SHALL continue running — runtime status is auxiliary and never blocks startup.
-
-#### Scenario: Server starts on boot
-
-- **WHEN** the application boots
-- **THEN** an HTTP server listens on `127.0.0.1:<port>`
-- **AND** the Slack Socket Mode connection is unaffected
-
-#### Scenario: Server bound to loopback only
-
-- **WHEN** the status server is listening
-- **THEN** it is reachable from the host as `localhost:<port>`
-- **AND** it is not bound to a public interface
-
-#### Scenario: Server start failure is non-fatal
-
-- **WHEN** the status server cannot bind its port (already in use or otherwise)
-- **THEN** the error is logged
-- **AND** the bot continues its normal startup and runs without the status endpoint
+## MODIFIED Requirements
 
 ### Requirement: GET /status Snapshot
 
@@ -82,4 +57,3 @@ The status server SHALL respond to `GET /status` with a JSON body computed live 
 - **AND** `GET /status` is requested
 - **THEN** the response has `state == "draining"`
 - **AND** `busy`, `activeRuns`, and `workers` continue to reflect the live in-flight work
-

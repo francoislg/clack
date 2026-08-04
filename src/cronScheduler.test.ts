@@ -1,4 +1,4 @@
-import { describe, it, vi } from "vitest";
+import { describe, it, vi, afterEach } from "vitest";
 import assert from "node:assert/strict";
 import { WebClient } from "@slack/web-api";
 import {
@@ -14,6 +14,7 @@ import {
 import type { CronJob } from "./cronJobs.js";
 import type { ClaudeResponse } from "./claude/index.js";
 import type { RolesConfig } from "./roles.js";
+import { beginQuiesce, _resetForTesting } from "./shutdown.js";
 
 function makeNotifyDeps(roles: RolesConfig): NotifyErrorDeps {
   return {
@@ -931,6 +932,133 @@ describe("cronScheduler", () => {
       // responseTs comes from findSessionByMessage(dispatchChannelId, ...) — undefined
       // in this test harness since no real session exists. The contract is that responseTs
       // is plumbed through from session.responseTs when present.
+    });
+  });
+
+  describe("executeJob (graceful shutdown quiesce gate)", () => {
+    afterEach(() => {
+      _resetForTesting();
+    });
+
+    function fakeClient(): WebClient {
+      const client = new WebClient();
+      vi.spyOn(client.auth, "test").mockImplementation(async () => ({
+        ok: true,
+        url: "https://t.slack.com/",
+      }));
+      vi.spyOn(client.conversations, "info").mockImplementation(async () => ({
+        ok: true,
+        channel: { id: "C456", name: "ops", is_im: false },
+      }));
+      return client;
+    }
+
+    function baseJob(overrides: Partial<CronJob> = {}): CronJob {
+      return {
+        id: "job-quiesce-1",
+        cronExpression: "0 9 * * *",
+        channel: "C456",
+        prompt: "Test during shutdown",
+        createdBy: "U123",
+        createdAt: new Date().toISOString(),
+        enabled: true,
+        timezone: "UTC",
+        ...overrides,
+      };
+    }
+
+    function makeDeps(): {
+      deps: CronSchedulerDeps;
+      calls: {
+        processMessage: Parameters<CronSchedulerDeps["processMessage"]>[0][];
+        markJobStarted: Parameters<CronSchedulerDeps["markJobStarted"]>[];
+        updateJobRunStatus: Parameters<CronSchedulerDeps["updateJobRunStatus"]>[];
+        deleteJob: Parameters<CronSchedulerDeps["deleteJob"]>[];
+      };
+    } {
+      const calls = {
+        processMessage: [] as Parameters<CronSchedulerDeps["processMessage"]>[0][],
+        markJobStarted: [] as Parameters<CronSchedulerDeps["markJobStarted"]>[],
+        updateJobRunStatus: [] as Parameters<CronSchedulerDeps["updateJobRunStatus"]>[],
+        deleteJob: [] as Parameters<CronSchedulerDeps["deleteJob"]>[],
+      };
+      const deps: CronSchedulerDeps = {
+        processMessage: async (params) => {
+          calls.processMessage.push(params);
+          return { success: true, answer: "" };
+        },
+        findSessionByMessage: async () => null,
+        markJobStarted: async (...args) => {
+          calls.markJobStarted.push(args);
+        },
+        updateJobRunStatus: async (...args) => {
+          calls.updateJobRunStatus.push(args);
+        },
+        deleteJob: async (...args) => {
+          calls.deleteJob.push(args);
+          return true;
+        },
+        notifyCreatorOfError: async () => {},
+      };
+      return { deps, calls };
+    }
+
+    it("skips the job when quiescing, without calling markJobStarted or processMessage", async () => {
+      const { deps, calls } = makeDeps();
+      const client = fakeClient();
+
+      beginQuiesce();
+      await executeJob(baseJob(), client, deps);
+
+      assert.equal(
+        calls.markJobStarted.length,
+        0,
+        "markJobStarted should not be called when quiescing",
+      );
+      assert.equal(
+        calls.processMessage.length,
+        0,
+        "processMessage should not be called when quiescing",
+      );
+    });
+
+    it("returns early before adding the job to runningJobs", async () => {
+      const { deps, calls } = makeDeps();
+      const client = fakeClient();
+      const jobId = "job-quiesce-2";
+
+      beginQuiesce();
+      await executeJob(baseJob({ id: jobId }), client, deps);
+
+      assert.equal(
+        calls.processMessage.length,
+        0,
+        "Job should have returned early without processing",
+      );
+    });
+
+    it("does not update job run status when quiescing", async () => {
+      const { deps, calls } = makeDeps();
+      const client = fakeClient();
+
+      beginQuiesce();
+      await executeJob(baseJob(), client, deps);
+
+      assert.equal(
+        calls.updateJobRunStatus.length,
+        0,
+        "updateJobRunStatus should not be called when quiescing",
+      );
+    });
+
+    it("continues to process jobs normally when quiescing is not set", async () => {
+      const { deps, calls } = makeDeps();
+      const client = fakeClient();
+
+      await executeJob(baseJob(), client, deps);
+
+      assert.equal(calls.markJobStarted.length, 1, "markJobStarted should be called");
+      assert.equal(calls.processMessage.length, 1, "processMessage should be called");
     });
   });
 });
