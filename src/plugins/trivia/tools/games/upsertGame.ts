@@ -193,6 +193,13 @@ const structuralFieldsSchema = {
     .describe(
       "Game-tier lifecycle flag (game tier ONLY — no season/slot/workspace tier, not a cascade axis). `true` makes `end_season` wind the game down at its round's close instead of creating a continuation: on a seasons game, the season's last reveal; on a seasonless game, a board-clearing reveal (NOTE: a recurring seasonless game with this flag winds down after its FIRST board-clearing reveal). The wind-down persists `enabled: false`; corrections afterward require re-enable → fix → re-disable by hand. STANDING: the flag survives wind-down, so a later re-enabled game winds down again at its next round close. On UPDATE: explicit null clears the field.",
     ),
+  remindMissedPlayers: z
+    .boolean()
+    .nullable()
+    .optional()
+    .describe(
+      "Game-tier reminder flag (game tier ONLY — no season/slot/workspace tier, not a cascade axis). `true` makes the plugin emit a `<name>:reminder` cron spec that DMs opted-in players who have not answered the current round, firing one hour before `revealCron`. `false` (the default) disables the reminder. On UPDATE: explicit null clears the field.",
+    ),
   scrollToTop: z
     .boolean()
     .nullable()
@@ -591,6 +598,13 @@ export function createUpsertGameTool(
             ? args.disableAfterRound
             : existing?.disableAfterRound;
 
+      const nextRemindMissedPlayers: boolean | undefined =
+        args.remindMissedPlayers === null
+          ? undefined
+          : args.remindMissedPlayers !== undefined
+            ? args.remindMissedPlayers
+            : existing?.remindMissedPlayers;
+
       const mergedStructural: Partial<TriviaGame> = {
         ...(existing?.format !== undefined ? { format: existing.format } : {}),
         ...(existing?.categories !== undefined ? { categories: existing.categories } : {}),
@@ -612,6 +626,9 @@ export function createUpsertGameTool(
         ...(nextScrollToTop !== undefined ? { scrollToTop: nextScrollToTop } : {}),
         ...(nextDisableAfterRound !== undefined
           ? { disableAfterRound: nextDisableAfterRound }
+          : {}),
+        ...(nextRemindMissedPlayers !== undefined
+          ? { remindMissedPlayers: nextRemindMissedPlayers }
           : {}),
         ...(existing?.includeRevealInQuestions !== undefined
           ? { includeRevealInQuestions: existing.includeRevealInQuestions }
@@ -734,6 +751,7 @@ export function createUpsertGameTool(
       if (wrote(args.teamsFinaleIndividuals)) writtenFields.push("teamsFinaleIndividuals");
       if (wrote(args.teamsScoring)) writtenFields.push("teamsScoring");
       if (wrote(args.answeringType)) writtenFields.push("answeringType");
+      if (wrote(args.remindMissedPlayers)) writtenFields.push("remindMissedPlayers");
 
       const shadowedBy =
         data !== undefined && writtenFields.length > 0
@@ -767,6 +785,7 @@ export function createUpsertGameTool(
         hasTagPlayers: mergedStructural.tagPlayers !== undefined,
         hasScrollToTop: mergedStructural.scrollToTop !== undefined,
         hasDisableAfterRound: mergedStructural.disableAfterRound !== undefined,
+        hasRemindMissedPlayers: mergedStructural.remindMissedPlayers !== undefined,
         hasIncludeRevealInQuestions: mergedStructural.includeRevealInQuestions !== undefined,
         hasFinalRevealSummary: mergedStructural.finalRevealSummary !== undefined,
         hasTellMeMore: mergedStructural.tellMeMore !== undefined,

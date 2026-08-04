@@ -42,9 +42,9 @@ import {
   deleteInstructionFile,
   getEffectiveContentLength,
 } from "../../configurationFiles.js";
-import { setUserPreference } from "../../userPreferences.js";
+import { setUserPreference, mergePluginPreferenceSlice } from "../../userPreferences.js";
 import type { ReactionDelivery } from "../../userPreferences.js";
-import { getConfig } from "../../config.js";
+import { getConfig, type JsonObject } from "../../config.js";
 import { discoverUserSkills } from "../../userSkills.js";
 import { t } from "../../i18n/t.js";
 import { toggleJob, deleteJob, getJob, updateJob, MAX_JITTER_MINUTES } from "../../cronJobs.js";
@@ -55,6 +55,7 @@ import { getUserInfo } from "../userCache.js";
 import { CronExpressionParser } from "cron-parser";
 import { z } from "zod";
 import { getInvestigationsChannel, listOpenInvestigations } from "../../investigations/state.js";
+import { getLoadedPluginPreferences } from "../../plugins-core/state.js";
 
 const configFileModalMetaZod = z.object({ dir: z.string(), filename: z.string() });
 const configCreateModalMetaZod = z.object({ dir: z.string() });
@@ -127,6 +128,8 @@ export interface HomeTabDeps {
   clearQuarantinedWorker: typeof clearQuarantinedWorker;
   getInvestigationsChannel: () => string | null;
   listOpenInvestigations: () => object[];
+  mergePluginPreferenceSlice: typeof mergePluginPreferenceSlice;
+  getLoadedPluginPreferences: typeof getLoadedPluginPreferences;
 }
 
 export const defaultHomeTabDeps: HomeTabDeps = {
@@ -168,6 +171,8 @@ export const defaultHomeTabDeps: HomeTabDeps = {
   clearQuarantinedWorker,
   getInvestigationsChannel,
   listOpenInvestigations,
+  mergePluginPreferenceSlice,
+  getLoadedPluginPreferences,
 };
 
 /** Parse comma-separated keywords input into a trimmed array, or undefined if empty. */
@@ -524,6 +529,27 @@ export function registerHomeTabHandler(app: App, deps: HomeTabDeps = defaultHome
     if (investigationBreadcrumbValue === "silent" || investigationBreadcrumbValue === "explicit") {
       await deps.setUserPreference(userId, "investigationBreadcrumb", investigationBreadcrumbValue);
       updates.push(`investigationBreadcrumb=${investigationBreadcrumbValue}`);
+    }
+
+    // Fan out plugin preferences
+    for (const { plugin, preferences } of deps.getLoadedPluginPreferences()) {
+      const partial: { [key: string]: boolean } = {};
+      for (const field of preferences.fields) {
+        const selected = (
+          view.state.values as {
+            [key: string]: { [key: string]: { selected_options?: Array<{ value: string }> } };
+          }
+        )[`plugin_pref:${plugin}:${field.key}`]?.[field.key]?.selected_options;
+        partial[field.key] = Array.isArray(selected) && selected.length > 0;
+      }
+      const parsed = preferences.schema.safeParse(partial);
+      if (!parsed.success) continue;
+      try {
+        const jsonObj = parsed.data as JsonObject;
+        await deps.mergePluginPreferenceSlice(plugin, userId, jsonObj);
+      } catch (error) {
+        logger.error(`Failed to persist ${plugin} preferences for ${userId}:`, error);
+      }
     }
 
     if (updates.length > 0) {

@@ -7,6 +7,7 @@ import type {
   ClackSdkUserData,
   ClackSdkUsers,
   ClackSdkMemory,
+  ClackSdkPreferences,
   ClackUser,
   PluginLogger,
   RegisteredMcpServer,
@@ -44,6 +45,7 @@ type MockedSdkKeys =
   | "missedRuns"
   | "runCronJobNow"
   | "dmOwner"
+  | "dmUser"
   | "sendMessage"
   | "engageThread"
   | "getSlackClient"
@@ -52,7 +54,8 @@ type MockedSdkKeys =
   | "askClaude"
   | "startThreadConversation"
   | "requestSoftRestart"
-  | "registerDictionary";
+  | "registerDictionary"
+  | "registerPreferences";
 
 type RegisterToolParams = Parameters<RegisteredMcpServer["registerTool"]>;
 
@@ -94,6 +97,13 @@ export type FakeSdkMemory = {
 } & ClackSdkMemory;
 
 /**
+ * `ClackSdkPreferences` — preferences surface. The generic `get` method is not mocked
+ * since vi.fn does not preserve generic type parameters; tests override get by calling
+ * `sdk.preferences.get.mockResolvedValue(...)` if needed.
+ */
+export type FakeSdkPreferences = ClackSdkPreferences;
+
+/**
  * `ClackSdk` with every collaborator member widened to a vitest mock. The mock
  * block comes FIRST in the intersection so call-signature resolution prefers the
  * widened forms (`registerMcpServer` returning {@link FakeMcpServer}); `ClackSdk`
@@ -112,6 +122,7 @@ export type FakeSdk = {
   mcpServer: FakeMcpServer;
   users: FakeSdkUsers;
   memory: FakeSdkMemory;
+  preferences: FakeSdkPreferences;
 } & { [K in MockedSdkKeys]: Mock<Extract<ClackSdk[K], AnyFn>> } & ClackSdk;
 
 /**
@@ -124,6 +135,8 @@ export interface FakeSdkTestHelpers {
   files: Map<string, string>;
   /** Models core populating the central user registry (`users.get`/`users.list` read it). */
   saveUser(user: ClackUser): void;
+  /** Seed a user's preference slice for testing (writes to preferences store). */
+  savePreference(userId: string, slice: object): void;
 }
 
 /** Overridable members: the mocked collaborators plus the `capabilities` flags. */
@@ -210,6 +223,15 @@ function createFakeSdkMemory(store: Map<string, object>): FakeSdkMemory {
   };
 }
 
+function createFakeSdkPreferences(store: Map<string, object>): FakeSdkPreferences {
+  return {
+    get: async (userId, schema) => {
+      const raw = store.get(userId);
+      return raw === undefined ? null : schema.parse(raw);
+    },
+  };
+}
+
 /**
  * The canonical `ClackSdk` fake. Every collaborator member is a `vi.fn` carrying
  * a coherent default (file I/O over an in-memory store, users/memory over working
@@ -231,6 +253,7 @@ export function createFakeSdk(overrides: FakeSdkOverrides = {}): {
   const identities = new Map<string, ClackUser>();
   const userStore = new Map<string, object>();
   const memoryStore = new Map<string, object>();
+  const preferencesStore = new Map<string, object>();
   const handles = new Map<string, FakeMcpServer>();
   const defaultServer = createFakeMcpServer("test");
 
@@ -291,6 +314,7 @@ export function createFakeSdk(overrides: FakeSdkOverrides = {}): {
     ),
     runCronJobNow: vi.fn<ClackSdk["runCronJobNow"]>(overrides.runCronJobNow ?? (async () => {})),
     dmOwner: vi.fn<ClackSdk["dmOwner"]>(overrides.dmOwner ?? (async () => ({ ok: true }))),
+    dmUser: vi.fn<ClackSdk["dmUser"]>(overrides.dmUser ?? (async () => ({ ok: true }))),
     sendMessage: vi.fn<ClackSdk["sendMessage"]>(
       overrides.sendMessage ?? (async () => ({ ok: true, ts: "1", channel: "C" })),
     ),
@@ -325,6 +349,10 @@ export function createFakeSdk(overrides: FakeSdkOverrides = {}): {
       vars === undefined ? key : `${key}:${Object.values(vars).join(":")}`,
     users: createFakeSdkUsers(identities, userStore),
     memory: createFakeSdkMemory(memoryStore),
+    preferences: createFakeSdkPreferences(preferencesStore),
+    registerPreferences: vi.fn<ClackSdk["registerPreferences"]>(
+      overrides.registerPreferences ?? (() => {}),
+    ),
   };
 
   return {
@@ -333,6 +361,9 @@ export function createFakeSdk(overrides: FakeSdkOverrides = {}): {
       files,
       saveUser: (user) => {
         identities.set(user.userId, user);
+      },
+      savePreference: (userId, slice) => {
+        preferencesStore.set(userId, slice);
       },
     },
   };

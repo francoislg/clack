@@ -115,6 +115,7 @@ export const en = {
   "label.set_reveal_narrative": "Authoring trivia card narrative — {game}",
   "label.post_questions": "Posting trivia question — {game}",
   "label.lock_questions": "Locking trivia questions — {game}",
+  "label.remind_unplayed": "Reminding players — {game}",
   "label.unlock_questions": "Unlocking trivia questions — {game}",
   "label.find_previous": "Searching past trivia questions — {game}",
   "label.find_previous_subjects": "Checking for repeat image subjects — {subjectId}",
@@ -136,6 +137,9 @@ export const en = {
   "label.upsert_season": "Upserting trivia season — {game}/{slug}",
   "label.delete_season": "Deleting trivia season — {game}/{slug}",
   "label.list_seasons": "Listing trivia seasons — {game}",
+
+  // User preference for reveal reminders.
+  "prefs.reveal_reminders": "Remind me before the answer is revealed if I haven't played yet",
 };
 
 export const fr: Partial<Record<keyof typeof en, string>> = {
@@ -221,6 +225,7 @@ export const fr: Partial<Record<keyof typeof en, string>> = {
   "label.set_reveal_narrative": "Rédaction du récit de la carte trivia — {game}",
   "label.post_questions": "Publication de la question trivia — {game}",
   "label.lock_questions": "Verrouillage des questions trivia — {game}",
+  "label.remind_unplayed": "Rappel aux joueurs — {game}",
   "label.unlock_questions": "Déverrouillage des questions trivia — {game}",
   "label.find_previous": "Recherche de questions trivia passées — {game}",
   "label.find_previous_subjects": "Vérification des sujets d'image déjà utilisés — {subjectId}",
@@ -242,4 +247,7 @@ export const fr: Partial<Record<keyof typeof en, string>> = {
   "label.upsert_season": "Mise à jour de la saison trivia — {game}/{slug}",
   "label.delete_season": "Suppression de la saison trivia — {game}/{slug}",
   "label.list_seasons": "Liste des saisons trivia — {game}",
+
+  "prefs.reveal_reminders":
+    "Me rappeler avant la révélation de la réponse si je n'ai pas encore joué",
 };

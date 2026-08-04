@@ -432,6 +432,12 @@ export interface TriviaGame extends CascadeAxes {
    * again at its next round close. Defaults to `false`.
    */
   disableAfterRound?: boolean;
+  /**
+   * Per-game flag (NOT a CascadeAxes member — no season/slot/workspace tier). When `true`,
+   * the plugin emits a `<name>:reminder` cron spec that DMs opted-in players who have not yet
+   * answered the current round, one hour before `revealCron`. Defaults to `false` (no reminder).
+   */
+  remindMissedPlayers?: boolean;
   // The cascading-axis fields (answersFormat, questionType, promptMedium,
   // freeformAnswerShape, contexts, difficulty, difficultyRatio, instructions,
   // additionalInstructions, liveAnswersVisible, revealResponses, hint, judgeLeniency)

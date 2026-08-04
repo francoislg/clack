@@ -1,4 +1,5 @@
 import type { LoadedPlugins } from "./registry.js";
+import type { RegisteredPreferences } from "../plugins-sdk/sdk.js";
 
 let loadedPlugins: LoadedPlugins = { results: [] };
 
@@ -29,4 +30,13 @@ export function getLoadedPluginIntegrations(): Array<{
       pluginName: p.name,
     })),
   );
+}
+
+export function getLoadedPluginPreferences(): Array<{
+  plugin: string;
+  preferences: RegisteredPreferences;
+}> {
+  return loadedPlugins.results
+    .filter((p) => p.preferences !== undefined)
+    .map((p) => ({ plugin: p.name, preferences: p.preferences as RegisteredPreferences }));
 }

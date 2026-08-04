@@ -30,7 +30,7 @@ export function createMessagingSurface(
   >,
 ): Pick<
   ClackSdk,
-  "askClaude" | "dmOwner" | "sendMessage" | "startThreadConversation" | "engageThread"
+  "askClaude" | "dmOwner" | "dmUser" | "sendMessage" | "startThreadConversation" | "engageThread"
 > {
   return {
     async askClaude(opts: AskClaudeOptions): Promise<AskClaudeResult> {
@@ -135,6 +135,39 @@ export function createMessagingSurface(
       } catch (err) {
         const error = err instanceof Error ? err.message : String(err);
         logger.error(`[plugin:${pluginName}] dmOwner postMessage failed: ${error}`);
+        return { ok: false, error };
+      }
+    },
+
+    async dmUser(
+      userId: string,
+      text: string,
+      options: { suppressUnfurls?: boolean } = {},
+    ): Promise<{ ok: true } | { ok: false; error: string }> {
+      const client = deps.getSlackClient();
+      if (!client) {
+        const error = "Slack client is not connected";
+        logger.warn(`[plugin:${pluginName}] dmUser failed: ${error}`);
+        return { ok: false, error };
+      }
+
+      const dmChannelId = await deps.openDmChannel(client, userId);
+      if (!dmChannelId) {
+        const error = `Could not open a DM with ${userId}`;
+        logger.warn(`[plugin:${pluginName}] dmUser failed: ${error}`);
+        return { ok: false, error };
+      }
+
+      try {
+        await client.chat.postMessage({
+          channel: dmChannelId,
+          text,
+          ...unfurlOptions(options.suppressUnfurls),
+        });
+        return { ok: true };
+      } catch (err) {
+        const error = err instanceof Error ? err.message : String(err);
+        logger.error(`[plugin:${pluginName}] dmUser postMessage failed: ${error}`);
         return { ok: false, error };
       }
     },

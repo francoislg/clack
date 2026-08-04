@@ -19,6 +19,7 @@ import { createUsersSurface } from "./users.js";
 import { createMemorySurface } from "./memory.js";
 import { createCronSurface } from "./cron.js";
 import { createMessagingSurface } from "./messaging.js";
+import { createPreferencesSurface } from "./preferences.js";
 import type { RoleDir } from "../../cascadingConfigResolver.js";
 import { openDmChannel } from "../../slack/channelResolver.js";
 import { logger } from "../../logger.js";
@@ -46,7 +47,10 @@ import type {
   RegisteredTool,
   RegisteredViewEntry,
   ToolMapping,
+  RegisterPreferencesInput,
+  RegisteredPreferences,
 } from "../sdk.js";
+import { z } from "zod";
 
 function validateRelativePath(path: string): void {
   if (isAbsolute(path)) {
@@ -158,6 +162,7 @@ export function createClackSdk(
 
   let dictionary: PluginDictionary | null = null;
   const fallbackWarned = new Set<string>();
+  let registeredPreferences: RegisteredPreferences | null = null;
 
   function activeLanguage(): Lang {
     try {
@@ -173,6 +178,33 @@ export function createClackSdk(
       out = out.replaceAll(`{${name}}`, String(value));
     }
     return out;
+  }
+
+  function translate(key: string, vars?: PluginVars): string {
+    if (dictionary === null) {
+      throw new Error(
+        `Plugin "${pluginName}" called sdk.t("${key}") before sdk.registerDictionary(...) — register your dictionary at plugin init.`,
+      );
+    }
+    if (!(key in dictionary.en)) {
+      throw new Error(`Plugin "${pluginName}": missing translation key "${key}" in \`en\` table`);
+    }
+    const lang = activeLanguage();
+    let template = dictionary.en[key];
+    if (lang !== "en") {
+      const table = dictionary[lang];
+      const value = table?.[key];
+      if (value !== undefined && value !== "") {
+        template = value;
+      } else if (!fallbackWarned.has(key)) {
+        fallbackWarned.add(key);
+        pluginLogger.warn(
+          `i18n: missing translation for key "${key}" in language "${lang}" — falling back to "en"`,
+        );
+      }
+    }
+    if (!vars) return template;
+    return interpolate(template, vars);
   }
 
   const sdk: ClackSdk = {
@@ -307,6 +339,8 @@ export function createClackSdk(
 
     memory: createMemorySurface({}, pluginName, (message) => logger.warn(message)),
 
+    preferences: createPreferencesSurface({}, pluginName, (message) => logger.warn(message)),
+
     registerAction(key: string | RegExp, handler: PluginActionHandler): void {
       const fullKey = buildFullKey(key);
       actionHandlers.push({ key: fullKey, handler });
@@ -361,31 +395,58 @@ export function createClackSdk(
       fallbackWarned.clear();
     },
 
-    t(key: string, vars?: PluginVars): string {
-      if (dictionary === null) {
-        throw new Error(
-          `Plugin "${pluginName}" called sdk.t("${key}") before sdk.registerDictionary(...) — register your dictionary at plugin init.`,
+    registerPreferences<T>(input: RegisterPreferencesInput<T>): void {
+      if (
+        input === null ||
+        typeof input !== "object" ||
+        input.schema === undefined ||
+        !Array.isArray(input.fields)
+      ) {
+        errors.push(`registerPreferences requires { schema, fields } (plugin: ${pluginName})`);
+        return;
+      }
+      const shapeKeys =
+        typeof input.schema === "object" &&
+        input.schema !== null &&
+        "shape" in input.schema &&
+        typeof input.schema.shape === "object" &&
+        input.schema.shape !== null
+          ? Object.keys(input.schema.shape)
+          : null;
+      const valid: typeof input.fields = [];
+      for (const f of input.fields) {
+        if (f.type !== "toggle") {
+          pluginLogger.warn(
+            `[plugin:${pluginName}] registerPreferences: unsupported field type "${f.type}" for "${f.key}" — dropping`,
+          );
+          continue;
+        }
+        if (shapeKeys !== null && !shapeKeys.includes(f.key)) {
+          pluginLogger.warn(
+            `[plugin:${pluginName}] registerPreferences: field "${f.key}" is not on the schema — dropping`,
+          );
+          continue;
+        }
+        valid.push(f);
+      }
+      if (valid.length === 0) {
+        registeredPreferences = null;
+        return;
+      }
+      if (registeredPreferences !== null) {
+        pluginLogger.warn(
+          `[plugin:${pluginName}] registerPreferences called more than once — last call wins`,
         );
       }
-      if (!(key in dictionary.en)) {
-        throw new Error(`Plugin "${pluginName}": missing translation key "${key}" in \`en\` table`);
-      }
-      const lang = activeLanguage();
-      let template = dictionary.en[key];
-      if (lang !== "en") {
-        const table = dictionary[lang];
-        const value = table?.[key];
-        if (value !== undefined && value !== "") {
-          template = value;
-        } else if (!fallbackWarned.has(key)) {
-          fallbackWarned.add(key);
-          pluginLogger.warn(
-            `i18n: missing translation for key "${key}" in language "${lang}" — falling back to "en"`,
-          );
-        }
-      }
-      if (!vars) return template;
-      return interpolate(template, vars);
+      registeredPreferences = {
+        fields: valid,
+        schema: input.schema as z.ZodType<object>,
+        translate: (key: string) => translate(key),
+      };
+    },
+
+    t(key: string, vars?: PluginVars): string {
+      return translate(key, vars);
     },
   };
 
@@ -413,6 +474,7 @@ export function createClackSdk(
         actionHandlers,
         viewHandlers,
         errors,
+        ...(registeredPreferences ? { preferences: registeredPreferences } : {}),
       };
     },
   };

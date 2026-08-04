@@ -23,6 +23,8 @@ const ALLOWLIST = new Set([
   "revealCards/seeAnswerButton.ts",
   "tools/questions/getQuestionHistory.ts",
   "tools/reveal/overrideAnswer.ts",
+  // Reminder tool: needs to read raw answers to find unplayed candidates for reminders.
+  "tools/reminders/remindUnplayed.ts",
 ]);
 
 const CALL_PATTERN = /\.loadAnswers\(/;
