@@ -13,7 +13,12 @@ import {
   platformLimitMessage,
   type PlatformLimitInfo,
 } from "./messageParser.js";
-import { buildSystemPrompt, buildPrompt, shouldOmitSkillCatalogs } from "./promptBuilder.js";
+import {
+  buildSystemPrompt,
+  buildPrompt,
+  shouldOmitSkillCatalogs,
+  type RequesterIdentity,
+} from "./promptBuilder.js";
 import { trackedMemoryKindsForRole } from "../memory/trackedKinds.js";
 import { detectRuntime } from "./utilities.js";
 import { errorMessage } from "../errors.js";
@@ -118,6 +123,12 @@ export interface AskClaudeOptions {
   availableFiles?: Map<string, SlackFile>;
   /** User's IANA timezone (e.g., "America/New_York") for time-aware prompts */
   userTimezone?: string;
+  /**
+   * Current turn's speaker identity, rendered as an attribution on the `QUESTION:` line.
+   * Resolved per-turn in the handler and passed through to the prompt builder; never persisted.
+   * Omitted for `scheduled` runs. See `PromptOptions.requester`.
+   */
+  requester?: RequesterIdentity;
   /**
    * Fully-qualified MCP tool names that must be called during this run before `submit_response`
    * will be accepted (e.g., `mcp__trivia__submit_answers`). Threaded into the query context.

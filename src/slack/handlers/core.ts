@@ -15,12 +15,14 @@ import {
 } from "../../sessions.js";
 import { getConfig, type Config } from "../../config.js";
 import { logger } from "../../logger.js";
+import { errorMessage } from "../../errors.js";
 import { isQuiescing } from "../../shutdown.js";
 import { t } from "../../i18n/t.js";
 import { activeSessions } from "../activeSessions.js";
 import { fetchThreadContext } from "../messagesApi.js";
 import { transformUserMentions, getUserInfo } from "../userCache.js";
 import { getChannelInfo } from "../channelCache.js";
+import { getUserRecord } from "../../userRegistry.js";
 import { openDmChannel } from "../channelResolver.js";
 import { isChannellessChannelId } from "../../channelless.js";
 import { resolveChannelLabel, resolveUserLabel, slackLink } from "../logContext.js";
@@ -37,6 +39,7 @@ import { executeAndDeliver } from "./handlerResponse.js";
 import type { TriggerType } from "../../changes/types.js";
 import type { SlackImageFile, SlackFile } from "../slackFileBase.js";
 import type { AskClaudeOptions, ClaudeResponse } from "../../claude/index.js";
+import type { RequesterIdentity } from "../../claude/promptBuilder.js";
 import type { SessionInfo } from "../activeSessions.js";
 import type { UserRole } from "../../roles.js";
 
@@ -69,6 +72,7 @@ export interface CoreDeps {
   fetchThreadContext: typeof fetchThreadContext;
   transformUserMentions: (client: App["client"], text: string) => Promise<string>;
   getUserInfo: typeof getUserInfo;
+  getUserRecord: typeof getUserRecord;
   getChannelInfo: typeof getChannelInfo;
   resolveChannelLabel: typeof resolveChannelLabel;
   resolveUserLabel: typeof resolveUserLabel;
@@ -96,6 +100,7 @@ export const defaultCoreDeps: CoreDeps = {
   fetchThreadContext,
   transformUserMentions,
   getUserInfo,
+  getUserRecord,
   getChannelInfo,
   resolveChannelLabel,
   resolveUserLabel,
@@ -353,7 +358,10 @@ interface DmCoordinates {
 // SESSION SETUP
 // ============================================================
 
-async function setupSession(ctx: ProcessingContext, deps: CoreDeps): Promise<SessionContext> {
+async function setupSession(
+  ctx: ProcessingContext,
+  deps: CoreDeps,
+): Promise<{ session: SessionContext; requester?: RequesterIdentity }> {
   const { client, config, userId, channelId, messageTs, messageText, threadTs, effectiveThreadTs } =
     ctx;
 
@@ -382,10 +390,23 @@ async function setupSession(ctx: ProcessingContext, deps: CoreDeps): Promise<Ses
   // Resolve user and channel info for session attribution. For channelless cron
   // dispatch (synthetic `channelless:<jobId>` sentinel), skip the Slack lookup —
   // the channel doesn't exist as a real Slack resource. See `src/channelless.ts`.
-  const userInfo = await deps.getUserInfo(client, userId);
-  const channelInfo = isChannellessChannelId(channelId)
-    ? null
-    : await deps.getChannelInfo(client, channelId);
+  // The GitHub mapping feeds the per-turn QUESTION attribution (skipped for scheduled,
+  // which has no human speaker); a registry read failure must never block the turn, so
+  // it degrades to no handle.
+  const isScheduled = ctx.triggerType === "scheduled";
+  const [userInfo, channelInfo, githubUsername] = await Promise.all([
+    deps.getUserInfo(client, userId),
+    isChannellessChannelId(channelId) ? null : deps.getChannelInfo(client, channelId),
+    isScheduled
+      ? null
+      : deps.getUserRecord(userId).then(
+          (r) => r?.github?.username ?? null,
+          (err) => {
+            logger.debug(`Requester GitHub lookup failed for ${userId}: ${errorMessage(err)}`);
+            return null;
+          },
+        ),
+  ]);
 
   if (!session) {
     const trigger = buildTriggerFromParams({
@@ -442,7 +463,11 @@ async function setupSession(ctx: ProcessingContext, deps: CoreDeps): Promise<Ses
     triggerType: ctx.triggerType,
   });
 
-  return session;
+  const requester: RequesterIdentity | undefined = isScheduled
+    ? undefined
+    : { userId, username: userInfo?.username, displayName: userInfo?.displayName, githubUsername };
+
+  return { session, requester };
 }
 
 // ============================================================
@@ -675,7 +700,7 @@ export async function processMessage(
     );
 
     // 1. Set up or retrieve session
-    let session = await setupSession(ctx, deps);
+    let { session, requester } = await setupSession(ctx, deps);
 
     // 2. DM setup for reaction triggers (before executeAndDeliver sees sessionInfo)
     let dmCoords: DmCoordinates | null = null;
@@ -742,6 +767,7 @@ export async function processMessage(
         availableFiles,
         actionToken: ctx.actionToken,
         requiredTools: ctx.requiredTools,
+        ...(requester && { requester }),
         skipConditions: ctx.skipConditions,
         submitResponseMode: ctx.submitResponseMode,
         asOf: ctx.asOf,

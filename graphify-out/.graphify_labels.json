@@ -327,5 +327,13 @@
   "325": "setupVersion.ts",
   "326": "tmdb-image-search",
   "327": "ClackSdkUsers",
-  "328": "PostQuestionsSlackDeps"
+  "328": "PostQuestionsSlackDeps",
+  "329": "validateSlug",
+  "330": "skillAction.ts",
+  "331": "channelsCache.ts",
+  "332": "shutdown.ts",
+  "333": "getSessionTrace.ts",
+  "334": "NoopWatcher",
+  "335": "adminDescribeConfigFile.ts",
+  "338": "ClackSdkMemoryData"
 }

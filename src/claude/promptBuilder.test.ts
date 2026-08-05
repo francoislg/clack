@@ -1160,3 +1160,104 @@ describe("renderAdminClaimContext", () => {
     assert.ok(directive.includes("do not re-argue"));
   });
 });
+
+describe("buildPrompt — requester attribution", () => {
+  // The QUESTION segment is joined into the prompt with "\n\n" separators, so it is its
+  // own line. Negative assertions target this line only — the always-present GITHUB ACCESS
+  // section and mention delivery-context text contain "@"/"GitHub" elsewhere in the prompt.
+  const questionLine = (prompt: string): string =>
+    prompt.split("\n").find((l) => l.startsWith("QUESTION")) ?? "";
+
+  const fullRequester = {
+    userId: "U09",
+    username: "flguillemette",
+    displayName: "Frankyboy",
+    githubUsername: "francoislg",
+  };
+
+  const humanTriggers: TriggerType[] = [
+    "directMessages",
+    "mentions",
+    "reactions",
+    "autoRespond",
+    "threadReply",
+    "channelReply",
+  ];
+
+  for (const triggerType of humanTriggers) {
+    it(`attributes the QUESTION line with full identity on ${triggerType}`, () => {
+      const prompt = buildPrompt(makeSession({ triggerType }), { requester: fullRequester });
+      assert.equal(
+        questionLine(prompt),
+        "QUESTION [from Frankyboy (@flguillemette - ID: U09), GitHub @francoislg]: What does this function do?",
+      );
+    });
+  }
+
+  it("omits attribution on scheduled triggers even when a requester is supplied", () => {
+    const prompt = buildPrompt(makeSession({ triggerType: "scheduled" }), {
+      requester: fullRequester,
+    });
+    assert.equal(questionLine(prompt), "QUESTION: What does this function do?");
+  });
+
+  it("omits attribution when no requester is supplied", () => {
+    const prompt = buildPrompt(makeSession({ triggerType: "directMessages" }));
+    assert.equal(questionLine(prompt), "QUESTION: What does this function do?");
+  });
+
+  it("degrades to Slack-only when the GitHub mapping is absent", () => {
+    const prompt = buildPrompt(makeSession({ triggerType: "directMessages" }), {
+      requester: { userId: "U1", username: "flguillemette", displayName: "Frankyboy" },
+    });
+    const line = questionLine(prompt);
+    assert.ok(line.startsWith("QUESTION [from Frankyboy (@flguillemette - ID: U1)]:"));
+    assert.ok(!line.includes("GitHub"));
+  });
+
+  it("renders display name and ID when username is absent", () => {
+    const prompt = buildPrompt(makeSession({ triggerType: "mentions" }), {
+      requester: { userId: "U1", displayName: "Frankyboy", githubUsername: null },
+    });
+    const line = questionLine(prompt);
+    assert.ok(line.startsWith("QUESTION [from Frankyboy (ID: U1)]:"));
+    assert.ok(!line.includes("@"));
+  });
+
+  it("renders @username and ID when display name is absent", () => {
+    const prompt = buildPrompt(makeSession({ triggerType: "mentions" }), {
+      requester: { userId: "U1", username: "flguillemette" },
+    });
+    const line = questionLine(prompt);
+    assert.ok(line.startsWith("QUESTION [from @flguillemette (ID: U1)]:"));
+    assert.ok(!line.includes("Frankyboy"));
+  });
+
+  it("falls back to ID alone when display name and username are both absent", () => {
+    const prompt = buildPrompt(makeSession({ triggerType: "mentions" }), {
+      requester: { userId: "U1" },
+    });
+    assert.ok(questionLine(prompt).startsWith("QUESTION [from ID: U1]:"));
+  });
+
+  it("renders the per-turn requester, not the session's frozen creator identity", () => {
+    // Session created by user A; the current turn's speaker is user B. The requester option
+    // must drive the attribution, proving identity is per-turn and not read off the session.
+    const session = makeSession({
+      triggerType: "mentions",
+      userId: "UA",
+      username: "alice",
+      displayName: "Alice",
+    });
+    const prompt = buildPrompt(session, {
+      requester: { userId: "UB", username: "bob", displayName: "Bob", githubUsername: "bob-gh" },
+    });
+    const line = questionLine(prompt);
+    assert.equal(
+      line,
+      "QUESTION [from Bob (@bob - ID: UB), GitHub @bob-gh]: What does this function do?",
+    );
+    assert.ok(!line.includes("Alice"));
+    assert.ok(!line.includes("@alice"));
+  });
+});

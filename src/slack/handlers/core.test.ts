@@ -15,6 +15,11 @@ import type { ClaudeRunHandle } from "../../claude/runHandle.js";
 import type { SessionInfo } from "../activeSessions.js";
 import type { TriggerType } from "../../changes/types.js";
 import type { AskClaudeOptions } from "../../claude/index.js";
+import type { UserRecord } from "../../userRegistry.js";
+
+function makeUserRecord(overrides: Partial<UserRecord> & { userId: string }): UserRecord {
+  return { displayName: "", lastFetched: 0, ...overrides };
+}
 
 // ============================================================================
 // Helpers
@@ -87,6 +92,7 @@ const mockFetchThreadContext = vi.fn<CoreDeps["fetchThreadContext"]>();
 const mockTransformUserMentions =
   vi.fn<(client: ReturnType<typeof makeClient>, text: string) => Promise<string>>();
 const mockGetUserInfo = vi.fn<CoreDeps["getUserInfo"]>();
+const mockGetUserRecord = vi.fn<CoreDeps["getUserRecord"]>();
 const mockGetChannelInfo = vi.fn<CoreDeps["getChannelInfo"]>();
 const mockResolveChannelLabel = vi.fn<() => Promise<string>>();
 const mockResolveUserLabel = vi.fn<() => Promise<string>>();
@@ -125,6 +131,7 @@ function makeDeps(): CoreDeps {
     fetchThreadContext: mockFetchThreadContext,
     transformUserMentions: mockTransformUserMentions,
     getUserInfo: mockGetUserInfo,
+    getUserRecord: mockGetUserRecord,
     getChannelInfo: mockGetChannelInfo,
     resolveChannelLabel: mockResolveChannelLabel,
     resolveUserLabel: mockResolveUserLabel,
@@ -149,6 +156,7 @@ function resetAllMocks() {
   mockFetchThreadContext.mockClear();
   mockTransformUserMentions.mockClear();
   mockGetUserInfo.mockClear();
+  mockGetUserRecord.mockClear();
   mockGetChannelInfo.mockClear();
   mockResolveChannelLabel.mockClear();
   mockResolveUserLabel.mockClear();
@@ -167,6 +175,7 @@ function resetAllMocks() {
   mockFetchThreadContext.mockImplementation(async () => []);
   mockTransformUserMentions.mockImplementation(async (_client, text) => text);
   mockGetUserInfo.mockImplementation(async () => undefined);
+  mockGetUserRecord.mockImplementation(async () => null);
   mockGetChannelInfo.mockImplementation(async () => undefined);
   mockResolveChannelLabel.mockImplementation(async () => "#test");
   mockResolveUserLabel.mockImplementation(async () => "@user");
@@ -316,6 +325,104 @@ describe("processMessage — executeAndDeliver delegation", () => {
     );
 
     assert.equal(mockExecuteAndDeliver.mock.calls[0]![0].silentThinking, true);
+  });
+});
+
+describe("processMessage — requester identity", () => {
+  beforeEach(() => {
+    resetAllMocks();
+  });
+
+  afterEach(() => {
+    resetShutdown();
+  });
+
+  it("resolves the current turn's requester and forwards it in claudeOptions", async () => {
+    mockGetUserInfo.mockImplementation(async () => ({
+      userId: "U001",
+      username: "flguillemette",
+      displayName: "Frankyboy",
+    }));
+    mockGetUserRecord.mockImplementation(async () =>
+      makeUserRecord({ userId: "U001", github: { username: "francoislg" } }),
+    );
+
+    const deps = makeDeps();
+    await processMessage(makeParams({ triggerType: "directMessages", userId: "U001" }), deps);
+
+    assert.deepEqual(mockGetUserRecord.mock.calls[0], ["U001"]);
+    assert.deepEqual(mockExecuteAndDeliver.mock.calls[0]![0].claudeOptions.requester, {
+      userId: "U001",
+      username: "flguillemette",
+      displayName: "Frankyboy",
+      githubUsername: "francoislg",
+    });
+  });
+
+  it("degrades to a null GitHub handle when the registry read fails", async () => {
+    mockGetUserInfo.mockImplementation(async () => ({ userId: "U001", username: "flguillemette" }));
+    mockGetUserRecord.mockImplementation(async () => {
+      throw new Error("registry unavailable");
+    });
+
+    const deps = makeDeps();
+    await processMessage(makeParams({ triggerType: "mentions", userId: "U001" }), deps);
+
+    assert.deepEqual(mockExecuteAndDeliver.mock.calls[0]![0].claudeOptions.requester, {
+      userId: "U001",
+      username: "flguillemette",
+      displayName: undefined,
+      githubUsername: null,
+    });
+  });
+
+  it("does not resolve or forward a requester for scheduled triggers", async () => {
+    const deps = makeDeps();
+    await processMessage(makeParams({ triggerType: "scheduled", userId: "U001" }), deps);
+
+    assert.equal(mockGetUserRecord.mock.calls.length, 0);
+    assert.equal(mockExecuteAndDeliver.mock.calls[0]![0].claudeOptions.requester, undefined);
+  });
+
+  it("does not persist requester identity onto a reused session's creator fields", async () => {
+    const existing = makeSession({
+      sessionId: "existing",
+      userId: "UA",
+      username: "alice",
+      displayName: "Alice",
+    });
+    mockFindSessionByThread.mockImplementation(async () => existing);
+    mockGetSession.mockImplementation(async () => existing);
+    mockGetUserInfo.mockImplementation(async () => ({
+      userId: "UB",
+      username: "bob",
+      displayName: "Bob",
+    }));
+    mockGetUserRecord.mockImplementation(async () =>
+      makeUserRecord({ userId: "UB", github: { username: "bob-gh" } }),
+    );
+
+    const deps = makeDeps();
+    await processMessage(
+      makeParams({ triggerType: "mentions", userId: "UB", threadTs: "1700000000.000001" }),
+      deps,
+    );
+
+    // The current speaker (UB/Bob) drives the prompt attribution...
+    assert.deepEqual(mockExecuteAndDeliver.mock.calls[0]![0].claudeOptions.requester, {
+      userId: "UB",
+      username: "bob",
+      displayName: "Bob",
+      githubUsername: "bob-gh",
+    });
+    // ...but no write carries the requester, and the session's creator identity is untouched
+    // (backfill-only skips because alice/Alice are already set).
+    for (const [, updates] of mockUpdateSession.mock.calls) {
+      assert.equal("requester" in updates, false);
+      assert.equal("userId" in updates, false);
+      assert.equal("username" in updates, false);
+      assert.equal("displayName" in updates, false);
+    }
   });
 });
 
