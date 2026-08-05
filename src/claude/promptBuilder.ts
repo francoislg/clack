@@ -161,6 +161,25 @@ export interface PromptOptions {
    * capability.
    */
   preAttachedTopics?: string[];
+  /**
+   * Identity of the CURRENT turn's speaker, rendered as an attribution on the `QUESTION:`
+   * line so Claude can resolve first-person references ("I", "me", "my"). Resolved per-turn
+   * at the call site (from the current turn's user + the user registry's GitHub mapping) and
+   * passed in — never read off the persisted session, whose identity fields are frozen to the
+   * session creator. Omit for `scheduled` runs (no single human speaker). `githubUsername` is
+   * `null`/absent when the registry has no mapping (or the lookup failed) — the attribution
+   * then shows Slack identity only.
+   */
+  requester?: RequesterIdentity;
+}
+
+/** The current turn's speaker identity, for the `QUESTION:` attribution. See
+ *  `PromptOptions.requester`. */
+export interface RequesterIdentity {
+  userId: string;
+  username?: string;
+  displayName?: string;
+  githubUsername?: string | null;
 }
 
 /**
@@ -197,13 +216,24 @@ export function buildSystemPrompt(options?: PromptOptions): string {
   return renderLanguageDirective(config.language ?? "en") + cascaded + trackedMemory;
 }
 
+/** The Slack-identity precedence shared by every speaker rendering: displayName+username →
+ *  displayName → username → ID. Bracket-free so callers wrap it their own way. */
+function slackIdentityInner(userId: string, username?: string, displayName?: string): string {
+  if (displayName && username) return `${displayName} (@${username} - ID: ${userId})`;
+  if (displayName) return `${displayName} (ID: ${userId})`;
+  if (username) return `@${username} (ID: ${userId})`;
+  return `ID: ${userId}`;
+}
+
+/** Renders the current speaker's identity for the `QUESTION:` attribution, appending the
+ *  GitHub handle only when the registry mapped one. */
+function formatRequester(requester: RequesterIdentity): string {
+  const inner = slackIdentityInner(requester.userId, requester.username, requester.displayName);
+  return requester.githubUsername ? `${inner}, GitHub @${requester.githubUsername}` : inner;
+}
+
 function formatSpeaker(msg: { userId: string; username?: string; displayName?: string }): string {
-  if (msg.displayName && msg.username) {
-    return `[${msg.displayName} (@${msg.username} - ID: ${msg.userId})]`;
-  }
-  if (msg.displayName) return `[${msg.displayName} (ID: ${msg.userId})]`;
-  if (msg.username) return `[@${msg.username} (ID: ${msg.userId})]`;
-  return `[ID: ${msg.userId}]`;
+  return `[${slackIdentityInner(msg.userId, msg.username, msg.displayName)}]`;
 }
 
 function formatThreadContext(messages: SessionContext["threadContext"]): string {
@@ -608,7 +638,11 @@ Use this context to understand the conversation flow and provide relevant answer
     if (catalog.length > 0) parts.push(catalog);
   }
 
-  parts.push(`QUESTION: ${triggerText(session)}`);
+  const requesterAttribution =
+    options?.requester && session.triggerType !== "scheduled"
+      ? ` [from ${formatRequester(options.requester)}]`
+      : "";
+  parts.push(`QUESTION${requesterAttribution}: ${triggerText(session)}`);
 
   // Continuations (refinements / choices / followups). `source: "choice"` messages
   // render as "The user chose: ${text}" — preserved from the pre-unified-log format.
