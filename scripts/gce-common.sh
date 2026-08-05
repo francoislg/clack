@@ -51,7 +51,9 @@ read_tester_services_budget() {
 import { readFileSync } from 'node:fs';
 const c = JSON.parse(readFileSync('$DATA_DIR/config.json', 'utf-8'));
 const v = c.tester?.servicesBudgetMb;
-console.log(Number.isInteger(v) && v >= 0 ? v : 0);
+// String() so a number arg isn't ANSI-colorized under FORCE_COLOR (which would
+// break the `$(( ))` reserve arithmetic in gce-update-image.sh).
+console.log(String(Number.isInteger(v) && v >= 0 ? v : 0));
 " 2>/dev/null || echo 0
 }
 
