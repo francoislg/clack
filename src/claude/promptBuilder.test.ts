@@ -317,6 +317,38 @@ describe("buildPrompt", () => {
     assert.ok(prompt.includes("Channel mention"));
   });
 
+  // ---- investigation surface guidance ----
+  it("includes exception for sharing findings when no followed threads", () => {
+    const session = makeSession({
+      triggerType: "mentions",
+      followedThreads: undefined,
+    });
+    const prompt = buildPrompt(session);
+    assert.ok(prompt.includes("Exception: if you investigated content from another thread"));
+    assert.ok(!prompt.includes("This session FOLLOWS source threads"));
+  });
+
+  it("includes read-only guidance when session has followed threads", () => {
+    const session = makeSession({
+      triggerType: "mentions",
+      followedThreads: [
+        {
+          channel: "C123",
+          threadTs: "1234.5678",
+          mode: "followAndInteract",
+          lastInjectedTs: "0",
+          pendingCount: 0,
+          addedBy: "U1",
+        },
+      ],
+    });
+    const prompt = buildPrompt(session);
+    assert.ok(prompt.includes("This session FOLLOWS source threads as read-only inputs"));
+    assert.ok(prompt.includes("NEVER include `post_to` targeting a followed thread"));
+    assert.ok(prompt.includes("user_requested: true"));
+    assert.ok(!prompt.includes("If you investigated content from another thread or channel"));
+  });
+
   // ---- attention-level guidance ----
   it("includes attention-level guidance with the current level for autoRespond", () => {
     const session = makeSession({ triggerType: "autoRespond", attentionLevel: "high" });

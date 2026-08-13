@@ -278,13 +278,12 @@ export async function bootstrapInvestigation(params: BootstrapParams): Promise<B
   const firstRoundText = params.subject
     ? `Investigate: ${params.subject}. Review the followed thread's full history and report your findings.`
     : "Review the followed thread's full history and report your findings.";
-  // The investigation is already created and indexed; a first-round failure (Claude/Slack)
-  // must not throw out of bootstrap — it still leaves the breadcrumb and returns ok.
-  try {
-    await runInvestigationRound(client, session.sessionId, requester, firstRoundText);
-  } catch (err) {
+  // The first round is a full nested Claude query — launch it detached so no caller
+  // (tool handler, reaction handler) blocks on it. The investigation is already created
+  // and indexed; a round failure only logs — the session, index, and parent message stand.
+  runInvestigationRound(client, session.sessionId, requester, firstRoundText).catch((err) => {
     logger.warn(`investigations: first round failed for ${session.sessionId}: ${String(err)}`);
-  }
+  });
 
   const [mainPermalink, breadcrumbPref] = await Promise.all([
     getPermalink(client, mainChannel, mainThreadTs),

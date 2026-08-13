@@ -60,6 +60,7 @@ import { processMessage } from "../slack/handlers/core.js";
 import { getUserInfo } from "../slack/userCache.js";
 import { setUserPreference, clearPreferencesCache } from "../userPreferences.js";
 import type { FollowedThread } from "./types.js";
+import type { ClaudeResponse } from "../claude/index.js";
 
 function inMemoryStateDeps(): InvestigationsStateDeps {
   let content: string | null = null;
@@ -427,6 +428,58 @@ describe("investigations engine (integration)", () => {
         (c) => c[0]?.channel === "CSIDE" && c[0]?.thread_ts === "1.1",
       );
       expect(csideThreadCall).toBeDefined();
+    });
+
+    it("resolves ok promptly without awaiting the first round", async () => {
+      await setInvestigationsChannel("CINV");
+      // Deferred that stays pending until the end of the test, proving bootstrap
+      // does not await the round; resolved before returning so nothing dangles.
+      let releaseRound: (value: ClaudeResponse) => void = () => {};
+      const pendingRound: Promise<ClaudeResponse> = new Promise((resolve) => {
+        releaseRound = resolve;
+      });
+      vi.mocked(processMessage).mockReturnValue(pendingRound);
+
+      const startTime = Date.now();
+      const result = await bootstrapInvestigation({
+        client: makeClient(),
+        surface: "channel",
+        originChannel: "CSIDE",
+        originThreadTs: "1.1",
+        requester: "U1",
+      });
+      const duration = Date.now() - startTime;
+
+      expect(result.status).toBe("ok");
+      if (result.status !== "ok") throw new Error("Expected ok status");
+      expect(result.sessionId).toBeDefined();
+      expect(result.mainChannel).toBe("CINV");
+      expect(duration).toBeLessThan(5000);
+      expect(vi.mocked(processMessage)).toHaveBeenCalledTimes(1);
+      const call = vi.mocked(processMessage).mock.calls[0]?.[0];
+      expect(call?.messageText).toContain("Review the followed thread");
+
+      releaseRound({ success: true, answer: "" });
+    });
+
+    it("resolves ok even when the first round rejects", async () => {
+      await setInvestigationsChannel("CINV");
+      vi.mocked(processMessage).mockRejectedValue(new Error("Claude error"));
+
+      const result = await bootstrapInvestigation({
+        client: makeClient(),
+        surface: "channel",
+        originChannel: "CSIDE",
+        originThreadTs: "1.1",
+        requester: "U1",
+      });
+
+      expect(result.status).toBe("ok");
+      if (result.status !== "ok") throw new Error("Expected ok status");
+      const session = await getSession(result.sessionId);
+      expect(session).toBeDefined();
+      const inv = findInvestigationByFollowedThread("CSIDE", "1.1");
+      expect(inv).toBeDefined();
     });
   });
 

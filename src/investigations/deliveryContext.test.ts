@@ -38,6 +38,17 @@ describe("buildInvestigationDeliveryContext", () => {
     expect(ctx).toContain("close_investigation");
   });
 
+  it("includes read-only directive and explicit-request exception with user_requested: true", () => {
+    const ctx = buildInvestigationDeliveryContext({
+      surface: "channel",
+      followedThreads: [thread({ channel: "CSIDE" })],
+    });
+    expect(ctx).toContain("read-only sources — NEVER post to them");
+    expect(ctx).toContain("(no `post_to`, not even to share findings)");
+    expect(ctx).toContain("Sole exception: the requester explicitly asks");
+    expect(ctx).toContain("use `post_to` with `user_requested: true`");
+  });
+
   it("surfaces the pending count for a follow-mode thread", () => {
     const ctx = buildInvestigationDeliveryContext({
       surface: "channel",
