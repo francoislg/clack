@@ -437,9 +437,20 @@ function buildDeliveryContext(session: SessionContext): string | null {
     lines.push(
       "- By default, do NOT include `post_to` — the answer is already visible in the thread.",
     );
-    lines.push(
-      "- Exception: if you investigated content from another thread or channel (e.g., the user shared a Slack message URL), include `post_to` with explicit `channel` and `thread_ts` so the user can share findings back to that thread.",
-    );
+    if (session.followedThreads === undefined) {
+      lines.push(
+        "- Exception: if you investigated content from another thread or channel " +
+          "(e.g., the user shared a Slack message URL), include `post_to` with explicit " +
+          "`channel` and `thread_ts` so the user can share findings back to that thread.",
+      );
+    } else {
+      lines.push(
+        "- This session FOLLOWS source threads as read-only inputs. NEVER include `post_to` " +
+          "targeting a followed thread — findings belong in this investigation surface only. " +
+          "Sole exception: the requester explicitly asked, in this thread, to post back to the " +
+          "source thread (set user_requested: true on that post_to).",
+      );
+    }
     lines.push(
       '- If the user asks to post "in the channel", include `post_to` with `auto: true` and no `thread_ts` — this posts the content as a top-level message in the parent channel.',
     );

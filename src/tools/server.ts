@@ -781,6 +781,24 @@ function buildQueryTools(ctx: QueryToolContext): ClackQueryToolsResult {
       // (replies go in the existing thread). Not used by additional_messages, which are
       // always top-level channel posts.
       ...(ctx.session.threadTs && { sessionThreadTs: ctx.session.threadTs }),
+      // Followed-thread write guard: a live reader so threads followed mid-session are
+      // covered (follow_thread persists via updateSession without mutating ctx.session).
+      // A read failure falls back to the boot snapshot so the guard never crashes
+      // submit_response — and never silently disables itself.
+      getBlockedFollowedThreads: async () => {
+        let live: Awaited<ReturnType<typeof getSession>> = null;
+        try {
+          live = await getSession(ctx.session.sessionId);
+        } catch (err) {
+          logger.warn(
+            `submit_response: live session read failed for followed-thread guard (${ctx.session.sessionId}), using snapshot: ${String(err)}`,
+          );
+        }
+        return (live?.followedThreads ?? ctx.session.followedThreads ?? []).map((t) => ({
+          channel: t.channel,
+          threadTs: t.threadTs,
+        }));
+      },
       // Channelless dispatch (synthetic `channelless:<jobId>` channel id) selects the
       // "optional-post-to"-shape submit_response schema regardless of the persisted
       // submitResponseMode — there's no bound channel for a primary response, but `post_to`

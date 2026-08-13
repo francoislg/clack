@@ -531,6 +531,12 @@ export interface PostToAction {
    */
   suppress_unfurls?: boolean;
   /**
+   * Explicit-request escape for the followed-thread write guard. Set ONLY when the
+   * requester explicitly asked, in this conversation, to post back to a followed
+   * source thread; without it, a post_to targeting a followed thread is rejected.
+   */
+  user_requested?: boolean;
+  /**
    * Optional sibling messages posted in the same thread as this post_to's primary.
    * Requires `thread_ts` to be set on this action (siblings need a shared thread
    * context). Capped per-installation by `submitResponse.maxAdditionalMessages`.

@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import type { Action, PostToAction, ResponseSnapshot } from "../../types.js";
-import { persistPostToSnapshots } from "./actions.js";
+import { persistPostToSnapshots, collectActionErrors } from "./actions.js";
+import { createIntentStore } from "../../server.js";
 
 function postTo(overrides: Partial<PostToAction>): PostToAction {
   return {
@@ -47,5 +48,124 @@ describe("persistPostToSnapshots", () => {
     const followup: Action = { type: "followup", label: "Next", prompt: "..." };
     await persistPostToSnapshots([followup], persistSnapshot);
     expect(persistSnapshot).not.toHaveBeenCalled();
+  });
+});
+
+describe("collectActionErrors - followed-thread blocking", () => {
+  const blockedThreads = [
+    { channel: "C001", threadTs: "1234567890.000001" },
+    { channel: "C002", threadTs: "1234567890.000002" },
+  ];
+
+  it("rejects auto post_to targeting a blocked thread without user_requested", () => {
+    const intentStore = createIntentStore();
+    const { errors } = collectActionErrors(
+      {
+        actions: [
+          postTo({
+            auto: true,
+            channel: "C001",
+            thread_ts: "1234567890.000001",
+          }),
+        ],
+      },
+      intentStore,
+      undefined,
+      blockedThreads,
+    );
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toContain("FOLLOWED READ-ONLY SOURCE");
+    expect(errors[0]).toContain("user_requested: true");
+  });
+
+  it("rejects staged button post_to targeting a blocked thread without user_requested", () => {
+    const intentStore = createIntentStore();
+    const { errors } = collectActionErrors(
+      {
+        actions: [
+          postTo({
+            channel: "C001",
+            thread_ts: "1234567890.000001",
+          }),
+        ],
+      },
+      intentStore,
+      undefined,
+      blockedThreads,
+    );
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toContain("FOLLOWED READ-ONLY SOURCE");
+  });
+
+  it("allows post_to targeting a blocked thread with user_requested: true", () => {
+    const intentStore = createIntentStore();
+    const { errors } = collectActionErrors(
+      {
+        actions: [
+          postTo({
+            channel: "C001",
+            thread_ts: "1234567890.000001",
+            user_requested: true,
+          }),
+        ],
+      },
+      intentStore,
+      undefined,
+      blockedThreads,
+    );
+    expect(errors).toHaveLength(0);
+  });
+
+  it("allows post_to to blocked channel without thread_ts (top-level)", () => {
+    const intentStore = createIntentStore();
+    const { errors } = collectActionErrors(
+      {
+        actions: [
+          postTo({
+            channel: "C001",
+          }),
+        ],
+      },
+      intentStore,
+      undefined,
+      blockedThreads,
+    );
+    expect(errors).toHaveLength(0);
+  });
+
+  it("allows post_to to blocked channel with different thread_ts", () => {
+    const intentStore = createIntentStore();
+    const { errors } = collectActionErrors(
+      {
+        actions: [
+          postTo({
+            channel: "C001",
+            thread_ts: "9999999999.999999",
+          }),
+        ],
+      },
+      intentStore,
+      undefined,
+      blockedThreads,
+    );
+    expect(errors).toHaveLength(0);
+  });
+
+  it("allows post_to when blockedFollowedThreads is undefined", () => {
+    const intentStore = createIntentStore();
+    const { errors } = collectActionErrors(
+      {
+        actions: [
+          postTo({
+            channel: "C001",
+            thread_ts: "1234567890.000001",
+          }),
+        ],
+      },
+      intentStore,
+      undefined,
+      undefined,
+    );
+    expect(errors).toHaveLength(0);
   });
 });

@@ -190,4 +190,27 @@ describe("investigations state", () => {
       expect(listOpenInvestigations()).toHaveLength(0);
     });
   });
+
+  describe("tee-independence", () => {
+    it("findInvestigationByFollowedThread does not consult origin session attentionLevel", async () => {
+      const { deps } = makeFakeDeps(null);
+      setInvestigationsStateDeps(deps);
+      await loadInvestigationsState();
+
+      await openInvestigation({
+        sessionId: "S1",
+        mainChannel: "CMAIN",
+        mainThreadTs: "100.1",
+        surface: "channel",
+        startedBy: "U1",
+        followed: [{ channel: "CSIDE", threadTs: "1.1" }],
+      });
+
+      // The routing/index lookup should match regardless of origin session attentionLevel.
+      // findInvestigationByFollowedThread is a simple index lookup that never reads session state.
+      const match = findInvestigationByFollowedThread("CSIDE", "1.1");
+      expect(match).toBeDefined();
+      expect(match?.sessionId).toBe("S1");
+    });
+  });
 });

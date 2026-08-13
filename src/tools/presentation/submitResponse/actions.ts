@@ -152,6 +152,7 @@ export function stampConfigUpdateLabels(
 export function validatePostToActions(
   flat: FlatAction[],
   topLevelDeliveryChannel?: string,
+  blockedFollowedThreads?: Array<{ channel: string; threadTs: string }>,
 ): string[] {
   const errors: string[] = [];
   for (const { action, path, parentIsPostTo } of flat) {
@@ -172,6 +173,21 @@ export function validatePostToActions(
     }
     if (action.blocks.length === 0) {
       errors.push(`${path}: post_to action has empty blocks. Provide at least one block to post.`);
+    }
+    // Followed threads are read-only investigation sources — posting back is rejected
+    // unless the requester explicitly asked (user_requested escape).
+    if (
+      blockedFollowedThreads &&
+      action.channel &&
+      action.thread_ts &&
+      !action.user_requested &&
+      blockedFollowedThreads.some(
+        (t) => t.channel === action.channel && t.threadTs === action.thread_ts,
+      )
+    ) {
+      errors.push(
+        `${path}: This thread is a FOLLOWED READ-ONLY SOURCE of the current investigation — findings are posted to the investigation surface only, never back to source threads. Remove this post_to. Only if the requester explicitly asked, in this conversation, to post back to the source thread, re-send with user_requested: true on this action.`,
+      );
     }
     // When submit_response already delivers top-level to the target channel, a post_to to
     // the same channel without a thread would duplicate the message.
@@ -226,11 +242,12 @@ export function collectActionErrors(
   },
   intentStore: IntentStore,
   topLevelDeliveryChannel: string | undefined,
+  blockedFollowedThreads: Array<{ channel: string; threadTs: string }> | undefined,
 ): { errors: string[]; flat: FlatAction[] } {
   const flat = walkBatchActions(args);
   const errors: string[] = [];
   errors.push(...validateRefActions(flat, intentStore));
-  errors.push(...validatePostToActions(flat, topLevelDeliveryChannel));
+  errors.push(...validatePostToActions(flat, topLevelDeliveryChannel, blockedFollowedThreads));
   const coverage = validateStagedIntentsCoverage(flat, intentStore);
   if (coverage) errors.push(coverage);
   return { errors, flat };

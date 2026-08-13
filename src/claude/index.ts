@@ -217,7 +217,7 @@ function summarizeMessageContent(message: unknown): string {
   return JSON.stringify(message).substring(0, 500);
 }
 
-interface QuerySetup {
+export interface QuerySetup {
   reposDir: string;
   systemPrompt: string;
   userPrompt: string;
@@ -245,7 +245,7 @@ function wrapDeliverWithDeliveredMark(
   };
 }
 
-async function buildQuerySetup(
+export async function buildQuerySetup(
   session: SessionContext,
   options: AskClaudeOptions | undefined,
   hasPendingInput: () => boolean,
@@ -296,7 +296,8 @@ async function buildQuerySetup(
   const maxAdditionalMessages = config.submitResponse?.maxAdditionalMessages;
 
   const toolCtx = buildQueryContext({
-    userId: session.userId,
+    // Per-turn requester userId, or session creator when turn has no requester (e.g. scheduled).
+    userId: options?.requester?.userId ?? session.userId,
     role: options?.role ?? "member",
     session,
     config,

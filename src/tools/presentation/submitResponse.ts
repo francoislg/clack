@@ -263,6 +263,12 @@ const postToActionSchema = z.object({
     .describe(
       "Reply messages threaded under this post_to's own cross-posted message (delivered with the cross-post's returned ts as their thread_ts). ONLY use when the user explicitly asks for an 'announcement at top of channel with details in the thread' pattern for the cross-post. Default to a single cross-post in `blocks`. Capped at 20.",
     ),
+  user_requested: z
+    .boolean()
+    .optional()
+    .describe(
+      "Set to true ONLY when the requester explicitly asked, in this conversation, to post back to a followed source thread. Followed threads are read-only sources — without this field, a post_to targeting one is rejected.",
+    ),
 });
 
 /**
@@ -507,6 +513,14 @@ export interface SubmitResponseDeps {
    * and any `post_to` action targeting it without a `thread_ts` is rejected as a duplicate.
    */
   sessionChannelId?: string;
+  /**
+   * Live reader of the session's followed threads (investigation sources). Any `post_to`
+   * targeting one of these `(channel, threadTs)` pairs is rejected unless the action
+   * carries `user_requested: true`. A getter (not a snapshot) so threads followed
+   * mid-session are covered.
+   */
+  getBlockedFollowedThreads?: () => Promise<Array<{ channel: string; threadTs: string }>>;
+
   /** When true, the skip_response parameter is available in the schema. */
   allowSkip?: boolean;
   /**
@@ -1113,6 +1127,7 @@ export function createSubmitResponseTool(deps: SubmitResponseDeps) {
     requiredTools,
     hasPendingInput,
     consumePendingPushedTexts,
+    getBlockedFollowedThreads,
     getStructuredResponseBlocks = _getStructuredResponseBlocks,
     validateBlocks = _validateBlocks,
     validateTable = _validateTable,
@@ -1401,10 +1416,14 @@ export function createSubmitResponseTool(deps: SubmitResponseDeps) {
 
       // Walk the full batch once — primary actions plus every follower's actions, descending
       // into post_to subtrees. The same FlatAction[] feeds every batch-wide validator.
+      const blockedFollowedThreads = getBlockedFollowedThreads
+        ? await getBlockedFollowedThreads()
+        : undefined;
       const { errors: actionErrors, flat: flatActions } = collectActionErrors(
         args,
         intentStore,
         effectiveTopLevelChannel,
+        blockedFollowedThreads,
       );
       const errors = [...formattingErrors, ...actionErrors];
 

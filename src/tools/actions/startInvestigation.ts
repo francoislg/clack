@@ -5,11 +5,13 @@ import { textResult, errorResult } from "../helpers.js";
 import { bootstrapInvestigation } from "../../investigations/engine.js";
 import { getOwnerUserId, sendOwnerDm } from "../../slack/ownerDm.js";
 import { t } from "../../i18n/t.js";
+import { setAttentionLevel } from "../../sessions.js";
+import { logger } from "../../logger.js";
 
 export function createStartInvestigationTool(ctx: QueryToolContext) {
   return tool(
     "start_investigation",
-    "Start a new investigation by selecting an origin thread (from the current session or a specified thread). Creates a dedicated investigation session in the configured investigations channel or as a DM conversation, adds the origin thread as the first followed thread, and runs the first analysis round.",
+    "Start a new investigation by selecting an origin thread (from the current session or a specified thread). Creates a dedicated investigation session in the configured investigations channel or as a DM conversation, adds the origin thread as the first followed thread, and runs the first analysis round. After a successful relocation, ALWAYS acknowledge in the origin thread with the investigation permalink. Relocating the current thread also disengages it (attention off; mentions re-engage).",
     {
       surface: z
         .enum(["channel", "dm"])
@@ -41,6 +43,9 @@ export function createStartInvestigationTool(ctx: QueryToolContext) {
       const originChannel = args.thread_ref?.channel ?? ctx.session.channelId;
       const originThreadTs = args.thread_ref?.thread_ts ?? ctx.session.threadTs;
 
+      const isCurrentThread =
+        originChannel === ctx.session.channelId && originThreadTs === ctx.session.threadTs;
+
       const result = await bootstrapInvestigation({
         client,
         surface: args.surface,
@@ -52,12 +57,30 @@ export function createStartInvestigationTool(ctx: QueryToolContext) {
       });
 
       if (result.status === "ok") {
+        let originDisengaged = false;
+        if (isCurrentThread) {
+          try {
+            await setAttentionLevel(ctx.session.sessionId, "off");
+            originDisengaged = true;
+          } catch (err) {
+            logger.warn(
+              `startInvestigation: failed to disengage session ${ctx.session.sessionId}: ${String(err)}`,
+            );
+          }
+        }
+
         return textResult({
           status: "ok",
           sessionId: result.sessionId,
           mainChannel: result.mainChannel,
           ...(result.permalink ? { permalink: result.permalink } : {}),
           degraded: result.degraded,
+          ...(originDisengaged ? { originDisengaged: true } : {}),
+          ...(originDisengaged
+            ? {
+                note: "The origin thread has been disengaged (attention off) — passive messages there no longer trigger responses; an @mention re-engages. Acknowledge the relocation in the origin thread with the investigation link.",
+              }
+            : {}),
         });
       }
 

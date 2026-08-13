@@ -33,7 +33,10 @@ export function buildInvestigationDeliveryContext(args: InvestigationContextArgs
       return `  - thread in <#${t.channel}> [${t.mode}]${pending}`;
     });
     parts.push(
-      "You are FOLLOWING these threads as read-only sources — NEVER post to them; their content arrives injected into your context:\n" +
+      "You are FOLLOWING these threads as read-only sources — NEVER post to them " +
+        "(no `post_to`, not even to share findings); their content arrives injected into your context. " +
+        "Sole exception: the requester explicitly asks, in this investigation thread, to post something " +
+        "back to a source thread — only then use `post_to` with `user_requested: true`:\n" +
         rows.join("\n"),
     );
   }
