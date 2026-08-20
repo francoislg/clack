@@ -331,6 +331,16 @@ export const fr: Partial<Record<StringKey, string>> = {
     "Lecture seule — ce message programmé est réconcilié depuis la config plugin. Pour modifier la programmation ou le prompt, éditez `data/config.json`.",
   "home.scheduled.plugin_pause_explanation":
     "Mettre en pause empêche cette programmation de s'exécuter jusqu'à la reprise. La config plugin reste inchangée — la prochaine réconciliation ne la réactivera pas.",
+  "home.scheduled.shared_header": "Partagées",
+  "home.scheduled.yours_header": "Vos programmations",
+  "home.scheduled.non_accessible_header": "Non accessibles",
+  "home.scheduled.other_users_header": "Programmations d'autres utilisateurs",
+  "home.scheduled.share_button": "Partager",
+  "home.scheduled.unshare_button": "Retirer le partage",
+  "home.scheduled.shared_toggle_error":
+    "Vous pouvez gérer le partage uniquement pour vos programmations.",
+  "home.scheduled.shared_toggle_error_title": "Non autorisé",
+  "home.scheduled.unnamed": "(sans nom)",
 
   // ─── Action buttons ────────────────────────────────────────────────
   "blocks.action_label_choice": "Sélectionner",
@@ -511,7 +521,11 @@ export const fr: Partial<Record<StringKey, string>> = {
   "userSkills.delete_confirm_text":
     "Supprimer définitivement `{slug}` ? Ses fichiers seront effacés et l'action est irréversible.",
   "userSkills.disabled_badge": "(désactivée)",
-  "userSkills.editable_badge": "(modifiable par tous)",
+  "userSkills.editable_badge": "(partagée)",
+  "userSkills.shared_header": "Partagées",
+  "userSkills.yours_header": "Vos compétences",
+  "userSkills.non_accessible_header": "Non accessibles",
+  "userSkills.other_users_header": "Compétences d'autres utilisateurs",
   "userSkills.owner_label": "Propriétaire",
   "userSkills.modal_create_title": "Créer une compétence",
   "userSkills.modal_edit_title": "Modifier la compétence",
@@ -527,7 +541,7 @@ export const fr: Partial<Record<StringKey, string>> = {
     "Le contenu complet du SKILL.md (markdown). Chargé à la demande quand Claude utilise cette compétence.",
   "userSkills.modal_body_too_long":
     ":warning: *Le contenu fait {length} caractères — trop long pour être édité dans ce modal (max {max}).* Demandez plutôt à Clack de le modifier (ex. DM à Clack : _« mets à jour le contenu de la compétence `<slug>` pour… »_). Enregistrer ici ne mettra à jour que la description ; le contenu sera préservé.",
-  "userSkills.modal_editable_label": "Autorisations",
+  "userSkills.modal_editable_label": "Partagée",
   "userSkills.modal_editable_option":
     "Autoriser tout le monde à modifier le contenu de cette compétence",
   "userSkills.modal_editable_hint":

@@ -277,7 +277,7 @@ describe("runScheduledMessageNow tool", () => {
     assert.equal(calls.runJobNow.length, 1, "run still fires after best-effort delete");
   });
 
-  it("rejects non-creator non-admin", async () => {
+  it("rejects non-creator non-admin for non-shared job", async () => {
     const job = await createJob({
       cronExpression: "0 9 * * *",
       channel: "C1",
@@ -291,7 +291,49 @@ describe("runScheduledMessageNow tool", () => {
     const result = await call(tool, { id: job.id, asOf: undefined, replaceResponseTs: undefined });
 
     assert.equal(result.isError, true);
-    assert.match(textAt(result, 0), /only run your own/);
+    assert.match(textAt(result, 0), /Only the job's.*can run it/);
+  });
+
+  it("allows anyone to run a shared job (editableByAnyone: true)", async () => {
+    const job = await createJob({
+      cronExpression: "0 9 * * *",
+      channel: "C1",
+      prompt: "Summarize PRs",
+      createdBy: "UOTHER",
+      timezone: "UTC",
+      editableByAnyone: true,
+    });
+
+    const { deps, calls } = makeDeps({ responseTs: "1234567890.111111" });
+    const tool = createRunScheduledMessageNowTool(
+      buildCtx({ userId: "USTRANGER", role: "member" }),
+      deps,
+    );
+    const result = await call(tool, { id: job.id, asOf: undefined, replaceResponseTs: undefined });
+
+    const parsed = parseToolResult(result);
+    assert.equal(parsed.ok, true);
+    assert.equal(calls.runJobNow.length, 1);
+  });
+
+  it("returns not-found for a stranger accessing a private DM-targeted job", async () => {
+    const job = await createJob({
+      cronExpression: "0 9 * * *",
+      channel: "D123",
+      prompt: "Personal reminder",
+      createdBy: "UOTHER",
+      timezone: "UTC",
+    });
+
+    const { deps } = makeDeps();
+    const tool = createRunScheduledMessageNowTool(
+      buildCtx({ userId: "USTRANGER", role: "member" }),
+      deps,
+    );
+    const result = await call(tool, { id: job.id, asOf: undefined, replaceResponseTs: undefined });
+
+    assert.equal(result.isError, true);
+    assert.match(textAt(result, 0), /not found/);
   });
 
   it("allows admin to run anyone's job", async () => {

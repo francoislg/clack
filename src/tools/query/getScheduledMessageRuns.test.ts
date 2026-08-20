@@ -152,10 +152,66 @@ describe("get_scheduled_message_runs tool — skipped outcome", () => {
     const parsed = parseToolResult(result);
     assert.equal(parsed.count, 1);
     assert.equal(parsed.runs[0].status, "success");
-    assert.equal(
-      parsed.runs[0].link,
-      undefined,
-      "channelless runs must not render a deep-link from job.channel (which is undefined)",
+    assert.equal(parsed.runs[0].link, undefined);
+  });
+
+  it("returns permission error when non-admin views another user's private channel job runs", async () => {
+    const job = await createJob({
+      cronExpression: "0 9 * * *",
+      channel: "C456",
+      prompt: "someone else's job",
+      createdBy: "U999",
+      timezone: "UTC",
+    });
+
+    await updateJobRunStatus(job.id, "success", "111.111");
+
+    const tool = createGetScheduledMessageRunsTool(buildCtx({ role: "dev", userId: "U123" }));
+    const result = await tool.handler({ id: job.id }, { sessionId: "test" });
+
+    assert.equal(result.isError, true);
+    assert.match(toolResultText(result), /owner.*admins only/i);
+  });
+
+  it("returns not-found error when non-admin views another user's private DM job runs", async () => {
+    const job = await createJob({
+      cronExpression: "0 9 * * *",
+      channel: "D456",
+      prompt: "dms are private",
+      createdBy: "U999",
+      timezone: "UTC",
+    });
+
+    await updateJobRunStatus(job.id, "success", "111.111");
+
+    const tool = createGetScheduledMessageRunsTool(buildCtx({ role: "dev", userId: "U123" }));
+    const result = await tool.handler({ id: job.id }, { sessionId: "test" });
+
+    assert.equal(result.isError, true);
+    assert.match(toolResultText(result), /not found/i);
+  });
+
+  it("returns full runs when stranger accesses editableByAnyone job", async () => {
+    const job = await createJob({
+      cronExpression: "0 9 * * *",
+      channel: "C456",
+      prompt: "shared runs",
+      createdBy: "U999",
+      timezone: "UTC",
+      editableByAnyone: true,
+    });
+
+    await updateJobRunStatus(job.id, "success", "111.222");
+    await updateJobRunStatus(job.id, "success", "222.333");
+
+    const tool = createGetScheduledMessageRunsTool(
+      buildCtx({ slackClient: stubSlackClient(), role: "member", userId: "U123" }),
     );
+    const result = await tool.handler({ id: job.id }, { sessionId: "test" });
+
+    const parsed = parseToolResult(result);
+    assert.equal(parsed.ok, true);
+    assert.equal(parsed.count, 2);
+    assert.equal(parsed.runs[0].status, "success");
   });
 });

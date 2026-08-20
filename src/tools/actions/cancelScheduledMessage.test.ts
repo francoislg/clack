@@ -44,13 +44,14 @@ describe("cancelScheduledMessage tool", () => {
     await rm(tempDir, { recursive: true, force: true });
   });
 
-  it("cancels own job", async () => {
+  it("cancels own job and returns full success details", async () => {
     const job = await createJob({
+      name: "Daily standup",
       cronExpression: "0 9 * * *",
       channel: "C1",
       prompt: "test",
       createdBy: "U123",
-      timezone: "UTC",
+      timezone: "America/New_York",
     });
 
     const ctx = buildCtx();
@@ -60,9 +61,15 @@ describe("cancelScheduledMessage tool", () => {
     const parsed = parseToolResult(result);
     assert.equal(parsed.ok, true);
     assert.equal(parsed.cancelled, true);
+    assert.equal(parsed.id, job.id);
+    assert.equal(parsed.name, "Daily standup");
+    assert.equal(parsed.channel, "C1");
+    assert.equal(parsed.createdBy, "U123");
+    assert.ok(parsed.schedule);
+    assert.match(parsed.schedule, /Every day at 9/);
   });
 
-  it("rejects non-owned job for non-admin", async () => {
+  it("rejects stranger on non-shared job with ownership error", async () => {
     const job = await createJob({
       cronExpression: "0 9 * * *",
       channel: "C1",
@@ -71,18 +78,20 @@ describe("cancelScheduledMessage tool", () => {
       timezone: "UTC",
     });
 
-    const ctx = buildCtx({ role: "dev" });
+    const ctx = buildCtx({ role: "dev", userId: "USTRANGER" });
     const tool = createCancelScheduledMessageTool(ctx);
     const result = await callHandler(tool, { id: job.id });
 
     assert.equal(result.isError, true);
     assert.match(result.content[0].text, /only cancel your own/);
+    assert.match(result.content[0].text, /<@UOTHER>/);
   });
 
   it("allows admin to cancel any job", async () => {
     const job = await createJob({
-      cronExpression: "0 9 * * *",
-      channel: "C1",
+      name: "Weekly summary",
+      cronExpression: "0 10 * * 1",
+      channel: "C2",
       prompt: "test",
       createdBy: "UOTHER",
       timezone: "UTC",
@@ -94,6 +103,62 @@ describe("cancelScheduledMessage tool", () => {
 
     const parsed = parseToolResult(result);
     assert.equal(parsed.ok, true);
+    assert.equal(parsed.name, "Weekly summary");
+  });
+
+  it("allows owner to cancel shared job", async () => {
+    const job = await createJob({
+      cronExpression: "0 9 * * *",
+      channel: "C1",
+      prompt: "test",
+      createdBy: "UOWNER",
+      timezone: "UTC",
+      editableByAnyone: true,
+    });
+
+    const ctx = buildCtx({ role: "dev", userId: "UOWNER" });
+    const tool = createCancelScheduledMessageTool(ctx);
+    const result = await callHandler(tool, { id: job.id });
+
+    const parsed = parseToolResult(result);
+    assert.equal(parsed.ok, true);
+  });
+
+  it("rejects stranger on shared job with shared-specific error", async () => {
+    const job = await createJob({
+      cronExpression: "0 9 * * *",
+      channel: "C1",
+      prompt: "test",
+      createdBy: "UOTHER",
+      timezone: "UTC",
+      editableByAnyone: true,
+    });
+
+    const ctx = buildCtx({ role: "dev", userId: "USTRANGER" });
+    const tool = createCancelScheduledMessageTool(ctx);
+    const result = await callHandler(tool, { id: job.id });
+
+    assert.equal(result.isError, true);
+    assert.match(result.content[0].text, /shared schedule/);
+    assert.match(result.content[0].text, /<@UOTHER>/);
+    assert.match(result.content[0].text, /enabled: false/);
+  });
+
+  it("returns not-found for stranger accessing DM-targeted job", async () => {
+    const job = await createJob({
+      cronExpression: "0 9 * * *",
+      channel: "DUOTHER",
+      prompt: "test",
+      createdBy: "UOTHER",
+      timezone: "UTC",
+    });
+
+    const ctx = buildCtx({ role: "dev", userId: "USTRANGER" });
+    const tool = createCancelScheduledMessageTool(ctx);
+    const result = await callHandler(tool, { id: job.id });
+
+    assert.equal(result.isError, true);
+    assert.match(result.content[0].text, /not found/);
   });
 
   it("returns error for non-existent job", async () => {
@@ -105,7 +170,7 @@ describe("cancelScheduledMessage tool", () => {
     assert.match(result.content[0].text, /not found/);
   });
 
-  it("rejects cancellation of plugin-managed jobs (even for admin)", async () => {
+  it("rejects cancellation of plugin-managed jobs", async () => {
     const job = await createJob({
       cronExpression: "0 9 * * 1-5",
       channel: "C123",

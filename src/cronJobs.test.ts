@@ -1251,4 +1251,136 @@ describe("cronJobs", () => {
       assert.equal(updated.jitterMinutes, 9);
     });
   });
+
+  describe("editableByAnyone", () => {
+    it("persists editableByAnyone when created with true", async () => {
+      const job = await createJob({
+        name: "Editable job",
+        cronExpression: "0 9 * * *",
+        channel: "C123",
+        prompt: "p",
+        createdBy: "U456",
+        timezone: "UTC",
+        editableByAnyone: true,
+      });
+
+      assert.equal(job.editableByAnyone, true);
+
+      clearCronJobsCache();
+      const loaded = await getJob(job.id);
+      assert.ok(loaded);
+      assert.equal(loaded.editableByAnyone, true);
+    });
+
+    it("omits editableByAnyone from JSON when not supplied", async () => {
+      const job = await createJob({
+        name: "Non-editable job",
+        cronExpression: "0 9 * * *",
+        channel: "C123",
+        prompt: "p",
+        createdBy: "U456",
+        timezone: "UTC",
+      });
+
+      assert.equal(job.editableByAnyone, undefined);
+
+      const filePath = resolve(tempDir, "data", "state", "cron-jobs.json");
+      const raw = await readFile(filePath, "utf-8");
+      const parsed: PersistedCronJobsFile = JSON.parse(raw);
+      assert.equal("editableByAnyone" in parsed.jobs[0], false);
+    });
+
+    it("omits editableByAnyone from JSON when created with false", async () => {
+      const job = await createJob({
+        name: "Explicitly non-editable",
+        cronExpression: "0 9 * * *",
+        channel: "C123",
+        prompt: "p",
+        createdBy: "U456",
+        timezone: "UTC",
+        editableByAnyone: false,
+      });
+
+      assert.equal(job.editableByAnyone, undefined);
+
+      const filePath = resolve(tempDir, "data", "state", "cron-jobs.json");
+      const raw = await readFile(filePath, "utf-8");
+      const parsed: PersistedCronJobsFile = JSON.parse(raw);
+      assert.equal("editableByAnyone" in parsed.jobs[0], false);
+    });
+
+    it("updateJob with editableByAnyone: true sets the flag", async () => {
+      const job = await createJob({
+        name: "Restricted job",
+        cronExpression: "0 9 * * *",
+        channel: "C123",
+        prompt: "p",
+        createdBy: "U456",
+        timezone: "UTC",
+      });
+
+      const updated = await updateJob(job.id, { editableByAnyone: true });
+      assert.ok(updated);
+      assert.equal(updated.editableByAnyone, true);
+
+      clearCronJobsCache();
+      const loaded = await getJob(job.id);
+      assert.ok(loaded);
+      assert.equal(loaded.editableByAnyone, true);
+    });
+
+    it("updateJob with editableByAnyone: false removes the key from persisted shape", async () => {
+      const job = await createJob({
+        name: "Editable job",
+        cronExpression: "0 9 * * *",
+        channel: "C123",
+        prompt: "p",
+        createdBy: "U456",
+        timezone: "UTC",
+        editableByAnyone: true,
+      });
+
+      const updated = await updateJob(job.id, { editableByAnyone: false });
+      assert.ok(updated);
+      assert.equal(updated.editableByAnyone, undefined);
+
+      const filePath = resolve(tempDir, "data", "state", "cron-jobs.json");
+      const raw = await readFile(filePath, "utf-8");
+      const parsed: PersistedCronJobsFile = JSON.parse(raw);
+      assert.equal("editableByAnyone" in parsed.jobs[0], false);
+    });
+
+    it("updateJob with editableByAnyone: null removes the flag", async () => {
+      const job = await createJob({
+        name: "Editable job",
+        cronExpression: "0 9 * * *",
+        channel: "C123",
+        prompt: "p",
+        createdBy: "U456",
+        timezone: "UTC",
+        editableByAnyone: true,
+      });
+
+      const updated = await updateJob(job.id, { editableByAnyone: null });
+      assert.ok(updated);
+      assert.equal(updated.editableByAnyone, undefined);
+    });
+
+    it("updateJob with undefined editableByAnyone leaves it unchanged", async () => {
+      const job = await createJob({
+        name: "Editable job",
+        cronExpression: "0 9 * * *",
+        channel: "C123",
+        prompt: "p",
+        createdBy: "U456",
+        timezone: "UTC",
+        editableByAnyone: true,
+      });
+
+      const updated = await updateJob(job.id, { prompt: "new prompt" });
+      assert.ok(updated);
+      assert.equal(updated.editableByAnyone, true);
+      assert.equal(updated.prompt, "new prompt");
+    });
+  });
 });

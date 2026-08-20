@@ -82,11 +82,11 @@ describe("buildUserSkillsSection", () => {
     assert.ok(/disabled/.test(json));
   });
 
-  it("everyone-editable skill shows the editable badge in its row", () => {
+  it("everyone-editable skill shows the shared badge in its row", () => {
     const open = { ...skillByAlice, editableByAnyone: true };
     const blocks = buildUserSkillsSection("U_ALICE", "member", [open]);
     const json = stringify(blocks);
-    assert.ok(/editable by everyone/i.test(json));
+    assert.ok(/\(shared\)/i.test(json));
   });
 
   it("non-owner member sees Edit on an everyone-editable skill", () => {
@@ -94,6 +94,62 @@ describe("buildUserSkillsSection", () => {
     const blocks = buildUserSkillsSection("U_OTHER", "member", [open]);
     const json = stringify(blocks);
     assert.ok(/clack_user_skill_edit_open:copy-improver/.test(json));
+  });
+
+  it("groups shared skills under a Shared header", () => {
+    const shared = { ...skillByAlice, editableByAnyone: true };
+    const blocks = buildUserSkillsSection("U_ALICE", "member", [shared]);
+    const json = stringify(blocks);
+    assert.ok(/Shared/.test(json));
+    assert.ok(/copy-improver/.test(json));
+  });
+
+  it("groups own non-shared skills under a Yours header", () => {
+    const blocks = buildUserSkillsSection("U_ALICE", "member", [skillByAlice]);
+    const json = stringify(blocks);
+    assert.ok(/Yours/.test(json));
+    assert.ok(/copy-improver/.test(json));
+  });
+
+  it("groups other users' non-shared skills under Non-Accessible for non-admin", () => {
+    const blocks = buildUserSkillsSection("U_OTHER", "member", [skillByBob]);
+    const json = stringify(blocks);
+    assert.ok(/Non-Accessible/.test(json));
+    assert.ok(/meeting-notes/.test(json));
+  });
+
+  it("groups other users' non-shared skills under Other users' header for admin", () => {
+    const blocks = buildUserSkillsSection("U_ADMIN", "admin", [skillByBob]);
+    const json = stringify(blocks);
+    assert.ok(/Other users'/.test(json));
+    assert.ok(/meeting-notes/.test(json));
+  });
+
+  it("omits empty groups", () => {
+    const sharedSkill = { ...skillByAlice, editableByAnyone: true };
+    const blocks = buildUserSkillsSection("U_ALICE", "member", [sharedSkill]);
+    const json = stringify(blocks);
+    // Shared group exists, Yours group is empty (skill is shared, not owned privately)
+    assert.ok(/Shared/.test(json));
+    assert.equal(/Yours/.test(json), false);
+  });
+
+  it("shows all three groups when skills span all categories", () => {
+    const shared = { ...skillByAlice, slug: "shared-skill", editableByAnyone: true };
+    const yoursSkill = { ...skillByAlice, slug: "your-skill" };
+    const othersSkill = { ...skillByBob, slug: "other-skill" };
+    const blocks = buildUserSkillsSection("U_ALICE", "member", [shared, yoursSkill, othersSkill]);
+    const json = stringify(blocks);
+    assert.ok(/Shared/.test(json));
+    assert.ok(/Yours/.test(json));
+    assert.ok(/Non-Accessible/.test(json));
+  });
+
+  it("shared skill by another user shows Edit for non-admin if editableByAnyone", () => {
+    const shared = { ...skillByBob, editableByAnyone: true };
+    const blocks = buildUserSkillsSection("U_OTHER", "member", [shared]);
+    const json = stringify(blocks);
+    assert.ok(/clack_user_skill_edit_open:meeting-notes/.test(json));
   });
 });
 

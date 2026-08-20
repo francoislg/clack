@@ -13,6 +13,7 @@ import {
 } from "../../roles.js";
 import { clearQuarantinedWorker } from "../../workers/index.js";
 import { userCanManageRoles, userCanEditConfig } from "../../permissions.js";
+import { canToggleShared, canViewFull, isPrivateTarget } from "../../tools/cronJobAccess.js";
 import {
   buildHomeView,
   buildUserSelectModal,
@@ -1178,6 +1179,54 @@ export function registerHomeTabHandler(app: App, deps: HomeTabDeps = defaultHome
       await publishHomeView(client, body.user.id, deps);
     } catch (error) {
       logger.error("Failed to toggle cron job:", error);
+    }
+  });
+
+  // Toggle shared button in scheduled messages section
+  app.action<BlockAction>(/^cron_toggle_shared:/, async ({ ack, body, client, action }) => {
+    await ack();
+    try {
+      const jobId = (action as { action_id: string }).action_id.split(":")[1];
+      const job = await deps.getJob(jobId);
+      if (!job) return;
+
+      const userId = body.user.id;
+      const role = await deps.getRole(userId);
+      const viewer = { userId, role };
+
+      if (isPrivateTarget(job) && !canViewFull(job, viewer)) {
+        return;
+      }
+
+      if (!canToggleShared(job, viewer)) {
+        await client.views.open({
+          trigger_id: body.trigger_id,
+          view: {
+            type: "modal",
+            title: { type: "plain_text", text: t("home.scheduled.shared_toggle_error_title") },
+            close: { type: "plain_text", text: t("common.close") },
+            blocks: [
+              {
+                type: "section",
+                text: {
+                  type: "mrkdwn",
+                  text: t("home.scheduled.shared_toggle_error"),
+                },
+              },
+            ],
+          },
+        });
+        return;
+      }
+
+      const updated = await deps.updateJob(jobId, {
+        editableByAnyone: !job.editableByAnyone,
+      });
+      if (updated) {
+        await publishHomeView(client, userId, deps);
+      }
+    } catch (error) {
+      logger.error("Failed to toggle cron job shared status:", error);
     }
   });
 

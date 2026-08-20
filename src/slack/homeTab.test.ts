@@ -66,7 +66,6 @@ const mockDiscoverSkillPluginInfo = vi.fn<() => SkillPluginInfo[]>();
 const mockGetLoadedClackPlugins = vi.fn<() => ClackPluginSummary[]>();
 const mockGetRules = vi.fn<() => Promise<AutoRespondRule[]>>();
 const mockGetJobs = vi.fn<() => Promise<CronJob[]>>();
-const mockGetJobsByUser = vi.fn<(userId: string) => Promise<CronJob[]>>();
 const mockGetUserTimezone = vi.fn<(userId: string) => Promise<string | undefined>>();
 const mockHumanReadableSchedule =
   vi.fn<(cronExpression: string, timezone: string, viewerTimezone?: string) => string>();
@@ -94,7 +93,6 @@ function makeDeps(): HomeTabDeps {
     getLoadedClackPlugins: mockGetLoadedClackPlugins,
     getRules: mockGetRules,
     getJobs: mockGetJobs,
-    getJobsByUser: mockGetJobsByUser,
     getUserTimezone: mockGetUserTimezone,
     humanReadableSchedule: mockHumanReadableSchedule,
     getWorkerPoolSnapshot: () => ({ reusable: false, byRepo: [] }),
@@ -213,7 +211,7 @@ function resetAllMocks() {
   mockGetLoadedClackPlugins.mockClear();
   mockGetRules.mockClear();
   mockGetJobs.mockClear();
-  mockGetJobsByUser.mockClear();
+  mockGetJobs.mockClear();
   mockGetUserTimezone.mockClear();
   mockHumanReadableSchedule.mockClear();
   mockGetUsageLimits.mockClear();
@@ -249,7 +247,6 @@ function setDefaultMocks(role: UserRole = "member") {
   mockGetLoadedClackPlugins.mockImplementation(() => []);
   mockGetRules.mockImplementation(async () => []);
   mockGetJobs.mockImplementation(async () => []);
-  mockGetJobsByUser.mockImplementation(async () => []);
   mockGetUserTimezone.mockImplementation(async () => undefined);
   mockHumanReadableSchedule.mockImplementation(() => "Every day at 9:00 AM");
 }
@@ -1619,9 +1616,7 @@ describe("buildHomeView — Scheduled Messages skipConditions", () => {
 
   it("does NOT render a skip-conditions context line on the home page (edit modal only)", async () => {
     setDefaultMocks("member");
-    mockGetJobsByUser.mockImplementation(async () => [
-      baseJob({ skipConditions: "Skip on weekends" }),
-    ]);
+    mockGetJobs.mockImplementation(async () => [baseJob({ skipConditions: "Skip on weekends" })]);
 
     const deps = makeDeps();
     const view = await buildHomeView({ userId: "U001" }, deps);
@@ -1634,7 +1629,7 @@ describe("buildHomeView — Scheduled Messages skipConditions", () => {
 
   it("passes the viewer's timezone to humanReadableSchedule", async () => {
     setDefaultMocks("member");
-    mockGetJobsByUser.mockImplementation(async () => [baseJob()]);
+    mockGetJobs.mockImplementation(async () => [baseJob()]);
     mockGetUserTimezone.mockImplementation(async () => "America/New_York");
 
     const deps = makeDeps();
@@ -1650,7 +1645,7 @@ describe("buildHomeView — Scheduled Messages skipConditions", () => {
 
   it("passes undefined viewer timezone through when the viewer has none", async () => {
     setDefaultMocks("member");
-    mockGetJobsByUser.mockImplementation(async () => [baseJob()]);
+    mockGetJobs.mockImplementation(async () => [baseJob()]);
     mockGetUserTimezone.mockImplementation(async () => undefined);
 
     const deps = makeDeps();
@@ -1664,7 +1659,7 @@ describe("buildHomeView — Scheduled Messages skipConditions", () => {
 
   it("appends a 'jitter: Nm' suffix to the row when jitterMinutes is set", async () => {
     setDefaultMocks("member");
-    mockGetJobsByUser.mockImplementation(async () => [baseJob({ jitterMinutes: 5 })]);
+    mockGetJobs.mockImplementation(async () => [baseJob({ jitterMinutes: 5 })]);
 
     const deps = makeDeps();
     const view = await buildHomeView({ userId: "U001" }, deps);
@@ -1678,7 +1673,7 @@ describe("buildHomeView — Scheduled Messages skipConditions", () => {
 
   it("omits the jitter suffix when the job has no jitter", async () => {
     setDefaultMocks("member");
-    mockGetJobsByUser.mockImplementation(async () => [baseJob()]);
+    mockGetJobs.mockImplementation(async () => [baseJob()]);
 
     const deps = makeDeps();
     const view = await buildHomeView({ userId: "U001" }, deps);
@@ -1692,7 +1687,7 @@ describe("buildHomeView — Scheduled Messages skipConditions", () => {
 
   it("renders a distinct 'last run skipped' indicator for skipped status", async () => {
     setDefaultMocks("member");
-    mockGetJobsByUser.mockImplementation(async () => [baseJob({ lastRunStatus: "skipped" })]);
+    mockGetJobs.mockImplementation(async () => [baseJob({ lastRunStatus: "skipped" })]);
 
     const deps = makeDeps();
     const view = await buildHomeView({ userId: "U001" }, deps);
@@ -1706,7 +1701,7 @@ describe("buildHomeView — Scheduled Messages skipConditions", () => {
 
   it("renders 'ran without responses' for skipped status when submitResponseMode is 'skipped'", async () => {
     setDefaultMocks("member");
-    mockGetJobsByUser.mockImplementation(async () => [
+    mockGetJobs.mockImplementation(async () => [
       baseJob({ lastRunStatus: "skipped", submitResponseMode: "skipped" }),
     ]);
 
@@ -1973,7 +1968,7 @@ describe("buildHomeView — schedule name prefix", () => {
 
   it("prepends a bold name and em-dash to the row when job.name is set", async () => {
     setDefaultMocks("member");
-    mockGetJobsByUser.mockImplementation(async () => [baseJob({ name: "Morning roundup" })]);
+    mockGetJobs.mockImplementation(async () => [baseJob({ name: "Morning roundup" })]);
 
     const deps = makeDeps();
     const view = await buildHomeView({ userId: "U001" }, deps);
@@ -1984,7 +1979,7 @@ describe("buildHomeView — schedule name prefix", () => {
 
   it("renders no prefix when job.name is absent", async () => {
     setDefaultMocks("member");
-    mockGetJobsByUser.mockImplementation(async () => [baseJob()]);
+    mockGetJobs.mockImplementation(async () => [baseJob()]);
 
     const deps = makeDeps();
     const view = await buildHomeView({ userId: "U001" }, deps);
@@ -1995,7 +1990,7 @@ describe("buildHomeView — schedule name prefix", () => {
 
   it("strips mrkdwn special chars from the name to keep the row intact", async () => {
     setDefaultMocks("member");
-    mockGetJobsByUser.mockImplementation(async () => [
+    mockGetJobs.mockImplementation(async () => [
       baseJob({ name: "*Sneaky* <link> & _italic_ ~strike~" }),
     ]);
 
@@ -2102,6 +2097,133 @@ describe("buildHomeView — channelless plugin schedules", () => {
     if (row.type === "section") {
       assert.ok(row.accessory, "plugin row must have an accessory");
     }
+  });
+});
+
+// ============================================================================
+// Scheduled Messages — viewer-relative groups (Shared, Yours, Other/Non-Accessible)
+// ============================================================================
+
+describe("buildSchedulesModalView — scheduled messages groups", () => {
+  async function renderSchedules(opts: { userId: string }, deps: HomeTabDeps): Promise<View> {
+    const role = await deps.getRole(opts.userId);
+    return buildSchedulesModalView(opts.userId, deps.canManageRoles(role), deps);
+  }
+
+  function baseUserJob(userId: string, overrides: Partial<CronJob> = {}): CronJob {
+    return {
+      id: "job-1",
+      cronExpression: "0 9 * * *",
+      channel: "C456",
+      prompt: "Test prompt",
+      createdBy: userId,
+      createdAt: new Date().toISOString(),
+      enabled: true,
+      timezone: "UTC",
+      ...overrides,
+    };
+  }
+
+  it("partitions jobs into Shared, Yours, and Other groups for non-admins", async () => {
+    setDefaultMocks("member");
+    mockGetJobs.mockImplementation(async () => [
+      baseUserJob("U001", { id: "shared", editableByAnyone: true, name: "Shared Job" }),
+      baseUserJob("U001", { id: "yours", name: "Your Job" }),
+      baseUserJob("U002", { id: "other", name: "Other Job" }),
+    ]);
+
+    const deps = makeDeps();
+    const view = await renderSchedules({ userId: "U001" }, deps);
+    const rendered = JSON.stringify(view.blocks);
+
+    assert.ok(rendered.includes("Shared Job"), "shared job should render");
+    assert.ok(rendered.includes("Your Job"), "your job should render");
+    assert.ok(rendered.includes("Other Job"), "other job should render");
+  });
+
+  it("hides empty groups", async () => {
+    setDefaultMocks("member");
+    mockGetJobs.mockImplementation(async () => [
+      baseUserJob("U001", { id: "yours", name: "My Schedule" }),
+    ]);
+
+    const deps = makeDeps();
+    const view = await renderSchedules({ userId: "U001" }, deps);
+    const blocks = view.blocks as KnownBlock[];
+    const headers = getHeaderTexts(blocks);
+
+    assert.ok(
+      headers.some((h) => h.includes("Yours")),
+      "Yours group should render",
+    );
+    assert.ok(!headers.some((h) => h.includes("Shared")), "empty Shared group should not render");
+    assert.ok(
+      !headers.some((h) => h.includes("Non-Accessible")),
+      "empty Non-Accessible group should not render",
+    );
+  });
+
+  it("renders Non-Accessible rows for non-admins", async () => {
+    setDefaultMocks("member");
+    mockGetJobs.mockImplementation(async () => [
+      baseUserJob("U002", { id: "other", name: "Other Job" }),
+    ]);
+
+    const deps = makeDeps();
+    const view = await renderSchedules({ userId: "U001" }, deps);
+    const rendered = JSON.stringify(view.blocks);
+
+    assert.ok(rendered.includes("Other Job"), "other user job should render");
+    assert.ok(rendered.includes("<@U002>"), "creator mention should be present");
+  });
+
+  it("drops DM-targeted jobs that the viewer can't access", async () => {
+    setDefaultMocks("member");
+    mockGetJobs.mockImplementation(async () => [
+      baseUserJob("U002", { id: "dm-job", channel: "D123456" }),
+    ]);
+
+    const deps = makeDeps();
+    const view = await renderSchedules({ userId: "U001" }, deps);
+    const rendered = JSON.stringify(view.blocks);
+
+    assert.ok(!rendered.includes("dm-job"), "inaccessible DM job should not render");
+  });
+
+  it("redacted rows do not expose prompt or skipConditions from other users' jobs", async () => {
+    setDefaultMocks("member");
+    mockGetJobs.mockImplementation(async () => [
+      baseUserJob("U002", {
+        id: "other-secret",
+        name: "Other Job",
+        prompt: "SECRET PROMPT CONTENT",
+        skipConditions: "SECRET SKIP CONDITIONS",
+      }),
+    ]);
+
+    const deps = makeDeps();
+    const view = await renderSchedules({ userId: "U001" }, deps);
+    const rendered = JSON.stringify(view.blocks);
+
+    assert.ok(rendered.includes("Other Job"), "job name should render");
+    assert.ok(!rendered.includes("SECRET PROMPT CONTENT"), "prompt should not be exposed");
+    assert.ok(!rendered.includes("SECRET SKIP CONDITIONS"), "skipConditions should not be exposed");
+  });
+
+  it("restricted row renders mrkdwn chars stripped from name", async () => {
+    setDefaultMocks("member");
+    mockGetJobs.mockImplementation(async () => [
+      baseUserJob("U002", { id: "other", name: "*x* <y> & _z_" }),
+    ]);
+
+    const deps = makeDeps();
+    const view = await renderSchedules({ userId: "U001" }, deps);
+    const rendered = JSON.stringify(view.blocks);
+
+    // escapeMrkdwn removes special chars, so these should not appear as raw chars
+    assert.ok(!rendered.includes("*x*"), "asterisks should be removed");
+    assert.ok(!rendered.includes("<y>"), "angle brackets should be removed");
+    assert.ok(!rendered.includes("_z_"), "underscores should be removed");
   });
 });
 

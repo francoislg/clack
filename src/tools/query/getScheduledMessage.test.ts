@@ -68,11 +68,11 @@ describe("get_scheduled_message tool", () => {
     assert.match(parsed.error, /not found/i);
   });
 
-  it("refuses to return another user's job when caller is not admin", async () => {
+  it("returns redacted summary for another user's non-private channel job", async () => {
     const job = await createJob({
       cronExpression: "0 9 * * *",
       channel: "C456",
-      prompt: "someone else's",
+      prompt: "someone else's full prompt",
       createdBy: "U999",
       timezone: "UTC",
     });
@@ -81,7 +81,50 @@ describe("get_scheduled_message tool", () => {
     const result = await tool.handler({ id: job.id }, { sessionId: "test" });
 
     const parsed = parseToolResult(result);
-    assert.match(parsed.error, /only.*your own/i);
+    assert.equal(parsed.ok, true);
+    assert.equal(parsed.redacted, true);
+    assert.equal(parsed.id, job.id);
+    assert.equal(parsed.channel, "C456");
+    assert.equal(parsed.createdBy, "U999");
+    assert.equal(parsed.prompt, undefined);
+    assert.match(parsed.guidance, /belongs to <@U999>/);
+    assert.match(parsed.guidance, /private/);
+  });
+
+  it("returns not-found error for another user's private DM job", async () => {
+    const job = await createJob({
+      cronExpression: "0 9 * * *",
+      channel: "D456",
+      prompt: "dms are private",
+      createdBy: "U999",
+      timezone: "UTC",
+    });
+
+    const tool = createGetScheduledMessageTool(buildCtx({ role: "dev", userId: "U123" }));
+    const result = await tool.handler({ id: job.id }, { sessionId: "test" });
+
+    const parsed = parseToolResult(result);
+    assert.match(parsed.error, /not found/i);
+  });
+
+  it("returns full details when stranger accesses editableByAnyone job", async () => {
+    const job = await createJob({
+      cronExpression: "0 9 * * *",
+      channel: "C456",
+      prompt: "shared prompt",
+      createdBy: "U999",
+      timezone: "UTC",
+      editableByAnyone: true,
+    });
+
+    const tool = createGetScheduledMessageTool(buildCtx({ role: "member", userId: "U123" }));
+    const result = await tool.handler({ id: job.id }, { sessionId: "test" });
+
+    const parsed = parseToolResult(result);
+    assert.equal(parsed.ok, true);
+    assert.equal(parsed.redacted, undefined);
+    assert.equal(parsed.prompt, "shared prompt");
+    assert.equal(parsed.editableByAnyone, true);
   });
 
   it("returns plugin-managed jobs to admins", async () => {

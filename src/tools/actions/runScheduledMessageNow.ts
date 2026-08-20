@@ -3,10 +3,10 @@ import { tool } from "@anthropic-ai/claude-agent-sdk";
 import type { QueryToolContext } from "../types.js";
 import { textResult, errorResult } from "../helpers.js";
 import { getJob, type CronJob } from "../../cronJobs.js";
-import { canManageRoles } from "../../permissions.js";
 import { runJobNow, type JobOutcome } from "../../cronScheduler.js";
 import { logger } from "../../logger.js";
 import { errorMessage } from "../../errors.js";
+import { canViewFull, canEdit, isPrivateTarget, type Viewer } from "../cronJobAccess.js";
 import type { App } from "@slack/bolt";
 
 export interface RunScheduledMessageNowDeps {
@@ -38,7 +38,7 @@ export function createRunScheduledMessageNowTool(
       "original run's `executedAt` (read it from `get_scheduled_message_runs`); " +
       "(3) replace with `replaceResponseTs` deletes a prior bot post in the job's channel before firing — " +
       "the supplied ts must match a `responseTs` from this job's run history. " +
-      "Permissions: the job's creator OR an admin can run a scheduled message; other users cannot. " +
+      "Permissions: the job's creator, an admin, or anyone on a shared job (editableByAnyone) can run it. " +
       "Limits: tool calls during the run use real wall-clock time (you must translate relative date " +
       "phrases to absolute dates anchored on `asOf`); `skipConditions` evaluate against present-time state, " +
       "so a replay may post when the original skipped or vice versa. " +
@@ -73,11 +73,15 @@ export function createRunScheduledMessageNowTool(
         return errorResult(`Scheduled message "${args.id}" not found.`);
       }
 
-      const isAdmin = canManageRoles(ctx.role);
-      if (!isAdmin && job.createdBy !== ctx.userId) {
-        return errorResult(
-          "You can only run your own scheduled messages. Ask an admin to run this one.",
-        );
+      const viewer: Viewer = { userId: ctx.userId, role: ctx.role };
+
+      if (isPrivateTarget(job) && !canViewFull(job, viewer)) {
+        return errorResult(`Scheduled message "${args.id}" not found.`);
+      }
+
+      if (!canEdit(job, viewer)) {
+        const creatorRef = job.createdBy ? `the job's creator (<@${job.createdBy}>)` : "the owner";
+        return errorResult(`Only ${creatorRef}, an admin, or anyone on a shared job can run it.`);
       }
 
       if (!job.prompt) {

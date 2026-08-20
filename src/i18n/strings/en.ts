@@ -321,6 +321,15 @@ export const en = {
     "Read-only — this scheduled message is reconciled from plugin config. To change the schedule or prompt, edit `data/config.json`.",
   "home.scheduled.plugin_pause_explanation":
     "Pausing stops this schedule from firing until you resume it. The plugin config is unchanged — the next reconcile will not bring it back.",
+  "home.scheduled.shared_header": "Shared",
+  "home.scheduled.yours_header": "Yours",
+  "home.scheduled.non_accessible_header": "Non-Accessible",
+  "home.scheduled.other_users_header": "Other users' schedules",
+  "home.scheduled.share_button": "Share",
+  "home.scheduled.unshare_button": "Unshare",
+  "home.scheduled.shared_toggle_error": "You can only manage sharing for your own schedules.",
+  "home.scheduled.shared_toggle_error_title": "Not authorized",
+  "home.scheduled.unnamed": "(unnamed)",
 
   // ─── Action buttons (default labels for submit_response actions) ───
   "blocks.action_label_choice": "Select",
@@ -496,7 +505,11 @@ export const en = {
   "userSkills.delete_confirm_text":
     "Permanently remove `{slug}`? This erases its files and cannot be undone.",
   "userSkills.disabled_badge": "(disabled)",
-  "userSkills.editable_badge": "(editable by everyone)",
+  "userSkills.editable_badge": "(shared)",
+  "userSkills.shared_header": "Shared",
+  "userSkills.yours_header": "Yours",
+  "userSkills.non_accessible_header": "Non-Accessible",
+  "userSkills.other_users_header": "Other users' skills",
   "userSkills.owner_label": "Owner",
   "userSkills.modal_create_title": "Create skill",
   "userSkills.modal_edit_title": "Edit skill",
@@ -512,7 +525,7 @@ export const en = {
     "The full SKILL.md content (markdown). Loaded on demand when Claude reaches for this skill.",
   "userSkills.modal_body_too_long":
     ":warning: *Body is {length} chars — too long to edit in this modal (max {max}).* Ask Clack to edit it instead (e.g. DM Clack: _“update the `<slug>` skill body to…”_). Saving here will only update the description; the body will be preserved.",
-  "userSkills.modal_editable_label": "Permissions",
+  "userSkills.modal_editable_label": "Shared",
   "userSkills.modal_editable_option": "Allow anyone to edit this skill's content",
   "userSkills.modal_editable_hint":
     "When enabled, any member can edit the description and body. Disabling, restoring, and this setting stay owner/admin-only.",

@@ -5,13 +5,14 @@ import type { QueryToolContext } from "../types.js";
 import { textResult, errorResult } from "../helpers.js";
 import { resolveChannelId } from "../../slack/channelResolver.js";
 import { getJob, updateJob, MAX_JITTER_MINUTES } from "../../cronJobs.js";
-import { canManageRoles } from "../../permissions.js";
 import { humanReadableSchedule } from "../../cronFormatter.js";
 import { isValidTimezone } from "../../timezone.js";
 import { validateRequiredToolNames, formatRequiredToolNameError } from "../toolNameValidator.js";
 import { collectKnownTopics, validateTopicNames } from "./topicValidation.js";
 import { logger } from "../../logger.js";
 import { errorMessage } from "../../errors.js";
+import { canViewFull, canEdit, isPrivateTarget, canToggleShared } from "../cronJobAccess.js";
+import type { Viewer } from "../cronJobAccess.js";
 
 export interface UpdateScheduledMessageDeps {
   collectKnownTopics: typeof collectKnownTopics;
@@ -30,12 +31,13 @@ export function createUpdateScheduledMessageTool(
   return tool(
     "update_scheduled_message",
     "Update an existing scheduled message. " +
-      "Non-admin users can only update their own scheduled messages. " +
       "Only provide the fields you want to change. " +
       "To change the schedule time, pass the full `schedule` object with all five cron fields — " +
       "hour/minute are in the stored (or newly-passed) timezone, NOT UTC. " +
       "When reporting back to the user, quote the `schedule` field from the tool result verbatim " +
-      "— do not recompute or rephrase it.",
+      "— do not recompute or rephrase it. " +
+      "When more than one scheduled job targets the channel in scope, confirm the target by job " +
+      "NAME and creator before changing anything — never act on an ambiguous 'this automation'.",
     {
       id: z.string().describe("The scheduled message ID to update"),
       schedule: z
@@ -134,6 +136,22 @@ export function createUpdateScheduledMessageTool(
             "rendering guidance). Pass an empty array `[]` to clear all attached topics (lean " +
             "runs). Omit to leave the existing list unchanged.",
         ),
+      enabled: z
+        .boolean()
+        .optional()
+        .describe(
+          "Pause (false) or resume (true) the schedule. THIS is the right response to 'turn off' / " +
+            "'stop' / 'pause' — it is recoverable, unlike cancel_scheduled_message which removes it. " +
+            "Omit to leave unchanged.",
+        ),
+      editable_by_anyone: z
+        .boolean()
+        .optional()
+        .describe(
+          "Mark the schedule as Shared (anyone can edit/disable/run; cancellation and this flag stay " +
+            "owner/admin only) or un-share it. Only the job's owner or an admin may change this. Omit " +
+            "to leave unchanged.",
+        ),
     },
     async (args) => {
       const job = await getJob(args.id);
@@ -141,13 +159,26 @@ export function createUpdateScheduledMessageTool(
         return errorResult(`Scheduled message "${args.id}" not found.`);
       }
 
-      const isAdmin = canManageRoles(ctx.role);
-      if (!isAdmin && job.createdBy !== ctx.userId) {
-        return errorResult("You can only update your own scheduled messages.");
+      const viewer: Viewer = { userId: ctx.userId, role: ctx.role };
+
+      if (isPrivateTarget(job) && !canViewFull(job, viewer)) {
+        return errorResult(`Scheduled message "${args.id}" not found.`);
       }
 
-      // Plugin-managed jobs are reconciled from plugin config; only the runtime `enabled`
-      // flag is admin-overridable. Toggling enabled goes through the Home Tab, not this tool.
+      if (!canEdit(job, viewer)) {
+        const creatorTag = job.createdBy ? `<@${job.createdBy}>` : "the system";
+        return errorResult(
+          `Only the creator (${creatorTag}), an admin, or anyone on a shared schedule can update it.`,
+        );
+      }
+
+      if (args.editable_by_anyone !== undefined && !canToggleShared(job, viewer)) {
+        const creatorTag = job.createdBy ? `<@${job.createdBy}>` : "the system";
+        return errorResult(
+          `Only the creator (${creatorTag}) or an admin can change the shared setting.`,
+        );
+      }
+
       if (job.pluginManaged) {
         return errorResult(
           `Scheduled message "${args.id}" is managed by plugin "${job.plugin ?? "unknown"}" — ` +
@@ -221,6 +252,10 @@ export function createUpdateScheduledMessageTool(
             attentionLevel: args.attentionLevel === "" ? null : args.attentionLevel,
           }),
           ...(args.attached_topics !== undefined && { attachedTopics: args.attached_topics }),
+          ...(args.enabled !== undefined && { enabled: args.enabled }),
+          ...(args.editable_by_anyone !== undefined && {
+            editableByAnyone: args.editable_by_anyone,
+          }),
         });
 
         if (!updated) {
@@ -234,6 +269,8 @@ export function createUpdateScheduledMessageTool(
           channel: updated.channel,
           schedule,
           type: updated.prompt ? "dynamic" : "static",
+          enabled: updated.enabled,
+          editableByAnyone: updated.editableByAnyone ?? false,
         });
       } catch (error) {
         logger.error("Failed to update scheduled message:", error);

@@ -92,36 +92,83 @@ export function buildUserSkillsSection(
     return blocks;
   }
 
+  const isAdmin = viewerRole === "admin" || viewerRole === "owner";
   const sorted = [...skills].sort((a, b) => a.slug.localeCompare(b.slug));
-  for (const skill of sorted) {
-    const disabledBadge = skill.disabledAt ? ` ${t("userSkills.disabled_badge")}` : "";
-    const editableBadge = skill.editableByAnyone ? ` ${t("userSkills.editable_badge")}` : "";
-    const text = `*${skill.slug}*${disabledBadge}${editableBadge} — <@${skill.ownerUserId}>`;
 
-    const section: KnownBlock = {
-      type: "section",
-      text: { type: "mrkdwn", text },
-    };
-    if (
-      canEditUserSkillContent(
-        viewerRole,
-        skill.ownerUserId,
-        viewerUserId,
-        skill.editableByAnyone ?? false,
-      )
-    ) {
-      section.accessory = {
-        type: "button",
-        text: { type: "plain_text", text: t("userSkills.edit_button"), emoji: true },
-        action_id: `${ACTION_EDIT_OPEN_PREFIX}:${skill.slug}`,
-        value: skill.slug,
-      };
+  // Partition into three groups
+  const shared = sorted.filter((s) => s.editableByAnyone === true);
+  const yours = sorted.filter((s) => s.ownerUserId === viewerUserId && !s.editableByAnyone);
+  const others = sorted.filter((s) => s.ownerUserId !== viewerUserId && !s.editableByAnyone);
+
+  // Render Shared group
+  if (shared.length > 0) {
+    blocks.push({
+      type: "header",
+      text: { type: "plain_text", text: t("userSkills.shared_header"), emoji: true },
+    });
+    for (const skill of shared) {
+      blocks.push(...renderSkillRow(skill, viewerUserId, viewerRole));
     }
-    blocks.push(section);
+  }
+
+  // Render Yours group
+  if (yours.length > 0) {
+    blocks.push({
+      type: "header",
+      text: { type: "plain_text", text: t("userSkills.yours_header"), emoji: true },
+    });
+    for (const skill of yours) {
+      blocks.push(...renderSkillRow(skill, viewerUserId, viewerRole));
+    }
+  }
+
+  // Render Others group
+  if (others.length > 0) {
+    const groupHeader = isAdmin
+      ? t("userSkills.other_users_header")
+      : t("userSkills.non_accessible_header");
+    blocks.push({
+      type: "header",
+      text: { type: "plain_text", text: groupHeader, emoji: true },
+    });
+    for (const skill of others) {
+      blocks.push(...renderSkillRow(skill, viewerUserId, viewerRole));
+    }
   }
 
   blocks.push({ type: "divider" });
   return blocks;
+}
+
+function renderSkillRow(
+  skill: UserSkill,
+  viewerUserId: string,
+  viewerRole: UserRole,
+): KnownBlock[] {
+  const disabledBadge = skill.disabledAt ? ` ${t("userSkills.disabled_badge")}` : "";
+  const editableBadge = skill.editableByAnyone ? ` ${t("userSkills.editable_badge")}` : "";
+  const text = `*${skill.slug}*${disabledBadge}${editableBadge} — <@${skill.ownerUserId}>`;
+
+  const section: KnownBlock = {
+    type: "section",
+    text: { type: "mrkdwn", text },
+  };
+  if (
+    canEditUserSkillContent(
+      viewerRole,
+      skill.ownerUserId,
+      viewerUserId,
+      skill.editableByAnyone ?? false,
+    )
+  ) {
+    section.accessory = {
+      type: "button",
+      text: { type: "plain_text", text: t("userSkills.edit_button"), emoji: true },
+      action_id: `${ACTION_EDIT_OPEN_PREFIX}:${skill.slug}`,
+      value: skill.slug,
+    };
+  }
+  return [section];
 }
 
 // ---------------------------------------------------------------------------

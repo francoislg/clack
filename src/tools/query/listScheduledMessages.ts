@@ -3,9 +3,10 @@ import { tool } from "@anthropic-ai/claude-agent-sdk";
 import type { QueryToolContext } from "../types.js";
 import { textResult } from "../helpers.js";
 import { getJobs, type CronJob } from "../../cronJobs.js";
-import { canManageRoles } from "../../permissions.js";
 import { humanReadableSchedule } from "../../cronFormatter.js";
 import { slackLink } from "../../slack/logContext.js";
+import { canViewFull, isPrivateTarget, type Viewer } from "../cronJobAccess.js";
+import { buildRedactedJobRow, type RedactedJobRow } from "../redactedJobProjection.js";
 
 /**
  * Max characters of a job's `prompt` returned in the list response. Plugin-managed prompts
@@ -15,29 +16,55 @@ import { slackLink } from "../../slack/logContext.js";
  */
 const PROMPT_PREVIEW_CHARS = 200;
 
+interface FormattedRunInfo {
+  executedAt: string;
+  status: "success" | "error" | "skipped";
+  link?: string;
+}
+
+interface FullJobRow {
+  id: string;
+  name: string | undefined;
+  channel: string | undefined;
+  schedule: string;
+  cronExpression: string;
+  prompt: string;
+  promptTruncated: boolean;
+  enabled: boolean;
+  oneShot: boolean;
+  createdBy: string | null;
+  systemActor: string | undefined;
+  lastRunAt: string | null;
+  lastRunStatus: "success" | "error" | "skipped" | null;
+  requiredTools: string[] | null;
+  plugin: string | null;
+  skipConditions: string | null;
+  submitResponseMode: string | null;
+  attentionLevel: string | null;
+  editableByAnyone: boolean;
+  totalRuns: number;
+  recentRuns: FormattedRunInfo[];
+}
+
+type FormattedJobRow = FullJobRow | RedactedJobRow;
+
 export function createListScheduledMessagesTool(ctx: QueryToolContext) {
   return tool(
     "list_scheduled_messages",
     "List scheduled messages. " +
-      "Default scope: jobs you created PLUS all plugin-managed jobs (e.g. trivia, casual-talk). " +
-      "Plugin-managed jobs are surfaced by default because they have no user owner — they're not " +
-      "anyone's private content; only admins can act on them (per `run_scheduled_message_now`'s " +
-      "ownership gate), but anyone can see they exist. " +
-      "Admins can pass `includeOtherUsers: true` to also include jobs created by other users. " +
-      "Filters `channel` and `plugin` always narrow within the chosen scope — pass them whenever " +
+      "Scope: all channel-targeted jobs are listed for everyone; rows marked `redacted: true` " +
+      "belong to other users—only identity/schedule metadata is shown. Only the job's creator or " +
+      "an admin can view full content or make changes (except `editableByAnyone: true` jobs, which " +
+      "are fully shown and editable by anyone). DM-targeted and personal (channelless, non-plugin) " +
+      "jobs appear only for their creator and admins. " +
+      "When you reference an ambiguous automation in a channel, use this list to disambiguate by " +
+      "name/owner/schedule. " +
+      "Filters `channel` and `plugin` always narrow within the chosen scope—pass them whenever " +
       "the list might be large instead of fetching everything and grepping. " +
-      "Each row's `prompt` is truncated to ~200 chars and flagged with `prompt_truncated: true`; " +
-      "call `get_scheduled_message(id)` for the full prompt and details.",
+      "Redacted rows show only identity/schedule; call `get_scheduled_message(id)` for the full " +
+      "prompt and details (restricted to owners and admins).",
     {
       channel: z.string().optional().describe("Filter by channel name or ID"),
-      includeOtherUsers: z
-        .boolean()
-        .optional()
-        .describe(
-          "Admin/owner only: when true, the result set additionally includes jobs created by " +
-            "users other than the caller. Plugin-managed jobs are already in the default scope. " +
-            "Silently falls through to the default scope for non-admins.",
-        ),
       plugin: z
         .string()
         .optional()
@@ -47,18 +74,16 @@ export function createListScheduledMessagesTool(ctx: QueryToolContext) {
         ),
     },
     async (args) => {
-      const isAdmin = canManageRoles(ctx.role);
-      // Scope: default = caller's own + plugin-managed (no owner). Admin opt-in
-      // `includeOtherUsers: true` adds jobs owned by other users. Non-admin passing
-      // `includeOtherUsers: true` silently falls through to the default scope.
+      const viewer: Viewer = {
+        userId: ctx.userId,
+        role: ctx.role,
+      };
+
+      // Start from ALL jobs
       const allJobs = await getJobs();
-      let jobs =
-        args.includeOtherUsers && isAdmin
-          ? allJobs
-          : allJobs.filter(
-              (j) =>
-                j.createdBy === ctx.userId || (j.pluginManaged === true && j.createdBy === null),
-            );
+
+      // Filter: drop private-target jobs the viewer can't see
+      let jobs = allJobs.filter((j) => !isPrivateTarget(j) || canViewFull(j, viewer));
 
       // Filter by channel if specified
       if (args.channel) {
@@ -80,34 +105,7 @@ export function createListScheduledMessagesTool(ctx: QueryToolContext) {
         });
       }
 
-      const formatted = await Promise.all(
-        jobs.map(async (j) => {
-          const truncated = j.prompt.length > PROMPT_PREVIEW_CHARS;
-          return {
-            id: j.id,
-            channel: j.channel,
-            schedule: humanReadableSchedule(j.cronExpression, j.timezone),
-            cronExpression: j.cronExpression,
-            prompt: truncated ? j.prompt.slice(0, PROMPT_PREVIEW_CHARS) + "…" : j.prompt,
-            promptTruncated: truncated,
-            enabled: j.enabled,
-            oneShot: j.oneShot ?? false,
-            createdBy: j.createdBy,
-            systemActor: j.systemActor ?? null,
-            lastRunAt: j.lastRunAt ?? null,
-            lastRunStatus: j.lastRunStatus ?? null,
-            requiredTools: j.requiredTools ?? null,
-            plugin: j.plugin ?? null,
-            skipConditions: j.skipConditions ?? null,
-            // When set to "skipped", `lastRunStatus: "skipped"` is the expected terminator behavior —
-            // the deliverable is a domain tool (e.g. post_questions for trivia), not submit_response.
-            submitResponseMode: j.submitResponseMode ?? null,
-            attentionLevel: j.attentionLevel ?? null,
-            totalRuns: (j.runs ?? []).length,
-            recentRuns: await formatRuns(j, ctx),
-          };
-        }),
-      );
+      const formatted = await Promise.all(jobs.map((j) => formatJobRow(j, viewer, ctx)));
 
       return textResult({
         ok: true,
@@ -118,7 +116,46 @@ export function createListScheduledMessagesTool(ctx: QueryToolContext) {
   );
 }
 
-async function formatRuns(job: CronJob, ctx: QueryToolContext) {
+/**
+ * Format a job row: full projection when canViewFull, else redacted projection.
+ */
+async function formatJobRow(
+  job: CronJob,
+  viewer: Viewer,
+  ctx: QueryToolContext,
+): Promise<FormattedJobRow> {
+  if (canViewFull(job, viewer)) {
+    // Full projection: all existing fields plus editableByAnyone
+    const truncated = job.prompt.length > PROMPT_PREVIEW_CHARS;
+    return {
+      id: job.id,
+      name: job.name,
+      channel: job.channel,
+      schedule: humanReadableSchedule(job.cronExpression, job.timezone),
+      cronExpression: job.cronExpression,
+      prompt: truncated ? job.prompt.slice(0, PROMPT_PREVIEW_CHARS) + "…" : job.prompt,
+      promptTruncated: truncated,
+      enabled: job.enabled,
+      oneShot: job.oneShot ?? false,
+      createdBy: job.createdBy,
+      systemActor: job.systemActor,
+      lastRunAt: job.lastRunAt ?? null,
+      lastRunStatus: job.lastRunStatus ?? null,
+      requiredTools: job.requiredTools ?? null,
+      plugin: job.plugin ?? null,
+      skipConditions: job.skipConditions ?? null,
+      submitResponseMode: job.submitResponseMode ?? null,
+      attentionLevel: job.attentionLevel ?? null,
+      editableByAnyone: job.editableByAnyone ?? false,
+      totalRuns: (job.runs ?? []).length,
+      recentRuns: await formatRuns(job, ctx),
+    };
+  }
+
+  return buildRedactedJobRow(job);
+}
+
+async function formatRuns(job: CronJob, ctx: QueryToolContext): Promise<FormattedRunInfo[]> {
   const runs = job.runs ?? [];
   if (runs.length === 0 || !ctx.slackClient) return [];
 

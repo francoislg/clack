@@ -46,9 +46,23 @@ For the trivia plugin specifically, `skipDates` is configured at the plugin leve
 
 When the user references a plugin-owned cron job (e.g. "the trivia schedule", "the casual-talk plugin's schedule"), pass `plugin: '<plugin-name>'` to narrow directly to that plugin's jobs. Channel filters miss channelless plugin-managed jobs — the `plugin` filter is the right tool.
 
+### Access & Visibility
+
+`list_scheduled_messages` returns all scheduled jobs your role can access. Channel-targeted rows you cannot fully view are redacted — they show only id, name, channel, schedule, owner, enabled status, and last-run metadata, but no prompt or skip conditions. Redacted jobs remain referenceable by name and owner; only the owner or an admin can see the full content or make changes.
+
+DM-targeted and channelless personal jobs are visible only to their owner and admins.
+
+**Shared jobs** (`editableByAnyone: true`) can be edited, disabled/re-enabled, and run on demand by anyone. Only the owner or an admin may delete them or toggle the `editableByAnyone` flag. Set this flag at creation via `editable_by_anyone`, or later with `update_scheduled_message`.
+
+### Disabling vs Deleting
+
+When a user says "turn off," "stop," or "pause," call `update_scheduled_message` with `enabled: false` — it's recoverable. Reserve `cancel_scheduled_message` for explicit deletion language: "delete," "cancel," "remove."
+
+Before disabling or deleting when a channel has multiple scheduled jobs, list them and confirm the target by **job name and owner**. Never act on ambiguous phrasing like "this automation" when several could match.
+
 ### Running a Scheduled Message on Demand
 
-Use `run_scheduled_message_now` when the user wants to re-fire an existing scheduled message — typically to retry a failed run, replay a past run with a different context, or replace a prior post that came out wrong. Only the job's creator or an admin can call it; other users get an error.
+Use `run_scheduled_message_now` when the user wants to re-fire an existing scheduled message — typically to retry a failed run, replay a past run with a different context, or replace a prior post that came out wrong. The job's creator, an admin, or anyone on a shared (`editableByAnyone`) job can call it; other users get an error.
 
 Three usage patterns:
 

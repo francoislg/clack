@@ -170,6 +170,12 @@ export interface CronJob {
    */
   jitterMinutes?: number;
   /**
+   * When true, any user may edit/disable/run the job via the scheduled-message tools
+   * (removal stays owner/admin only). Absence means false. When enabled, the job is displayed
+   * as editable by non-owners in the Home Tab schedule rows.
+   */
+  editableByAnyone?: boolean;
+  /**
    * Recent execution history (most recent last). Capped by
    * `config.cron.maxRunHistory` (default 50); older entries are
    * dropped from the front when {@link updateJobRunStatus} records a new run.
@@ -280,6 +286,7 @@ const cronJobZod = z.object({
   attachedTopics: z.array(z.string()).optional(),
   attentionLevel: z.enum(["always", "high", "medium", "low"]).optional(),
   jitterMinutes: z.number().optional(),
+  editableByAnyone: z.boolean().optional(),
   runs: z.array(cronRunZod).optional(),
 });
 
@@ -507,6 +514,8 @@ export interface CreateCronJobParams {
   attentionLevel?: SettableAttentionLevel;
   /** Forward match-window jitter in minutes. See `CronJob.jitterMinutes`. */
   jitterMinutes?: number;
+  /** When true, any user may edit/disable/run the job. See `CronJob.editableByAnyone`. */
+  editableByAnyone?: boolean;
 }
 
 /** Upper bound on `jitterMinutes`; a coarse safety cap (plugins must keep jitter below their cron gap). */
@@ -575,6 +584,7 @@ export async function createJob(params: CreateCronJobParams): Promise<CronJob> {
     ...(params.jitterMinutes && params.jitterMinutes > 0
       ? { jitterMinutes: params.jitterMinutes }
       : {}),
+    ...(params.editableByAnyone ? { editableByAnyone: true } : {}),
   };
   jobs.push(job);
   await saveState({ jobs });
@@ -636,6 +646,10 @@ export interface UpdateCronJobParams {
   attentionLevel?: SettableAttentionLevel | null;
   /** Pass minutes to set; `null` or `0` to clear; undefined leaves the field unchanged. */
   jitterMinutes?: number | null;
+  /** Pass `true` to set; `false` or `null` to clear; undefined leaves the field unchanged. */
+  editableByAnyone?: boolean | null;
+  /** Pass `true` to resume; `false` to pause; undefined leaves the field unchanged. */
+  enabled?: boolean;
 }
 
 export async function updateJob(
@@ -688,6 +702,12 @@ export async function updateJob(
       params.jitterMinutes === null || params.jitterMinutes === 0
         ? undefined
         : params.jitterMinutes;
+  }
+  if (params.editableByAnyone !== undefined) {
+    job.editableByAnyone = params.editableByAnyone === true ? true : undefined;
+  }
+  if (params.enabled !== undefined) {
+    job.enabled = params.enabled;
   }
 
   await saveState({ jobs });

@@ -10,7 +10,7 @@ import {
 import { validateTopicNames } from "./topicValidation.js";
 import type { QueryToolContext } from "../types.js";
 import { parseToolResult, toolResultText } from "../testHelpers.js";
-import { clearCronJobsCache, createJob, getJob } from "../../cronJobs.js";
+import { clearCronJobsCache, createJob, getJob, toggleJob } from "../../cronJobs.js";
 
 const originalCwd = process.cwd;
 
@@ -47,6 +47,8 @@ function callHandler(
     timezone?: string;
     jitterMinutes?: number;
     attached_topics?: string[];
+    enabled?: boolean;
+    editable_by_anyone?: boolean;
   },
 ) {
   return tool.handler(
@@ -63,6 +65,8 @@ function callHandler(
       name: args.name,
       attentionLevel: undefined,
       attached_topics: args.attached_topics,
+      enabled: args.enabled,
+      editable_by_anyone: args.editable_by_anyone,
     },
     { sessionId: "test" },
   );
@@ -197,7 +201,7 @@ describe("update_scheduled_message tool — skipConditions", () => {
     });
 
     assert.equal(result.isError, true);
-    assert.match(toolResultText(result), /your own/i);
+    assert.match(toolResultText(result), /creator|admin|shared/i);
 
     const unchanged = await getJob(job.id);
     assert.equal(unchanged?.skipConditions, undefined, "no change should be persisted");
@@ -392,5 +396,179 @@ describe("update_scheduled_message tool — skipConditions", () => {
     assert.match(toolResultText(result), /Known topics: response-rendering, trivia/);
     const unchanged = await getJob(job.id);
     assert.equal(unchanged?.attachedTopics, undefined);
+  });
+
+  it("sets enabled to false to pause the schedule", async () => {
+    const job = await seedJob();
+    const tool = createUpdateScheduledMessageTool(buildCtx());
+
+    const result = await callHandler(tool, { id: job.id, enabled: false });
+
+    assert.notEqual(result.isError, true);
+    const updated = await getJob(job.id);
+    assert.equal(updated?.enabled, false);
+  });
+
+  it("sets enabled to true to resume the schedule", async () => {
+    const job = await createJob({
+      cronExpression: "0 9 * * *",
+      channel: "C456",
+      prompt: "Summarize PRs",
+      createdBy: "U123",
+      timezone: "UTC",
+      editableByAnyone: true,
+    });
+    await toggleJob(job.id);
+    const tool = createUpdateScheduledMessageTool(buildCtx());
+
+    const result = await callHandler(tool, { id: job.id, enabled: true });
+
+    assert.notEqual(result.isError, true);
+    const updated = await getJob(job.id);
+    assert.equal(updated?.enabled, true);
+  });
+
+  it("includes enabled and editableByAnyone in result payload", async () => {
+    const job = await seedJob();
+    const tool = createUpdateScheduledMessageTool(buildCtx());
+
+    const result = await callHandler(tool, { id: job.id, enabled: false });
+
+    assert.notEqual(result.isError, true);
+    const parsed = parseToolResult(result);
+    assert.equal(parsed.enabled, false);
+    assert.equal(parsed.editableByAnyone, false);
+  });
+
+  it("allows owner to set editableByAnyone to true", async () => {
+    const job = await seedJob();
+    const tool = createUpdateScheduledMessageTool(buildCtx());
+
+    const result = await callHandler(tool, { id: job.id, editable_by_anyone: true });
+
+    assert.notEqual(result.isError, true);
+    const updated = await getJob(job.id);
+    assert.equal(updated?.editableByAnyone, true);
+  });
+
+  it("allows owner to clear editableByAnyone", async () => {
+    const job = await createJob({
+      cronExpression: "0 9 * * *",
+      channel: "C456",
+      prompt: "Summarize PRs",
+      createdBy: "U123",
+      timezone: "UTC",
+      editableByAnyone: true,
+    });
+    const tool = createUpdateScheduledMessageTool(buildCtx());
+
+    const result = await callHandler(tool, { id: job.id, editable_by_anyone: false });
+
+    assert.notEqual(result.isError, true);
+    const updated = await getJob(job.id);
+    assert.equal(updated?.editableByAnyone, undefined);
+  });
+
+  it("allows admin to set editableByAnyone", async () => {
+    const job = await seedJob();
+    const adminCtx = buildCtx({ userId: "U_ADMIN", role: "admin" });
+    const tool = createUpdateScheduledMessageTool(adminCtx);
+
+    const result = await callHandler(tool, { id: job.id, editable_by_anyone: true });
+
+    assert.notEqual(result.isError, true);
+    const updated = await getJob(job.id);
+    assert.equal(updated?.editableByAnyone, true);
+  });
+
+  it("stranger cannot set editable_by_anyone even on a shared job", async () => {
+    const job = await createJob({
+      cronExpression: "0 9 * * *",
+      channel: "C456",
+      prompt: "Summarize PRs",
+      createdBy: "U123",
+      timezone: "UTC",
+      editableByAnyone: true,
+    });
+    const strangerCtx = buildCtx({ userId: "U_STRANGER", role: "dev" });
+    const tool = createUpdateScheduledMessageTool(strangerCtx);
+
+    const result = await callHandler(tool, { id: job.id, editable_by_anyone: false });
+
+    assert.equal(result.isError, true);
+    assert.match(toolResultText(result), /only the creator.*or an admin can change the shared/i);
+
+    const unchanged = await getJob(job.id);
+    assert.equal(unchanged?.editableByAnyone, true);
+  });
+
+  it("stranger can update content of an editableByAnyone job", async () => {
+    const job = await createJob({
+      cronExpression: "0 9 * * *",
+      channel: "C456",
+      prompt: "Summarize PRs",
+      createdBy: "U123",
+      timezone: "UTC",
+      editableByAnyone: true,
+    });
+    const strangerCtx = buildCtx({ userId: "U_STRANGER", role: "dev" });
+    const tool = createUpdateScheduledMessageTool(strangerCtx);
+
+    const result = await callHandler(tool, { id: job.id, prompt: "New content" });
+
+    assert.notEqual(result.isError, true);
+    const updated = await getJob(job.id);
+    assert.equal(updated?.prompt, "New content");
+  });
+
+  it("stranger cannot pass editable_by_anyone on an editableByAnyone job (error names owner)", async () => {
+    const job = await createJob({
+      cronExpression: "0 9 * * *",
+      channel: "C456",
+      prompt: "Summarize PRs",
+      createdBy: "U123",
+      timezone: "UTC",
+      editableByAnyone: true,
+    });
+    const strangerCtx = buildCtx({ userId: "U_STRANGER", role: "dev" });
+    const tool = createUpdateScheduledMessageTool(strangerCtx);
+
+    const result = await callHandler(tool, { id: job.id, editable_by_anyone: false });
+
+    assert.equal(result.isError, true);
+    assert.match(toolResultText(result), /<@U123>/);
+  });
+
+  it("returns not-found (not permission denied) for stranger accessing DM job", async () => {
+    const job = await createJob({
+      cronExpression: "0 9 * * *",
+      channel: "DM123",
+      prompt: "DM content",
+      createdBy: "U123",
+      timezone: "UTC",
+    });
+    const strangerCtx = buildCtx({ userId: "U_STRANGER", role: "dev" });
+    const tool = createUpdateScheduledMessageTool(strangerCtx);
+
+    const result = await callHandler(tool, { id: job.id, prompt: "Try to change" });
+
+    assert.equal(result.isError, true);
+    const text = toolResultText(result);
+    assert.match(text, /not found/i);
+    assert.equal(/permission|creator/i.test(text), false);
+  });
+
+  it("stranger cannot update a non-shared other-user job (permission error)", async () => {
+    const job = await seedJob();
+    const strangerCtx = buildCtx({ userId: "U_STRANGER", role: "dev" });
+    const tool = createUpdateScheduledMessageTool(strangerCtx);
+
+    const result = await callHandler(tool, { id: job.id, prompt: "Try to hijack" });
+
+    assert.equal(result.isError, true);
+    assert.match(toolResultText(result), /creator.*admin.*shared/i);
+
+    const unchanged = await getJob(job.id);
+    assert.equal(unchanged?.prompt, "Summarize PRs");
   });
 });

@@ -21,7 +21,8 @@ import { buildUserSkillsSection } from "./userSkillsHomeTab.js";
 import { getRules, type AutoRespondRule } from "../autoRespond.js";
 import { isEphemeralRule } from "../ephemeralRules.js";
 import { formatElapsedSeconds } from "../claude/preAnalysis.js";
-import { getJobs, getJobsByUser, type CronJob } from "../cronJobs.js";
+import { getJobs, type CronJob } from "../cronJobs.js";
+import { canViewFull, isPrivateTarget, type Viewer } from "../tools/cronJobAccess.js";
 import {
   getQuarantineStores,
   type QuarantineStoreDescriptor,
@@ -86,7 +87,6 @@ export interface HomeTabDeps {
   getLoadedClackPlugins: () => ClackPluginSummary[];
   getRules: () => Promise<AutoRespondRule[]>;
   getJobs: () => Promise<CronJob[]>;
-  getJobsByUser: (userId: string) => Promise<CronJob[]>;
   getUserTimezone: (userId: string) => Promise<string | undefined>;
   humanReadableSchedule: (
     cronExpression: string,
@@ -128,7 +128,6 @@ export const defaultHomeTabDeps: HomeTabDeps = {
     })),
   getRules,
   getJobs,
-  getJobsByUser,
   getUserTimezone: async (userId) => {
     const client = getSlackClient();
     if (!client) return undefined;
@@ -1948,64 +1947,64 @@ export async function buildScheduledMessagesSection(
   isAdmin: boolean,
   deps: HomeTabDeps = defaultHomeTabDeps,
 ): Promise<(KnownBlock | Block)[]> {
-  const allJobs = isAdmin ? await deps.getJobs() : await deps.getJobsByUser(userId);
-  // Partition: user-created jobs go in the first section with full controls; plugin-managed
-  // jobs go in a separate admin-only section with read-only details + Enable/Disable only.
-  // The user-created subsection is also hidden when `config.cron.userSchedules` is false —
-  // those jobs are skipped at tick time, so showing them here would mislead admins.
+  const role = isAdmin ? "admin" : "member";
+  const viewer: Viewer = { userId, role };
+  const allJobs = await deps.getJobs();
   const userSchedulesEnabled = deps.getConfig().cron?.userSchedules === true;
-  // `createdBy !== null` excludes core system jobs (e.g. the memory review) — invisible
-  // plumbing with no operator knobs. The createJob invariant makes null ⇔ systemActor set.
   const userJobs = userSchedulesEnabled
-    ? allJobs.filter((j) => !j.pluginManaged && j.createdBy !== null)
+    ? allJobs.filter(
+        (j) =>
+          !j.pluginManaged &&
+          j.createdBy !== null &&
+          !(isPrivateTarget(j) && !canViewFull(j, viewer)),
+      )
     : [];
+
   const pluginJobs = isAdmin ? allJobs.filter((j) => j.pluginManaged) : [];
   const viewerTz = await deps.getUserTimezone(userId);
 
   const blocks: (KnownBlock | Block)[] = [];
 
   if (userJobs.length > 0) {
+    const shared = userJobs.filter((j) => j.editableByAnyone === true);
+    const yours = userJobs.filter((j) => j.createdBy === userId && j.editableByAnyone !== true);
+    const others = userJobs.filter((j) => j.createdBy !== userId && j.editableByAnyone !== true);
+
     blocks.push({ type: "divider" });
-    blocks.push({
-      type: "header",
-      text: { type: "plain_text", text: t("home.scheduled.header"), emoji: true },
-    });
 
-    for (const job of userJobs) {
-      const schedule = deps.humanReadableSchedule(job.cronExpression, job.timezone, viewerTz);
-      const statusLabel = !job.enabled
-        ? t("home.scheduled.paused_suffix")
-        : job.lastRunStatus === "error"
-          ? " :warning:"
-          : job.lastRunStatus === "skipped"
-            ? job.submitResponseMode === "skipped"
-              ? t("home.scheduled.ran_without_responses_suffix")
-              : t("home.scheduled.skipped_suffix")
-            : "";
-      const typeLabel = job.oneShot ? t("home.scheduled.one_time_suffix") : "";
-      const jitterLabel = job.jitterMinutes
-        ? t("home.scheduled.jitter_suffix", { minutes: job.jitterMinutes })
-        : "";
-      // userJobs filters out pluginManaged rows, so createdBy is always a real userId here.
-      const creator =
-        isAdmin && job.createdBy !== null && job.createdBy !== userId
-          ? ` · <@${job.createdBy}>`
-          : "";
-      const namePrefix = job.name ? `*${escapeMrkdwn(job.name)}* — ` : "";
-
-      const channelRef = job.channel ? `<#${job.channel}> · ` : "";
+    if (shared.length > 0) {
       blocks.push({
-        type: "section",
-        text: {
-          type: "mrkdwn",
-          text: `${namePrefix}${channelRef}${schedule}${jitterLabel}${typeLabel}${creator}${statusLabel}`,
-        },
-        accessory: {
-          type: "button",
-          text: { type: "plain_text", text: t("common.edit") },
-          action_id: `cron_edit_job:${job.id}`,
-        },
+        type: "header",
+        text: { type: "plain_text", text: t("home.scheduled.shared_header"), emoji: true },
       });
+      for (const job of shared) {
+        blocks.push(...renderJobRow(job, userId, isAdmin, viewerTz, deps));
+        blocks.push(renderShareToggleButton(job));
+      }
+    }
+
+    if (yours.length > 0) {
+      blocks.push({
+        type: "header",
+        text: { type: "plain_text", text: t("home.scheduled.yours_header"), emoji: true },
+      });
+      for (const job of yours) {
+        blocks.push(...renderJobRow(job, userId, isAdmin, viewerTz, deps));
+        blocks.push(renderShareToggleButton(job));
+      }
+    }
+
+    if (others.length > 0) {
+      const groupHeader = isAdmin
+        ? t("home.scheduled.other_users_header")
+        : t("home.scheduled.non_accessible_header");
+      blocks.push({
+        type: "header",
+        text: { type: "plain_text", text: groupHeader, emoji: true },
+      });
+      for (const job of others) {
+        blocks.push(...renderJobRowRestricted(job, isAdmin, viewerTz, deps));
+      }
     }
   }
 
@@ -2027,15 +2026,7 @@ export async function buildScheduledMessagesSection(
 
     for (const job of pluginJobs) {
       const schedule = deps.humanReadableSchedule(job.cronExpression, job.timezone, viewerTz);
-      const statusLabel = !job.enabled
-        ? t("home.scheduled.paused_suffix")
-        : job.lastRunStatus === "error"
-          ? " :warning:"
-          : job.lastRunStatus === "skipped"
-            ? job.submitResponseMode === "skipped"
-              ? t("home.scheduled.ran_without_responses_suffix")
-              : t("home.scheduled.skipped_suffix")
-            : "";
+      const statusLabel = jobStatusLabel(job);
       const ownerLabel = job.plugin
         ? t("home.scheduled.plugin_suffix", { plugin: job.plugin })
         : "";
@@ -2061,6 +2052,119 @@ export async function buildScheduledMessagesSection(
   }
 
   return blocks;
+}
+
+function jobStatusLabel(job: CronJob): string {
+  if (!job.enabled) {
+    return t("home.scheduled.paused_suffix");
+  }
+  if (job.lastRunStatus === "error") {
+    return " :warning:";
+  }
+  if (job.lastRunStatus === "skipped") {
+    return job.submitResponseMode === "skipped"
+      ? t("home.scheduled.ran_without_responses_suffix")
+      : t("home.scheduled.skipped_suffix");
+  }
+  return "";
+}
+
+function renderJobRow(
+  job: CronJob,
+  userId: string,
+  isAdmin: boolean,
+  viewerTz: string | undefined,
+  deps: HomeTabDeps,
+): (KnownBlock | Block)[] {
+  const schedule = deps.humanReadableSchedule(job.cronExpression, job.timezone, viewerTz);
+  const statusLabel = jobStatusLabel(job);
+  const typeLabel = job.oneShot ? t("home.scheduled.one_time_suffix") : "";
+  const jitterLabel = job.jitterMinutes
+    ? t("home.scheduled.jitter_suffix", { minutes: job.jitterMinutes })
+    : "";
+  const creator =
+    isAdmin && job.createdBy !== null && job.createdBy !== userId ? ` · <@${job.createdBy}>` : "";
+  const namePrefix = job.name ? `*${escapeMrkdwn(job.name)}* — ` : "";
+
+  const channelRef = job.channel ? `<#${job.channel}> · ` : "";
+  return [
+    {
+      type: "section",
+      text: {
+        type: "mrkdwn",
+        text: `${namePrefix}${channelRef}${schedule}${jitterLabel}${typeLabel}${creator}${statusLabel}`,
+      },
+      accessory: {
+        type: "button",
+        text: { type: "plain_text", text: t("common.edit") },
+        action_id: `cron_edit_job:${job.id}`,
+      },
+    },
+  ];
+}
+
+function renderJobRowRestricted(
+  job: CronJob,
+  isAdmin: boolean,
+  viewerTz: string | undefined,
+  deps: HomeTabDeps,
+): (KnownBlock | Block)[] {
+  const schedule = deps.humanReadableSchedule(job.cronExpression, job.timezone, viewerTz);
+  const statusLabel = !job.enabled ? t("home.scheduled.paused_suffix") : "";
+  const namePrefix = job.name
+    ? `*${escapeMrkdwn(job.name)}* — `
+    : `${t("home.scheduled.unnamed")} — `;
+
+  const channelRef = job.channel ? `<#${job.channel}> · ` : "";
+  const creator = job.createdBy ? ` · <@${job.createdBy}>` : "";
+
+  if (isAdmin) {
+    return [
+      {
+        type: "section",
+        text: {
+          type: "mrkdwn",
+          text: `${namePrefix}${channelRef}${schedule}${creator}${statusLabel}`,
+        },
+        accessory: {
+          type: "button",
+          text: { type: "plain_text", text: t("common.edit") },
+          action_id: `cron_edit_job:${job.id}`,
+        },
+      },
+    ];
+  }
+
+  return [
+    {
+      type: "context",
+      elements: [
+        {
+          type: "mrkdwn",
+          text: `${namePrefix}${channelRef}${schedule}${creator}${statusLabel}`,
+        },
+      ],
+    },
+  ];
+}
+
+function renderShareToggleButton(job: CronJob): KnownBlock {
+  const isShared = job.editableByAnyone === true;
+  const buttonText = isShared
+    ? t("home.scheduled.unshare_button")
+    : t("home.scheduled.share_button");
+
+  return {
+    type: "actions",
+    block_id: `cron_share_actions:${job.id}`,
+    elements: [
+      {
+        type: "button",
+        text: { type: "plain_text", text: buttonText, emoji: true },
+        action_id: `cron_toggle_shared:${job.id}`,
+      },
+    ],
+  };
 }
 
 // ── List-modal wrappers ─────────────────────────────────────────────────────

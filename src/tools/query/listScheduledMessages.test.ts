@@ -24,11 +24,11 @@ function buildCtx(overrides: Partial<QueryToolContext> = {}): QueryToolContext {
   } as QueryToolContext;
 }
 
-describe("list_scheduled_messages tool — skipConditions and skipped status", () => {
+describe("list_scheduled_messages tool — universal redacted visibility", () => {
   let tempDir: string;
 
   beforeEach(async () => {
-    tempDir = await mkdtemp(join(tmpdir(), "list-skip-"));
+    tempDir = await mkdtemp(join(tmpdir(), "list-redact-"));
     await mkdir(join(tempDir, "data", "state"), { recursive: true });
     process.cwd = () => tempDir;
     clearCronJobsCache();
@@ -39,120 +39,214 @@ describe("list_scheduled_messages tool — skipConditions and skipped status", (
     await rm(tempDir, { recursive: true, force: true });
   });
 
-  it("includes skipConditions in output when set on the job", async () => {
+  it("non-admin sees another user's channel job as redacted row", async () => {
     await createJob({
       cronExpression: "0 9 * * *",
       channel: "C456",
-      prompt: "Summarize PRs",
-      createdBy: "U123",
+      prompt: "Secret admin job",
+      createdBy: "U999",
       timezone: "UTC",
-      skipConditions: "Skip on holidays",
     });
 
-    const tool = createListScheduledMessagesTool(buildCtx());
+    const tool = createListScheduledMessagesTool(buildCtx({ userId: "U123", role: "member" }));
     const result = await tool.handler(
-      { channel: undefined, includeOtherUsers: undefined, plugin: undefined },
+      { channel: undefined, plugin: undefined },
       { sessionId: "test" },
     );
 
     const parsed = parseToolResult(result);
     assert.equal(parsed.count, 1);
-    assert.equal(parsed.scheduled_messages[0].skipConditions, "Skip on holidays");
+    assert.equal(parsed.scheduled_messages[0].redacted, true);
+    assert.equal(parsed.scheduled_messages[0].id, parsed.scheduled_messages[0].id);
+    assert.equal(parsed.scheduled_messages[0].createdBy, "U999");
+    assert.equal(parsed.scheduled_messages[0].schedule, parsed.scheduled_messages[0].schedule);
+    assert(!("prompt" in parsed.scheduled_messages[0]), "Redacted row should not have prompt");
+    assert(
+      !("promptTruncated" in parsed.scheduled_messages[0]),
+      "Redacted row should not have promptTruncated",
+    );
+    assert(
+      !("requiredTools" in parsed.scheduled_messages[0]),
+      "Redacted row should not have requiredTools",
+    );
+    assert(
+      !("skipConditions" in parsed.scheduled_messages[0]),
+      "Redacted row should not have skipConditions",
+    );
   });
 
-  it("returns skipConditions: null when not set (not omitted)", async () => {
+  it("owner sees their own job in full", async () => {
     await createJob({
       cronExpression: "0 9 * * *",
       channel: "C456",
-      prompt: "no conditions",
+      prompt: "My secret prompt content",
       createdBy: "U123",
       timezone: "UTC",
     });
 
-    const tool = createListScheduledMessagesTool(buildCtx());
+    const tool = createListScheduledMessagesTool(buildCtx({ userId: "U123" }));
     const result = await tool.handler(
-      { channel: undefined, includeOtherUsers: undefined, plugin: undefined },
+      { channel: undefined, plugin: undefined },
       { sessionId: "test" },
     );
 
     const parsed = parseToolResult(result);
-    assert.equal(parsed.scheduled_messages[0].skipConditions, null);
-  });
-
-  it("surfaces submitResponseMode when set, and null when unset", async () => {
-    await createJob({
-      cronExpression: "0 9 * * *",
-      channel: "C456",
-      prompt: "Trivia question fire",
-      createdBy: "U123",
-      timezone: "UTC",
-      submitResponseMode: "skipped",
-    });
-    await createJob({
-      cronExpression: "0 10 * * *",
-      channel: "C456",
-      prompt: "PR summary",
-      createdBy: "U123",
-      timezone: "UTC",
-    });
-
-    const tool = createListScheduledMessagesTool(buildCtx());
-    const result = await tool.handler(
-      { channel: undefined, includeOtherUsers: undefined, plugin: undefined },
-      { sessionId: "test" },
-    );
-
-    const parsed = parseToolResult(result);
-    const trivia = parsed.scheduled_messages.find(
-      (m: { prompt: string }) => m.prompt === "Trivia question fire",
-    );
-    const pr = parsed.scheduled_messages.find((m: { prompt: string }) => m.prompt === "PR summary");
-    assert.equal(trivia.submitResponseMode, "skipped");
-    assert.equal(pr.submitResponseMode, null);
-  });
-
-  it("returns prompts under 200 chars verbatim with promptTruncated: false", async () => {
-    await createJob({
-      cronExpression: "0 9 * * *",
-      channel: "C456",
-      prompt: "short prompt",
-      createdBy: "U123",
-      timezone: "UTC",
-    });
-
-    const tool = createListScheduledMessagesTool(buildCtx());
-    const result = await tool.handler(
-      { channel: undefined, includeOtherUsers: undefined, plugin: undefined },
-      { sessionId: "test" },
-    );
-
-    const parsed = parseToolResult(result);
-    assert.equal(parsed.scheduled_messages[0].prompt, "short prompt");
+    assert.equal(parsed.count, 1);
+    assert.equal(parsed.scheduled_messages[0].redacted, undefined);
+    assert.equal(parsed.scheduled_messages[0].prompt, "My secret prompt content");
     assert.equal(parsed.scheduled_messages[0].promptTruncated, false);
   });
 
-  it("truncates prompts longer than 200 chars and flags promptTruncated: true", async () => {
-    const longPrompt = "x".repeat(500);
+  it("admin sees another user's channel job in full", async () => {
     await createJob({
       cronExpression: "0 9 * * *",
       channel: "C456",
-      prompt: longPrompt,
-      createdBy: "U123",
+      prompt: "User's job full details",
+      createdBy: "U999",
       timezone: "UTC",
     });
 
-    const tool = createListScheduledMessagesTool(buildCtx());
+    const tool = createListScheduledMessagesTool(buildCtx({ userId: "U123", role: "admin" }));
     const result = await tool.handler(
-      { channel: undefined, includeOtherUsers: undefined, plugin: undefined },
+      { channel: undefined, plugin: undefined },
       { sessionId: "test" },
     );
 
     const parsed = parseToolResult(result);
-    assert.equal(parsed.scheduled_messages[0].prompt, "x".repeat(200) + "…");
-    assert.equal(parsed.scheduled_messages[0].promptTruncated, true);
+    assert.equal(parsed.count, 1);
+    assert.equal(parsed.scheduled_messages[0].redacted, undefined);
+    assert.equal(parsed.scheduled_messages[0].prompt, "User's job full details");
+    assert.equal(parsed.scheduled_messages[0].createdBy, "U999");
   });
 
-  it("filters by plugin owner when args.plugin is set", async () => {
+  it("non-admin sees editableByAnyone job in full even when created by another user", async () => {
+    await createJob({
+      cronExpression: "0 9 * * *",
+      channel: "C456",
+      prompt: "Shared job prompt",
+      createdBy: "U999",
+      timezone: "UTC",
+      editableByAnyone: true,
+    });
+
+    const tool = createListScheduledMessagesTool(buildCtx({ userId: "U123", role: "member" }));
+    const result = await tool.handler(
+      { channel: undefined, plugin: undefined },
+      { sessionId: "test" },
+    );
+
+    const parsed = parseToolResult(result);
+    assert.equal(parsed.count, 1);
+    assert.equal(parsed.scheduled_messages[0].redacted, undefined);
+    assert.equal(parsed.scheduled_messages[0].prompt, "Shared job prompt");
+    assert.equal(parsed.scheduled_messages[0].editableByAnyone, true);
+  });
+
+  it("non-admin does not see another user's DM-targeted job", async () => {
+    await createJob({
+      cronExpression: "0 9 * * *",
+      channel: "D456",
+      prompt: "Private DM",
+      createdBy: "U999",
+      timezone: "UTC",
+    });
+
+    const tool = createListScheduledMessagesTool(buildCtx({ userId: "U123", role: "member" }));
+    const result = await tool.handler(
+      { channel: undefined, plugin: undefined },
+      { sessionId: "test" },
+    );
+
+    const parsed = parseToolResult(result);
+    assert.equal(parsed.count, 0);
+  });
+
+  it("non-admin does not see another user's channelless non-plugin job", async () => {
+    await createJob({
+      cronExpression: "0 9 * * *",
+      prompt: "Personal channelless",
+      createdBy: "U999",
+      timezone: "UTC",
+    });
+
+    const tool = createListScheduledMessagesTool(buildCtx({ userId: "U123", role: "member" }));
+    const result = await tool.handler(
+      { channel: undefined, plugin: undefined },
+      { sessionId: "test" },
+    );
+
+    const parsed = parseToolResult(result);
+    assert.equal(parsed.count, 0);
+  });
+
+  it("admin sees another user's DM-targeted job", async () => {
+    await createJob({
+      cronExpression: "0 9 * * *",
+      channel: "D456",
+      prompt: "Private DM",
+      createdBy: "U999",
+      timezone: "UTC",
+    });
+
+    const tool = createListScheduledMessagesTool(buildCtx({ userId: "U123", role: "admin" }));
+    const result = await tool.handler(
+      { channel: undefined, plugin: undefined },
+      { sessionId: "test" },
+    );
+
+    const parsed = parseToolResult(result);
+    assert.equal(parsed.count, 1);
+    assert.equal(parsed.scheduled_messages[0].channel, "D456");
+    assert.equal(parsed.scheduled_messages[0].redacted, undefined);
+  });
+
+  it("admin sees another user's channelless non-plugin job", async () => {
+    await createJob({
+      cronExpression: "0 9 * * *",
+      prompt: "Personal channelless",
+      createdBy: "U999",
+      timezone: "UTC",
+    });
+
+    const tool = createListScheduledMessagesTool(buildCtx({ userId: "U123", role: "admin" }));
+    const result = await tool.handler(
+      { channel: undefined, plugin: undefined },
+      { sessionId: "test" },
+    );
+
+    const parsed = parseToolResult(result);
+    assert.equal(parsed.count, 1);
+    assert.equal(parsed.scheduled_messages[0].redacted, undefined);
+  });
+
+  it("channel filter narrows results", async () => {
+    await createJob({
+      cronExpression: "0 9 * * *",
+      channel: "C456",
+      prompt: "Channel C456 job",
+      createdBy: "U999",
+      timezone: "UTC",
+    });
+    await createJob({
+      cronExpression: "0 10 * * *",
+      channel: "C789",
+      prompt: "Channel C789 job",
+      createdBy: "U999",
+      timezone: "UTC",
+    });
+
+    const tool = createListScheduledMessagesTool(buildCtx({ userId: "U123", role: "member" }));
+    const result = await tool.handler(
+      { channel: "C456", plugin: undefined },
+      { sessionId: "test" },
+    );
+
+    const parsed = parseToolResult(result);
+    assert.equal(parsed.count, 1);
+    assert.equal(parsed.scheduled_messages[0].channel, "C456");
+  });
+
+  it("plugin filter works with plugin-managed jobs", async () => {
     await createJob({
       cronExpression: "0 9 * * *",
       channel: "C456",
@@ -175,170 +269,120 @@ describe("list_scheduled_messages tool — skipConditions and skipped status", (
       pluginManaged: true,
       specKey: "daily",
     });
-    await createJob({
-      cronExpression: "0 11 * * *",
-      channel: "C456",
-      prompt: "User-owned",
-      createdBy: "U123",
-      timezone: "UTC",
-    });
 
     const tool = createListScheduledMessagesTool(buildCtx({ role: "admin" }));
     const result = await tool.handler(
-      { channel: undefined, includeOtherUsers: true, plugin: "trivia" },
+      { channel: undefined, plugin: "trivia" },
       { sessionId: "test" },
     );
 
     const parsed = parseToolResult(result);
     assert.equal(parsed.count, 1);
     assert.equal(parsed.scheduled_messages[0].plugin, "trivia");
-    assert.equal(parsed.scheduled_messages[0].prompt, "Trivia daily");
   });
 
-  it("plugin filter excludes user-owned jobs that have no plugin field", async () => {
+  it("includes skipConditions in full rows when set", async () => {
     await createJob({
-      cronExpression: "0 11 * * *",
+      cronExpression: "0 9 * * *",
       channel: "C456",
-      prompt: "User-owned",
+      prompt: "Summarize PRs",
+      createdBy: "U123",
+      timezone: "UTC",
+      skipConditions: "Skip on holidays",
+    });
+
+    const tool = createListScheduledMessagesTool(buildCtx());
+    const result = await tool.handler(
+      { channel: undefined, plugin: undefined },
+      { sessionId: "test" },
+    );
+
+    const parsed = parseToolResult(result);
+    assert.equal(parsed.count, 1);
+    assert.equal(parsed.scheduled_messages[0].skipConditions, "Skip on holidays");
+  });
+
+  it("returns skipConditions: null in full rows when not set", async () => {
+    await createJob({
+      cronExpression: "0 9 * * *",
+      channel: "C456",
+      prompt: "no conditions",
       createdBy: "U123",
       timezone: "UTC",
     });
 
     const tool = createListScheduledMessagesTool(buildCtx());
     const result = await tool.handler(
-      { channel: undefined, includeOtherUsers: undefined, plugin: "trivia" },
+      { channel: undefined, plugin: undefined },
       { sessionId: "test" },
     );
 
     const parsed = parseToolResult(result);
-    assert.equal(parsed.count, 0);
+    assert.equal(parsed.scheduled_messages[0].skipConditions, null);
   });
 
-  it("default scope returns caller's jobs and plugin-managed jobs, excludes other users'", async () => {
+  it("surfaces submitResponseMode when set in full rows", async () => {
     await createJob({
       cronExpression: "0 9 * * *",
       channel: "C456",
-      prompt: "Caller's job",
+      prompt: "Trivia question fire",
       createdBy: "U123",
       timezone: "UTC",
-    });
-    await createJob({
-      cronExpression: "0 10 * * *",
-      channel: "C456",
-      prompt: "Other user's job",
-      createdBy: "U999",
-      timezone: "UTC",
-    });
-    await createJob({
-      cronExpression: "0 11 * * *",
-      channel: "C456",
-      prompt: "Trivia plugin job",
-      createdBy: null,
-      systemActor: "plugin:trivia",
-      timezone: "UTC",
-      plugin: "trivia",
-      pluginManaged: true,
-      specKey: "daily:question",
+      submitResponseMode: "skipped",
     });
 
     const tool = createListScheduledMessagesTool(buildCtx());
     const result = await tool.handler(
-      { channel: undefined, includeOtherUsers: undefined, plugin: undefined },
+      { channel: undefined, plugin: undefined },
       { sessionId: "test" },
     );
 
     const parsed = parseToolResult(result);
-    const prompts = parsed.scheduled_messages.map((m: { prompt: string }) => m.prompt).sort();
-    assert.deepEqual(prompts, ["Caller's job", "Trivia plugin job"]);
+    assert.equal(parsed.scheduled_messages[0].submitResponseMode, "skipped");
   });
 
-  it("plugin filter from a non-admin surfaces plugin-managed jobs (default scope)", async () => {
-    await createJob({
-      cronExpression: "0 11 * * *",
-      channel: "C456",
-      prompt: "Trivia plugin job",
-      createdBy: null,
-      systemActor: "plugin:trivia",
-      timezone: "UTC",
-      plugin: "trivia",
-      pluginManaged: true,
-      specKey: "daily:question",
-    });
-    await createJob({
-      cronExpression: "0 12 * * *",
-      channel: "C456",
-      prompt: "Caller's own",
-      createdBy: "U123",
-      timezone: "UTC",
-    });
-
-    const tool = createListScheduledMessagesTool(buildCtx({ role: "member" }));
-    const result = await tool.handler(
-      { channel: undefined, includeOtherUsers: undefined, plugin: "trivia" },
-      { sessionId: "test" },
-    );
-
-    const parsed = parseToolResult(result);
-    assert.equal(parsed.count, 1);
-    assert.equal(parsed.scheduled_messages[0].plugin, "trivia");
-    assert.equal(parsed.scheduled_messages[0].prompt, "Trivia plugin job");
-  });
-
-  it("admin with includeOtherUsers: true sees other users' jobs", async () => {
+  it("truncates long prompts in full rows and flags promptTruncated", async () => {
+    const longPrompt = "x".repeat(500);
     await createJob({
       cronExpression: "0 9 * * *",
       channel: "C456",
-      prompt: "Caller's job",
+      prompt: longPrompt,
       createdBy: "U123",
       timezone: "UTC",
     });
-    await createJob({
-      cronExpression: "0 10 * * *",
-      channel: "C456",
-      prompt: "Other user's job",
-      createdBy: "U999",
-      timezone: "UTC",
-    });
 
-    const tool = createListScheduledMessagesTool(buildCtx({ role: "admin" }));
+    const tool = createListScheduledMessagesTool(buildCtx());
     const result = await tool.handler(
-      { channel: undefined, includeOtherUsers: true, plugin: undefined },
+      { channel: undefined, plugin: undefined },
       { sessionId: "test" },
     );
 
     const parsed = parseToolResult(result);
-    const prompts = parsed.scheduled_messages.map((m: { prompt: string }) => m.prompt).sort();
-    assert.deepEqual(prompts, ["Caller's job", "Other user's job"]);
+    assert.equal(parsed.scheduled_messages[0].prompt, "x".repeat(200) + "…");
+    assert.equal(parsed.scheduled_messages[0].promptTruncated, true);
   });
 
-  it("non-admin passing includeOtherUsers: true falls back to default scope (silent)", async () => {
+  it("includes editableByAnyone in both full and redacted rows", async () => {
     await createJob({
       cronExpression: "0 9 * * *",
       channel: "C456",
-      prompt: "Caller's job",
-      createdBy: "U123",
-      timezone: "UTC",
-    });
-    await createJob({
-      cronExpression: "0 10 * * *",
-      channel: "C456",
-      prompt: "Other user's job",
+      prompt: "Editable by all",
       createdBy: "U999",
       timezone: "UTC",
+      editableByAnyone: true,
     });
 
-    const tool = createListScheduledMessagesTool(buildCtx({ role: "member" }));
+    const tool = createListScheduledMessagesTool(buildCtx({ userId: "U123", role: "member" }));
     const result = await tool.handler(
-      { channel: undefined, includeOtherUsers: true, plugin: undefined },
+      { channel: undefined, plugin: undefined },
       { sessionId: "test" },
     );
 
     const parsed = parseToolResult(result);
-    assert.equal(parsed.count, 1);
-    assert.equal(parsed.scheduled_messages[0].prompt, "Caller's job");
+    assert.equal(parsed.scheduled_messages[0].editableByAnyone, true);
   });
 
-  it("surfaces lastRunStatus 'skipped' distinctly from 'success' and 'error'", async () => {
+  it("surfaces lastRunStatus distinctly from success and error", async () => {
     const job = await createJob({
       cronExpression: "0 9 * * *",
       channel: "C456",
@@ -350,11 +394,36 @@ describe("list_scheduled_messages tool — skipConditions and skipped status", (
 
     const tool = createListScheduledMessagesTool(buildCtx());
     const result = await tool.handler(
-      { channel: undefined, includeOtherUsers: undefined, plugin: undefined },
+      { channel: undefined, plugin: undefined },
       { sessionId: "test" },
     );
 
     const parsed = parseToolResult(result);
     assert.equal(parsed.scheduled_messages[0].lastRunStatus, "skipped");
+  });
+
+  it("plugin-managed jobs are visible to non-admins as full rows", async () => {
+    await createJob({
+      cronExpression: "0 11 * * *",
+      channel: "C456",
+      prompt: "Trivia plugin job",
+      createdBy: null,
+      systemActor: "plugin:trivia",
+      timezone: "UTC",
+      plugin: "trivia",
+      pluginManaged: true,
+      specKey: "daily:question",
+    });
+
+    const tool = createListScheduledMessagesTool(buildCtx({ role: "member" }));
+    const result = await tool.handler(
+      { channel: undefined, plugin: undefined },
+      { sessionId: "test" },
+    );
+
+    const parsed = parseToolResult(result);
+    assert.equal(parsed.count, 1);
+    assert.equal(parsed.scheduled_messages[0].redacted, undefined);
+    assert.equal(parsed.scheduled_messages[0].prompt, "Trivia plugin job");
   });
 });

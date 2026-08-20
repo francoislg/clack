@@ -3,9 +3,10 @@ import { tool } from "@anthropic-ai/claude-agent-sdk";
 import type { QueryToolContext } from "../types.js";
 import { textResult, errorResult } from "../helpers.js";
 import { getJob, type CronJob } from "../../cronJobs.js";
-import { canManageRoles } from "../../permissions.js";
 import { humanReadableSchedule } from "../../cronFormatter.js";
 import { slackLink } from "../../slack/logContext.js";
+import { canViewFull, isPrivateTarget } from "../cronJobAccess.js";
+import { buildRedactedJobRow } from "../redactedJobProjection.js";
 
 export function createGetScheduledMessageTool(ctx: QueryToolContext) {
   return tool(
@@ -14,7 +15,9 @@ export function createGetScheduledMessageTool(ctx: QueryToolContext) {
       "Use this after `list_scheduled_messages` when you need the full prompt or details that the " +
       "list view truncates. Returns the same fields as a list row plus `prompt` (full), `name`, " +
       "`timezone`, `createdAt`, `oneShot`, `pluginManaged`, `specKey`, `attachedTopics`, `skipDates`, " +
-      "and the last 5 runs. For the full run history, use `get_scheduled_message_runs`.",
+      "and the last 5 runs. For the full run history, use `get_scheduled_message_runs`. " +
+      "If the job is private and you lack permission to view it, returns an error stating it is not found. " +
+      "If the job is public but not fully visible to you, returns a redacted summary with guidance.",
     {
       id: z.string().describe("The scheduled message ID"),
     },
@@ -24,11 +27,25 @@ export function createGetScheduledMessageTool(ctx: QueryToolContext) {
         return errorResult(`Scheduled message "${args.id}" not found.`);
       }
 
-      const isAdmin = canManageRoles(ctx.role);
-      if (!isAdmin && job.createdBy !== ctx.userId) {
-        return errorResult("You can only view your own scheduled messages.");
+      const viewer = { userId: ctx.userId, role: ctx.role };
+
+      if (isPrivateTarget(job) && !canViewFull(job, viewer)) {
+        return errorResult(`Scheduled message "${args.id}" not found.`);
       }
 
+      if (!canViewFull(job, viewer)) {
+        return textResult({
+          ok: true,
+          ...buildRedactedJobRow(job),
+          guidance: [
+            `This job belongs to <@${job.createdBy}>.`,
+            "Its content is private — ask them or an admin to view or change it.",
+            "If they make it shared (editableByAnyone), anyone can edit/disable/run it.",
+          ].join(" "),
+        });
+      }
+
+      // Full access — return all fields
       return textResult({
         ok: true,
         id: job.id,
@@ -55,6 +72,7 @@ export function createGetScheduledMessageTool(ctx: QueryToolContext) {
         submitResponseMode: job.submitResponseMode ?? null,
         attentionLevel: job.attentionLevel ?? null,
         totalRuns: (job.runs ?? []).length,
+        editableByAnyone: job.editableByAnyone ?? false,
         recentRuns: await formatRecentRuns(job, ctx),
       });
     },

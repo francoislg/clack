@@ -3,8 +3,8 @@ import { tool } from "@anthropic-ai/claude-agent-sdk";
 import type { QueryToolContext } from "../types.js";
 import { textResult, errorResult } from "../helpers.js";
 import { getJob } from "../../cronJobs.js";
-import { canManageRoles } from "../../permissions.js";
 import { slackLink } from "../../slack/logContext.js";
+import { canViewFull, isPrivateTarget } from "../cronJobAccess.js";
 
 export function createGetScheduledMessageRunsTool(ctx: QueryToolContext) {
   return tool(
@@ -23,9 +23,16 @@ export function createGetScheduledMessageRunsTool(ctx: QueryToolContext) {
         return errorResult(`Scheduled message "${args.id}" not found.`);
       }
 
-      const isAdmin = canManageRoles(ctx.role);
-      if (!isAdmin && job.createdBy !== ctx.userId) {
-        return errorResult("You can only view your own scheduled messages.");
+      const viewer = { userId: ctx.userId, role: ctx.role };
+
+      if (isPrivateTarget(job) && !canViewFull(job, viewer)) {
+        return errorResult(`Scheduled message "${args.id}" not found.`);
+      }
+
+      if (!canViewFull(job, viewer)) {
+        return errorResult(
+          `Run history is visible to the job's owner (<@${job.createdBy}>) and admins only.`,
+        );
       }
 
       const skippedIsExpected = job.submitResponseMode === "skipped";

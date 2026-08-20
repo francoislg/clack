@@ -70,6 +70,7 @@ interface CallArgs {
   submitResponseMode?: "always" | "optional" | "skipped";
   jitterMinutes?: number;
   attached_topics?: string[];
+  editable_by_anyone?: boolean;
 }
 
 type CreateTool = ReturnType<typeof createCreateScheduledMessageTool>;
@@ -92,6 +93,7 @@ function callHandler(tool: CreateTool, args: CallArgs) {
       submitResponseMode: undefined,
       attentionLevel: undefined,
       attached_topics: undefined,
+      editable_by_anyone: undefined,
       ...args,
     },
     { sessionId: "test" },
@@ -310,6 +312,7 @@ describe("createScheduledMessage tool", () => {
         submitResponseMode: undefined,
         attentionLevel: undefined,
         attached_topics: undefined,
+        editable_by_anyone: undefined,
       },
       { sessionId: "test" },
     );
@@ -345,6 +348,7 @@ describe("createScheduledMessage tool", () => {
         submitResponseMode: undefined,
         attentionLevel: undefined,
         attached_topics: undefined,
+        editable_by_anyone: undefined,
       },
       { sessionId: "test" },
     );
@@ -520,5 +524,44 @@ describe("createScheduledMessage tool", () => {
     assert.match(text, /Known topics: .*response-rendering/);
     const jobs = await getJobs();
     assert.equal(jobs.length, 0);
+  });
+
+  it("creates a job with editable_by_anyone: true", async () => {
+    const ctx = buildCtx();
+    const deps = makeDeps();
+    const tool = createCreateScheduledMessageTool(ctx, deps);
+    const result = await callHandler(tool, {
+      channel: "C456",
+      prompt: "Summarize PRs",
+      editable_by_anyone: true,
+    });
+
+    const text = toolResultText(result);
+    const parsed = JSON.parse(text);
+    assert.equal(parsed.ok, true);
+    assert.equal(parsed.editableByAnyone, true);
+
+    const jobs = await getJobs();
+    assert.equal(jobs.length, 1);
+    assert.equal(jobs[0].editableByAnyone, true);
+  });
+
+  it("omits editableByAnyone from result when not supplied", async () => {
+    const ctx = buildCtx();
+    const deps = makeDeps();
+    const tool = createCreateScheduledMessageTool(ctx, deps);
+    const result = await callHandler(tool, {
+      channel: "C456",
+      prompt: "Summarize PRs",
+    });
+
+    const text = toolResultText(result);
+    const parsed = JSON.parse(text);
+    assert.equal(parsed.ok, true);
+    assert.equal(parsed.editableByAnyone, undefined);
+
+    const jobs = await getJobs();
+    assert.equal(jobs.length, 1);
+    assert.equal(jobs[0].editableByAnyone, undefined);
   });
 });

@@ -187,6 +187,13 @@ export function createCreateScheduledMessageTool(
             "rich-output quality. Pass [] for a lean run that needs no rendering guidance " +
             "(e.g. one whose deliverable is produced by other tools).",
         ),
+      editable_by_anyone: z
+        .boolean()
+        .optional()
+        .describe(
+          "Mark the schedule as Shared: anyone can edit, disable/re-enable, and run it (deleting it " +
+            "and changing this flag stay with you and admins). Default false.",
+        ),
     },
     async (args) => {
       if (!ctx.slackClient) {
@@ -250,6 +257,7 @@ export function createCreateScheduledMessageTool(
           submitResponseMode: args.submitResponseMode,
           attentionLevel: args.attentionLevel,
           attachedTopics,
+          editableByAnyone: args.editable_by_anyone,
         });
 
         const schedule = humanReadableSchedule(cronExpression, args.timezone);
@@ -266,6 +274,7 @@ export function createCreateScheduledMessageTool(
           oneShot: args.oneShot ?? false,
           ...(args.submitResponseMode ? { submitResponseMode: args.submitResponseMode } : {}),
           ...(attachedTopics.length > 0 ? { attachedTopics } : {}),
+          ...(args.editable_by_anyone ? { editableByAnyone: args.editable_by_anyone } : {}),
         });
       } catch (error) {
         logger.error("Failed to create scheduled message:", error);

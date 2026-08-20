@@ -1,0 +1,16 @@
+# Tasks
+
+- [x] 1. `src/cronJobs.ts` — add `editableByAnyone?: boolean` to `CronJob`, `cronJobZod` (`.optional()`), create/update param types, and only-when-true serialization; unit tests for round-trip and absence-means-false.
+- [x] 2. New `src/tools/cronJobAccess.ts` — `canViewFull` / `canEdit` / `canDelete` / `isPrivateTarget` predicates per design D1; unit tests covering role × ownership × flag × DM-target combinations.
+- [x] 3. `src/tools/query/listScheduledMessages.ts` — always-all scope minus private targets (`isPrivateTarget` rows only where `canViewFull`), `formatJob(job, { full })` projection with `redacted: true` rows, remove `includeOtherUsers`, updated tool description (redaction rule + owner/admin guidance); tests for redacted vs full rows, DM privacy, and channel disambiguation across owners.
+- [x] 4. `src/tools/query/getScheduledMessage.ts` — non-viewable channel jobs return the redacted summary + owner guidance; private-target jobs stay a not-found/permission error for non-owners; tests.
+- [x] 5. `src/tools/query/getScheduledMessageRuns.ts` — gate on `canViewFull`; tests for shared-job access.
+- [x] 6. `src/tools/actions/createScheduledMessage.ts` — accept `editableByAnyone`; tests. (No plugin-managed rejection needed here — this tool can only create user jobs; the flag rejection for plugin-managed jobs lives entirely in task 7's update path.)
+- [x] 7. `src/tools/actions/updateScheduledMessage.ts` — gate on `canEdit`; add `enabled` field; accept `editableByAnyone` with owner/admin-only toggle enforcement and plugin-managed rejection; description steers "turn off" → `enabled: false`; tests.
+- [x] 8. `src/tools/actions/cancelScheduledMessage.ts` — gate on `canDelete` (shared flag does NOT open delete; rejection names the owner and suggests disable); result echoes `name`/`channel`/schedule/`createdBy`; description gains confirm-by-name + delete-only-on-explicit-wording instructions; tests.
+- [x] 9. `src/tools/actions/runScheduledMessageNow.ts` — gate on `canEdit`; tests for shared-job run.
+- [x] 10. Home Tab scheduled-messages section (`src/slack/homeTab.ts`) — switch to `getJobs()` + `cronJobAccess` partition; three viewer-relative subsections — Shared, Yours, and a third labeled "Non-Accessible" for non-admins / "Other users'" for admins — with per-group headers and role-aware labels, redacted no-Edit rows for non-admins in the third, others' private-target jobs excluded, plugin subsection untouched; shared-flag toggle button with server-side permission enforcement in the action handler; tests.
+- [x] 11. Skills Home Tab (`src/slack/userSkillsHomeTab.ts`) — same three-subsection grouping; badge text becomes "(shared)"; modal checkbox regrouped under a "Shared" label; tests.
+- [x] 12. i18n (`src/i18n/strings/en.ts` + `fr.ts`) — new group-header keys (Shared / Yours / Non-Accessible / Other users'), renamed skills badge + modal keys, schedules toggle labels; parity test stays green.
+- [x] 13. Scheduling instruction topic (`data/default_configuration/user/topics/scheduling/`) — document universal visibility, redaction, DM privacy, the shared flag, and disable-vs-delete steering so Claude offers them correctly.
+- [x] 14. Verification — `npx tsc --noEmit`, `npx oxlint`, `npm run test`.
