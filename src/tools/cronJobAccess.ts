@@ -53,9 +53,12 @@ export function canDelete(job: CronJob, viewer: Viewer): boolean {
 /**
  * True when the viewer may set or clear the job's editableByAnyone flag.
  * Restricted to admins and the creator — a shared job's other editors cannot
- * change its sharing policy.
+ * change its sharing policy. Private-target jobs (DM-delivered or channelless
+ * user-created) are never sharable; sharing such a surface is meaningless and
+ * would expose a private delivery path to unintended audiences.
  */
 export function canToggleShared(job: CronJob, viewer: Viewer): boolean {
+  if (isPrivateTarget(job)) return false;
   if (canManageRoles(viewer.role)) return true;
   if (job.createdBy === viewer.userId) return true;
   return false;

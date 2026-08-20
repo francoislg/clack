@@ -82,11 +82,11 @@ describe("buildUserSkillsSection", () => {
     assert.ok(/disabled/.test(json));
   });
 
-  it("everyone-editable skill shows the shared badge in its row", () => {
+  it("everyone-editable skill row omits owner mention", () => {
     const open = { ...skillByAlice, editableByAnyone: true };
     const blocks = buildUserSkillsSection("U_ALICE", "member", [open]);
     const json = stringify(blocks);
-    assert.ok(/\(shared\)/i.test(json));
+    assert.ok(!/— <@U_ALICE>/.test(json), "owner mention should not appear in shared skill row");
   });
 
   it("non-owner member sees Edit on an everyone-editable skill", () => {

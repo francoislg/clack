@@ -172,11 +172,18 @@ export function createUpdateScheduledMessageTool(
         );
       }
 
-      if (args.editable_by_anyone !== undefined && !canToggleShared(job, viewer)) {
-        const creatorTag = job.createdBy ? `<@${job.createdBy}>` : "the system";
-        return errorResult(
-          `Only the creator (${creatorTag}) or an admin can change the shared setting.`,
-        );
+      if (args.editable_by_anyone !== undefined) {
+        if (isPrivateTarget(job)) {
+          return errorResult(
+            "This schedule targets a DM or personal surface and cannot be shared.",
+          );
+        }
+        if (!canToggleShared(job, viewer)) {
+          const creatorTag = job.createdBy ? `<@${job.createdBy}>` : "the system";
+          return errorResult(
+            `Only the creator (${creatorTag}) or an admin can change the shared setting.`,
+          );
+        }
       }
 
       if (job.pluginManaged) {

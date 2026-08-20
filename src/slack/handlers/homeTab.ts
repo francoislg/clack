@@ -13,7 +13,7 @@ import {
 } from "../../roles.js";
 import { clearQuarantinedWorker } from "../../workers/index.js";
 import { userCanManageRoles, userCanEditConfig } from "../../permissions.js";
-import { canToggleShared, canViewFull, isPrivateTarget } from "../../tools/cronJobAccess.js";
+import { canToggleShared } from "../../tools/cronJobAccess.js";
 import {
   buildHomeView,
   buildUserSelectModal,
@@ -1154,7 +1154,14 @@ export function registerHomeTabHandler(app: App, deps: HomeTabDeps = defaultHome
       const job = await deps.getJob(jobId);
       if (!job) return;
       const viewerTz = (await getUserInfo(client, body.user.id))?.tz;
-      await openOrPushModal(client, body, body.trigger_id, deps.buildCronJobModal(job, viewerTz));
+      const role = await deps.getRole(body.user.id);
+      const canShare = canToggleShared(job, { userId: body.user.id, role });
+      await openOrPushModal(
+        client,
+        body,
+        body.trigger_id,
+        deps.buildCronJobModal(job, viewerTz, canShare),
+      );
     } catch (error) {
       logger.error("Failed to open edit cron job modal:", error);
     }
@@ -1170,63 +1177,17 @@ export function registerHomeTabHandler(app: App, deps: HomeTabDeps = defaultHome
         const viewId = viewIdFromBody(body);
         if (viewId) {
           const viewerTz = (await getUserInfo(client, body.user.id))?.tz;
+          const role = await deps.getRole(body.user.id);
+          const canShare = canToggleShared(updated, { userId: body.user.id, role });
           await client.views.update({
             view_id: viewId,
-            view: deps.buildCronJobModal(updated, viewerTz),
+            view: deps.buildCronJobModal(updated, viewerTz, canShare),
           });
         }
       }
       await publishHomeView(client, body.user.id, deps);
     } catch (error) {
       logger.error("Failed to toggle cron job:", error);
-    }
-  });
-
-  // Toggle shared button in scheduled messages section
-  app.action<BlockAction>(/^cron_toggle_shared:/, async ({ ack, body, client, action }) => {
-    await ack();
-    try {
-      const jobId = (action as { action_id: string }).action_id.split(":")[1];
-      const job = await deps.getJob(jobId);
-      if (!job) return;
-
-      const userId = body.user.id;
-      const role = await deps.getRole(userId);
-      const viewer = { userId, role };
-
-      if (isPrivateTarget(job) && !canViewFull(job, viewer)) {
-        return;
-      }
-
-      if (!canToggleShared(job, viewer)) {
-        await client.views.open({
-          trigger_id: body.trigger_id,
-          view: {
-            type: "modal",
-            title: { type: "plain_text", text: t("home.scheduled.shared_toggle_error_title") },
-            close: { type: "plain_text", text: t("common.close") },
-            blocks: [
-              {
-                type: "section",
-                text: {
-                  type: "mrkdwn",
-                  text: t("home.scheduled.shared_toggle_error"),
-                },
-              },
-            ],
-          },
-        });
-        return;
-      }
-
-      const updated = await deps.updateJob(jobId, {
-        editableByAnyone: !job.editableByAnyone,
-      });
-      if (updated) {
-        await publishHomeView(client, userId, deps);
-      }
-    } catch (error) {
-      logger.error("Failed to toggle cron job shared status:", error);
     }
   });
 
@@ -1319,6 +1280,8 @@ export function registerHomeTabHandler(app: App, deps: HomeTabDeps = defaultHome
     const skipConditions =
       view.state.values.cron_skip_conditions_block?.skip_conditions.value ?? "";
     const jitterRaw = view.state.values.cron_jitter_block?.cron_jitter.value?.trim() ?? "";
+    const sharedChecked =
+      (view.state.values.cron_shared_block?.cron_shared?.selected_options?.length ?? 0) > 0;
 
     if (name.length === 0) {
       await ack({
@@ -1371,21 +1334,42 @@ export function registerHomeTabHandler(app: App, deps: HomeTabDeps = defaultHome
 
     await ack();
     try {
-      await deps.updateJob(jobId, {
+      const job = await deps.getJob(jobId);
+      if (!job) return;
+
+      const role = await deps.getRole(body.user.id);
+      const viewer = { userId: body.user.id, role };
+      const canShare = canToggleShared(job, viewer);
+
+      const updates: {
+        name: string;
+        channel: string;
+        cronExpression: string;
+        prompt: string;
+        skipConditions: string;
+        jitterMinutes: number | null;
+        editableByAnyone?: boolean;
+      } = {
         name,
         channel,
         cronExpression,
         prompt,
-        // Empty string clears; a non-empty string sets.
         skipConditions,
         jitterMinutes,
-      });
+      };
+
+      if (canShare && sharedChecked !== (job.editableByAnyone ?? false)) {
+        updates.editableByAnyone = sharedChecked;
+      }
+
+      await deps.updateJob(jobId, updates);
       await publishHomeView(client, body.user.id, deps);
     } catch (error) {
       logger.error("Failed to update cron job:", error);
     }
   });
 
+  // Add cron job modal submission
   // "Discard & restore" button on quarantined worker rows. Admin-gated:
   // discards uncommitted work via `git reset --hard HEAD` + `git clean -fd`,
   // then flips the worker back to idle.

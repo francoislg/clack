@@ -335,11 +335,10 @@ export const fr: Partial<Record<StringKey, string>> = {
   "home.scheduled.yours_header": "Vos programmations",
   "home.scheduled.non_accessible_header": "Non accessibles",
   "home.scheduled.other_users_header": "Programmations d'autres utilisateurs",
-  "home.scheduled.share_button": "Partager",
-  "home.scheduled.unshare_button": "Retirer le partage",
-  "home.scheduled.shared_toggle_error":
-    "Vous pouvez gérer le partage uniquement pour vos programmations.",
-  "home.scheduled.shared_toggle_error_title": "Non autorisé",
+  "home.scheduled.modal_share_option": "Partager avec tout le monde",
+  "home.scheduled.modal_share_label": "Partage",
+  "home.scheduled.modal_share_hint":
+    "Chacun peut éditer, désactiver et lancer une programmation partagée. La suppression et la modification de ce paramètre restent vôtres et aux admins.",
   "home.scheduled.unnamed": "(sans nom)",
 
   // ─── Action buttons ────────────────────────────────────────────────
@@ -521,7 +520,6 @@ export const fr: Partial<Record<StringKey, string>> = {
   "userSkills.delete_confirm_text":
     "Supprimer définitivement `{slug}` ? Ses fichiers seront effacés et l'action est irréversible.",
   "userSkills.disabled_badge": "(désactivée)",
-  "userSkills.editable_badge": "(partagée)",
   "userSkills.shared_header": "Partagées",
   "userSkills.yours_header": "Vos compétences",
   "userSkills.non_accessible_header": "Non accessibles",
@@ -529,6 +527,7 @@ export const fr: Partial<Record<StringKey, string>> = {
   "userSkills.owner_label": "Propriétaire",
   "userSkills.modal_create_title": "Créer une compétence",
   "userSkills.modal_edit_title": "Modifier la compétence",
+  "userSkills.modal_created_by": "Créée par {mention}",
   "userSkills.modal_name_label": "Nom",
   "userSkills.modal_name_placeholder": "minuscules-avec-tirets",
   "userSkills.modal_name_hint":

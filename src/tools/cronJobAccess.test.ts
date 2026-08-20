@@ -145,33 +145,33 @@ describe("cronJobAccess", () => {
   });
 
   describe("canToggleShared", () => {
-    it("admin can toggle shared on any job", () => {
+    it("admin can toggle shared on any channel-targeted job", () => {
       const admin = { userId: "U999", role: "admin" as UserRole };
-      const job = makeJob({ createdBy: "U001" });
+      const job = makeJob({ createdBy: "U001", channel: "C123456789" });
       assert.equal(canToggleShared(job, admin), true);
     });
 
-    it("owner can toggle shared on any job", () => {
+    it("owner can toggle shared on any channel-targeted job", () => {
       const owner = { userId: "U999", role: "owner" as UserRole };
-      const job = makeJob({ createdBy: "U001" });
+      const job = makeJob({ createdBy: "U001", channel: "C123456789" });
       assert.equal(canToggleShared(job, owner), true);
     });
 
-    it("creator can toggle shared on their own job", () => {
+    it("creator can toggle shared on their own channel-targeted job", () => {
       const creator = { userId: "U001", role: "member" as UserRole };
-      const job = makeJob({ createdBy: "U001" });
+      const job = makeJob({ createdBy: "U001", channel: "C123456789" });
       assert.equal(canToggleShared(job, creator), true);
     });
 
-    it("non-creator cannot toggle shared", () => {
+    it("non-creator cannot toggle shared on channel-targeted job", () => {
       const viewer = { userId: "U002", role: "dev" as UserRole };
-      const job = makeJob({ createdBy: "U001" });
+      const job = makeJob({ createdBy: "U001", channel: "C123456789" });
       assert.equal(canToggleShared(job, viewer), false);
     });
 
-    it("non-creator cannot toggle shared even on editableByAnyone job", () => {
+    it("non-creator cannot toggle shared even on editableByAnyone channel-targeted job", () => {
       const viewer = { userId: "U002", role: "dev" as UserRole };
-      const job = makeJob({ createdBy: "U001", editableByAnyone: true });
+      const job = makeJob({ createdBy: "U001", channel: "C123456789", editableByAnyone: true });
       assert.equal(canToggleShared(job, viewer), false);
     });
 
@@ -179,6 +179,24 @@ describe("cronJobAccess", () => {
       const viewer = { userId: "U002", role: "dev" as UserRole };
       const job = makeJob({ createdBy: "U001", channel: "D123456789" });
       assert.equal(canToggleShared(job, viewer), false);
+    });
+
+    it("owner cannot toggle shared on their own DM-targeted job", () => {
+      const creator = { userId: "U001", role: "member" as UserRole };
+      const job = makeJob({ createdBy: "U001", channel: "D123456789" });
+      assert.equal(canToggleShared(job, creator), false);
+    });
+
+    it("admin cannot toggle shared on DM-targeted job", () => {
+      const admin = { userId: "U999", role: "admin" as UserRole };
+      const job = makeJob({ createdBy: "U001", channel: "D123456789" });
+      assert.equal(canToggleShared(job, admin), false);
+    });
+
+    it("creator cannot toggle shared on channelless non-plugin job", () => {
+      const creator = { userId: "U001", role: "member" as UserRole };
+      const job = makeJob({ createdBy: "U001", channel: undefined, pluginManaged: undefined });
+      assert.equal(canToggleShared(job, creator), false);
     });
   });
 

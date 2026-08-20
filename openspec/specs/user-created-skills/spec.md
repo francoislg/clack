@@ -298,21 +298,20 @@ A user skill SHALL support an optional `editableByAnyone: boolean` attribute, pe
 - **WHEN** the skill is disabled and later restored
 - **THEN** `editableByAnyone` remains `true` in `.meta.json` throughout
 
-### Requirement: Home Tab Shared Badge
+### Requirement: Shared Skills Presentation
 
-When `userSkills.enabled === true`, the Home Tab Skills section SHALL render a **"(shared)"** badge on the row of any skill whose `editableByAnyone` is `true`, mirroring the existing disabled-badge pattern. The user-facing term for the capability is "Shared" — "editable by everyone" no longer appears as a label (the edit modal's checkbox keeps an explanatory sentence under a "Shared" label). The badge text SHALL be sourced through `t()` with parity-tested en + fr strings.
+Shared status is conveyed by the Home Tab grouping alone — skill rows carry NO badge for `editableByAnyone`, and rows in the Shared group omit the owner mention. The skill EDIT modal names the original creator ("Created by <@owner>") and keeps the "Shared" checkbox (owner/admin-gated) as the flag's control surface.
 
-#### Scenario: Badge shown for shared skill
+#### Scenario: No badge or owner on shared rows
 
-- **GIVEN** `copy-improver` has `editableByAnyone: true`
+- **GIVEN** a skill with `editableByAnyone: true`
 - **WHEN** the Home Tab Skills section renders
-- **THEN** the `copy-improver` row displays the "(shared)" badge
+- **THEN** the row appears under the "Shared" header with no shared badge and no owner mention
 
-#### Scenario: No badge for default skill
+#### Scenario: Edit modal names the creator
 
-- **GIVEN** `meeting-notes` has no `editableByAnyone` (or `false`)
-- **WHEN** the Home Tab Skills section renders
-- **THEN** the `meeting-notes` row displays no badge
+- **WHEN** the edit modal opens for any skill
+- **THEN** it shows "Created by" with the owner's mention
 
 ### Requirement: Grouped Home Tab Skills Sections
 

@@ -325,10 +325,10 @@ export const en = {
   "home.scheduled.yours_header": "Yours",
   "home.scheduled.non_accessible_header": "Non-Accessible",
   "home.scheduled.other_users_header": "Other users' schedules",
-  "home.scheduled.share_button": "Share",
-  "home.scheduled.unshare_button": "Unshare",
-  "home.scheduled.shared_toggle_error": "You can only manage sharing for your own schedules.",
-  "home.scheduled.shared_toggle_error_title": "Not authorized",
+  "home.scheduled.modal_share_option": "Share with everyone",
+  "home.scheduled.modal_share_label": "Sharing",
+  "home.scheduled.modal_share_hint":
+    "Anyone can edit, disable, and run a shared schedule. Deleting it — and changing this setting — stays with you and admins.",
   "home.scheduled.unnamed": "(unnamed)",
 
   // ─── Action buttons (default labels for submit_response actions) ───
@@ -505,7 +505,6 @@ export const en = {
   "userSkills.delete_confirm_text":
     "Permanently remove `{slug}`? This erases its files and cannot be undone.",
   "userSkills.disabled_badge": "(disabled)",
-  "userSkills.editable_badge": "(shared)",
   "userSkills.shared_header": "Shared",
   "userSkills.yours_header": "Yours",
   "userSkills.non_accessible_header": "Non-Accessible",
@@ -513,6 +512,7 @@ export const en = {
   "userSkills.owner_label": "Owner",
   "userSkills.modal_create_title": "Create skill",
   "userSkills.modal_edit_title": "Edit skill",
+  "userSkills.modal_created_by": "Created by {mention}",
   "userSkills.modal_name_label": "Name",
   "userSkills.modal_name_placeholder": "lowercase-with-hyphens",
   "userSkills.modal_name_hint":

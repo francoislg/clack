@@ -12,6 +12,7 @@ import {
 import type { AutoRespondRule } from "../../autoRespond.js";
 import type { CronJob } from "../../cronJobs.js";
 import type { UserRole } from "../../roles.js";
+import type { JobOutcome } from "../../cronScheduler.js";
 import type { JsonObject } from "../../config.js";
 import type { RegisteredPreferences } from "../../plugins-sdk/sdk.js";
 
@@ -90,14 +91,16 @@ const mockGetEffectiveContentLength = vi.fn<(filepath: string) => number>();
 const mockSetUserPreference = vi.fn<
   (userId: string, key: string, value: string | boolean | number) => Promise<void>
 >(async () => {});
-const mockToggleJob = vi.fn<(jobId: string) => Promise<null>>(async () => null);
-const mockDeleteJob = vi.fn<(jobId: string) => Promise<void>>(async () => {});
+const mockToggleJob = vi.fn<(jobId: string) => Promise<CronJob | null>>(async () => null);
+const mockDeleteJob = vi.fn<(jobId: string) => Promise<boolean>>(async () => true);
 const mockGetJob = vi.fn<(jobId: string) => Promise<CronJob | null>>(async () => null);
 const mockUpdateJob = vi.fn<(jobId: string, params: Partial<CronJob>) => Promise<CronJob | null>>(
   async () => null,
 );
 const mockGetRole = vi.fn<(userId: string) => Promise<UserRole>>(async () => "member" as UserRole);
-const mockRunJobNow = vi.fn<(jobId: string, tz: string) => Promise<void>>(async () => {});
+const mockRunJobNow = vi.fn<(job: CronJob, client: App["client"]) => Promise<JobOutcome>>(
+  async () => ({ skipped: false }),
+);
 const mockStoreRetry = vi.fn<(key: string) => Promise<{ ok: boolean; error?: string }>>(
   async () => ({
     ok: true,
@@ -145,9 +148,9 @@ function makeDeps(): HomeTabDeps {
     writeInstructionFile: mockWriteInstructionFile,
     deleteInstructionFile: mockDeleteInstructionFile,
     getEffectiveContentLength: mockGetEffectiveContentLength,
-    setUserPreference: mockSetUserPreference as Function as HomeTabDeps["setUserPreference"],
-    toggleJob: mockToggleJob as Function as HomeTabDeps["toggleJob"],
-    deleteJob: mockDeleteJob as Function as HomeTabDeps["deleteJob"],
+    setUserPreference: mockSetUserPreference as HomeTabDeps["setUserPreference"],
+    toggleJob: mockToggleJob as HomeTabDeps["toggleJob"],
+    deleteJob: mockDeleteJob as HomeTabDeps["deleteJob"],
     getJob: mockGetJob,
     getRole: mockGetRole,
     mergePluginPreferenceSlice: mockMergePluginPreferenceSlice,
@@ -155,8 +158,8 @@ function makeDeps(): HomeTabDeps {
     clearQuarantinedWorker: async () => ({ ok: false, reason: "stubbed in tests" }),
     getInvestigationsChannel: mockGetInvestigationsChannel,
     listOpenInvestigations: mockListOpenInvestigations,
-    updateJob: mockUpdateJob as Function as HomeTabDeps["updateJob"],
-    runJobNow: mockRunJobNow as Function as HomeTabDeps["runJobNow"],
+    updateJob: mockUpdateJob as HomeTabDeps["updateJob"],
+    runJobNow: mockRunJobNow as HomeTabDeps["runJobNow"],
   };
 }
 
@@ -1854,100 +1857,6 @@ describe("openOrPushModal (via transfer_ownership)", () => {
     });
     assert.equal(client.views.push.mock.calls.length, 1);
     assert.equal(client.views.open.mock.calls.length, 0);
-  });
-});
-
-describe("cron_toggle_shared action", () => {
-  it("creator can toggle shared on their own job", async () => {
-    mockGetJob.mockResolvedValue({
-      id: "job1",
-      createdBy: "U001",
-      editableByAnyone: false,
-      cronExpression: "0 9 * * *",
-      prompt: "test",
-      createdAt: new Date().toISOString(),
-      enabled: true,
-      timezone: "UTC",
-    });
-    mockUpdateJob.mockResolvedValue({
-      id: "job1",
-      editableByAnyone: true,
-      cronExpression: "0 9 * * *",
-      prompt: "test",
-      createdAt: new Date().toISOString(),
-      createdBy: "U001",
-      enabled: true,
-      timezone: "UTC",
-    });
-    const client = makeClient();
-    const handler = getActionHandler("cron_toggle_shared:job1")!;
-    await handler({
-      ack: async () => {},
-      body: { user: { id: "U001" }, trigger_id: "t1" },
-      client,
-      action: { action_id: "cron_toggle_shared:job1" },
-    });
-    assert.equal(mockUpdateJob.mock.calls.length, 1, "should call updateJob");
-    assert.equal(mockUpdateJob.mock.calls[0]![1].editableByAnyone, true, "should toggle to true");
-    assert.equal(client.views.publish.mock.calls.length, 1, "should republish home view");
-  });
-
-  it("admin can toggle shared on another user's job", async () => {
-    mockGetJob.mockResolvedValue({
-      id: "job1",
-      createdBy: "U001",
-      editableByAnyone: true,
-      cronExpression: "0 9 * * *",
-      prompt: "test",
-      createdAt: new Date().toISOString(),
-      enabled: true,
-      timezone: "UTC",
-    });
-    mockGetRole.mockImplementation(async () => "admin" as UserRole);
-    mockUpdateJob.mockResolvedValue({
-      id: "job1",
-      editableByAnyone: false,
-      cronExpression: "0 9 * * *",
-      prompt: "test",
-      createdAt: new Date().toISOString(),
-      createdBy: "U001",
-      enabled: true,
-      timezone: "UTC",
-    });
-    const client = makeClient();
-    const handler = getActionHandler("cron_toggle_shared:job1")!;
-    await handler({
-      ack: async () => {},
-      body: { user: { id: "U002" }, trigger_id: "t1" },
-      client,
-      action: { action_id: "cron_toggle_shared:job1" },
-    });
-    assert.equal(mockUpdateJob.mock.calls.length, 1);
-    assert.equal(mockUpdateJob.mock.calls[0]![1].editableByAnyone, false, "should toggle to false");
-  });
-
-  it("silently returns when stranger clicks on private job (DM channel)", async () => {
-    mockGetJob.mockResolvedValue({
-      id: "job1",
-      createdBy: "U001",
-      channel: "D123456789",
-      editableByAnyone: false,
-      cronExpression: "0 9 * * *",
-      prompt: "test",
-      createdAt: new Date().toISOString(),
-      enabled: true,
-      timezone: "UTC",
-    });
-    const client = makeClient();
-    const handler = getActionHandler("cron_toggle_shared:job1")!;
-    await handler({
-      ack: async () => {},
-      body: { user: { id: "U002" }, trigger_id: "t1" },
-      client,
-      action: { action_id: "cron_toggle_shared:job1" },
-    });
-    assert.equal(mockUpdateJob.mock.calls.length, 0, "should not call updateJob");
-    assert.equal(client.views.open.mock.calls.length, 0, "should not open modal (silent return)");
   });
 });
 

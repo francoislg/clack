@@ -146,8 +146,8 @@ function renderSkillRow(
   viewerRole: UserRole,
 ): KnownBlock[] {
   const disabledBadge = skill.disabledAt ? ` ${t("userSkills.disabled_badge")}` : "";
-  const editableBadge = skill.editableByAnyone ? ` ${t("userSkills.editable_badge")}` : "";
-  const text = `*${skill.slug}*${disabledBadge}${editableBadge} — <@${skill.ownerUserId}>`;
+  const ownerMention = skill.editableByAnyone ? "" : ` — <@${skill.ownerUserId}>`;
+  const text = `*${skill.slug}*${disabledBadge}${ownerMention}`;
 
   const section: KnownBlock = {
     type: "section",
@@ -233,6 +233,15 @@ export function buildEditSkillModal(
   };
 
   const blocks: KnownBlock[] = [
+    {
+      type: "context",
+      elements: [
+        {
+          type: "mrkdwn",
+          text: t("userSkills.modal_created_by", { mention: `<@${skill.ownerUserId}>` }),
+        },
+      ],
+    },
     {
       type: "section",
       text: { type: "mrkdwn", text: `*${t("userSkills.modal_name_label")}:* \`${skill.slug}\`` },

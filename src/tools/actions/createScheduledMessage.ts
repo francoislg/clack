@@ -241,6 +241,10 @@ export function createCreateScheduledMessageTool(
       if (!resolved.ok) return errorResult(resolved.error);
       const channelId = resolved.channelId;
 
+      if (args.editable_by_anyone && channelId.startsWith("D")) {
+        return errorResult("DM-targeted schedules cannot be shared.");
+      }
+
       try {
         const job = await deps.createJob({
           name: args.name,

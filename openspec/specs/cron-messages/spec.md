@@ -950,7 +950,7 @@ Any quarantine of a job, or any persistence freeze, SHALL notify the workspace o
 
 ### Requirement: Editable-By-Anyone Shared Jobs
 
-A cron job with `editableByAnyone: true` SHALL be fully visible to every caller (`list_scheduled_messages` full rows, `get_scheduled_message`, `get_scheduled_message_runs`) and editable by every caller (`update_scheduled_message` — content fields AND `enabled` — and `run_scheduled_message_now`). Deletion (`cancel_scheduled_message`) SHALL remain restricted to the job's owner and admins regardless of the flag — the recoverable off-switch for shared jobs is disabling. The flag itself SHALL be settable at creation and toggleable ONLY by the job's owner or an admin. Plugin-managed jobs SHALL reject the flag.
+A cron job with `editableByAnyone: true` SHALL be fully visible to every caller (`list_scheduled_messages` full rows, `get_scheduled_message`, `get_scheduled_message_runs`) and editable by every caller (`update_scheduled_message` — content fields AND `enabled` — and `run_scheduled_message_now`). Deletion (`cancel_scheduled_message`) SHALL remain restricted to the job's owner and admins regardless of the flag — the recoverable off-switch for shared jobs is disabling. The flag itself SHALL be settable at creation and toggleable ONLY by the job's owner or an admin. Plugin-managed jobs SHALL reject the flag. Private-target jobs (DM-targeted or channelless user-created) SHALL never carry the flag — the toggle is refused for every caller, admins included, because sharing such a surface is meaningless and would expose a private delivery path.
 
 #### Scenario: Create a shared job
 
@@ -984,11 +984,16 @@ A cron job with `editableByAnyone: true` SHALL be fully visible to every caller 
 - **WHEN** any user calls `get_scheduled_message_runs` on an `editableByAnyone` job
 - **THEN** the run history is returned
 
-#### Scenario: Home Tab shared-flag toggle
+#### Scenario: Sharing is controlled from the schedule's edit modal
 
-- **WHEN** the Home Tab renders a scheduled-message row the viewer owns (or the viewer is an admin)
-- **THEN** the row offers a toggle button that flips `editableByAnyone`
-- **AND** the action handler enforces the owner/admin check server-side (not just by button visibility)
+- **WHEN** the job's owner (or an admin) opens the schedule's Edit modal
+- **THEN** a "Share with everyone" checkbox reflects and updates `editableByAnyone` on save
+- **AND** the checkbox is absent for viewers who cannot toggle the flag, and a stale submission from such a viewer never changes it (enforced server-side)
+
+#### Scenario: DM-targeted jobs are never sharable
+
+- **WHEN** any caller — including an admin — attempts to set `editableByAnyone` on a DM-targeted or channelless personal job (tool arg or edit modal)
+- **THEN** the change is refused (tool: explicit error; modal: the checkbox is not rendered and stale submissions are ignored)
 
 ### Requirement: Grouped Home Tab Scheduled-Messages Sections
 

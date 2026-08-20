@@ -1979,7 +1979,6 @@ export async function buildScheduledMessagesSection(
       });
       for (const job of shared) {
         blocks.push(...renderJobRow(job, userId, isAdmin, viewerTz, deps));
-        blocks.push(renderShareToggleButton(job));
       }
     }
 
@@ -1990,7 +1989,6 @@ export async function buildScheduledMessagesSection(
       });
       for (const job of yours) {
         blocks.push(...renderJobRow(job, userId, isAdmin, viewerTz, deps));
-        blocks.push(renderShareToggleButton(job));
       }
     }
 
@@ -2146,25 +2144,6 @@ function renderJobRowRestricted(
       ],
     },
   ];
-}
-
-function renderShareToggleButton(job: CronJob): KnownBlock {
-  const isShared = job.editableByAnyone === true;
-  const buttonText = isShared
-    ? t("home.scheduled.unshare_button")
-    : t("home.scheduled.share_button");
-
-  return {
-    type: "actions",
-    block_id: `cron_share_actions:${job.id}`,
-    elements: [
-      {
-        type: "button",
-        text: { type: "plain_text", text: buttonText, emoji: true },
-        action_id: `cron_toggle_shared:${job.id}`,
-      },
-    ],
-  };
 }
 
 // ── List-modal wrappers ─────────────────────────────────────────────────────
@@ -2592,7 +2571,11 @@ function buildPluginCronJobModal(job: CronJob, viewerTimezone?: string): View {
   };
 }
 
-export function buildCronJobModal(job?: CronJob, viewerTimezone?: string): View {
+export function buildCronJobModal(
+  job?: CronJob,
+  viewerTimezone?: string,
+  canShare: boolean = false,
+): View {
   const isEdit = !!job;
   if (isEdit && job?.pluginManaged) {
     return buildPluginCronJobModal(job, viewerTimezone);
@@ -2693,16 +2676,37 @@ export function buildCronJobModal(job?: CronJob, viewerTimezone?: string): View 
         text: t("home.scheduled.skip_hint"),
       },
     },
-    {
-      type: "context",
-      elements: [
-        {
-          type: "mrkdwn",
-          text: t("home.scheduled.context_hint"),
-        },
-      ],
-    },
   ];
+
+  if (canShare) {
+    const shareOption = {
+      text: { type: "plain_text" as const, text: t("home.scheduled.modal_share_option") },
+      value: "share",
+    };
+    blocks.push({
+      type: "input",
+      block_id: "cron_shared_block",
+      optional: true,
+      label: { type: "plain_text", text: t("home.scheduled.modal_share_label") },
+      element: {
+        type: "checkboxes",
+        action_id: "cron_shared",
+        options: [shareOption],
+        ...(job?.editableByAnyone ? { initial_options: [shareOption] } : {}),
+      },
+      hint: { type: "plain_text", text: t("home.scheduled.modal_share_hint") },
+    });
+  }
+
+  blocks.push({
+    type: "context",
+    elements: [
+      {
+        type: "mrkdwn",
+        text: t("home.scheduled.context_hint"),
+      },
+    ],
+  });
 
   if (isEdit && job) {
     blocks.push({ type: "divider" });
