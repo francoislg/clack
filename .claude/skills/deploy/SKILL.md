@@ -3,8 +3,9 @@ name: deploy
 description: >
   Roll out the latest local code to the Clack GCE VM. Runs scripts/gce-update-image.sh
   in the background, surfaces each phase (build → push → prune → pull → drain → swap →
-  ready) via a Monitor, reports the downtime, and finally checks whether local
-  tool mappings have diverged from the VM — if so, prompts to push them too.
+  ready) via a Monitor, and reports the downtime. ALWAYS starts with a mandatory
+  local-vs-VM config drift check — every difference is flagged to the user before
+  anything is deployed.
   Trigger when the user says "deploy", "deploy again", "deploy now", "ship it",
   "redeploy", or any near variant.
 ---
@@ -13,6 +14,35 @@ description: >
 
 Orchestrates the standard image-update deploy for the Clack VM. Replaces the
 manual sequence of "kick off bash, arm monitor, ack each phase, extract downtime."
+
+## Step 0 — MANDATORY config drift check (before anything else)
+
+The VM's `config.json` / `configuration/**` are the authoritative copies (the
+Home Tab and MCP admin tools write them live); the local tree can be stale in
+either direction. Before ANY operation that deploys or overwrites files on the
+VM — this image deploy, `gce-push-config.sh`, or a surgical scp push — run the
+read-only drift check and flag every difference:
+
+```
+Bash(command: "bash scripts/gce-config-diff.sh", timeout: 300000)
+```
+
+- **Fully in sync** → say so in one line and proceed to Step 1.
+- **Anything else** → report the full list (DIFFERS with direction, LOCAL ONLY,
+  VM ONLY) to the user BEFORE continuing, and wait for their call on any entry
+  marked "VM newer → pull / merge before pushing" or VM ONLY — those are VM-side
+  changes the local tree lacks, and overwriting them loses live state. LOCAL
+  ONLY / "local newer" entries can be summarized and proceeded with.
+- Never skip this step, even for a "quick redeploy" — this is the contract that
+  no deploy silently clobbers GCP-side changes.
+
+Scope note: the check covers the `data/.deploy-include` manifest (config.json,
+mcp.json, default_configuration/**, listed per-repo instruction files, plugins,
+skill packs). `data/worker-settings.json` is NOT in the manifest but IS pushed
+local→VM by every image deploy when it exists locally — if it might have
+diverged, diff it explicitly before deploying. `data/state/**` (cron jobs,
+roles, prefs) is never part of any deploy in either direction; nothing in this
+flow may touch it.
 
 ## Step 1 — kick off the deploy in the background
 
@@ -74,37 +104,21 @@ Bash(command: "grep -E 'downtime|Bot is ready' <OUTPUT_FILE> | tail -1")
 
 Report it as `**Downtime: 28s.**` (the actual seconds).
 
-## Step 5 — check tool mappings divergence
+## Step 5 — resolve drift flagged in Step 0
 
-After downtime is reported, compare every local
-`data/default_configuration/tool_mapping/*.json` against the VM:
+Config drift (tool mappings included) was already surfaced by the Step 0
+`gce-config-diff.sh` run. If Step 0 flagged "local newer" files the user wants
+pushed, push them now:
 
-```bash
-DIVERGED=()
-for f in data/default_configuration/tool_mapping/*.json; do
-    name=$(basename "$f")
-    local_md5=$(md5 -q "$f")
-    remote_md5=$(gcloud compute ssh clack --zone=<zone> --quiet \
-        --command="sudo md5sum /mnt/disks/clack-data/data/default_configuration/tool_mapping/$name | cut -d' ' -f1" 2>/dev/null)
-    [ "$local_md5" != "$remote_md5" ] && DIVERGED+=("$name")
-done
-[ ${#DIVERGED[@]} -gt 0 ] && printf 'DIVERGED: %s\n' "${DIVERGED[@]}" || echo "IN SYNC"
+```
+Bash(command: "bash scripts/gce-push-config.sh --force 2>&1 | grep -vE 'LIBARCHIVE\\.xattr|known_hosts' | grep -E '✓|Streaming|✗'")
 ```
 
-- **If `IN SYNC`** → say nothing further beyond the downtime line.
-- **If any files diverged** → say:
-
-  > Local tool mappings differ from the VM: `<file1>`, `<file2>`, ...
-  > Push them with `bash scripts/gce-push-config.sh`?
-
-  Wait for the user's confirmation. If they say yes, run:
-
-  ```
-  Bash(command: "bash scripts/gce-push-config.sh --force 2>&1 | grep -vE 'LIBARCHIVE\\.xattr|known_hosts' | grep -E '✓|Streaming|✗'")
-  ```
-
-  Deploy context implies overwrite intent, so `--force` is appropriate
-  here (the safety check is for accidental clobbers, not authorized ones).
+Deploy context implies overwrite intent, so `--force` is appropriate here (the
+safety check is for accidental clobbers, not authorized ones) — but ONLY for
+files Step 0 showed as "local newer" or LOCAL ONLY; never after a "VM newer"
+flag without the user's explicit go-ahead. If Step 0 was fully in sync, skip
+this step.
 
 ## Step 6 — handle the stale monitor event
 
@@ -152,7 +166,7 @@ to finish, then exits — all before Docker's stop timeout elapses.
   them — that's a known false positive. Use `--force` to bypass.
 - **The skill is `image-only`** — it does NOT push `config.json`,
   `mcp.json`, or `default_configuration/`. Those live on the persistent
-  disk and need `gce-push-config.sh`. The tool-mapping check at Step 5
-  catches the most common case where this matters.
+  disk and need `gce-push-config.sh`. The mandatory Step 0 drift check
+  surfaces every case where this matters.
 - **Don't poll** for completion. The Bash background task and the Monitor
   both notify automatically.
