@@ -4,6 +4,8 @@ import type { ClackSdk } from "../../../plugins-sdk/sdk.js";
 import { errorResult, textResult } from "../../../plugins-sdk/sdk.js";
 import { computePriority, type WorkKind } from "../priority.js";
 import { idlerSlotSchema, parseSlot, type IdlerSlot } from "../slice.js";
+import { loadConfig } from "../config.js";
+import { evaluateBreaker, loadBreakerState, recordLift } from "../breaker.js";
 
 const WORK_KINDS = ["continue", "triage", "implement", "review", "none"] as const;
 
@@ -58,7 +60,10 @@ export function createListTopIdeasTool(sdk: ClackSdk) {
         references: entry.references,
         cursorsByRefId: slot.cursorsByRefId,
       }));
-      return textResult({ count: ideas.length, ideas });
+      const config = await loadConfig(sdk);
+      const breakerState = await loadBreakerState(sdk);
+      const nightBreaker = evaluateBreaker(config, breakerState, new Date());
+      return textResult({ count: ideas.length, ideas, ...(nightBreaker ? { nightBreaker } : {}) });
     },
   );
 }
@@ -157,6 +162,11 @@ export function createUpsertIdeaTool(sdk: ClackSdk) {
         ignoredAt: undefined,
       };
       await slot.merge(args.id, next);
+      // A newly-tracked open unit, or fresh input on an existing one, is real work surfacing —
+      // lift the night breaker's empty counter (pending async triggers are left intact).
+      if ((!existing && next.open) || args.freshInput === true) {
+        await recordLift(sdk);
+      }
       return textResult({ ok: true, id: args.id, priority });
     },
   );

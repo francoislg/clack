@@ -133,6 +133,34 @@ describe("idlerConfigSchema", () => {
     });
     assert.equal(bad.success, false);
   });
+
+  it("defaults stopAfterEmptyRounds to 2", () => {
+    const parsed = idlerConfigSchema.parse({
+      enabled: true,
+      workHours: { start: 18, end: 9, tz: "UTC", days: [1] },
+    });
+    assert.equal(parsed.stopAfterEmptyRounds, 2);
+  });
+
+  it("accepts stopAfterEmptyRounds at the bounds (0 and 10) and rejects out-of-range", () => {
+    const minimal = { enabled: true, workHours: { start: 18, end: 9, tz: "UTC", days: [1] } };
+    assert.equal(
+      idlerConfigSchema.parse({ ...minimal, stopAfterEmptyRounds: 0 }).stopAfterEmptyRounds,
+      0,
+    );
+    assert.equal(
+      idlerConfigSchema.parse({ ...minimal, stopAfterEmptyRounds: 10 }).stopAfterEmptyRounds,
+      10,
+    );
+    assert.equal(
+      idlerConfigSchema.safeParse({ ...minimal, stopAfterEmptyRounds: -1 }).success,
+      false,
+    );
+    assert.equal(
+      idlerConfigSchema.safeParse({ ...minimal, stopAfterEmptyRounds: 11 }).success,
+      false,
+    );
+  });
 });
 
 describe("isOperational", () => {

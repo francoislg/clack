@@ -20,4 +20,10 @@ describe("buildWorkPrompt", () => {
     expect(prompt).toContain("Attach integrations LAZILY");
     expect(prompt).toContain("do NOT fall through to another unit with a second deep read");
   });
+
+  it("wires the night circuit breaker: tripped early-exit and async-triggered recording", () => {
+    const prompt = buildWorkPrompt(DEFAULT_CONFIG, "fetch");
+    expect(prompt).toContain("nightBreaker.tripped: true");
+    expect(prompt).toContain('record_fire_outcome({ outcome: "async-triggered"');
+  });
 });

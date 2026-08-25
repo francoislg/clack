@@ -13,7 +13,12 @@ import {
   windowKeyFor,
   recordEmptyFire,
   recordProductive,
+  evaluateBreaker,
+  recordAsyncTriggered,
+  recordLift,
+  type BreakerState,
 } from "./breaker.js";
+import { DEFAULT_CONFIG } from "./config.js";
 import type { IdlerWindow } from "./types.js";
 
 async function* emptyClackQuery(): AsyncGenerator<SDKMessage, void, void> {}
@@ -110,7 +115,7 @@ describe("breaker", () => {
     assert.deepStrictEqual(next.pendingAsync, []);
   });
 
-  it("recordProductive resets counter while preserving other fields", async () => {
+  it("recordProductive resets counter and clears pendingAsync", async () => {
     await saveBreakerState(sdk, {
       windowKey: "2026-08-24",
       consecutiveEmpty: 3,
@@ -122,6 +127,128 @@ describe("breaker", () => {
     const state = await loadBreakerState(sdk);
     assert.strictEqual(state.consecutiveEmpty, 0);
     assert.strictEqual(state.windowKey, "2026-08-24");
-    assert.deepStrictEqual(state.pendingAsync, ["y"]);
+    assert.deepStrictEqual(state.pendingAsync, []);
+  });
+
+  describe("breaker trip/async/lift", () => {
+    it("evaluateBreaker returns undefined when stopAfterEmptyRounds is 0", () => {
+      const config = { ...DEFAULT_CONFIG, stopAfterEmptyRounds: 0 };
+      const state: BreakerState = { windowKey: "", consecutiveEmpty: 5, pendingAsync: [] };
+      const now = new Date("2026-08-24T20:00:00Z");
+      const result = evaluateBreaker(config, state, now);
+      assert.strictEqual(result, undefined);
+    });
+
+    it("evaluateBreaker tripped at threshold", () => {
+      const config = { ...DEFAULT_CONFIG, stopAfterEmptyRounds: 2 };
+      const now = new Date("2026-08-24T20:00:00Z");
+      const key = windowKeyFor(config.workHours, now);
+      const state: BreakerState = { windowKey: key, consecutiveEmpty: 2, pendingAsync: [] };
+      const result = evaluateBreaker(config, state, now);
+      assert.ok(result);
+      assert.strictEqual(result.tripped, true);
+      assert.strictEqual(result.consecutiveEmpty, 2);
+      assert.strictEqual(result.threshold, 2);
+    });
+
+    it("evaluateBreaker not tripped below threshold", () => {
+      const config = { ...DEFAULT_CONFIG, stopAfterEmptyRounds: 2 };
+      const now = new Date("2026-08-24T20:00:00Z");
+      const key = windowKeyFor(config.workHours, now);
+      const state: BreakerState = { windowKey: key, consecutiveEmpty: 1, pendingAsync: [] };
+      const result = evaluateBreaker(config, state, now);
+      assert.ok(result);
+      assert.strictEqual(result.tripped, false);
+      assert.strictEqual(result.consecutiveEmpty, 1);
+    });
+
+    it("evaluateBreaker never trips on a stale windowKey", () => {
+      const config = { ...DEFAULT_CONFIG, stopAfterEmptyRounds: 2 };
+      const now = new Date("2026-08-24T20:00:00Z");
+      const state: BreakerState = {
+        windowKey: "1999-01-01",
+        consecutiveEmpty: 9,
+        pendingAsync: [],
+      };
+      const result = evaluateBreaker(config, state, now);
+      assert.ok(result);
+      assert.strictEqual(result.tripped, false);
+      assert.strictEqual(result.consecutiveEmpty, 0);
+    });
+
+    it("recordAsyncTriggered adds a key and dedups", async () => {
+      const now = new Date("2026-08-24T20:00:00Z");
+      const firstCall = await recordAsyncTriggered(
+        sdk,
+        DEFAULT_CONFIG.workHours,
+        now,
+        "org/repo#1",
+      );
+      assert.deepStrictEqual(firstCall.pendingAsync, ["org/repo#1"]);
+      assert.strictEqual(firstCall.consecutiveEmpty, 0);
+
+      const secondCall = await recordAsyncTriggered(
+        sdk,
+        DEFAULT_CONFIG.workHours,
+        now,
+        "org/repo#1",
+      );
+      assert.deepStrictEqual(secondCall.pendingAsync, ["org/repo#1"]);
+    });
+
+    it("recordEmptyFire freezes while pendingAsync non-empty", async () => {
+      const now = new Date("2026-08-24T20:00:00Z");
+      const key = windowKeyFor(DEFAULT_CONFIG.workHours, now);
+      await saveBreakerState(sdk, { windowKey: key, consecutiveEmpty: 1, pendingAsync: ["p"] });
+
+      const result = await recordEmptyFire(sdk, DEFAULT_CONFIG.workHours, now);
+      assert.strictEqual(result.consecutiveEmpty, 1);
+      assert.deepStrictEqual(result.pendingAsync, ["p"]);
+    });
+
+    it("recordProductive clears pendingAsync and resets counter", async () => {
+      await saveBreakerState(sdk, {
+        windowKey: "k",
+        consecutiveEmpty: 3,
+        pendingAsync: ["a", "b"],
+      });
+
+      await recordProductive(sdk);
+
+      const state = await loadBreakerState(sdk);
+      assert.strictEqual(state.consecutiveEmpty, 0);
+      assert.deepStrictEqual(state.pendingAsync, []);
+    });
+
+    it("recordLift resets counter but KEEPS pendingAsync", async () => {
+      await saveBreakerState(sdk, {
+        windowKey: "k",
+        consecutiveEmpty: 3,
+        pendingAsync: ["a"],
+      });
+
+      await recordLift(sdk);
+
+      const state = await loadBreakerState(sdk);
+      assert.strictEqual(state.consecutiveEmpty, 0);
+      assert.deepStrictEqual(state.pendingAsync, ["a"]);
+    });
+
+    it("recordEmptyFire rollover clears pendingAsync", async () => {
+      await saveBreakerState(sdk, {
+        windowKey: "2026-08-23",
+        consecutiveEmpty: 4,
+        pendingAsync: ["stuck"],
+      });
+
+      const result = await recordEmptyFire(
+        sdk,
+        DEFAULT_CONFIG.workHours,
+        new Date("2026-08-24T20:00:00Z"),
+      );
+      assert.strictEqual(result.windowKey, "2026-08-24");
+      assert.strictEqual(result.consecutiveEmpty, 1);
+      assert.deepStrictEqual(result.pendingAsync, []);
+    });
   });
 });

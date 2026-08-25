@@ -49,6 +49,13 @@ export function createSetConfigTool(sdk: ClackSdk) {
         .describe(
           `Minutes between work fires inside the work window. Must be a divisor of 60 in [5, 60] (${WORK_EVERY_MINUTES_VALUES.join(", ")}); default 30. Lower = more fires = higher token cost.`,
         ),
+      stopAfterEmptyRounds: z
+        .number()
+        .int()
+        .min(0)
+        .max(10)
+        .optional()
+        .describe("Consecutive empty work fires before the night breaker trips; 0 disables it."),
       trackerSource: z.boolean().optional().describe("Enable/disable the external-tracker source"),
       ownPrsSource: z.boolean().optional().describe("Enable/disable the own-PRs source"),
     },
@@ -66,6 +73,7 @@ export function createSetConfigTool(sdk: ClackSdk) {
         },
         maxActionsPerFire: args.maxActionsPerFire ?? config.maxActionsPerFire,
         maxActionsPerNight: args.maxActionsPerNight ?? config.maxActionsPerNight,
+        stopAfterEmptyRounds: args.stopAfterEmptyRounds ?? config.stopAfterEmptyRounds,
         syncEveryHours: args.syncEveryHours ?? config.syncEveryHours,
         workEveryMinutes: args.workEveryMinutes ?? config.workEveryMinutes,
         sources: {

@@ -47,4 +47,10 @@ describe("BEHAVIOR_INSTRUCTION", () => {
     assert.match(BEHAVIOR_INSTRUCTION, /park it/i);
     assert.match(BEHAVIOR_INSTRUCTION, /at most one deep reference re-read/);
   });
+
+  it("wires the night circuit breaker early-exit and async-pending rule", () => {
+    assert.match(BEHAVIOR_INSTRUCTION, /Night circuit breaker/);
+    assert.match(BEHAVIOR_INSTRUCTION, /nightBreaker\.tripped: true/);
+    assert.match(BEHAVIOR_INSTRUCTION, /outcome: "async-triggered"/);
+  });
 });

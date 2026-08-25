@@ -67,5 +67,7 @@ export interface IdlerConfig {
   maxActionsPerFire: number;
   /** Cap on code-changing actions across one work window. */
   maxActionsPerNight: number;
+  /** Consecutive empty work fires in one window before the night breaker trips. 0 = disabled. */
+  stopAfterEmptyRounds: number;
   sources: IdlerSources;
 }

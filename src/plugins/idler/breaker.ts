@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { ClackSdk } from "../../plugins-sdk/sdk.js";
-import type { IdlerWindow } from "./types.js";
+import type { IdlerConfig, IdlerWindow } from "./types.js";
 
 /** The SDK surface breaker I/O needs — narrowed so tests can supply a plain fake. */
 export type BreakerSdk = Pick<ClackSdk, "readFile" | "writeFile">;
@@ -58,6 +58,22 @@ export function windowKeyFor(window: IdlerWindow, now: Date): string {
   return `${get("year")}-${get("month")}-${get("day")}`;
 }
 
+/**
+ * The breaker's trip status for the current window, or undefined when disabled
+ * (stopAfterEmptyRounds <= 0). Stale state (windowKey != current) never trips and reports 0.
+ */
+export function evaluateBreaker(
+  config: IdlerConfig,
+  state: BreakerState,
+  now: Date,
+): { tripped: boolean; consecutiveEmpty: number; threshold: number } | undefined {
+  const threshold = config.stopAfterEmptyRounds;
+  if (threshold <= 0) return undefined;
+  const key = windowKeyFor(config.workHours, now);
+  const consecutiveEmpty = state.windowKey === key ? state.consecutiveEmpty : 0;
+  return { tripped: consecutiveEmpty >= threshold, consecutiveEmpty, threshold };
+}
+
 export async function recordEmptyFire(
   sdk: BreakerSdk,
   window: IdlerWindow,
@@ -66,19 +82,48 @@ export async function recordEmptyFire(
   const state = await loadBreakerState(sdk);
   const key = windowKeyFor(window, now);
 
-  let next: BreakerState;
-  if (state.windowKey === key) {
-    next = { ...state, consecutiveEmpty: state.consecutiveEmpty + 1 };
-  } else {
-    next = { windowKey: key, consecutiveEmpty: 1, pendingAsync: [] };
+  if (state.windowKey !== key) {
+    const next: BreakerState = { windowKey: key, consecutiveEmpty: 1, pendingAsync: [] };
+    await saveBreakerState(sdk, next);
+    return next;
   }
-
+  if (state.pendingAsync.length > 0) {
+    // Freeze: the fire found nothing, but the idler's own async output is still expected.
+    return state;
+  }
+  const next: BreakerState = { ...state, consecutiveEmpty: state.consecutiveEmpty + 1 };
   await saveBreakerState(sdk, next);
   return next;
 }
 
-export async function recordProductive(sdk: BreakerSdk): Promise<void> {
+/** Register a pending async trigger (e.g. "owner/repo#123") with set semantics; no counter change. */
+export async function recordAsyncTriggered(
+  sdk: BreakerSdk,
+  window: IdlerWindow,
+  now: Date,
+  asyncKey: string,
+): Promise<BreakerState> {
+  const state = await loadBreakerState(sdk);
+  const key = windowKeyFor(window, now);
+  const base: BreakerState =
+    state.windowKey === key ? state : { windowKey: key, consecutiveEmpty: 0, pendingAsync: [] };
+  const pendingAsync = base.pendingAsync.includes(asyncKey)
+    ? base.pendingAsync
+    : [...base.pendingAsync, asyncKey];
+  const next: BreakerState = { ...base, pendingAsync };
+  await saveBreakerState(sdk, next);
+  return next;
+}
+
+/** Lift the empty counter (sync surfaced work) — resets consecutiveEmpty but leaves pendingAsync. */
+export async function recordLift(sdk: BreakerSdk): Promise<void> {
   const state = await loadBreakerState(sdk);
   if (state.consecutiveEmpty === 0) return;
   await saveBreakerState(sdk, { ...state, consecutiveEmpty: 0 });
+}
+
+export async function recordProductive(sdk: BreakerSdk): Promise<void> {
+  const state = await loadBreakerState(sdk);
+  if (state.consecutiveEmpty === 0 && state.pendingAsync.length === 0) return;
+  await saveBreakerState(sdk, { ...state, consecutiveEmpty: 0, pendingAsync: [] });
 }

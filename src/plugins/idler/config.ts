@@ -65,6 +65,7 @@ const baseConfigSchema = z.object({
   reporting: reportingSchema.default({ tickUpdates: "none", summary: true }),
   maxActionsPerFire: z.number().int().min(1).max(20).default(1),
   maxActionsPerNight: z.number().int().min(1).max(100).default(5),
+  stopAfterEmptyRounds: z.number().int().min(0).max(10).default(2),
   sources: sourcesSchema.default({
     channels: [],
     tracker: false,
@@ -98,6 +99,7 @@ export const DEFAULT_CONFIG: IdlerConfig = {
   reporting: { tickUpdates: "none", summary: true },
   maxActionsPerFire: 1,
   maxActionsPerNight: 5,
+  stopAfterEmptyRounds: 2,
   sources: { channels: [], tracker: false, ownPrs: true, scanMemory: true },
 };
 

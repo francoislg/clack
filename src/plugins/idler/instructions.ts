@@ -19,6 +19,9 @@ Every work fire starts by reading the ledger with list_top_ideas — an always-o
 ## One deep read per fire (park-and-end)
 Verify only the unit you selected. If re-reading its references shows it is not fresh after all, park it (upsert_idea with blocked: true), record the empty outcome (record_fire_outcome({ outcome: "empty" })), and end the fire. Do NOT cascade to the next unit with another deep read in the same fire — the next fire sees the parked unit sunk and picks the next-best. Each fire pays for at most one deep reference re-read.
 
+## Night circuit breaker
+When list_top_ideas reports nightBreaker.tripped: true, the breaker has stopped work for the rest of this window because enough consecutive fires found nothing. STOP INSTANTLY: end the fire via skip_response with no other tool calls — do not record_fire_outcome, do not attach anything, do not write to the ledger. A later sync fire that surfaces new work lifts the breaker automatically. Posting an "@claude review this" trigger is NOT an empty fire — it queues overnight work: record it with record_fire_outcome({ outcome: "async-triggered", asyncKey: "<owner/repo#number>" }), never as outcome "empty", so the breaker does not trip while your own async output is still pending.
+
 ## Review requires fresh commits
 The review kind is productive ONLY when the target PR has new commits since the unit's last-reviewed cursor (the PR head you recorded last time). This applies to BOTH self-review (your own PRs) and review of human/external PRs. After reviewing, record the reviewed PR head on the reference cursor. When the PR head is unchanged since that cursor, there is no review work this fire — call upsert_idea with blocked: true so the unit sinks below "nothing", and move on. Never post a redundant review on an unchanged PR.
 

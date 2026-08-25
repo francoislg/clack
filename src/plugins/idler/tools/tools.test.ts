@@ -16,9 +16,9 @@ import {
   createRecordActivityTool,
 } from "./activity.js";
 import { createRecordFireOutcomeTool } from "./fireOutcome.js";
-import { loadBreakerState, saveBreakerState } from "../breaker.js";
+import { loadBreakerState, saveBreakerState, windowKeyFor } from "../breaker.js";
 import { createAddRepoTool, createClearIdeaTool, createSetConfigTool } from "./management.js";
-import { loadConfig } from "../config.js";
+import { DEFAULT_CONFIG, loadConfig } from "../config.js";
 import {
   createReadFetchInstructionsTool,
   createUpdateFetchInstructionsTool,
@@ -220,6 +220,7 @@ function cfgArgs(o: Partial<CfgArgs>): CfgArgs {
     summaryHour: o.summaryHour,
     maxActionsPerFire: o.maxActionsPerFire,
     maxActionsPerNight: o.maxActionsPerNight,
+    stopAfterEmptyRounds: o.stopAfterEmptyRounds,
     syncEveryHours: o.syncEveryHours,
     workEveryMinutes: o.workEveryMinutes,
     trackerSource: o.trackerSource,
@@ -416,9 +417,41 @@ describe("idler breaker signal", () => {
 
   it("record_fire_outcome empty increments consecutiveEmpty", async () => {
     const sdk = buildSdk(tempDir);
-    await invoke(createRecordFireOutcomeTool(sdk), { outcome: "empty" });
+    await invoke(createRecordFireOutcomeTool(sdk), { outcome: "empty", asyncKey: undefined });
     const state = await loadBreakerState(sdk);
     assert.equal(state.consecutiveEmpty, 1);
+  });
+
+  it("record_fire_outcome async-triggered adds a pending key without incrementing, and dedups", async () => {
+    const sdk = buildSdk(tempDir);
+    await invoke(createRecordFireOutcomeTool(sdk), {
+      outcome: "async-triggered",
+      asyncKey: "org/repo#1",
+    });
+    let state = await loadBreakerState(sdk);
+    assert.deepEqual(state.pendingAsync, ["org/repo#1"]);
+    assert.equal(state.consecutiveEmpty, 0);
+
+    await invoke(createRecordFireOutcomeTool(sdk), {
+      outcome: "async-triggered",
+      asyncKey: "org/repo#1",
+    });
+    state = await loadBreakerState(sdk);
+    assert.deepEqual(state.pendingAsync, ["org/repo#1"], "duplicate key not accumulated");
+  });
+
+  it("record_fire_outcome rejects async-triggered with no asyncKey and empty with an asyncKey", async () => {
+    const sdk = buildSdk(tempDir);
+    const missing = await invoke(createRecordFireOutcomeTool(sdk), {
+      outcome: "async-triggered",
+      asyncKey: undefined,
+    });
+    assert.match(missing.error ?? "", /asyncKey is required/);
+    const extra = await invoke(createRecordFireOutcomeTool(sdk), {
+      outcome: "empty",
+      asyncKey: "org/repo#1",
+    });
+    assert.match(extra.error ?? "", /asyncKey must not be supplied/);
   });
 
   it("record_activity pr_opened resets the counter", async () => {
@@ -455,6 +488,116 @@ describe("idler breaker signal", () => {
     });
     const state = await loadBreakerState(sdk);
     assert.equal(state.consecutiveEmpty, 3);
+  });
+});
+
+describe("idler night-breaker surfacing in list_top_ideas", () => {
+  let tempDir: string;
+  beforeEach(async () => {
+    tempDir = await mkdtemp(join(tmpdir(), "idler-breaker-list-"));
+  });
+  afterEach(async () => {
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
+  async function rawList(sdk: ClackSdk): Promise<{
+    nightBreaker?: { tripped: boolean; consecutiveEmpty: number; threshold: number };
+  }> {
+    const listTool = createListTopIdeasTool(sdk) as {
+      handler: (args: ReturnType<typeof topArgs>, extra?: never) => Promise<object>;
+    };
+    const res = await listTool.handler(topArgs({}));
+    if (!isToolCallResult(res)) throw new Error("non-ToolCallResult");
+    return JSON.parse(res.content[0]?.text ?? "{}");
+  }
+
+  it("surfaces nightBreaker (not tripped) by default", async () => {
+    const sdk = buildSdk(tempDir, statefulMemory());
+    const raw = await rawList(sdk);
+    assert.equal(raw.nightBreaker?.tripped, false);
+    assert.equal(raw.nightBreaker?.threshold, 2);
+    assert.equal(raw.nightBreaker?.consecutiveEmpty, 0);
+  });
+
+  it("reports tripped once consecutiveEmpty reaches the threshold for the current window", async () => {
+    const sdk = buildSdk(tempDir, statefulMemory());
+    const key = windowKeyFor(DEFAULT_CONFIG.workHours, new Date());
+    await saveBreakerState(sdk, { windowKey: key, consecutiveEmpty: 2, pendingAsync: [] });
+    const raw = await rawList(sdk);
+    assert.equal(raw.nightBreaker?.tripped, true);
+  });
+
+  it("omits nightBreaker when the breaker is disabled (stopAfterEmptyRounds 0)", async () => {
+    const sdk = buildSdk(tempDir, statefulMemory());
+    await invoke(createSetConfigTool(sdk), cfgArgs({ stopAfterEmptyRounds: 0 }));
+    const raw = await rawList(sdk);
+    assert.equal(raw.nightBreaker, undefined);
+  });
+});
+
+describe("idler night-breaker lift via upsert_idea", () => {
+  let tempDir: string;
+  beforeEach(async () => {
+    tempDir = await mkdtemp(join(tmpdir(), "idler-breaker-lift-"));
+  });
+  afterEach(async () => {
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
+  it("a new open unit lifts the empty counter but preserves pendingAsync", async () => {
+    const sdk = buildSdk(tempDir, statefulMemory());
+    await saveBreakerState(sdk, { windowKey: "k", consecutiveEmpty: 3, pendingAsync: ["p"] });
+    await invoke(createUpsertIdeaTool(sdk), ideaArgs({ id: "new-1", kind: "continue" }));
+    const state = await loadBreakerState(sdk);
+    assert.equal(state.consecutiveEmpty, 0);
+    assert.deepEqual(state.pendingAsync, ["p"]);
+  });
+
+  it("freshInput on an existing unit lifts the counter", async () => {
+    const sdk = buildSdk(tempDir, statefulMemory());
+    await invoke(createUpsertIdeaTool(sdk), ideaArgs({ id: "u", kind: "triage" }));
+    await saveBreakerState(sdk, { windowKey: "k", consecutiveEmpty: 3, pendingAsync: [] });
+    await invoke(
+      createUpsertIdeaTool(sdk),
+      ideaArgs({ id: "u", kind: "continue", freshInput: true }),
+    );
+    assert.equal((await loadBreakerState(sdk)).consecutiveEmpty, 0);
+  });
+
+  it("parking, closing, and ignoring do NOT lift the counter", async () => {
+    const sdk = buildSdk(tempDir, statefulMemory());
+
+    await invoke(createUpsertIdeaTool(sdk), ideaArgs({ id: "p", kind: "triage" }));
+    await saveBreakerState(sdk, { windowKey: "k", consecutiveEmpty: 3, pendingAsync: [] });
+    await invoke(createUpsertIdeaTool(sdk), ideaArgs({ id: "p", kind: "review", blocked: true }));
+    assert.equal((await loadBreakerState(sdk)).consecutiveEmpty, 3, "parked did not lift");
+
+    await invoke(createUpsertIdeaTool(sdk), ideaArgs({ id: "c", kind: "triage" }));
+    await saveBreakerState(sdk, { windowKey: "k", consecutiveEmpty: 3, pendingAsync: [] });
+    await invoke(createUpsertIdeaTool(sdk), ideaArgs({ id: "c", kind: "triage", open: false }));
+    assert.equal((await loadBreakerState(sdk)).consecutiveEmpty, 3, "close did not lift");
+
+    await invoke(createUpsertIdeaTool(sdk), ideaArgs({ id: "g", kind: "triage" }));
+    await saveBreakerState(sdk, { windowKey: "k", consecutiveEmpty: 3, pendingAsync: [] });
+    await invoke(createUpsertIdeaTool(sdk), ideaArgs({ id: "g", kind: "triage", ignore: true }));
+    assert.equal((await loadBreakerState(sdk)).consecutiveEmpty, 3, "ignore did not lift");
+  });
+});
+
+describe("idler stopAfterEmptyRounds patch", () => {
+  let tempDir: string;
+  beforeEach(async () => {
+    tempDir = await mkdtemp(join(tmpdir(), "idler-knob-"));
+  });
+  afterEach(async () => {
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
+  it("set_idler_config patches stopAfterEmptyRounds and it round-trips", async () => {
+    const sdk = buildSdk(tempDir);
+    const res = await invoke(createSetConfigTool(sdk), cfgArgs({ stopAfterEmptyRounds: 4 }));
+    assert.equal(res.ok, true);
+    assert.equal((await loadConfig(sdk)).stopAfterEmptyRounds, 4);
   });
 });
 
