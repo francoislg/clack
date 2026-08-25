@@ -8,6 +8,7 @@ import {
   loadActivity,
   type IdlerActivityEntry,
 } from "../activity.js";
+import { recordProductive } from "../breaker.js";
 
 const ACTIVITY_KINDS = [
   "pr_opened",
@@ -39,6 +40,11 @@ export function createRecordActivityTool(sdk: ClackSdk) {
         detail: args.detail,
       };
       await appendActivity(sdk, entry);
+      // Any productive activity except parking resets the empty-fire counter. Parking records
+      // the disposal of a stale unit — the fire found nothing fresh, so it must not reset.
+      if (args.kind !== "parked") {
+        await recordProductive(sdk);
+      }
       return textResult({ ok: true });
     },
   );

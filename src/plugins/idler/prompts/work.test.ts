@@ -10,4 +10,14 @@ describe("buildWorkPrompt", () => {
       "PR references follow the PR-handling contract (canonical review check)",
     );
   });
+
+  it("does the cheap-first freshness check and empty-outcome skip before attaching integrations", () => {
+    const prompt = buildWorkPrompt(DEFAULT_CONFIG, "fetch");
+    expect(prompt).toContain("CHEAP-FIRST FRESHNESS CHECK");
+    expect(prompt).toContain("before any attach_integration");
+    expect(prompt).toContain('record_fire_outcome({ outcome: "empty" })');
+    expect(prompt).toContain("skip_response: true");
+    expect(prompt).toContain("Attach integrations LAZILY");
+    expect(prompt).toContain("do NOT fall through to another unit with a second deep read");
+  });
 });

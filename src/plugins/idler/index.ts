@@ -30,6 +30,7 @@ import {
   createReadActivityTool,
   createRecordActivityTool,
 } from "./tools/activity.js";
+import { createRecordFireOutcomeTool } from "./tools/fireOutcome.js";
 import {
   createAddChannelTool,
   createAddRepoTool,
@@ -75,6 +76,7 @@ export const idlerPlugin: ClackPlugin = async (sdk: ClackSdk) => {
   sdk.registerTool("admin", createUpsertIdeaTool(sdk), "Updating idler idea — {key}");
   sdk.registerTool("admin", createReprioritizeTool(sdk), "Reprioritizing idler idea — {key}");
   sdk.registerTool("admin", createRecordActivityTool(sdk), "Recording idler activity — {kind}");
+  sdk.registerTool("admin", createRecordFireOutcomeTool(sdk), "Recording idler fire outcome");
   sdk.registerTool("admin", createReadActivityTool(sdk), "Reading idler activity");
   sdk.registerTool("admin", createClearActivityTool(sdk), "Clearing idler activity");
 

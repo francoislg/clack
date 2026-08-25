@@ -15,6 +15,8 @@ import {
   createReadActivityTool,
   createRecordActivityTool,
 } from "./activity.js";
+import { createRecordFireOutcomeTool } from "./fireOutcome.js";
+import { loadBreakerState, saveBreakerState } from "../breaker.js";
 import { createAddRepoTool, createClearIdeaTool, createSetConfigTool } from "./management.js";
 import { loadConfig } from "../config.js";
 import {
@@ -400,6 +402,59 @@ describe("idler memory tools", () => {
     const payload = await invoke(createListTopIdeasTool(sdk), topArgs({ limit: 1 }));
     assert.equal(payload.ideas?.length, 1);
     assert.equal(payload.ideas?.[0].id, "workable", "parked unit falls outside the top-1 window");
+  });
+});
+
+describe("idler breaker signal", () => {
+  let tempDir: string;
+  beforeEach(async () => {
+    tempDir = await mkdtemp(join(tmpdir(), "idler-breaker-tool-"));
+  });
+  afterEach(async () => {
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
+  it("record_fire_outcome empty increments consecutiveEmpty", async () => {
+    const sdk = buildSdk(tempDir);
+    await invoke(createRecordFireOutcomeTool(sdk), { outcome: "empty" });
+    const state = await loadBreakerState(sdk);
+    assert.equal(state.consecutiveEmpty, 1);
+  });
+
+  it("record_activity pr_opened resets the counter", async () => {
+    const sdk = buildSdk(tempDir);
+    await saveBreakerState(sdk, { windowKey: "2026-08-24", consecutiveEmpty: 3, pendingAsync: [] });
+    await invoke(createRecordActivityTool(sdk), {
+      kind: "pr_opened",
+      detail: "PR #1",
+      unitKey: undefined,
+    });
+    const state = await loadBreakerState(sdk);
+    assert.equal(state.consecutiveEmpty, 0);
+  });
+
+  it("record_activity failure resets the counter", async () => {
+    const sdk = buildSdk(tempDir);
+    await saveBreakerState(sdk, { windowKey: "2026-08-24", consecutiveEmpty: 3, pendingAsync: [] });
+    await invoke(createRecordActivityTool(sdk), {
+      kind: "failure",
+      detail: "boom",
+      unitKey: undefined,
+    });
+    const state = await loadBreakerState(sdk);
+    assert.equal(state.consecutiveEmpty, 0);
+  });
+
+  it("record_activity parked does NOT reset the counter", async () => {
+    const sdk = buildSdk(tempDir);
+    await saveBreakerState(sdk, { windowKey: "2026-08-24", consecutiveEmpty: 3, pendingAsync: [] });
+    await invoke(createRecordActivityTool(sdk), {
+      kind: "parked",
+      detail: "waiting",
+      unitKey: undefined,
+    });
+    const state = await loadBreakerState(sdk);
+    assert.equal(state.consecutiveEmpty, 3);
   });
 });
 

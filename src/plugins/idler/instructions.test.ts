@@ -36,4 +36,15 @@ describe("BEHAVIOR_INSTRUCTION", () => {
     assert.match(BEHAVIOR_INSTRUCTION, /regardless of what the unit's howToRead says/);
     assert.match(BEHAVIOR_INSTRUCTION, /non-PR surfaces/);
   });
+
+  it("mandates the cheap-first ledger check and empty-outcome recording", () => {
+    assert.match(BEHAVIOR_INSTRUCTION, /Cheap-first/);
+    assert.match(BEHAVIOR_INSTRUCTION, /record_fire_outcome\(\{ outcome: "empty" \}\)/);
+    assert.match(BEHAVIOR_INSTRUCTION, /lazy attach/);
+  });
+
+  it("limits each fire to one deep reference re-read (park-and-end)", () => {
+    assert.match(BEHAVIOR_INSTRUCTION, /park it/i);
+    assert.match(BEHAVIOR_INSTRUCTION, /at most one deep reference re-read/);
+  });
 });
