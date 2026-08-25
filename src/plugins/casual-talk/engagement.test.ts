@@ -82,6 +82,14 @@ describe("casual-talk engagement topic content", () => {
     assert.ok(ENGAGEMENT_CONTENT.includes('clamps a joined thread to `"low"`'));
   });
 
+  it("follows the channel window on top-level posts, never on joined threads", () => {
+    assert.ok(ENGAGEMENT_CONTENT.includes('ALSO set `channel_attention_level: "low"`'));
+    assert.ok(ENGAGEMENT_CONTENT.includes("follows the CHANNEL's own top-level conversation"));
+    assert.ok(
+      ENGAGEMENT_CONTENT.includes("Do NOT set `channel_attention_level` on a joined-thread entry"),
+    );
+  });
+
   it("never mandates high attention unconditionally", () => {
     assert.ok(!/`attention_level: "high"` is MANDATORY/.test(ENGAGEMENT_CONTENT));
     assert.ok(!ENGAGEMENT_CONTENT.includes('When in doubt, it is "high"'));
