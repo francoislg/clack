@@ -494,6 +494,14 @@ export interface ClackSdk {
     options: { autoload?: boolean; description: string },
   ): RegisteredMcpServer;
   readFile(path: string): Promise<string | null>;
+  /**
+   * Raw-bytes counterpart to `readFile`, scoped to this plugin's data directory with the
+   * same path-traversal / absolute-path protection. Returns the file's bytes as a `Buffer`,
+   * or `null` if it does not exist. Use this to load binary plugin-data assets (e.g. a
+   * `.mmdb` geolocation database) through the SDK boundary instead of reaching past it with
+   * raw `node:fs`.
+   */
+  readFileBuffer(path: string): Promise<Buffer | null>;
   writeFile(path: string, content: string): Promise<void>;
   /**
    * Read `path`; if it does not exist, seed it with `defaultContent` and return that. The seed

@@ -118,6 +118,32 @@ describe("ClackSdk", () => {
     });
   });
 
+  describe("readFileBuffer", () => {
+    it("reads a file's bytes as a Buffer", async () => {
+      const { sdk } = makeSdk();
+      await sdk.writeFile("db.bin", "MMDB");
+      const result = await sdk.readFileBuffer("db.bin");
+      assert.ok(Buffer.isBuffer(result));
+      assert.deepEqual(result, Buffer.from("MMDB"));
+    });
+
+    it("returns null for a non-existent file", async () => {
+      const { sdk } = makeSdk();
+      const result = await sdk.readFileBuffer("missing.mmdb");
+      assert.equal(result, null);
+    });
+
+    it("rejects path traversal", async () => {
+      const { sdk } = makeSdk();
+      await assert.rejects(() => sdk.readFileBuffer("../other/data.mmdb"), /Path traversal/);
+    });
+
+    it("rejects absolute paths", async () => {
+      const { sdk } = makeSdk();
+      await assert.rejects(() => sdk.readFileBuffer("/etc/passwd"), /Absolute paths/);
+    });
+  });
+
   describe("readFileOrSeed", () => {
     it("returns existing content without overwriting", async () => {
       const { sdk } = makeSdk();

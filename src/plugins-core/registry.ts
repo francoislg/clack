@@ -15,6 +15,7 @@ import { coverartImageSearchPlugin } from "../plugins/coverart-image-search/inde
 import { tmdbImageSearchPlugin } from "../plugins/tmdb-image-search/index.js";
 import { geminiImagePlugin } from "../plugins/gemini-image/index.js";
 import { idlerPlugin } from "../plugins/idler/index.js";
+import { geolocationPlugin } from "../plugins/geolocation/index.js";
 import { setLoadedPlugins } from "./state.js";
 import {
   registerAction as registerPluginAction,
@@ -36,6 +37,7 @@ const BUILTIN_PLUGINS: { [key: string]: ClackPlugin } = {
   "tmdb-image-search": tmdbImageSearchPlugin,
   "gemini-image": geminiImagePlugin,
   idler: idlerPlugin,
+  geolocation: geolocationPlugin,
 };
 
 // ============================================================================

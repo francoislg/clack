@@ -36,6 +36,7 @@ type MockedSdkKeys =
   | "addInstruction"
   | "addTopicInstruction"
   | "readFile"
+  | "readFileBuffer"
   | "writeFile"
   | "readFileOrSeed"
   | "watchFile"
@@ -131,7 +132,7 @@ export type FakeSdk = {
  * back door into hidden fake state.
  */
 export interface FakeSdkTestHelpers {
-  /** The store behind `readFile`/`writeFile`/`readFileOrSeed` — path → content. */
+  /** The store behind `readFile`/`readFileBuffer`/`writeFile`/`readFileOrSeed` — path → content. */
   files: Map<string, string>;
   /** Models core populating the central user registry (`users.get`/`users.list` read it). */
   saveUser(user: ClackUser): void;
@@ -291,6 +292,13 @@ export function createFakeSdk(overrides: FakeSdkOverrides = {}): {
       return handle;
     }),
     readFile,
+    readFileBuffer: vi.fn<ClackSdk["readFileBuffer"]>(
+      overrides.readFileBuffer ??
+        (async (path) => {
+          const content = files.get(path);
+          return content === undefined ? null : Buffer.from(content);
+        }),
+    ),
     writeFile,
     readFileOrSeed: vi.fn<ClackSdk["readFileOrSeed"]>(
       overrides.readFileOrSeed ??

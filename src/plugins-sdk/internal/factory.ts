@@ -272,6 +272,16 @@ export function createClackSdk(
       }
     },
 
+    async readFileBuffer(path: string): Promise<Buffer | null> {
+      validateRelativePath(path);
+      const fullPath = join(pluginDataDir, path);
+      try {
+        return await readFile(fullPath);
+      } catch {
+        return null;
+      }
+    },
+
     async writeFile(path: string, content: string): Promise<void> {
       validateRelativePath(path);
       const fullPath = join(pluginDataDir, path);
