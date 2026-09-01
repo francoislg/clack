@@ -7,8 +7,8 @@ const DB_FILENAME = "dbip-country-lite.mmdb";
 
 export const geolocationPlugin: ClackPlugin = async (sdk: ClackSdk) => {
   sdk.registerDictionary({
-    en: { "label.geolocate": "Geolocating IP — {ip}" },
-    fr: { "label.geolocate": "Géolocalisation de l'IP — {ip}" },
+    en: { "label.geolocate": "Geolocating IPs — {ips}" },
+    fr: { "label.geolocate": "Géolocalisation des IP — {ips}" },
   });
   sdk.addInstruction("user", "usage", GEOLOCATION_USAGE_INSTRUCTION);
 

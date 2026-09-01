@@ -1,17 +1,19 @@
 # geolocation
 
-An isolated IP-geolocation plugin. It exposes one MCP tool — `mcp__geolocation__geolocate_ip(ip)` — that resolves a public IPv4/IPv6 address to **country-level** location data from a local, in-memory database. No API key, no per-lookup network call — the IP never leaves the deployment.
+An isolated IP-geolocation plugin. It exposes one MCP tool — `mcp__geolocation__geolocate_ip(ips)` — that resolves public IPv4/IPv6 addresses to **country-level** location data from a local, in-memory database. No API key, no per-lookup network call — the IPs never leave the deployment.
 
 ## What it returns
 
+`geolocate_ip` takes `ips` — an array of one or more addresses (no batch-size limit) — and returns `{ results: [...] }`, one entry per input IP in the same order.
+
 On a hit: `{ ip, found: true, countryCode, country, continent, continentCode, isEU }`.
 
-A private, reserved, or unknown address returns `{ ip, found: false, reason }` — reported plainly, not as an error.
+A private, reserved, unknown, or malformed address returns `{ ip, found: false, reason }` for that entry — reported plainly, not an error, and it never fails the rest of the batch.
 
 ## What it does NOT do
 
 - **Country-level only** — no city, region, latitude/longitude, timezone, or ASN. (Those live in the larger City database; this plugin deliberately uses the small Country database for a minimal footprint.)
-- No reverse geocoding, no batch lookups.
+- No reverse geocoding.
 
 ## Data source & license
 
@@ -33,7 +35,7 @@ curl -L "https://download.db-ip.com/free/dbip-country-lite-$(date +%Y-%m).mmdb.g
 
 **2. Enable the plugin** — add `"geolocation"` to the `plugins` array in `data/config.json` and restart.
 
-That's it locally. Verify with a call to `geolocate_ip` (e.g. `8.8.8.8` → `US`).
+That's it locally. Verify with a call to `geolocate_ip` (e.g. `["8.8.8.8"]` → `US`).
 
 ## Deploying to the VM
 

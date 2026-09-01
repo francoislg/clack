@@ -33,7 +33,7 @@ describe("geolocation plugin load", () => {
     assert.equal(result.instructions[0].role, "user");
     assert.equal(result.instructions[0].filename, "geolocation__usage.md");
 
-    assert.equal(result.toolMappings.get("geolocate_ip"), "Geolocating IP — {ip}");
+    assert.equal(result.toolMappings.get("geolocate_ip"), "Geolocating IPs — {ips}");
 
     assert.equal(result.mcpServers.length, 0);
     assert.equal(result.watchers?.length ?? 0, 0);

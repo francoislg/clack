@@ -15,6 +15,17 @@ export function isValidIp(ip: string): boolean {
   return isIP(ip) !== 0;
 }
 
+/** Geolocate one address end-to-end: trim, validate syntax, then look it up.
+ * A malformed address is reported as `found: false` (never thrown), so it can sit
+ * beside valid entries in a batch without failing the whole request. */
+export function geolocateOne(reader: GeoReader, rawIp: string): GeoResult {
+  const ip = rawIp.trim();
+  if (!isValidIp(ip)) {
+    return { ip, found: false, reason: "Not a valid IPv4 or IPv6 address." };
+  }
+  return lookupIp(reader, ip);
+}
+
 /** Map a database lookup to a `GeoResult`. A miss (private, reserved, or unknown address,
  * or a record with no country) is reported as `found: false`, never as an error. */
 export function lookupIp(reader: GeoReader, ip: string): GeoResult {

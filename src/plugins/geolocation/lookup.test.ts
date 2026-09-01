@@ -1,7 +1,7 @@
 import { describe, it } from "vitest";
 import assert from "node:assert/strict";
 import type { CountryResponse } from "mmdb-lib";
-import { isValidIp, lookupIp, type GeoReader } from "./lookup.js";
+import { geolocateOne, isValidIp, lookupIp, type GeoReader } from "./lookup.js";
 
 const US_RECORD: CountryResponse = {
   continent: { code: "NA", geoname_id: 6255149, names: { en: "North America" } },
@@ -83,5 +83,35 @@ describe("lookupIp", () => {
       found: false,
       reason: NOT_FOUND_REASON,
     });
+  });
+});
+
+describe("geolocateOne", () => {
+  it("trims and looks up a valid address", () => {
+    assert.deepEqual(geolocateOne(readerReturning(US_RECORD), "  8.8.8.8  "), {
+      ip: "8.8.8.8",
+      found: true,
+      countryCode: "US",
+      country: "United States",
+      continent: "North America",
+      continentCode: "NA",
+      isEU: false,
+    });
+  });
+
+  it("reports a malformed address as found: false without querying the reader", () => {
+    let queried = false;
+    const reader: GeoReader = {
+      get: () => {
+        queried = true;
+        return US_RECORD;
+      },
+    };
+    assert.deepEqual(geolocateOne(reader, "not-an-ip"), {
+      ip: "not-an-ip",
+      found: false,
+      reason: "Not a valid IPv4 or IPv6 address.",
+    });
+    assert.equal(queried, false);
   });
 });
