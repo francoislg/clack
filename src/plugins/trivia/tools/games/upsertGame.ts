@@ -346,7 +346,9 @@ export function createUpsertGameTool(
           slug: z.string().describe("Non-empty kebab-case identifier for the first season."),
           expectedEndAt: z
             .number()
-            .describe("Unix-ms when the first season's window is expected to end."),
+            .describe(
+              "Unix-ms when the first season's window is expected to end. Interpreted in the `timezone` being set on THIS game, NOT UTC — a season ending with a local day must be that day's LOCAL end-of-day instant in the game's zone, computed with the UTC offset in force on that date (for `America/New_York` that is 03:59:59.999Z the next UTC day under EDT, 04:59:59.999Z under EST). A UTC end-of-day value makes the season's last reveal fire one day early for evening reveals.",
+            ),
           startedAt: z
             .number()
             .optional()
@@ -357,7 +359,7 @@ export function createUpsertGameTool(
         .strict()
         .optional()
         .describe(
-          "Minimal first-season bootstrap. REQUIRED on CREATE when `trivia.seasons.enabled` is true, so the game and its current season come into existence atomically. Carries ONLY `slug` + `expectedEndAt` (+ optional `startedAt`) — categories / theme / format / axes are rejected here; enrich those afterward via `upsert_season`. REJECTED when seasons are disabled, and REJECTED on UPDATE (use `upsert_season` to edit an existing game's timeline).",
+          "Minimal first-season bootstrap. REQUIRED on CREATE when `trivia.seasons.enabled` is true, so the game and its current season come into existence atomically. Carries ONLY `slug` + `expectedEndAt` (+ optional `startedAt`) — categories / theme / format / axes are rejected here; enrich those afterward via `upsert_season`. The season's `expectedEndAt`/`startedAt` are interpreted in the `timezone` being set on this game (not UTC), so they must be LOCAL end-of-day / start-of-day instants in that zone. REJECTED when seasons are disabled, and REJECTED on UPDATE (use `upsert_season` to edit an existing game's timeline).",
         ),
       ...axisBagSchema,
       ...structuralFieldsSchema,

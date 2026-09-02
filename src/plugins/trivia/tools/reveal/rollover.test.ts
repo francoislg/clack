@@ -107,7 +107,7 @@ describe("pickSeasonMvp", () => {
 describe("deriveNextMonthSlug", () => {
   it("derives the next calendar month's slug from a mid-month timestamp", () => {
     const may15 = Date.UTC(2026, 4, 15, 12, 0, 0, 0); // 2026-05-15
-    const { slug, expectedEndAt } = deriveNextMonthSlug(may15);
+    const { slug, expectedEndAt } = deriveNextMonthSlug(may15, "UTC");
     assert.equal(slug, "season-2026-06");
     // June 2026's last instant
     const expected = Date.UTC(2026, 5, 30, 23, 59, 59, 999);
@@ -116,15 +116,39 @@ describe("deriveNextMonthSlug", () => {
 
   it("rolls into the next year when input is December", () => {
     const dec = Date.UTC(2026, 11, 31, 10, 0, 0, 0);
-    const { slug, expectedEndAt } = deriveNextMonthSlug(dec);
+    const { slug, expectedEndAt } = deriveNextMonthSlug(dec, "UTC");
     assert.equal(slug, "season-2027-01");
     assert.equal(expectedEndAt, Date.UTC(2027, 0, 31, 23, 59, 59, 999));
   });
 
   it("pads single-digit months to two digits", () => {
     const apr = Date.UTC(2026, 3, 10, 0, 0, 0, 0);
-    const { slug } = deriveNextMonthSlug(apr);
+    const { slug } = deriveNextMonthSlug(apr, "UTC");
     assert.equal(slug, "season-2026-05");
+  });
+
+  it("ends the target month at the zone's local last day, not UTC's", () => {
+    const july = Date.UTC(2026, 6, 15, 12, 0, 0, 0); // mid-July 2026
+    const { slug, expectedEndAt } = deriveNextMonthSlug(july, "America/New_York");
+    assert.equal(slug, "season-2026-08");
+    // August 2026 ends at 23:59:59.999 New York time = Sep 1 04:00:00 UTC minus 1 ms
+    // (EDT is UTC-4 in August).
+    assert.equal(expectedEndAt, Date.UTC(2026, 8, 1, 4, 0, 0) - 1);
+  });
+
+  it("picks the month by the ZONE's calendar, not UTC's, near a boundary", () => {
+    // Aug 1 01:00 UTC is still Jul 31, 9 PM in New York (EDT, UTC-4).
+    const lateEvening = Date.UTC(2026, 7, 1, 1, 0, 0);
+    assert.equal(deriveNextMonthSlug(lateEvening, "America/New_York").slug, "season-2026-08");
+    // The same instant, read as UTC, already sits in August → next month is September.
+    assert.equal(deriveNextMonthSlug(lateEvening, "UTC").slug, "season-2026-09");
+  });
+
+  it("falls back to the UTC month end for a UTC game", () => {
+    const july = Date.UTC(2026, 6, 15, 12, 0, 0, 0);
+    const { slug, expectedEndAt } = deriveNextMonthSlug(july, "UTC");
+    assert.equal(slug, "season-2026-08");
+    assert.equal(expectedEndAt, Date.UTC(2026, 7, 31, 23, 59, 59, 999));
   });
 });
 
@@ -145,7 +169,7 @@ describe("applySeasonRollover", () => {
   it("stamps endedAt on the current season when not already set", () => {
     const now = Date.UTC(2026, 4, 31, 12, 0, 0, 0);
     const state = makeActiveState(now, "season-2026-05");
-    const out = applySeasonRollover(state, "season-2026-05", now);
+    const out = applySeasonRollover(state, "season-2026-05", now, "UTC");
     assert.equal(out.seasonClosed, true);
     assert.equal(state.seasons[0].endedAt, now);
   });
@@ -154,7 +178,7 @@ describe("applySeasonRollover", () => {
     const now = Date.UTC(2026, 4, 31, 12, 0, 0, 0);
     const state = makeActiveState(now, "season-2026-05");
     state.seasons[0].endedAt = now - 1000;
-    const out = applySeasonRollover(state, "season-2026-05", now);
+    const out = applySeasonRollover(state, "season-2026-05", now, "UTC");
     assert.equal(out.seasonClosed, false);
     assert.equal(state.seasons[0].endedAt, now - 1000);
   });
@@ -164,7 +188,7 @@ describe("applySeasonRollover", () => {
     const state = makeActiveState(now, "season-2026-05");
     // Closing season has its own themed categories — a one-month deviation
     state.seasons[0].categories = ["Marine Biology", "Cephalopods", "Tides"];
-    const out = applySeasonRollover(state, "season-2026-05", now);
+    const out = applySeasonRollover(state, "season-2026-05", now, "UTC");
     assert.ok(out.newSeasonStarted);
     assert.equal(out.newSeasonStarted?.slug, "season-2026-06");
     assert.equal(state.seasons.length, 2);
@@ -179,7 +203,7 @@ describe("applySeasonRollover", () => {
     const now = Date.UTC(2026, 4, 31, 12, 0, 0, 0);
     const state = makeActiveState(now, "season-2026-05");
     state.seasons[0].answersFormat = { boolean: 0, choice: 1, freeform: 0 };
-    applySeasonRollover(state, "season-2026-05", now);
+    applySeasonRollover(state, "season-2026-05", now, "UTC");
     assert.deepEqual(state.seasons[1].answersFormat, { boolean: 0, choice: 1, freeform: 0 });
   });
 
@@ -196,7 +220,7 @@ describe("applySeasonRollover", () => {
         },
       ],
     };
-    applySeasonRollover(state, "season-2026-05", now);
+    applySeasonRollover(state, "season-2026-05", now, "UTC");
     assert.equal(state.seasons[1].format?.questions.length, 2);
     assert.equal(state.seasons[1].format?.questions[0].label, "GK");
     assert.deepEqual(state.seasons[1].format?.questions[1].categories, ["History"]);
@@ -217,7 +241,7 @@ describe("applySeasonRollover", () => {
     state.seasons[0].format = {
       questions: [{ label: "GK" }, { label: "Science", categories: ["Science"] }],
     };
-    applySeasonRollover(state, "season-2026-05", now);
+    applySeasonRollover(state, "season-2026-05", now, "UTC");
     const continuation = state.seasons[1];
     // Season-level themed pool is dropped (resolves via cascade)...
     assert.equal(continuation.categories, undefined);
@@ -230,7 +254,7 @@ describe("applySeasonRollover", () => {
     const now = Date.UTC(2026, 4, 31, 12, 0, 0, 0);
     const state = makeActiveState(now, "season-2026-05");
     // Closing season has no answersFormat and no format
-    applySeasonRollover(state, "season-2026-05", now);
+    applySeasonRollover(state, "season-2026-05", now, "UTC");
     assert.equal(state.seasons[1].answersFormat, undefined);
     assert.equal(state.seasons[1].format, undefined);
     // Season-level categories are NOT carried forward either — the continuation
@@ -247,7 +271,7 @@ describe("applySeasonRollover", () => {
       expectedEndAt: now + 30 * 24 * 60 * 60 * 1000,
       categories: ["Cephalopods"],
     });
-    const out = applySeasonRollover(state, "season-2026-05", now);
+    const out = applySeasonRollover(state, "season-2026-05", now, "UTC");
     assert.equal(state.seasons.length, 2);
     assert.equal(out.newSeasonStarted, undefined);
   });
@@ -264,7 +288,7 @@ describe("applySeasonRollover", () => {
       categories: ["Cephalopods"],
       format: stagedFormat,
     });
-    applySeasonRollover(state, "season-2026-05", now);
+    applySeasonRollover(state, "season-2026-05", now, "UTC");
     // Staged season retains its OWN format, not the closing one's
     assert.equal(state.seasons[1].format?.questions[0].label, "STAGED");
   });
@@ -272,9 +296,20 @@ describe("applySeasonRollover", () => {
   it("when no continuation overlap is possible, both seasonClosed and newSeasonStarted are true on first run", () => {
     const now = Date.UTC(2026, 4, 31, 12, 0, 0, 0);
     const state = makeActiveState(now, "season-2026-05");
-    const out = applySeasonRollover(state, "season-2026-05", now);
+    const out = applySeasonRollover(state, "season-2026-05", now, "UTC");
     assert.equal(out.seasonClosed, true);
     assert.ok(out.newSeasonStarted);
+  });
+
+  it("computes the continuation season's expectedEndAt in the supplied timezone", () => {
+    const now = Date.UTC(2026, 6, 15, 12, 0, 0, 0); // mid-July 2026
+    const state = makeActiveState(now, "season-2026-07");
+    const out = applySeasonRollover(state, "season-2026-07", now, "America/New_York", undefined);
+    assert.ok(out.newSeasonStarted);
+    assert.equal(out.newSeasonStarted?.slug, "season-2026-08");
+    // August 2026's last local instant in New York = Sep 1 04:00:00 UTC minus 1 ms.
+    assert.equal(out.newSeasonStarted?.expectedEndAt, Date.UTC(2026, 8, 1, 4, 0, 0) - 1);
+    assert.equal(state.seasons[1].expectedEndAt, Date.UTC(2026, 8, 1, 4, 0, 0) - 1);
   });
 
   describe("teams stamping", () => {
@@ -293,7 +328,7 @@ describe("applySeasonRollover", () => {
     it("stamps the effective roster + scoring mode at close when teams mode is on", () => {
       const now = Date.UTC(2026, 4, 31, 12, 0, 0, 0);
       const state = makeActiveState(now, "season-2026-05");
-      const out = applySeasonRollover(state, "season-2026-05", now, {
+      const out = applySeasonRollover(state, "season-2026-05", now, "UTC", {
         game: gameTier,
         workspace: null,
       });
@@ -307,7 +342,7 @@ describe("applySeasonRollover", () => {
     it("does NOT stamp when teams mode is off", () => {
       const now = Date.UTC(2026, 4, 31, 12, 0, 0, 0);
       const state = makeActiveState(now, "season-2026-05");
-      const out = applySeasonRollover(state, "season-2026-05", now, {
+      const out = applySeasonRollover(state, "season-2026-05", now, "UTC", {
         game: { ...gameTier, teamsEnabled: false },
         workspace: null,
       });
@@ -319,7 +354,7 @@ describe("applySeasonRollover", () => {
       const now = Date.UTC(2026, 4, 31, 12, 0, 0, 0);
       const state = makeActiveState(now, "season-2026-05");
       const { teams: _dropped, ...rosterlessGame } = gameTier;
-      applySeasonRollover(state, "season-2026-05", now, {
+      applySeasonRollover(state, "season-2026-05", now, "UTC", {
         game: rosterlessGame,
         workspace: null,
       });
@@ -334,7 +369,7 @@ describe("applySeasonRollover", () => {
         teamsScoring: "one-right-is-right" as const,
       };
       state.seasons[0].teamsStamp = original;
-      const out = applySeasonRollover(state, "season-2026-05", now, {
+      const out = applySeasonRollover(state, "season-2026-05", now, "UTC", {
         game: gameTier,
         workspace: null,
       });
@@ -346,7 +381,7 @@ describe("applySeasonRollover", () => {
       const now = Date.UTC(2026, 4, 31, 12, 0, 0, 0);
       const state = makeActiveState(now, "season-2026-05");
       state.seasons[0].endedAt = now - 1000;
-      const out = applySeasonRollover(state, "season-2026-05", now, {
+      const out = applySeasonRollover(state, "season-2026-05", now, "UTC", {
         game: gameTier,
         workspace: null,
       });
@@ -363,7 +398,7 @@ describe("applySeasonRollover", () => {
       const state = makeActiveState(now, "season-2026-05");
       const seasonRoster = [{ name: "Gold", userIds: ["U7"] }];
       state.seasons[0].teams = seasonRoster;
-      applySeasonRollover(state, "season-2026-05", now, {
+      applySeasonRollover(state, "season-2026-05", now, "UTC", {
         game: gameTier,
         workspace: null,
       });
@@ -375,7 +410,7 @@ describe("applySeasonRollover", () => {
       const state = makeActiveState(now, "season-2026-05");
       state.seasons[0].teams = ROSTER;
       state.seasons[0].teamsEnabled = true;
-      const out = applySeasonRollover(state, "season-2026-05", now, {
+      const out = applySeasonRollover(state, "season-2026-05", now, "UTC", {
         game: null,
         workspace: null,
       });
@@ -391,7 +426,7 @@ describe("applySeasonRollover", () => {
       const state = makeActiveState(now, "season-2026-05");
       state.seasons[0].teams = ROSTER;
       state.seasons[0].teamsEnabled = true;
-      const out = applySeasonRollover(state, "season-2026-05", now);
+      const out = applySeasonRollover(state, "season-2026-05", now, "UTC");
       assert.equal(out.teamsStamped, undefined);
       assert.equal(state.seasons[0].teamsStamp, undefined);
     });
@@ -410,7 +445,7 @@ describe("applySeasonRollover", () => {
         },
       ],
     };
-    const out = applySeasonRollover(state, "season-2026-10", now);
+    const out = applySeasonRollover(state, "season-2026-10", now, "UTC");
     assert.equal(out.seasonClosed, true);
     assert.ok(out.newSeasonStarted);
     const continuation = state.seasons[1];

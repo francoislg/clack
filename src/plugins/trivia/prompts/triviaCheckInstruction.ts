@@ -240,7 +240,7 @@ Seasons are enabled for this deployment. Seasons live on a single timeline (\`se
 When an admin asks to **prepare a future season** (e.g. "set up next month's season as marine-biology"):
 
 1. Derive a slug from \`trivia.seasons.prompt\` plus the date / admin intent.
-2. Derive \`startedAt\` and \`expectedEndAt\` matching the prompt's cadence.
+2. Derive \`startedAt\` and \`expectedEndAt\` matching the prompt's cadence. These instants are computed in the game's configured \`timezone\`, so "the season ends on <date>" means the LAST MILLISECOND OF THAT DAY IN THE GAME'S TIMEZONE — a UTC end-of-day value ends the season one reveal early for games whose reveal fires in the evening local time.
 3. If the season has a clear theme, generate a list of ~20 themed categories for the theme and pass them as \`categories\`. The new season's pool will be EXACTLY that list (themed seasons are purely themed, not "baseline + a few themed"). If there is no clear theme, **OMIT** \`categories\` — the new season's pool will be inherited from the game / global cascade. Do NOT pass \`categories: null\` on CREATE (that's reserved for UPDATE).
 4. Call \`upsert_season(slug, { startedAt, expectedEndAt, categories? })\`. The overlap invariant ensures it slots cleanly into the timeline.
 

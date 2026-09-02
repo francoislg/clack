@@ -1,6 +1,12 @@
 import { triviaLogger as logger } from "../../core/pluginLogger.js";
 import { findNextSeason, validateNoOverlap } from "../../core/seasonTimeline.js";
 import { resolveTeamsConfig } from "../../domain/teams/resolveTeamsConfig.js";
+import {
+  monthInZone,
+  nextMonth,
+  endOfMonthInZone,
+  seasonSlug,
+} from "../../domain/monthBoundaries.js";
 import type { LeaderboardEntry } from "../../domain/computeLeaderboard.js";
 import type { SeasonsState, SeasonEntry } from "../../core/types.js";
 import type { TriviaConfig, TriviaGame } from "../../core/configTypes.js";
@@ -38,26 +44,16 @@ export function pickSeasonMvp(leaderboard: LeaderboardEntry[]): SeasonStatusOut[
 }
 
 /**
- * Derive the next season's slug (`season-YYYY-MM`) for the calendar month after
- * `after`, plus the end-of-that-month UTC timestamp.
+ * Derive the next season's slug (`season-YYYY-MM`) for the calendar month AFTER the
+ * one containing `after` as read in `timezone`, plus the end instant — the last
+ * millisecond of that month in the same zone.
  */
-export function deriveNextMonthSlug(after: number): { slug: string; expectedEndAt: number } {
-  const d = new Date(after);
-  const nextMonthStart = Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 1, 0, 0, 0, 0);
-  const start = new Date(nextMonthStart);
-  const yyyy = start.getUTCFullYear();
-  const mm = String(start.getUTCMonth() + 1).padStart(2, "0");
-  const slug = `season-${yyyy}-${mm}`;
-  const expectedEndAt = Date.UTC(
-    start.getUTCFullYear(),
-    start.getUTCMonth() + 1,
-    0,
-    23,
-    59,
-    59,
-    999,
-  );
-  return { slug, expectedEndAt };
+export function deriveNextMonthSlug(
+  after: number,
+  timezone: string,
+): { slug: string; expectedEndAt: number } {
+  const target = nextMonth(monthInZone(after, timezone));
+  return { slug: seasonSlug(target), expectedEndAt: endOfMonthInZone(target, timezone) };
 }
 
 export interface RolloverOutcome {
@@ -103,11 +99,15 @@ export interface RolloverTeamsContext {
  *
  * Returns the outcome flags so the caller can populate `seasonStatus` AND decide
  * whether to persist the mutated state.
+ *
+ * `timezone` is the game's IANA timezone, the calendar the continuation season's
+ * month and end instant are computed in.
  */
 export function applySeasonRollover(
   state: SeasonsState,
   currentSlug: string,
   now: number,
+  timezone: string,
   teamsCtx?: RolloverTeamsContext,
   opts?: { skipContinuation?: boolean },
 ): RolloverOutcome {
@@ -135,7 +135,7 @@ export function applySeasonRollover(
 
   const next = findNextSeason(state, now);
   if (opts?.skipContinuation !== true && next === null && closingSnapshot !== null) {
-    const { slug, expectedEndAt } = deriveNextMonthSlug(now);
+    const { slug, expectedEndAt } = deriveNextMonthSlug(now, timezone);
     const fresh: SeasonEntry = {
       slug,
       startedAt: now,

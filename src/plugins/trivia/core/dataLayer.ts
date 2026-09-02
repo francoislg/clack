@@ -1,7 +1,9 @@
 import { z } from "zod";
 import type { ClackSdk } from "../../../plugins-sdk/sdk.js";
-import { loadTriviaConfig } from "./configBridge.js";
+import { loadTriviaConfig, defaultGetGames } from "./configBridge.js";
+import { findGame } from "./gamesRegistry.js";
 import { findCurrentSeason } from "./seasonTimeline.js";
+import { monthInZone, seasonSlug, endOfMonthInZone } from "../domain/monthBoundaries.js";
 import type {
   TriviaQuestion,
   TriviaUser,
@@ -57,14 +59,8 @@ function isSeasonsEnabled(): boolean {
   return loadTriviaConfig()?.seasons?.enabled === true;
 }
 
-function initialSeasonSlug(now: Date): string {
-  const yyyy = now.getUTCFullYear();
-  const mm = String(now.getUTCMonth() + 1).padStart(2, "0");
-  return `season-${yyyy}-${mm}`;
-}
-
-function endOfCurrentMonthUtc(now: Date): number {
-  return Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0, 23, 59, 59, 999);
+function gameTimezone(name: string): string | undefined {
+  return findGame(defaultGetGames(), name)?.timezone;
 }
 
 export function createSdkDataLayer(sdk: ClackSdk): TriviaDataLayer {
@@ -185,6 +181,8 @@ export function createSdkDataLayer(sdk: ClackSdk): TriviaDataLayer {
      * find the file and skip the seed. The starter entry has no `categories` field —
      * it inherits from the cascade (game's `categories` if set, else the global
      * `categories.json`). See `resolveActiveCategories` in `../domain/categories.ts`.
+     * The starter season's month and end instant are resolved in the game's configured
+     * timezone, so the window closes with the last local day of the month.
      */
     async function loadSeasonsState(): Promise<SeasonsState | null> {
       const raw = await sdk.readFile(sPath);
@@ -193,13 +191,20 @@ export function createSdkDataLayer(sdk: ClackSdk): TriviaDataLayer {
         return parsed;
       }
       if (!isSeasonsEnabled()) return null;
-      const now = new Date();
+      const now = Date.now();
+      const timezone = gameTimezone(name);
+      if (timezone === undefined) {
+        sdk.logger.warn(
+          `trivia: game "${name}" is absent from config; seeding its starter season on UTC month boundaries`,
+        );
+      }
+      const month = monthInZone(now, timezone);
       const seeded: SeasonsState = {
         seasons: [
           {
-            slug: initialSeasonSlug(now),
-            startedAt: now.getTime(),
-            expectedEndAt: endOfCurrentMonthUtc(now),
+            slug: seasonSlug(month),
+            startedAt: now,
+            expectedEndAt: endOfMonthInZone(month, timezone),
           },
         ],
       };

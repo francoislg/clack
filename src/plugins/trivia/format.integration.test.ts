@@ -300,7 +300,7 @@ describe("Trivia question-format end-to-end flow", () => {
       ],
     };
 
-    applySeasonRollover(state, "season-2026-05", now);
+    applySeasonRollover(state, "season-2026-05", now, "UTC");
 
     assert.equal(state.seasons.length, 2);
     const continuation = state.seasons[1];

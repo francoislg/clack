@@ -46,6 +46,11 @@ afterEach(() => {
 const WIND_DOWN_GAMES: readonly TriviaGame[] = [{ ...FIXTURE_GAMES[0], disableAfterRound: true }];
 const windDownGetGames = () => WIND_DOWN_GAMES;
 
+// A game in a real IANA zone (EDT = UTC-4 mid-year) so its month boundaries
+// diverge from UTC — derived by spread, never mutating the shared UTC fixture.
+const NY_GAMES: readonly TriviaGame[] = [{ ...FIXTURE_GAMES[0], timezone: "America/New_York" }];
+const nyGetGames = () => NY_GAMES;
+
 function makeTool(data: FakeTriviaDataLayer, getGames = fixtureGetGames) {
   return createEndSeasonTool(data, getGames);
 }
@@ -88,6 +93,47 @@ describe("end_season", () => {
     const s1 = state?.seasons.find((s) => s.slug === "s1");
     assert.ok(s1?.endedAt !== undefined, "s1 should be stamped endedAt");
     assert.equal(state?.seasons.length, 2);
+  });
+
+  it("computes the continuation's expectedEndAt in the game's timezone, not UTC", async () => {
+    // Mid-July 2026: EDT (UTC-4) is in force, so the New York month end diverges
+    // from the UTC month end by four hours — the wiring this test guards.
+    vi.setSystemTime(new Date(Date.UTC(2026, 6, 15, 12, 0, 0, 0)));
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk);
+    const { dataLayer: data } = createTriviaDataLayer(sdk);
+    const scoped = data.forGame(FIXTURE_GAME_NAME);
+    const now = Date.now();
+    // expectedEndAt just after `now` → the next reveal fire lands past it, so the
+    // last-fire guard passes without force (mirrors the continuation test above).
+    await scoped.saveSeasonsState({
+      seasons: [{ slug: "s1", startedAt: now - DAY, expectedEndAt: now + 60_000 }],
+    });
+
+    const res = parseToolResult(
+      await makeTool(data, nyGetGames).handler(
+        { game: FIXTURE_GAME_NAME, force: undefined },
+        SESSION,
+      ),
+    );
+
+    assert.equal(res.seasonClosed, true);
+    assert.ok(res.newSeasonStarted, "a continuation should be created");
+    assert.equal(res.newSeasonStarted.slug, "season-2026-08");
+
+    // Aug 2026 ends at Sep 1 00:00 EDT = Sep 1 04:00 UTC; the last NY ms is one before.
+    const nyEndOfAugust = Date.UTC(2026, 8, 1, 4, 0, 0) - 1;
+    const utcEndOfAugust = Date.UTC(2026, 7, 31, 23, 59, 59, 999);
+    assert.equal(res.newSeasonStarted.expectedEndAt, nyEndOfAugust);
+    assert.notEqual(
+      res.newSeasonStarted.expectedEndAt,
+      utcEndOfAugust,
+      "must NOT be the UTC month end — that is what fails if the timezone arg is dropped",
+    );
+
+    const state = await scoped.loadSeasonsState();
+    const continuation = state?.seasons.find((s) => s.slug === "season-2026-08");
+    assert.equal(continuation?.expectedEndAt, nyEndOfAugust);
   });
 
   it("honors an already-queued future continuation without duplicating it", async () => {

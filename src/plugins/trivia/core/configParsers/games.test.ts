@@ -406,3 +406,22 @@ describe("parseTriviaGames — lockCron", () => {
     assert.equal(issues[0].field, "trivia.games[0].lockCron");
   });
 });
+
+describe("parseTriviaGames — timezone", () => {
+  it("rejects the whole entry when the timezone is not a recognized IANA zone", () => {
+    const { games, issues } = parseTriviaGames([{ ...validBase, timezone: "Not/AZone" }]);
+    assert.equal(games?.length, 0);
+    assert.ok(issues.some((i) => i.field === "trivia.games[0].timezone"));
+    assert.match(
+      issues.find((i) => i.field === "trivia.games[0].timezone")!.error,
+      /not a recognized IANA timezone/,
+    );
+  });
+
+  it("accepts a valid IANA timezone", () => {
+    const { games, issues } = parseTriviaGames([{ ...validBase, timezone: "America/New_York" }]);
+    assert.equal(issues.length, 0);
+    assert.equal(games?.length, 1);
+    assert.equal(games?.[0].timezone, "America/New_York");
+  });
+});

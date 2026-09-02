@@ -147,6 +147,7 @@ export function createEndSeasonTool(
         state,
         current.slug,
         now,
+        game.timezone,
         { game, workspace: getTriviaConfigFn() },
         { skipContinuation: windingDown },
       );

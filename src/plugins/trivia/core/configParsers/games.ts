@@ -156,6 +156,17 @@ export function parseTriviaGame(
     issues.push({ field: `${fieldPrefix}.timezone`, error: "must be a non-empty IANA tz string" });
     return { game: null, issues };
   }
+  // cron-parser accepts an unvalidated `tz`, only throwing on `.next()` at runtime, so
+  // probe the zone directly: `Intl.DateTimeFormat` throws on an unrecognized IANA name.
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: timezone });
+  } catch {
+    issues.push({
+      field: `${fieldPrefix}.timezone`,
+      error: `"${timezone}" is not a recognized IANA timezone`,
+    });
+    return { game: null, issues };
+  }
 
   // prepCron / lockCron are LENIENT: a malformed value drops the field with a logged
   // issue but the game still loads with that cron not emitted. This contrasts with

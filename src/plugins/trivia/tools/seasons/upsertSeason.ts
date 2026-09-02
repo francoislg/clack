@@ -103,7 +103,7 @@ export function createUpsertSeasonTool(
 ) {
   return tool(
     "upsert_season",
-    "Create a new trivia season or update an existing one (identified by slug) within a specific game. Slug is immutable — to rename, delete + upsert. Validates no overlap within this game's timeline. On CREATE: requires startedAt + expectedEndAt. If `categories` is provided (and non-empty), the new season's pool is EXACTLY that list — use this for themed seasons. If `categories` is omitted (or `[]`), the new season is written WITHOUT a `categories` field — the pool resolves via the cascade slot → season → game → globalCategories. `categories: null` is rejected on CREATE (use omit instead). On UPDATE: applies omit-to-keep semantics; cannot mutate startedAt of an already-started season ONCE it has questions stamped to it. `categories` accepts `null` on UPDATE to CLEAR the field (drops the season back into cascade-inheritance). A non-empty `categories` array replaces the field; `[]` is rejected (pass `null` to clear). `theme`, `answersFormat`, `questionType`, `freeformAnswerShape`, `contexts`, `difficulty`, `difficultyRatio`, and `format` also accept `null` on UPDATE to clear. Use endedAt to mark a season as closed.",
+    "Create a new trivia season or update an existing one (identified by slug) within a specific game. Slug is immutable — to rename, delete + upsert. Validates no overlap within this game's timeline. On CREATE: requires startedAt + expectedEndAt. If `categories` is provided (and non-empty), the new season's pool is EXACTLY that list — use this for themed seasons. If `categories` is omitted (or `[]`), the new season is written WITHOUT a `categories` field — the pool resolves via the cascade slot → season → game → globalCategories. `categories: null` is rejected on CREATE (use omit instead). On UPDATE: applies omit-to-keep semantics; cannot mutate startedAt of an already-started season ONCE it has questions stamped to it. `categories` accepts `null` on UPDATE to CLEAR the field (drops the season back into cascade-inheritance). A non-empty `categories` array replaces the field; `[]` is rejected (pass `null` to clear). `theme`, `answersFormat`, `questionType`, `freeformAnswerShape`, `contexts`, `difficulty`, `difficultyRatio`, and `format` also accept `null` on UPDATE to clear. Use endedAt to mark a season as closed. `startedAt`/`expectedEndAt` are interpreted in the game's configured `timezone` (not UTC), so they must be the LOCAL start/end-of-day instants in that zone.",
     {
       game: z
         .string()
@@ -115,11 +115,18 @@ export function createUpsertSeasonTool(
         .describe(
           "Non-empty kebab-case identifier. Treated as immutable key (no rename via this tool). Unique within this game's timeline.",
         ),
-      startedAt: z.number().optional().describe("Unix-ms when the season's active window begins."),
+      startedAt: z
+        .number()
+        .optional()
+        .describe(
+          "Unix-ms when the season's active window begins. Interpreted in the GAME's configured `timezone`, NOT UTC — a season meant to start with a local day must use that day's LOCAL start-of-day (00:00:00.000 in the game's zone).",
+        ),
       expectedEndAt: z
         .number()
         .optional()
-        .describe("Unix-ms when the season's active window is expected to close."),
+        .describe(
+          "Unix-ms when the season's active window is expected to close. Interpreted in the GAME's configured `timezone`, NOT UTC — a season meant to run through the end of a local day must use that day's LOCAL end-of-day. A season ending with the last local day of a month must be the last millisecond of that day IN THE GAME'S TIMEZONE: for `America/New_York` in July that is `2026-08-01T03:59:59.999Z`, NOT `2026-07-31T23:59:59.999Z`. The season's last reveal is detected by comparing the next reveal-cron fire — which fires in the game's timezone — against this value, so a UTC-midnight value ends the season one fire early for evening reveals.",
+        ),
       endedAt: z
         .number()
         .optional()
