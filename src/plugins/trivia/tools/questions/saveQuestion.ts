@@ -271,13 +271,11 @@ export function createSaveQuestionTool(
         gameEntry,
         slotIndexForResolution,
         config,
+        { at: Date.now() },
       );
 
       const { pool: slotCategories, source: categoriesSource } = resolveActiveCategoriesWithSource(
-        effectiveFormat,
-        slotIndexForResolution,
-        currentSeasonEntry,
-        gameEntry,
+        cascadeCtx,
         globalCategories,
       );
       const categoryLower = args.category.toLowerCase();
@@ -373,6 +371,7 @@ export function createSaveQuestionTool(
         emojis: args.emojis,
         createdAt: Date.now(),
         ...(currentSeasonSlug !== null ? { season: currentSeasonSlug } : {}),
+        ...(cascadeCtx.seasonPhase !== null ? { phase: cascadeCtx.seasonPhase.slug } : {}),
         ...(slotStamp !== null ? { slot: slotStamp } : {}),
         ...(args.suggestedDifficulty !== undefined
           ? { suggestedDifficulty: args.suggestedDifficulty }

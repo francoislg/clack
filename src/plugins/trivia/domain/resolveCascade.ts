@@ -7,10 +7,11 @@
  * `post_questions` (`liveAnswersVisible`/`revealResponses`) — call this, and so does the
  * `explain_cascade` audit tool, so value and provenance can never disagree.
  *
- * - Uniform first-wins axes (10) are walked generically by key: slot → season → game →
+ * - Uniform first-wins axes (13) are walked generically by key over the 6-tier
+ *   `CASCADE_TIER_ORDER`: seasonSlot → seasonPhase → season → gameSlot → game →
  *   workspace → built-in default.
- * - Custom axes (3) delegate to their existing resolvers for the VALUE (byte-identical to
- *   pre-refactor behavior) and compute provenance for the ladder:
+ * - Custom axes (3) delegate to their dedicated resolvers for the VALUE and compute
+ *   provenance for the ladder:
  *     - `difficulty` — per-field merge, answersFormat-keyed; reports `"merged"` when fields span tiers.
  *     - `difficultyRatio` — answersFormat-keyed first-wins.
  *     - `additionalInstructions` — cumulative concat across tiers; reports `"merged"`.
@@ -38,7 +39,7 @@ import type {
   CustomResolveOpts,
   ResolvedAxisValue,
 } from "../core/cascadeAxes.js";
-import { CASCADE_TIER_ORDER } from "../core/cascadeAxes.js";
+import { CASCADE_TIER_ORDER, tierObjects } from "../core/cascadeAxes.js";
 import type { TriviaAnswersFormat } from "../core/types.js";
 import { resolveDifficultyRanges, resolveDifficultyRatio } from "./difficulty.js";
 
@@ -54,21 +55,11 @@ type CustomAxisKey = "difficulty" | "difficultyRatio" | "additionalInstructions"
 /** The axes the generic walker handles: their resolved type IS their field type. */
 type FirstWinsKey = Exclude<keyof CascadeAxes, CustomAxisKey>;
 
-/** The four tier objects of a context, in precedence order. */
-function tierObjects(ctx: CascadeContext): Record<ConcreteTier, CascadeAxes | null> {
-  return {
-    seasonSlot: ctx.seasonSlot,
-    season: ctx.season,
-    gameSlot: ctx.gameSlot,
-    game: ctx.game,
-    workspace: ctx.config,
-  };
-}
-
 /**
- * Generic first-wins walk over slot → season → game → workspace → default. Reads each
- * tier by key (every tier extends `CascadeAxes`) and returns the first defined value
- * (or the registry default), with a ladder of the four concrete tiers' raw values.
+ * Generic first-wins walk over `CASCADE_TIER_ORDER` (seasonSlot → seasonPhase → season →
+ * gameSlot → game → workspace → default). Reads each tier by key (every tier extends
+ * `CascadeAxes`) and returns the first defined value (or the registry default), with a
+ * ladder of the six concrete tiers' raw values.
  *
  * Constrained to `FirstWinsKey`, for which the field type and the resolved type
  * coincide, so the read value is a sound `ResolvedAxisValue<K>` once narrowed.
@@ -175,6 +166,7 @@ const ADDITIONAL_INSTRUCTIONS_LABEL: Record<ConcreteTier, (slotIndex: number | n
   game: () => "[Game]",
   gameSlot: (i) => `[Game Slot ${i ?? 0}]`,
   season: () => "[Season]",
+  seasonPhase: () => "[Phase]",
   seasonSlot: (i) => `[Season Slot ${i ?? 0}]`,
 };
 

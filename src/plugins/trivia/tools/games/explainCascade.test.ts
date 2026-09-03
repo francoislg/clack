@@ -129,3 +129,86 @@ describe("explain_cascade", () => {
     assert.equal(parsed.coordinates[1].slot, 1);
   });
 });
+
+describe("explain_cascade — season phases", () => {
+  const DAY = 86_400_000;
+  const seasonsConfig: TriviaConfig = { seasons: { enabled: true, prompt: "p" } };
+  let data: FakeTriviaDataLayer;
+
+  beforeEach(() => {
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk, { seasons: { enabled: true, prompt: "p" } });
+    data = createTriviaDataLayer(sdk).dataLayer;
+  });
+
+  // A current season (window contains `now`) whose active slice at `now` is the
+  // open-ended "finale" — "opening" occupies the first 5 days and has already elapsed.
+  async function seedPhasedSeason(): Promise<void> {
+    const now = Date.now();
+    await data.forGame("g").saveSeasonsState({
+      seasons: [
+        {
+          slug: "s1",
+          startedAt: now - 10 * DAY,
+          expectedEndAt: now + 10 * DAY,
+          phases: [
+            { slug: "opening", days: 5 },
+            { slug: "finale", judgeLeniency: "lenient" },
+          ],
+        },
+      ],
+    });
+  }
+
+  it("names the active phase and its computed window", async () => {
+    await seedPhasedSeason();
+    const tool = createExplainCascadeTool(
+      data,
+      () => seasonsConfig,
+      () => [baseGame],
+    );
+    const parsed = parseToolResult(
+      await tool.handler({ game: "g", slot: undefined, answersFormat: undefined }, SESSION),
+    );
+    assert.equal(parsed.activePhase.slug, "finale");
+    assert.equal(typeof parsed.activePhase.start, "number");
+    assert.equal(typeof parsed.activePhase.end, "number");
+    assert.ok(parsed.activePhase.start < parsed.activePhase.end);
+  });
+
+  it("reports tier seasonPhase for an axis only the active phase sets", async () => {
+    await seedPhasedSeason();
+    const tool = createExplainCascadeTool(
+      data,
+      () => seasonsConfig,
+      () => [baseGame],
+    );
+    const parsed = parseToolResult(
+      await tool.handler({ game: "g", slot: undefined, answersFormat: undefined }, SESSION),
+    );
+    const jl = parsed.coordinates[0].axes.judgeLeniency;
+    assert.equal(jl.value, "lenient");
+    assert.equal(jl.tier, "seasonPhase");
+    const rung = jl.ladder.find((r: { tier: string }) => r.tier === "seasonPhase");
+    assert.equal(rung.winner, true);
+    assert.equal(rung.present, true);
+  });
+
+  it("reports activePhase: null for a current season that declares no phases", async () => {
+    const now = Date.now();
+    await data.forGame("g").saveSeasonsState({
+      seasons: [{ slug: "s1", startedAt: now - DAY, expectedEndAt: now + DAY }],
+    });
+    const tool = createExplainCascadeTool(
+      data,
+      () => seasonsConfig,
+      () => [baseGame],
+    );
+    const parsed = parseToolResult(
+      await tool.handler({ game: "g", slot: undefined, answersFormat: undefined }, SESSION),
+    );
+    assert.equal(parsed.activePhase, null);
+    assert.equal(parsed.coordinates.length, 1);
+    assert.equal(parsed.coordinates[0].slot, null);
+  });
+});

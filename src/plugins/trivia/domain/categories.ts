@@ -1,5 +1,4 @@
-import type { SeasonEntry } from "../core/types.js";
-import type { SeasonFormat, SeasonFormatSlot, TriviaGame } from "../core/configTypes.js";
+import type { CascadeContext } from "../core/cascadeAxes.js";
 
 /**
  * Tier of the cascade that produced the resolved category pool. Returned by
@@ -7,7 +6,7 @@ import type { SeasonFormat, SeasonFormatSlot, TriviaGame } from "../core/configT
  * `list_seasons`) can surface inheritance state to admins without re-deriving
  * the cascade themselves.
  */
-export type CategorySource = "slot" | "season" | "game" | "global";
+export type CategorySource = "slot" | "phase" | "season" | "game" | "global";
 
 export interface ResolvedCategories {
   pool: string[];
@@ -17,29 +16,33 @@ export interface ResolvedCategories {
 /**
  * Resolver that returns BOTH the resolved pool and the tier that produced it.
  * Cascade:
- *   `slot.categories → season.categories → game.categories → globalCategories`.
+ *   `slot.categories → phase.categories → season.categories → game.categories → globalCategories`.
  *
- * `slotIndex` is consulted only when an effective format is present (either the
- * season's or the game's, resolved via `resolveEffectiveFormat`).
+ * Takes a `CascadeContext` (built by `buildCascadeContext`): the slot is read
+ * from `ctx.seasonSlot ?? ctx.gameSlot` (the season slot overrides the game
+ * slot), the phase from `ctx.seasonPhase`, and the season/game from `ctx.season`
+ * / `ctx.game`. An empty `categories` array on the phase or season tier counts
+ * as absent and falls through to the next tier.
  *
  * `globalCategories` is the always-present floor (loaded from
  * `data/plugins/trivia/categories.json`). The function never returns an empty
  * pool unless that floor itself is empty.
  */
 export function resolveActiveCategoriesWithSource(
-  effectiveFormat: SeasonFormat | null,
-  slotIndex: number | null,
-  currentSeason: SeasonEntry | null,
-  game: TriviaGame | null,
+  ctx: CascadeContext,
   globalCategories: string[],
 ): ResolvedCategories {
-  if (effectiveFormat !== null && slotIndex !== null) {
-    const slot: SeasonFormatSlot | undefined = effectiveFormat.questions[slotIndex];
-    if (slot?.categories !== undefined) return { pool: slot.categories, source: "slot" };
+  const slot = ctx.seasonSlot ?? ctx.gameSlot;
+  if (slot?.categories !== undefined) return { pool: slot.categories, source: "slot" };
+  const phase = ctx.seasonPhase;
+  if (phase?.categories !== undefined && phase.categories.length > 0) {
+    return { pool: phase.categories, source: "phase" };
   }
-  if (currentSeason?.categories !== undefined && currentSeason.categories.length > 0) {
-    return { pool: currentSeason.categories, source: "season" };
+  const season = ctx.season;
+  if (season?.categories !== undefined && season.categories.length > 0) {
+    return { pool: season.categories, source: "season" };
   }
+  const game = ctx.game;
   if (game?.categories !== undefined) return { pool: game.categories, source: "game" };
   return { pool: globalCategories, source: "global" };
 }
@@ -50,18 +53,6 @@ export function resolveActiveCategoriesWithSource(
  * state to Claude (or to admin UIs) should call
  * `resolveActiveCategoriesWithSource` directly.
  */
-export function resolveActiveCategories(
-  effectiveFormat: SeasonFormat | null,
-  slotIndex: number | null,
-  currentSeason: SeasonEntry | null,
-  game: TriviaGame | null,
-  globalCategories: string[],
-): string[] {
-  return resolveActiveCategoriesWithSource(
-    effectiveFormat,
-    slotIndex,
-    currentSeason,
-    game,
-    globalCategories,
-  ).pool;
+export function resolveActiveCategories(ctx: CascadeContext, globalCategories: string[]): string[] {
+  return resolveActiveCategoriesWithSource(ctx, globalCategories).pool;
 }

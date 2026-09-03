@@ -313,6 +313,17 @@ Soft guidance: aim for ≤ 10 slots per format. The system has no hard cap, but 
 
 When an admin asks **what slots a season has**, look at the season entry returned by \`list_seasons\` and read \`format.questions[]\`. When asking about a game-tier format / categories / theme, look at the \`list_games\` entry's \`format\` / \`categories\` / \`theme\` fields (surfaced only when literally set on the game).
 
+## Admin: temporal phases within a season
+
+A season may carry an optional \`phases\` array — an ordered, duration-CHAINED list of rules WINDOWS inside the season. A phase is season-scoped and it is a rules window ONLY: it changes what questions are LIKE (the same cascade axes a season carries — difficulty, contexts, categories, theme, answersFormat, …), never what a round IS or how it is SCORED. So \`phases\` cannot carry \`format\`, \`slotOverrides\`, or any scoring/identity field — \`upsert_season\` rejects a slice that does.
+
+- **Chaining.** Non-final slices declare \`days\` (their duration); the FINAL slice omits \`days\` and runs to the season's end. Slice 0 begins at the season's \`startedAt\`; each next slice begins where the previous ended.
+- **Windows are DERIVED, never stored** — they fall out of \`startedAt\` + each slice's \`days\`, so you do NOT set start/end dates. \`list_seasons\` is where you see when a phase actually flips.
+- **Precedence.** A phase sits between the season's slot overrides and the season itself (\`seasonSlot → seasonPhase → season → gameSlot → game → workspace\`), so it wins an axis only where a slot leaves it unset.
+- **Edits are forward-only.** Each question is stamped with its active phase slug at write time, so editing \`phases\` affects only questions written AFTERWARD — already-posed questions keep the rules they were posed under.
+
+Set via \`upsert_season(slug, { phases: [{ slug, days?, ...axes }, …] })\` (wholesale replace; \`null\` to clear).
+
 ## Admin: auto-rollover inherits structure, resets the themed pool
 
 When a season's last reveal fires AND no future season is queued, the trivia plugin creates a continuation season automatically. The continuation deep-copies the **structural** fields — \`answersFormat\`, \`questionType\`, \`contexts\`, AND \`format\` — from the closing season (absent fields stay absent). It does **NOT** carry forward the closing season's **season-level** \`categories\`: a themed pool is a one-month deviation, so the continuation omits \`categories\` entirely and resolves its pool via the cascade (\`game.categories → global categories.json\`). Slot-level \`format.questions[i].categories\` IS preserved (it rides along with the copied \`format\` as structural slot composition, not a theme). The continuation slug is \`season-YYYY-MM\` for the next UTC month; \`expectedEndAt\` is end-of-that-month.
@@ -476,6 +487,7 @@ Facts worth relaying when relevant:
 
 - \`upsert_season(game, slug, …)\` — Create OR update a season within a specific game. Validates no timeline overlap. Slug is immutable — to rename, delete + re-upsert. Theme / axis fields use null-to-clear, omit-to-keep semantics. Categories on CREATE: pass a list to make a themed season; omit to copy the global baseline.
 - \`delete_season(game, slug)\` — Retract a future season (only allowed when \`startedAt\` is still in the future).
+- \`phases\` (on \`upsert_season\`) — an optional ordered, duration-CHAINED array of rules WINDOWS inside a season (\`seasonSlot → seasonPhase → season → …\` in the cascade). A phase changes what questions are LIKE (the same axes a season carries), never what a round IS or how it is SCORED, so it cannot carry \`format\`, \`slotOverrides\`, or any scoring field. Non-final slices declare \`days\`; the final slice omits it and runs to the season's end. Windows are DERIVED (\`list_seasons\` shows when a phase flips), and each question is stamped with its phase slug at write time, so edits are forward-only.
 
 ### Categories
 

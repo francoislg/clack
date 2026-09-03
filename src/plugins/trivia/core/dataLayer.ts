@@ -10,10 +10,13 @@ import type {
   SubmittedAnswer,
   CheatReport,
   TeamAnswerSlot,
+  SeasonEntry,
   SeasonsState,
   TriviaDataLayer,
   ScopedTriviaDataLayer,
 } from "./types.js";
+import type { JsonObject } from "./configTypes.js";
+import { parsePhases } from "./configParsers/phases.js";
 
 const triviaUserDataZod = z.object({
   joinedAt: z.number().optional(),
@@ -30,6 +33,85 @@ const cheatsSchema = z.array(z.object({ cheaterUserId: z.string(), questionId: z
 const teamAnswersSchema = z.array(
   z.object({ teamName: z.string(), questionId: z.string(), lastAnsweredBy: z.string() }),
 );
+
+/**
+ * Permissive per-season shape gate. `looseObject` (the zod-v4 passthrough) is
+ * MANDATORY: `saveSeasonsState` writes the whole entry back, so legacy on-disk
+ * keys MUST survive the round-trip or a later save would silently discard real
+ * state. Only the load-bearing identity fields are required (a malformed one drops
+ * the entry, its siblings kept); every other modeled field is `.catch(undefined)`
+ * so a bad value drops just that field, never the entry. `phases` is validated
+ * separately via `parsePhases` in `parseSeasonsState` (it returns issues to log).
+ */
+export const seasonEntryZod = z.looseObject({
+  slug: z.string(),
+  startedAt: z.number(),
+  expectedEndAt: z.number(),
+  endedAt: z.number().optional().catch(undefined),
+  theme: z.string().optional().catch(undefined),
+  categories: z.array(z.string()).min(1).optional().catch(undefined),
+});
+
+/**
+ * Graceful reader for a `seasons.json` payload. Drops only the parts that fail to
+ * validate — a bad entry, a bad `phases` array, or a bad phase field — never the
+ * whole file, and never the sibling entries. Every warning names the season slug
+ * and the offending field. `label` names the source file in the log lines.
+ */
+export function parseSeasonsState(
+  raw: unknown,
+  sdk: ClackSdk,
+  label = "seasons.json",
+): SeasonsState {
+  if (raw === null || typeof raw !== "object" || Array.isArray(raw)) {
+    sdk.logger.warn(`trivia: ${label} is not an object; treating as empty season state`);
+    return { seasons: [] };
+  }
+  const seasonsRaw = (raw as JsonObject).seasons;
+  if (!Array.isArray(seasonsRaw)) {
+    sdk.logger.warn(`trivia: ${label} 'seasons' is not an array; treating as empty season state`);
+    return { seasons: [] };
+  }
+
+  const seasons: SeasonEntry[] = [];
+  seasonsRaw.forEach((entryRaw, i) => {
+    const parsed = seasonEntryZod.safeParse(entryRaw);
+    if (!parsed.success) {
+      const named =
+        entryRaw !== null &&
+        typeof entryRaw === "object" &&
+        !Array.isArray(entryRaw) &&
+        typeof (entryRaw as JsonObject).slug === "string"
+          ? String((entryRaw as JsonObject).slug)
+          : "(unnamed)";
+      const detail = parsed.error.issues
+        .map((issue) => `${issue.path.join(".") || "<root>"}: ${issue.message}`)
+        .join("; ");
+      sdk.logger.warn(
+        `trivia: ${label} season "${named}" (index ${i}) dropped — invalid identity field(s): ${detail}`,
+      );
+      return;
+    }
+    // `rest` carries every validated + passthrough field EXCEPT phases; phases is
+    // re-attached only when it survives its own validation (dropped whole otherwise).
+    const { phases: rawPhases, ...rest } = parsed.data;
+    if (rawPhases === undefined) {
+      seasons.push(rest as SeasonEntry);
+      return;
+    }
+    const { phases, issues } = parsePhases(rawPhases, rest.slug);
+    for (const issue of issues) {
+      sdk.logger.warn(`trivia: ${label} '${issue.field}': ${issue.error}`);
+    }
+    if (phases === undefined) {
+      seasons.push(rest as SeasonEntry);
+      return;
+    }
+    const withPhases = { ...rest, phases };
+    seasons.push(withPhases as SeasonEntry);
+  });
+  return { seasons };
+}
 
 async function readSdkJson<T>(
   sdk: ClackSdk,
@@ -187,8 +269,16 @@ export function createSdkDataLayer(sdk: ClackSdk): TriviaDataLayer {
     async function loadSeasonsState(): Promise<SeasonsState | null> {
       const raw = await sdk.readFile(sPath);
       if (raw !== null) {
-        const parsed: SeasonsState = JSON.parse(raw);
-        return parsed;
+        let parsedJson: unknown;
+        try {
+          parsedJson = JSON.parse(raw);
+        } catch (err) {
+          sdk.logger.warn(
+            `trivia: ${sPath} is not valid JSON; treating as empty season state: ${err instanceof Error ? err.message : String(err)}`,
+          );
+          return { seasons: [] };
+        }
+        return parseSeasonsState(parsedJson, sdk, sPath);
       }
       if (!isSeasonsEnabled()) return null;
       const now = Date.now();

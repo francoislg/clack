@@ -3,11 +3,16 @@
  *
  * A field is a `CascadeAxes` member iff it resolves through the PER-QUESTION
  * cascade — i.e. it participates in the slot/season tiers, not merely
- * game+workspace. Every cascade tier type (`SeasonFormatSlot`, `SeasonEntry`,
- * `TriviaGame`, `TriviaConfig`) extends this interface, so every tier shares the
- * identical axis field set keyed by `keyof CascadeAxes`. That structural property
- * is what lets `resolveCascade` read any axis off any tier by key, and what makes
- * `AXIS_REGISTRY` compile-time exhaustive.
+ * game+workspace. Every cascade tier type (`SeasonFormatSlot`, `PhaseSlice`,
+ * `SeasonEntry`, `TriviaGame`, `TriviaConfig`) extends this interface, so every
+ * tier shares the identical axis field set keyed by `keyof CascadeAxes`. That
+ * structural property is what lets `resolveCascade` read any axis off any tier by
+ * key, and what makes `AXIS_REGISTRY` compile-time exhaustive.
+ *
+ * The `seasonPhase` tier is the season's active duration-chained phase (the
+ * `PhaseSlice` whose derived time window contains `now`). It sits directly BELOW
+ * `seasonSlot` in precedence, so a slot-set axis is pinned against phase movement
+ * — the phase can only win where the slot leaves the axis unset.
  *
  * Membership (16), per the rule above:
  *   - Uniform first-wins (13): answersFormat, questionType, promptMedium,
@@ -52,7 +57,7 @@ import type {
   DifficultyRanges,
   DifficultyBucketWeights,
 } from "./configTypes.js";
-import type { SeasonEntry, TriviaAnswersFormat } from "./types.js";
+import type { SeasonEntry, PhaseSlice, TriviaAnswersFormat } from "./types.js";
 
 /** The cascading axes. See file header for membership rationale. */
 export interface CascadeAxes {
@@ -83,6 +88,7 @@ export interface CascadeAxes {
  */
 export type CascadeTier =
   | "seasonSlot"
+  | "seasonPhase"
   | "season"
   | "gameSlot"
   | "game"
@@ -90,15 +96,38 @@ export type CascadeTier =
   | "default"
   | "merged";
 
-/** The five concrete tiers a value can be read from, in precedence order. */
-export type ConcreteTier = "seasonSlot" | "season" | "gameSlot" | "game" | "workspace";
+/** The six concrete tiers a value can be read from, in precedence order. */
+export type ConcreteTier =
+  | "seasonSlot"
+  | "seasonPhase"
+  | "season"
+  | "gameSlot"
+  | "game"
+  | "workspace";
 export const CASCADE_TIER_ORDER: readonly ConcreteTier[] = [
   "seasonSlot",
+  "seasonPhase",
   "season",
   "gameSlot",
   "game",
   "workspace",
 ] as const;
+
+/**
+ * The context's tier objects keyed by tier name. The single lookup table every
+ * tier walk reads, so `CASCADE_TIER_ORDER` stays the only enumeration of tiers.
+ * Typed `Record<ConcreteTier, …>`, so an unlisted tier is a compile error.
+ */
+export function tierObjects(ctx: CascadeContext): Record<ConcreteTier, CascadeAxes | null> {
+  return {
+    seasonSlot: ctx.seasonSlot,
+    seasonPhase: ctx.seasonPhase,
+    season: ctx.season,
+    gameSlot: ctx.gameSlot,
+    game: ctx.game,
+    workspace: ctx.config,
+  };
+}
 
 /**
  * The resolution context: one object per tier, under the GAME-BASE / SEASON-OVERRIDE
@@ -118,6 +147,7 @@ export const CASCADE_TIER_ORDER: readonly ConcreteTier[] = [
  */
 export interface CascadeContext {
   seasonSlot: SeasonFormatSlot | null;
+  seasonPhase: PhaseSlice | null;
   gameSlot: SeasonFormatSlot | null;
   slotIndex: number | null;
   season: SeasonEntry | null;

@@ -32,7 +32,12 @@ import {
   validateFormat,
   validateSlotOverrides,
 } from "../../core/configParsers/format.js";
-import type { TriviaDataLayer, SeasonsState, SeasonEntry } from "../../core/types.js";
+import type { TriviaDataLayer, SeasonsState, SeasonEntry, PhaseSlice } from "../../core/types.js";
+import {
+  PHASE_DISALLOWED_KEYS,
+  normalizePhaseSlices,
+  phasesStrictZod,
+} from "../../core/configParsers/phases.js";
 import {
   REVEAL_RESPONSES_VALUES,
   answersFormatZod,
@@ -84,6 +89,52 @@ const SLOT_OVERRIDES_VS_FORMAT_MSG =
   "A season cannot set both `format` and `slotOverrides`: `format` declares the question count/structure, while `slotOverrides` layers count-decoupled per-slot deltas over the game format. Pick one.";
 
 /**
+ * Loose tool-argument schema for `phases`: an ordered array of slice objects.
+ * Only the temporal fields are typed here; the axis fields ride through via
+ * `z.looseObject` so the strict validator (`phasesStrictZod`) sees them intact.
+ * All real validation — chaining invariants and disallowed structural/scoring
+ * keys — runs in the handler so failures produce a slice-named message.
+ */
+const phasesArgZod = z.array(
+  z.looseObject({
+    slug: z.string(),
+    days: z.number().int().positive().optional(),
+    theme: z.string().optional(),
+    categories: z.array(z.string()).optional(),
+  }),
+);
+
+/**
+ * Render the first `phasesStrictZod` issue into a single line that names the
+ * offending slice's slug and field. `phases` is the RAW tool input, used only to
+ * recover the slug at the failing index (the strict `.strict()` rejection carries
+ * no slug of its own).
+ */
+function formatPhaseIssue(
+  phases: unknown,
+  issue: { code: string; path: PropertyKey[]; message: string; keys?: readonly string[] },
+): string {
+  const index = typeof issue.path[0] === "number" ? issue.path[0] : -1;
+  const slice = Array.isArray(phases) && index >= 0 ? phases[index] : undefined;
+  const slug =
+    slice && typeof slice === "object" && typeof (slice as { slug?: unknown }).slug === "string"
+      ? (slice as { slug: string }).slug
+      : `#${index}`;
+  if (issue.code === "unrecognized_keys" && issue.keys && issue.keys.length > 0) {
+    const disallowed = issue.keys.filter((k) =>
+      (PHASE_DISALLOWED_KEYS as readonly string[]).includes(k),
+    );
+    if (disallowed.length > 0) {
+      return `phase "${slug}": disallowed field(s) ${disallowed.join(", ")} — a phase changes what questions are LIKE, never how a round is scored`;
+    }
+    return `phase "${slug}": unknown field(s) ${issue.keys.join(", ")}`;
+  }
+  const field = issue.path[1];
+  const where = field !== undefined ? ` field "${String(field)}"` : "";
+  return `phase "${slug}"${where}: ${issue.message}`;
+}
+
+/**
  * Strip undefined entries from a zod-typed optional-keys map so the underlying
  * validator (which iterates Object.entries and rejects undefined) sees a clean
  * sparse JSON object. JSON literals never carry undefined; this just bridges
@@ -103,7 +154,7 @@ export function createUpsertSeasonTool(
 ) {
   return tool(
     "upsert_season",
-    "Create a new trivia season or update an existing one (identified by slug) within a specific game. Slug is immutable — to rename, delete + upsert. Validates no overlap within this game's timeline. On CREATE: requires startedAt + expectedEndAt. If `categories` is provided (and non-empty), the new season's pool is EXACTLY that list — use this for themed seasons. If `categories` is omitted (or `[]`), the new season is written WITHOUT a `categories` field — the pool resolves via the cascade slot → season → game → globalCategories. `categories: null` is rejected on CREATE (use omit instead). On UPDATE: applies omit-to-keep semantics; cannot mutate startedAt of an already-started season ONCE it has questions stamped to it. `categories` accepts `null` on UPDATE to CLEAR the field (drops the season back into cascade-inheritance). A non-empty `categories` array replaces the field; `[]` is rejected (pass `null` to clear). `theme`, `answersFormat`, `questionType`, `freeformAnswerShape`, `contexts`, `difficulty`, `difficultyRatio`, and `format` also accept `null` on UPDATE to clear. Use endedAt to mark a season as closed. `startedAt`/`expectedEndAt` are interpreted in the game's configured `timezone` (not UTC), so they must be the LOCAL start/end-of-day instants in that zone.",
+    "Create a new trivia season or update an existing one (identified by slug) within a specific game. Slug is immutable — to rename, delete + upsert. Validates no overlap within this game's timeline. On CREATE: requires startedAt + expectedEndAt. If `categories` is provided (and non-empty), the new season's pool is EXACTLY that list — use this for themed seasons. If `categories` is omitted (or `[]`), the new season is written WITHOUT a `categories` field — the pool resolves via the cascade slot → season → game → globalCategories. `categories: null` is rejected on CREATE (use omit instead). On UPDATE: applies omit-to-keep semantics; cannot mutate startedAt of an already-started season ONCE it has questions stamped to it. `categories` accepts `null` on UPDATE to CLEAR the field (drops the season back into cascade-inheritance). A non-empty `categories` array replaces the field; `[]` is rejected (pass `null` to clear). `theme`, `answersFormat`, `questionType`, `freeformAnswerShape`, `contexts`, `difficulty`, `difficultyRatio`, `format`, and `phases` also accept `null` on UPDATE to clear. `phases` declares duration-chained rules windows within the season (non-final slices declare `days`; the final slice omits it and runs to the season end) that change what questions are LIKE but never affect scoring — inspect their derived windows via `list_seasons`. Use endedAt to mark a season as closed. `startedAt`/`expectedEndAt` are interpreted in the game's configured `timezone` (not UTC), so they must be the LOCAL start/end-of-day instants in that zone.",
     {
       game: z
         .string()
@@ -196,6 +247,12 @@ export function createUpsertSeasonTool(
         .optional()
         .describe(
           'Optional sparse per-slot overrides keyed by GAME-format slot index (e.g. `{ "2": { promptMedium: { text: 0, image: 1 } } }`). Each value overrides that game slot field-by-field for THIS season only (the `seasonSlot` tier). COUNT-DECOUPLED — it never changes how many questions a fire posts (that stays the game format\'s slot count). Use this for "make question 3 an image question this season" without restating the whole format. MUTUALLY EXCLUSIVE with `format`: set one or the other, never both. On UPDATE: passing `null` clears the field. Mid-season mutation permitted.',
+        ),
+      phases: phasesArgZod
+        .nullable()
+        .optional()
+        .describe(
+          "Optional ordered TEMPORAL phases — the `seasonPhase` cascade tier. Each slice is a rules window that only changes what questions are LIKE (its axis bag: `answersFormat`, `questionType`, `difficulty`, `categories`, `theme`, `contexts`, …). Phases NEVER affect scoring or round structure: `format`, `slotOverrides`, and every scoring/team field (`teams`, `teamsEnabled`, `teamsScoring`, `answeringType`, `perfectRoundsAward`, `allTimeRow`) are REJECTED on a slice. Slices are DURATION-CHAINED — slice 0 begins at the season's `startedAt` and each later slice begins where the previous ended. Every NON-final slice MUST declare `days` (its integer duration); the FINAL slice MUST OMIT `days` (it runs to the season end, `endedAt ?? expectedEndAt`). Slugs must be unique kebab-case. Windows are DERIVED from these durations, never stored — use `list_seasons` to see the computed start/end of each slice. On UPDATE: an array replaces the whole list; `null` clears it; omitting preserves the existing value. Invalid input (duplicate slug, a non-final slice missing `days`, a final slice declaring `days`, or a disallowed structural/scoring key) is rejected with the offending slice named, leaving the season unchanged.",
         ),
       liveAnswersVisible: z
         .boolean()
@@ -403,6 +460,21 @@ export function createUpsertSeasonTool(
           return errorResult(SLOT_OVERRIDES_VS_FORMAT_MSG);
         }
 
+        let phases: PhaseSlice[] | undefined;
+        if (args.phases !== undefined && args.phases !== null) {
+          const parsedPhases = phasesStrictZod.safeParse(args.phases);
+          if (!parsedPhases.success) {
+            return errorResult(
+              `Invalid \`phases\`: ${formatPhaseIssue(args.phases, parsedPhases.error.issues[0])}`,
+            );
+          }
+          const normalized = normalizePhaseSlices(parsedPhases.data);
+          if (!normalized.ok) {
+            return errorResult(`Invalid \`phases\`: ${normalized.error}`);
+          }
+          phases = normalized.value;
+        }
+
         let theme: string | undefined;
         if (args.theme !== undefined && args.theme !== null) {
           const normalized = normalizeTheme(args.theme);
@@ -515,6 +587,7 @@ export function createUpsertSeasonTool(
           ...(difficultyRatio !== undefined ? { difficultyRatio } : {}),
           ...(format !== undefined ? { format } : {}),
           ...(slotOverrides !== undefined ? { slotOverrides } : {}),
+          ...(phases !== undefined ? { phases } : {}),
           ...(liveAnswersVisible !== undefined ? { liveAnswersVisible } : {}),
           ...(revealResponses !== undefined ? { revealResponses } : {}),
           ...(instructions !== undefined ? { instructions } : {}),
@@ -561,6 +634,8 @@ export function createUpsertSeasonTool(
           hasFormat: entry.format !== undefined,
           slotCount: entry.format?.questions.length ?? 0,
           hasSlotOverrides: entry.slotOverrides !== undefined,
+          hasPhases: entry.phases !== undefined,
+          phasesCount: entry.phases?.length ?? 0,
           hasLiveAnswersVisible: entry.liveAnswersVisible !== undefined,
           hasRevealResponses: entry.revealResponses !== undefined,
           hasInstructions: entry.instructions !== undefined,
@@ -692,6 +767,23 @@ export function createUpsertSeasonTool(
       }
       if (updatedFormat !== undefined && updatedSlotOverrides !== undefined) {
         return errorResult(SLOT_OVERRIDES_VS_FORMAT_MSG);
+      }
+
+      let updatedPhases: PhaseSlice[] | undefined = existing.phases;
+      if (args.phases === null) {
+        updatedPhases = undefined;
+      } else if (args.phases !== undefined) {
+        const parsedPhases = phasesStrictZod.safeParse(args.phases);
+        if (!parsedPhases.success) {
+          return errorResult(
+            `Invalid \`phases\`: ${formatPhaseIssue(args.phases, parsedPhases.error.issues[0])}`,
+          );
+        }
+        const normalized = normalizePhaseSlices(parsedPhases.data);
+        if (!normalized.ok) {
+          return errorResult(`Invalid \`phases\`: ${normalized.error}`);
+        }
+        updatedPhases = normalized.value;
       }
 
       let updatedTheme: string | undefined = existing.theme;
@@ -844,6 +936,7 @@ export function createUpsertSeasonTool(
           : {}),
         ...(updatedFormat !== undefined ? { format: updatedFormat } : {}),
         ...(updatedSlotOverrides !== undefined ? { slotOverrides: updatedSlotOverrides } : {}),
+        ...(updatedPhases !== undefined ? { phases: updatedPhases } : {}),
         ...(updatedLiveAnswersVisible !== undefined
           ? { liveAnswersVisible: updatedLiveAnswersVisible }
           : {}),
@@ -912,6 +1005,8 @@ export function createUpsertSeasonTool(
         hasFormat: updated.format !== undefined,
         slotCount: updated.format?.questions.length ?? 0,
         hasSlotOverrides: updated.slotOverrides !== undefined,
+        hasPhases: updated.phases !== undefined,
+        phasesCount: updated.phases?.length ?? 0,
         hasLiveAnswersVisible: updated.liveAnswersVisible !== undefined,
         hasRevealResponses: updated.revealResponses !== undefined,
         hasInstructions: updated.instructions !== undefined,

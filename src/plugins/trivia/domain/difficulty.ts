@@ -5,15 +5,18 @@ import type {
 } from "../core/configTypes.js";
 import { DEFAULT_DIFFICULTY_RANGES, DEFAULT_DIFFICULTY_RATIO } from "../core/configTypes.js";
 import type { CascadeAxes, CascadeContext } from "../core/cascadeAxes.js";
+import { CASCADE_TIER_ORDER, tierObjects } from "../core/cascadeAxes.js";
 import type { TriviaAnswersFormat } from "../core/types.js";
 
 /**
- * The cascade tiers broadest-first (workspace → … → seasonSlot). The per-field merge
- * applies them in this order so the highest-precedence tier is applied LAST and wins.
- * First-wins resolution (difficultyRatio) walks the reverse.
+ * The cascade tiers broadest-first (workspace → … → seasonSlot). Derived from
+ * `CASCADE_TIER_ORDER` (reversed) so a newly-added tier cannot be silently skipped.
+ * The per-field merge applies them in this order so the highest-precedence tier is
+ * applied LAST and wins. First-wins resolution (difficultyRatio) walks the reverse.
  */
 function tiersBroadestFirst(ctx: CascadeContext): readonly (CascadeAxes | null)[] {
-  return [ctx.config, ctx.game, ctx.gameSlot, ctx.season, ctx.seasonSlot];
+  const tiers = tierObjects(ctx);
+  return [...CASCADE_TIER_ORDER].reverse().map((tier) => tiers[tier]);
 }
 
 /**
@@ -22,8 +25,8 @@ function tiersBroadestFirst(ctx: CascadeContext): readonly (CascadeAxes | null)[
  * next-broader tier. Reads the resolved slot objects off `ctx` — never re-derives a
  * slot from `season.format`.
  *
- * Precedence (highest wins): seasonSlot → season → gameSlot → game → workspace →
- * `DEFAULT_DIFFICULTY_RANGES[format]`.
+ * Precedence (highest wins): seasonSlot → seasonPhase → season → gameSlot → game →
+ * workspace → `DEFAULT_DIFFICULTY_RANGES[format]`.
  */
 export function resolveDifficultyRanges(
   ctx: CascadeContext,
@@ -51,8 +54,8 @@ export function resolveDifficultyRanges(
  * hard }` map for the format wins; lower tiers do not contribute partial values. Reads
  * the resolved slot objects off `ctx`.
  *
- * Precedence (highest wins): seasonSlot → season → gameSlot → game → workspace →
- * `DEFAULT_DIFFICULTY_RATIO[format]`.
+ * Precedence (highest wins): seasonSlot → seasonPhase → season → gameSlot → game →
+ * workspace → `DEFAULT_DIFFICULTY_RATIO[format]`.
  */
 export function resolveDifficultyRatio(
   ctx: CascadeContext,

@@ -311,6 +311,7 @@ describe("booleanAnswerHandler", () => {
       const out = booleanAnswerHandler.rollGenerationSuggestions({
         cascadeCtx: {
           seasonSlot: null,
+          seasonPhase: null,
           gameSlot: null,
           slotIndex: null,
           season: null,

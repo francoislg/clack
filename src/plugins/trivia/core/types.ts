@@ -198,6 +198,13 @@ export interface TriviaQuestion {
   processedAt?: number;
   season?: string;
   /**
+   * Stamped by `save_question` from the resolved phase's slug at write time.
+   * Absence means "no phase tier" applied to this question. Reveal reads THIS
+   * stamp rather than the clock, so a phase boundary crossed between post and
+   * reveal cannot change a posed question's rules.
+   */
+  phase?: string;
+  /**
    * Stamped at write time when the active season has a `format`. `label` is
    * snapshotted from `format.questions[index].label` at write time (denormalized
    * the same way `season` is, so the record's meaning survives format edits).
@@ -406,6 +413,25 @@ export interface TriviaSeasonsConfig {
   prompt: string;
 }
 
+/**
+ * One temporal phase of a season. The TEMPORAL twin of `SeasonFormatSlot`: it
+ * carries the same cascade-axis bag, but a phase is selected by TIME (which
+ * duration-chained window `now` falls into) rather than by slot INDEX. `days`
+ * is the phase's duration; it is absent on the FINAL slice, which runs
+ * open-ended to the season's end.
+ *
+ * `format`, `slotOverrides`, and every scoring-identity field (`teams`,
+ * `teamsEnabled`, `teamsFinaleIndividuals`, `teamsScoring`, `answeringType`,
+ * `perfectRoundsAward`, `allTimeRow`) are deliberately EXCLUDED: a phase changes
+ * what questions are LIKE, never what a round IS or how it is SCORED.
+ */
+export interface PhaseSlice extends CascadeAxes {
+  slug: string;
+  days?: number;
+  theme?: string;
+  categories?: string[];
+}
+
 export interface SeasonEntry extends CascadeAxes {
   slug: string;
   startedAt: number;
@@ -440,6 +466,14 @@ export interface SeasonEntry extends CascadeAxes {
    * questions a fire posts. Mutually exclusive with `format`.
    */
   slotOverrides?: Record<number, SeasonFormatSlot>;
+  /**
+   * Optional ordered temporal phases. Slices are duration-CHAINED: slice 0
+   * begins at `startedAt`, and each subsequent slice begins where the previous
+   * one ended; the final slice omits `days` and runs to the season's end. The
+   * per-slice windows are DERIVED from `startedAt` + each slice's `days` (see
+   * `derivePhaseWindows`) and are NEVER stored on disk.
+   */
+  phases?: PhaseSlice[];
   /**
    * Season tier of the teams roster. Structural-special (NOT a CascadeAxes
    * member); each teams field cascades independently first-wins

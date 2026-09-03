@@ -31,6 +31,7 @@ function baseArgs(slug: string, future: number) {
     difficultyRatio: undefined,
     format: undefined,
     slotOverrides: undefined,
+    phases: undefined,
     liveAnswersVisible: undefined,
     revealResponses: undefined,
     instructions: undefined,

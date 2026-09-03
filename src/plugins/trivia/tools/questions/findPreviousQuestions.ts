@@ -73,6 +73,8 @@ function toSearchResult(
   if (q.messageLink !== undefined) result.messageLink = q.messageLink;
   if (q.processedAt !== undefined) result.processedAt = q.processedAt;
   if (q.season !== undefined) result.season = q.season;
+  // Absence means no phase tier applied when the question was posed — surfaced only when stamped.
+  if (q.phase !== undefined) result.phase = q.phase;
   if (q.slot !== undefined) result.slot = q.slot;
   if (q.suggestedDifficulty !== undefined) result.suggestedDifficulty = q.suggestedDifficulty;
   if (q.difficulty !== undefined) result.difficulty = q.difficulty;

@@ -214,6 +214,7 @@ describe("upsert_season tool", () => {
         teamsScoring: undefined,
         answeringType: undefined,
         perfectRoundsAward: undefined,
+        phases: undefined,
       },
       SESSION,
     );
@@ -265,6 +266,7 @@ describe("upsert_season tool", () => {
       teamsScoring: undefined,
       answeringType: undefined,
       perfectRoundsAward: undefined,
+      phases: undefined,
     };
 
     const created = parseToolResult(
@@ -318,6 +320,7 @@ describe("upsert_season tool", () => {
         teamsScoring: undefined,
         answeringType: undefined,
         perfectRoundsAward: undefined,
+        phases: undefined,
       },
       SESSION,
     );
@@ -362,6 +365,7 @@ describe("upsert_season tool", () => {
         teamsScoring: undefined,
         answeringType: undefined,
         perfectRoundsAward: undefined,
+        phases: undefined,
       },
       SESSION,
     );
@@ -408,6 +412,7 @@ describe("upsert_season tool", () => {
         teamsScoring: undefined,
         answeringType: undefined,
         perfectRoundsAward: undefined,
+        phases: undefined,
       },
       SESSION,
     );
@@ -456,6 +461,7 @@ describe("upsert_season tool", () => {
         teamsScoring: undefined,
         answeringType: undefined,
         perfectRoundsAward: undefined,
+        phases: undefined,
       },
       SESSION,
     );
@@ -505,6 +511,7 @@ describe("upsert_season tool", () => {
         teamsScoring: undefined,
         answeringType: undefined,
         perfectRoundsAward: undefined,
+        phases: undefined,
       },
       SESSION,
     );
@@ -555,6 +562,7 @@ describe("upsert_season tool", () => {
         teamsScoring: undefined,
         answeringType: undefined,
         perfectRoundsAward: undefined,
+        phases: undefined,
       },
       SESSION,
     );
@@ -601,6 +609,7 @@ describe("upsert_season tool", () => {
         teamsScoring: undefined,
         answeringType: undefined,
         perfectRoundsAward: undefined,
+        phases: undefined,
       },
       SESSION,
     );
@@ -645,6 +654,7 @@ describe("upsert_season tool", () => {
         teamsScoring: undefined,
         answeringType: undefined,
         perfectRoundsAward: undefined,
+        phases: undefined,
       },
       SESSION,
     );
@@ -688,6 +698,7 @@ describe("upsert_season tool", () => {
         teamsScoring: undefined,
         answeringType: undefined,
         perfectRoundsAward: undefined,
+        phases: undefined,
       },
       SESSION,
     );
@@ -731,6 +742,7 @@ describe("upsert_season tool", () => {
         teamsScoring: undefined,
         answeringType: undefined,
         perfectRoundsAward: undefined,
+        phases: undefined,
       },
       SESSION,
     );
@@ -777,6 +789,7 @@ describe("upsert_season tool", () => {
         teamsScoring: undefined,
         answeringType: undefined,
         perfectRoundsAward: undefined,
+        phases: undefined,
       },
       SESSION,
     );
@@ -825,6 +838,7 @@ describe("upsert_season tool", () => {
         teamsScoring: undefined,
         answeringType: undefined,
         perfectRoundsAward: undefined,
+        phases: undefined,
       },
       SESSION,
     );
@@ -869,6 +883,7 @@ describe("upsert_season tool", () => {
         teamsScoring: undefined,
         answeringType: undefined,
         perfectRoundsAward: undefined,
+        phases: undefined,
       },
       SESSION,
     );
@@ -920,6 +935,7 @@ describe("upsert_season tool", () => {
         teamsScoring: undefined,
         answeringType: undefined,
         perfectRoundsAward: undefined,
+        phases: undefined,
       },
       SESSION,
     );
@@ -968,6 +984,7 @@ describe("upsert_season tool", () => {
         teamsScoring: undefined,
         answeringType: undefined,
         perfectRoundsAward: undefined,
+        phases: undefined,
       },
       SESSION,
     );
@@ -1011,6 +1028,7 @@ describe("upsert_season tool", () => {
           teamsScoring: undefined,
           answeringType: undefined,
           perfectRoundsAward: undefined,
+          phases: undefined,
         },
         SESSION,
       );
@@ -1055,6 +1073,7 @@ describe("upsert_season tool", () => {
         teamsScoring: undefined,
         answeringType: undefined,
         perfectRoundsAward: undefined,
+        phases: undefined,
       },
       SESSION,
     );
@@ -1102,6 +1121,7 @@ describe("upsert_season tool", () => {
         teamsScoring: undefined,
         answeringType: undefined,
         perfectRoundsAward: undefined,
+        phases: undefined,
       },
       SESSION,
     );
@@ -1138,6 +1158,7 @@ describe("upsert_season tool", () => {
         teamsScoring: undefined,
         answeringType: undefined,
         perfectRoundsAward: undefined,
+        phases: undefined,
       },
       SESSION,
     );
@@ -1523,6 +1544,109 @@ describe("list_seasons — axis-config surfacing", () => {
     assert.equal("answersFormat" in entry.format.questions[1], false);
     assert.equal("questionType" in entry.format.questions[1], false);
     assert.equal("difficulty" in entry.format.questions[1], false);
+  });
+});
+
+// =============================================================================
+// list_seasons — derived phase timeline
+// =============================================================================
+
+interface ListedPhaseWindow {
+  slug: string;
+  start: number;
+  end: number;
+  active: boolean;
+}
+
+describe("list_seasons — phase timeline", () => {
+  let data: FakeTriviaDataLayer;
+
+  beforeEach(async () => {
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk);
+    const result = createTriviaDataLayer(sdk);
+    data = result.dataLayer;
+    await data.saveCategories(["Science"]);
+  });
+
+  it("renders computed windows and marks the active slice for a live season", async () => {
+    const now = Date.now();
+    const startedAt = now - 5 * DAY;
+    const expectedEndAt = now + 25 * DAY;
+    await seedTimeline(data, [
+      {
+        slug: "phased",
+        startedAt,
+        expectedEndAt,
+        categories: ["Science"],
+        phases: [{ slug: "a", days: 3 }, { slug: "b" }],
+      },
+    ]);
+    const tool = createListSeasonsTool(data, fixtureGetGames);
+    const parsed = parseToolResult(await tool.handler({ game: FIXTURE_GAME_NAME }, SESSION));
+    const phases = parsed.seasons[0].phases as ListedPhaseWindow[];
+
+    assert.equal(phases.length, 2);
+    assert.deepEqual(phases[0], {
+      slug: "a",
+      start: startedAt,
+      end: startedAt + 3 * DAY,
+      active: false,
+    });
+    assert.deepEqual(phases[1], {
+      slug: "b",
+      start: startedAt + 3 * DAY,
+      end: expectedEndAt,
+      active: true,
+    });
+  });
+
+  it("a phaseless season carries no phases key", async () => {
+    const now = Date.now();
+    await seedTimeline(data, [
+      {
+        slug: "plain",
+        startedAt: now - 5 * DAY,
+        expectedEndAt: now + 25 * DAY,
+        categories: ["Science"],
+      },
+    ]);
+    const tool = createListSeasonsTool(data, fixtureGetGames);
+    const parsed = parseToolResult(await tool.handler({ game: FIXTURE_GAME_NAME }, SESSION));
+    assert.equal("phases" in parsed.seasons[0], false);
+  });
+
+  it("a chain that overruns the season end renders without throwing (trailing zero-length windows)", async () => {
+    const now = Date.now();
+    const startedAt = now - 1 * DAY;
+    const expectedEndAt = now + 1 * DAY;
+    await seedTimeline(data, [
+      {
+        slug: "overrun",
+        startedAt,
+        expectedEndAt,
+        categories: ["Science"],
+        phases: [{ slug: "a", days: 10 }, { slug: "b", days: 10 }, { slug: "c" }],
+      },
+    ]);
+    const tool = createListSeasonsTool(data, fixtureGetGames);
+    const parsed = parseToolResult(await tool.handler({ game: FIXTURE_GAME_NAME }, SESSION));
+    const phases = parsed.seasons[0].phases as ListedPhaseWindow[];
+
+    assert.equal(phases.length, 3);
+    assert.deepEqual(phases[0], { slug: "a", start: startedAt, end: expectedEndAt, active: true });
+    assert.deepEqual(phases[1], {
+      slug: "b",
+      start: expectedEndAt,
+      end: expectedEndAt,
+      active: false,
+    });
+    assert.deepEqual(phases[2], {
+      slug: "c",
+      start: expectedEndAt,
+      end: expectedEndAt,
+      active: false,
+    });
   });
 });
 

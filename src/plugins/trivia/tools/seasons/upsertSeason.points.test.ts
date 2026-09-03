@@ -48,6 +48,7 @@ function makeArgs(overrides: Partial<UpsertArgs>): UpsertArgs {
     teamsScoring: undefined,
     answeringType: undefined,
     perfectRoundsAward: undefined,
+    phases: undefined,
     ...overrides,
   };
 }

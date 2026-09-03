@@ -4,6 +4,8 @@ import { textResult, errorResult } from "../../../../plugins-sdk/sdk.js";
 import { defaultGetGames, type GetGamesFn } from "../../core/configBridge.js";
 import { requireGame } from "../../core/gamesRegistry.js";
 import { resolveActiveCategoriesWithSource } from "../../domain/categories.js";
+import { buildCascadeContext } from "../../domain/cascadeContext.js";
+import { derivePhaseWindows, selectActivePhase } from "../../domain/seasonPhases.js";
 import type { TriviaDataLayer, SeasonEntry } from "../../core/types.js";
 import type {
   SeasonFormatSlot,
@@ -63,11 +65,38 @@ function mapSlot(slot: SeasonFormatSlot): ListSeasonsSlotEntry {
   };
 }
 
+interface ListSeasonsPhaseWindow {
+  slug: string;
+  /** Derived window start (Unix-ms), chained from the season's startedAt. */
+  start: number;
+  /** Derived window end (Unix-ms), clamped to the season end. */
+  end: number;
+  /** True for the one slice whose window contains `now` (none when the season isn't live). */
+  active: boolean;
+}
+
+/**
+ * Project a season's declared phases onto their DERIVED timeline: each slice's
+ * slug + computed [start, end) window, with the currently-active slice flagged.
+ * Never recomputes windows by hand — `derivePhaseWindows` owns the chaining.
+ */
+function buildPhaseTimeline(entry: SeasonEntry, now: number): ListSeasonsPhaseWindow[] {
+  const active = selectActivePhase(entry, now);
+  return derivePhaseWindows(entry).map((window) => ({
+    slug: window.slice.slug,
+    start: window.start,
+    end: window.end,
+    active: active !== null && active.slug === window.slice.slug,
+  }));
+}
+
 const DESCRIPTION = `List every season on a specific game's trivia timeline with full details — slug, dates, status flag ("past" | "current" | "future"), and the season's explicitly-set axis configuration (theme, answersFormat, questionType, freeformAnswerShape, contexts, difficulty, difficultyRatio, format, slotOverrides).
 
-Each axis field (including \`categories\`) is present on a season entry IF AND ONLY IF the season explicitly set it. Absence means that season falls through to the next tier of the cascade. Every entry additionally carries \`resolvedCategoriesCount\` and \`resolvedCategoriesSource\` ("season" | "game" | "global") so you can audit inheritance without re-deriving the cascade.
+A season that declares \`phases\` (duration-chained rules windows) also carries a \`phases\` array where each entry is the slice's \`slug\` plus its DERIVED \`start\`/\`end\` (Unix-ms, chained from the season's startedAt — never stored on disk) and an \`active\` flag marking the one slice whose window contains now. This is the only surface that shows when a phase actually flips. Seasons with no phases carry no \`phases\` key.
 
-The cascade tier order for axes is: \`slot → season → game → workspace → built-in default\`. The category cascade is: \`slot → season → game → categories.json\`. To audit the game tier (including a game's optional \`format\`, \`categories\`, and \`theme\` overrides) AND the workspace tier, call \`list_games\` — its per-entry fields surface the game tier and its \`workspaceDefaults\` block surfaces the workspace tier. Together the two tools cover every configurable tier.
+Each axis field (including \`categories\`) is present on a season entry IF AND ONLY IF the season explicitly set it. Absence means that season falls through to the next tier of the cascade. Every entry additionally carries \`resolvedCategoriesCount\` and \`resolvedCategoriesSource\` ("phase" | "season" | "game" | "global") so you can audit inheritance without re-deriving the cascade.
+
+The cascade tier order for axes is: \`seasonSlot → seasonPhase → season → gameSlot → game → workspace → built-in default\`. The category cascade is: \`slot → phase → season → game → categories.json\`. To audit the game tier (including a game's optional \`format\`, \`categories\`, and \`theme\` overrides) AND the workspace tier, call \`list_games\` — its per-entry fields surface the game tier and its \`workspaceDefaults\` block surfaces the workspace tier. Together the two tools cover every configurable tier.
 
 Use this to inspect what's queued, see a future season's category pool before it goes live, or audit past seasons. Returns the timeline in stored order.`;
 
@@ -105,12 +134,10 @@ export function createListSeasonsTool(
       const seasons = state.seasons.map((entry) => {
         // Resolve at the season level (no slot context) — list_seasons reports
         // each entry's effective tier for its own categories field, not for a
-        // hypothetical slot drill-in. Source is restricted to season/game/global.
+        // hypothetical slot drill-in. The active phase of the currently-running
+        // season can win (source "phase"); source is otherwise season/game/global.
         const resolved = resolveActiveCategoriesWithSource(
-          null,
-          null,
-          entry,
-          gameEntry,
+          buildCascadeContext(entry, gameEntry, null, null, { at: now }),
           globalCategories,
         );
         return {
@@ -143,6 +170,7 @@ export function createListSeasonsTool(
                 ),
               }
             : {}),
+          ...(entry.phases !== undefined ? { phases: buildPhaseTimeline(entry, now) } : {}),
           ...(entry.instructions !== undefined ? { instructions: entry.instructions } : {}),
           ...(entry.additionalInstructions !== undefined
             ? { additionalInstructions: entry.additionalInstructions }

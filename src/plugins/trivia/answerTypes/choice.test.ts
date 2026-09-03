@@ -348,6 +348,7 @@ describe("choiceAnswerHandler", () => {
       const out = choiceAnswerHandler.rollGenerationSuggestions({
         cascadeCtx: {
           seasonSlot: null,
+          seasonPhase: null,
           gameSlot: null,
           slotIndex: null,
           season: null,
@@ -377,6 +378,7 @@ describe("choiceAnswerHandler", () => {
       const out = choiceAnswerHandler.rollGenerationSuggestions({
         cascadeCtx: {
           seasonSlot: null,
+          seasonPhase: null,
           gameSlot: null,
           slotIndex: null,
           season: null,
@@ -401,6 +403,7 @@ describe("choiceAnswerHandler", () => {
       const out = choiceAnswerHandler.rollGenerationSuggestions({
         cascadeCtx: {
           seasonSlot: null,
+          seasonPhase: null,
           gameSlot: { choices: { min: 2, max: 2 } },
           slotIndex: 0,
           season: null,

@@ -17,7 +17,7 @@ A private, reserved, unknown, or malformed address returns `{ ip, found: false, 
 
 ## Data source & license
 
-The database is **[DB-IP Country Lite](https://db-ip.com/db/download/ip-to-country-lite)**, released monthly under **[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)**. Attribution is required: the plugin's usage instruction already tells Claude to credit *"IP geolocation by DB-IP" (https://db-ip.com)* whenever it presents results.
+The database is **[DB-IP Country Lite](https://db-ip.com/db/download/ip-to-country-lite)**, released monthly under **[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)**. Attribution is required: the plugin's usage instruction already tells Claude to credit _"IP geolocation by DB-IP" (https://db-ip.com)_ whenever it presents results.
 
 CC BY (unlike MaxMind's GeoLite2) needs no account or signed EULA, which is why this plugin defaults to it.
 

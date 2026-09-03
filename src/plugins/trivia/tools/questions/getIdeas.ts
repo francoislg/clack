@@ -133,11 +133,15 @@ export function createGetIdeasTool(
 
       const globalCategories = await data.loadCategories();
       const slotIndexForResolution = effectiveFormat !== null ? slotArg : null;
-      const { pool: slotCategories, source: categoriesSource } = resolveActiveCategoriesWithSource(
-        effectiveFormat,
-        slotIndexForResolution,
+      const cascadeCtx = buildCascadeContext(
         currentSeasonEntry,
         gameEntry,
+        slotIndexForResolution,
+        config,
+        { at: now },
+      );
+      const { pool: slotCategories, source: categoriesSource } = resolveActiveCategoriesWithSource(
+        cascadeCtx,
         globalCategories,
       );
 
@@ -148,14 +152,7 @@ export function createGetIdeasTool(
           : allQuestions;
 
       const firstFireOfSeason = currentSeasonEntry !== null && questions.length === 0;
-      const theme = resolveTheme(currentSeasonEntry, gameEntry) ?? undefined;
-
-      const cascadeCtx = buildCascadeContext(
-        currentSeasonEntry,
-        gameEntry,
-        slotIndexForResolution,
-        config,
-      );
+      const theme = resolveTheme(cascadeCtx) ?? undefined;
 
       const instructions = resolveCascade("instructions", cascadeCtx).value ?? undefined;
       const additionalInstructions =
@@ -188,10 +185,7 @@ export function createGetIdeasTool(
                 index: i,
                 ...(q.label !== undefined ? { label: q.label } : {}),
                 categories: resolveActiveCategories(
-                  effectiveFormat,
-                  i,
-                  currentSeasonEntry,
-                  gameEntry,
+                  buildCascadeContext(currentSeasonEntry, gameEntry, i, config, { at: now }),
                   globalCategories,
                 ),
               })),

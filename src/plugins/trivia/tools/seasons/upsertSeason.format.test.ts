@@ -65,6 +65,7 @@ describe("upsert_season — format argument", () => {
         teamsScoring: undefined,
         answeringType: undefined,
         perfectRoundsAward: undefined,
+        phases: undefined,
       },
       SESSION,
     );
@@ -121,6 +122,7 @@ describe("upsert_season — format argument", () => {
         teamsScoring: undefined,
         answeringType: undefined,
         perfectRoundsAward: undefined,
+        phases: undefined,
       },
       SESSION,
     );
@@ -169,6 +171,7 @@ describe("upsert_season — format argument", () => {
         teamsScoring: undefined,
         answeringType: undefined,
         perfectRoundsAward: undefined,
+        phases: undefined,
       },
       SESSION,
     );
@@ -205,6 +208,7 @@ describe("upsert_season — format argument", () => {
         teamsScoring: undefined,
         answeringType: undefined,
         perfectRoundsAward: undefined,
+        phases: undefined,
       },
       SESSION,
     );
@@ -254,6 +258,7 @@ describe("upsert_season — format argument", () => {
         teamsScoring: undefined,
         answeringType: undefined,
         perfectRoundsAward: undefined,
+        phases: undefined,
       },
       SESSION,
     );
@@ -290,6 +295,7 @@ describe("upsert_season — format argument", () => {
         teamsScoring: undefined,
         answeringType: undefined,
         perfectRoundsAward: undefined,
+        phases: undefined,
       },
       SESSION,
     );
@@ -338,6 +344,7 @@ describe("upsert_season — format argument", () => {
         teamsScoring: undefined,
         answeringType: undefined,
         perfectRoundsAward: undefined,
+        phases: undefined,
       },
       SESSION,
     );
@@ -374,6 +381,7 @@ describe("upsert_season — format argument", () => {
         teamsScoring: undefined,
         answeringType: undefined,
         perfectRoundsAward: undefined,
+        phases: undefined,
       },
       SESSION,
     );
@@ -422,6 +430,7 @@ describe("upsert_season — format argument", () => {
         teamsScoring: undefined,
         answeringType: undefined,
         perfectRoundsAward: undefined,
+        phases: undefined,
       },
       SESSION,
     );
@@ -469,6 +478,7 @@ describe("upsert_season — format argument", () => {
         teamsScoring: undefined,
         answeringType: undefined,
         perfectRoundsAward: undefined,
+        phases: undefined,
       },
       SESSION,
     );
@@ -528,6 +538,7 @@ describe("upsert_season — format argument", () => {
         teamsScoring: undefined,
         answeringType: undefined,
         perfectRoundsAward: undefined,
+        phases: undefined,
       },
       SESSION,
     );

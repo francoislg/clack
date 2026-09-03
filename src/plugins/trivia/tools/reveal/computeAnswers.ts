@@ -19,7 +19,7 @@ import { computeTeamAllTime } from "../../domain/teams/allTime.js";
 import { groupVotersByTeam } from "./teamVoters.js";
 import { resolveIncludeRevealInQuestions } from "../../domain/includeRevealInQuestions.js";
 import { resolveFinalRevealSummary } from "../../domain/finalRevealSummary.js";
-import { findCurrentSeason, findNextSeason } from "../../core/seasonTimeline.js";
+import { findCurrentSeason, findNextSeason, findSeasonBySlug } from "../../core/seasonTimeline.js";
 import { hasUnrevealedPostedQuestions } from "../../domain/boardState.js";
 import { resolveCascade } from "../../domain/resolveCascade.js";
 import { buildCascadeContext } from "../../domain/cascadeContext.js";
@@ -39,7 +39,12 @@ import {
 } from "./roundSummary.js";
 import { buildExcludeSet, isScoredAnswer } from "../../answerTypes/cheaterFilter.js";
 import type { ClackSdk } from "../../../../plugins-sdk/sdk.js";
-import type { TriviaDataLayer, TriviaQuestion, SubmittedAnswer } from "../../core/types.js";
+import type {
+  TriviaDataLayer,
+  TriviaQuestion,
+  SubmittedAnswer,
+  SeasonEntry,
+} from "../../core/types.js";
 import { getAllAnswerTypeHandlers, getAnswerTypeHandler } from "../../answerTypes/registry.js";
 import { selectAnsweringStrategy } from "../../answering/select.js";
 import { loadAllScoredAnswers } from "../../answering/scoredAnswers.js";
@@ -279,6 +284,19 @@ export function createComputeAnswersTool(
       const triviaConfig = getTriviaConfigFn();
       const seasonsStateForResolution = await scoped.loadSeasonsState();
       const currentSeasonForResolution = findCurrentSeason(seasonsStateForResolution, now);
+      /**
+       * The season a question's cascade should resolve against: the one it was STAMPED
+       * under, not the one active now. A season rollover between post and reveal would
+       * otherwise resolve a stamped phase against a different season's slice list.
+       * Falls back to the reveal-time season when the question carries no season stamp
+       * (legacy rows, or seasons disabled), preserving prior behaviour.
+       */
+      const cascadeSeasonFor = (question: TriviaQuestion): SeasonEntry | null => {
+        if (question.season === undefined) return currentSeasonForResolution;
+        return (
+          findSeasonBySlug(seasonsStateForResolution, question.season) ?? currentSeasonForResolution
+        );
+      };
       const teamsConfig = resolveTeamsConfig(currentSeasonForResolution, gameEntry, triviaConfig);
 
       // Each target's reveal scoring is owned by its answer-type handler — the
@@ -334,10 +352,12 @@ export function createComputeAnswersTool(
           continue;
         }
         // Reprocess re-applies CURRENT config: re-resolve each format's frozen
-        // axes from the live cascade (rebuilt from this question's own stamped
-        // slot/season) and re-stamp them before scoring. Isolated per question —
-        // a resolution failure records a per-id error and skips it, never a
-        // silent clobber of the stamped value.
+        // axes from the live cascade, rebuilt from this question's OWN stamped
+        // slot / season / phase (not the reveal-time clock) so a rollover or a
+        // phase boundary crossed since posting can't reshuffle the tiers. Then
+        // re-stamp them before scoring. Isolated per question — a resolution
+        // failure records a per-id error and skips it, never a silent clobber of
+        // the stamped value.
         if (isReprocessMode) {
           try {
             await reStampReprocessedConfig(
@@ -345,10 +365,11 @@ export function createComputeAnswersTool(
               question,
               handler.reprocessReStampAxes,
               buildCascadeContext(
-                currentSeasonForResolution,
+                cascadeSeasonFor(question),
                 gameEntry,
                 question.slot?.index ?? null,
                 triviaConfig,
+                { slug: question.phase },
               ),
             );
           } catch (err) {
@@ -582,14 +603,18 @@ export function createComputeAnswersTool(
         };
       }
 
-      // Resolve the two free-form guidance axes for this reveal.
+      // Resolve the two free-form guidance axes for this reveal. The batch anchors
+      // on its first target — the same convention as `firstSlotIndex` — so season
+      // and phase come from `targets[0]`'s stamps, resolving the guidance against the
+      // tiers the batch was posed under rather than the reveal-time clock.
       const firstSlotIndex =
         targets.length > 0 && targets[0].slot !== undefined ? targets[0].slot.index : null;
       const revealCascadeCtx = buildCascadeContext(
-        currentSeasonForResolution,
+        targets.length > 0 ? cascadeSeasonFor(targets[0]) : currentSeasonForResolution,
         gameEntry,
         firstSlotIndex,
         triviaConfig,
+        { slug: targets[0]?.phase },
       );
       const resolvedInstructions = resolveCascade("instructions", revealCascadeCtx).value;
       const resolvedAdditionalInstructions = resolveCascade(

@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { parseTriviaGame } from "./games.js";
+import { phaseSliceZod } from "./phases.js";
 import { AXIS_KEYS, AXIS_REGISTRY } from "../../domain/resolveCascade.js";
 import type { JsonValue } from "../configTypes.js";
 
@@ -55,6 +56,49 @@ describe("cascade parity — parser accepts every registry axis", () => {
     // Every registry axis must survive parsing — a dropped axis means the parser
     // doesn't accept a CascadeAxes member, which is a parity break.
     const missing = AXIS_KEYS.filter((key) => game?.[key] === undefined);
+    expect(missing).toEqual([]);
+  });
+
+  it("phaseSliceZod accepts every cascading axis set on a phase", () => {
+    // The same exhaustive check, applied to the `seasonPhase` tier: a phase slice
+    // with EVERY cascade axis set to a valid value. The temporal fields (`slug`,
+    // etc.) ride alongside the axis bag; the axis values mirror the game-tier bag
+    // above because both tiers extend `CascadeAxes`.
+    const rawPhase: JsonValue = {
+      slug: "gauntlet",
+      answersFormat: { boolean: 1, choice: 1, freeform: 1 },
+      questionType: { fact: 1, topical: 1 },
+      promptMedium: { text: 1, image: 1 },
+      freeformAnswerShape: {
+        name: 1,
+        place: 1,
+        phrase: 1,
+        title: 1,
+        date: 1,
+        countable: 1,
+        other: 1,
+      },
+      contexts: [{ name: "lens-a" }],
+      hint: { mode: "button" },
+      judgeLeniency: "lenient",
+      choices: { min: 2, max: 4 },
+      choiceEmojiStyle: "themed",
+      points: { max: 3, guidance: "harder questions pay more" },
+      instructions: "do this",
+      liveAnswersVisible: false,
+      revealResponses: "no",
+      difficulty: { boolean: { easy: [1, 2], medium: [3, 4], hard: [5, 6] } },
+      difficultyRatio: { boolean: { easy: 1, medium: 1, hard: 1 } },
+      additionalInstructions: "also this",
+    };
+
+    const parsed = phaseSliceZod.parse(rawPhase);
+
+    // A phase slice must preserve every registry axis — otherwise a future axis
+    // added to the registry could silently be unsettable on a phase (the schema
+    // would strip it as an unknown key, leaving it absent from the parsed slice).
+    // This is the sync lock that matters here.
+    const missing = AXIS_KEYS.filter((key) => !(key in parsed));
     expect(missing).toEqual([]);
   });
 });

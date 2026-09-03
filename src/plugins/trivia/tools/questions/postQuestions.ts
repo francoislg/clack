@@ -361,6 +361,10 @@ export function createPostQuestionsTool(
             game,
             question.slot?.index ?? null,
             triviaConfig ?? null,
+            // Post-time axes resolve through the phase the question was POSED under
+            // (its `save_question` stamp), not the clock — so a staged question posted
+            // after the window rolls stays internally coherent with its other rules.
+            { slug: question.phase },
           );
           const liveAnswersVisible = resolveCascade("liveAnswersVisible", cascadeCtx).value;
           const revealResponses = resolveCascade("revealResponses", cascadeCtx).value;

@@ -5,6 +5,7 @@ import { findCurrentSeason } from "../../core/seasonTimeline.js";
 import { resolveEffectiveFormat } from "../../domain/format.js";
 import { AXIS_KEYS, resolveCascade } from "../../domain/resolveCascade.js";
 import { buildCascadeContext } from "../../domain/cascadeContext.js";
+import { selectActivePhaseWindow } from "../../domain/seasonPhases.js";
 import {
   defaultGetGames,
   defaultGetTriviaConfig,
@@ -38,7 +39,9 @@ Arguments:
 - \`slot\` (optional): slot index within the effective format. Omit to explain every slot when a format is present, or the single-question coordinate when there is no format.
 - \`answersFormat\` (optional): \`"boolean" | "choice" | "freeform"\`. The \`difficulty\` and \`difficultyRatio\` axes resolve per answersFormat; supply one to focus, or omit to see all three.
 
-For each coordinate the response carries an \`axes\` map keyed by axis name. A normal axis entry is \`{ value, tier, ladder }\` where \`tier\` is one of \`slot|season|game|workspace|default|merged\` and \`ladder\` lists each concrete tier's raw contribution. The answersFormat-keyed axes carry \`{ byAnswersFormat: { boolean, choice, freeform } }\` instead (or a single \`{ value, tier, ladder }\` when \`answersFormat\` is supplied).
+For each coordinate the response carries an \`axes\` map keyed by axis name. A normal axis entry is \`{ value, tier, ladder }\` where \`tier\` is one of \`seasonSlot|seasonPhase|season|gameSlot|game|workspace|default|merged\` — the cascade order, highest precedence first — and \`ladder\` lists each concrete tier's raw contribution. The answersFormat-keyed axes carry \`{ byAnswersFormat: { boolean, choice, freeform } }\` instead (or a single \`{ value, tier, ladder }\` when \`answersFormat\` is supplied).
+
+The \`seasonPhase\` tier is the active season's current duration-chained phase; the top-level \`activePhase\` field names its slug and computed \`{ start, end }\` window (\`null\` when no season declares phases or none contains now), and any axis a phase wins reports \`tier: "seasonPhase"\`.
 
 Resolution is identical to what \`get_ideas\` (generation axes) and \`post_questions\` (\`liveAnswersVisible\`/\`revealResponses\`) actually use — all three build the slot tier via the same \`buildCascadeContext\` helper and call the same resolver, so this audit cannot drift from runtime behavior. Per-slot axis overrides are read from the EFFECTIVE format (\`season.format ?? game.format\`): a game-format slot's overrides apply when no season format is active; an active season's format replaces the game's wholesale.`;
 
@@ -104,7 +107,21 @@ export function createExplainCascadeTool(
       const answersFormat = args.answersFormat;
 
       const buildContext = (slotIndex: number | null): CascadeContext =>
-        buildCascadeContext(currentSeasonEntry, gameEntry, slotIndex, config);
+        buildCascadeContext(currentSeasonEntry, gameEntry, slotIndex, config, { at: now });
+
+      // The season's active temporal phase for `now` — the SAME instant the ladder's
+      // `seasonPhase` rungs resolve against. Reported alongside the per-axis ladders so the
+      // phase in effect is legible even when no axis is currently won by it. `null` is
+      // reported explicitly when no season declares phases or none contains `now`.
+      const activePhaseWindow = selectActivePhaseWindow(currentSeasonEntry, now);
+      const activePhase =
+        activePhaseWindow === null
+          ? null
+          : {
+              slug: activePhaseWindow.slice.slug,
+              start: activePhaseWindow.start,
+              end: activePhaseWindow.end,
+            };
 
       // Slot supplied → validate range and explain that one coordinate.
       if (args.slot !== undefined) {
@@ -143,6 +160,7 @@ export function createExplainCascadeTool(
         game: gameEntry.name,
         seasonsEnabled: config?.seasons?.enabled ?? false,
         activeSeason: currentSeasonEntry?.slug ?? null,
+        activePhase,
         coordinates,
       });
     },

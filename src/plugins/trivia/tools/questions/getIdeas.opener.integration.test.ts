@@ -79,6 +79,7 @@ describe("get_ideas + upsert_season cross-tool flow", () => {
           teamsScoring: undefined,
           answeringType: undefined,
           perfectRoundsAward: undefined,
+          phases: undefined,
         },
         SESSION,
       ),

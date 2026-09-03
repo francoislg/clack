@@ -104,6 +104,7 @@ describe("Trivia question-format end-to-end flow", () => {
           teamsScoring: undefined,
           answeringType: undefined,
           perfectRoundsAward: undefined,
+          phases: undefined,
         },
         SESSION,
       ),

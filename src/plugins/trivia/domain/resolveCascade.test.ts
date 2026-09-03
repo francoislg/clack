@@ -20,7 +20,7 @@ function ctx(
   game: TriviaGame | null,
   config: TriviaConfig | null,
 ): CascadeContext {
-  return buildCascadeContext(season, game, slotIndex, config);
+  return buildCascadeContext(season, game, slotIndex, config, {});
 }
 
 const baseGame: TriviaGame = {

@@ -1,11 +1,22 @@
 import type { CascadeContext } from "../core/cascadeAxes.js";
-import type { SeasonEntry } from "../core/types.js";
+import type { SeasonEntry, PhaseSlice } from "../core/types.js";
 import type { TriviaGame, TriviaConfig, SeasonFormatSlot } from "../core/configTypes.js";
+import { findPhaseBySlug, selectActivePhase } from "./seasonPhases.js";
+
+/**
+ * How to source the phase tier. `slug` (the reveal path, honouring a question's
+ * stamp) wins over `at` (the time-selected path) when both are present; `{}`
+ * selects no phase.
+ */
+export interface PhaseSelector {
+  at?: number;
+  slug?: string;
+}
 
 /**
  * Build the `CascadeContext` for a `(game, slot)` coordinate — the single place that
- * decides slot-tier sourcing for every consumer (`get_ideas`, `save_question`,
- * `post_questions`, `process_reveal_answers`, `explain_cascade`).
+ * decides slot-tier and phase-tier sourcing for every consumer (`get_ideas`,
+ * `save_question`, `post_questions`, `process_reveal_answers`, `explain_cascade`).
  *
  * GAME-BASE / SEASON-OVERRIDE model. The slot tier is split in two:
  *
@@ -19,14 +30,20 @@ import type { TriviaGame, TriviaConfig, SeasonFormatSlot } from "../core/configT
  *     `slotOverrides` and `format` are mutually exclusive on a season (enforced at parse
  *     time), so the builder never sees both and the precedence above is unambiguous.
  *
- * Neither slot is re-derived from `season.format` by any downstream resolver — this is
- * the only function that reads per-slot composition.
+ * The `seasonPhase` tier (below `seasonSlot`, above `season`) is the season's active
+ * temporal phase, sourced from `phase`: a `slug` selects the exact `PhaseSlice` a
+ * question was posed under (the reveal path), otherwise an `at` timestamp selects the
+ * slice whose derived window contains that instant; `{}` selects no phase.
+ *
+ * Neither slot nor the phase is re-derived by any downstream resolver — this is the
+ * only function that reads per-slot composition and phase selection.
  */
 export function buildCascadeContext(
   season: SeasonEntry | null,
   game: TriviaGame | null,
   slotIndex: number | null,
   config: TriviaConfig | null,
+  phase: PhaseSelector,
 ): CascadeContext {
   const gameSlot: SeasonFormatSlot | null =
     slotIndex !== null ? (game?.format?.questions[slotIndex] ?? null) : null;
@@ -41,5 +58,12 @@ export function buildCascadeContext(
     }
   }
 
-  return { seasonSlot, gameSlot, slotIndex, season, game, config };
+  let seasonPhase: PhaseSlice | null = null;
+  if (phase.slug !== undefined) {
+    seasonPhase = findPhaseBySlug(season, phase.slug);
+  } else if (phase.at !== undefined) {
+    seasonPhase = selectActivePhase(season, phase.at);
+  }
+
+  return { seasonSlot, seasonPhase, gameSlot, slotIndex, season, game, config };
 }

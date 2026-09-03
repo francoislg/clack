@@ -195,21 +195,27 @@ describe("choiceAnswerHandler — themed choiceEmojis", () => {
 
   describe("rollGenerationSuggestions", () => {
     it('surfaces suggestedChoiceEmojiStyle "numbers" with no guidance by default', () => {
-      const ctx = buildCascadeContext(null, makeGame(), null, null);
+      const ctx = buildCascadeContext(null, makeGame(), null, null, {});
       const rolled = choiceAnswerHandler.rollGenerationSuggestions({ cascadeCtx: ctx });
       assert.equal(rolled.suggestedChoiceEmojiStyle, "numbers");
       assert.equal(rolled.choiceEmojiGuidance, undefined);
     });
 
     it('surfaces "themed" plus guidance when the game tier opts in', () => {
-      const ctx = buildCascadeContext(null, makeGame({ choiceEmojiStyle: "themed" }), null, null);
+      const ctx = buildCascadeContext(
+        null,
+        makeGame({ choiceEmojiStyle: "themed" }),
+        null,
+        null,
+        {},
+      );
       const rolled = choiceAnswerHandler.rollGenerationSuggestions({ cascadeCtx: ctx });
       assert.equal(rolled.suggestedChoiceEmojiStyle, "themed");
       assert.match(String(rolled.choiceEmojiGuidance), /one Unicode emoji per option/i);
     });
 
     it("honors the workspace tier when no game override exists", () => {
-      const ctx = buildCascadeContext(null, makeGame(), null, { choiceEmojiStyle: "themed" });
+      const ctx = buildCascadeContext(null, makeGame(), null, { choiceEmojiStyle: "themed" }, {});
       const rolled = choiceAnswerHandler.rollGenerationSuggestions({ cascadeCtx: ctx });
       assert.equal(rolled.suggestedChoiceEmojiStyle, "themed");
     });

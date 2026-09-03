@@ -29,7 +29,7 @@ function ctx(
   game: TriviaGame | null,
   config: TriviaConfig | null,
 ): CascadeContext {
-  return buildCascadeContext(season, game, slotIndex, config);
+  return buildCascadeContext(season, game, slotIndex, config, {});
 }
 
 const NOW = 1_700_000_000_000;

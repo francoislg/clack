@@ -571,6 +571,7 @@ describe("freeformAnswerHandler", () => {
       const out = freeformAnswerHandler.rollGenerationSuggestions({
         cascadeCtx: {
           seasonSlot: null,
+          seasonPhase: null,
           gameSlot: null,
           slotIndex: null,
           season: null,

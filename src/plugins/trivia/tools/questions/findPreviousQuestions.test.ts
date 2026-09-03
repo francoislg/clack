@@ -911,3 +911,59 @@ describe("find_previous_questions batch facts (batchPending / batchIsLatest, nev
     assert.equal(Object.prototype.hasOwnProperty.call(stagedRow, "batchIsLatest"), false);
   });
 });
+
+interface PhaseRow {
+  id: string;
+  phase?: string;
+}
+
+describe("find_previous_questions — phase stamp provenance", () => {
+  let data: FakeTriviaDataLayer;
+
+  beforeEach(() => {
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk);
+    const { dataLayer } = createTriviaDataLayer(sdk);
+    data = dataLayer;
+
+    const stamped = {
+      id: "stamped",
+      category: "Science",
+      statement: "A question posed under a phase",
+      isTrue: true,
+      emojis: ["🌗"],
+      createdAt: 2,
+      season: "s1",
+      phase: "finale",
+    };
+    const unstamped = {
+      id: "unstamped",
+      category: "Science",
+      statement: "A question posed with no active phase",
+      isTrue: true,
+      emojis: ["🔬"],
+      createdAt: 1,
+      season: "s1",
+    };
+    data.forGame(FIXTURE_GAME_NAME).loadQuestions.mockResolvedValue([stamped, unstamped]);
+  });
+
+  async function findById(id: string): Promise<PhaseRow> {
+    const tool = createFindPreviousQuestionsTool(data, fixtureGetGames);
+    const parsed = parseToolResult(
+      await tool.handler(fullArgs({ games: [FIXTURE_GAME_NAME] }), SESSION),
+    );
+    const row = parsed.questions.find((q: PhaseRow) => q.id === id);
+    assert.ok(row, `question ${id} missing from results`);
+    return row;
+  }
+
+  it("surfaces the phase stamp when the question carries one", async () => {
+    assert.equal((await findById("stamped")).phase, "finale");
+  });
+
+  it("omits phase when the question was posed with no active phase", async () => {
+    const row = await findById("unstamped");
+    assert.equal(Object.prototype.hasOwnProperty.call(row, "phase"), false);
+  });
+});
