@@ -2,12 +2,13 @@ import { describe, it } from "vitest";
 import assert from "node:assert/strict";
 import { createReadErrorReportTool } from "./readErrorReport.js";
 import { parseToolResult } from "../testHelpers.js";
+import type { QueryToolContext } from "../types.js";
 
 // The path traversal guard runs before any file I/O, so it can be tested
 // without mocking the readErrorReport module function.
 
 function callHandler(filename: string) {
-  const toolDef = createReadErrorReportTool();
+  const toolDef = createReadErrorReportTool({} as QueryToolContext);
   return toolDef.handler({ filename }, { sessionId: "test" });
 }
 

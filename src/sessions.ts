@@ -328,12 +328,15 @@ export interface ParsedSessionId {
  * Parse a sessionId to extract the original channelId, messageTs, and userId.
  * SessionId format: {channelId}-{messageTs with . replaced by -}-{userId}-{timestamp}
  * Example: C0EXAMPLE01-1768338604-542809-U0EXAMPLE01-1768400009272
+ *
+ * Ids that carry no channel/message triple — channelless cron fires among them — simply
+ * don't parse, which is an expected outcome rather than a failure.
  */
 export function parseSessionId(sessionId: string): ParsedSessionId | null {
-  const match = sessionId.match(/^([CG][A-Z0-9]+)-(\d+)-(\d+)-([U][A-Z0-9]+)-\d+$/);
+  const match = sessionId.match(/^([CGD][A-Z0-9]+)-(\d+)-(\d+)-([U][A-Z0-9]+)-\d+$/);
 
   if (!match) {
-    logger.error(`Failed to parse sessionId: ${sessionId}`);
+    logger.debug(`Failed to parse sessionId: ${sessionId}`);
     return null;
   }
 

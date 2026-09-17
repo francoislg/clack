@@ -534,8 +534,8 @@ function buildQueryTools(ctx: QueryToolContext): ClackQueryToolsResult {
     tools.push(createAdminSetEnvTool());
     tools.push(createAdminListEnvTool());
     tools.push(createAdminSetRoleTool());
-    tools.push(createListErrorReportsTool());
-    tools.push(createReadErrorReportTool());
+    tools.push(createListErrorReportsTool(ctx));
+    tools.push(createReadErrorReportTool(ctx));
     if (ctx.slackClient) {
       tools.push(createAdminDeleteMessageTool(ctx));
       tools.push(createListAutoRespondRulesTool(ctx));
