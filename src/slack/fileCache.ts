@@ -92,6 +92,22 @@ export async function cacheFile(
 }
 
 /**
+ * Resolve the on-disk path of a cached file without loading it. Returns null if
+ * not cached. Documents reach Claude by path through the native `Read` tool —
+ * MCP's tool-result content union has no document block, so PDF bytes cannot
+ * ride in-band.
+ */
+export async function getCachedFilePath(fileId: string): Promise<string | null> {
+  const meta = await getCachedFile(fileId);
+  if (!meta) return null;
+
+  const fp = filePath(fileId, meta.mimeType);
+  if (!(await fileExists(fp))) return null;
+
+  return fp;
+}
+
+/**
  * Read a cached file as base64. Returns null if not cached.
  */
 export async function readCachedFileBase64(

@@ -622,6 +622,7 @@ Use this context to understand the conversation flow and provide relevant answer
       "ATTACHED FILES:",
       "The following file(s) are available from the current message or thread. You MUST view each attachment listed below BEFORE answering — do not skip or summarize without viewing first.",
       "Use `view_slack_image` for images and `view_slack_file` for other files (PDFs, text, etc.).",
+      "`view_slack_file` returns text files inline, but a PDF comes back as a path — that attachment is not viewed until you Read that path.",
       "Note: When you fetch Slack messages (via fetch_slack_message or fetch_channel_messages), those results may also contain attachments — use the appropriate viewing tool on their file_id.",
     ];
     if (hasImages) {
