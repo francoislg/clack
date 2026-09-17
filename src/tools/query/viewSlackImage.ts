@@ -3,6 +3,7 @@ import { tool } from "@anthropic-ai/claude-agent-sdk";
 import type { QueryToolContext } from "../types.js";
 import { errorResult } from "../helpers.js";
 import { readCachedFileBase64, cacheFile } from "../../slack/fileCache.js";
+import { formatFileSize, MAX_FILE_SIZE } from "../../slack/slackFileBase.js";
 import { logger } from "../../logger.js";
 
 const MAX_REDIRECTS = 5;
@@ -64,6 +65,23 @@ export function createViewSlackImageTool(ctx: QueryToolContext) {
         return errorResult(`Unknown file_id "${args.file_id}". Available: ${available}`);
       }
 
+      if (imageFile.unavailable === "too_large") {
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: [
+                `Image: ${imageFile.name}`,
+                `Size: ${formatFileSize(imageFile.size)}`,
+                "",
+                `This image is above the ${formatFileSize(MAX_FILE_SIZE)} limit and was not fetched from Slack.`,
+                "Tell the user the image is too large for you to open. Do not infer what it shows.",
+              ].join("\n"),
+            },
+          ],
+        };
+      }
+
       // Check cache first
       const cached = await readCachedFileBase64(args.file_id);
       if (cached) {
@@ -90,7 +108,12 @@ export function createViewSlackImageTool(ctx: QueryToolContext) {
       } catch (error) {
         logger.error("Failed to download Slack image:", error);
         return errorResult(
-          `Failed to download image from Slack: ${error instanceof Error ? error.message : "unknown error"}`,
+          [
+            `Failed to download ${imageFile.name} from Slack:`,
+            error instanceof Error ? error.message : "unknown error",
+            "— this usually does not resolve on retry. If one more attempt fails the same way,",
+            "tell the user the image could not be fetched and answer the rest without it.",
+          ].join(" "),
         );
       }
     },

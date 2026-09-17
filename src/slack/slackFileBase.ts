@@ -1,7 +1,7 @@
 /** Shared MIME types for image files — used by both extractors. */
 export const IMAGE_MIME_TYPES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
 
-const MAX_FILE_SIZE = 20 * 1024 * 1024; // 20MB
+export const MAX_FILE_SIZE = 20 * 1024 * 1024; // 20MB
 const MAX_FILES_PER_MESSAGE = 10;
 
 export interface SlackFileBase {
@@ -10,6 +10,18 @@ export interface SlackFileBase {
   mimetype: string;
   size: number;
   url_private: string;
+  /**
+   * Why this attachment cannot be opened. Oversized files stay in the list so
+   * Claude can tell the user the attachment exists and was not read, rather
+   * than answering as if the message carried nothing.
+   */
+  unavailable?: "too_large";
+}
+
+export function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 /** Semantic alias for image files (structurally identical to SlackFileBase). */
@@ -56,9 +68,15 @@ export function extractSlackFiles(
     }
 
     if (!mimeFilter(mimetype)) continue;
-    if (size > MAX_FILE_SIZE) continue;
 
-    result.push({ id, name, mimetype, size, url_private });
+    result.push({
+      id,
+      name,
+      mimetype,
+      size,
+      url_private,
+      ...(size > MAX_FILE_SIZE && { unavailable: "too_large" as const }),
+    });
   }
 
   return result;

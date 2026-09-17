@@ -7,7 +7,7 @@ import { isChannellessChannelId } from "../channelless.js";
 import type { TriggerType } from "../changes/types.js";
 import type { SessionContext } from "../sessions.js";
 import { triggerText, userContinuations } from "../sessions/selectors.js";
-import type { SlackImageFile, SlackFile } from "../slack/slackFileBase.js";
+import { formatFileSize, type SlackImageFile, type SlackFile } from "../slack/slackFileBase.js";
 import { DISMISSAL_PHRASES_INLINE } from "./dismissalPhrases.js";
 import { buildIntegrationsCatalog } from "./integrationsCatalog.js";
 import { buildSkillPacksCatalog, type UserSkillCatalogEntry } from "./skillPacksCatalog.js";
@@ -627,13 +627,19 @@ Use this context to understand the conversation flow and provide relevant answer
     ];
     if (hasImages) {
       for (const [fileId, img] of options!.availableImages!) {
-        lines.push(`- [image] ${img.name} (file_id: ${fileId}) → use view_slack_image`);
+        lines.push(
+          img.unavailable === "too_large"
+            ? `- [image] ${img.name} (${formatFileSize(img.size)}) → TOO LARGE to open; say so rather than guessing what it shows`
+            : `- [image] ${img.name} (file_id: ${fileId}) → use view_slack_image`,
+        );
       }
     }
     if (hasFiles) {
       for (const [fileId, file] of options!.availableFiles!) {
         lines.push(
-          `- [file] ${file.name} (file_id: ${fileId}, type: ${file.mimetype}) → use view_slack_file`,
+          file.unavailable === "too_large"
+            ? `- [file] ${file.name} (type: ${file.mimetype}, ${formatFileSize(file.size)}) → TOO LARGE to open; say so rather than guessing its contents`
+            : `- [file] ${file.name} (file_id: ${fileId}, type: ${file.mimetype}) → use view_slack_file`,
         );
       }
     }

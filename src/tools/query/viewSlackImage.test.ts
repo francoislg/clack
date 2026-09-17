@@ -62,4 +62,26 @@ describe("createViewSlackImageTool", () => {
     assert.ok(text.includes("Unknown file_id"));
     assert.ok(text.includes("F1"));
   });
+
+  it("refuses an oversized image without downloading it", async () => {
+    const images = new Map<string, SlackImageFile>([
+      [
+        "F1",
+        {
+          id: "F1",
+          name: "huge.png",
+          mimetype: "image/png",
+          size: 25 * 1024 * 1024,
+          url_private: "https://example.com",
+          unavailable: "too_large",
+        },
+      ],
+    ]);
+    const tool = createViewSlackImageTool(makeContext(images));
+    const result = await tool.handler({ file_id: "F1" }, {});
+    const text = (result.content[0] as { text: string }).text;
+    assert.ok(text.includes("huge.png"));
+    assert.ok(text.includes("too large"));
+    assert.ok(text.includes("Do not infer"));
+  });
 });

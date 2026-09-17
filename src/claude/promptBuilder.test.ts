@@ -631,6 +631,26 @@ describe("buildPrompt", () => {
     assert.ok(prompt.includes("view_slack_file"));
   });
 
+  it("lists an oversized file as unopenable instead of omitting it", () => {
+    const availableFiles = new Map([
+      [
+        "F789",
+        {
+          id: "F789",
+          name: "demo.mov",
+          mimetype: "video/quicktime",
+          size: 25 * 1024 * 1024,
+          url_private: "https://example.com/mov",
+          unavailable: "too_large" as const,
+        },
+      ],
+    ]);
+    const prompt = buildPrompt(makeSession(), { availableFiles });
+    assert.ok(prompt.includes("demo.mov"));
+    assert.ok(prompt.includes("TOO LARGE to open"));
+    assert.ok(!prompt.includes("demo.mov (file_id: F789"));
+  });
+
   it("includes both images and files in unified section", () => {
     const availableImages = new Map([
       [

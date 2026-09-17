@@ -95,16 +95,19 @@ describe("extractFiles", () => {
     assert.equal(result.length, 0);
   });
 
-  it("rejects files exceeding 20MB", () => {
+  it("keeps files exceeding 20MB but marks them unavailable", () => {
     const large = { ...validPdf, size: 21 * 1024 * 1024 };
     const result = extractFiles([large]);
-    assert.equal(result.length, 0);
+    assert.equal(result.length, 1);
+    assert.equal(result[0].id, "F100");
+    assert.equal(result[0].unavailable, "too_large");
   });
 
   it("accepts files at exactly 20MB", () => {
     const exact = { ...validPdf, size: 20 * 1024 * 1024 };
     const result = extractFiles([exact]);
     assert.equal(result.length, 1);
+    assert.equal(result[0].unavailable, undefined);
   });
 
   it("caps at 10 files per message", () => {

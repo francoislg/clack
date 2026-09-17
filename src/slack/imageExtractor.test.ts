@@ -39,16 +39,18 @@ describe("extractImageFiles", () => {
     assert.equal(result.length, 0);
   });
 
-  it("rejects files exceeding 20MB", () => {
+  it("keeps files exceeding 20MB but marks them unavailable", () => {
     const large = { ...validFile, size: 21 * 1024 * 1024 };
     const result = extractImageFiles([large]);
-    assert.equal(result.length, 0);
+    assert.equal(result.length, 1);
+    assert.equal(result[0].unavailable, "too_large");
   });
 
   it("accepts files at exactly 20MB", () => {
     const exact = { ...validFile, size: 20 * 1024 * 1024 };
     const result = extractImageFiles([exact]);
     assert.equal(result.length, 1);
+    assert.equal(result[0].unavailable, undefined);
   });
 
   it("caps at 10 images per message", () => {

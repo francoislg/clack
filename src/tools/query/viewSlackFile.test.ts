@@ -129,6 +129,15 @@ describe("createViewSlackFileTool", () => {
     expect(toolResultText(result)).toContain("403 Forbidden");
   });
 
+  it("tells Claude a download failure is unlikely to resolve on retry", async () => {
+    vi.mocked(downloadSlackFile).mockRejectedValue(new Error("403 Forbidden"));
+
+    const result = await callTool(files, "F1");
+
+    expect(toolResultText(result)).toContain("does not resolve on retry");
+    expect(toolResultText(result)).toContain("report.pdf");
+  });
+
   it("returns text-tier files inline rather than as a path", async () => {
     files = new Map<string, SlackFile>([
       ["F1", makeFile({ name: "notes.txt", mimetype: "text/plain" })],
@@ -150,8 +159,39 @@ describe("createViewSlackFileTool", () => {
 
     expect(toolResultText(result)).toContain("archive.zip");
     expect(toolResultText(result)).toContain("application/zip");
-    expect(toolResultText(result)).toContain("cannot be read directly");
+    expect(toolResultText(result)).toContain("cannot be opened");
     expect(downloadSlackFile).not.toHaveBeenCalled();
+  });
+
+  it("tells Claude not to infer the contents of an unsupported format", async () => {
+    files = new Map<string, SlackFile>([
+      ["F1", makeFile({ name: "spec.docx", mimetype: "application/msword" })],
+    ]);
+
+    const result = await callTool(files, "F1");
+
+    expect(toolResultText(result)).toContain("Do not infer or describe its contents");
+  });
+
+  it("refuses an oversized file without downloading it", async () => {
+    files = new Map<string, SlackFile>([
+      [
+        "F1",
+        makeFile({
+          name: "demo.mov",
+          mimetype: "video/quicktime",
+          size: 25 * 1024 * 1024,
+          unavailable: "too_large",
+        }),
+      ],
+    ]);
+
+    const result = await callTool(files, "F1");
+
+    expect(downloadSlackFile).not.toHaveBeenCalled();
+    expect(toolResultText(result)).toContain("demo.mov");
+    expect(toolResultText(result)).toContain("too large");
+    expect(toolResultText(result)).toContain("Do not infer");
   });
 
   it("returns metadata with formatted size for unsupported files", async () => {

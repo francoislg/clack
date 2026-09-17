@@ -6,13 +6,7 @@ import { getCachedFilePath, readCachedFileBuffer, cacheFile } from "../../slack/
 import { classifyMimeType } from "../../slack/fileExtractor.js";
 import { downloadSlackFile } from "./viewSlackImage.js";
 import { logger } from "../../logger.js";
-import type { SlackFile } from "../../slack/slackFileBase.js";
-
-function formatFileSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
+import { formatFileSize, MAX_FILE_SIZE, type SlackFile } from "../../slack/slackFileBase.js";
 
 /**
  * Hand Claude the on-disk path so it can pull the document in with `Read`, which
@@ -59,6 +53,25 @@ export function createViewSlackFileTool(ctx: QueryToolContext) {
         return errorResult(`Unknown file_id "${args.file_id}". Available: ${available}`);
       }
 
+      if (file.unavailable === "too_large") {
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: [
+                `File: ${file.name}`,
+                `Type: ${file.mimetype}`,
+                `Size: ${formatFileSize(file.size)}`,
+                "",
+                `This attachment is above the ${formatFileSize(MAX_FILE_SIZE)} limit and was not fetched from Slack.`,
+                "Tell the user the file is too large for you to open, and answer the rest of their question without it.",
+                "Do not infer its contents.",
+              ].join("\n"),
+            },
+          ],
+        };
+      }
+
       const tier = classifyMimeType(file.mimetype);
 
       // Unsupported binary: return metadata only (no download needed)
@@ -67,7 +80,14 @@ export function createViewSlackFileTool(ctx: QueryToolContext) {
           content: [
             {
               type: "text" as const,
-              text: `File: ${file.name}\nType: ${file.mimetype}\nSize: ${formatFileSize(file.size)}\n\nThis file format cannot be read directly. You can describe the file to the user based on its name and type.`,
+              text: [
+                `File: ${file.name}`,
+                `Type: ${file.mimetype}`,
+                `Size: ${formatFileSize(file.size)}`,
+                "",
+                "This format cannot be opened. Tell the user you cannot read this file type and say what would work instead",
+                "(for example the text pasted inline, or a PDF export). Do not infer or describe its contents from the filename.",
+              ].join("\n"),
             },
           ],
         };
@@ -110,7 +130,12 @@ export function createViewSlackFileTool(ctx: QueryToolContext) {
       } catch (error) {
         logger.error("Failed to download Slack file:", error);
         return errorResult(
-          `Failed to download file from Slack: ${error instanceof Error ? error.message : "unknown error"}`,
+          [
+            `Failed to download ${file.name} from Slack:`,
+            error instanceof Error ? error.message : "unknown error",
+            "— this usually does not resolve on retry. If one more attempt fails the same way,",
+            "tell the user the attachment could not be fetched and answer the rest without it.",
+          ].join(" "),
         );
       }
     },
