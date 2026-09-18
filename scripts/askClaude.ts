@@ -67,16 +67,16 @@ async function main(): Promise<void> {
       console.error(`Session not found: ${sessionId}`);
       process.exit(1);
     }
-    // Append the new prompt as a refinement on the unified log.
+    // Append the new prompt as a thread reply on the unified log.
     const ts = Date.now();
     existingSession.messages = [
       ...(existingSession.messages ?? []),
-      { role: "user", source: "refinement", text: prompt, ts },
+      { role: "user", source: "reply", text: prompt, ts },
     ];
     session = existingSession;
     console.log(`\n📂 Using session: ${sessionId}\n`);
   } else {
-    // Create a minimal session context
+    // Create a minimal DM-shaped session context; the prompt lives on the trigger.
     const now = Date.now();
     session = {
       sessionId: `cli-${now}`,
@@ -84,7 +84,14 @@ async function main(): Promise<void> {
       messageTs: now.toString(),
       threadTs: now.toString(),
       userId: "cli-user",
-      messages: [{ role: "user", source: "initial", text: prompt, ts: now }],
+      trigger: {
+        type: "directMessages",
+        userId: "cli-user",
+        messageTs: now.toString(),
+        messageText: prompt,
+      },
+      triggerType: "directMessages",
+      messages: [],
       threadContext: [],
       errors: [],
       lastActivity: now,
@@ -96,7 +103,8 @@ async function main(): Promise<void> {
   console.log(`📝 Prompt: ${prompt}\n`);
   console.log("---\n");
 
-  const response = await askClaude(session);
+  const run = await askClaude(session);
+  const response = await run.futureResponse;
 
   console.log("---\n");
 

@@ -23,9 +23,8 @@ function makeFakeDeps(initial: string | null): {
   currentContent: () => string | null;
 } {
   let content: string | null = initial;
-  const fileExists = vi.fn(
-    (p: string): Promise<boolean> =>
-      Promise.resolve(p.endsWith("investigations.json") ? content !== null : true),
+  const fileExists = vi.fn((p: string): Promise<boolean> =>
+    Promise.resolve(p.endsWith("investigations.json") ? content !== null : true),
   );
   const readFile = vi.fn((): Promise<string> => {
     if (content === null) return Promise.reject(new Error("ENOENT"));

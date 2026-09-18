@@ -9,12 +9,10 @@ import { registerMessageChangedHandler, type MessageChangedDeps } from "./messag
 type ProcessMessageFn = MessageChangedDeps["processMessage"];
 type ConfigShape = ReturnType<MessageChangedDeps["getConfig"]>;
 
-const mockProcessMessage = vi.fn<ProcessMessageFn>(
-  async (): Promise<ClaudeResponse> => ({
-    success: true,
-    answer: "",
-  }),
-);
+const mockProcessMessage = vi.fn<ProcessMessageFn>(async (): Promise<ClaudeResponse> => ({
+  success: true,
+  answer: "",
+}));
 const mockGetActiveRun = vi.fn<MessageChangedDeps["getActiveRunForChannelMessage"]>(
   () => undefined,
 );

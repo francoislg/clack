@@ -11,15 +11,16 @@ describe("validateSeasonSlug", () => {
   it("rejects non-kebab-case slugs", () => {
     for (const bad of ["", "Kickoff", "has space", "trailing-", "-leading", "doub--le", "UPPER"]) {
       const result = validateSeasonSlug(bad);
-      expect(result.ok).toBe(false);
-      if (!result.ok) expect(result.error).toMatch(/kebab-case/);
+      expect(result).toMatchObject({ ok: false, error: expect.stringMatching(/kebab-case/) });
     }
   });
 
   it("uses the supplied label in the error message", () => {
     const result = validateSeasonSlug("Bad", "initialSeason.slug");
-    expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.error).toContain('initialSeason.slug "Bad"');
+    expect(result).toMatchObject({
+      ok: false,
+      error: expect.stringContaining('initialSeason.slug "Bad"'),
+    });
   });
 });
 
@@ -34,14 +35,18 @@ describe("validateSeasonWindow", () => {
       [9, 1],
     ]) {
       const result = validateSeasonWindow(start, end);
-      expect(result.ok).toBe(false);
-      if (!result.ok) expect(result.error).toMatch(/strictly less than expectedEndAt/);
+      expect(result).toMatchObject({
+        ok: false,
+        error: expect.stringMatching(/strictly less than expectedEndAt/),
+      });
     }
   });
 
   it("uses the supplied label in the error message", () => {
     const result = validateSeasonWindow(9, 1, "initialSeason.startedAt");
-    expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.error).toContain("initialSeason.startedAt (9)");
+    expect(result).toMatchObject({
+      ok: false,
+      error: expect.stringContaining("initialSeason.startedAt (9)"),
+    });
   });
 });

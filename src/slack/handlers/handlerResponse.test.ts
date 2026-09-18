@@ -942,14 +942,15 @@ describe("executeAndDeliver — error handling", () => {
       conversationTrace: [],
     }));
 
-    // Should not throw
-    await executeAndDeliver({
-      client: makeClient(),
-      session: makeSession(),
-      sessionInfo: makeSessionInfo(),
-      claudeOptions: makeClaudeOptions(),
-      deps,
-    });
+    await assert.doesNotReject(
+      executeAndDeliver({
+        client: makeClient(),
+        session: makeSession(),
+        sessionInfo: makeSessionInfo(),
+        claudeOptions: makeClaudeOptions(),
+        deps,
+      }),
+    );
   });
 
   it("posts error to DM channel when sessionInfo has dmChannel", async () => {

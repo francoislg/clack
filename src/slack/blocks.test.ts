@@ -80,14 +80,11 @@ describe("getResponseActionBlocks", () => {
   });
 
   it("packs up to 5 buttons per actions block and splits beyond", () => {
-    const actions: Action[] = Array.from(
-      { length: 7 },
-      (_, i): Action => ({
-        type: "followup",
-        label: `Option ${i + 1}`,
-        prompt: `p${i}`,
-      }),
-    );
+    const actions: Action[] = Array.from({ length: 7 }, (_, i): Action => ({
+      type: "followup",
+      label: `Option ${i + 1}`,
+      prompt: `p${i}`,
+    }));
     const blocks = getResponseActionBlocks(actions, "s1");
     assert.equal(blocks.length, 2);
     assert.equal(blocks[0].elements.length, 5);

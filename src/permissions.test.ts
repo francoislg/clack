@@ -216,15 +216,16 @@ describe("permission matrix", () => {
     canTransferOwnership,
   };
 
-  for (const [fnName, expected] of Object.entries(expectations)) {
-    describe(fnName, () => {
+  describe.each(Object.entries(expectations))(
+    "%s",
+    (fnName: string, expected: Record<UserRole, boolean>) => {
       for (const role of ALL_ROLES) {
         it(`${expected[role] ? "allows" : "denies"} ${role}`, () => {
           assert.equal(fns[fnName](role), expected[role]);
         });
       }
-    });
-  }
+    },
+  );
 });
 
 // ---------------------------------------------------------------------------

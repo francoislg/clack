@@ -70,8 +70,8 @@ describe("activeSessions.delete", () => {
   });
 
   it("is a no-op for unknown session id", () => {
-    // Should not throw
     activeSessions.delete("never-existed");
+    assert.equal(activeSessions.get("never-existed"), undefined);
   });
 });
 

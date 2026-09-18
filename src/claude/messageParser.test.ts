@@ -363,7 +363,9 @@ describe("ClaudeMessageParser", () => {
 
     it("does not emit when onEvent is not provided", async () => {
       const noCallbackParser = new ClaudeMessageParser();
-      await noCallbackParser.process(toolProgress({ tool_use_id: "tu_1", tool_name: "read_file" }));
+      await assert.doesNotReject(
+        noCallbackParser.process(toolProgress({ tool_use_id: "tu_1", tool_name: "read_file" })),
+      );
     });
   });
 

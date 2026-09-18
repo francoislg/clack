@@ -1128,8 +1128,7 @@ describe("handleAutoExecuteActions — error handling", () => {
       ),
     });
 
-    // Should not throw — best-effort error reporting
-    await handleAutoExecuteActions(params, makeDeps());
+    await assert.doesNotReject(handleAutoExecuteActions(params, makeDeps()));
   });
 });
 

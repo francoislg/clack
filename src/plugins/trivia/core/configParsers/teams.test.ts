@@ -36,8 +36,10 @@ describe("validateTeamsRoster", () => {
       ],
       "trivia.teams",
     );
-    expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.error).toContain('duplicate team name "red"');
+    expect(r).toMatchObject({
+      ok: false,
+      error: expect.stringContaining('duplicate team name "red"'),
+    });
   });
 
   it("rejects an empty userIds array", () => {
@@ -53,8 +55,7 @@ describe("validateTeamsRoster", () => {
       ],
       "trivia.teams",
     );
-    expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.error).toContain('"U1"');
+    expect(r).toMatchObject({ ok: false, error: expect.stringContaining('"U1"') });
   });
 
   it("rejects a user listed twice in the same team", () => {
@@ -79,10 +80,7 @@ describe("validateTeamsScoring", () => {
 
   it("rejects unknown modes, naming the valid ones", () => {
     const r = validateTeamsScoring("winner-takes-all", "trivia.teamsScoring");
-    expect(r.ok).toBe(false);
-    if (!r.ok) {
-      expect(r.error).toContain('"one-right-is-right"');
-      expect(r.error).toContain('"total-points"');
-    }
+    expect(r).toMatchObject({ ok: false, error: expect.stringContaining('"one-right-is-right"') });
+    expect(r).toMatchObject({ ok: false, error: expect.stringContaining('"total-points"') });
   });
 });

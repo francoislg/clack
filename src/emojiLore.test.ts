@@ -172,11 +172,11 @@ describe("emojiLore provenance rule", () => {
       source: "observed",
     });
 
-    expect(result.applied).toBe(false);
-    if (!result.applied) {
-      expect(result.reason).toBe("taught-wins");
-      expect(result.existing.meaning).toBe("real incidents");
-    }
+    expect(result).toMatchObject({
+      applied: false,
+      reason: "taught-wins",
+      existing: { meaning: "real incidents" },
+    });
     expect((await readLore("crisis_cat"))?.meaning).toBe("real incidents");
   });
 

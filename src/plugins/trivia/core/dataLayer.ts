@@ -117,7 +117,7 @@ async function readSdkJson<T>(
   sdk: ClackSdk,
   path: string,
   fallback: T,
-  schema?: z.ZodTypeAny,
+  schema?: z.ZodType,
 ): Promise<T> {
   const raw = await sdk.readFile(path);
   if (raw === null) return fallback;

@@ -1332,25 +1332,6 @@ describe("cron.catchUp config", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Trivia plugin tests moved out of this file. The trivia config lives at
-// data/plugins/trivia/config.json now; parsers + tests live under
-// src/plugins/trivia/core/configParsers/ (see configParsers/axes.test.ts and
-// configParsers/games.test.ts).
-// ---------------------------------------------------------------------------
-
-describe.skip("trivia.games config (moved to plugin)", () => {
-  it("see src/plugins/trivia/core/configParsers/games.test.ts", () => {});
-});
-
-describe.skip("trivia.games dead block", () => {
-  it("see src/plugins/trivia/core/configParsers/games.test.ts (TODO)", () => {});
-});
-
-describe.skip("trivia.offDays config (moved to plugin)", () => {
-  it("see src/plugins/trivia/core/configParsers/games.test.ts (TODO)", () => {});
-});
-
 describe("language config", () => {
   beforeEach(() => {
     if (existsSync(tmpBase)) rmSync(tmpBase, { recursive: true });

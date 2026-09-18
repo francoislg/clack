@@ -41,7 +41,8 @@ const warnedNpxLegacy = new Set<string>();
  */
 /** Schema for the pinned-install invariant: `package` and `version` are all-or-nothing. */
 function stdioEntrySchema(name: string) {
-  return z.object({ package: z.unknown(), version: z.unknown() }).superRefine((entry, ctx) => {
+  const pinField = z.unknown().optional();
+  return z.object({ package: pinField, version: pinField }).superRefine((entry, ctx) => {
     const hasPackage = typeof entry.package === "string" && entry.package.length > 0;
     const hasVersion = typeof entry.version === "string" && entry.version.length > 0;
     if (hasPackage !== hasVersion) {

@@ -1,17 +1,18 @@
+import assert from "node:assert/strict";
 import { describe, it, expect } from "vitest";
 import { backupZod } from "./configSchemas.js";
 
 describe("backupZod", () => {
   it("returns defaults when the block is absent", () => {
     const r = backupZod.safeParse(undefined);
-    expect(r.success).toBe(true);
-    if (r.success) {
-      expect(r.data).toEqual({
+    expect(r).toEqual({
+      success: true,
+      data: {
         enabled: true,
         folders: ["state"],
         timezone: "America/New_York",
-      });
-    }
+      },
+    });
   });
 
   it("accepts a fully-specified valid block", () => {
@@ -20,20 +21,20 @@ describe("backupZod", () => {
       folders: ["state", "configuration"],
       timezone: "America/New_York",
     });
-    expect(r.success).toBe(true);
-    if (r.success) {
-      expect(r.data).toEqual({
+    expect(r).toEqual({
+      success: true,
+      data: {
         enabled: false,
         folders: ["state", "configuration"],
         timezone: "America/New_York",
-      });
-    }
+      },
+    });
   });
 
   it("rejects an invalid IANA timezone", () => {
     const r = backupZod.safeParse({ timezone: "Not/AZone" });
-    expect(r.success).toBe(false);
-    if (!r.success) expect(r.error.issues[0].message).toMatch(/timezone/i);
+    assert.ok(!r.success);
+    expect(r.error.issues[0].message).toMatch(/timezone/i);
   });
 
   it("rejects a non-boolean enabled", () => {

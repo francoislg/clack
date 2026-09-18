@@ -115,17 +115,23 @@ function makeMockQuery(items: ReadonlyArray<MessageFixture>): Query {
     Query,
     | "interrupt"
     | "setPermissionMode"
+    | "setMcpPermissionModeOverride"
     | "setModel"
     | "setMaxThinkingTokens"
     | "applyFlagSettings"
+    | "updateSettings"
     | "initializationResult"
+    | "reinitialize"
     | "supportedCommands"
     | "supportedModels"
     | "supportedAgents"
     | "mcpServerStatus"
     | "getContextUsage"
+    | "usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET"
     | "readFile"
     | "reloadPlugins"
+    | "reloadSkills"
+    | "reloadOutputStyles"
     | "accountInfo"
     | "rewindFiles"
     | "seedReadState"
@@ -134,21 +140,30 @@ function makeMockQuery(items: ReadonlyArray<MessageFixture>): Query {
     | "setMcpServers"
     | "streamInput"
     | "stopTask"
+    | "backgroundTasks"
     | "close"
   > = {
-    interrupt: () => Promise.resolve(),
+    interrupt: () => Promise.resolve(undefined),
     setPermissionMode: () => Promise.resolve(),
+    setMcpPermissionModeOverride: () => Promise.resolve({}),
     setModel: () => Promise.resolve(),
     setMaxThinkingTokens: () => Promise.resolve(),
     applyFlagSettings: () => Promise.resolve(),
+    updateSettings: () => Promise.resolve(),
     initializationResult: notImplemented("initializationResult"),
+    reinitialize: notImplemented("reinitialize"),
     supportedCommands: () => Promise.resolve([]),
     supportedModels: () => Promise.resolve([]),
     supportedAgents: () => Promise.resolve([]),
     mcpServerStatus: () => Promise.resolve([]),
     getContextUsage: notImplemented("getContextUsage"),
+    usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET: notImplemented(
+      "usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET",
+    ),
     readFile: () => Promise.resolve(null),
     reloadPlugins: notImplemented("reloadPlugins"),
+    reloadSkills: notImplemented("reloadSkills"),
+    reloadOutputStyles: notImplemented("reloadOutputStyles"),
     accountInfo: notImplemented("accountInfo"),
     rewindFiles: () => Promise.resolve({ canRewind: false }),
     seedReadState: () => Promise.resolve(),
@@ -158,6 +173,7 @@ function makeMockQuery(items: ReadonlyArray<MessageFixture>): Query {
       Promise.resolve({ added: [] as string[], removed: [] as string[], errors }),
     streamInput: () => Promise.resolve(),
     stopTask: () => Promise.resolve(),
+    backgroundTasks: () => Promise.resolve(false),
     close: () => {},
   };
   return Object.assign(generator, control);

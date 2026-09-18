@@ -249,12 +249,10 @@ describe("startChangeWorkflow — tester runs", () => {
 
   it("settles a failed test as failed and still frees worker + slot", async () => {
     const deps = makeDeps({
-      executeChange: vi.fn(
-        async (): Promise<ExecutionResult> => ({
-          success: false,
-          error: "app never became healthy",
-        }),
-      ),
+      executeChange: vi.fn(async (): Promise<ExecutionResult> => ({
+        success: false,
+        error: "app never became healthy",
+      })),
     });
 
     const result = await startChangeWorkflow(makeRequest(), makeTestPlan(), "s1", undefined, deps);

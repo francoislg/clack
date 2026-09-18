@@ -494,8 +494,7 @@ describe("startSyncScheduler", () => {
     mockGetConfig.mockImplementation(() => defaultConfig({ pullIntervalMinutes: 30 }));
     setRepositoriesDeps(makeDeps());
 
-    // Should not throw
-    startSyncScheduler();
+    assert.doesNotThrow(() => startSyncScheduler());
 
     // Clean up
     stopSyncScheduler();
@@ -506,8 +505,7 @@ describe("stopSyncScheduler", () => {
   beforeEach(resetAllMocks);
 
   it("stops the scheduler without error when not started", () => {
-    // Should not throw
-    stopSyncScheduler();
+    assert.doesNotThrow(() => stopSyncScheduler());
   });
 
   it("stops the scheduler when running", () => {
@@ -516,6 +514,6 @@ describe("stopSyncScheduler", () => {
     startSyncScheduler();
     stopSyncScheduler();
     // Calling again should be safe
-    stopSyncScheduler();
+    assert.doesNotThrow(() => stopSyncScheduler());
   });
 });

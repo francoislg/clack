@@ -97,34 +97,32 @@ describe("instruction-file hygiene", () => {
     ).toEqual([]);
   });
 
-  it("every attach_integration reference resolves to a registered server or topic", () => {
-    // Needs the MCP registry (config.json) to be authoritative. Skip when absent
-    // (fresh CI checkout) — the local pre-commit gate has it and is the enforcement point.
-    if (!existsSync(CONFIG_JSON)) {
-      expect(existsSync(CONFIG_JSON)).toBe(false); // documents the intentional skip
-      return;
-    }
+  // Needs the MCP registry (config.json) to be authoritative. Skipped when absent
+  // (fresh CI checkout) — the local pre-commit gate has it and is the enforcement point.
+  it.skipIf(!existsSync(CONFIG_JSON))(
+    "every attach_integration reference resolves to a registered server or topic",
+    () => {
+      const registry = McpRegistrySchema.parse(JSON.parse(readFileSync(CONFIG_JSON, "utf-8")));
+      const serverKeys = Object.keys(registry.mcpServers);
+      const topicNames = [...listTopicNames(DEFAULT_DIR), ...listTopicNames(CUSTOM_DIR)];
+      const valid = new Set<string>([...serverKeys, ...topicNames]);
 
-    const registry = McpRegistrySchema.parse(JSON.parse(readFileSync(CONFIG_JSON, "utf-8")));
-    const serverKeys = Object.keys(registry.mcpServers);
-    const topicNames = [...listTopicNames(DEFAULT_DIR), ...listTopicNames(CUSTOM_DIR)];
-    const valid = new Set<string>([...serverKeys, ...topicNames]);
-
-    const dead: string[] = [];
-    for (const file of [...listMarkdown(DEFAULT_DIR), ...listMarkdown(CUSTOM_DIR)]) {
-      const content = readFileSync(file, "utf-8");
-      for (const match of content.matchAll(/attach_integration\("([^"]+)"\)/g)) {
-        const name = match[1];
-        if (name.includes("<")) continue; // literal <name> placeholder in prose examples
-        const base = name.split(":")[0]; // "plugin:server" on-demand form → validate the plugin prefix
-        if (!valid.has(name) && !valid.has(base)) {
-          dead.push(`${rel(file)} → attach_integration("${name}")`);
+      const dead: string[] = [];
+      for (const file of [...listMarkdown(DEFAULT_DIR), ...listMarkdown(CUSTOM_DIR)]) {
+        const content = readFileSync(file, "utf-8");
+        for (const match of content.matchAll(/attach_integration\("([^"]+)"\)/g)) {
+          const name = match[1];
+          if (name.includes("<")) continue; // literal <name> placeholder in prose examples
+          const base = name.split(":")[0]; // "plugin:server" on-demand form → validate the plugin prefix
+          if (!valid.has(name) && !valid.has(base)) {
+            dead.push(`${rel(file)} → attach_integration("${name}")`);
+          }
         }
       }
-    }
-    expect(
-      dead,
-      `Dead attach_integration references (no registered mcpServer key and no topic dir):\n${dead.join("\n")}`,
-    ).toEqual([]);
-  });
+      expect(
+        dead,
+        `Dead attach_integration references (no registered mcpServer key and no topic dir):\n${dead.join("\n")}`,
+      ).toEqual([]);
+    },
+  );
 });

@@ -217,12 +217,10 @@ export function getResponseActionBlocks(actions: Action[], sessionId: string): A
   }
 
   let globalIndex = 0;
-  return actionChunks.map(
-    (chunk): ActionsBlock => ({
-      type: "actions",
-      elements: chunk.map((action) => actionToButton(action, sessionId, globalIndex++)),
-    }),
-  );
+  return actionChunks.map((chunk): ActionsBlock => ({
+    type: "actions",
+    elements: chunk.map((action) => actionToButton(action, sessionId, globalIndex++)),
+  }));
 }
 
 // ============================================================================

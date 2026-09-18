@@ -594,7 +594,7 @@ describe("stopCompletionMonitor", () => {
   });
 
   it("is a no-op when no monitor is running", () => {
-    stopCompletionMonitor();
+    assert.doesNotThrow(() => stopCompletionMonitor());
   });
 });
 

@@ -1,3 +1,4 @@
+import assert from "node:assert/strict";
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -105,8 +106,8 @@ describe("readWorkerSkillBody", () => {
   it("reads the resolved body", () => {
     skillFile("default_configuration", "global", "rebase", "d", "the procedure");
     const res = readWorkerSkillBody(REPO, "rebase");
-    expect(res.ok).toBe(true);
-    if (res.ok) expect(res.body.trim()).toBe("the procedure");
+    assert.ok(res.ok);
+    expect(res.body.trim()).toBe("the procedure");
   });
 
   it("returns ok:false for an unknown slug", () => {

@@ -1,3 +1,4 @@
+import assert from "node:assert/strict";
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -25,11 +26,9 @@ describe("readRepoSkillBody", () => {
   it("returns the frontmatter-stripped body for an existing repo skill", () => {
     writeRepoSkill("commit-guidelines", `---\nname: commit-guidelines\n---\n\nthe procedure\n`);
     const result = readRepoSkillBody(worktree, "commit-guidelines");
-    expect(result.ok).toBe(true);
-    if (result.ok) {
-      expect(result.body).toContain("the procedure");
-      expect(result.body).not.toContain("name: commit-guidelines");
-    }
+    assert.ok(result.ok);
+    expect(result.body).toContain("the procedure");
+    expect(result.body).not.toContain("name: commit-guidelines");
   });
 
   it("returns not-ok when the skill file is absent", () => {

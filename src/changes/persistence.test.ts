@@ -949,8 +949,7 @@ describe("cleanupStaleSessionFolders", () => {
 
     fsState.rmAsyncShouldThrow = true;
 
-    // Should not throw
-    await cleanupStaleSessionFolders();
+    await assert.doesNotReject(cleanupStaleSessionFolders());
   });
 
   it("skips non-directory entries", async () => {

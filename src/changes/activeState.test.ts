@@ -123,8 +123,8 @@ describe("clearActiveChange", () => {
   });
 
   it("is a no-op for an unknown session id", () => {
-    // Should not throw
     clearActiveChange("nonexistent");
+    assert.equal(getActiveChange("nonexistent"), undefined);
   });
 
   it("does not affect other sessions when clearing one", () => {

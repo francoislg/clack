@@ -310,7 +310,7 @@ describe("buildClackTools — query mode", () => {
 
   describe("submit_response schema channelless override", () => {
     interface SubmitResponseShape {
-      [key: string]: z.ZodTypeAny;
+      [key: string]: z.ZodType;
     }
     interface RegisteredToolEntry {
       inputSchema: { shape?: SubmitResponseShape };

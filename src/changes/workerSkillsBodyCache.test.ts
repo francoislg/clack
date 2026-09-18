@@ -1,3 +1,4 @@
+import assert from "node:assert/strict";
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdirSync, rmSync, writeFileSync, utimesSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -37,11 +38,9 @@ describe("getWorkerSkillBody", () => {
   it("first read populates the cache (fromCache=false)", () => {
     write("default_configuration", "rebase", "body one");
     const res = getWorkerSkillBody(REPO, "rebase");
-    expect(res.ok).toBe(true);
-    if (res.ok) {
-      expect(res.fromCache).toBe(false);
-      expect(res.body.trim()).toBe("body one");
-    }
+    assert.ok(res.ok);
+    expect(res.fromCache).toBe(false);
+    expect(res.body.trim()).toBe("body one");
   });
 
   it("second read with unchanged mtime returns the cached body", () => {
@@ -58,11 +57,9 @@ describe("getWorkerSkillBody", () => {
     const future = new Date(Date.now() + 5000);
     utimesSync(path, future, future);
     const res = getWorkerSkillBody(REPO, "rebase");
-    expect(res.ok).toBe(true);
-    if (res.ok) {
-      expect(res.fromCache).toBe(false);
-      expect(res.body.trim()).toBe("body two");
-    }
+    assert.ok(res.ok);
+    expect(res.fromCache).toBe(false);
+    expect(res.body.trim()).toBe("body two");
   });
 
   it("returns ok:false for an unknown skill", () => {

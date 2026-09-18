@@ -591,6 +591,7 @@ describe("cronJobs", () => {
 
     it("is a no-op when the job does not exist", async () => {
       await markJobStarted("nonexistent");
+      assert.equal(await getJob("nonexistent"), null);
     });
   });
 

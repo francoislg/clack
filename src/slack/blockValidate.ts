@@ -235,7 +235,7 @@ export function validateTable(
       // raw_text cell has empty text — and a bare-string "" cell is sugar for
       // a raw_text cell, so it falls into the same trap. If you really want
       // a visually blank cell (e.g. the top-left label of a multi-row table),
-      // pass a single space " " or a zero-width space "​".
+      // pass a single space " " or a zero-width space "\u200B".
       if (len === 0) {
         errors.push({
           field: `${pathPrefix}.rows[${ri}][${ci}]`,

@@ -1023,7 +1023,7 @@ const optionalPostToResponseSchema = {
  * source of truth for which are actually present in a given call.
  *
  * Used as a cast at the handler entry to recover field types after `buildSubmitResponseSchema`
- * returns `Record<string, z.ZodTypeAny>` (which loses per-variant inference).
+ * returns `Record<string, z.ZodType>` (which loses per-variant inference).
  */
 interface SubmitResponseArgs {
   message?: string;
@@ -1068,7 +1068,7 @@ export function buildSubmitResponseSchema(
     | "allowMultiMessage"
     | "maxAdditionalMessages"
   >,
-): Record<string, z.ZodTypeAny> {
+): Record<string, z.ZodType> {
   if (deps.submitResponseMode === "skipped") {
     return skippedOnlyResponseSchema;
   }
@@ -1077,7 +1077,7 @@ export function buildSubmitResponseSchema(
     return optionalPostToResponseSchema;
   }
 
-  let base: Record<string, z.ZodTypeAny>;
+  let base: Record<string, z.ZodType>;
   if (deps.allowSkip && deps.allowAttentionLevel) {
     base = { ...skipEnabledResponseSchema };
   } else if (deps.allowSkip) {
@@ -1165,7 +1165,7 @@ export function createSubmitResponseTool(deps: SubmitResponseDeps) {
     "Submit the final response to the user. IMPORTANT: calling this tool ENDS the conversation — you cannot take any further actions afterward. If your response mentions doing something (e.g., 'Let me set that up', 'I'll create a PR'), you MUST have already called the relevant tools BEFORE calling submit_response. Never promise future actions in your response text — either do them first or don't mention them. This defines what the user sees: text sections and interactive buttons. Always call this tool to deliver your response.",
     schema,
     async (rawArgs) => {
-      // Cast: `buildSubmitResponseSchema` returns `Record<string, z.ZodTypeAny>`, which loses
+      // Cast: `buildSubmitResponseSchema` returns `Record<string, z.ZodType>`, which loses
       // per-variant field inference. The runtime checks below (`"x" in args` + ad-hoc Array.isArray)
       // narrow before each use; the cast just restores the field types after the runtime parse.
       const args = rawArgs as SubmitResponseArgs;

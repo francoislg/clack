@@ -27,13 +27,11 @@ function makeDeps(overrides: Partial<AllowlistDeps> = {}): AllowlistDeps {
     getDataDir: () => "/tmp/test-data",
     // The allowlist only checks whether validateConfig throws, not its return value
     validateConfig: validateConfig as never as AllowlistDeps["validateConfig"],
-    loadSlackAuth: vi.fn(
-      (): SlackAuthConfig => ({
-        botToken: "xoxb-test",
-        appToken: "xapp-test",
-        signingSecret: "secret",
-      }),
-    ),
+    loadSlackAuth: vi.fn((): SlackAuthConfig => ({
+      botToken: "xoxb-test",
+      appToken: "xapp-test",
+      signingSecret: "secret",
+    })),
     ...overrides,
   };
 }

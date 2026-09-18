@@ -134,14 +134,17 @@ describe("agentTurnHooks", () => {
     const { client } = makeThreadsClient(async () => {
       throw new Error("slack down");
     });
-    await agentTurnHooks.onTurnStart!({ client, channel: "D1", threadRoot: "1.0" });
-    await agentTurnHooks.onTurnEnd!({
-      client,
-      channel: "D1",
-      threadRoot: "1.0",
-      messageText: "hi",
-      isThreadStart: true,
-    });
-    // No throw = pass.
+    await expect(
+      agentTurnHooks.onTurnStart!({ client, channel: "D1", threadRoot: "1.0" }),
+    ).resolves.toBeUndefined();
+    await expect(
+      agentTurnHooks.onTurnEnd!({
+        client,
+        channel: "D1",
+        threadRoot: "1.0",
+        messageText: "hi",
+        isThreadStart: true,
+      }),
+    ).resolves.toBeUndefined();
   });
 });

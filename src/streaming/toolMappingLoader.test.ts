@@ -628,139 +628,138 @@ describe("shipped default tool mapping configs", () => {
     assert.ok(files.length > 0, "No config files found");
   });
 
-  for (const file of files) {
+  describe.each(files)("%s", (file) => {
     const serverName = file.replace(".json", "");
 
-    describe(file, () => {
-      let config: ToolMappingConfig;
+    let config: ToolMappingConfig;
 
-      it("parses as valid JSON", () => {
-        const raw = readFileSync(resolve(TOOL_MAPPING_DIR, file), "utf-8");
-        config = JSON.parse(raw) as ToolMappingConfig;
-      });
+    it("parses as valid JSON", () => {
+      const raw = readFileSync(resolve(TOOL_MAPPING_DIR, file), "utf-8");
+      config = JSON.parse(raw) as ToolMappingConfig;
+      assert.equal(typeof config, "object");
+    });
 
-      it("has valid schema structure", () => {
-        // tools must be an object if present
-        if (config.tools !== undefined) {
-          assert.equal(typeof config.tools, "object");
-          assert.ok(!Array.isArray(config.tools), "tools must be a Record, not an array");
+    it("has valid schema structure", () => {
+      // tools must be an object if present
+      if (config.tools !== undefined) {
+        assert.equal(typeof config.tools, "object");
+        assert.ok(!Array.isArray(config.tools), "tools must be a Record, not an array");
+      }
+
+      // hidden must be a string array if present
+      if (config.hidden !== undefined) {
+        assert.ok(Array.isArray(config.hidden), "hidden must be an array");
+        for (const h of config.hidden) {
+          assert.equal(typeof h, "string", `hidden entry must be a string, got ${typeof h}`);
         }
+      }
 
-        // hidden must be a string array if present
-        if (config.hidden !== undefined) {
-          assert.ok(Array.isArray(config.hidden), "hidden must be an array");
-          for (const h of config.hidden) {
-            assert.equal(typeof h, "string", `hidden entry must be a string, got ${typeof h}`);
-          }
-        }
-
-        // conditionalHidden must be an array of valid rule objects if present
-        if (config.conditionalHidden !== undefined) {
-          assert.ok(Array.isArray(config.conditionalHidden), "conditionalHidden must be an array");
-          for (const rule of config.conditionalHidden) {
-            assert.equal(typeof rule.tool, "string", "rule.tool must be a string");
-            assert.equal(typeof rule.arg, "string", "rule.arg must be a string");
-            assert.equal(typeof rule.pattern, "string", "rule.pattern must be a string");
-            // Validate that the pattern compiles
-            assert.doesNotThrow(
-              () => new RegExp(rule.pattern),
-              `Invalid regex pattern: ${rule.pattern}`,
-            );
-          }
-        }
-
-        // A LocalizedString is either a plain string or a `{ lang: string }` map.
-        const assertLocalized = (val: unknown, ctx: string) => {
-          if (typeof val === "string") return;
-          assert.ok(
-            typeof val === "object" && val !== null && !Array.isArray(val),
-            `${ctx} must be a string or language map`,
+      // conditionalHidden must be an array of valid rule objects if present
+      if (config.conditionalHidden !== undefined) {
+        assert.ok(Array.isArray(config.conditionalHidden), "conditionalHidden must be an array");
+        for (const rule of config.conditionalHidden) {
+          assert.equal(typeof rule.tool, "string", "rule.tool must be a string");
+          assert.equal(typeof rule.arg, "string", "rule.arg must be a string");
+          assert.equal(typeof rule.pattern, "string", "rule.pattern must be a string");
+          // Validate that the pattern compiles
+          assert.doesNotThrow(
+            () => new RegExp(rule.pattern),
+            `Invalid regex pattern: ${rule.pattern}`,
           );
-          for (const [lang, str] of Object.entries(val as Record<string, unknown>)) {
-            assert.equal(typeof str, "string", `${ctx}.${lang} must be a string`);
-          }
-        };
-
-        // default must be a LocalizedString if present
-        if (config.default !== undefined) {
-          assertLocalized(config.default, "default");
         }
+      }
 
-        // group must be a LocalizedString if present
-        if (config.group !== undefined) {
-          assertLocalized(config.group, "group");
+      // A LocalizedString is either a plain string or a `{ lang: string }` map.
+      const assertLocalized = (val: unknown, ctx: string) => {
+        if (typeof val === "string") return;
+        assert.ok(
+          typeof val === "object" && val !== null && !Array.isArray(val),
+          `${ctx} must be a string or language map`,
+        );
+        for (const [lang, str] of Object.entries(val as Record<string, unknown>)) {
+          assert.equal(typeof str, "string", `${ctx}.${lang} must be a string`);
         }
+      };
 
-        // groups values may be a title string OR { title, maxDetails? } object
-        if (config.groups !== undefined) {
-          assert.equal(typeof config.groups, "object");
-          for (const [key, val] of Object.entries(config.groups)) {
-            assert.equal(typeof key, "string");
-            if (typeof val === "string") {
-              // legacy string form
-            } else {
-              assert.equal(typeof val, "object", `groups["${key}"] must be string or object`);
-              assertLocalized(val.title, `groups["${key}"].title`);
-              if (val.maxDetails !== undefined) {
-                assert.equal(
-                  typeof val.maxDetails,
-                  "number",
-                  `groups["${key}"].maxDetails must be a number`,
-                );
-              }
+      // default must be a LocalizedString if present
+      if (config.default !== undefined) {
+        assertLocalized(config.default, "default");
+      }
+
+      // group must be a LocalizedString if present
+      if (config.group !== undefined) {
+        assertLocalized(config.group, "group");
+      }
+
+      // groups values may be a title string OR { title, maxDetails? } object
+      if (config.groups !== undefined) {
+        assert.equal(typeof config.groups, "object");
+        for (const [key, val] of Object.entries(config.groups)) {
+          assert.equal(typeof key, "string");
+          if (typeof val === "string") {
+            // legacy string form
+          } else {
+            assert.equal(typeof val, "object", `groups["${key}"] must be string or object`);
+            assertLocalized(val.title, `groups["${key}"].title`);
+            if (val.maxDetails !== undefined) {
+              assert.equal(
+                typeof val.maxDetails,
+                "number",
+                `groups["${key}"].maxDetails must be a number`,
+              );
             }
           }
         }
-      });
+      }
+    });
 
-      it("every tool entry interpolates to a non-empty string with empty args", () => {
-        if (!config.tools) return;
-        for (const [toolName, entry] of Object.entries(config.tools)) {
-          const template = resolveLocalized(typeof entry === "string" ? entry : entry.label);
-          const result = interpolateLabel(template, {});
-          assert.ok(
-            result.length > 0,
-            `Tool "${toolName}" produced empty label with empty args (template: "${template}")`,
-          );
-        }
-      });
-
-      it("every tool entry interpolates to a non-empty string with generic args", () => {
-        if (!config.tools) return;
-        for (const [toolName, entry] of Object.entries(config.tools)) {
-          const template = resolveLocalized(typeof entry === "string" ? entry : entry.label);
-          const result = interpolateLabel(template, GENERIC_ARGS);
-          assert.ok(
-            result.length > 0,
-            `Tool "${toolName}" produced empty label with generic args (template: "${template}")`,
-          );
-        }
-      });
-
-      it("every tool with a group reference has a matching group definition", () => {
-        if (!config.tools) return;
-        const resolved = resolveConfig(config, serverName);
-
-        for (const [toolName, entry] of Object.entries(config.tools)) {
-          if (typeof entry === "object" && entry.group) {
-            assert.ok(
-              resolved.groupTitles.has(entry.group),
-              `Tool "${toolName}" references group "${entry.group}" but no matching group title found`,
-            );
-          }
-        }
-      });
-
-      it("default label interpolates to a non-empty string if present", () => {
-        if (!config.default) return;
-        const result = interpolateLabel(resolveLocalized(config.default), {});
+    it("every tool entry interpolates to a non-empty string with empty args", () => {
+      if (!config.tools) return;
+      for (const [toolName, entry] of Object.entries(config.tools)) {
+        const template = resolveLocalized(typeof entry === "string" ? entry : entry.label);
+        const result = interpolateLabel(template, {});
         assert.ok(
           result.length > 0,
-          `Default label produced empty string (template: "${config.default}")`,
+          `Tool "${toolName}" produced empty label with empty args (template: "${template}")`,
         );
-      });
+      }
     });
-  }
+
+    it("every tool entry interpolates to a non-empty string with generic args", () => {
+      if (!config.tools) return;
+      for (const [toolName, entry] of Object.entries(config.tools)) {
+        const template = resolveLocalized(typeof entry === "string" ? entry : entry.label);
+        const result = interpolateLabel(template, GENERIC_ARGS);
+        assert.ok(
+          result.length > 0,
+          `Tool "${toolName}" produced empty label with generic args (template: "${template}")`,
+        );
+      }
+    });
+
+    it("every tool with a group reference has a matching group definition", () => {
+      if (!config.tools) return;
+      const resolved = resolveConfig(config, serverName);
+
+      for (const [toolName, entry] of Object.entries(config.tools)) {
+        if (typeof entry === "object" && entry.group) {
+          assert.ok(
+            resolved.groupTitles.has(entry.group),
+            `Tool "${toolName}" references group "${entry.group}" but no matching group title found`,
+          );
+        }
+      }
+    });
+
+    it("default label interpolates to a non-empty string if present", () => {
+      if (!config.default) return;
+      const result = interpolateLabel(resolveLocalized(config.default), {});
+      assert.ok(
+        result.length > 0,
+        `Default label produced empty string (template: "${config.default}")`,
+      );
+    });
+  });
 });
 
 // ---------------------------------------------------------------------------

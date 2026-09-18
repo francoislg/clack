@@ -235,7 +235,7 @@ describe("ensureServices", () => {
   });
 
   it("fails with proxy_missing when dockerProxyUrl is not configured", async () => {
-    await expectServiceError(
+    const err = await expectServiceError(
       ensureServices({
         repoName: "repo",
         services: [MYSQL],
@@ -244,6 +244,7 @@ describe("ensureServices", () => {
       }),
       "proxy_missing",
     );
+    assert.equal(err.kind, "proxy_missing");
   });
 
   it("fails with proxy_unreachable when fetch rejects", async () => {
@@ -399,6 +400,6 @@ describe("stopServices", () => {
         throw new Error("ECONNREFUSED");
       },
     });
-    await stopServices("repo", TESTER, deps);
+    await assert.doesNotReject(stopServices("repo", TESTER, deps));
   });
 });

@@ -703,8 +703,7 @@ describe("SlackStreamer.stop", () => {
       logger: mockLogger.logger,
     });
 
-    // Should not throw
-    await streamer.stop();
+    await assert.doesNotReject(streamer.stop());
   });
 
   it("skips chatStreamer.stop when stream has failed", async () => {

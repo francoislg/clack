@@ -1,3 +1,4 @@
+import assert from "node:assert/strict";
 import { describe, it, expect } from "vitest";
 import { discoverWorkerSkills, readWorkerSkillBody } from "./workerSkills.js";
 
@@ -14,10 +15,8 @@ describe("built-in rebase skill", () => {
 
   it("is loadable and its body describes the rebase procedure", () => {
     const res = readWorkerSkillBody("any-repo", "rebase");
-    expect(res.ok).toBe(true);
-    if (res.ok) {
-      expect(res.body).toContain("git rebase");
-      expect(res.body).toContain("git fetch origin");
-    }
+    assert.ok(res.ok);
+    expect(res.body).toContain("git rebase");
+    expect(res.body).toContain("git fetch origin");
   });
 });

@@ -34,14 +34,12 @@ function makeCtx(opts?: { userId?: string; role?: QueryToolContext["role"] }): Q
 
 function makeDeps(): MockedUpdateUserDeps {
   return {
-    getUserRecord: vi.fn(
-      async (userId: string): Promise<UserRecord | null> => ({
-        userId,
-        displayName: "Existing",
-        lastFetched: 0,
-        github: { username: "existing-gh" },
-      }),
-    ),
+    getUserRecord: vi.fn(async (userId: string): Promise<UserRecord | null> => ({
+      userId,
+      displayName: "Existing",
+      lastFetched: 0,
+      github: { username: "existing-gh" },
+    })),
     mergeUserGithub: vi.fn(async () => undefined),
     mergeUserOtherNames: vi.fn(async () => undefined),
     setUserDisplayName: vi.fn(async () => undefined),
