@@ -144,13 +144,15 @@ const tableColumnSettingSchema = z.looseObject({
  * `data_table` has no per-column alignment, so `column_settings` is ignored under that
  * variant; `caption` (screen-reader/HTML label) applies to `data_table` only.
  */
-export const tableBlockSchema = z.looseObject({
-  type: z.literal("table"),
-  variant: z.enum(["table", "data_table"]).optional(),
-  caption: z.string().optional(),
-  rows: z.array(z.array(tableCellSchema)).min(1),
-  column_settings: z.array(tableColumnSettingSchema).optional(),
-});
+export const tableBlockSchema = z
+  .looseObject({
+    type: z.literal("table"),
+    variant: z.enum(["table", "data_table"]).optional(),
+    caption: z.string().optional(),
+    rows: z.array(z.array(tableCellSchema)).min(1),
+    column_settings: z.array(tableColumnSettingSchema).optional(),
+  })
+  .meta({ id: "SlackTableBlock" });
 
 // ----------------------------------------------------------------------------
 // Chart block (data_visualization) — top-level `chart` sibling parameter
@@ -184,13 +186,15 @@ const chartAxisConfigSchema = z.looseObject({
   y_label: z.string().optional(),
 });
 
-export const chartBlockSchema = z.looseObject({
-  chart_type: z.enum(["pie", "bar", "area", "line"]),
-  title: z.string().optional(),
-  segments: z.array(chartSegmentSchema).optional(),
-  series: z.array(chartSeriesSchema).optional(),
-  axis_config: chartAxisConfigSchema.optional(),
-});
+export const chartBlockSchema = z
+  .looseObject({
+    chart_type: z.enum(["pie", "bar", "area", "line"]),
+    title: z.string().optional(),
+    segments: z.array(chartSegmentSchema).optional(),
+    series: z.array(chartSeriesSchema).optional(),
+    axis_config: chartAxisConfigSchema.optional(),
+  })
+  .meta({ id: "SlackChartBlock" });
 
 export interface AuthoredChartSegment {
   label: string;
@@ -305,32 +309,40 @@ function readTypeTag(input: JsonValue | undefined): JsonValue | undefined {
 // types) so the model doesn't have to infer what went wrong from a generic
 // "Invalid input" message. The discriminated-union variants below still
 // own their own per-field errors via standard Zod messages.
-export const BlockSchema = z.discriminatedUnion(
-  "type",
-  [
-    dividerBlockSchema,
-    headerBlockSchema,
-    sectionBlockSchema,
-    contextBlockSchema,
-    imageBlockSchema,
-    markdownBlockSchema,
-    cardBlockSchema,
-    carouselBlockSchema,
-  ],
-  {
-    error: (issue) => {
-      if (issue.code === "invalid_union") {
-        const actualType = readTypeTag(issue.input as JsonValue | undefined);
-        if (actualType === "table") {
-          return 'Block type "table" is not a member of `blocks` — it is a top-level sibling parameter on `submit_response` (and on each `post_to` action). Move the table object to the `table` field next to `blocks`.';
+//
+// The `id` (like those on `tableBlockSchema` / `chartBlockSchema`) makes JSON-Schema
+// generation emit the schema once under `definitions` and `$ref` it from every other use.
+// `submit_response` embeds these in ~6 places (primary, additional_messages, thread_replies,
+// and the same three inside each post_to), and each inlined copy is a few thousand characters
+// of tool schema Claude reads on every turn.
+export const BlockSchema = z
+  .discriminatedUnion(
+    "type",
+    [
+      dividerBlockSchema,
+      headerBlockSchema,
+      sectionBlockSchema,
+      contextBlockSchema,
+      imageBlockSchema,
+      markdownBlockSchema,
+      cardBlockSchema,
+      carouselBlockSchema,
+    ],
+    {
+      error: (issue) => {
+        if (issue.code === "invalid_union") {
+          const actualType = readTypeTag(issue.input as JsonValue | undefined);
+          if (actualType === "table") {
+            return 'Block type "table" is not a member of `blocks` — it is a top-level sibling parameter on `submit_response` (and on each `post_to` action). Move the table object to the `table` field next to `blocks`.';
+          }
+          const allowed = ALLOWED_BLOCK_TYPES.join(", ");
+          return `Block type ${JSON.stringify(actualType)} is not supported. Allowed block types: ${allowed}.`;
         }
-        const allowed = ALLOWED_BLOCK_TYPES.join(", ");
-        return `Block type ${JSON.stringify(actualType)} is not supported. Allowed block types: ${allowed}.`;
-      }
-      return undefined;
+        return undefined;
+      },
     },
-  },
-);
+  )
+  .meta({ id: "SlackBlock" });
 
 /**
  * Rich-text cell elements: each element must be a tagged object. We don't

@@ -1739,6 +1739,48 @@ describe("createSubmitResponseTool", () => {
       );
     });
 
+    it.each([
+      { variant: "skip-only (scheduled)", flags: { allowSkip: true } },
+      {
+        variant: "skip + attention level (tracked threads)",
+        flags: { allowSkip: true, allowAttentionLevel: true },
+      },
+    ])("schema accepts an empty `blocks` array alongside a skip — $variant", ({ flags }) => {
+      const schema = z.object(buildSubmitResponseSchema(flags));
+      const result = schema.safeParse({
+        skip_response: true,
+        message:
+          "I acknowledge that responding to this would serve no purpose, so I am skipping it.",
+        blocks: [],
+      });
+
+      assert.equal(result.success, true);
+    });
+
+    it("records a skip that carries an empty `blocks` array", async () => {
+      const deps = makeDeps({ allowSkip: true });
+      const result = await callToolRaw(deps, {
+        skip_response: true,
+        message:
+          "I acknowledge that responding to this would serve no purpose, so I am skipping it.",
+        blocks: [],
+      });
+
+      const parsed = parseToolResult(result);
+      assert.equal(parsed.skipped, true);
+      assert.equal(vi.mocked(deps.responseCapture.setSkipped).mock.calls.length, 1);
+    });
+
+    it("still rejects an empty `blocks` array when not skipping", async () => {
+      const deliver = vi.fn(async () => ({ ok: true as const }));
+      const deps = makeDeps({ deliver, allowSkip: true });
+      const result = await callToolRaw(deps, { blocks: [], actions: [] });
+
+      assert.equal(result.isError, true);
+      assert.ok(toolResultText(result).includes("blocks is required with at least 1 item"));
+      assert.equal(deliver.mock.calls.length, 0);
+    });
+
     it("rejects skip with wrong message", async () => {
       const deps = makeDeps({ allowSkip: true });
       const result = await callToolRaw(deps, {

@@ -389,37 +389,41 @@ function readActionType(input: ActionInput | undefined): ActionInput | undefined
 // Custom error for unknown action types — same rationale as BlockSchema:
 // produce an actionable message at the Zod boundary so the model gets a
 // clear "Action type X is not supported" instead of generic "Invalid input".
-export const actionSchema = z.discriminatedUnion(
-  "type",
-  [
-    followupActionSchema,
-    choiceActionSchema,
-    postToActionSchema,
-    changeActionSchema,
-    configUpdateActionSchema,
-    updateActionSchema,
-    skillCreateActionSchema,
-    skillUpdateActionSchema,
-    skillDisableActionSchema,
-    skillRestoreActionSchema,
-    skillDeleteActionSchema,
-  ],
-  {
-    error: (issue) => {
-      if (issue.code === "invalid_union") {
-        const actualType = readActionType(issue.input as ActionInput | undefined);
-        return `Action type ${JSON.stringify(actualType)} is not supported. Allowed action types: ${ALLOWED_ACTION_TYPES.join(", ")}.`;
-      }
-      return undefined;
+// The `id` emits it once as a JSON-Schema definition (see BlockSchema).
+export const actionSchema = z
+  .discriminatedUnion(
+    "type",
+    [
+      followupActionSchema,
+      choiceActionSchema,
+      postToActionSchema,
+      changeActionSchema,
+      configUpdateActionSchema,
+      updateActionSchema,
+      skillCreateActionSchema,
+      skillUpdateActionSchema,
+      skillDisableActionSchema,
+      skillRestoreActionSchema,
+      skillDeleteActionSchema,
+    ],
+    {
+      error: (issue) => {
+        if (issue.code === "invalid_union") {
+          const actualType = readActionType(issue.input as ActionInput | undefined);
+          return `Action type ${JSON.stringify(actualType)} is not supported. Allowed action types: ${ALLOWED_ACTION_TYPES.join(", ")}.`;
+        }
+        return undefined;
+      },
     },
-  },
-);
+  )
+  .meta({ id: "SubmitResponseAction" });
 
 // Per-message follow-up payload used by `additional_messages` / `thread_replies` at
 // every layer (top-level and inside a post_to). Strict-mode: every primary-only signal
 // — `message`, `post_top_level`, `attention_level`, `skip_response`, `suppress_unfurls`, plus
 // recursive `additional_messages`/`thread_replies` — triggers an "unrecognized key"
-// error at the schema boundary.
+// error at the schema boundary. The `id` emits it once as a JSON-Schema definition
+// (see BlockSchema).
 const messagePayloadSchema: z.ZodType<MessagePayload> = z
   .object({
     blocks: z
@@ -452,7 +456,8 @@ const messagePayloadSchema: z.ZodType<MessagePayload> = z
         "Emoji reactions to add to this follow-up message after delivery. Same semantics as the primary reactions field.",
       ),
   })
-  .strict();
+  .strict()
+  .meta({ id: "SubmitResponseMessage" });
 
 /**
  * Builder for the top-level `additional_messages` schema field — each entry is delivered as
@@ -883,9 +888,11 @@ const skipResponseField = z
       "(e.g., users talking to each other, question already answered). When true, blocks and actions are not required.",
   );
 
+// No `.min(1)` here: a skip commonly arrives as `{ skip_response: true, blocks: [] }`, and a
+// schema rejection there costs a full retry turn. The non-skip path enforces at least one block
+// in the handler instead.
 const skipOptionalBlocks = z
   .array(BlockSchema, stringifiedParamHint("blocks"))
-  .min(1)
   .optional()
   .describe("Slack Block Kit blocks shown to the user (not required when skip_response is true)");
 
