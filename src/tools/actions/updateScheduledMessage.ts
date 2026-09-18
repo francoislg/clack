@@ -133,8 +133,11 @@ export function createUpdateScheduledMessageTool(
         .describe(
           "Replace the topic names pre-attached when this job fires (each topic's instruction " +
             "files load into the run's system prompt — e.g. 'response-rendering' for Slack " +
-            "rendering guidance). Pass an empty array `[]` to clear all attached topics (lean " +
-            "runs). Omit to leave the existing list unchanged.",
+            "rendering guidance). A topic that names an integration from the AVAILABLE " +
+            "INTEGRATIONS catalog also loads that integration's MCP server with the run, so its " +
+            "tools are ready without attach_integration — list every integration the job uses " +
+            "on each fire. Pass an empty array `[]` to clear all attached topics (lean runs). " +
+            "Omit to leave the existing list unchanged.",
         ),
       enabled: z
         .boolean()

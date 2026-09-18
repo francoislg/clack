@@ -490,6 +490,24 @@ describe("buildClackTools — integration-gated plugin tools", () => {
     assert.equal(result.toolNames.includes("mcp__trivia_bar__tool_b"), false);
     assert.equal(result.toolNames.includes("mcp__trivia__tool_c"), true);
   });
+
+  it("reveals on-demand server tools whose integration is a pre-attached topic", () => {
+    setLoadedPlugins({ results: [pluginWithMixedTopics()] });
+    const result = buildClackTools(
+      makeQueryCtx({ ...attached([]), preAttachedTopics: ["trivia:foo"] }),
+    );
+    assert.equal(result.toolNames.includes("mcp__trivia_foo__tool_a"), true);
+    assert.equal(result.toolNames.includes("mcp__trivia_bar__tool_b"), false);
+    assert.equal(result.toolNames.includes("mcp__trivia__tool_c"), true);
+  });
+
+  it("role gate still applies to pre-attached on-demand servers", () => {
+    setLoadedPlugins({ results: [pluginWithMixedTopics()] });
+    const result = buildClackTools(
+      makeQueryCtx({ ...attached([]), preAttachedTopics: ["trivia:foo"], role: "dev" }),
+    );
+    assert.equal(result.toolNames.includes("mcp__trivia_foo__tool_a"), false);
+  });
 });
 
 // ---------------------------------------------------------------------------

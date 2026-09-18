@@ -1,7 +1,9 @@
 import { z } from "zod";
 import { tool } from "@anthropic-ai/claude-agent-sdk";
+import type { McpServerConfig } from "@anthropic-ai/claude-agent-sdk";
 import type { QueryToolContext } from "../types.js";
 import { errorResult } from "../helpers.js";
+import { errorMessage } from "../../errors.js";
 import { loadMcpServer as defaultLoadMcpServer } from "../../mcp.js";
 import {
   buildRoleChain,
@@ -28,8 +30,7 @@ async function appendAttachHistory(
       mcpAttachHistory: [...(session.mcpAttachHistory ?? []), entry],
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    logger.warn(`Failed to append mcpAttachHistory for '${entry.name}': ${message}`);
+    logger.warn(`Failed to append mcpAttachHistory for '${entry.name}': ${errorMessage(error)}`);
   }
 }
 
@@ -51,6 +52,8 @@ export const defaultAttachIntegrationDeps: AttachIntegrationDeps = {
  * Dynamic MCP attach tool. Claude calls `attach_integration({ name })` when a
  * question matches one of the non-always-on integrations listed in the catalog
  * (see `src/claude/integrationsCatalog.ts`). The tool:
+ *   0. Short-circuits a pre-attached name, whose instructions and server loaded with the
+ *      session — unless it is an external server the session lacks, which it recovers
  *   1. Validates the name against the effective registry (via the manager)
  *   2. Short-circuits on duplicate attach (idempotent) — returns a brief success
  *   3. Loads the server config (`loadMcpServer`) for MCP-backed topics
@@ -80,11 +83,48 @@ export function createAttachIntegrationTool(
         );
       }
 
+      // Config of a pre-attached external server the session lacks — its pre-load failed or
+      // its session-start connection is not live; undefined when session start serves the name.
+      const loadMissingPreAttachedServer = async (
+        name: string,
+      ): Promise<McpServerConfig | undefined> => {
+        if (!manager.knowsServer(name) || manager.isAttached(name)) return undefined;
+        if (manager.isInSessionStart(name) && (await manager.isLiveInBaseline(name))) {
+          return undefined;
+        }
+        return deps.loadMcpServer(name);
+      };
+
+      const reportAttachFailure = async (error: string) => {
+        logger.warn(
+          `mcp.attach sessionId=${sessionId} name=${args.name} outcome=failed error="${error}"`,
+        );
+        await appendAttachHistory(ctx.session, deps.updateSession, {
+          name: args.name,
+          outcome: "failed",
+          error,
+          timestamp: Date.now(),
+        });
+        return errorResult(`Failed to attach ${args.name}: ${error}`);
+      };
+
       // Pre-attached topics loaded their instructions into the system prompt at session
-      // start — re-resolving them here would re-inject the same content into history.
-      // Checked BEFORE the registry lookup: pre-attached names (e.g. plugin topics from
-      // a cron spec) need not exist in the integrations registry.
-      if (ctx.preAttachedTopics?.includes(args.name)) {
+      // start, and a topic naming an external MCP server loaded that server with the session.
+      // Checked BEFORE the registry lookup: pre-attached names (e.g. plugin topics from a cron
+      // spec) need not exist in the integrations registry. The one case that falls through is
+      // an external server the session lacks — its pre-load failed or its connection is not
+      // live — so the attach below recovers it with the config loaded here, without
+      // re-injecting the instructions.
+      const preAttached = ctx.preAttachedTopics?.includes(args.name) ?? false;
+      let recoveredConfig: McpServerConfig | undefined;
+      if (preAttached) {
+        try {
+          recoveredConfig = await loadMissingPreAttachedServer(args.name);
+        } catch (error) {
+          return reportAttachFailure(errorMessage(error));
+        }
+      }
+      if (preAttached && !recoveredConfig) {
         logger.info(`mcp.attach sessionId=${sessionId} name=${args.name} outcome=pre_attached`);
         await appendAttachHistory(ctx.session, deps.updateSession, {
           name: args.name,
@@ -95,7 +135,7 @@ export function createAttachIntegrationTool(
           content: [
             {
               type: "text" as const,
-              text: `Integration ${args.name} was pre-attached at session start — its instructions are already in your system prompt. No additional action taken.`,
+              text: `Integration ${args.name} was pre-attached at session start — its instructions are already in your system prompt and any tools it provides are already loaded. No additional action taken.`,
             },
           ],
         };
@@ -133,8 +173,8 @@ export function createAttachIntegrationTool(
       // re-registration is what trips the SDK's 30s connect timeout in practice.
       // Verify the server is actually `connected` before short-circuiting; if
       // it's not (startup failure, pending, etc.), fall through to a real attach
-      // as graceful recovery.
-      if (manager.isInSessionStart(args.name)) {
+      // as graceful recovery. A pre-attached recovery already made this check.
+      if (!recoveredConfig && manager.isInSessionStart(args.name)) {
         const live = await manager.isLiveInBaseline(args.name);
         if (live) {
           logger.info(`mcp.attach sessionId=${sessionId} name=${args.name} outcome=baseline_live`);
@@ -165,31 +205,28 @@ export function createAttachIntegrationTool(
       // Plugin-registered topic instructions live in the in-memory virtual-defaults map,
       // not on disk. Pass it through so `sdk.addTopicInstruction(...)` content actually
       // resolves — without it, only on-disk overrides at `{role}/topics/<name>/*.md` are seen.
-      const instructions = deps.resolveTopicFiles(
-        roleChain,
-        args.name,
-        deps.buildVirtualDefaults(),
-      );
+      // A pre-attached topic's instructions are already in the system prompt.
+      const instructions = preAttached
+        ? ""
+        : deps.resolveTopicFiles(roleChain, args.name, deps.buildVirtualDefaults());
 
       // Unified resolver: external MCP-backed (data/mcp.json) first, then plugin-registered
       // on-demand servers (built in `buildClackTools` from `sdk.registerMcpServer(...)`).
       // Both produce an McpServerConfig that `manager.attach` handles the same way.
-      const serverConfig =
-        (await deps.loadMcpServer(args.name)) ?? manager.getIntegrationServer(args.name);
+      let serverConfig: McpServerConfig | undefined = recoveredConfig;
+      if (!serverConfig) {
+        try {
+          serverConfig =
+            (await deps.loadMcpServer(args.name)) ?? manager.getIntegrationServer(args.name);
+        } catch (error) {
+          return reportAttachFailure(errorMessage(error));
+        }
+      }
 
       if (serverConfig) {
         const result = await manager.attach(args.name, serverConfig);
         if (!result.ok) {
-          logger.warn(
-            `mcp.attach sessionId=${sessionId} name=${args.name} outcome=failed error="${result.error}"`,
-          );
-          await appendAttachHistory(ctx.session, deps.updateSession, {
-            name: args.name,
-            outcome: "failed",
-            error: result.error,
-            timestamp: Date.now(),
-          });
-          return errorResult(`Failed to attach ${args.name}: ${result.error}`);
+          return reportAttachFailure(result.error);
         }
         logger.info(`mcp.attach sessionId=${sessionId} name=${args.name} outcome=ok`);
       } else {
@@ -212,8 +249,7 @@ export function createAttachIntegrationTool(
           ],
         });
       } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        logger.warn(`Failed to persist attach state for '${args.name}': ${message}`);
+        logger.warn(`Failed to persist attach state for '${args.name}': ${errorMessage(error)}`);
       }
 
       // The unified resolver above either returned a server config (whose tools are
@@ -233,7 +269,9 @@ export function createAttachIntegrationTool(
         content: [
           {
             type: "text" as const,
-            text: `Attached integration: ${args.name}. ${kindNote}\n\n${body}`,
+            text: preAttached
+              ? `Attached integration: ${args.name}. ${kindNote}`
+              : `Attached integration: ${args.name}. ${kindNote}\n\n${body}`,
           },
         ],
       };

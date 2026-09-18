@@ -260,7 +260,7 @@ export async function buildQuerySetup(
   // `prepareMcpSession` factory. We get back a manager and the pieces needed
   // to finalize the session-start mcpServers map after building the clack/
   // plugin servers below.
-  const mcpSetup = await prepareMcpSession(session, config);
+  const mcpSetup = await prepareMcpSession(session, config, options?.preAttachedTopics);
 
   const trackedMemoryKinds = await trackedMemoryKindsForRole(options?.role);
   const systemPrompt = buildSystemPrompt({ ...options, trackedMemoryKinds });

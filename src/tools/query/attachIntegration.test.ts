@@ -320,6 +320,144 @@ describe("attach_integration tool", () => {
     assert.ok(text.includes("pre-attached at session start"));
   });
 
+  it("short-circuits a pre-attached server that loaded with the session", async () => {
+    const setMcpServers = okSetMcpServers();
+    const metabaseCfg: McpServerConfig = {
+      type: "stdio",
+      command: "metabase-mcp",
+      args: [],
+      env: {},
+    };
+    const manager = new McpServerManager(
+      { clack: BASELINE_CLACK, metabase: metabaseCfg },
+      makeRegistry(),
+    );
+    manager.bind(
+      setMcpServers,
+      vi.fn<McpServerStatusFn>(async () => [
+        { name: "metabase", status: "connected" } as McpServerStatus,
+      ]),
+    );
+    const ctx = makeCtx({ mcpManager: manager, preAttachedTopics: ["metabase"] });
+    const depMocks = makeDepMocks();
+    const toolDef = createAttachIntegrationTool(ctx, depMocks.deps);
+
+    const result = await toolDef.handler({ name: "metabase" }, { sessionId: "test" });
+    const text = toolResultText(result);
+
+    assert.ok(text.includes("pre-attached at session start"));
+    assert.ok(text.includes("tools it provides are already loaded"));
+    assert.equal(setMcpServers.mock.calls.length, 0);
+    assert.equal(depMocks.loadMcpServer.mock.calls.length, 0);
+    assert.equal(depMocks.resolveTopicFiles.mock.calls.length, 0);
+    const updates = depMocks.updateSession.mock.calls[0]![1];
+    assert.equal(updates.mcpAttachHistory?.[0]?.outcome, "duplicate");
+  });
+
+  it("recovers a pre-attached server whose session-start connection is not live", async () => {
+    const setMcpServers = okSetMcpServers();
+    const metabaseCfg: McpServerConfig = {
+      type: "stdio",
+      command: "metabase-mcp",
+      args: [],
+      env: {},
+    };
+    const manager = new McpServerManager(
+      { clack: BASELINE_CLACK, metabase: metabaseCfg },
+      makeRegistry(),
+    );
+    const statusFn = vi.fn<McpServerStatusFn>(async () => [
+      { name: "metabase", status: "failed", error: "boom" } as McpServerStatus,
+    ]);
+    manager.bind(setMcpServers, statusFn);
+    const ctx = makeCtx({ mcpManager: manager, preAttachedTopics: ["metabase"] });
+    const depMocks = makeDepMocks();
+    const toolDef = createAttachIntegrationTool(ctx, depMocks.deps);
+
+    const result = await toolDef.handler({ name: "metabase" }, { sessionId: "test" });
+    const text = toolResultText(result);
+
+    assert.equal(setMcpServers.mock.calls.length, 1);
+    assert.ok(text.includes("Its tools are now registered"));
+    assert.ok(!text.includes("Topic instructions for metabase"));
+    assert.equal(depMocks.resolveTopicFiles.mock.calls.length, 0);
+    assert.equal(depMocks.loadMcpServer.mock.calls.length, 1);
+    assert.equal(statusFn.mock.calls.length, 1);
+  });
+
+  it("short-circuits a pre-attached plugin on-demand server that loaded with the session", async () => {
+    const setMcpServers = okSetMcpServers();
+    const registry: McpServerRegistry = {
+      "trivia:foo": { alwaysLoad: false, description: "foo" },
+    };
+    const pluginServer: McpServerConfig = {
+      type: "stdio",
+      command: "trivia-foo-mcp",
+      args: [],
+      env: {},
+    };
+    // buildClackTools registers every on-demand server by integration name and keys the
+    // session-start entry by its SDK server name, so the check finds no mcp.json server
+    // behind `trivia:foo` and short-circuits.
+    const manager = makeManager({
+      setMcpServers,
+      registry,
+      sessionStart: { clack: BASELINE_CLACK, trivia_foo: pluginServer },
+    });
+    manager.registerIntegrationServer("trivia:foo", pluginServer);
+    const ctx = makeCtx({ mcpManager: manager, preAttachedTopics: ["trivia:foo"] });
+    const depMocks = makeDepMocks();
+    const toolDef = createAttachIntegrationTool(ctx, depMocks.deps);
+
+    const result = await toolDef.handler({ name: "trivia:foo" }, { sessionId: "test" });
+    const text = toolResultText(result);
+
+    assert.ok(text.includes("pre-attached at session start"));
+    assert.equal(setMcpServers.mock.calls.length, 0);
+    assert.deepEqual(
+      depMocks.loadMcpServer.mock.calls.map((c) => c[0]),
+      ["trivia:foo"],
+    );
+    assert.equal(depMocks.resolveTopicFiles.mock.calls.length, 0);
+  });
+
+  it("recovers a pre-attached server whose pre-load failed, without re-injecting instructions", async () => {
+    const setMcpServers = okSetMcpServers();
+    const manager = makeManager({ setMcpServers });
+    const ctx = makeCtx({ mcpManager: manager, preAttachedTopics: ["metabase"] });
+    const depMocks = makeDepMocks();
+    const toolDef = createAttachIntegrationTool(ctx, depMocks.deps);
+
+    const result = await toolDef.handler({ name: "metabase" }, { sessionId: "test" });
+    const text = toolResultText(result);
+
+    assert.equal(setMcpServers.mock.calls.length, 1);
+    assert.deepEqual(manager.attachedNames(), ["metabase"]);
+    assert.ok(text.includes("Attached integration: metabase"));
+    assert.ok(text.includes("Its tools are now registered"));
+    assert.ok(!text.includes("Topic instructions for metabase"));
+    assert.equal(depMocks.resolveTopicFiles.mock.calls.length, 0);
+    assert.equal(depMocks.loadMcpServer.mock.calls.length, 1);
+    assert.equal(depMocks.updateSession.mock.calls.length, 1);
+    const updates = depMocks.updateSession.mock.calls[0]![1];
+    assert.deepEqual(updates.attachedIntegrations, ["metabase"]);
+  });
+
+  it("a second attach after recovery short-circuits as pre-attached", async () => {
+    const setMcpServers = okSetMcpServers();
+    const manager = makeManager({ setMcpServers });
+    const ctx = makeCtx({ mcpManager: manager, preAttachedTopics: ["metabase"] });
+    const depMocks = makeDepMocks();
+    const toolDef = createAttachIntegrationTool(ctx, depMocks.deps);
+
+    await toolDef.handler({ name: "metabase" }, { sessionId: "test" });
+    const result = await toolDef.handler({ name: "metabase" }, { sessionId: "test" });
+    const text = toolResultText(result);
+
+    assert.ok(text.includes("pre-attached at session start"));
+    assert.equal(setMcpServers.mock.calls.length, 1);
+  });
+
   it("attaches the built-in response-rendering entry via the instructions-only path", async () => {
     const setMcpServers = okSetMcpServers();
     const registry: McpServerRegistry = {
@@ -453,6 +591,47 @@ describe("attach_integration tool", () => {
     const text = toolResultText(result);
     assert.ok(text.includes("Failed to attach metabase"));
     assert.ok(text.includes("network blew up"));
+    assert.deepEqual(manager.attachedNames(), []);
+  });
+
+  it("returns a failed attach when loading the server config throws", async () => {
+    const setMcpServers = okSetMcpServers();
+    const manager = makeManager({ setMcpServers });
+    const ctx = makeCtx({ mcpManager: manager });
+    const loadMcpServer = vi.fn<LoadMcpServerFn>(async () => {
+      throw new Error("token mint failed");
+    });
+    const depMocks = makeDepMocks({ loadMcpServer });
+    const toolDef = createAttachIntegrationTool(ctx, depMocks.deps);
+
+    const result = await toolDef.handler({ name: "metabase" }, { sessionId: "test" });
+
+    assert.equal(result.isError, true);
+    const text = toolResultText(result);
+    assert.ok(text.includes("Failed to attach metabase: token mint failed"));
+    assert.equal(setMcpServers.mock.calls.length, 0);
+    assert.equal(depMocks.updateSession.mock.calls[0]![1].mcpAttachHistory?.[0]?.outcome, "failed");
+    assert.deepEqual(manager.attachedNames(), []);
+  });
+
+  it("a pre-attached server whose recovery load throws returns a failed attach", async () => {
+    const setMcpServers = okSetMcpServers();
+    const manager = makeManager({ setMcpServers });
+    const ctx = makeCtx({ mcpManager: manager, preAttachedTopics: ["metabase"] });
+    const loadMcpServer = vi.fn<LoadMcpServerFn>(async () => {
+      throw new Error("token mint failed");
+    });
+    const depMocks = makeDepMocks({ loadMcpServer });
+    const toolDef = createAttachIntegrationTool(ctx, depMocks.deps);
+
+    const result = await toolDef.handler({ name: "metabase" }, { sessionId: "test" });
+
+    assert.equal(result.isError, true);
+    const text = toolResultText(result);
+    assert.ok(text.includes("Failed to attach metabase: token mint failed"));
+    assert.equal(setMcpServers.mock.calls.length, 0);
+    assert.equal(loadMcpServer.mock.calls.length, 1);
+    assert.equal(depMocks.updateSession.mock.calls[0]![1].mcpAttachHistory?.[0]?.outcome, "failed");
     assert.deepEqual(manager.attachedNames(), []);
   });
 

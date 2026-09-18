@@ -234,12 +234,17 @@ export interface McpSessionSetup {
    * must be unique".
    */
   resumedAttached: Record<string, McpServerConfig>;
+  /**
+   * Configs for pre-attached topics that name an external MCP server, in topic-list order.
+   * Merged into the session-start baseline so their tools are in the first turn's tool list.
+   */
+  preAttached: Record<string, McpServerConfig>;
 }
 
 /**
  * Prepare everything MCP-related for a session: resolve the effective registry,
- * load always-on externals, pre-load persisted attachments from resume, and
- * construct the manager.
+ * load always-on externals, pre-load persisted attachments from resume and the
+ * external servers named by `preAttachedTopics`, and construct the manager.
  *
  * Callers still own the clack/plugin MCP servers (those are built from the tool
  * context, which depends on the manager). Once the caller knows the full
@@ -248,6 +253,7 @@ export interface McpSessionSetup {
 export async function prepareMcpSession(
   session: SessionContext,
   config: Config,
+  preAttachedTopics: readonly string[] = [],
   deps: McpSessionSetupDeps = defaultMcpSessionSetupDeps,
 ): Promise<McpSessionSetup> {
   const mcpServerNames = deps.getConfiguredMcpServerNames();
@@ -292,6 +298,22 @@ export async function prepareMcpSession(
       .catch((err) => logger.warn(`Failed to persist stale-attach cleanup: ${errorMessage(err)}`));
   }
 
+  // A pre-attached topic that names an external `mcp.json` server loads that server with
+  // the session. Other names resolve to nothing here: built-in and plugin topics stay
+  // instructions-only, and plugin on-demand servers load in `buildClackTools`.
+  const preAttached: Record<string, McpServerConfig> = {};
+  for (const name of preAttachedTopics) {
+    if (!(name in registry) || name in alwaysOnExternals || name in resumedAttached) continue;
+    try {
+      const cfg = await deps.loadMcpServer(name);
+      if (cfg) preAttached[name] = cfg;
+    } catch (error) {
+      logger.warn(
+        `Failed to pre-load MCP server for pre-attached topic '${name}': ${errorMessage(error)}`,
+      );
+    }
+  }
+
   const manager = new McpServerManager({}, registry);
 
   // Seed attached set from resume so isAttached(…) is truthful and Claude's
@@ -300,13 +322,13 @@ export async function prepareMcpSession(
     manager.seedAttached(name, cfg);
   }
 
-  return { manager, registry, alwaysOnExternals, resumedAttached };
+  return { manager, registry, alwaysOnExternals, resumedAttached, preAttached };
 }
 
 /**
- * Finalize the session-start mcpServers set. Combines the always-on externals,
- * the clack + plugin servers the caller built from the tool context, and the
- * resumed attachments. Returns the full map (for `options.mcpServers`) and
+ * Finalize the session-start mcpServers set. Combines the always-on externals, the
+ * pre-attached topic servers, the clack + plugin servers the caller built from the tool
+ * context, and the resumed attachments. Returns the full map (for `options.mcpServers`) and
  * hydrates the manager's baseline via `hydrateSessionStart`.
  */
 export function completeSessionStart(
@@ -315,6 +337,7 @@ export function completeSessionStart(
 ): Record<string, McpServerConfig> {
   const baseline = {
     ...setup.alwaysOnExternals,
+    ...setup.preAttached,
     ...clackAndPluginServers,
   };
   setup.manager.hydrateSessionStart(baseline);

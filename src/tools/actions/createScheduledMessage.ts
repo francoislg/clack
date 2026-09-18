@@ -183,7 +183,10 @@ export function createCreateScheduledMessageTool(
         .describe(
           "Topic names to pre-attach when this job fires (loads each topic's instruction files " +
             "into the run's system prompt — e.g. 'response-rendering' for Slack rendering " +
-            "guidance). Omit to default to ['response-rendering'] so the scheduled post keeps " +
+            "guidance). A topic that names an integration from the AVAILABLE INTEGRATIONS " +
+            "catalog also loads that integration's MCP server with the run, so its tools are " +
+            "ready without attach_integration — list every integration the job uses on each " +
+            "fire. Omit to default to ['response-rendering'] so the scheduled post keeps " +
             "rich-output quality. Pass [] for a lean run that needs no rendering guidance " +
             "(e.g. one whose deliverable is produced by other tools).",
         ),

@@ -585,11 +585,12 @@ function buildQueryTools(ctx: QueryToolContext): ClackQueryToolsResult {
   // `attach_integration(<plugin>:<key>)` can attach them mid-session; they're also
   // included in the baseline at session start when the integration is already in
   // `session.attachedIntegrations` (resume case — the SDK's restored state expects the
-  // server to match `options.mcpServers`).
+  // server to match `options.mcpServers`) or is one of the session's pre-attached topics.
   const pluginMcpServers: Record<string, McpSdkServerConfigWithInstance> = {};
   const pluginToolFullNames: string[] = [];
   const pluginResults = getLoadedPlugins().results;
   const attachedSnapshot = ctx.session.attachedIntegrations ?? [];
+  const preAttachedTopics = ctx.preAttachedTopics ?? [];
   for (const plugin of pluginResults) {
     const byServerKey = new Map<string | undefined, SdkMcpToolDefinition<AnyZodRawShape>[]>();
     const fullNamesByServerKey = new Map<string | undefined, string[]>();
@@ -636,7 +637,11 @@ function buildQueryTools(ctx: QueryToolContext): ClackQueryToolsResult {
         tools: toolBucket,
       });
       ctx.mcpManager?.registerIntegrationServer(spec.fullName, server);
-      if (spec.autoload || attachedSnapshot.includes(spec.fullName)) {
+      if (
+        spec.autoload ||
+        attachedSnapshot.includes(spec.fullName) ||
+        preAttachedTopics.includes(spec.fullName)
+      ) {
         pluginMcpServers[serverMcpName] = server;
         pluginToolFullNames.push(...(fullNamesByServerKey.get(spec.key) ?? []));
       }

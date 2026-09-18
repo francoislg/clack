@@ -1,4 +1,4 @@
-import { describe, it, beforeEach, vi } from "vitest";
+import { describe, it, beforeEach, expect, vi } from "vitest";
 import assert from "node:assert/strict";
 import type { SessionContext } from "../sessions.js";
 import type { AskClaudeOptions } from "./index.js";
@@ -71,44 +71,46 @@ vi.mock("../tools/server.js", () => ({
 }));
 
 import { buildQuerySetup } from "./index.js";
+import { prepareMcpSession } from "./mcpServerManager.js";
+
+function makeSession(overrides: Partial<SessionContext> = {}): SessionContext {
+  return {
+    sessionId: "sess-123",
+    channelId: "C123",
+    messageTs: "1.0",
+    threadTs: "1.0",
+    userId: "U_CREATOR",
+    trigger: { type: "mentions", userId: "U_CREATOR", messageTs: "1.0", messageText: "test" },
+    messages: [],
+    threadContext: [],
+    errors: [],
+    lastActivity: Date.now(),
+    createdAt: Date.now(),
+    ...overrides,
+  };
+}
+
+function stubBuildQueryContext(): void {
+  vi.mocked(buildQueryContext).mockImplementation(
+    (params: BuildQueryContextParams): QueryToolContext => ({
+      mode: "query",
+      userId: params.userId,
+      role: params.role,
+      session: params.session,
+      config: params.config,
+      changesWorkflowEnabled: params.changesWorkflowEnabled,
+      cronUserSchedules: params.cronUserSchedules ?? false,
+    }),
+  );
+}
 
 describe("buildQuerySetup userId sourcing", () => {
   let mockBuildQueryContext: ReturnType<typeof vi.fn<typeof buildQueryContext>>;
 
-  function makeSession(overrides: Partial<SessionContext> = {}): SessionContext {
-    return {
-      sessionId: "sess-123",
-      channelId: "C123",
-      messageTs: "1.0",
-      threadTs: "1.0",
-      userId: "U_CREATOR",
-      trigger: { type: "mentions", userId: "U_CREATOR", messageTs: "1.0", messageText: "test" },
-      messages: [],
-      threadContext: [],
-      errors: [],
-      lastActivity: Date.now(),
-      createdAt: Date.now(),
-      ...overrides,
-    };
-  }
-
   beforeEach(() => {
     vi.clearAllMocks();
     mockBuildQueryContext = vi.mocked(buildQueryContext);
-    // Make buildQueryContext return a minimal QueryToolContext
-    mockBuildQueryContext.mockImplementation(
-      (params: BuildQueryContextParams): QueryToolContext => {
-        return {
-          mode: "query",
-          userId: params.userId,
-          role: params.role,
-          session: params.session,
-          config: params.config,
-          changesWorkflowEnabled: params.changesWorkflowEnabled,
-          cronUserSchedules: params.cronUserSchedules ?? false,
-        };
-      },
-    );
+    stubBuildQueryContext();
   });
 
   it("uses requester userId when options.requester is provided", async () => {
@@ -173,5 +175,29 @@ describe("buildQuerySetup userId sourcing", () => {
     const params = call[0];
     assert.ok(params && "userId" in params, "params should have userId");
     assert.equal(params.userId, "U_CREATOR", "should fall back to session userId");
+  });
+});
+
+describe("buildQuerySetup pre-attached topics", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    stubBuildQueryContext();
+  });
+
+  it("passes options.preAttachedTopics to prepareMcpSession", async () => {
+    const session = makeSession();
+
+    await buildQuerySetup(
+      session,
+      { preAttachedTopics: ["response-rendering", "metabase"] },
+      () => false,
+      () => [],
+      () => {},
+    );
+
+    expect(vi.mocked(prepareMcpSession)).toHaveBeenCalledWith(session, expect.anything(), [
+      "response-rendering",
+      "metabase",
+    ]);
   });
 });
