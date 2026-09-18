@@ -374,7 +374,7 @@ The system SHALL execute cron jobs through the standard `processMessage` pipelin
 #### Scenario: Skipped dynamic run posts nothing
 
 - **GIVEN** a dynamic job with a non-empty `skipConditions` field
-- **WHEN** the job fires and Claude calls `submit_response` with `skip_response: true` and the required acknowledgment
+- **WHEN** the job fires and Claude calls `submit_response` with `skip_response: true`
 - **THEN** the cron scheduler SHALL NOT post any message to the target channel
 - **AND** the job's `lastRunStatus` SHALL be set to `"skipped"` (replacing any prior `"success"` or `"error"` value)
 - **AND** the latest entry appended to the job's `runs` history SHALL have `status: "skipped"` with no `responseTs`

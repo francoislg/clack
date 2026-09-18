@@ -361,6 +361,15 @@ export function computeAllowSkip(
 }
 
 /**
+ * A scheduled run's skip is an outcome the job itself declares (`skipConditions` or
+ * `submitResponseMode`), so it needs no acknowledgment. Interactive triggers keep the
+ * acknowledgment as a speed bump before silently ignoring a user.
+ */
+export function allowsUnacknowledgedSkip(triggerType: TriggerType): boolean {
+  return triggerType === "scheduled";
+}
+
+/**
  * The `attention_level` dial is meaningful wherever thread auto-respond tracking has runtime
  * effect — the skippable triggers plus channel mentions, where Claude can raise/lower the
  * thread's eagerness or set `"off"` to disengage ("thanks, you're done").
@@ -751,6 +760,7 @@ function buildQueryTools(ctx: QueryToolContext): ClackQueryToolsResult {
       topLevelDeliveryChannel: triggerType === "scheduled" ? ctx.session.channelId : undefined,
       sessionChannelId: ctx.session.channelId,
       allowSkip: computeAllowSkip(triggerType, ctx.skipConditions, ctx.submitResponseMode),
+      skipWithoutAcknowledgment: allowsUnacknowledgedSkip(triggerType),
       allowAttentionLevel: shouldAllowAttentionLevel(triggerType),
       allowChannelAttentionLevel: shouldAllowChannelAttentionLevel(triggerType),
       ...(shouldAllowChannelAttentionLevel(triggerType) && {

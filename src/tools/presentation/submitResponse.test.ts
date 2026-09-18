@@ -81,6 +81,7 @@ function makeDeps(
       intents: Record<string, StagedIntent>,
     ) => Promise<void>;
     allowSkip: boolean;
+    skipWithoutAcknowledgment: boolean;
     submitResponseMode: "always" | "optional" | "optional-post-to" | "skipped";
     allowAttentionLevel: boolean;
     allowChannelAttentionLevel: boolean;
@@ -124,6 +125,7 @@ function makeDeps(
     persistSnapshot: overrides.persistSnapshot,
     appendStagedIntents: overrides.appendStagedIntents ?? (async () => {}),
     allowSkip: overrides.allowSkip,
+    skipWithoutAcknowledgment: overrides.skipWithoutAcknowledgment,
     submitResponseMode: overrides.submitResponseMode,
     allowAttentionLevel: overrides.allowAttentionLevel,
     allowChannelAttentionLevel: overrides.allowChannelAttentionLevel,
@@ -1802,6 +1804,46 @@ describe("createSubmitResponseTool", () => {
       assert.equal(result.isError, true);
       const text = toolResultText(result);
       assert.ok(text.includes("I acknowledge that responding to this would serve no purpose"));
+    });
+
+    it("accepts a bare skip when skipWithoutAcknowledgment is set", async () => {
+      const deps = makeDeps({ allowSkip: true, skipWithoutAcknowledgment: true });
+      const result = await callToolRaw(deps, { skip_response: true });
+
+      assert.equal(parseToolResult(result).skipped, true);
+      assert.equal(vi.mocked(deps.responseCapture.setSkipped).mock.calls.length, 1);
+    });
+
+    it.each([
+      { variant: "skip-only (scheduled)", flags: { allowSkip: true } },
+      { variant: "skipped terminator", flags: { submitResponseMode: "skipped" as const } },
+      {
+        variant: "channelless deliver_to",
+        flags: { submitResponseMode: "optional-post-to" as const },
+      },
+    ])('schema coerces a stringified "true" skip flag — $variant', ({ flags }) => {
+      const result = z
+        .object(buildSubmitResponseSchema(flags))
+        .safeParse({ skip_response: "true" });
+
+      assert.equal(result.success, true);
+      assert.equal(result.data?.skip_response, true);
+    });
+
+    it('schema coerces a stringified "false" skip flag — channelless deliver_to', () => {
+      const schema = z.object(
+        buildSubmitResponseSchema({ submitResponseMode: "optional-post-to" }),
+      );
+      const result = schema.safeParse({ skip_response: "false" });
+
+      assert.equal(result.success, true);
+      assert.equal(result.data?.skip_response, false);
+    });
+
+    it("schema still rejects a string skip flag that is not a boolean spelling", () => {
+      const schema = z.object(buildSubmitResponseSchema({ allowSkip: true }));
+
+      assert.equal(schema.safeParse({ skip_response: "yes" }).success, false);
     });
 
     it("does not call deliver when skip is accepted", async () => {

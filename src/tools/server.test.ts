@@ -14,6 +14,7 @@ import {
   shouldAllowPostTopLevel,
   shouldAllowThreadTitle,
   computeAllowSkip,
+  allowsUnacknowledgedSkip,
 } from "./server.js";
 import type { QueryToolContext } from "./types.js";
 import { makeWorkerCtx } from "./worker/testCtx.js";
@@ -569,6 +570,19 @@ describe("shouldAllowSkip", () => {
   it("denies skip for undefined triggerType", () => {
     assert.equal(shouldAllowSkip(undefined), false);
   });
+});
+
+describe("allowsUnacknowledgedSkip", () => {
+  it("waives the skip acknowledgment for scheduled runs", () => {
+    assert.equal(allowsUnacknowledgedSkip("scheduled"), true);
+  });
+
+  it.each(["autoRespond", "threadReply", "mentions", "directMessages"] as const)(
+    "keeps the skip acknowledgment for %s",
+    (trigger) => {
+      assert.equal(allowsUnacknowledgedSkip(trigger), false);
+    },
+  );
 });
 
 describe("computeAllowSkip", () => {

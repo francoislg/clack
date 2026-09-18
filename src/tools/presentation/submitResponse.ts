@@ -529,6 +529,11 @@ export interface SubmitResponseDeps {
   /** When true, the skip_response parameter is available in the schema. */
   allowSkip?: boolean;
   /**
+   * When true, a skip needs no SKIP_ACKNOWLEDGMENT `message`. Set for runs whose skip is a
+   * declared outcome of the job rather than a decision to ignore a user.
+   */
+  skipWithoutAcknowledgment?: boolean;
+  /**
    * Returns true when the `response-rendering` topic is loaded (pre-attached at session
    * start or attached mid-session). When absent or false, formatting-class validation
    * failures append a hint to attach the topic before retrying.
@@ -880,8 +885,13 @@ const attentionLevelEnabledResponseSchema = {
   default_delivery_mode: deliveryModeField,
 };
 
+// Claude regularly sends the skip flag as the STRING "true"; coercing the two boolean spellings
+// saves a retry turn. The served JSON Schema still advertises a boolean.
+const coerceBooleanString = (value: unknown): unknown =>
+  value === "true" ? true : value === "false" ? false : value;
+
 const skipResponseField = z
-  .boolean()
+  .preprocess(coerceBooleanString, z.boolean())
   .optional()
   .describe(
     "Set to true to decline answering. Use when the conversation doesn't need a Clack response " +
@@ -930,7 +940,7 @@ const skipOnlyResponseSchema = {
 // is produced by another required tool and `submit_response` is purely a run terminator.
 const skippedOnlyResponseSchema = {
   skip_response: z
-    .literal(true)
+    .preprocess(coerceBooleanString, z.literal(true))
     .describe(
       'REQUIRED to be `true`. This run\'s `submitResponseMode` is `"skipped"` — the actual deliverable ' +
         "was produced by another required tool, and `submit_response` is purely the run terminator. " +
@@ -1001,7 +1011,7 @@ const deliverToEntrySchema = z
 // (terminator only).
 const optionalPostToResponseSchema = {
   skip_response: z
-    .literal(true)
+    .preprocess(coerceBooleanString, z.boolean())
     .optional()
     .describe(
       "Set to `true` to decline posting this run (no `deliver_to`). This run has no bound primary " +
@@ -1147,8 +1157,11 @@ export function createSubmitResponseTool(deps: SubmitResponseDeps) {
 
   // Both "skipped" and "optional-post-to" omit the `message` field from the schema, so a bare
   // `skip_response: true` must bypass the SKIP_ACKNOWLEDGMENT check (there's no message to set).
+  // `skipWithoutAcknowledgment` waives it for runs whose skip is a declared outcome.
   const skipBypassesAck =
-    submitResponseMode === "skipped" || submitResponseMode === "optional-post-to";
+    submitResponseMode === "skipped" ||
+    submitResponseMode === "optional-post-to" ||
+    deps.skipWithoutAcknowledgment === true;
 
   const schema = buildSubmitResponseSchema({
     submitResponseMode: deps.submitResponseMode,
@@ -1337,9 +1350,8 @@ export function createSubmitResponseTool(deps: SubmitResponseDeps) {
             error: "Response already delivered — cannot skip after delivery.",
           });
         }
-        // In "skipped" mode the schema accepts only `{ skip_response: true }` — there's no
-        // `message` field for Claude to mismatch on, and the safeguard is moot because the
-        // mode itself forces skipping. Skip the acknowledgment check entirely in that mode.
+        // The acknowledgment is a speed bump before silently ignoring a user; see
+        // `skipBypassesAck` for the runs that don't need it.
         if (!skipBypassesAck) {
           const message = "message" in args ? args.message : undefined;
           if (message !== SKIP_ACKNOWLEDGMENT) {

@@ -8,7 +8,9 @@ Allow Claude to gracefully decline responding in auto-respond and thread-reply c
 
 ### Requirement: Skip Response Safeguard Validation
 
-The `submit_response` tool SHALL validate a skip request by requiring an exact acknowledgment message, rejecting with an instructive error if the message doesn't match. When `attention_level: "off"` is also set, the tool SHALL additionally signal the session to disengage from auto-respond.
+For interactive triggers (`autoRespond`, `threadReply`, and any other non-scheduled trigger), the `submit_response` tool SHALL validate a skip request by requiring an exact acknowledgment message, rejecting with an instructive error if the message doesn't match — a speed bump before silently ignoring a user. A `scheduled` run's skip is an outcome the job declares (`skipConditions` or `submitResponseMode`), so the tool SHALL accept it without an acknowledgment. When `attention_level: "off"` is also set, the tool SHALL additionally signal the session to disengage from auto-respond.
+
+The `skip_response` flag SHALL accept the strings `"true"` and `"false"` as their boolean values, while the served JSON Schema advertises a boolean. Any other string SHALL be rejected.
 
 #### Scenario: Skip with correct acknowledgment
 
@@ -35,8 +37,23 @@ The `submit_response` tool SHALL validate a skip request by requiring an exact a
 #### Scenario: Skip with wrong or missing message
 
 - **WHEN** Claude calls `submit_response` with `skip_response: true` and `message` that does not exactly match the required string (or is omitted)
+- **AND** the session's trigger type is not `"scheduled"`
 - **THEN** the tool rejects with an error containing the required exact message string
 - **AND** Claude can retry with the correct message
+
+#### Scenario: Scheduled skip needs no acknowledgment
+
+- **WHEN** the session's trigger type is `"scheduled"`
+- **AND** Claude calls `submit_response` with `skip_response: true` and no `message`
+- **THEN** the tool accepts the skip
+- **AND** sets the skipped flag on ResponseCapture
+
+#### Scenario: Stringified skip flag
+
+- **WHEN** Claude calls `submit_response` with `skip_response: "true"` (a string)
+- **THEN** the flag is treated as `true`
+- **AND** `skip_response: "false"` is treated as `false`
+- **AND** any other string is rejected with a schema validation error
 
 #### Scenario: Skip flag ignored when false or absent
 
