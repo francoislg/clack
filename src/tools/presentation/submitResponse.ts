@@ -46,6 +46,7 @@ import {
   validateNestedPostToButtonLabels,
 } from "./submitResponse/actions.js";
 import { validateSingleMessage, type BatchMessage } from "./submitResponse/messageValidation.js";
+import { isProbeRefusal } from "./submitResponse/probePayload.js";
 import { persistDeliverToIntents, validateDeliverToEntries } from "./submitResponse/deliverTo.js";
 
 // Caps for multi-message batches — declared at module top because they're referenced by
@@ -696,12 +697,15 @@ function enumerateBatchMessages(args: SubmitResponseArgs): BatchMessage[] {
  * Stated on every error because a run that has already failed twice has demonstrably stopped
  * weighing the tool description, which says the same thing. One incident ended with a
  * `{ type: "section", text: "test" }` probe sent to discover the argument format: it validated,
- * delivered to a public channel, and consumed the only delivery slot the run had.
+ * delivered to a public channel, and consumed the only delivery slot the run had. The
+ * `probe_payload_refused` guard (`probePayload.ts`) rejects that exact shape; this reminder
+ * covers the probes no pattern can recognize.
  */
 export const ONE_SHOT_REMINDER =
   "submit_response is one-shot: the next call that validates is what the user sees, and it " +
   "cannot be replaced or followed up. Never send a probe, test, or placeholder payload to " +
-  "discover the format — correct the arguments and resend your complete response.";
+  "discover the format — a payload whose whole content is a probe is refused outright " +
+  "(probe_payload_refused). Correct the arguments and resend your complete response.";
 
 function recordError(recorder: ToolCallRecorder, args: unknown, errData: Record<string, unknown>) {
   recorder.record("submit_response", args as Record<string, unknown>, errData);
@@ -1449,9 +1453,9 @@ export function createSubmitResponseTool(deps: SubmitResponseDeps) {
       if (errors.length > 0) {
         // Formatting failures without the rendering guidance loaded get a corrective hint —
         // the retry round-trip is already happening, so the hint rides it for free. Action
-        // errors alone never hint (the topic wouldn't help there).
+        // errors and probe refusals never hint (the topic wouldn't help there).
         const hint =
-          formattingErrors.length > 0 &&
+          formattingErrors.some((e) => !isProbeRefusal(e)) &&
           deps.isResponseRenderingAttached !== undefined &&
           !deps.isResponseRenderingAttached()
             ? {

@@ -264,7 +264,7 @@ describe("createSubmitResponseTool", () => {
     it("returns success result with blocks and action counts", async () => {
       const deps = makeDeps();
       const result = await callTool(deps, {
-        blocks: [{ type: "section", text: { type: "mrkdwn", text: "Hello world" } }],
+        blocks: [{ type: "section", text: { type: "mrkdwn", text: "The build is green." } }],
         actions: [],
       });
 
@@ -1257,6 +1257,71 @@ describe("createSubmitResponseTool", () => {
       assert.equal(recorded.length, 1);
       const [, , resultData] = recorded[0] as [string, unknown, { error: string }];
       assert.match(resultData.error, /response_too_long/);
+    });
+  });
+
+  describe("probe payload refusal", () => {
+    it("refuses a probe response and never delivers it", async () => {
+      const deliver = vi.fn(async () => ({ ok: true as const }));
+      const deps = makeDeps({ deliver });
+
+      const result = await callTool(deps, {
+        blocks: [{ type: "section", text: { type: "mrkdwn", text: "test" } }],
+        actions: [],
+      });
+
+      assert.equal("isError" in result && result.isError, true);
+      const parsed = parseToolResult(result);
+      assert.match(parsed.error, /probe_payload_refused/);
+      assert.equal(deliver.mock.calls.length, 0);
+    });
+
+    it("tells Claude the call was valid but would end the discussion", async () => {
+      const deps = makeDeps();
+      const result = await callTool(deps, {
+        blocks: [{ type: "section", text: { type: "mrkdwn", text: "test" } }],
+        actions: [],
+      });
+
+      const parsed = parseToolResult(result);
+      assert.match(parsed.error, /WOULD have delivered/);
+      assert.match(parsed.error, /end the discussion/);
+    });
+
+    it("refuses a probe in a follower message, naming its path", async () => {
+      const deps = makeDeps();
+      const result = await callToolRawTopLevel(deps, {
+        blocks: [{ type: "section", text: { type: "mrkdwn", text: "Here is the digest." } }],
+        thread_replies: [{ blocks: [{ type: "section", text: { type: "mrkdwn", text: "test" } }] }],
+        actions: [],
+      });
+
+      const parsed = parseToolResult(result);
+      assert.match(parsed.error, /thread_replies\[0\]: probe_payload_refused/);
+    });
+
+    it("does not suggest the response-rendering topic for a probe", async () => {
+      const deps = makeDeps({ isResponseRenderingAttached: () => false });
+      const result = await callTool(deps, {
+        blocks: [{ type: "section", text: { type: "mrkdwn", text: "test" } }],
+        actions: [],
+      });
+
+      const parsed = parseToolResult(result);
+      assert.equal(parsed.hint, undefined);
+    });
+
+    it("leaves a real answer that mentions tests alone", async () => {
+      const deps = makeDeps();
+      const result = await callTool(deps, {
+        blocks: [
+          { type: "section", text: { type: "mrkdwn", text: "The test suite passes: 412 green." } },
+        ],
+        actions: [],
+      });
+
+      const parsed = parseToolResult(result);
+      assert.equal(parsed.success, true);
     });
   });
 

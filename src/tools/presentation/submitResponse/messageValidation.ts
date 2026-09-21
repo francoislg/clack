@@ -24,6 +24,7 @@ function collectSiblingErrors<T>(
   }
 }
 import { extractDisplayText } from "../../../slack/blockText.js";
+import { findProbeRefusal } from "./probePayload.js";
 
 /** Slack's `chat.postMessage` text limit — each message in a batch gets its own budget. */
 export const SLACK_MESSAGE_TEXT_LIMIT = 10000;
@@ -48,9 +49,9 @@ export interface BatchMessage {
 }
 
 /**
- * Per-message validation: block schema + table schema + length budget. Each Slack message
- * gets its own 10,000-char budget — no aggregate sum across the batch. Returns a flat list
- * of error strings, each path-prefixed.
+ * Per-message validation: block schema + table schema + length budget + probe refusal. Each
+ * Slack message gets its own 10,000-char budget — no aggregate sum across the batch. Returns
+ * a flat list of error strings, each path-prefixed.
  */
 export function validateSingleMessage(args: {
   blocks: Block[];
@@ -71,6 +72,8 @@ export function validateSingleMessage(args: {
   collectSiblingErrors(args.table, "table", args.validateTable, args.pathPrefix, errors);
   collectSiblingErrors(args.chart, "chart", args.validateChart, args.pathPrefix, errors);
   const { displayText } = buildTexts(args.blocks, args.message);
+  const probeRefusal = findProbeRefusal(displayText, args.pathPrefix);
+  if (probeRefusal) errors.push(probeRefusal);
   if (displayText.length > SLACK_MESSAGE_TEXT_LIMIT) {
     const where = args.pathPrefix || "primary";
     errors.push(
