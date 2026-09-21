@@ -113,10 +113,17 @@ export function createUpsertIdeaTool(sdk: ClackSdk) {
         .array(referenceArg)
         .optional()
         .describe("Surfaces to attach to the core entry (with their read/comment recipes)"),
+      // Pairs, not a keyed object: the MCP layer's zod-3 schema converter fails on
+      // `z.record` and drops the whole server's tool list.
       cursors: z
-        .record(z.string(), z.string())
+        .array(
+          z.object({
+            refId: z.string().describe("Reference id the cursor belongs to"),
+            cursor: z.string().describe("Cursor value to store for that reference"),
+          }),
+        )
         .optional()
-        .describe("Per-reference cursor advances to merge, keyed by reference id"),
+        .describe("Per-reference cursor advances to merge"),
     },
     async (args) => {
       const slot = sdk.memory.data(idlerSlotSchema);
@@ -158,7 +165,10 @@ export function createUpsertIdeaTool(sdk: ClackSdk) {
         priority,
         open: args.open ?? (wasIgnored ? true : (existing?.open ?? true)),
         whereWeAre: args.whereWeAre ?? existing?.whereWeAre ?? "",
-        cursorsByRefId: { ...existing?.cursorsByRefId, ...args.cursors },
+        cursorsByRefId: {
+          ...existing?.cursorsByRefId,
+          ...Object.fromEntries((args.cursors ?? []).map((c) => [c.refId, c.cursor])),
+        },
         ignoredAt: undefined,
       };
       await slot.merge(args.id, next);

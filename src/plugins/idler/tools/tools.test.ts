@@ -42,6 +42,7 @@ interface IdeaLite {
   updatedAt?: string;
   overdue?: boolean;
   staleAfter?: { date?: string };
+  cursorsByRefId?: Record<string, string>;
 }
 interface ParsedTool {
   ok?: boolean;
@@ -79,6 +80,7 @@ function parseTool(text: string): ParsedTool {
         updatedAt?: unknown;
         overdue?: unknown;
         staleAfter?: unknown;
+        cursorsByRefId?: unknown;
       };
       return {
         id: typeof e.id === "string" ? e.id : "",
@@ -88,6 +90,10 @@ function parseTool(text: string): ParsedTool {
         staleAfter:
           e.staleAfter && typeof e.staleAfter === "object"
             ? (e.staleAfter as { date?: string })
+            : undefined,
+        cursorsByRefId:
+          e.cursorsByRefId && typeof e.cursorsByRefId === "object"
+            ? (e.cursorsByRefId as Record<string, string>)
             : undefined,
       };
     });
@@ -264,6 +270,27 @@ describe("idler memory tools", () => {
     await invoke(createUpsertIdeaTool(sdk), ideaArgs({ id: "A", kind: "none", open: false }));
     const payload = await invoke(createListTopIdeasTool(sdk), topArgs());
     assert.equal(payload.ideas?.length, 0);
+  });
+
+  it("upsert_idea merges cursor pairs by reference id, keeping untouched ones", async () => {
+    await invoke(
+      createUpsertIdeaTool(sdk),
+      ideaArgs({
+        id: "A",
+        kind: "review",
+        cursors: [
+          { refId: "github-pr:12", cursor: "c1" },
+          { refId: "asana:7", cursor: "a1" },
+        ],
+      }),
+    );
+    await invoke(
+      createUpsertIdeaTool(sdk),
+      ideaArgs({ id: "A", kind: "review", cursors: [{ refId: "github-pr:12", cursor: "c2" }] }),
+    );
+
+    const payload = await invoke(createListTopIdeasTool(sdk), topArgs());
+    assert.deepEqual(payload.ideas?.[0].cursorsByRefId, { "github-pr:12": "c2", "asana:7": "a1" });
   });
 
   it("reprioritize_idea overrides the computed score", async () => {
