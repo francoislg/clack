@@ -14,7 +14,7 @@ import {
   type MonitorDeps,
 } from "./monitor.js";
 import type { ReleaseReason, Worker, WorkerPool } from "../workers/types.js";
-import type { RepositoryConfig } from "../config.js";
+import type { Config, RepositoryConfig } from "../config.js";
 
 type ReleaseFn = (worker: Worker, reason: ReleaseReason) => Promise<void>;
 
@@ -77,17 +77,21 @@ function makeWorker(overrides: Partial<ActiveWorker> = {}): ActiveWorker {
   };
 }
 
+/** Partial `Config` fixture — the monitor only reads `changesWorkflow`. */
+function fakeConfig(changesWorkflow?: Config["changesWorkflow"]): Config {
+  const cfg: Partial<Config> = { changesWorkflow };
+  return cfg as Config;
+}
+
 function makeDeps(overrides: Partial<MonitorDeps> = {}): MonitorDeps {
   return {
-    getConfig: vi.fn(() => ({
-      changesWorkflow: { enabled: true, monitoringIntervalMinutes: 5 },
-    })) as never,
+    getConfig: vi.fn(() => fakeConfig({ enabled: true, monitoringIntervalMinutes: 5 })),
     pool: makeMockPool(),
-    getPRStatus: vi.fn(async () => ({ state: "OPEN" })) as never,
-    getSession: vi.fn(async () => null) as never,
-    getActiveWorkers: vi.fn(() => []) as never,
-    updateActiveChangeStatus: vi.fn() as never,
-    clearActiveChange: vi.fn() as never,
+    getPRStatus: vi.fn<MonitorDeps["getPRStatus"]>(async () => ({ state: "OPEN" })),
+    getSession: vi.fn<MonitorDeps["getSession"]>(async () => null),
+    getActiveWorkers: vi.fn<MonitorDeps["getActiveWorkers"]>(() => []),
+    updateActiveChangeStatus: vi.fn<MonitorDeps["updateActiveChangeStatus"]>(),
+    clearActiveChange: vi.fn<MonitorDeps["clearActiveChange"]>(),
     detachActiveChangeWorktree: () => {},
     getReusablePool: () => null,
     ...overrides,
@@ -121,7 +125,7 @@ describe("checkSessionCompletion", () => {
   it("returns 'none' when getPRStatus returns null", async () => {
     setMonitorDeps(
       makeDeps({
-        getPRStatus: vi.fn(async () => null) as never,
+        getPRStatus: vi.fn<MonitorDeps["getPRStatus"]>(async () => null),
       }),
     );
     const activeChange = makeActiveChange();
@@ -132,7 +136,7 @@ describe("checkSessionCompletion", () => {
   it("returns 'merged' when PR state is MERGED", async () => {
     setMonitorDeps(
       makeDeps({
-        getPRStatus: vi.fn(async () => ({ state: "MERGED" })) as never,
+        getPRStatus: vi.fn<MonitorDeps["getPRStatus"]>(async () => ({ state: "MERGED" })),
       }),
     );
     const activeChange = makeActiveChange();
@@ -144,7 +148,7 @@ describe("checkSessionCompletion", () => {
   it("returns 'closed' when PR state is CLOSED", async () => {
     setMonitorDeps(
       makeDeps({
-        getPRStatus: vi.fn(async () => ({ state: "CLOSED" })) as never,
+        getPRStatus: vi.fn<MonitorDeps["getPRStatus"]>(async () => ({ state: "CLOSED" })),
       }),
     );
     const activeChange = makeActiveChange();
@@ -156,7 +160,7 @@ describe("checkSessionCompletion", () => {
   it("returns 'none' with prState when PR is still OPEN", async () => {
     setMonitorDeps(
       makeDeps({
-        getPRStatus: vi.fn(async () => ({ state: "OPEN" })) as never,
+        getPRStatus: vi.fn<MonitorDeps["getPRStatus"]>(async () => ({ state: "OPEN" })),
       }),
     );
     const activeChange = makeActiveChange();
@@ -167,12 +171,12 @@ describe("checkSessionCompletion", () => {
 
   it("calls getPRStatus with the correct PR URL", async () => {
     const prUrl = "https://github.com/org/repo/pull/99";
-    const mockGetPRStatus = vi.fn<(url: string) => Promise<{ state: string } | null>>(async () => ({
+    const mockGetPRStatus = vi.fn<MonitorDeps["getPRStatus"]>(async () => ({
       state: "OPEN",
     }));
     setMonitorDeps(
       makeDeps({
-        getPRStatus: mockGetPRStatus as never,
+        getPRStatus: mockGetPRStatus,
       }),
     );
     const activeChange = makeActiveChange({ prUrl });
@@ -188,11 +192,11 @@ describe("checkSessionCompletion", () => {
 
 describe("runCompletionCheck", () => {
   it("does nothing when there are no active workers", async () => {
-    const mockGetPRStatus = vi.fn(async () => ({ state: "OPEN" }));
+    const mockGetPRStatus = vi.fn<MonitorDeps["getPRStatus"]>(async () => ({ state: "OPEN" }));
     setMonitorDeps(
       makeDeps({
-        getActiveWorkers: vi.fn(() => []) as never,
-        getPRStatus: mockGetPRStatus as never,
+        getActiveWorkers: vi.fn(() => []),
+        getPRStatus: mockGetPRStatus,
       }),
     );
     await runCompletionCheck();
@@ -200,11 +204,11 @@ describe("runCompletionCheck", () => {
   });
 
   it("skips workers without pr_created status", async () => {
-    const mockGetPRStatus = vi.fn(async () => ({ state: "OPEN" }));
+    const mockGetPRStatus = vi.fn<MonitorDeps["getPRStatus"]>(async () => ({ state: "OPEN" }));
     setMonitorDeps(
       makeDeps({
-        getActiveWorkers: vi.fn(() => [makeWorker({ status: "executing" })]) as never,
-        getPRStatus: mockGetPRStatus as never,
+        getActiveWorkers: vi.fn(() => [makeWorker({ status: "executing" })]),
+        getPRStatus: mockGetPRStatus,
       }),
     );
     await runCompletionCheck();
@@ -212,13 +216,11 @@ describe("runCompletionCheck", () => {
   });
 
   it("skips workers without a prUrl", async () => {
-    const mockGetPRStatus = vi.fn(async () => ({ state: "OPEN" }));
+    const mockGetPRStatus = vi.fn<MonitorDeps["getPRStatus"]>(async () => ({ state: "OPEN" }));
     setMonitorDeps(
       makeDeps({
-        getActiveWorkers: vi.fn(() => [
-          makeWorker({ status: "pr_created", prUrl: undefined }),
-        ]) as never,
-        getPRStatus: mockGetPRStatus as never,
+        getActiveWorkers: vi.fn(() => [makeWorker({ status: "pr_created", prUrl: undefined })]),
+        getPRStatus: mockGetPRStatus,
       }),
     );
     await runCompletionCheck();
@@ -226,12 +228,12 @@ describe("runCompletionCheck", () => {
   });
 
   it("skips workers when getSession returns null", async () => {
-    const mockUpdateStatus = vi.fn();
+    const mockUpdateStatus = vi.fn<MonitorDeps["updateActiveChangeStatus"]>();
     setMonitorDeps(
       makeDeps({
-        getActiveWorkers: vi.fn(() => [makeWorker()]) as never,
-        getSession: vi.fn(async () => null) as never,
-        updateActiveChangeStatus: mockUpdateStatus as never,
+        getActiveWorkers: vi.fn(() => [makeWorker()]),
+        getSession: vi.fn<MonitorDeps["getSession"]>(async () => null),
+        updateActiveChangeStatus: mockUpdateStatus,
       }),
     );
     await runCompletionCheck();
@@ -239,14 +241,12 @@ describe("runCompletionCheck", () => {
   });
 
   it("skips workers when session has no activeChange", async () => {
-    const mockUpdateStatus = vi.fn();
+    const mockUpdateStatus = vi.fn<MonitorDeps["updateActiveChangeStatus"]>();
     setMonitorDeps(
       makeDeps({
-        getActiveWorkers: vi.fn(() => [makeWorker()]) as never,
-        getSession: vi.fn(async () => ({
-          activeChange: undefined,
-        })) as never,
-        updateActiveChangeStatus: mockUpdateStatus as never,
+        getActiveWorkers: vi.fn(() => [makeWorker()]),
+        getSession: sessionReturning(undefined),
+        updateActiveChangeStatus: mockUpdateStatus,
       }),
     );
     await runCompletionCheck();
@@ -255,15 +255,15 @@ describe("runCompletionCheck", () => {
 
   it("cleans up a session when its PR has been merged externally", async () => {
     const activeChange = makeActiveChange();
-    const mockUpdateStatus = vi.fn();
-    const mockClearActiveChange = vi.fn();
+    const mockUpdateStatus = vi.fn<MonitorDeps["updateActiveChangeStatus"]>();
+    const mockClearActiveChange = vi.fn<MonitorDeps["clearActiveChange"]>();
     setMonitorDeps(
       makeDeps({
-        getActiveWorkers: vi.fn(() => [makeWorker({ id: "sess-1" })]) as never,
-        getSession: vi.fn(async () => ({ activeChange })) as never,
-        getPRStatus: vi.fn(async () => ({ state: "MERGED" })) as never,
-        updateActiveChangeStatus: mockUpdateStatus as never,
-        clearActiveChange: mockClearActiveChange as never,
+        getActiveWorkers: vi.fn(() => [makeWorker({ id: "sess-1" })]),
+        getSession: sessionReturning(activeChange),
+        getPRStatus: vi.fn<MonitorDeps["getPRStatus"]>(async () => ({ state: "MERGED" })),
+        updateActiveChangeStatus: mockUpdateStatus,
+        clearActiveChange: mockClearActiveChange,
       }),
     );
 
@@ -281,15 +281,15 @@ describe("runCompletionCheck", () => {
 
   it("cleans up a session when its PR has been closed externally", async () => {
     const activeChange = makeActiveChange();
-    const mockUpdateStatus = vi.fn();
-    const mockClearActiveChange = vi.fn();
+    const mockUpdateStatus = vi.fn<MonitorDeps["updateActiveChangeStatus"]>();
+    const mockClearActiveChange = vi.fn<MonitorDeps["clearActiveChange"]>();
     setMonitorDeps(
       makeDeps({
-        getActiveWorkers: vi.fn(() => [makeWorker({ id: "sess-2" })]) as never,
-        getSession: vi.fn(async () => ({ activeChange })) as never,
-        getPRStatus: vi.fn(async () => ({ state: "CLOSED" })) as never,
-        updateActiveChangeStatus: mockUpdateStatus as never,
-        clearActiveChange: mockClearActiveChange as never,
+        getActiveWorkers: vi.fn(() => [makeWorker({ id: "sess-2" })]),
+        getSession: sessionReturning(activeChange),
+        getPRStatus: vi.fn<MonitorDeps["getPRStatus"]>(async () => ({ state: "CLOSED" })),
+        updateActiveChangeStatus: mockUpdateStatus,
+        clearActiveChange: mockClearActiveChange,
       }),
     );
 
@@ -318,9 +318,9 @@ describe("runCompletionCheck", () => {
     };
     setMonitorDeps(
       makeDeps({
-        getActiveWorkers: vi.fn(() => [makeWorker({ id: "sess-wt" })]) as never,
-        getSession: vi.fn(async () => ({ activeChange })) as never,
-        getPRStatus: vi.fn(async () => ({ state: "MERGED" })) as never,
+        getActiveWorkers: vi.fn(() => [makeWorker({ id: "sess-wt" })]),
+        getSession: sessionReturning(activeChange),
+        getPRStatus: vi.fn<MonitorDeps["getPRStatus"]>(async () => ({ state: "MERGED" })),
         pool: makeMockPool({ release: mockRelease }),
       }),
     );
@@ -333,17 +333,17 @@ describe("runCompletionCheck", () => {
 
   it("does not throw when worker release fails", async () => {
     const activeChange = makeActiveChange();
-    const mockClearActiveChange = vi.fn();
+    const mockClearActiveChange = vi.fn<MonitorDeps["clearActiveChange"]>();
     const failingRelease: ReleaseFn = async () => {
       throw new Error("removal failed");
     };
     setMonitorDeps(
       makeDeps({
-        getActiveWorkers: vi.fn(() => [makeWorker({ id: "sess-err" })]) as never,
-        getSession: vi.fn(async () => ({ activeChange })) as never,
-        getPRStatus: vi.fn(async () => ({ state: "MERGED" })) as never,
+        getActiveWorkers: vi.fn(() => [makeWorker({ id: "sess-err" })]),
+        getSession: sessionReturning(activeChange),
+        getPRStatus: vi.fn<MonitorDeps["getPRStatus"]>(async () => ({ state: "MERGED" })),
         pool: makeMockPool({ release: failingRelease }),
-        clearActiveChange: mockClearActiveChange as never,
+        clearActiveChange: mockClearActiveChange,
       }),
     );
 
@@ -357,14 +357,14 @@ describe("runCompletionCheck", () => {
     const mockRelease: ReleaseFn = async () => {
       releaseCalls.push(1);
     };
-    const mockClearActiveChange = vi.fn();
+    const mockClearActiveChange = vi.fn<MonitorDeps["clearActiveChange"]>();
     setMonitorDeps(
       makeDeps({
-        getActiveWorkers: vi.fn(() => [makeWorker({ id: "sess-nowt" })]) as never,
-        getSession: vi.fn(async () => ({ activeChange })) as never,
-        getPRStatus: vi.fn(async () => ({ state: "CLOSED" })) as never,
+        getActiveWorkers: vi.fn(() => [makeWorker({ id: "sess-nowt" })]),
+        getSession: sessionReturning(activeChange),
+        getPRStatus: vi.fn<MonitorDeps["getPRStatus"]>(async () => ({ state: "CLOSED" })),
         pool: makeMockPool({ release: mockRelease }),
-        clearActiveChange: mockClearActiveChange as never,
+        clearActiveChange: mockClearActiveChange,
       }),
     );
 
@@ -376,19 +376,19 @@ describe("runCompletionCheck", () => {
 
   it("skips cleanup when re-fetched session has no activeChange", async () => {
     let callCount = 0;
-    const mockUpdateStatus = vi.fn();
-    const mockClearActiveChange = vi.fn();
+    const mockUpdateStatus = vi.fn<MonitorDeps["updateActiveChangeStatus"]>();
+    const mockClearActiveChange = vi.fn<MonitorDeps["clearActiveChange"]>();
     setMonitorDeps(
       makeDeps({
-        getActiveWorkers: vi.fn(() => [makeWorker({ id: "sess-race" })]) as never,
-        getSession: vi.fn(async () => {
+        getActiveWorkers: vi.fn(() => [makeWorker({ id: "sess-race" })]),
+        getSession: vi.fn<MonitorDeps["getSession"]>(async (id) => {
           callCount++;
-          if (callCount === 1) return { activeChange: makeActiveChange() };
-          return { activeChange: undefined };
-        }) as never,
-        getPRStatus: vi.fn(async () => ({ state: "MERGED" })) as never,
-        updateActiveChangeStatus: mockUpdateStatus as never,
-        clearActiveChange: mockClearActiveChange as never,
+          if (callCount === 1) return sessionReturning(makeActiveChange())(id);
+          return sessionReturning(undefined)(id);
+        }),
+        getPRStatus: vi.fn<MonitorDeps["getPRStatus"]>(async () => ({ state: "MERGED" })),
+        updateActiveChangeStatus: mockUpdateStatus,
+        clearActiveChange: mockClearActiveChange,
       }),
     );
 
@@ -399,8 +399,8 @@ describe("runCompletionCheck", () => {
   });
 
   it("skips cleanup when the session's change moved mid-iteration (adoption)", async () => {
-    const mockUpdateStatus = vi.fn();
-    const mockClearActiveChange = vi.fn();
+    const mockUpdateStatus = vi.fn<MonitorDeps["updateActiveChangeStatus"]>();
+    const mockClearActiveChange = vi.fn<MonitorDeps["clearActiveChange"]>();
     const getActiveWorkers: MonitorDeps["getActiveWorkers"] = () => [
       makeWorker({ id: "sess-adopted", branch: "feat/test" }),
     ];
@@ -425,15 +425,15 @@ describe("runCompletionCheck", () => {
 
   it("does not clean up when PR is still open", async () => {
     const activeChange = makeActiveChange();
-    const mockUpdateStatus = vi.fn();
-    const mockClearActiveChange = vi.fn();
+    const mockUpdateStatus = vi.fn<MonitorDeps["updateActiveChangeStatus"]>();
+    const mockClearActiveChange = vi.fn<MonitorDeps["clearActiveChange"]>();
     setMonitorDeps(
       makeDeps({
-        getActiveWorkers: vi.fn(() => [makeWorker()]) as never,
-        getSession: vi.fn(async () => ({ activeChange })) as never,
-        getPRStatus: vi.fn(async () => ({ state: "OPEN" })) as never,
-        updateActiveChangeStatus: mockUpdateStatus as never,
-        clearActiveChange: mockClearActiveChange as never,
+        getActiveWorkers: vi.fn(() => [makeWorker()]),
+        getSession: sessionReturning(activeChange),
+        getPRStatus: vi.fn<MonitorDeps["getPRStatus"]>(async () => ({ state: "OPEN" })),
+        updateActiveChangeStatus: mockUpdateStatus,
+        clearActiveChange: mockClearActiveChange,
       }),
     );
 
@@ -446,26 +446,26 @@ describe("runCompletionCheck", () => {
   it("processes multiple workers and only cleans up completed ones", async () => {
     const mergedChange = makeActiveChange({ prUrl: "https://github.com/org/repo/pull/1" });
     const openChange = makeActiveChange({ prUrl: "https://github.com/org/repo/pull/2" });
-    const mockUpdateStatus = vi.fn();
-    const mockClearActiveChange = vi.fn();
+    const mockUpdateStatus = vi.fn<MonitorDeps["updateActiveChangeStatus"]>();
+    const mockClearActiveChange = vi.fn<MonitorDeps["clearActiveChange"]>();
 
     setMonitorDeps(
       makeDeps({
         getActiveWorkers: vi.fn(() => [
           makeWorker({ id: "merged-sess", prUrl: "https://github.com/org/repo/pull/1" }),
           makeWorker({ id: "open-sess", prUrl: "https://github.com/org/repo/pull/2" }),
-        ]) as never,
-        getSession: vi.fn(async (id: string) => {
-          if (id === "merged-sess") return { activeChange: mergedChange };
-          if (id === "open-sess") return { activeChange: openChange };
+        ]),
+        getSession: vi.fn<MonitorDeps["getSession"]>(async (id) => {
+          if (id === "merged-sess") return sessionReturning(mergedChange)(id);
+          if (id === "open-sess") return sessionReturning(openChange)(id);
           return null;
-        }) as never,
-        getPRStatus: vi.fn(async (url: string) => {
+        }),
+        getPRStatus: vi.fn<MonitorDeps["getPRStatus"]>(async (url) => {
           if (url.includes("/1")) return { state: "MERGED" };
           return { state: "OPEN" };
-        }) as never,
-        updateActiveChangeStatus: mockUpdateStatus as never,
-        clearActiveChange: mockClearActiveChange as never,
+        }),
+        updateActiveChangeStatus: mockUpdateStatus,
+        clearActiveChange: mockClearActiveChange,
       }),
     );
 
@@ -487,10 +487,8 @@ describe("startCompletionMonitor", () => {
     const mockGetActiveWorkers = vi.fn(() => []);
     setMonitorDeps(
       makeDeps({
-        getConfig: vi.fn(() => ({
-          changesWorkflow: { enabled: true, monitoringIntervalMinutes: 0 },
-        })) as never,
-        getActiveWorkers: mockGetActiveWorkers as never,
+        getConfig: vi.fn(() => fakeConfig({ enabled: true, monitoringIntervalMinutes: 0 })),
+        getActiveWorkers: mockGetActiveWorkers,
       }),
     );
 
@@ -502,10 +500,8 @@ describe("startCompletionMonitor", () => {
     const mockGetActiveWorkers = vi.fn(() => []);
     setMonitorDeps(
       makeDeps({
-        getConfig: vi.fn(() => ({
-          changesWorkflow: { enabled: false, monitoringIntervalMinutes: 5 },
-        })) as never,
-        getActiveWorkers: mockGetActiveWorkers as never,
+        getConfig: vi.fn(() => fakeConfig({ enabled: false, monitoringIntervalMinutes: 5 })),
+        getActiveWorkers: mockGetActiveWorkers,
       }),
     );
 
@@ -517,8 +513,8 @@ describe("startCompletionMonitor", () => {
     const mockGetActiveWorkers = vi.fn(() => []);
     setMonitorDeps(
       makeDeps({
-        getConfig: vi.fn(() => ({})) as never,
-        getActiveWorkers: mockGetActiveWorkers as never,
+        getConfig: vi.fn(() => fakeConfig()),
+        getActiveWorkers: mockGetActiveWorkers,
       }),
     );
 
@@ -530,10 +526,8 @@ describe("startCompletionMonitor", () => {
     const mockGetActiveWorkers = vi.fn(() => []);
     setMonitorDeps(
       makeDeps({
-        getConfig: vi.fn(() => ({
-          changesWorkflow: { enabled: true, monitoringIntervalMinutes: 5 },
-        })) as never,
-        getActiveWorkers: mockGetActiveWorkers as never,
+        getConfig: vi.fn(() => fakeConfig({ enabled: true, monitoringIntervalMinutes: 5 })),
+        getActiveWorkers: mockGetActiveWorkers,
       }),
     );
 
@@ -545,10 +539,8 @@ describe("startCompletionMonitor", () => {
     const mockGetActiveWorkers = vi.fn(() => []);
     setMonitorDeps(
       makeDeps({
-        getConfig: vi.fn(() => ({
-          changesWorkflow: { enabled: true, monitoringIntervalMinutes: 5 },
-        })) as never,
-        getActiveWorkers: mockGetActiveWorkers as never,
+        getConfig: vi.fn(() => fakeConfig({ enabled: true, monitoringIntervalMinutes: 5 })),
+        getActiveWorkers: mockGetActiveWorkers,
       }),
     );
 
@@ -562,10 +554,8 @@ describe("startCompletionMonitor", () => {
     const mockGetActiveWorkers = vi.fn(() => []);
     setMonitorDeps(
       makeDeps({
-        getConfig: vi.fn(() => ({
-          changesWorkflow: { enabled: true },
-        })) as never,
-        getActiveWorkers: mockGetActiveWorkers as never,
+        getConfig: vi.fn(() => fakeConfig({ enabled: true })),
+        getActiveWorkers: mockGetActiveWorkers,
       }),
     );
 
@@ -579,10 +569,8 @@ describe("stopCompletionMonitor", () => {
     const mockGetActiveWorkers = vi.fn(() => []);
     setMonitorDeps(
       makeDeps({
-        getConfig: vi.fn(() => ({
-          changesWorkflow: { enabled: true, monitoringIntervalMinutes: 5 },
-        })) as never,
-        getActiveWorkers: mockGetActiveWorkers as never,
+        getConfig: vi.fn(() => fakeConfig({ enabled: true, monitoringIntervalMinutes: 5 })),
+        getActiveWorkers: mockGetActiveWorkers,
       }),
     );
 

@@ -1,6 +1,7 @@
 import { describe, it, vi, beforeEach } from "vitest";
 import assert from "node:assert/strict";
-import type { App } from "@slack/bolt";
+import type { BlockAction } from "@slack/bolt";
+import type { ChatPostEphemeralArguments } from "@slack/web-api";
 import type { UserRole } from "../../roles.js";
 import type { StagedConfigUpdateIntent, StagedIntent } from "../../tools/types.js";
 import type { SessionInfo } from "../activeSessions.js";
@@ -8,6 +9,7 @@ import {
   registerConfigUpdateActionHandler,
   type ConfigUpdateActionDeps,
 } from "./configUpdateAction.js";
+import { createBlockActionArgs, createSlackAppMock } from "../testBoltApp.js";
 
 // ============================================================================
 // Mocks
@@ -52,53 +54,23 @@ function makeDeps(): ConfigUpdateActionDeps {
 // Helpers
 // ============================================================================
 
-function makeClient() {
-  const postEphemeralFn = vi.fn<
-    (args: {
-      channel: string;
-      user?: string;
-      text: string;
-      thread_ts?: string;
-    }) => Promise<{ ok: boolean }>
-  >(async () => ({ ok: true }));
-  const postMessageFn = vi.fn<
-    (args: { text: string; channel: string; thread_ts: string }) => Promise<{ ok: boolean }>
-  >(async () => ({ ok: true }));
-  return {
-    obj: {
-      chat: { postEphemeral: postEphemeralFn, postMessage: postMessageFn },
-    } as never as App["client"],
-    postEphemeral: postEphemeralFn,
-    postMessage: postMessageFn,
-  };
-}
-
-/** Capture the registered action handler from `app.action(...)` */
+/** Register the handler on a fresh mocked app and read it back off `app.action`. */
 function captureHandler() {
-  const actionFn = vi.fn();
-  const app = { action: actionFn } as never as App;
-
+  const app = createSlackAppMock();
   registerConfigUpdateActionHandler(app, makeDeps());
 
-  assert.equal(actionFn.mock.calls.length, 1, "should register exactly one action handler");
-  const handler = actionFn.mock.calls[0]![1] as (args: {
-    ack: () => Promise<void>;
-    body: {
-      user: { id: string };
-      channel?: { id: string };
-      actions: Array<{ value: string; action_id?: string }>;
-      message?: { text?: string; blocks?: unknown[] };
-    };
-    client: App["client"];
-    respond: (...a: unknown[]) => Promise<void>;
-  }) => Promise<void>;
+  assert.equal(app.action.mock.calls.length, 1, "should register exactly one action handler");
+  const [, handler] = app.action.mock.calls[0];
   return handler;
 }
 
 const CONFIG_SECTION = { type: "section", text: { type: "mrkdwn", text: "Config diff" } };
 
-function makeConfigMessage() {
+/** A posted config-update confirmation message, matching what `stripClickedButton` expects. */
+function makeConfigMessage(): NonNullable<BlockAction["message"]> {
   return {
+    type: "message",
+    ts: "1700000000.000100",
     text: "Apply this config update?",
     blocks: [
       CONFIG_SECTION,
@@ -117,30 +89,20 @@ function makeConfigMessage() {
   };
 }
 
-interface TestBody {
-  user: { id: string };
-  channel?: { id: string };
-  actions: Array<{ value: string; action_id?: string }>;
-  message?: { text?: string; blocks?: unknown[] };
+/** Extract `text` from a `chat.postEphemeral` call, narrowing across its content-shape union. */
+function ephemeralText(call: ChatPostEphemeralArguments): string | undefined {
+  return "text" in call ? call.text : undefined;
 }
 
 function makeHandlerArgs() {
-  const clientBundle = makeClient();
-  const respondFn = vi.fn(async (..._args: unknown[]) => {});
-  const body: TestBody = {
-    user: { id: "U001" },
-    channel: { id: "C001" },
-    actions: [{ value: "encoded-value", action_id: "clack_config_update_0" }],
-    message: makeConfigMessage(),
-  };
-  return {
-    ack: vi.fn(async () => {}),
-    body,
-    client: clientBundle.obj,
-    postEphemeral: clientBundle.postEphemeral,
-    postMessage: clientBundle.postMessage,
-    respond: respondFn,
-  };
+  const args = createBlockActionArgs({
+    value: "encoded-value",
+    actionId: "clack_config_update_0",
+    userId: "U001",
+    channelId: "C001",
+  });
+  args.body.message = makeConfigMessage();
+  return args;
 }
 
 beforeEach(() => {
@@ -171,13 +133,11 @@ beforeEach(() => {
 
 describe("registerConfigUpdateActionHandler — registration", () => {
   it("registers an action handler with the correct pattern", () => {
-    const actionFn = vi.fn();
-    const app = { action: actionFn } as never as App;
-
+    const app = createSlackAppMock();
     registerConfigUpdateActionHandler(app, makeDeps());
 
-    assert.equal(actionFn.mock.calls.length, 1);
-    const pattern = actionFn.mock.calls[0]![0] as RegExp;
+    assert.equal(app.action.mock.calls.length, 1);
+    const [pattern] = app.action.mock.calls[0];
     assert.ok(pattern instanceof RegExp);
     assert.ok(pattern.test("clack_config_update_42"));
     assert.ok(!pattern.test("clack_change_42"));
@@ -197,10 +157,10 @@ describe("registerConfigUpdateActionHandler — permissions", () => {
     await handler(args);
 
     assert.equal(args.ack.mock.calls.length, 1);
-    const postEphemeral = args.postEphemeral;
+    const postEphemeral = args.client.chat.postEphemeral;
     assert.equal(postEphemeral.mock.calls.length, 1);
-    const msgArgs = postEphemeral.mock.calls[0]![0] as { text: string };
-    assert.ok(msgArgs.text.includes("permission"));
+    const msgArgs = postEphemeral.mock.calls[0]![0];
+    assert.ok(ephemeralText(msgArgs)?.includes("permission"));
   });
 
   it("blocks dev role with ephemeral message", async () => {
@@ -211,7 +171,7 @@ describe("registerConfigUpdateActionHandler — permissions", () => {
     await handler(args);
 
     assert.equal(args.ack.mock.calls.length, 1);
-    const postEphemeral = args.postEphemeral;
+    const postEphemeral = args.client.chat.postEphemeral;
     assert.equal(postEphemeral.mock.calls.length, 1);
   });
 
@@ -231,12 +191,12 @@ describe("registerConfigUpdateActionHandler — permissions", () => {
     await handler(args);
 
     // Should not post ephemeral permission error
-    const postEphemeral = args.postEphemeral;
+    const postEphemeral = args.client.chat.postEphemeral;
     // It should either succeed or post a success ephemeral, not a permission error
     const calls = postEphemeral.mock.calls;
     for (const call of calls) {
-      const text = (call[0] as { text: string }).text;
-      assert.ok(!text.includes("permission"), "should not contain permission error");
+      const text = ephemeralText(call[0]);
+      assert.ok(!text?.includes("permission"), "should not contain permission error");
     }
   });
 
@@ -255,11 +215,11 @@ describe("registerConfigUpdateActionHandler — permissions", () => {
     const args = makeHandlerArgs();
     await handler(args);
 
-    const postEphemeral = args.postEphemeral;
+    const postEphemeral = args.client.chat.postEphemeral;
     const calls = postEphemeral.mock.calls;
     for (const call of calls) {
-      const text = (call[0] as { text: string }).text;
-      assert.ok(!text.includes("permission"), "should not contain permission error");
+      const text = ephemeralText(call[0]);
+      assert.ok(!text?.includes("permission"), "should not contain permission error");
     }
   });
 });
@@ -313,10 +273,10 @@ describe("registerConfigUpdateActionHandler — intent resolution", () => {
 
     await handler(args);
 
-    const postEphemeral = args.postEphemeral;
+    const postEphemeral = args.client.chat.postEphemeral;
     assert.equal(postEphemeral.mock.calls.length, 1);
-    const msgArgs = postEphemeral.mock.calls[0]![0] as { text: string };
-    assert.ok(msgArgs.text.includes("expired"));
+    const msgArgs = postEphemeral.mock.calls[0]![0];
+    assert.ok(ephemeralText(msgArgs)?.includes("expired"));
   });
 
   it("posts ephemeral error when intent type is not config_update", async () => {
@@ -331,10 +291,10 @@ describe("registerConfigUpdateActionHandler — intent resolution", () => {
 
     await handler(args);
 
-    const postEphemeral = args.postEphemeral;
+    const postEphemeral = args.client.chat.postEphemeral;
     assert.equal(postEphemeral.mock.calls.length, 1);
-    const msgArgs = postEphemeral.mock.calls[0]![0] as { text: string };
-    assert.ok(msgArgs.text.includes("expired"));
+    const msgArgs = postEphemeral.mock.calls[0]![0];
+    assert.ok(ephemeralText(msgArgs)?.includes("expired"));
   });
 });
 
@@ -359,11 +319,11 @@ describe("registerConfigUpdateActionHandler — success", () => {
     // Should ack, replace the message (clicked button removed), and write the file
     assert.equal(args.ack.mock.calls.length, 1);
     assert.equal(args.respond.mock.calls.length, 1);
-    const respondArg = args.respond.mock.calls[0]![0] as {
-      replace_original?: boolean;
-      blocks?: unknown[];
-    };
+    const respondArg = args.respond.mock.calls[0]![0];
+    assert.ok(respondArg, "expected a respond call");
+    assert.ok(typeof respondArg !== "string", "expected an object response");
     assert.equal(respondArg.replace_original, true);
+    assert.ok("blocks" in respondArg);
     assert.deepEqual(respondArg.blocks, [CONFIG_SECTION]);
     assert.equal(mockWriteInstructionFile.mock.calls.length, 1);
     const writeArgs = mockWriteInstructionFile.mock.calls[0]!;
@@ -371,15 +331,11 @@ describe("registerConfigUpdateActionHandler — success", () => {
     assert.equal(writeArgs[1], "new content");
 
     // Should post success ephemeral
-    const postEphemeral = args.postEphemeral;
+    const postEphemeral = args.client.chat.postEphemeral;
     assert.equal(postEphemeral.mock.calls.length, 1);
-    const msgArgs = postEphemeral.mock.calls[0]![0] as {
-      text: string;
-      channel: string;
-      thread_ts: string;
-    };
-    assert.ok(msgArgs.text.includes("instructions.md"));
-    assert.ok(msgArgs.text.includes("updated"));
+    const msgArgs = postEphemeral.mock.calls[0]![0];
+    assert.ok(ephemeralText(msgArgs)?.includes("instructions.md"));
+    assert.ok(ephemeralText(msgArgs)?.includes("updated"));
     assert.equal(msgArgs.channel, "C001");
     assert.equal(msgArgs.thread_ts, "1700000000.000001");
   });
@@ -423,9 +379,9 @@ describe("registerConfigUpdateActionHandler — success", () => {
     assert.equal(writeArgs[0], "dev/topics/metabase/rules.md");
     assert.equal(writeArgs[1], "metabase rules");
 
-    const postEphemeral = args.postEphemeral;
-    const msgArgs = postEphemeral.mock.calls[0]![0] as { text: string };
-    assert.ok(msgArgs.text.includes("dev/topics/metabase/rules.md"));
+    const postEphemeral = args.client.chat.postEphemeral;
+    const msgArgs = postEphemeral.mock.calls[0]![0];
+    assert.ok(ephemeralText(msgArgs)?.includes("dev/topics/metabase/rules.md"));
   });
 
   it("writes a repo-scoped intent path through to writeInstructionFile unchanged", async () => {
@@ -446,9 +402,9 @@ describe("registerConfigUpdateActionHandler — success", () => {
     assert.equal(writeArgs[0], "acme-monorepo/changes_instructions.md");
     assert.equal(writeArgs[1], "repo changes");
 
-    const postEphemeral = args.postEphemeral;
-    const msgArgs = postEphemeral.mock.calls[0]![0] as { text: string };
-    assert.ok(msgArgs.text.includes("acme-monorepo/changes_instructions.md"));
+    const postEphemeral = args.client.chat.postEphemeral;
+    const msgArgs = postEphemeral.mock.calls[0]![0];
+    assert.ok(ephemeralText(msgArgs)?.includes("acme-monorepo/changes_instructions.md"));
   });
 });
 
@@ -473,11 +429,11 @@ describe("registerConfigUpdateActionHandler — write failure", () => {
 
     await handler(args);
 
-    const postEphemeral = args.postEphemeral;
+    const postEphemeral = args.client.chat.postEphemeral;
     assert.equal(postEphemeral.mock.calls.length, 1);
-    const msgArgs = postEphemeral.mock.calls[0]![0] as { text: string };
-    assert.ok(msgArgs.text.includes("Failed to update"));
-    assert.ok(msgArgs.text.includes("broken.md"));
-    assert.ok(msgArgs.text.includes("write failed"));
+    const msgArgs = postEphemeral.mock.calls[0]![0];
+    assert.ok(ephemeralText(msgArgs)?.includes("Failed to update"));
+    assert.ok(ephemeralText(msgArgs)?.includes("broken.md"));
+    assert.ok(ephemeralText(msgArgs)?.includes("write failed"));
   });
 });

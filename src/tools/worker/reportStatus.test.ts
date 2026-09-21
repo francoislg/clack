@@ -2,6 +2,7 @@ import { describe, it, vi } from "vitest";
 import assert from "node:assert/strict";
 import { createReportStatusTool, type ReportStatusDeps } from "./reportStatus.js";
 import type { WorkerToolContext } from "../types.js";
+import { makeWorkerCtx } from "./testCtx.js";
 import { parseToolResult } from "../testHelpers.js";
 
 // ---------------------------------------------------------------------------
@@ -9,18 +10,7 @@ import { parseToolResult } from "../testHelpers.js";
 // ---------------------------------------------------------------------------
 
 function makeCtx(overrides?: Partial<WorkerToolContext>): WorkerToolContext {
-  return {
-    mode: "worker",
-    worktreePath: "/tmp/worktrees/my-repo/branch",
-    branchName: "clack/fix/my-branch",
-    repoName: "my-repo",
-    repoUrl: "https://github.com/org/my-repo.git",
-    channelId: "C123",
-    threadTs: "1.0",
-    sessionId: "sess-1",
-    config: { repositories: [] } as never as WorkerToolContext["config"],
-    ...overrides,
-  };
+  return makeWorkerCtx(overrides);
 }
 
 function makeDeps() {
@@ -32,7 +22,7 @@ function makeDeps() {
   }));
 
   const deps: ReportStatusDeps = {
-    getSlackClient: mockGetSlackClient as never as ReportStatusDeps["getSlackClient"],
+    getSlackClient: mockGetSlackClient as ReportStatusDeps["getSlackClient"],
   };
 
   return { deps, mockGetSlackClient, mockPostMessage };

@@ -1,8 +1,9 @@
 import { describe, it, beforeEach, vi } from "vitest";
 import assert from "node:assert/strict";
 import type { Config } from "../config.js";
-import type { McpServerConfig, SDKMessage } from "@anthropic-ai/claude-agent-sdk";
+import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import { testMCP, type TestMcpDeps, defaultTestMcpDeps } from "./testMcp.js";
+import { stub } from "../testStubs.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -21,7 +22,7 @@ function asyncIterableOf(items: object[]): AsyncIterable<SDKMessage> {
 
 /** Minimal config object for tests */
 function fakeConfig(): Config {
-  return {
+  return stub<Config>({
     repositories: [
       { name: "test-repo", url: "https://github.com/org/test.git", description: "Test" },
     ],
@@ -38,7 +39,7 @@ function fakeConfig(): Config {
     git: { pullIntervalMinutes: 60, shallowClone: true, cloneDepth: 1 },
     sessions: { cleanupIntervalMinutes: 60 },
     claudeCode: { model: "sonnet" },
-  } as never as Config;
+  });
 }
 
 const mockClackQuery = vi.fn<TestMcpDeps["clackQuery"]>();
@@ -72,15 +73,14 @@ function resetMocks(): void {
   mockGetConfig.mockImplementation(() => fakeConfig());
   mockLoadMcpServers.mockImplementation(async () => undefined);
   mockGetConfiguredMcpServerNames.mockImplementation(() => []);
-  mockBuildQueryContext.mockImplementation(
-    () => ({ mode: "query" }) as never as ReturnType<TestMcpDeps["buildQueryContext"]>,
+  mockBuildQueryContext.mockImplementation(() =>
+    stub<ReturnType<TestMcpDeps["buildQueryContext"]>>({ mode: "query" }),
   );
-  mockBuildClackTools.mockImplementation(
-    () =>
-      ({
-        toolNames: ["list_repositories", "submit_response"],
-        mcpServer: { type: "sdk-mcp" },
-      }) as never as ReturnType<TestMcpDeps["buildClackTools"]>,
+  mockBuildClackTools.mockImplementation(() =>
+    stub<ReturnType<TestMcpDeps["buildClackTools"]>>({
+      toolNames: ["list_repositories", "submit_response"],
+      mcpServers: { clack: { type: "sdk" } },
+    }),
   );
 }
 
@@ -169,7 +169,7 @@ describe("testMCP", () => {
           type: "stdio",
           command: "github-mcp-server",
           args: ["stdio"],
-        } as never as McpServerConfig,
+        },
       }));
       mockGetConfiguredMcpServerNames.mockImplementation(() => ["github"]);
     });
@@ -333,7 +333,7 @@ describe("testMCP", () => {
           type: "stdio",
           command: "github-mcp-server",
           args: ["stdio"],
-        } as never as McpServerConfig,
+        },
       }));
       mockGetConfiguredMcpServerNames.mockImplementation(() => ["github"]);
     });
@@ -369,7 +369,7 @@ describe("testMCP", () => {
           type: "stdio",
           command: "github-mcp-server",
           args: ["stdio"],
-        } as never as McpServerConfig,
+        },
       }));
       mockGetConfiguredMcpServerNames.mockImplementation(() => ["github"]);
     });
@@ -403,7 +403,7 @@ describe("testMCP", () => {
           type: "stdio",
           command: "github-mcp-server",
           args: ["stdio"],
-        } as never as McpServerConfig,
+        },
       }));
       mockGetConfiguredMcpServerNames.mockImplementation(() => ["github"]);
     });
@@ -431,7 +431,7 @@ describe("testMCP", () => {
           type: "stdio",
           command: "github-mcp-server",
           args: ["stdio"],
-        } as never as McpServerConfig,
+        },
       }));
       mockGetConfiguredMcpServerNames.mockImplementation(() => ["github"]);
     });
@@ -480,8 +480,8 @@ describe("testMCP", () => {
           type: "stdio",
           command: "github-mcp-server",
           args: ["stdio"],
-        } as never as McpServerConfig,
-        linear: { type: "stdio", command: "linear-mcp", args: [] } as never as McpServerConfig,
+        },
+        linear: { type: "stdio", command: "linear-mcp", args: [] },
       }));
       mockGetConfiguredMcpServerNames.mockImplementation(() => ["github", "linear"]);
 

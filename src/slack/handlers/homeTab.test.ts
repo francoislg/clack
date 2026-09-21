@@ -1,10 +1,18 @@
 import { describe, it, vi, beforeEach } from "vitest";
 import assert from "node:assert/strict";
 import { z } from "zod";
-import type { App } from "@slack/bolt";
+import type { App, ViewOutput, ViewStateValue } from "@slack/bolt";
 import type { View } from "@slack/types";
 import type { HomeTabDeps } from "./homeTab.js";
 import { registerHomeTabHandler } from "./homeTab.js";
+import { createSlackClientMock, type MockSlackClient } from "../testSlackClient.js";
+import {
+  createAppHomeOpenedArgs,
+  createBlockActionArgs,
+  createSlackAppMock,
+  createViewSubmitArgs,
+  type MockSlackApp,
+} from "../testBoltApp.js";
 import {
   registerQuarantineStore,
   clearQuarantineStores,
@@ -167,87 +175,111 @@ function makeDeps(): HomeTabDeps {
 // Helpers
 // ============================================================================
 
-type EventHandler = (args: { event: { user: string }; client: MockClient }) => Promise<void>;
+let app: MockSlackApp;
 
-type ActionHandler = (args: {
-  ack: () => Promise<void>;
-  body: { user: { id: string }; trigger_id: string; view?: { id: string } };
-  client: MockClient;
-  action?: { value?: string; action_id?: string };
-}) => Promise<void>;
-
-type ViewHandler = (args: {
-  ack: (errorResp?: { response_action: string; errors: Record<string, string> }) => Promise<void>;
-  view: {
-    state: { values: Record<string, Record<string, Record<string, unknown>>> };
-    private_metadata?: string;
-  };
-  body: { user: { id: string } };
-  client: MockClient;
-}) => Promise<void>;
-
-interface MockClient {
-  views: {
-    publish: ReturnType<typeof vi.fn<(...args: any[]) => any>>;
-    open: ReturnType<typeof vi.fn<(...args: any[]) => any>>;
-    push: ReturnType<typeof vi.fn<(...args: any[]) => any>>;
-    update: ReturnType<typeof vi.fn<(...args: any[]) => any>>;
-  };
-  conversations: {
-    open: ReturnType<typeof vi.fn<(...args: any[]) => any>>;
-  };
-  files: {
-    uploadV2: ReturnType<typeof vi.fn<(...args: any[]) => any>>;
-  };
-}
-
-const capturedEventHandlers = new Map<string, EventHandler>();
-const capturedActionHandlers = new Map<string | RegExp, ActionHandler>();
-const capturedViewHandlers = new Map<string, ViewHandler>();
-
-function makeApp(deps: HomeTabDeps): App {
-  const obj = {
-    event: (eventName: string, handler: EventHandler) => {
-      capturedEventHandlers.set(eventName, handler);
-    },
-    action: (actionId: string | RegExp, handler: ActionHandler) => {
-      capturedActionHandlers.set(actionId, handler);
-    },
-    view: (viewId: string, handler: ViewHandler) => {
-      capturedViewHandlers.set(viewId, handler);
-    },
-  };
-  const app = obj as never as App;
+function makeApp(deps: HomeTabDeps): MockSlackApp {
+  app = createSlackAppMock();
   registerHomeTabHandler(app, deps);
   return app;
 }
 
-/** Find an action handler by exact string key or by matching a regex key against a string. */
-function getActionHandler(id: string): ActionHandler | undefined {
-  // Try exact match first
-  const exact = capturedActionHandlers.get(id);
-  if (exact) return exact;
-  // Try regex keys
-  for (const [key, handler] of capturedActionHandlers) {
-    if (key instanceof RegExp && key.test(id)) return handler;
-  }
-  return undefined;
+/** Find a registered `app.action(...)` call by exact ID, or by regex pattern matching `id`. */
+function findActionHandler(id: string) {
+  const exact = app.action.mock.calls.find(
+    ([pattern]) => typeof pattern === "string" && pattern === id,
+  );
+  if (exact) return exact[1];
+  return app.action.mock.calls.find(
+    ([pattern]) => pattern instanceof RegExp && pattern.test(id),
+  )?.[1];
 }
 
-function makeClient(): MockClient {
+/** Same as `findActionHandler`, but throws when nothing matches — for direct invocation. */
+function getActionHandler(id: string) {
+  const handler = findActionHandler(id);
+  if (!handler) throw new Error(`no action handler registered matching "${id}"`);
+  return handler;
+}
+
+function findViewHandler(id: string) {
+  return app.view.mock.calls.find(
+    ([callbackId]) => typeof callbackId === "string" && callbackId === id,
+  )?.[1];
+}
+
+function getViewHandler(id: string) {
+  const handler = findViewHandler(id);
+  if (!handler) throw new Error(`no view handler registered for "${id}"`);
+  return handler;
+}
+
+function findEventHandler(name: string) {
+  return app.event.mock.calls.find(
+    ([eventName]) => typeof eventName === "string" && eventName === name,
+  )?.[1];
+}
+
+function getEventHandler(name: string) {
+  const handler = findEventHandler(name);
+  if (!handler) throw new Error(`no event handler registered for "${name}"`);
+  return handler;
+}
+
+function makeClient(): MockSlackClient {
+  const client = createSlackClientMock();
+  client.conversations.open.mockResolvedValue({ ok: true, channel: { id: "D_DM_CHANNEL" } });
+  return client;
+}
+
+// ----------------------------------------------------------------------------
+// `ViewStateValue` builders — typed state.values entries for view submissions
+// ----------------------------------------------------------------------------
+
+function usersSelectValue(userId: string | null): ViewStateValue {
+  return { type: "users_select", selected_user: userId };
+}
+
+function staticSelectValue(value: string | null): ViewStateValue {
   return {
-    views: {
-      publish: vi.fn(async () => {}),
-      open: vi.fn(async () => {}),
-      push: vi.fn(async () => {}),
-      update: vi.fn(async () => {}),
-    },
-    conversations: {
-      open: vi.fn(async () => ({ channel: { id: "D_DM_CHANNEL" } })),
-    },
-    files: {
-      uploadV2: vi.fn(async () => {}),
-    },
+    type: "static_select",
+    selected_option: value === null ? null : { value, text: { type: "plain_text", text: value } },
+  };
+}
+
+function checkboxesValue(values: string[]): ViewStateValue {
+  return {
+    type: "checkboxes",
+    selected_options: values.map((value) => ({
+      value,
+      text: { type: "plain_text", text: value },
+    })),
+  };
+}
+
+function textInputValue(value: string): ViewStateValue {
+  return { type: "plain_text_input", value };
+}
+
+/** A minimal but fully-typed `ViewOutput`, for tests that only care about `body.view.id`. */
+function stubViewOutput(id: string): ViewOutput {
+  return {
+    id,
+    callback_id: "test_view",
+    team_id: "T_TEST",
+    app_id: "A_TEST",
+    bot_id: "B_TEST",
+    title: { type: "plain_text", text: "Test" },
+    type: "modal",
+    blocks: [],
+    close: null,
+    submit: null,
+    state: { values: {} },
+    hash: "test-hash",
+    private_metadata: "",
+    root_view_id: null,
+    previous_view_id: null,
+    clear_on_close: false,
+    notify_on_close: false,
   };
 }
 
@@ -290,10 +322,6 @@ function resetAllMocks() {
   mockUpdateJob.mockClear();
   mockGetRole.mockClear();
   clearQuarantineStores();
-
-  capturedEventHandlers.clear();
-  capturedActionHandlers.clear();
-  capturedViewHandlers.clear();
 }
 
 function setDefaultMocks() {
@@ -338,27 +366,27 @@ beforeEach(() => {
 
 describe("registerHomeTabHandler", () => {
   it("registers event, action, and view handlers on the app", () => {
-    assert.ok(capturedEventHandlers.has("app_home_opened"));
-    assert.ok(capturedActionHandlers.has("claim_ownership"));
-    assert.ok(capturedActionHandlers.has("transfer_ownership"));
-    assert.ok(capturedActionHandlers.has("add_admin"));
-    assert.ok(capturedActionHandlers.has("remove_admin"));
-    assert.ok(capturedActionHandlers.has("add_dev"));
-    assert.ok(capturedActionHandlers.has("remove_dev"));
-    assert.ok(capturedActionHandlers.has("open_settings"));
-    assert.ok(getActionHandler("view_config_dir:user"));
-    assert.ok(capturedActionHandlers.has("edit_config_file"));
-    assert.ok(capturedActionHandlers.has("create_config_file"));
-    assert.ok(capturedActionHandlers.has("delete_config_file"));
-    assert.ok(capturedActionHandlers.has("chat_edit_config_file"));
-    assert.ok(capturedViewHandlers.has("transfer_ownership_modal"));
-    assert.ok(capturedViewHandlers.has("add_admin_modal"));
-    assert.ok(capturedViewHandlers.has("remove_admin_modal"));
-    assert.ok(capturedViewHandlers.has("add_dev_modal"));
-    assert.ok(capturedViewHandlers.has("remove_dev_modal"));
-    assert.ok(capturedViewHandlers.has("settings_modal"));
-    assert.ok(capturedViewHandlers.has("config_editor_modal"));
-    assert.ok(capturedViewHandlers.has("config_create_modal"));
+    assert.ok(findEventHandler("app_home_opened"));
+    assert.ok(findActionHandler("claim_ownership"));
+    assert.ok(findActionHandler("transfer_ownership"));
+    assert.ok(findActionHandler("add_admin"));
+    assert.ok(findActionHandler("remove_admin"));
+    assert.ok(findActionHandler("add_dev"));
+    assert.ok(findActionHandler("remove_dev"));
+    assert.ok(findActionHandler("open_settings"));
+    assert.ok(findActionHandler("view_config_dir:user"));
+    assert.ok(findActionHandler("edit_config_file"));
+    assert.ok(findActionHandler("create_config_file"));
+    assert.ok(findActionHandler("delete_config_file"));
+    assert.ok(findActionHandler("chat_edit_config_file"));
+    assert.ok(findViewHandler("transfer_ownership_modal"));
+    assert.ok(findViewHandler("add_admin_modal"));
+    assert.ok(findViewHandler("remove_admin_modal"));
+    assert.ok(findViewHandler("add_dev_modal"));
+    assert.ok(findViewHandler("remove_dev_modal"));
+    assert.ok(findViewHandler("settings_modal"));
+    assert.ok(findViewHandler("config_editor_modal"));
+    assert.ok(findViewHandler("config_create_modal"));
   });
 });
 
@@ -369,30 +397,25 @@ describe("registerHomeTabHandler", () => {
 describe("app_home_opened event", () => {
   it("publishes the home view for the user", async () => {
     const client = makeClient();
-    const handler = capturedEventHandlers.get("app_home_opened")!;
+    const handler = getEventHandler("app_home_opened");
 
-    await handler({ event: { user: "U001" }, client });
+    await handler(createAppHomeOpenedArgs({ userId: "U001", client }));
 
     assert.equal(mockBuildHomeView.mock.calls.length, 1);
     assert.equal(client.views.publish.mock.calls.length, 1);
-    const publishArgs = client.views.publish.mock.calls[0][0] as {
-      user_id: string;
-      view: View;
-    };
+    const publishArgs = client.views.publish.mock.calls[0]?.[0];
+    assert.ok(publishArgs);
     assert.equal(publishArgs.user_id, "U001");
   });
 
   it("checks if owner is disabled and passes ownerDisabled flag", async () => {
     mockIsUserDisabled.mockImplementation(async () => true);
     const client = makeClient();
-    const handler = capturedEventHandlers.get("app_home_opened")!;
+    const handler = getEventHandler("app_home_opened");
 
-    await handler({ event: { user: "U001" }, client });
+    await handler(createAppHomeOpenedArgs({ userId: "U001", client }));
 
-    const buildArgs = mockBuildHomeView.mock.calls[0][0] as {
-      userId: string;
-      ownerDisabled?: boolean;
-    };
+    const buildArgs = mockBuildHomeView.mock.calls[0][0];
     assert.equal(buildArgs.ownerDisabled, true);
   });
 
@@ -403,15 +426,12 @@ describe("app_home_opened event", () => {
       devs: [],
     }));
     const client = makeClient();
-    const handler = capturedEventHandlers.get("app_home_opened")!;
+    const handler = getEventHandler("app_home_opened");
 
-    await handler({ event: { user: "U001" }, client });
+    await handler(createAppHomeOpenedArgs({ userId: "U001", client }));
 
     assert.equal(mockIsUserDisabled.mock.calls.length, 0);
-    const buildArgs = mockBuildHomeView.mock.calls[0][0] as {
-      userId: string;
-      ownerDisabled?: boolean;
-    };
+    const buildArgs = mockBuildHomeView.mock.calls[0][0];
     assert.equal(buildArgs.ownerDisabled, false);
   });
 });
@@ -424,13 +444,9 @@ describe("claim_ownership action", () => {
   it("calls setOwner when no owner exists", async () => {
     mockHasOwner.mockImplementation(async () => false);
     const client = makeClient();
-    const handler = capturedActionHandlers.get("claim_ownership")!;
+    const handler = getActionHandler("claim_ownership");
 
-    await handler({
-      ack: async () => {},
-      body: { user: { id: "U001" }, trigger_id: "t1" },
-      client,
-    });
+    await handler(createBlockActionArgs({ userId: "U001", triggerId: "t1", client }));
 
     assert.equal(mockSetOwner.mock.calls.length, 1);
     assert.equal(mockSetOwner.mock.calls[0][0], "U001");
@@ -440,13 +456,9 @@ describe("claim_ownership action", () => {
     mockHasOwner.mockImplementation(async () => true);
     mockClaimOwnershipFromDisabled.mockImplementation(async () => ({ success: true }));
     const client = makeClient();
-    const handler = capturedActionHandlers.get("claim_ownership")!;
+    const handler = getActionHandler("claim_ownership");
 
-    await handler({
-      ack: async () => {},
-      body: { user: { id: "U001" }, trigger_id: "t1" },
-      client,
-    });
+    await handler(createBlockActionArgs({ userId: "U001", triggerId: "t1", client }));
 
     assert.equal(mockClaimOwnershipFromDisabled.mock.calls.length, 1);
   });
@@ -458,13 +470,9 @@ describe("claim_ownership action", () => {
       error: "Owner is active",
     }));
     const client = makeClient();
-    const handler = capturedActionHandlers.get("claim_ownership")!;
+    const handler = getActionHandler("claim_ownership");
 
-    await handler({
-      ack: async () => {},
-      body: { user: { id: "U001" }, trigger_id: "t1" },
-      client,
-    });
+    await handler(createBlockActionArgs({ userId: "U001", triggerId: "t1", client }));
 
     // buildHomeView is still called 0 times because the claim failed and we returned early
     assert.equal(client.views.publish.mock.calls.length, 0);
@@ -473,13 +481,9 @@ describe("claim_ownership action", () => {
   it("refreshes home view after successful claim", async () => {
     mockHasOwner.mockImplementation(async () => false);
     const client = makeClient();
-    const handler = capturedActionHandlers.get("claim_ownership")!;
+    const handler = getActionHandler("claim_ownership");
 
-    await handler({
-      ack: async () => {},
-      body: { user: { id: "U001" }, trigger_id: "t1" },
-      client,
-    });
+    await handler(createBlockActionArgs({ userId: "U001", triggerId: "t1", client }));
 
     assert.equal(mockBuildHomeView.mock.calls.length, 1);
     assert.equal(client.views.publish.mock.calls.length, 1);
@@ -493,13 +497,9 @@ describe("claim_ownership action", () => {
 describe("transfer_ownership action", () => {
   it("opens a user select modal", async () => {
     const client = makeClient();
-    const handler = capturedActionHandlers.get("transfer_ownership")!;
+    const handler = getActionHandler("transfer_ownership");
 
-    await handler({
-      ack: async () => {},
-      body: { user: { id: "U_OWNER" }, trigger_id: "t1" },
-      client,
-    });
+    await handler(createBlockActionArgs({ userId: "U_OWNER", triggerId: "t1", client }));
 
     assert.equal(mockBuildUserSelectModal.mock.calls.length, 1);
     assert.equal(client.views.open.mock.calls.length, 1);
@@ -508,29 +508,18 @@ describe("transfer_ownership action", () => {
 
 describe("transfer_ownership_modal submission", () => {
   it("returns error when no user selected", async () => {
-    const handler = capturedViewHandlers.get("transfer_ownership_modal")!;
-    let ackResponse: { response_action: string; errors: Record<string, string> } | undefined;
-
-    await handler({
-      ack: async (resp) => {
-        ackResponse = resp;
-      },
-      view: {
-        state: {
-          values: {
-            user_select_block: {
-              selected_user: { selected_user: null },
-            },
-          },
-        },
-      },
-      body: { user: { id: "U_OWNER" } },
-      client: makeClient(),
+    const handler = getViewHandler("transfer_ownership_modal");
+    const args = createViewSubmitArgs({
+      userId: "U_OWNER",
+      values: { user_select_block: { selected_user: usersSelectValue(null) } },
     });
 
+    await handler(args);
+
+    const ackResponse = args.ack.mock.calls[0]?.[0];
     assert.ok(ackResponse);
-    assert.equal(ackResponse!.response_action, "errors");
-    assert.ok(ackResponse!.errors.user_select_block.includes("select a user"));
+    assert.ok(ackResponse.response_action === "errors");
+    assert.ok(ackResponse.errors.user_select_block.includes("select a user"));
   });
 
   it("returns error when transfer fails", async () => {
@@ -538,49 +527,30 @@ describe("transfer_ownership_modal submission", () => {
       success: false,
       error: "Cannot transfer to yourself",
     }));
-    const handler = capturedViewHandlers.get("transfer_ownership_modal")!;
-    let ackResponse: { response_action: string; errors: Record<string, string> } | undefined;
-
-    await handler({
-      ack: async (resp) => {
-        ackResponse = resp;
-      },
-      view: {
-        state: {
-          values: {
-            user_select_block: {
-              selected_user: { selected_user: "U_NEW" },
-            },
-          },
-        },
-      },
-      body: { user: { id: "U_OWNER" } },
-      client: makeClient(),
+    const handler = getViewHandler("transfer_ownership_modal");
+    const args = createViewSubmitArgs({
+      userId: "U_OWNER",
+      values: { user_select_block: { selected_user: usersSelectValue("U_NEW") } },
     });
 
+    await handler(args);
+
+    const ackResponse = args.ack.mock.calls[0]?.[0];
     assert.ok(ackResponse);
-    assert.equal(ackResponse!.response_action, "errors");
+    assert.equal(ackResponse.response_action, "errors");
   });
 
   it("refreshes both users home views on success", async () => {
     mockTransferOwnership.mockImplementation(async () => ({ success: true }));
     const client = makeClient();
-    const handler = capturedViewHandlers.get("transfer_ownership_modal")!;
-
-    await handler({
-      ack: async () => {},
-      view: {
-        state: {
-          values: {
-            user_select_block: {
-              selected_user: { selected_user: "U_NEW" },
-            },
-          },
-        },
-      },
-      body: { user: { id: "U_OWNER" } },
+    const handler = getViewHandler("transfer_ownership_modal");
+    const args = createViewSubmitArgs({
+      userId: "U_OWNER",
+      values: { user_select_block: { selected_user: usersSelectValue("U_NEW") } },
       client,
     });
+
+    await handler(args);
 
     // buildHomeView called twice: once for current user, once for new owner
     assert.equal(mockBuildHomeView.mock.calls.length, 2);
@@ -596,22 +566,14 @@ describe("add_admin_modal submission", () => {
   it("calls addAdmin on successful submission", async () => {
     mockSetRole.mockImplementation(async () => ({ success: true }));
     const client = makeClient();
-    const handler = capturedViewHandlers.get("add_admin_modal")!;
-
-    await handler({
-      ack: async () => {},
-      view: {
-        state: {
-          values: {
-            user_select_block: {
-              selected_user: { selected_user: "U_NEW_ADMIN" },
-            },
-          },
-        },
-      },
-      body: { user: { id: "U_OWNER" } },
+    const handler = getViewHandler("add_admin_modal");
+    const args = createViewSubmitArgs({
+      userId: "U_OWNER",
+      values: { user_select_block: { selected_user: usersSelectValue("U_NEW_ADMIN") } },
       client,
     });
+
+    await handler(args);
 
     assert.equal(mockSetRole.mock.calls.length, 1);
     assert.equal(mockSetRole.mock.calls[0][0], "U_NEW_ADMIN");
@@ -620,29 +582,18 @@ describe("add_admin_modal submission", () => {
 
   it("returns error when user has no permission", async () => {
     mockUserCanManageRoles.mockImplementation(async () => false);
-    const handler = capturedViewHandlers.get("add_admin_modal")!;
-    let ackResponse: { response_action: string; errors: Record<string, string> } | undefined;
-
-    await handler({
-      ack: async (resp) => {
-        ackResponse = resp;
-      },
-      view: {
-        state: {
-          values: {
-            user_select_block: {
-              selected_user: { selected_user: "U_NEW_ADMIN" },
-            },
-          },
-        },
-      },
-      body: { user: { id: "U_MEMBER" } },
-      client: makeClient(),
+    const handler = getViewHandler("add_admin_modal");
+    const args = createViewSubmitArgs({
+      userId: "U_MEMBER",
+      values: { user_select_block: { selected_user: usersSelectValue("U_NEW_ADMIN") } },
     });
 
+    await handler(args);
+
+    const ackResponse = args.ack.mock.calls[0]?.[0];
     assert.ok(ackResponse);
-    assert.equal(ackResponse!.response_action, "errors");
-    assert.ok(ackResponse!.errors.user_select_block.includes("permission"));
+    assert.ok(ackResponse.response_action === "errors");
+    assert.ok(ackResponse.errors.user_select_block.includes("permission"));
   });
 
   it("returns error when addAdmin fails", async () => {
@@ -650,29 +601,18 @@ describe("add_admin_modal submission", () => {
       success: false,
       error: "User is already an admin",
     }));
-    const handler = capturedViewHandlers.get("add_admin_modal")!;
-    let ackResponse: { response_action: string; errors: Record<string, string> } | undefined;
-
-    await handler({
-      ack: async (resp) => {
-        ackResponse = resp;
-      },
-      view: {
-        state: {
-          values: {
-            user_select_block: {
-              selected_user: { selected_user: "U_EXISTING_ADMIN" },
-            },
-          },
-        },
-      },
-      body: { user: { id: "U_OWNER" } },
-      client: makeClient(),
+    const handler = getViewHandler("add_admin_modal");
+    const args = createViewSubmitArgs({
+      userId: "U_OWNER",
+      values: { user_select_block: { selected_user: usersSelectValue("U_EXISTING_ADMIN") } },
     });
 
+    await handler(args);
+
+    const ackResponse = args.ack.mock.calls[0]?.[0];
     assert.ok(ackResponse);
-    assert.equal(ackResponse!.response_action, "errors");
-    assert.ok(ackResponse!.errors.user_select_block.includes("already an admin"));
+    assert.ok(ackResponse.response_action === "errors");
+    assert.ok(ackResponse.errors.user_select_block.includes("already an admin"));
   });
 });
 
@@ -683,13 +623,9 @@ describe("add_admin_modal submission", () => {
 describe("remove_admin action", () => {
   it("opens remove modal when admins exist", async () => {
     const client = makeClient();
-    const handler = capturedActionHandlers.get("remove_admin")!;
+    const handler = getActionHandler("remove_admin");
 
-    await handler({
-      ack: async () => {},
-      body: { user: { id: "U_OWNER" }, trigger_id: "t1" },
-      client,
-    });
+    await handler(createBlockActionArgs({ userId: "U_OWNER", triggerId: "t1", client }));
 
     assert.equal(mockBuildRemoveUserModal.mock.calls.length, 1);
     assert.equal(client.views.open.mock.calls.length, 1);
@@ -702,13 +638,9 @@ describe("remove_admin action", () => {
       devs: [],
     }));
     const client = makeClient();
-    const handler = capturedActionHandlers.get("remove_admin")!;
+    const handler = getActionHandler("remove_admin");
 
-    await handler({
-      ack: async () => {},
-      body: { user: { id: "U_OWNER" }, trigger_id: "t1" },
-      client,
-    });
+    await handler(createBlockActionArgs({ userId: "U_OWNER", triggerId: "t1", client }));
 
     assert.equal(client.views.open.mock.calls.length, 0);
   });
@@ -722,22 +654,14 @@ describe("remove_admin_modal submission", () => {
   it("calls removeAdmin on successful submission", async () => {
     mockSetRole.mockImplementation(async () => ({ success: true }));
     const client = makeClient();
-    const handler = capturedViewHandlers.get("remove_admin_modal")!;
-
-    await handler({
-      ack: async () => {},
-      view: {
-        state: {
-          values: {
-            user_select_block: {
-              selected_user: { selected_option: { value: "U_ADMIN1" } },
-            },
-          },
-        },
-      },
-      body: { user: { id: "U_OWNER" } },
+    const handler = getViewHandler("remove_admin_modal");
+    const args = createViewSubmitArgs({
+      userId: "U_OWNER",
+      values: { user_select_block: { selected_user: staticSelectValue("U_ADMIN1") } },
       client,
     });
+
+    await handler(args);
 
     assert.equal(mockSetRole.mock.calls.length, 1);
     assert.equal(mockSetRole.mock.calls[0][0], "U_ADMIN1");
@@ -745,28 +669,17 @@ describe("remove_admin_modal submission", () => {
   });
 
   it("returns error when no user selected", async () => {
-    const handler = capturedViewHandlers.get("remove_admin_modal")!;
-    let ackResponse: { response_action: string; errors: Record<string, string> } | undefined;
-
-    await handler({
-      ack: async (resp) => {
-        ackResponse = resp;
-      },
-      view: {
-        state: {
-          values: {
-            user_select_block: {
-              selected_user: { selected_option: null },
-            },
-          },
-        },
-      },
-      body: { user: { id: "U_OWNER" } },
-      client: makeClient(),
+    const handler = getViewHandler("remove_admin_modal");
+    const args = createViewSubmitArgs({
+      userId: "U_OWNER",
+      values: { user_select_block: { selected_user: staticSelectValue(null) } },
     });
 
+    await handler(args);
+
+    const ackResponse = args.ack.mock.calls[0]?.[0];
     assert.ok(ackResponse);
-    assert.equal(ackResponse!.response_action, "errors");
+    assert.equal(ackResponse.response_action, "errors");
   });
 });
 
@@ -777,13 +690,9 @@ describe("remove_admin_modal submission", () => {
 describe("open_settings action", () => {
   it("opens the settings modal", async () => {
     const client = makeClient();
-    const handler = capturedActionHandlers.get("open_settings")!;
+    const handler = getActionHandler("open_settings");
 
-    await handler({
-      ack: async () => {},
-      body: { user: { id: "U001" }, trigger_id: "t1" },
-      client,
-    });
+    await handler(createBlockActionArgs({ userId: "U001", triggerId: "t1", client }));
 
     assert.equal(mockBuildSettingsModal.mock.calls.length, 1);
     assert.equal(client.views.open.mock.calls.length, 1);
@@ -793,25 +702,17 @@ describe("open_settings action", () => {
 describe("settings_modal submission", () => {
   it("saves delivery preference when dm is selected", async () => {
     const client = makeClient();
-    const handler = capturedViewHandlers.get("settings_modal")!;
-
-    await handler({
-      ack: async () => {},
-      view: {
-        state: {
-          values: {
-            response_delivery_block: {
-              response_delivery: { selected_option: { value: "dm" } },
-            },
-            notify_on_response_block: {
-              notify_on_response: { selected_option: { value: "false" } },
-            },
-          },
-        },
+    const handler = getViewHandler("settings_modal");
+    const args = createViewSubmitArgs({
+      userId: "U001",
+      values: {
+        response_delivery_block: { response_delivery: staticSelectValue("dm") },
+        notify_on_response_block: { notify_on_response: staticSelectValue("false") },
       },
-      body: { user: { id: "U001" } },
       client,
     });
+
+    await handler(args);
 
     assert.equal(mockSetUserPreference.mock.calls.length, 2);
     const firstCall = mockSetUserPreference.mock.calls[0];
@@ -822,110 +723,74 @@ describe("settings_modal submission", () => {
 
   it("saves delivery preference when thread is selected", async () => {
     const client = makeClient();
-    const handler = capturedViewHandlers.get("settings_modal")!;
-
-    await handler({
-      ack: async () => {},
-      view: {
-        state: {
-          values: {
-            response_delivery_block: {
-              response_delivery: { selected_option: { value: "thread" } },
-            },
-            notify_on_response_block: {
-              notify_on_response: { selected_option: null },
-            },
-          },
-        },
+    const handler = getViewHandler("settings_modal");
+    const args = createViewSubmitArgs({
+      userId: "U001",
+      values: {
+        response_delivery_block: { response_delivery: staticSelectValue("thread") },
+        notify_on_response_block: { notify_on_response: staticSelectValue(null) },
       },
-      body: { user: { id: "U001" } },
       client,
     });
 
+    await handler(args);
+
     const deliveryCall = mockSetUserPreference.mock.calls.find((c) => c[1] === "reactionDelivery");
     assert.ok(deliveryCall);
-    assert.equal(deliveryCall![2], "thread");
+    assert.equal(deliveryCall[2], "thread");
   });
 
   it("saves notify preference when true", async () => {
     const client = makeClient();
-    const handler = capturedViewHandlers.get("settings_modal")!;
-
-    await handler({
-      ack: async () => {},
-      view: {
-        state: {
-          values: {
-            response_delivery_block: {
-              response_delivery: { selected_option: null },
-            },
-            notify_on_response_block: {
-              notify_on_response: { selected_option: { value: "true" } },
-            },
-          },
-        },
+    const handler = getViewHandler("settings_modal");
+    const args = createViewSubmitArgs({
+      userId: "U001",
+      values: {
+        response_delivery_block: { response_delivery: staticSelectValue(null) },
+        notify_on_response_block: { notify_on_response: staticSelectValue("true") },
       },
-      body: { user: { id: "U001" } },
       client,
     });
 
+    await handler(args);
+
     const notifyCall = mockSetUserPreference.mock.calls.find((c) => c[1] === "notifyOnResponse");
     assert.ok(notifyCall);
-    assert.equal(notifyCall![2], true);
+    assert.equal(notifyCall[2], true);
   });
 
   it("does not save preferences when no options selected", async () => {
     const client = makeClient();
-    const handler = capturedViewHandlers.get("settings_modal")!;
-
-    await handler({
-      ack: async () => {},
-      view: {
-        state: {
-          values: {
-            response_delivery_block: {
-              response_delivery: { selected_option: null },
-            },
-            notify_on_response_block: {
-              notify_on_response: { selected_option: null },
-            },
-          },
-        },
+    const handler = getViewHandler("settings_modal");
+    const args = createViewSubmitArgs({
+      userId: "U001",
+      values: {
+        response_delivery_block: { response_delivery: staticSelectValue(null) },
+        notify_on_response_block: { notify_on_response: staticSelectValue(null) },
       },
-      body: { user: { id: "U001" } },
       client,
     });
+
+    await handler(args);
 
     assert.equal(mockSetUserPreference.mock.calls.length, 0);
   });
 
   it("refreshes home view after saving", async () => {
     const client = makeClient();
-    const handler = capturedViewHandlers.get("settings_modal")!;
-
-    await handler({
-      ack: async () => {},
-      view: {
-        state: {
-          values: {
-            response_delivery_block: {
-              response_delivery: { selected_option: { value: "dm" } },
-            },
-            notify_on_response_block: {
-              notify_on_response: { selected_option: null },
-            },
-            investigation_tag_block: {
-              investigation_tag: { selected_option: null },
-            },
-            investigation_breadcrumb_block: {
-              investigation_breadcrumb: { selected_option: null },
-            },
-          },
-        },
+    const handler = getViewHandler("settings_modal");
+    const args = createViewSubmitArgs({
+      userId: "U001",
+      values: {
+        response_delivery_block: { response_delivery: staticSelectValue("dm") },
+        notify_on_response_block: { notify_on_response: staticSelectValue(null) },
+        investigation_tag_block: { investigation_tag: staticSelectValue(null) },
+        investigation_breadcrumb_block: { investigation_breadcrumb: staticSelectValue(null) },
       },
-      body: { user: { id: "U001" } },
       client,
     });
+
+    await handler(args);
 
     assert.equal(mockBuildHomeView.mock.calls.length, 1);
     assert.equal(client.views.publish.mock.calls.length, 1);
@@ -933,138 +798,92 @@ describe("settings_modal submission", () => {
 
   it("saves investigation tag preference when true", async () => {
     const client = makeClient();
-    const handler = capturedViewHandlers.get("settings_modal")!;
-
-    await handler({
-      ack: async () => {},
-      view: {
-        state: {
-          values: {
-            response_delivery_block: {
-              response_delivery: { selected_option: null },
-            },
-            notify_on_response_block: {
-              notify_on_response: { selected_option: null },
-            },
-            investigation_tag_block: {
-              investigation_tag: { selected_option: { value: "true" } },
-            },
-            investigation_breadcrumb_block: {
-              investigation_breadcrumb: { selected_option: null },
-            },
-          },
-        },
+    const handler = getViewHandler("settings_modal");
+    const args = createViewSubmitArgs({
+      userId: "U001",
+      values: {
+        response_delivery_block: { response_delivery: staticSelectValue(null) },
+        notify_on_response_block: { notify_on_response: staticSelectValue(null) },
+        investigation_tag_block: { investigation_tag: staticSelectValue("true") },
+        investigation_breadcrumb_block: { investigation_breadcrumb: staticSelectValue(null) },
       },
-      body: { user: { id: "U001" } },
       client,
     });
 
+    await handler(args);
+
     const tagCall = mockSetUserPreference.mock.calls.find((c) => c[1] === "investigationTag");
     assert.ok(tagCall);
-    assert.equal(tagCall![2], true);
+    assert.equal(tagCall[2], true);
   });
 
   it("saves investigation tag preference when false", async () => {
     const client = makeClient();
-    const handler = capturedViewHandlers.get("settings_modal")!;
-
-    await handler({
-      ack: async () => {},
-      view: {
-        state: {
-          values: {
-            response_delivery_block: {
-              response_delivery: { selected_option: null },
-            },
-            notify_on_response_block: {
-              notify_on_response: { selected_option: null },
-            },
-            investigation_tag_block: {
-              investigation_tag: { selected_option: { value: "false" } },
-            },
-            investigation_breadcrumb_block: {
-              investigation_breadcrumb: { selected_option: null },
-            },
-          },
-        },
+    const handler = getViewHandler("settings_modal");
+    const args = createViewSubmitArgs({
+      userId: "U001",
+      values: {
+        response_delivery_block: { response_delivery: staticSelectValue(null) },
+        notify_on_response_block: { notify_on_response: staticSelectValue(null) },
+        investigation_tag_block: { investigation_tag: staticSelectValue("false") },
+        investigation_breadcrumb_block: { investigation_breadcrumb: staticSelectValue(null) },
       },
-      body: { user: { id: "U001" } },
       client,
     });
 
+    await handler(args);
+
     const tagCall = mockSetUserPreference.mock.calls.find((c) => c[1] === "investigationTag");
     assert.ok(tagCall);
-    assert.equal(tagCall![2], false);
+    assert.equal(tagCall[2], false);
   });
 
   it("saves investigation breadcrumb preference when explicit", async () => {
     const client = makeClient();
-    const handler = capturedViewHandlers.get("settings_modal")!;
-
-    await handler({
-      ack: async () => {},
-      view: {
-        state: {
-          values: {
-            response_delivery_block: {
-              response_delivery: { selected_option: null },
-            },
-            notify_on_response_block: {
-              notify_on_response: { selected_option: null },
-            },
-            investigation_tag_block: {
-              investigation_tag: { selected_option: null },
-            },
-            investigation_breadcrumb_block: {
-              investigation_breadcrumb: { selected_option: { value: "explicit" } },
-            },
-          },
+    const handler = getViewHandler("settings_modal");
+    const args = createViewSubmitArgs({
+      userId: "U001",
+      values: {
+        response_delivery_block: { response_delivery: staticSelectValue(null) },
+        notify_on_response_block: { notify_on_response: staticSelectValue(null) },
+        investigation_tag_block: { investigation_tag: staticSelectValue(null) },
+        investigation_breadcrumb_block: {
+          investigation_breadcrumb: staticSelectValue("explicit"),
         },
       },
-      body: { user: { id: "U001" } },
       client,
     });
+
+    await handler(args);
 
     const breadcrumbCall = mockSetUserPreference.mock.calls.find(
       (c) => c[1] === "investigationBreadcrumb",
     );
     assert.ok(breadcrumbCall);
-    assert.equal(breadcrumbCall![2], "explicit");
+    assert.equal(breadcrumbCall[2], "explicit");
   });
 
   it("saves investigation breadcrumb preference when silent", async () => {
     const client = makeClient();
-    const handler = capturedViewHandlers.get("settings_modal")!;
-
-    await handler({
-      ack: async () => {},
-      view: {
-        state: {
-          values: {
-            response_delivery_block: {
-              response_delivery: { selected_option: null },
-            },
-            notify_on_response_block: {
-              notify_on_response: { selected_option: null },
-            },
-            investigation_tag_block: {
-              investigation_tag: { selected_option: null },
-            },
-            investigation_breadcrumb_block: {
-              investigation_breadcrumb: { selected_option: { value: "silent" } },
-            },
-          },
-        },
+    const handler = getViewHandler("settings_modal");
+    const args = createViewSubmitArgs({
+      userId: "U001",
+      values: {
+        response_delivery_block: { response_delivery: staticSelectValue(null) },
+        notify_on_response_block: { notify_on_response: staticSelectValue(null) },
+        investigation_tag_block: { investigation_tag: staticSelectValue(null) },
+        investigation_breadcrumb_block: { investigation_breadcrumb: staticSelectValue("silent") },
       },
-      body: { user: { id: "U001" } },
       client,
     });
+
+    await handler(args);
 
     const breadcrumbCall = mockSetUserPreference.mock.calls.find(
       (c) => c[1] === "investigationBreadcrumb",
     );
     assert.ok(breadcrumbCall);
-    assert.equal(breadcrumbCall![2], "silent");
+    assert.equal(breadcrumbCall[2], "silent");
   });
 
   it("persists plugin preferences and core prefs in one submit", async () => {
@@ -1086,26 +905,22 @@ describe("settings_modal submission", () => {
       },
     ]);
     const client = makeClient();
-    const handler = capturedViewHandlers.get("settings_modal")!;
-
-    await handler({
-      ack: async () => {},
-      view: {
-        state: {
-          values: {
-            response_delivery_block: { response_delivery: { selected_option: { value: "dm" } } },
-            notify_on_response_block: { notify_on_response: { selected_option: null } },
-            investigation_tag_block: { investigation_tag: { selected_option: null } },
-            investigation_breadcrumb_block: { investigation_breadcrumb: { selected_option: null } },
-            "plugin_pref:trivia:revealReminders": {
-              revealReminders: { selected_options: [{ value: "revealReminders" }] },
-            },
-          },
+    const handler = getViewHandler("settings_modal");
+    const args = createViewSubmitArgs({
+      userId: "U001",
+      values: {
+        response_delivery_block: { response_delivery: staticSelectValue("dm") },
+        notify_on_response_block: { notify_on_response: staticSelectValue(null) },
+        investigation_tag_block: { investigation_tag: staticSelectValue(null) },
+        investigation_breadcrumb_block: { investigation_breadcrumb: staticSelectValue(null) },
+        "plugin_pref:trivia:revealReminders": {
+          revealReminders: checkboxesValue(["revealReminders"]),
         },
       },
-      body: { user: { id: "U001" } },
       client,
     });
+
+    await handler(args);
 
     // Plugin slice merged with the parsed boolean value.
     assert.equal(mockMergePluginPreferenceSlice.mock.calls.length, 1);
@@ -1142,26 +957,22 @@ describe("settings_modal submission", () => {
       },
     ]);
     const client = makeClient();
-    const handler = capturedViewHandlers.get("settings_modal")!;
-
-    await handler({
-      ack: async () => {},
-      view: {
-        state: {
-          values: {
-            response_delivery_block: { response_delivery: { selected_option: { value: "dm" } } },
-            notify_on_response_block: { notify_on_response: { selected_option: null } },
-            investigation_tag_block: { investigation_tag: { selected_option: null } },
-            investigation_breadcrumb_block: { investigation_breadcrumb: { selected_option: null } },
-            "plugin_pref:trivia:revealReminders": {
-              revealReminders: { selected_options: [{ value: "revealReminders" }] },
-            },
-          },
+    const handler = getViewHandler("settings_modal");
+    const args = createViewSubmitArgs({
+      userId: "U001",
+      values: {
+        response_delivery_block: { response_delivery: staticSelectValue("dm") },
+        notify_on_response_block: { notify_on_response: staticSelectValue(null) },
+        investigation_tag_block: { investigation_tag: staticSelectValue(null) },
+        investigation_breadcrumb_block: { investigation_breadcrumb: staticSelectValue(null) },
+        "plugin_pref:trivia:revealReminders": {
+          revealReminders: checkboxesValue(["revealReminders"]),
         },
       },
-      body: { user: { id: "U001" } },
       client,
     });
+
+    await handler(args);
 
     // Invalid slice never written; core preference still persisted.
     assert.equal(mockMergePluginPreferenceSlice.mock.calls.length, 0);
@@ -1174,23 +985,19 @@ describe("settings_modal submission", () => {
 
   it("skips plugin fan-out when no plugins loaded", async () => {
     const client = makeClient();
-    const handler = capturedViewHandlers.get("settings_modal")!;
-
-    await handler({
-      ack: async () => {},
-      view: {
-        state: {
-          values: {
-            response_delivery_block: { response_delivery: { selected_option: null } },
-            notify_on_response_block: { notify_on_response: { selected_option: null } },
-            investigation_tag_block: { investigation_tag: { selected_option: null } },
-            investigation_breadcrumb_block: { investigation_breadcrumb: { selected_option: null } },
-          },
-        },
+    const handler = getViewHandler("settings_modal");
+    const args = createViewSubmitArgs({
+      userId: "U001",
+      values: {
+        response_delivery_block: { response_delivery: staticSelectValue(null) },
+        notify_on_response_block: { notify_on_response: staticSelectValue(null) },
+        investigation_tag_block: { investigation_tag: staticSelectValue(null) },
+        investigation_breadcrumb_block: { investigation_breadcrumb: staticSelectValue(null) },
       },
-      body: { user: { id: "U001" } },
       client,
     });
+
+    await handler(args);
 
     assert.equal(mockMergePluginPreferenceSlice.mock.calls.length, 0);
     assert.equal(client.views.publish.mock.calls.length, 1);
@@ -1216,14 +1023,11 @@ describe("view_config_dir action", () => {
       repos: [],
     }));
     const client = makeClient();
-    const handler = getActionHandler("view_config_dir:user")!;
+    const handler = getActionHandler("view_config_dir:user");
 
-    await handler({
-      ack: async () => {},
-      body: { user: { id: "U001" }, trigger_id: "t1" },
-      client,
-      action: { value: "user" },
-    });
+    await handler(
+      createBlockActionArgs({ userId: "U001", triggerId: "t1", value: "user", client }),
+    );
 
     assert.equal(mockBuildConfigFilePickerModal.mock.calls.length, 1);
     const args = mockBuildConfigFilePickerModal.mock.calls[0];
@@ -1240,14 +1044,11 @@ describe("view_config_dir action", () => {
       ],
     }));
     const client = makeClient();
-    const handler = getActionHandler("view_config_dir:user")!;
+    const handler = getActionHandler("view_config_dir:user");
 
-    await handler({
-      ack: async () => {},
-      body: { user: { id: "U001" }, trigger_id: "t1" },
-      client,
-      action: { value: "my-repo" },
-    });
+    await handler(
+      createBlockActionArgs({ userId: "U001", triggerId: "t1", value: "my-repo", client }),
+    );
 
     assert.equal(mockBuildConfigFilePickerModal.mock.calls.length, 1);
     const args = mockBuildConfigFilePickerModal.mock.calls[0];
@@ -1267,21 +1068,23 @@ describe("edit_config_file action", () => {
       custom_content: null,
     }));
     const client = makeClient();
-    const handler = capturedActionHandlers.get("edit_config_file")!;
-
-    await handler({
-      ack: async () => {},
-      body: { user: { id: "U001" }, trigger_id: "t1", view: { id: "V123" } },
+    const handler = getActionHandler("edit_config_file");
+    const args = createBlockActionArgs({
+      userId: "U001",
+      triggerId: "t1",
+      value: "user/identity.md",
       client,
-      action: { value: "user/identity.md" },
     });
+    args.body.view = stubViewOutput("V123");
+
+    await handler(args);
 
     assert.equal(mockBuildConfigEditorModal.mock.calls.length, 1);
-    const args = mockBuildConfigEditorModal.mock.calls[0];
-    assert.equal(args[0], "user"); // dir
-    assert.equal(args[1], "identity.md"); // filename
-    assert.equal(args[2], "default content"); // content
-    assert.equal(args[3], "default-only"); // fileState
+    const modalArgs = mockBuildConfigEditorModal.mock.calls[0];
+    assert.equal(modalArgs[0], "user"); // dir
+    assert.equal(modalArgs[1], "identity.md"); // filename
+    assert.equal(modalArgs[2], "default content"); // content
+    assert.equal(modalArgs[3], "default-only"); // fileState
     assert.equal(client.views.push.mock.calls.length, 1);
   });
 
@@ -1291,18 +1094,20 @@ describe("edit_config_file action", () => {
       custom_content: "custom override",
     }));
     const client = makeClient();
-    const handler = capturedActionHandlers.get("edit_config_file")!;
-
-    await handler({
-      ack: async () => {},
-      body: { user: { id: "U001" }, trigger_id: "t1", view: { id: "V123" } },
+    const handler = getActionHandler("edit_config_file");
+    const args = createBlockActionArgs({
+      userId: "U001",
+      triggerId: "t1",
+      value: "user/identity.md",
       client,
-      action: { value: "user/identity.md" },
     });
+    args.body.view = stubViewOutput("V123");
 
-    const args = mockBuildConfigEditorModal.mock.calls[0];
-    assert.equal(args[2], "custom override"); // content
-    assert.equal(args[3], "has-override"); // fileState
+    await handler(args);
+
+    const modalArgs = mockBuildConfigEditorModal.mock.calls[0];
+    assert.equal(modalArgs[2], "custom override"); // content
+    assert.equal(modalArgs[3], "has-override"); // fileState
   });
 
   it("pushes editor modal for custom-only file", async () => {
@@ -1311,18 +1116,20 @@ describe("edit_config_file action", () => {
       custom_content: "custom only content",
     }));
     const client = makeClient();
-    const handler = capturedActionHandlers.get("edit_config_file")!;
-
-    await handler({
-      ack: async () => {},
-      body: { user: { id: "U001" }, trigger_id: "t1", view: { id: "V123" } },
+    const handler = getActionHandler("edit_config_file");
+    const args = createBlockActionArgs({
+      userId: "U001",
+      triggerId: "t1",
+      value: "dev/custom-rule.md",
       client,
-      action: { value: "dev/custom-rule.md" },
     });
+    args.body.view = stubViewOutput("V123");
 
-    const args = mockBuildConfigEditorModal.mock.calls[0];
-    assert.equal(args[2], "custom only content"); // content
-    assert.equal(args[3], "custom-only"); // fileState
+    await handler(args);
+
+    const modalArgs = mockBuildConfigEditorModal.mock.calls[0];
+    assert.equal(modalArgs[2], "custom only content"); // content
+    assert.equal(modalArgs[3], "custom-only"); // fileState
   });
 });
 
@@ -1333,28 +1140,20 @@ describe("edit_config_file action", () => {
 describe("config_editor_modal submission", () => {
   it("saves file content via writeInstructionFile", async () => {
     const client = makeClient();
-    const handler = capturedViewHandlers.get("config_editor_modal")!;
-
-    await handler({
-      ack: async () => {},
-      view: {
-        state: {
-          values: {
-            content_block: {
-              file_content: { value: "new content" },
-            },
-          },
-        },
-        private_metadata: JSON.stringify({
-          dir: "user",
-          filename: "identity.md",
-          hasDefault: true,
-          hasOverride: false,
-        }),
-      },
-      body: { user: { id: "U001" } },
+    const handler = getViewHandler("config_editor_modal");
+    const args = createViewSubmitArgs({
+      userId: "U001",
+      values: { content_block: { file_content: textInputValue("new content") } },
+      privateMetadata: JSON.stringify({
+        dir: "user",
+        filename: "identity.md",
+        hasDefault: true,
+        hasOverride: false,
+      }),
       client,
     });
+
+    await handler(args);
 
     assert.equal(mockWriteInstructionFile.mock.calls.length, 1);
     const writeArgs = mockWriteInstructionFile.mock.calls[0];
@@ -1366,30 +1165,20 @@ describe("config_editor_modal submission", () => {
   it("rejects when user has no edit permission", async () => {
     mockUserCanEditConfig.mockImplementation(async () => false);
     const client = makeClient();
-    const handler = capturedViewHandlers.get("config_editor_modal")!;
-    let ackResponse: { response_action: string; errors: Record<string, string> } | undefined;
-
-    await handler({
-      ack: async (resp) => {
-        ackResponse = resp;
-      },
-      view: {
-        state: {
-          values: {
-            content_block: {
-              file_content: { value: "content" },
-            },
-          },
-        },
-        private_metadata: JSON.stringify({ dir: "user", filename: "identity.md" }),
-      },
-      body: { user: { id: "U_MEMBER" } },
+    const handler = getViewHandler("config_editor_modal");
+    const args = createViewSubmitArgs({
+      userId: "U_MEMBER",
+      values: { content_block: { file_content: textInputValue("content") } },
+      privateMetadata: JSON.stringify({ dir: "user", filename: "identity.md" }),
       client,
     });
 
+    await handler(args);
+
+    const ackResponse = args.ack.mock.calls[0]?.[0];
     assert.ok(ackResponse);
-    assert.equal(ackResponse!.response_action, "errors");
-    assert.ok(ackResponse!.errors.content_block.includes("permission"));
+    assert.ok(ackResponse.response_action === "errors");
+    assert.ok(ackResponse.errors.content_block.includes("permission"));
     assert.equal(mockWriteInstructionFile.mock.calls.length, 0);
   });
 });
@@ -1401,14 +1190,11 @@ describe("config_editor_modal submission", () => {
 describe("create_config_file action", () => {
   it("pushes the create file modal", async () => {
     const client = makeClient();
-    const handler = capturedActionHandlers.get("create_config_file")!;
+    const handler = getActionHandler("create_config_file");
 
-    await handler({
-      ack: async () => {},
-      body: { user: { id: "U001" }, trigger_id: "t1" },
-      client,
-      action: { value: "user" },
-    });
+    await handler(
+      createBlockActionArgs({ userId: "U001", triggerId: "t1", value: "user", client }),
+    );
 
     assert.equal(mockBuildConfigCreateFileModal.mock.calls.length, 1);
     assert.equal(mockBuildConfigCreateFileModal.mock.calls[0][0], "user");
@@ -1423,27 +1209,23 @@ describe("config_create_modal submission", () => {
       custom_content: null,
     }));
     const client = makeClient();
-    const handler = capturedViewHandlers.get("config_create_modal")!;
-
-    await handler({
-      ack: async () => {},
-      view: {
-        state: {
-          values: {
-            filename_block: { filename: { value: "my-instructions" } },
-            content_block: { file_content: { value: "the content" } },
-          },
-        },
-        private_metadata: JSON.stringify({ dir: "user" }),
+    const handler = getViewHandler("config_create_modal");
+    const args = createViewSubmitArgs({
+      userId: "U001",
+      values: {
+        filename_block: { filename: textInputValue("my-instructions") },
+        content_block: { file_content: textInputValue("the content") },
       },
-      body: { user: { id: "U001" } },
+      privateMetadata: JSON.stringify({ dir: "user" }),
       client,
     });
 
+    await handler(args);
+
     assert.equal(mockWriteInstructionFile.mock.calls.length, 1);
-    const args = mockWriteInstructionFile.mock.calls[0];
-    assert.equal(args[0], "user/my-instructions.md");
-    assert.equal(args[1], "the content");
+    const writeArgs = mockWriteInstructionFile.mock.calls[0];
+    assert.equal(writeArgs[0], "user/my-instructions.md");
+    assert.equal(writeArgs[1], "the content");
   });
 
   it("rejects duplicate filename", async () => {
@@ -1451,57 +1233,43 @@ describe("config_create_modal submission", () => {
       default_content: "existing",
       custom_content: null,
     }));
-    const handler = capturedViewHandlers.get("config_create_modal")!;
-    let ackResponse: { response_action: string; errors: Record<string, string> } | undefined;
-
-    await handler({
-      ack: async (resp) => {
-        ackResponse = resp;
+    const handler = getViewHandler("config_create_modal");
+    const args = createViewSubmitArgs({
+      userId: "U001",
+      values: {
+        filename_block: { filename: textInputValue("identity.md") },
+        content_block: { file_content: textInputValue("content") },
       },
-      view: {
-        state: {
-          values: {
-            filename_block: { filename: { value: "identity.md" } },
-            content_block: { file_content: { value: "content" } },
-          },
-        },
-        private_metadata: JSON.stringify({ dir: "user" }),
-      },
-      body: { user: { id: "U001" } },
-      client: makeClient(),
+      privateMetadata: JSON.stringify({ dir: "user" }),
     });
 
+    await handler(args);
+
+    const ackResponse = args.ack.mock.calls[0]?.[0];
     assert.ok(ackResponse);
-    assert.equal(ackResponse!.response_action, "errors");
-    assert.ok(ackResponse!.errors.filename_block.includes("already exists"));
+    assert.ok(ackResponse.response_action === "errors");
+    assert.ok(ackResponse.errors.filename_block.includes("already exists"));
     assert.equal(mockWriteInstructionFile.mock.calls.length, 0);
   });
 
   it("rejects when user has no permission", async () => {
     mockUserCanEditConfig.mockImplementation(async () => false);
-    const handler = capturedViewHandlers.get("config_create_modal")!;
-    let ackResponse: { response_action: string; errors: Record<string, string> } | undefined;
-
-    await handler({
-      ack: async (resp) => {
-        ackResponse = resp;
+    const handler = getViewHandler("config_create_modal");
+    const args = createViewSubmitArgs({
+      userId: "U_MEMBER",
+      values: {
+        filename_block: { filename: textInputValue("test") },
+        content_block: { file_content: textInputValue("content") },
       },
-      view: {
-        state: {
-          values: {
-            filename_block: { filename: { value: "test" } },
-            content_block: { file_content: { value: "content" } },
-          },
-        },
-        private_metadata: JSON.stringify({ dir: "user" }),
-      },
-      body: { user: { id: "U_MEMBER" } },
-      client: makeClient(),
+      privateMetadata: JSON.stringify({ dir: "user" }),
     });
 
+    await handler(args);
+
+    const ackResponse = args.ack.mock.calls[0]?.[0];
     assert.ok(ackResponse);
-    assert.equal(ackResponse!.response_action, "errors");
-    assert.ok(ackResponse!.errors.filename_block.includes("permission"));
+    assert.ok(ackResponse.response_action === "errors");
+    assert.ok(ackResponse.errors.filename_block.includes("permission"));
   });
 });
 
@@ -1516,14 +1284,16 @@ describe("delete_config_file action", () => {
       custom_content: "custom content",
     }));
     const client = makeClient();
-    const handler = capturedActionHandlers.get("delete_config_file")!;
-
-    await handler({
-      ack: async () => {},
-      body: { user: { id: "U001" }, trigger_id: "t1", view: { id: "V123" } },
+    const handler = getActionHandler("delete_config_file");
+    const args = createBlockActionArgs({
+      userId: "U001",
+      triggerId: "t1",
+      value: "user/identity.md",
       client,
-      action: { value: "user/identity.md" },
     });
+    args.body.view = stubViewOutput("V123");
+
+    await handler(args);
 
     assert.equal(mockDeleteInstructionFile.mock.calls.length, 1);
     assert.equal(mockDeleteInstructionFile.mock.calls[0][0], "user/identity.md");
@@ -1541,31 +1311,35 @@ describe("delete_config_file action", () => {
       custom_content: "custom only",
     }));
     const client = makeClient();
-    const handler = capturedActionHandlers.get("delete_config_file")!;
-
-    await handler({
-      ack: async () => {},
-      body: { user: { id: "U001" }, trigger_id: "t1", view: { id: "V123" } },
+    const handler = getActionHandler("delete_config_file");
+    const args = createBlockActionArgs({
+      userId: "U001",
+      triggerId: "t1",
+      value: "user/custom.md",
       client,
-      action: { value: "user/custom.md" },
     });
+    args.body.view = stubViewOutput("V123");
+
+    await handler(args);
 
     assert.equal(mockDeleteInstructionFile.mock.calls.length, 1);
     assert.equal(mockBuildConfigEditorModal.mock.calls.length, 0);
     assert.equal(client.views.update.mock.calls.length, 1);
   });
 
-  it("does not delete when user has no permission", async () => {
+  it("skips deletion when user has no permission", async () => {
     mockUserCanEditConfig.mockImplementation(async () => false);
     const client = makeClient();
-    const handler = capturedActionHandlers.get("delete_config_file")!;
-
-    await handler({
-      ack: async () => {},
-      body: { user: { id: "U_MEMBER" }, trigger_id: "t1", view: { id: "V123" } },
+    const handler = getActionHandler("delete_config_file");
+    const args = createBlockActionArgs({
+      userId: "U_MEMBER",
+      triggerId: "t1",
+      value: "user/identity.md",
       client,
-      action: { value: "user/identity.md" },
     });
+    args.body.view = stubViewOutput("V123");
+
+    await handler(args);
 
     assert.equal(mockDeleteInstructionFile.mock.calls.length, 0);
   });
@@ -1582,21 +1356,25 @@ describe("chat_edit_config_file action", () => {
       custom_content: null,
     }));
     const client = makeClient();
-    const handler = capturedActionHandlers.get("chat_edit_config_file")!;
-
-    await handler({
-      ack: async () => {},
-      body: { user: { id: "U001" }, trigger_id: "t1", view: { id: "V123" } },
+    const handler = getActionHandler("chat_edit_config_file");
+    const args = createBlockActionArgs({
+      userId: "U001",
+      triggerId: "t1",
+      value: "user/identity.md",
       client,
-      action: { value: "user/identity.md" },
     });
+    args.body.view = stubViewOutput("V123");
+
+    await handler(args);
 
     // Opens a DM conversation with the user
     assert.equal(client.conversations.open.mock.calls.length, 1);
     // Uploads file content via files.uploadV2
     assert.equal(client.files.uploadV2.mock.calls.length, 1);
-    const uploadArgs = client.files.uploadV2.mock.calls[0][0] as Record<string, unknown>;
+    const uploadArgs = client.files.uploadV2.mock.calls[0]?.[0];
+    assert.ok(uploadArgs);
     assert.equal(uploadArgs.channel_id, "D_DM_CHANNEL");
+    assert.ok("content" in uploadArgs);
     assert.equal(uploadArgs.content, "the file content here");
     assert.equal(uploadArgs.title, "user/identity.md");
     // Modal should be updated with confirmation
@@ -1609,14 +1387,16 @@ describe("chat_edit_config_file action", () => {
       custom_content: "custom override content",
     }));
     const client = makeClient();
-    const handler = capturedActionHandlers.get("chat_edit_config_file")!;
-
-    await handler({
-      ack: async () => {},
-      body: { user: { id: "U001" }, trigger_id: "t1", view: { id: "V123" } },
+    const handler = getActionHandler("chat_edit_config_file");
+    const args = createBlockActionArgs({
+      userId: "U001",
+      triggerId: "t1",
+      value: "user/identity.md",
       client,
-      action: { value: "user/identity.md" },
     });
+    args.body.view = stubViewOutput("V123");
+
+    await handler(args);
 
     assert.ok(client.files.uploadV2.mock.calls[0]);
   });
@@ -1633,26 +1413,30 @@ describe("ai_stop_following action", () => {
 
   it("calls deleteRule with ruleId from action_id", async () => {
     const client = makeClient();
-    const handler = getActionHandler("ai_stop_following:rule-123")!;
-    await handler({
-      ack: async () => {},
-      body: { user: { id: "U001" }, trigger_id: "t1" },
-      client,
-      action: { action_id: "ai_stop_following:rule-123" },
-    });
+    const handler = getActionHandler("ai_stop_following:rule-123");
+    await handler(
+      createBlockActionArgs({
+        userId: "U001",
+        triggerId: "t1",
+        actionId: "ai_stop_following:rule-123",
+        client,
+      }),
+    );
     assert.equal(mockDeleteRule.mock.calls.length, 1);
     assert.equal(mockDeleteRule.mock.calls[0]![0], "rule-123");
   });
 
   it("republishes Home Tab after stop following", async () => {
     const client = makeClient();
-    const handler = getActionHandler("ai_stop_following:rule-abc")!;
-    await handler({
-      ack: async () => {},
-      body: { user: { id: "U_ADMIN" }, trigger_id: "t1" },
-      client,
-      action: { action_id: "ai_stop_following:rule-abc" },
-    });
+    const handler = getActionHandler("ai_stop_following:rule-abc");
+    await handler(
+      createBlockActionArgs({
+        userId: "U_ADMIN",
+        triggerId: "t1",
+        actionId: "ai_stop_following:rule-abc",
+        client,
+      }),
+    );
     assert.equal(mockBuildHomeView.mock.calls.length, 1);
     assert.equal(client.views.publish.mock.calls.length, 1);
   });
@@ -1660,25 +1444,29 @@ describe("ai_stop_following action", () => {
   it("requires manage_roles permission", async () => {
     mockUserCanManageRoles.mockImplementation(async () => false);
     const client = makeClient();
-    const handler = getActionHandler("ai_stop_following:rule-xyz")!;
-    await handler({
-      ack: async () => {},
-      body: { user: { id: "U_MEMBER" }, trigger_id: "t1" },
-      client,
-      action: { action_id: "ai_stop_following:rule-xyz" },
-    });
+    const handler = getActionHandler("ai_stop_following:rule-xyz");
+    await handler(
+      createBlockActionArgs({
+        userId: "U_MEMBER",
+        triggerId: "t1",
+        actionId: "ai_stop_following:rule-xyz",
+        client,
+      }),
+    );
     assert.equal(mockDeleteRule.mock.calls.length, 0);
   });
 
   it("parses rule ID correctly", async () => {
     const client = makeClient();
-    const handler = getActionHandler("ai_stop_following:my-rule-id")!;
-    await handler({
-      ack: async () => {},
-      body: { user: { id: "U001" }, trigger_id: "t1" },
-      client,
-      action: { action_id: "ai_stop_following:my-rule-id" },
-    });
+    const handler = getActionHandler("ai_stop_following:my-rule-id");
+    await handler(
+      createBlockActionArgs({
+        userId: "U001",
+        triggerId: "t1",
+        actionId: "ai_stop_following:my-rule-id",
+        client,
+      }),
+    );
     assert.equal(mockDeleteRule.mock.calls[0]![0], "my-rule-id");
   });
 });
@@ -1698,13 +1486,16 @@ describe("registerHomeTabHandler — state quarantine actions", () => {
   it("retry routes to the store's retry with the parsed key and refreshes the Home Tab", async () => {
     registerCron();
     const client = makeClient();
-    const handler = getActionHandler("state_quarantine_retry")!;
-    await handler({
-      ack: async () => {},
-      body: { user: { id: "U_ADMIN1" }, trigger_id: "t1" },
-      client,
-      action: { value: "cron::5", action_id: "state_quarantine_retry" },
-    });
+    const handler = getActionHandler("state_quarantine_retry");
+    await handler(
+      createBlockActionArgs({
+        userId: "U_ADMIN1",
+        triggerId: "t1",
+        value: "cron::5",
+        actionId: "state_quarantine_retry",
+        client,
+      }),
+    );
     assert.equal(mockStoreRetry.mock.calls.length, 1);
     assert.equal(mockStoreRetry.mock.calls[0]![0], "5");
     assert.equal(client.views.publish.mock.calls.length, 1);
@@ -1713,13 +1504,16 @@ describe("registerHomeTabHandler — state quarantine actions", () => {
   it("removal routes to the store's remove with the parsed key", async () => {
     registerCron();
     const client = makeClient();
-    const handler = getActionHandler("state_quarantine_delete")!;
-    await handler({
-      ack: async () => {},
-      body: { user: { id: "U_ADMIN1" }, trigger_id: "t1" },
-      client,
-      action: { value: "cron::2", action_id: "state_quarantine_delete" },
-    });
+    const handler = getActionHandler("state_quarantine_delete");
+    await handler(
+      createBlockActionArgs({
+        userId: "U_ADMIN1",
+        triggerId: "t1",
+        value: "cron::2",
+        actionId: "state_quarantine_delete",
+        client,
+      }),
+    );
     assert.equal(mockStoreRemove.mock.calls.length, 1);
     assert.equal(mockStoreRemove.mock.calls[0]![0], "2");
   });
@@ -1736,13 +1530,16 @@ describe("registerHomeTabHandler — state quarantine actions", () => {
       isFrozen: () => false,
     });
     const client = makeClient();
-    const handler = getActionHandler("state_quarantine_retry")!;
-    await handler({
-      ack: async () => {},
-      body: { user: { id: "U_ADMIN1" }, trigger_id: "t1" },
-      client,
-      action: { value: "memory::U9", action_id: "state_quarantine_retry" },
-    });
+    const handler = getActionHandler("state_quarantine_retry");
+    await handler(
+      createBlockActionArgs({
+        userId: "U_ADMIN1",
+        triggerId: "t1",
+        value: "memory::U9",
+        actionId: "state_quarantine_retry",
+        client,
+      }),
+    );
     assert.equal(otherRetry.mock.calls.length, 1);
     assert.equal(mockStoreRetry.mock.calls.length, 0);
   });
@@ -1750,26 +1547,32 @@ describe("registerHomeTabHandler — state quarantine actions", () => {
   it("ignores an unknown store id", async () => {
     registerCron();
     const client = makeClient();
-    const handler = getActionHandler("state_quarantine_retry")!;
-    await handler({
-      ack: async () => {},
-      body: { user: { id: "U_ADMIN1" }, trigger_id: "t1" },
-      client,
-      action: { value: "ghost::x", action_id: "state_quarantine_retry" },
-    });
+    const handler = getActionHandler("state_quarantine_retry");
+    await handler(
+      createBlockActionArgs({
+        userId: "U_ADMIN1",
+        triggerId: "t1",
+        value: "ghost::x",
+        actionId: "state_quarantine_retry",
+        client,
+      }),
+    );
     assert.equal(mockStoreRetry.mock.calls.length, 0);
   });
 
   it("ignores a malformed value with no separator", async () => {
     registerCron();
     const client = makeClient();
-    const handler = getActionHandler("state_quarantine_retry")!;
-    await handler({
-      ack: async () => {},
-      body: { user: { id: "U_ADMIN1" }, trigger_id: "t1" },
-      client,
-      action: { value: "noseparator", action_id: "state_quarantine_retry" },
-    });
+    const handler = getActionHandler("state_quarantine_retry");
+    await handler(
+      createBlockActionArgs({
+        userId: "U_ADMIN1",
+        triggerId: "t1",
+        value: "noseparator",
+        actionId: "state_quarantine_retry",
+        client,
+      }),
+    );
     assert.equal(mockStoreRetry.mock.calls.length, 0);
   });
 
@@ -1777,13 +1580,16 @@ describe("registerHomeTabHandler — state quarantine actions", () => {
     mockUserCanEditConfig.mockImplementation(async () => false);
     registerCron();
     const client = makeClient();
-    const handler = getActionHandler("state_quarantine_retry")!;
-    await handler({
-      ack: async () => {},
-      body: { user: { id: "U_MEMBER" }, trigger_id: "t1" },
-      client,
-      action: { value: "cron::0", action_id: "state_quarantine_retry" },
-    });
+    const handler = getActionHandler("state_quarantine_retry");
+    await handler(
+      createBlockActionArgs({
+        userId: "U_MEMBER",
+        triggerId: "t1",
+        value: "cron::0",
+        actionId: "state_quarantine_retry",
+        client,
+      }),
+    );
     assert.equal(mockStoreRetry.mock.calls.length, 0);
   });
 
@@ -1791,13 +1597,16 @@ describe("registerHomeTabHandler — state quarantine actions", () => {
     mockStoreRetry.mockImplementation(async () => ({ ok: false, error: "still bad" }));
     registerCron();
     const client = makeClient();
-    const handler = getActionHandler("state_quarantine_retry")!;
-    await handler({
-      ack: async () => {},
-      body: { user: { id: "U_ADMIN1" }, trigger_id: "t1" },
-      client,
-      action: { value: "cron::0", action_id: "state_quarantine_retry" },
-    });
+    const handler = getActionHandler("state_quarantine_retry");
+    await handler(
+      createBlockActionArgs({
+        userId: "U_ADMIN1",
+        triggerId: "t1",
+        value: "cron::0",
+        actionId: "state_quarantine_retry",
+        client,
+      }),
+    );
     assert.equal(mockStoreRetry.mock.calls.length, 1);
     assert.equal(client.views.publish.mock.calls.length, 1);
   });
@@ -1807,54 +1616,55 @@ describe("See-… modal open handlers", () => {
   it("home_open_roles denies a non-admin (opens nothing)", async () => {
     mockUserCanManageRoles.mockResolvedValue(false);
     const client = makeClient();
-    const handler = getActionHandler("home_open_roles")!;
-    await handler({ ack: async () => {}, body: { user: { id: "U1" }, trigger_id: "t1" }, client });
+    const handler = getActionHandler("home_open_roles");
+    await handler(createBlockActionArgs({ userId: "U1", triggerId: "t1", client }));
     assert.equal(client.views.open.mock.calls.length, 0);
   });
 
   it("home_open_roles opens the Role Management modal for an admin", async () => {
     mockUserCanManageRoles.mockResolvedValue(true);
     const client = makeClient();
-    const handler = getActionHandler("home_open_roles")!;
-    await handler({ ack: async () => {}, body: { user: { id: "U1" }, trigger_id: "t1" }, client });
+    const handler = getActionHandler("home_open_roles");
+    await handler(createBlockActionArgs({ userId: "U1", triggerId: "t1", client }));
     assert.equal(client.views.open.mock.calls.length, 1);
-    const opened = client.views.open.mock.calls[0][0] as { view: { callback_id?: string } };
+    const opened = client.views.open.mock.calls[0]?.[0];
+    assert.ok(opened);
     assert.equal(opened.view.callback_id, "roles_modal_view");
   });
 
   it("home_open_auto_respond denies a non-admin", async () => {
     mockUserCanManageRoles.mockResolvedValue(false);
     const client = makeClient();
-    const handler = getActionHandler("home_open_auto_respond")!;
-    await handler({ ack: async () => {}, body: { user: { id: "U1" }, trigger_id: "t1" }, client });
+    const handler = getActionHandler("home_open_auto_respond");
+    await handler(createBlockActionArgs({ userId: "U1", triggerId: "t1", client }));
     assert.equal(client.views.open.mock.calls.length, 0);
   });
 
   it("home_open_investigations denies a non-admin", async () => {
     mockUserCanManageRoles.mockResolvedValue(false);
     const client = makeClient();
-    const handler = getActionHandler("home_open_investigations")!;
-    await handler({ ack: async () => {}, body: { user: { id: "U1" }, trigger_id: "t1" }, client });
+    const handler = getActionHandler("home_open_investigations");
+    await handler(createBlockActionArgs({ userId: "U1", triggerId: "t1", client }));
     assert.equal(client.views.open.mock.calls.length, 0);
   });
 
   it("registers the plugins, MCP, status, and investigations open handlers", () => {
-    assert.ok(getActionHandler("home_open_plugins"));
-    assert.ok(getActionHandler("home_open_mcp"));
-    assert.ok(getActionHandler("home_open_status"));
-    assert.ok(getActionHandler("home_open_investigations"));
+    assert.ok(findActionHandler("home_open_plugins"));
+    assert.ok(findActionHandler("home_open_mcp"));
+    assert.ok(findActionHandler("home_open_status"));
+    assert.ok(findActionHandler("home_open_investigations"));
   });
 });
 
 describe("openOrPushModal (via transfer_ownership)", () => {
   it("pushes onto the stack when the interaction came from inside a modal", async () => {
     const client = makeClient();
-    const handler = getActionHandler("transfer_ownership")!;
-    await handler({
-      ack: async () => {},
-      body: { user: { id: "U1" }, trigger_id: "t1", view: { id: "V1" } },
-      client,
-    });
+    const handler = getActionHandler("transfer_ownership");
+    const args = createBlockActionArgs({ userId: "U1", triggerId: "t1", client });
+    args.body.view = stubViewOutput("V1");
+
+    await handler(args);
+
     assert.equal(client.views.push.mock.calls.length, 1);
     assert.equal(client.views.open.mock.calls.length, 0);
   });
@@ -1868,10 +1678,11 @@ describe("publishHomeView block cap", () => {
       blocks: Array.from({ length: 150 }, () => ({ type: "divider" })),
     } as View);
     const client = makeClient();
-    const handler = capturedEventHandlers.get("app_home_opened")!;
-    await handler({ event: { user: "U001" }, client });
-    const published = client.views.publish.mock.calls[0][0] as { view: View };
+    const handler = getEventHandler("app_home_opened");
+    await handler(createAppHomeOpenedArgs({ userId: "U001", client }));
+    const published = client.views.publish.mock.calls[0]?.[0];
+    assert.ok(published);
     assert.equal(published.view.blocks.length, 100);
-    assert.equal(published.view.blocks[99].type, "context");
+    assert.equal(published.view.blocks[99]?.type, "context");
   });
 });

@@ -12,6 +12,7 @@ import {
   getHandlerClaudeOptions,
   type HandlerResponseDeps,
 } from "./handlerResponse.js";
+import { stub } from "../../testStubs.js";
 
 // ============================================================================
 // Mocks
@@ -62,23 +63,25 @@ const mockGetErrorBlocksWithRetry = vi.fn(() => [{ type: "section" }]);
 const mockGetUsageLimitBlocks = vi.fn<HandlerResponseDeps["getUsageLimitBlocks"]>(() => [
   { type: "section", text: { type: "mrkdwn", text: "usage limit" } },
 ]);
-const mockAsSlackBlocks = vi.fn((blocks: never) => blocks);
+const mockAsSlackBlocks = vi.fn<HandlerResponseDeps["asSlackBlocks"]>((blocks) => blocks);
 
-const mockSendErrorReport = vi.fn<(...args: never[]) => Promise<void>>(async () => {});
+const mockSendErrorReport = vi.fn<HandlerResponseDeps["sendErrorReport"]>(async () => {});
 const mockAnalyzeError = vi.fn<HandlerResponseDeps["analyzeError"]>(async () => "error analysis");
 
 const mockGetConfig = vi.fn(() => ({
   slack: { sendErrorsAsDM: false },
 }));
 
-const mockGetClaudeOptions = vi.fn<(...args: never[]) => Promise<AskClaudeOptions>>(async () => ({
+const mockGetClaudeOptions = vi.fn<HandlerResponseDeps["getClaudeOptions"]>(async () => ({
   role: "dev" as const,
   changesWorkflowEnabled: false,
 }));
 
-const mockHandleAutoExecuteActions = vi.fn<(...args: never[]) => Promise<void>>(async () => {});
+const mockHandleAutoExecuteActions = vi.fn<HandlerResponseDeps["handleAutoExecuteActions"]>(
+  async () => {},
+);
 
-const mockGetUserPreference = vi.fn<(...args: never[]) => Promise<boolean>>(async () => false);
+const mockGetUserPreference = vi.fn(async () => false);
 
 // Track SlackStreamer instances for inspection
 let streamerHasFailed = false;
@@ -137,35 +140,40 @@ function makeDeps(): HandlerResponseDeps {
     registerThreadSession: mockRegisterThreadSession,
     appendSessionToEphemeralRule: mockAppendSessionToEphemeralRule,
     getUsageLimitBlocks: mockGetUsageLimitBlocks,
-    getErrorBlocksWithRetry: mockGetErrorBlocksWithRetry as never,
-    asSlackBlocks: mockAsSlackBlocks as never,
-    sendErrorReport: mockSendErrorReport as never,
-    getConfig: mockGetConfig as never,
-    getClaudeOptions: mockGetClaudeOptions as never,
-    handleAutoExecuteActions: mockHandleAutoExecuteActions as never,
-    createStreamer: () =>
-      ({
-        start: (...args: never[]) => mockStreamerStart(...args),
-        stop: (...args: never[]) => mockStreamerStop(...args),
-        handleEvent: (...args: never[]) => mockStreamerHandleEvent(...args),
+    getErrorBlocksWithRetry:
+      mockGetErrorBlocksWithRetry as HandlerResponseDeps["getErrorBlocksWithRetry"],
+    asSlackBlocks: mockAsSlackBlocks,
+    sendErrorReport: mockSendErrorReport,
+    getConfig: stub<HandlerResponseDeps["getConfig"]>(mockGetConfig),
+    getClaudeOptions: mockGetClaudeOptions,
+    handleAutoExecuteActions: mockHandleAutoExecuteActions,
+    createStreamer: () => {
+      const fake: Pick<
+        ReturnType<HandlerResponseDeps["createStreamer"]>,
+        "start" | "stop" | "handleEvent" | "getMessageTs" | "getAllMessageTss" | "hasFailed"
+      > = {
+        start: () => mockStreamerStart(),
+        stop: (opts) => mockStreamerStop(opts),
+        handleEvent: (event) => mockStreamerHandleEvent(event),
         getMessageTs: () => mockStreamerGetMessageTs(),
         getAllMessageTss: () => mockStreamerGetAllMessageTss(),
         get hasFailed() {
           return streamerHasFailed;
         },
-      }) as never,
-    getUserPreference: mockGetUserPreference as never,
+      };
+      return stub<ReturnType<HandlerResponseDeps["createStreamer"]>>(fake);
+    },
+    getUserPreference: stub<HandlerResponseDeps["getUserPreference"]>(mockGetUserPreference),
     writeErrorReport: mockWriteErrorReport,
     getOwnerUserId: mockGetOwnerUserId,
     sendOwnerDm: mockSendOwnerDm,
-    toErrorMessage: ((error: unknown) =>
-      error instanceof Error ? error.message : String(error)) as never,
-    getUserInfo: (async () => ({
-      displayName: "TestUser",
-      username: "testuser",
-    })) as never,
-    resolveChannelLabel: (async () => "#test") as never,
-    slackLink: (async () => "") as never,
+    toErrorMessage: (error: unknown) => (error instanceof Error ? error.message : String(error)),
+    getUserInfo: async () => {
+      const info = { displayName: "TestUser", username: "testuser" };
+      return stub<Awaited<ReturnType<HandlerResponseDeps["getUserInfo"]>>>(info);
+    },
+    resolveChannelLabel: async () => "#test",
+    slackLink: async () => "",
   };
 }
 
@@ -498,7 +506,7 @@ describe("executeAndDeliver — success handling", () => {
     });
 
     assert.equal(mockHandleAutoExecuteActions.mock.calls.length, 1);
-    const args = mockHandleAutoExecuteActions.mock.calls[0][0] as Record<string, unknown>;
+    const args = mockHandleAutoExecuteActions.mock.calls[0][0];
     assert.equal(args.channelId, "C001");
     assert.equal(args.threadTs, "1700000000.000001");
     assert.equal(args.userId, "U001");

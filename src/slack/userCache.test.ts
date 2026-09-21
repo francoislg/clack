@@ -16,6 +16,7 @@ import {
   clearRegistryCache,
   upsertIdentity,
 } from "../userRegistry.js";
+import { createSlackClientMock } from "./testSlackClient.js";
 
 // getUserInfo write-throughs resolved identities into the registry. Back it with an
 // in-memory store so these tests never touch real disk.
@@ -90,39 +91,37 @@ function makeClient(
   bots: Record<string, { name?: string }> = {},
   userThrows: Record<string, string> = {},
 ): App["client"] {
-  return {
-    users: {
-      info: async ({ user }: { user: string }) => {
-        if (userThrows[user]) {
-          const err = Object.assign(new Error(`An API error occurred: ${userThrows[user]}`), {
-            code: "slack_webapi_platform_error",
-            data: { ok: false, error: userThrows[user] },
-          });
-          throw err;
-        }
-        const u = users[user];
-        if (!u) return { ok: false, error: "user_not_found" };
-        return {
-          ok: true,
-          user: {
-            name: u.name,
-            tz: u.tz,
-            profile: {
-              display_name: u.display_name,
-              real_name: u.real_name,
-            },
-          },
-        };
+  const client = createSlackClientMock();
+  client.users.info.mockImplementation(async ({ user }) => {
+    if (userThrows[user]) {
+      const err = Object.assign(new Error(`An API error occurred: ${userThrows[user]}`), {
+        code: "slack_webapi_platform_error",
+        data: { ok: false, error: userThrows[user] },
+      });
+      throw err;
+    }
+    const u = users[user];
+    if (!u) return { ok: false, error: "user_not_found" };
+    return {
+      ok: true,
+      user: {
+        name: u.name,
+        tz: u.tz,
+        profile: {
+          display_name: u.display_name,
+          real_name: u.real_name,
+        },
       },
-    },
-    bots: {
-      info: async ({ bot }: { bot: string }) => {
-        const b = bots[bot];
-        if (!b) return { ok: false, error: "bot_not_found" };
-        return { ok: true, bot: { name: b.name } };
-      },
-    },
-  } as unknown as App["client"];
+    };
+  });
+  client.bots.info.mockImplementation(async (options) => {
+    const bot = options?.bot;
+    if (!bot) return { ok: false, error: "bot_not_found" };
+    const b = bots[bot];
+    if (!b) return { ok: false, error: "bot_not_found" };
+    return { ok: true, bot: { name: b.name } };
+  });
+  return client;
 }
 
 // ---------------------------------------------------------------------------
@@ -219,23 +218,16 @@ describe("resolveUsers", () => {
   });
 
   it("deduplicates user IDs", async () => {
-    let callCount = 0;
-    const client = {
-      users: {
-        info: async () => {
-          callCount++;
-          return {
-            ok: true,
-            user: { name: "a", profile: { display_name: "A" } },
-          };
-        },
-      },
-      bots: { info: async () => ({ ok: false }) },
-    } as unknown as App["client"];
+    const client = createSlackClientMock();
+    client.users.info.mockResolvedValue({
+      ok: true,
+      user: { name: "a", profile: { display_name: "A" } },
+    });
+    client.bots.info.mockResolvedValue({ ok: false });
 
     await resolveUsers(client, ["U001", "U001", "U001"]);
     // Only one API call for the deduplicated ID
-    assert.equal(callCount, 1);
+    assert.equal(client.users.info.mock.calls.length, 1);
   });
 
   it("omits users that cannot be resolved", async () => {

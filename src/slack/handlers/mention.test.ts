@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import type { App } from "@slack/bolt";
 import type { AttentionLevel, SessionContext } from "../../sessions.js";
 import { registerMentionHandler, type MentionDeps } from "./mention.js";
+import { createSlackClientMock } from "../testSlackClient.js";
 
 // ============================================================================
 // Helpers
@@ -15,7 +16,7 @@ const mockProcessMessage = vi.fn<MentionDeps["processMessage"]>(async () => ({
 
 function makeDeps(): MentionDeps {
   return {
-    getConfig: () => ({ mentions: { enabled: true } }) as never,
+    getConfig: () => ({ mentions: { enabled: true } }),
     processMessage: mockProcessMessage,
     findSessionByThread: async () => null,
     setAttentionLevel: async () => {},
@@ -61,15 +62,10 @@ function makeApp(): App {
 }
 
 function makeClient(botUserId = "B001"): App["client"] {
-  const postMessageFn = vi.fn(async () => ({ ok: true }));
-  return {
-    auth: {
-      test: vi.fn(async () => ({ user_id: botUserId })),
-    },
-    chat: {
-      postMessage: postMessageFn,
-    },
-  } as never;
+  const client = createSlackClientMock();
+  client.auth.test.mockImplementation(async () => ({ ok: true, user_id: botUserId }));
+  client.chat.postMessage.mockResolvedValue({ ok: true });
+  return client;
 }
 
 beforeEach(() => {

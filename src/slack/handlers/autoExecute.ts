@@ -65,14 +65,7 @@ export interface AutoExecuteDeps {
   deleteUserSkill: typeof deleteUserSkill;
   readUserSkill: typeof readUserSkill;
   triggerChangeWorkflow: (intent: StagedChangeIntent, slack: SlackDeliveryContext) => Promise<void>;
-  triggerFollowUp: (
-    session: SessionContext,
-    command: string,
-    instructions: string | undefined,
-    slack: SlackDeliveryContext,
-    deps?: unknown,
-    userFeedback?: string,
-  ) => Promise<void>;
+  triggerFollowUp: typeof triggerFollowUp;
   postAnswerToChannel: typeof postAnswerToChannel;
   resolveOrigin: (
     session: SessionContext,
@@ -112,7 +105,7 @@ export const defaultAutoExecuteDeps: AutoExecuteDeps = {
   deleteUserSkill,
   readUserSkill,
   triggerChangeWorkflow,
-  triggerFollowUp: triggerFollowUp as never,
+  triggerFollowUp,
   postAnswerToChannel,
   resolveOrigin,
   writeInstructionFile,
@@ -122,7 +115,7 @@ export const defaultAutoExecuteDeps: AutoExecuteDeps = {
   getSession,
   registerThreadSession,
   seedEphemeralRule,
-  updateSession: updateSession as never,
+  updateSession,
   restoreSession: (sessionId: string) =>
     activeSessions.restore(sessionId) as Promise<SessionInfo | null>,
 };

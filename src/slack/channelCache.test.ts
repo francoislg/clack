@@ -1,13 +1,14 @@
-import { describe, it, beforeEach, vi } from "vitest";
+import { describe, it, beforeEach } from "vitest";
 import assert from "node:assert/strict";
 import { getChannelInfo, clearChannelCache } from "./channelCache.js";
+import { createSlackClientMock, type MockSlackClient } from "./testSlackClient.js";
 
-function makeClient(infoResult?: unknown) {
-  return {
-    conversations: {
-      info: vi.fn(async () => infoResult ?? { ok: true, channel: { name: "general" } }),
-    },
-  } as unknown as import("@slack/bolt").App["client"];
+type ChannelInfoResponse = Awaited<ReturnType<MockSlackClient["conversations"]["info"]>>;
+
+function makeClient(infoResult: ChannelInfoResponse = { ok: true, channel: { name: "general" } }) {
+  const client = createSlackClientMock();
+  client.conversations.info.mockResolvedValue(infoResult);
+  return client;
 }
 
 describe("channelCache", () => {
@@ -20,11 +21,7 @@ describe("channelCache", () => {
     const info = await getChannelInfo(client, "C123");
 
     assert.deepEqual(info, { id: "C123", name: "backend-dev" });
-    assert.equal(
-      (client.conversations.info as unknown as ReturnType<typeof vi.fn<(...args: any[]) => any>>)
-        .mock.calls.length,
-      1,
-    );
+    assert.equal(client.conversations.info.mock.calls.length, 1);
   });
 
   it("returns cached value on cache hit without API call", async () => {
@@ -34,45 +31,30 @@ describe("channelCache", () => {
     const info = await getChannelInfo(client, "C123");
 
     assert.deepEqual(info, { id: "C123", name: "backend-dev" });
-    assert.equal(
-      (client.conversations.info as unknown as ReturnType<typeof vi.fn<(...args: any[]) => any>>)
-        .mock.calls.length,
-      1,
-    );
+    assert.equal(client.conversations.info.mock.calls.length, 1);
   });
 
   it("returns undefined for a channelless sentinel without an API call", async () => {
-    const client = makeClient({ ok: true, channel: { name: "general" } });
+    const client = makeClient();
     const result = await getChannelInfo(client, "channelless:37db6a68-4c9");
 
     assert.equal(result, undefined);
-    assert.equal(vi.mocked(client.conversations.info).mock.calls.length, 0);
+    assert.equal(client.conversations.info.mock.calls.length, 0);
   });
 
   it("returns undefined on API error", async () => {
-    const client = {
-      conversations: {
-        info: vi.fn(async () => {
-          throw new Error("channel_not_found");
-        }),
-      },
-    } as unknown as import("@slack/bolt").App["client"];
+    const client = createSlackClientMock();
+    client.conversations.info.mockRejectedValue(new Error("channel_not_found"));
 
     const info = await getChannelInfo(client, "CBAD");
     assert.equal(info, undefined);
   });
 
   it("does not cache failures", async () => {
-    let callCount = 0;
-    const client = {
-      conversations: {
-        info: vi.fn(async () => {
-          callCount++;
-          if (callCount === 1) throw new Error("transient");
-          return { ok: true, channel: { name: "recovered" } };
-        }),
-      },
-    } as unknown as import("@slack/bolt").App["client"];
+    const client = createSlackClientMock();
+    client.conversations.info
+      .mockRejectedValueOnce(new Error("transient"))
+      .mockResolvedValue({ ok: true, channel: { name: "recovered" } });
 
     const first = await getChannelInfo(client, "C456");
     assert.equal(first, undefined);
@@ -124,7 +106,7 @@ describe("channelCache", () => {
   });
 
   it("omits purpose when the Slack API omits it", async () => {
-    const client = makeClient({ ok: true, channel: { name: "general" } });
+    const client = makeClient();
     const info = await getChannelInfo(client, "C222");
     assert.deepEqual(info, { id: "C222", name: "general" });
   });

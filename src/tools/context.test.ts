@@ -3,15 +3,17 @@ import assert from "node:assert/strict";
 import { buildQueryContext, buildWorkerContext } from "./context.js";
 import type { BuildQueryContextParams, BuildWorkerContextParams } from "./context.js";
 import type { Config } from "../config.js";
+import { stub } from "../testStubs.js";
+import { createSlackClientMock } from "../slack/testSlackClient.js";
 
-const stubConfig = {} as Config;
+const stubConfig = stub<Config>({});
 
 describe("buildQueryContext", () => {
   it("returns a QueryToolContext with mode 'query' and all params mapped", () => {
     const params: BuildQueryContextParams = {
       userId: "U123",
       role: "dev",
-      session: { id: "sess-1" } as unknown as BuildQueryContextParams["session"],
+      session: stub<BuildQueryContextParams["session"]>({ sessionId: "sess-1" }),
       config: stubConfig,
       changesWorkflowEnabled: true,
       cronUserSchedules: false,
@@ -22,7 +24,7 @@ describe("buildQueryContext", () => {
     assert.equal(ctx.mode, "query");
     assert.equal(ctx.userId, "U123");
     assert.equal(ctx.role, "dev");
-    assert.deepEqual(ctx.session, { id: "sess-1" });
+    assert.deepEqual(ctx.session, { sessionId: "sess-1" });
     assert.equal(ctx.config, stubConfig);
     assert.equal(ctx.changesWorkflowEnabled, true);
     assert.equal(ctx.slackClient, undefined);
@@ -30,13 +32,13 @@ describe("buildQueryContext", () => {
   });
 
   it("passes optional slackClient and deliver when provided", () => {
-    const fakeClient = { chat: {} } as unknown as BuildQueryContextParams["slackClient"];
+    const fakeClient = createSlackClientMock();
     const fakeDeliver = async () => ({ ok: true as const });
 
     const params: BuildQueryContextParams = {
       userId: "U456",
       role: "admin",
-      session: { id: "sess-2" } as unknown as BuildQueryContextParams["session"],
+      session: stub<BuildQueryContextParams["session"]>({ sessionId: "sess-2" }),
       config: stubConfig,
       changesWorkflowEnabled: false,
       cronUserSchedules: false,
@@ -56,7 +58,7 @@ describe("buildQueryContext", () => {
       const ctx = buildQueryContext({
         userId: "U1",
         role,
-        session: {} as unknown as BuildQueryContextParams["session"],
+        session: stub<BuildQueryContextParams["session"]>({}),
         config: stubConfig,
         changesWorkflowEnabled: false,
         cronUserSchedules: false,
@@ -93,7 +95,7 @@ describe("buildWorkerContext", () => {
   });
 
   it("uses the same config reference passed in", () => {
-    const specificConfig = { special: true } as unknown as Config;
+    const specificConfig = stub<Config>({ language: "fr" });
     const ctx = buildWorkerContext({
       worktreePath: "/w",
       branchName: "b",

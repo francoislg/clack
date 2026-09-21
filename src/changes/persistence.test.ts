@@ -177,7 +177,7 @@ describe("statusToPhase", () => {
   });
 
   it("returns the raw status for unknown values", () => {
-    assert.equal(statusToPhase("unknown" as never), "unknown");
+    assert.equal(statusToPhase("unknown" as ChangeStatus), "unknown");
   });
 });
 

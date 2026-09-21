@@ -824,12 +824,18 @@ export function fmtElapsed(ms: number): string {
   return `${minutes}m ${seconds}s`;
 }
 
+/** The streamer surface `finalizeStreamedWorkflow` touches — `SlackStreamer` satisfies it. */
+export interface FinalizableStreamer {
+  stop: (opts?: { markdownText?: string }) => Promise<void>;
+  readonly hasFailed: boolean;
+}
+
 /**
  * Finalize a streamed workflow by stopping the streamer and posting a result message.
  * Handles success, failure (with streamer-failed fallback), and unexpected errors.
  */
 export async function finalizeStreamedWorkflow(
-  streamer: SlackStreamer,
+  streamer: FinalizableStreamer,
   client: App["client"],
   channel: string,
   threadTs: string,

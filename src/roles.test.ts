@@ -20,12 +20,13 @@ import {
 import { setStateQuarantineSink } from "./state/stateQuarantineRegistry.js";
 import type { QuarantineReport } from "./state/resilientCollection.js";
 import type { App } from "@slack/bolt";
+import { createSlackClientMock } from "./slack/testSlackClient.js";
 
 // ---------------------------------------------------------------------------
 // Mock deps
 // ---------------------------------------------------------------------------
 
-const mockReadFile = vi.fn<(path: string, encoding: string) => Promise<string>>();
+const mockReadFile = vi.fn<RolesDeps["readFile"]>();
 const mockWriteFile = vi.fn<(path: string, data: string) => Promise<void>>();
 const mockMkdir =
   vi.fn<(path: string, opts: { recursive: boolean }) => Promise<string | undefined>>();
@@ -33,10 +34,10 @@ const mockFileExists = vi.fn<(path: string) => Promise<boolean>>();
 
 function makeDeps(): RolesDeps {
   return {
-    readFile: mockReadFile as never,
-    writeFile: mockWriteFile as never,
-    mkdir: mockMkdir as never,
-    fileExists: mockFileExists as never,
+    readFile: mockReadFile as RolesDeps["readFile"],
+    writeFile: mockWriteFile as RolesDeps["writeFile"],
+    mkdir: mockMkdir as RolesDeps["mkdir"],
+    fileExists: mockFileExists,
   };
 }
 
@@ -74,15 +75,13 @@ function lastSavedRoles(): RolesConfig {
 }
 
 function makeSlackClient(users: Record<string, { deleted?: boolean }> = {}): App["client"] {
-  return {
-    users: {
-      info: async ({ user }: { user: string }) => {
-        const u = users[user];
-        if (!u) throw new Error("user_not_found");
-        return { user: { deleted: u.deleted ?? false } };
-      },
-    },
-  } as unknown as App["client"];
+  const client = createSlackClientMock();
+  client.users.info.mockImplementation(async ({ user }) => {
+    const u = users[user];
+    if (!u) throw new Error("user_not_found");
+    return { ok: true, user: { deleted: u.deleted ?? false } };
+  });
+  return client;
 }
 
 // ---------------------------------------------------------------------------

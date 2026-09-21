@@ -4,6 +4,7 @@ import { createRequestUpdateTool } from "./requestUpdate.js";
 import { parseToolResult } from "../testHelpers.js";
 import type { QueryToolContext } from "../types.js";
 import type { IntentStore } from "../server.js";
+import { stub } from "../../testStubs.js";
 import type { ActiveChangeState } from "../../changes/activeState.js";
 
 // ---------------------------------------------------------------------------
@@ -47,9 +48,9 @@ function makeCtx(overrides?: Partial<QueryToolContext>): QueryToolContext {
       createdAt: Date.now(),
       activeChange: makeActiveChange(),
     },
-    config: {
+    config: stub<QueryToolContext["config"]>({
       repositories: [],
-    } as never as QueryToolContext["config"],
+    }),
     changesWorkflowEnabled: true,
     cronUserSchedules: false,
     ...overrides,

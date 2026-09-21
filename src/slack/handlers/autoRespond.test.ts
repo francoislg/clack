@@ -1,6 +1,7 @@
 import { describe, it, vi } from "vitest";
 import assert from "node:assert/strict";
 import type { SlackEventMiddlewareArgs } from "@slack/bolt";
+import { createSlackClientMock } from "../testSlackClient.js";
 import type { Config } from "../../config.js";
 import type { SessionContext } from "../../sessions.js";
 import {
@@ -17,18 +18,12 @@ import type { ClaudeRunHandle } from "../../claude/runHandle.js";
 // ---------------------------------------------------------------------------
 
 function makeClient(replyMessages: Array<{ user?: string; text?: string; ts?: string }> = []) {
-  return {
-    conversations: {
-      replies: vi.fn(async () => ({ messages: replyMessages })),
-      info: vi.fn(async () => ({ channel: { name: "test" } })),
-    },
-    users: {
-      info: vi.fn(async () => ({ user: { name: "test", profile: {} } })),
-    },
-    auth: {
-      test: vi.fn(async () => ({ user_id: "U_BOT", bot_id: "B_BOT" })),
-    },
-  } as never;
+  const client = createSlackClientMock();
+  client.conversations.replies.mockResolvedValue({ ok: true, messages: replyMessages });
+  client.conversations.info.mockResolvedValue({ ok: true, channel: { name: "test" } });
+  client.users.info.mockResolvedValue({ ok: true, user: { name: "test", profile: {} } });
+  client.auth.test.mockResolvedValue({ ok: true, user_id: "U_BOT", bot_id: "B_BOT" });
+  return client;
 }
 
 function makeConfig(overrides: Partial<Config> = {}): Config {

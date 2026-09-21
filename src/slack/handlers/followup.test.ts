@@ -13,19 +13,19 @@ import { registerFollowupHandler, type FollowupDeps } from "./followup.js";
 const mockGetSession = vi.fn<(id: string) => Promise<SessionContext | null>>();
 const mockAppendUserMessage = vi.fn<FollowupDeps["appendUserMessage"]>(async () => null);
 
-const mockDecodeActionValue = vi.fn<(v: string) => { sessionId: string; prompt?: string }>();
+const mockDecodeActionValue = vi.fn<FollowupDeps["decodeActionValue"]>();
 const mockRestoreSessionInfo = vi.fn<(id: string) => Promise<SessionInfo | undefined>>();
 
-const mockExecuteAndDeliver = vi.fn<(...args: never[]) => Promise<void>>(async () => {});
+const mockExecuteAndDeliver = vi.fn<FollowupDeps["executeAndDeliver"]>();
 const mockGetHandlerClaudeOptions = vi.fn<(info: SessionInfo) => Promise<AskClaudeOptions>>();
 
 function makeDeps(): FollowupDeps {
   return {
     getSession: mockGetSession,
     appendUserMessage: mockAppendUserMessage,
-    decodeActionValue: mockDecodeActionValue as never,
+    decodeActionValue: mockDecodeActionValue,
     restoreSession: mockRestoreSessionInfo,
-    executeAndDeliver: mockExecuteAndDeliver as never,
+    executeAndDeliver: mockExecuteAndDeliver,
     getHandlerClaudeOptions: mockGetHandlerClaudeOptions,
   };
 }

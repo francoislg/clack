@@ -17,6 +17,7 @@ import type { SessionContext } from "../../sessions.js";
 import type { SessionInfo } from "../activeSessions.js";
 import type { SlackDeliveryContext } from "./changeAction.js";
 import { handleAutoExecuteActions, type AutoExecuteDeps } from "./autoExecute.js";
+import { stub } from "../../testStubs.js";
 
 // ============================================================================
 // Mocks
@@ -1209,7 +1210,7 @@ describe("handleAutoExecuteActions — multiple actions", () => {
 
 describe("handleAutoExecuteActions — post_to auto-execute", () => {
   it("posts snapshot content to the session channel when auto is true", async () => {
-    const fakeSession = {
+    const fakeSession = stub<SessionContext>({
       sessionId: "session-1",
       channelId: "C001",
       messageTs: "1700000000.000001",
@@ -1237,7 +1238,7 @@ describe("handleAutoExecuteActions — post_to auto-execute", () => {
           ],
         },
       },
-    } as unknown as SessionContext;
+    });
 
     mockGetSession.mockImplementation(async () => fakeSession);
     mockActiveSessions.restore.mockImplementation(async () => null);
@@ -1293,7 +1294,7 @@ describe("handleAutoExecuteActions — post_to auto-execute", () => {
   });
 
   it("skips post_to auto-execute for plain DM trigger (no assistant)", async () => {
-    const fakeSession = {
+    const fakeSession = stub<SessionContext>({
       sessionId: "session-1",
       channelId: "C001",
       messageTs: "1700000000.000001",
@@ -1311,7 +1312,7 @@ describe("handleAutoExecuteActions — post_to auto-execute", () => {
       lastActivity: Date.now(),
       createdAt: Date.now(),
       // no assistantOriginChannelId
-    } as unknown as SessionContext;
+    });
 
     mockGetSession.mockImplementation(async () => fakeSession);
 
@@ -1345,7 +1346,7 @@ describe("handleAutoExecuteActions — post_to auto-execute", () => {
   });
 
   it("proceeds for assistant panel DM trigger (has assistantOriginChannelId)", async () => {
-    const fakeSession = {
+    const fakeSession = stub<SessionContext>({
       sessionId: "session-1",
       channelId: "C001",
       messageTs: "1700000000.000001",
@@ -1370,7 +1371,7 @@ describe("handleAutoExecuteActions — post_to auto-execute", () => {
           blocks: [{ type: "section", text: { type: "mrkdwn", text: "content" } }],
         },
       },
-    } as unknown as SessionContext;
+    });
 
     mockGetSession.mockImplementation(async () => fakeSession);
     mockActiveSessions.restore.mockImplementation(async () => null);
@@ -1409,7 +1410,7 @@ describe("handleAutoExecuteActions — post_to auto-execute", () => {
   });
 
   it("uses explicit channel and thread_ts when provided", async () => {
-    const fakeSession = {
+    const fakeSession = stub<SessionContext>({
       sessionId: "session-1",
       channelId: "C001",
       messageTs: "1700000000.000001",
@@ -1437,7 +1438,7 @@ describe("handleAutoExecuteActions — post_to auto-execute", () => {
           ],
         },
       },
-    } as unknown as SessionContext;
+    });
 
     mockGetSession.mockImplementation(async () => fakeSession);
     mockActiveSessions.restore.mockImplementation(async () => null);
@@ -1483,7 +1484,7 @@ describe("handleAutoExecuteActions — post_to auto-execute", () => {
   });
 
   it("does not block ref-based auto-execute when post_to also present", async () => {
-    const fakeSession = {
+    const fakeSession = stub<SessionContext>({
       sessionId: "session-1",
       channelId: "C001",
       messageTs: "1700000000.000001",
@@ -1506,7 +1507,7 @@ describe("handleAutoExecuteActions — post_to auto-execute", () => {
           blocks: [{ type: "section", text: { type: "mrkdwn", text: "content" } }],
         },
       },
-    } as unknown as SessionContext;
+    });
 
     mockGetSession.mockImplementation(async () => fakeSession);
     mockActiveSessions.restore.mockImplementation(async () => null);
@@ -1582,7 +1583,7 @@ describe("handleAutoExecuteActions — post_to auto-execute", () => {
   });
 
   it("skips action when snapshot is missing", async () => {
-    const fakeSession = {
+    const fakeSession = stub<SessionContext>({
       sessionId: "session-1",
       channelId: "C001",
       messageTs: "1700000000.000001",
@@ -1600,7 +1601,7 @@ describe("handleAutoExecuteActions — post_to auto-execute", () => {
       lastActivity: Date.now(),
       createdAt: Date.now(),
       snapshots: {},
-    } as unknown as SessionContext;
+    });
 
     mockGetSession.mockImplementation(async () => fakeSession);
     mockActiveSessions.restore.mockImplementation(async () => null);
@@ -1634,7 +1635,7 @@ describe("handleAutoExecuteActions — post_to auto-execute", () => {
   });
 
   it("posts error to thread when postAnswerToChannel throws", async () => {
-    const fakeSession = {
+    const fakeSession = stub<SessionContext>({
       sessionId: "session-1",
       channelId: "C001",
       messageTs: "1700000000.000001",
@@ -1657,7 +1658,7 @@ describe("handleAutoExecuteActions — post_to auto-execute", () => {
           blocks: [{ type: "section", text: { type: "mrkdwn", text: "content" } }],
         },
       },
-    } as unknown as SessionContext;
+    });
 
     mockGetSession.mockImplementation(async () => fakeSession);
     mockActiveSessions.restore.mockImplementation(async () => null);

@@ -8,6 +8,7 @@ import { createFindUserTool } from "./findUser.js";
 
 import type { QueryToolContext } from "../types.js";
 import { parseToolResult } from "../testHelpers.js";
+import { stub } from "../../testStubs.js";
 import type {
   UsersCache,
   SlackUserEntry,
@@ -33,9 +34,7 @@ function makeCtx(overrides?: Partial<QueryToolContext>): QueryToolContext {
       lastActivity: Date.now(),
       createdAt: Date.now(),
     },
-    config: {
-      repositories: [],
-    } as unknown as QueryToolContext["config"],
+    config: stub<QueryToolContext["config"]>({ repositories: [] }),
     changesWorkflowEnabled: false,
     cronUserSchedules: false,
     ...overrides,

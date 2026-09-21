@@ -5,6 +5,7 @@ import type { SessionContext } from "../../sessions.js";
 import type { ProcessMessageParams, CoreDeps } from "./core.js";
 import { processMessage } from "./core.js";
 import type { GetClaudeOptionsArgs } from "./changeWorkflowHelper.js";
+import { createSlackClientMock } from "../testSlackClient.js";
 import {
   withThreadLock,
   register as registerActiveRun,
@@ -48,19 +49,13 @@ function makeSession(overrides: Partial<SessionContext> = {}): SessionContext {
 }
 
 function makeClient(): App["client"] {
-  return {
-    auth: {
-      test: vi.fn(async () => ({ user_id: "B001" })),
-    },
-    chat: {
-      postMessage: vi.fn(async () => ({ ok: true, ts: "1700000000.000099" })),
-      postEphemeral: vi.fn(async () => ({ ok: true })),
-      getPermalink: vi.fn(async () => ({ permalink: "https://slack.com/link" })),
-    },
-    conversations: {
-      open: vi.fn(async () => ({ channel: { id: "D_DM_001" } })),
-    },
-  } as never;
+  const client = createSlackClientMock();
+  client.auth.test.mockResolvedValue({ ok: true, user_id: "B001" });
+  client.chat.postMessage.mockResolvedValue({ ok: true, ts: "1700000000.000099" });
+  client.chat.postEphemeral.mockResolvedValue({ ok: true });
+  client.chat.getPermalink.mockResolvedValue({ ok: true, permalink: "https://slack.com/link" });
+  client.conversations.open.mockResolvedValue({ ok: true, channel: { id: "D_DM_001" } });
+  return client;
 }
 
 function makeParams(overrides: Partial<ProcessMessageParams> = {}): ProcessMessageParams {

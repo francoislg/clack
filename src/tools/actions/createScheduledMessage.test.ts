@@ -10,6 +10,7 @@ import {
 } from "./createScheduledMessage.js";
 import type { QueryToolContext } from "../types.js";
 import { parseToolResult, toolResultText } from "../testHelpers.js";
+import { createSlackClientMock } from "../../slack/testSlackClient.js";
 import { clearCronJobsCache, getJobs, createJob } from "../../cronJobs.js";
 import { validateTopicNames } from "./topicValidation.js";
 
@@ -26,6 +27,15 @@ function makeDeps(overrides?: Partial<CreateScheduledMessageDeps>): CreateSchedu
   };
 }
 
+function makeSlackClient() {
+  const client = createSlackClientMock();
+  client.conversations.list.mockResolvedValue({
+    ok: true,
+    channels: [{ id: "C456", name: "engineering" }],
+  });
+  return client;
+}
+
 function buildCtx(overrides: Partial<QueryToolContext> = {}): QueryToolContext {
   return {
     mode: "query" as const,
@@ -37,13 +47,7 @@ function buildCtx(overrides: Partial<QueryToolContext> = {}): QueryToolContext {
       ],
     } as QueryToolContext["config"],
     session: { sessionId: "test-session" } as QueryToolContext["session"],
-    slackClient: {
-      conversations: {
-        list: vi.fn(async () => ({
-          channels: [{ id: "C456", name: "engineering" }],
-        })),
-      },
-    } as never as QueryToolContext["slackClient"],
+    slackClient: makeSlackClient(),
     changesWorkflowEnabled: false,
     cronUserSchedules: true,
     ...overrides,

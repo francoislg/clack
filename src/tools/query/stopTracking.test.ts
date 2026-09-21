@@ -2,7 +2,9 @@ import { describe, it, vi } from "vitest";
 import { parseToolResult } from "../testHelpers.js";
 import assert from "node:assert/strict";
 import type { SessionContext } from "../../sessions.js";
+import type { QueryToolContext } from "../types.js";
 import { createStopTrackingTool, type StopTrackingDeps } from "./stopTracking.js";
+import { stub } from "../../testStubs.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -11,7 +13,7 @@ import { createStopTrackingTool, type StopTrackingDeps } from "./stopTracking.js
 interface TestCtx {
   mode: "query";
   userId: string;
-  role: string;
+  role: QueryToolContext["role"];
 }
 
 function makeCtx(overrides: Partial<TestCtx> = {}): TestCtx {
@@ -33,7 +35,7 @@ function makeDeps(overrides: Partial<StopTrackingDeps> = {}): StopTrackingDeps {
 }
 
 function callTool(ctx: TestCtx, deps: StopTrackingDeps, args: { url: string }) {
-  const toolDef = createStopTrackingTool(ctx as never, deps);
+  const toolDef = createStopTrackingTool(stub<QueryToolContext>(ctx), deps);
   return toolDef.handler(args, {});
 }
 

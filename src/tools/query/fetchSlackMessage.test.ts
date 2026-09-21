@@ -6,6 +6,7 @@ import type { QueryToolContext } from "../types.js";
 import type { SlackImageFile } from "../../slack/slackFileBase.js";
 import type { EmojiCache } from "../../slack/emojiCache.js";
 import { buildLoreHint } from "../../emojiLore.js";
+import { stub } from "../../testStubs.js";
 
 // The lore store is an outside dependency: stub the hint builder and assert the wiring.
 vi.mock("../../emojiLore.js", async (importOriginal) => {
@@ -46,12 +47,12 @@ function makeCtx(overrides?: Partial<QueryToolContext>): QueryToolContext {
       lastActivity: Date.now(),
       createdAt: Date.now(),
     },
-    config: {
+    config: stub<QueryToolContext["config"]>({
       repositories: [],
-    } as never as QueryToolContext["config"],
+    }),
     changesWorkflowEnabled: false,
     cronUserSchedules: false,
-    slackClient: {} as never as NonNullable<QueryToolContext["slackClient"]>,
+    slackClient: stub<NonNullable<QueryToolContext["slackClient"]>>({}),
     availableImages: new Map(),
     availableFiles: new Map(),
     ...overrides,

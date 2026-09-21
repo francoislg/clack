@@ -7,6 +7,7 @@ import { createCancelScheduledMessageTool } from "./cancelScheduledMessage.js";
 import type { QueryToolContext } from "../types.js";
 import { parseToolResult } from "../testHelpers.js";
 import { clearCronJobsCache, createJob } from "../../cronJobs.js";
+import { stub } from "../../testStubs.js";
 
 const originalCwd = process.cwd;
 
@@ -15,7 +16,7 @@ function buildCtx(overrides: Partial<QueryToolContext> = {}): QueryToolContext {
     mode: "query" as const,
     userId: "U123",
     role: "dev",
-    config: { repositories: [] } as unknown as QueryToolContext["config"],
+    config: stub<QueryToolContext["config"]>({ repositories: [] }),
     session: { sessionId: "test-session" } as QueryToolContext["session"],
     slackClient: null,
     changesWorkflowEnabled: false,

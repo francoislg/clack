@@ -17,7 +17,7 @@ import {
 // Mock deps
 // ---------------------------------------------------------------------------
 
-const mockReadFile = vi.fn<(path: string, encoding: string) => Promise<string>>();
+const mockReadFile = vi.fn<UserPreferencesDeps["readFile"]>();
 const mockWriteFile = vi.fn<(path: string, data: string) => Promise<void>>();
 const mockMkdir =
   vi.fn<(path: string, opts?: { recursive: boolean }) => Promise<string | undefined>>();
@@ -25,10 +25,10 @@ const mockFileExists = vi.fn<(path: string) => Promise<boolean>>();
 
 function makeDeps(): UserPreferencesDeps {
   return {
-    readFile: mockReadFile as never,
-    writeFile: mockWriteFile as never,
-    mkdir: mockMkdir as never,
-    fileExists: mockFileExists as never,
+    readFile: mockReadFile as UserPreferencesDeps["readFile"],
+    writeFile: mockWriteFile as UserPreferencesDeps["writeFile"],
+    mkdir: mockMkdir as UserPreferencesDeps["mkdir"],
+    fileExists: mockFileExists,
   };
 }
 

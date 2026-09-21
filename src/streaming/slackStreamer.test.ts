@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { setImmediate } from "node:timers/promises";
 import type { App } from "@slack/bolt";
 import type { TaskUpdateChunk } from "@slack/types";
+import type { ChatStreamer } from "@slack/web-api";
 import {
   SlackStreamer,
   finalizeStreamedWorkflow,
@@ -10,6 +11,8 @@ import {
   type SlackStreamerLogger,
 } from "./slackStreamer.js";
 import type { StreamEvent } from "./types.js";
+import { createSlackClientMock } from "../slack/testSlackClient.js";
+import { stub } from "../testStubs.js";
 
 // ---------------------------------------------------------------------------
 // Shared mock logger — injected via SlackStreamerOptions.logger
@@ -68,21 +71,20 @@ function makeClient(opts?: {
   throwOnChatStream?: boolean;
 }): App["client"] {
   const streamer = opts?.chatStreamer ?? makeMockChatStreamer();
+  const client = createSlackClientMock();
 
-  return {
-    chatStream: opts?.throwOnChatStream
-      ? () => {
-          throw new Error("chatStream failed");
-        }
-      : () => streamer,
-    auth: {
-      test: async () => ({ team_id: opts?.teamId ?? "T_TEAM" }),
-    },
-    chat: {
-      postMessage: vi.fn(async () => ({ ok: true })),
-      update: vi.fn(async () => ({ ok: true })),
-    },
-  } as unknown as App["client"];
+  if (opts?.throwOnChatStream) {
+    client.chatStream.mockImplementation(() => {
+      throw new Error("chatStream failed");
+    });
+  } else {
+    client.chatStream.mockReturnValue(stub<ChatStreamer>(streamer));
+  }
+  client.auth.test.mockResolvedValue({ ok: true, team_id: opts?.teamId ?? "T_TEAM" });
+  client.chat.postMessage.mockResolvedValue({ ok: true });
+  client.chat.update.mockResolvedValue({ ok: true });
+
+  return client;
 }
 
 interface PostMessageCallArgs {
@@ -909,18 +911,13 @@ describe("finalizeStreamedWorkflow", () => {
     );
 
     // Should have fallen back to chat.postMessage
-    const postMessage = client.chat.postMessage as unknown as ReturnType<
-      typeof vi.fn<(...args: any[]) => any>
-    >;
+    const postMessage = vi.mocked(client.chat.postMessage);
     assert.equal(postMessage.mock.calls.length, 1);
-    const pmArgs = postMessage.mock.calls[0][0] as {
-      channel: string;
-      thread_ts: string;
-      text: string;
-    };
+    const pmArgs = postMessage.mock.calls[0][0];
     assert.equal(pmArgs.channel, "C_CHAN");
     assert.equal(pmArgs.thread_ts, "1234.5678");
-    assert.ok(pmArgs.text.includes("Update failed: oops"));
+    // `text` is optional across the ChatPostMessageArguments union; narrow before reading it.
+    assert.ok("text" in pmArgs && pmArgs.text?.includes("Update failed: oops"));
   });
 
   it("posts a success fallback with PR URL when streamer has failed mid-run", async () => {

@@ -2,6 +2,10 @@ import { describe, it, vi, beforeEach } from "vitest";
 import assert from "node:assert/strict";
 import type { App } from "@slack/bolt";
 import { registerAssistant, type AssistantDeps } from "./assistant.js";
+import type { SessionContext } from "../../sessions.js";
+import { stub } from "../../testStubs.js";
+import { createSlackClientMock } from "../testSlackClient.js";
+import { createSlackAppMock, type MockSlackApp } from "../testBoltApp.js";
 
 interface CapturedProcessArgs {
   client: App["client"];
@@ -26,8 +30,8 @@ const mockProcessMessage = vi.fn<ProcessMessageFn>(async () => ({
   success: true,
   answer: "",
 }));
-const mockFindSessionByThread = vi.fn<(...args: unknown[]) => Promise<unknown>>(async () => null);
-const mockUpdateSession = vi.fn<(...args: unknown[]) => Promise<unknown>>(async () => null);
+const mockFindSessionByThread = vi.fn<AssistantDeps["findSessionByThread"]>(async () => null);
+const mockUpdateSession = vi.fn<AssistantDeps["updateSession"]>(async () => null);
 
 interface AssistantHandlers {
   threadStarted: (...args: unknown[]) => Promise<void>;
@@ -45,11 +49,11 @@ class MockAssistant {
 
 function makeDeps(): AssistantDeps {
   return {
-    Assistant: MockAssistant as never,
+    Assistant: stub<AssistantDeps["Assistant"]>(MockAssistant),
     getConfig: () => ({ directMessages: { enabled: true } }),
-    findSessionByThread: mockFindSessionByThread as never,
-    updateSession: mockUpdateSession as never,
-    processMessage: mockProcessMessage as never,
+    findSessionByThread: mockFindSessionByThread,
+    updateSession: mockUpdateSession,
+    processMessage: mockProcessMessage,
     extractAttachments: () => ({}),
     stopThread: mockAssistantStopThread,
   };
@@ -66,33 +70,18 @@ const mockAssistantStopThread = vi.fn<AssistantDeps["stopThread"]>(async () => (
 // Helpers
 // ============================================================================
 
-let capturedAssistant: unknown;
+let app: MockSlackApp;
 
-function makeApp(): App {
-  return {
-    assistant: (assistant: unknown) => {
-      capturedAssistant = assistant;
-    },
-  } as never as App;
+function makeApp(): MockSlackApp {
+  return createSlackAppMock();
 }
 
 function makeClient(botUserId = "B001") {
-  const postMessageFn = vi.fn(async () => ({ ok: true }));
-  const repliesFn = vi.fn<() => Promise<{ messages: object[] }>>(async () => ({ messages: [] }));
-  return {
-    obj: {
-      auth: {
-        test: vi.fn(async () => ({ user_id: botUserId })),
-      },
-      chat: {
-        postMessage: postMessageFn,
-      },
-      conversations: {
-        replies: repliesFn,
-      },
-    } as never as App["client"],
-    repliesFn,
-  };
+  const client = createSlackClientMock();
+  client.auth.test.mockResolvedValue({ ok: true, user_id: botUserId });
+  client.chat.postMessage.mockResolvedValue({ ok: true });
+  client.conversations.replies.mockResolvedValue({ ok: true, messages: [] });
+  return client;
 }
 
 beforeEach(() => {
@@ -100,9 +89,8 @@ beforeEach(() => {
   mockFindSessionByThread.mockClear();
   mockUpdateSession.mockClear();
   capturedAssistantHandlers = null;
-  capturedAssistant = null;
 
-  const app = makeApp();
+  app = makeApp();
   registerAssistant(app, makeDeps());
 });
 
@@ -112,7 +100,7 @@ beforeEach(() => {
 
 describe("registerAssistant", () => {
   it("registers an assistant with the app", () => {
-    assert.ok(capturedAssistant, "assistant should have been passed to app.assistant()");
+    assert.equal(app.assistant.mock.calls.length, 1);
   });
 
   it("captures thread handlers", () => {
@@ -246,9 +234,9 @@ describe("assistant threadContextChanged", () => {
 
   it("updates session with new channel_id when session exists", async () => {
     const mockSaveThreadContext = vi.fn(async () => {});
-    mockFindSessionByThread.mockImplementation(async () => ({
-      sessionId: "session-1",
-    }));
+    mockFindSessionByThread.mockImplementation(async () =>
+      stub<SessionContext>({ sessionId: "session-1" }),
+    );
 
     await capturedAssistantHandlers!.threadContextChanged({
       event: {
@@ -317,7 +305,7 @@ describe("assistant userMessage", () => {
   it("skips when user is missing", async () => {
     await capturedAssistantHandlers!.userMessage({
       event: { text: "hello", channel: "D001", ts: "1700000000.000001" },
-      client: makeClient().obj,
+      client: makeClient(),
       setStatus: makeMockSetStatus(),
       setTitle: makeMockSetTitle(),
       getThreadContext: makeMockGetThreadContext(),
@@ -329,7 +317,7 @@ describe("assistant userMessage", () => {
   it("skips when text and files are both missing", async () => {
     await capturedAssistantHandlers!.userMessage({
       event: { user: "U001", channel: "D001", ts: "1700000000.000001" },
-      client: makeClient().obj,
+      client: makeClient(),
       setStatus: makeMockSetStatus(),
       setTitle: makeMockSetTitle(),
       getThreadContext: makeMockGetThreadContext(),
@@ -339,7 +327,7 @@ describe("assistant userMessage", () => {
   });
 
   it("processes an image-only DM with the image fallback prompt", async () => {
-    const clientBundle = makeClient();
+    const client = makeClient();
 
     // Register a fresh app whose extractAttachments returns image files
     const app = makeApp();
@@ -365,7 +353,7 @@ describe("assistant userMessage", () => {
         ts: "1700000000.000002",
         files: [{ id: "F1", mimetype: "image/png" }],
       },
-      client: clientBundle.obj,
+      client: client,
       setStatus: makeMockSetStatus(),
       setTitle: makeMockSetTitle(),
       getThreadContext: makeMockGetThreadContext(),
@@ -384,7 +372,7 @@ describe("assistant userMessage", () => {
     const mockGetThreadContext = vi.fn<(...args: unknown[]) => Promise<unknown>>(async () => ({
       channel_id: "C001",
     }));
-    const clientBundle = makeClient();
+    const client = makeClient();
 
     await capturedAssistantHandlers!.userMessage({
       event: {
@@ -394,7 +382,7 @@ describe("assistant userMessage", () => {
         ts: "1700000000.000002",
         thread_ts: "1700000000.000001",
       },
-      client: clientBundle.obj,
+      client: client,
       setStatus: mockSetStatus,
       setTitle: makeMockSetTitle(),
       getThreadContext: mockGetThreadContext,
@@ -407,7 +395,7 @@ describe("assistant userMessage", () => {
     assert.equal(mockProcessMessage.mock.calls.length, 1);
 
     const args = mockProcessMessage.mock.calls[0][0] as CapturedProcessArgs;
-    assert.equal(args.client, clientBundle.obj);
+    assert.equal(args.client, client);
     assert.equal(args.userId, "U001");
     assert.equal(args.channelId, "D001");
     assert.equal(args.messageTs, "1700000000.000002");
@@ -427,7 +415,7 @@ describe("assistant userMessage", () => {
         channel: "D001",
         ts: "1700000000.000001",
       },
-      client: makeClient().obj,
+      client: makeClient(),
       setStatus: makeMockSetStatus(),
       setTitle: mockSetTitle,
       getThreadContext: makeMockGetThreadContext(),
@@ -449,7 +437,7 @@ describe("assistant userMessage", () => {
         channel: "D001",
         ts: "1700000000.000001",
       },
-      client: makeClient().obj,
+      client: makeClient(),
       setStatus: makeMockSetStatus(),
       setTitle: mockSetTitle,
       getThreadContext: makeMockGetThreadContext(),
@@ -474,7 +462,7 @@ describe("assistant userMessage", () => {
         channel: "D001",
         ts: "1700000000.000001",
       },
-      client: makeClient().obj,
+      client: makeClient(),
       setStatus: makeMockSetStatus(),
       setTitle: mockSetTitle,
       getThreadContext: makeMockGetThreadContext(),
@@ -484,9 +472,10 @@ describe("assistant userMessage", () => {
   });
 
   it("resolves context from thread metadata when Bolt store returns nothing", async () => {
-    const clientBundle = makeClient("B001");
+    const client = makeClient("B001");
     // Simulate a bot message with metadata containing channel_id
-    clientBundle.repliesFn.mockImplementation(async () => ({
+    client.conversations.replies.mockImplementation(async () => ({
+      ok: true,
       messages: [
         {
           user: "B001",
@@ -506,7 +495,7 @@ describe("assistant userMessage", () => {
         ts: "1700000000.000002",
         thread_ts: "1700000000.000001",
       },
-      client: clientBundle.obj,
+      client: client,
       setStatus: makeMockSetStatus(),
       setTitle: makeMockSetTitle(),
       getThreadContext: makeMockGetThreadContext(),
@@ -517,14 +506,16 @@ describe("assistant userMessage", () => {
   });
 
   it("falls back to existing session context when metadata lookup fails", async () => {
-    const clientBundle = makeClient("B001");
+    const client = makeClient("B001");
     // No bot messages with metadata
-    clientBundle.repliesFn.mockImplementation(async () => ({ messages: [] }));
-
-    mockFindSessionByThread.mockImplementation(async () => ({
-      sessionId: "session-1",
-      assistantCurrentChannelId: "C888",
+    client.conversations.replies.mockImplementation(async () => ({
+      ok: true,
+      messages: [],
     }));
+
+    mockFindSessionByThread.mockImplementation(async () =>
+      stub<SessionContext>({ sessionId: "session-1", assistantCurrentChannelId: "C888" }),
+    );
 
     await capturedAssistantHandlers!.userMessage({
       event: {
@@ -534,7 +525,7 @@ describe("assistant userMessage", () => {
         ts: "1700000000.000002",
         thread_ts: "1700000000.000001",
       },
-      client: clientBundle.obj,
+      client: client,
       setStatus: makeMockSetStatus(),
       setTitle: makeMockSetTitle(),
       getThreadContext: makeMockGetThreadContext(),
@@ -569,8 +560,7 @@ describe("assistant userMessage — inline stop emoji", () => {
     mockAssistantStopThread.mockClear();
     mockProcessMessage.mockClear();
     capturedAssistantHandlers = null;
-    capturedAssistant = null;
-    const app = makeApp();
+    app = makeApp();
     registerAssistant(app, makeStopDeps());
   });
 
@@ -583,7 +573,7 @@ describe("assistant userMessage — inline stop emoji", () => {
         ts: "1700000000.000002",
         thread_ts: "1700000000.000001",
       },
-      client: makeClient().obj,
+      client: makeClient(),
       setStatus: stubStatus,
       setTitle: stubTitle,
       getThreadContext: stubThreadCtx,
@@ -605,7 +595,7 @@ describe("assistant userMessage — inline stop emoji", () => {
         text: ":octagonal_sign: wait",
         ts: "1700000000.000001",
       },
-      client: makeClient().obj,
+      client: makeClient(),
       setStatus: stubStatus,
       setTitle: stubTitle,
       getThreadContext: stubThreadCtx,
@@ -622,7 +612,7 @@ describe("assistant userMessage — inline stop emoji", () => {
         text: `\u{1F6D1} ${"x".repeat(70)}`,
         ts: "1700000000.000001",
       },
-      client: makeClient().obj,
+      client: makeClient(),
       setStatus: stubStatus,
       setTitle: stubTitle,
       getThreadContext: stubThreadCtx,
@@ -641,7 +631,7 @@ describe("assistant userMessage — inline stop emoji", () => {
         text: "\u{1F6D1}",
         ts: "1700000000.000001",
       },
-      client: makeClient().obj,
+      client: makeClient(),
       setStatus: stubStatus,
       setTitle: stubTitle,
       getThreadContext: stubThreadCtx,

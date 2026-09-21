@@ -2,6 +2,7 @@ import { describe, it, vi } from "vitest";
 import assert from "node:assert/strict";
 import { createClosePRTool, type ClosePRDeps } from "./closePR.js";
 import type { WorkerToolContext } from "../types.js";
+import { makeWorkerCtx } from "./testCtx.js";
 import { parseToolResult } from "../testHelpers.js";
 
 // ---------------------------------------------------------------------------
@@ -9,18 +10,7 @@ import { parseToolResult } from "../testHelpers.js";
 // ---------------------------------------------------------------------------
 
 function makeCtx(overrides?: Partial<WorkerToolContext>): WorkerToolContext {
-  return {
-    mode: "worker",
-    worktreePath: "/tmp/worktrees/my-repo/branch",
-    branchName: "clack/fix/my-branch",
-    repoName: "my-repo",
-    repoUrl: "https://github.com/org/my-repo.git",
-    channelId: "C123",
-    threadTs: "1.0",
-    sessionId: "sess-1",
-    config: { repositories: [] } as never as WorkerToolContext["config"],
-    ...overrides,
-  };
+  return makeWorkerCtx(overrides);
 }
 
 function makeDeps() {
@@ -40,11 +30,11 @@ function makeDeps() {
   const mockCleanupAfterPRAction = vi.fn<(...args: unknown[]) => Promise<void>>(async () => {});
 
   const deps: ClosePRDeps = {
-    getSession: mockGetSession as never as ClosePRDeps["getSession"],
-    getOctokit: mockGetOctokit as never as ClosePRDeps["getOctokit"],
-    parsePrUrl: mockParsePrUrl as never as ClosePRDeps["parsePrUrl"],
-    appendExecutionLog: mockAppendExecutionLog as never as ClosePRDeps["appendExecutionLog"],
-    cleanupAfterPRAction: mockCleanupAfterPRAction as never as ClosePRDeps["cleanupAfterPRAction"],
+    getSession: mockGetSession as ClosePRDeps["getSession"],
+    getOctokit: mockGetOctokit as ClosePRDeps["getOctokit"],
+    parsePrUrl: mockParsePrUrl as ClosePRDeps["parsePrUrl"],
+    appendExecutionLog: mockAppendExecutionLog,
+    cleanupAfterPRAction: mockCleanupAfterPRAction,
   };
 
   return {
@@ -114,7 +104,9 @@ describe("closePR tool", () => {
   });
 
   it("closes PR and returns success without branch deletion", async () => {
-    const mockUpdate = vi.fn(async () => ({}));
+    const mockUpdate = vi.fn(
+      async (_params: { owner: string; repo: string; pull_number: number; state: string }) => ({}),
+    );
     const { deps, mockGetOctokit, mockCleanupAfterPRAction } = makeDeps();
     mockGetOctokit.mockImplementation(async () => ({
       pulls: { update: mockUpdate },
@@ -131,9 +123,7 @@ describe("closePR tool", () => {
 
     // Verify PR was closed
     assert.equal(mockUpdate.mock.calls.length, 1);
-    const callArgs = mockUpdate.mock.calls[0]! as never as [
-      { owner: string; repo: string; pull_number: number; state: string },
-    ];
+    const callArgs = mockUpdate.mock.calls[0]!;
     assert.equal(callArgs[0].owner, "org");
     assert.equal(callArgs[0].repo, "my-repo");
     assert.equal(callArgs[0].pull_number, 42);
@@ -145,7 +135,9 @@ describe("closePR tool", () => {
 
   it("closes PR and deletes remote branch when delete_branch is true", async () => {
     const mockUpdate = vi.fn(async () => ({}));
-    const mockDeleteRef = vi.fn(async () => ({}));
+    const mockDeleteRef = vi.fn(
+      async (_params: { owner: string; repo: string; ref: string }) => ({}),
+    );
     const { deps, mockGetOctokit } = makeDeps();
     mockGetOctokit.mockImplementation(async () => ({
       pulls: { update: mockUpdate },
@@ -162,9 +154,7 @@ describe("closePR tool", () => {
 
     // Verify branch deletion was called
     assert.equal(mockDeleteRef.mock.calls.length, 1);
-    const deleteArgs = mockDeleteRef.mock.calls[0]! as never as [
-      { owner: string; repo: string; ref: string },
-    ];
+    const deleteArgs = mockDeleteRef.mock.calls[0]!;
     assert.equal(deleteArgs[0].owner, "org");
     assert.equal(deleteArgs[0].repo, "my-repo");
     assert.equal(deleteArgs[0].ref, `heads/${ctx.branchName}`);

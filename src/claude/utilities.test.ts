@@ -24,16 +24,15 @@ function makeDeps(): UtilitiesDeps {
   };
 }
 
-/** Build an async iterable from an array of messages. Return typed as never so it satisfies any AsyncIterable<T> parameter. */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function asyncIterableOf<T>(items: T[]): never {
+/** Build an async iterable from an array of messages, shaped as the query stream callers expect. */
+function asyncIterableOf<T>(items: T[]): ReturnType<typeof clackQuery> {
   return {
     async *[Symbol.asyncIterator]() {
       for (const item of items) {
         yield item;
       }
     },
-  } as never;
+  } as ReturnType<typeof clackQuery>;
 }
 
 function makeConversationMessage(
@@ -213,18 +212,18 @@ describe("summarizeForSlack", () => {
   });
 
   it("falls back to truncation when async iterator throws mid-stream", async () => {
-    mockQuery.mockImplementation(
-      () =>
-        ({
-          async *[Symbol.asyncIterator]() {
-            yield {
-              type: "assistant",
-              message: { content: [{ type: "text", text: "partial" }] },
-            };
-            throw new Error("stream interrupted");
-          },
-        }) as never,
-    );
+    mockQuery.mockImplementation(() => {
+      const stream = {
+        async *[Symbol.asyncIterator]() {
+          yield {
+            type: "assistant",
+            message: { content: [{ type: "text", text: "partial" }] },
+          };
+          throw new Error("stream interrupted");
+        },
+      };
+      return stream as ReturnType<typeof clackQuery>;
+    });
 
     const input = "b".repeat(50000);
     const result = await summarizeForSlack(input, makeDeps());
@@ -307,16 +306,13 @@ describe("analyzeError", () => {
   });
 
   it("returns 'Error analysis unavailable.' when async iterator throws", async () => {
-    mockQuery.mockImplementation(
-      () =>
-        ({
-          // Intentionally throws before yielding to simulate a stream error
-          // eslint-disable-next-line require-yield
-          async *[Symbol.asyncIterator]() {
-            throw new Error("stream interrupted");
-          },
-        }) as never,
-    );
+    mockQuery.mockImplementation(() => ({
+      // Intentionally throws before yielding to simulate a stream error
+      // eslint-disable-next-line require-yield
+      async *[Symbol.asyncIterator]() {
+        throw new Error("stream interrupted");
+      },
+    }));
 
     const result = await analyzeError("error", [makeConversationMessage()], makeDeps());
     assert.equal(result, "Error analysis unavailable.");

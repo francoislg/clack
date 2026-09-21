@@ -3,6 +3,8 @@ import { parseToolResult } from "../testHelpers.js";
 import assert from "node:assert/strict";
 import { createListRepositoriesTool, type ListRepositoriesDeps } from "./listRepositories.js";
 import type { RepositoryConfig } from "../../config.js";
+import type { QueryToolContext } from "../types.js";
+import { stub } from "../../testStubs.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -11,7 +13,7 @@ import type { RepositoryConfig } from "../../config.js";
 interface TestCtx {
   mode: "query";
   userId: string;
-  role: string;
+  role: QueryToolContext["role"];
   config: { repositories: RepositoryConfig[] };
 }
 
@@ -47,7 +49,7 @@ function callTool(
   deps: ListRepositoriesDeps,
   args: { includeChangeSupport?: boolean } = {},
 ) {
-  const toolDef = createListRepositoriesTool(ctx as never, deps);
+  const toolDef = createListRepositoriesTool(stub<QueryToolContext>(ctx), deps);
   return toolDef.handler(
     { includeChangeSupport: args.includeChangeSupport },
     { sessionId: "test" },

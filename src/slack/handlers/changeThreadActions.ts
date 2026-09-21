@@ -23,7 +23,7 @@ import {
   type ActiveChangeState,
   type SessionRef,
 } from "../../changes/activeState.js";
-import type { ChangeResult, FollowUpCommand } from "../../changes/types.js";
+import type { FollowUpCommand } from "../../changes/types.js";
 import type { SlackDeliveryContext } from "./changeAction.js";
 import { SlackStreamer, finalizeStreamedWorkflow } from "../../streaming/slackStreamer.js";
 import type { StreamEvent } from "../../streaming/types.js";
@@ -36,14 +36,7 @@ export interface ChangeThreadActionsDeps {
   restoreSession: (sessionId: string) => Promise<SessionInfo | undefined>;
   getStagedIntent: (sessionId: string, ref: string) => Promise<StagedIntent | null>;
   findSessionByThread: (channelId: string, threadTs: string) => Promise<SessionContext | null>;
-  handleFollowUp: (
-    session: SessionContext,
-    command: FollowUpCommand,
-    additionalInstructions: string | undefined,
-    onEvent: (event: StreamEvent) => void,
-    deps?: never,
-    userFeedback?: string,
-  ) => Promise<ChangeResult>;
+  handleFollowUp: typeof handleFollowUp;
   errorMessage: (err: unknown) => string;
   setAttentionLevel: (sessionId: string, level: AttentionLevel) => Promise<void>;
   createStreamer: (opts: {
@@ -58,14 +51,7 @@ export interface ChangeThreadActionsDeps {
     handleEvent: (event: StreamEvent) => void;
     hasFailed: boolean;
   };
-  finalizeStreamedWorkflow: (
-    streamer: ReturnType<ChangeThreadActionsDeps["createStreamer"]>,
-    client: App["client"],
-    channel: string,
-    threadTs: string,
-    result: ChangeResult,
-    command: FollowUpCommand,
-  ) => Promise<void>;
+  finalizeStreamedWorkflow: typeof finalizeStreamedWorkflow;
   getActiveChange: (sessionId: string) => ActiveChangeState | undefined;
   getAdoptedAwayRef: (sessionId: string) => SessionRef | undefined;
 }
@@ -83,7 +69,7 @@ export const defaultChangeThreadActionsDeps: ChangeThreadActionsDeps = {
   getActiveChange,
   getAdoptedAwayRef,
   createStreamer: (opts) => new SlackStreamer(opts),
-  finalizeStreamedWorkflow: finalizeStreamedWorkflow as never,
+  finalizeStreamedWorkflow,
 };
 
 /**

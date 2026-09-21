@@ -763,7 +763,7 @@ export function registerHomeTabHandler(app: App, deps: HomeTabDeps = defaultHome
       }
 
       // Get the view ID from the body to push onto it
-      const viewId = (body as unknown as { view?: { id: string } }).view?.id;
+      const viewId = viewIdFromBody(body);
       if (!viewId) return;
 
       await client.views.push({
@@ -884,7 +884,7 @@ export function registerHomeTabHandler(app: App, deps: HomeTabDeps = defaultHome
       deps.deleteInstructionFile(filepath);
       logger.info(`User ${userId} deleted config file ${filepath}`);
 
-      const viewId = (body as unknown as { view?: { id: string } }).view?.id;
+      const viewId = viewIdFromBody(body);
       if (!viewId) return;
 
       if (default_content !== null) {
@@ -996,7 +996,7 @@ export function registerHomeTabHandler(app: App, deps: HomeTabDeps = defaultHome
       const ruleId = (action as { action_id: string }).action_id.split(":")[1];
       await deps.deleteRule(ruleId);
       // Close the modal by replacing it with a brief confirmation
-      const viewId = (body as unknown as { view?: { id: string } }).view?.id;
+      const viewId = viewIdFromBody(body);
       if (viewId) {
         await client.views.update({
           view_id: viewId,
@@ -1119,7 +1119,7 @@ export function registerHomeTabHandler(app: App, deps: HomeTabDeps = defaultHome
       });
 
       // Close the modal by replacing it with a brief confirmation
-      const viewId = (body as unknown as { view?: { id: string } }).view?.id;
+      const viewId = viewIdFromBody(body);
       if (viewId) {
         await client.views.update({
           view_id: viewId,
@@ -1200,7 +1200,7 @@ export function registerHomeTabHandler(app: App, deps: HomeTabDeps = defaultHome
       if (!job) return;
 
       // Close the modal with a confirmation message
-      const viewId = (body as unknown as { view?: { id: string } }).view?.id;
+      const viewId = viewIdFromBody(body);
       if (viewId) {
         await client.views.update({
           view_id: viewId,
@@ -1246,7 +1246,7 @@ export function registerHomeTabHandler(app: App, deps: HomeTabDeps = defaultHome
         return;
       }
       await deps.deleteJob(jobId);
-      const viewId = (body as unknown as { view?: { id: string } }).view?.id;
+      const viewId = viewIdFromBody(body);
       if (viewId) {
         await client.views.update({
           view_id: viewId,

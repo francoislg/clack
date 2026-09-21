@@ -2,6 +2,8 @@ import { describe, it, vi } from "vitest";
 import { parseToolResult } from "../testHelpers.js";
 import assert from "node:assert/strict";
 import { createGetSessionTraceTool, type GetSessionTraceDeps } from "./getSessionTrace.js";
+import type { QueryToolContext } from "../types.js";
+import { stub } from "../../testStubs.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -10,7 +12,7 @@ import { createGetSessionTraceTool, type GetSessionTraceDeps } from "./getSessio
 interface TestCtx {
   mode: "query";
   userId: string;
-  role: string;
+  role: QueryToolContext["role"];
 }
 
 function makeCtx(): TestCtx {
@@ -36,7 +38,7 @@ function callTool(
   deps: GetSessionTraceDeps,
   args: { sessionId: string; verbose?: boolean; source?: "qa" | "change" },
 ) {
-  const toolDef = createGetSessionTraceTool(ctx as never, deps);
+  const toolDef = createGetSessionTraceTool(stub<QueryToolContext>(ctx), deps);
   return toolDef.handler(
     { sessionId: args.sessionId, verbose: args.verbose, source: args.source },
     { sessionId: "test" },

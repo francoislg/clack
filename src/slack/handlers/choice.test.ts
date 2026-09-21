@@ -1,11 +1,12 @@
 import { describe, it, vi, beforeEach } from "vitest";
 import assert from "node:assert/strict";
-import type { App } from "@slack/bolt";
 import type { SessionContext } from "../../sessions.js";
 import type { SessionInfo } from "../activeSessions.js";
-import type { AskClaudeOptions, ClaudeResponse } from "../../claude/index.js";
+import type { AskClaudeOptions } from "../../claude/index.js";
 import type { UserRole } from "../../roles.js";
 import { registerChoiceHandler, type ChoiceDeps } from "./choice.js";
+import { createSlackClientMock, type MockSlackClient } from "../testSlackClient.js";
+import { createSlackAppMock, createBlockActionArgs } from "../testBoltApp.js";
 
 // ============================================================================
 // Mocks
@@ -18,15 +19,7 @@ const mockDecodeActionValue =
   vi.fn<(v: string) => { sessionId: string; choiceValue?: string; workMode?: boolean }>();
 const mockRestoreSessionInfo = vi.fn<(id: string) => Promise<SessionInfo | undefined>>();
 
-const mockExecuteAndDeliver =
-  vi.fn<
-    (params: {
-      client: App["client"];
-      session: SessionContext;
-      sessionInfo: SessionInfo;
-      claudeOptions: AskClaudeOptions;
-    }) => Promise<ClaudeResponse>
-  >();
+const mockExecuteAndDeliver = vi.fn<ChoiceDeps["executeAndDeliver"]>();
 const mockGetHandlerClaudeOptions = vi.fn<(info: SessionInfo) => Promise<AskClaudeOptions>>();
 const mockCanRequestChanges = vi.fn<(role: UserRole) => boolean>();
 
@@ -46,26 +39,14 @@ function makeDeps(): ChoiceDeps {
 // Helpers
 // ============================================================================
 
-type ActionHandler = (args: {
-  ack: () => Promise<void>;
-  body: { actions: Array<{ value: string }> };
-  client: App["client"];
-}) => Promise<void>;
-
-let capturedHandler: ActionHandler;
-
-function makeApp(deps: ChoiceDeps): App {
-  const app = {
-    action: (_pattern: unknown, handler: ActionHandler) => {
-      capturedHandler = handler;
-    },
-  } as never as App;
+function makeApp(deps: ChoiceDeps) {
+  const app = createSlackAppMock();
   registerChoiceHandler(app, deps);
   return app;
 }
 
-function makeClient(): App["client"] {
-  return {} as unknown as App["client"];
+function makeClient(): MockSlackClient {
+  return createSlackClientMock();
 }
 
 function makeSession(overrides: Partial<SessionContext> = {}): SessionContext {
@@ -94,6 +75,8 @@ function makeSessionInfo(overrides: Partial<SessionInfo> = {}): SessionInfo {
   };
 }
 
+let app: ReturnType<typeof createSlackAppMock>;
+
 beforeEach(() => {
   mockGetSession.mockClear();
   mockAppendUserMessage.mockClear();
@@ -110,8 +93,7 @@ beforeEach(() => {
   }));
   mockCanRequestChanges.mockImplementation(() => true);
 
-  // Register handler
-  makeApp(makeDeps());
+  app = makeApp(makeDeps());
 });
 
 // ============================================================================
@@ -120,17 +102,16 @@ beforeEach(() => {
 
 describe("registerChoiceHandler", () => {
   it("registers an action handler on the app", () => {
-    assert.ok(capturedHandler, "handler should have been registered");
+    const [, handler] = app.action.mock.calls[0];
+    assert.ok(handler, "handler should have been registered");
   });
 
   it("returns early when choiceValue is missing", async () => {
     mockDecodeActionValue.mockImplementation(() => ({ sessionId: "sess-1" }));
 
-    await capturedHandler({
-      ack: async () => {},
-      body: { actions: [{ value: "raw" }] },
-      client: makeClient(),
-    });
+    const [, handler] = app.action.mock.calls[0];
+    const args = createBlockActionArgs({ value: "raw", client: makeClient() });
+    await handler(args);
 
     assert.equal(mockRestoreSessionInfo.mock.calls.length, 0);
     assert.equal(mockExecuteAndDeliver.mock.calls.length, 0);
@@ -143,11 +124,9 @@ describe("registerChoiceHandler", () => {
     }));
     mockRestoreSessionInfo.mockImplementation(async () => undefined);
 
-    await capturedHandler({
-      ack: async () => {},
-      body: { actions: [{ value: "raw" }] },
-      client: makeClient(),
-    });
+    const [, handler] = app.action.mock.calls[0];
+    const args = createBlockActionArgs({ value: "raw", client: makeClient() });
+    await handler(args);
 
     assert.equal(mockGetSession.mock.calls.length, 0);
     assert.equal(mockExecuteAndDeliver.mock.calls.length, 0);
@@ -161,11 +140,9 @@ describe("registerChoiceHandler", () => {
     mockRestoreSessionInfo.mockImplementation(async () => makeSessionInfo());
     mockGetSession.mockImplementation(async () => null);
 
-    await capturedHandler({
-      ack: async () => {},
-      body: { actions: [{ value: "raw" }] },
-      client: makeClient(),
-    });
+    const [, handler] = app.action.mock.calls[0];
+    const args = createBlockActionArgs({ value: "raw", client: makeClient() });
+    await handler(args);
 
     assert.equal(mockExecuteAndDeliver.mock.calls.length, 0);
   });
@@ -190,11 +167,9 @@ describe("registerChoiceHandler", () => {
     });
 
     const client = makeClient();
-    await capturedHandler({
-      ack: async () => {},
-      body: { actions: [{ value: "raw" }] },
-      client,
-    });
+    const [, handler] = app.action.mock.calls[0];
+    const args = createBlockActionArgs({ value: "raw", client });
+    await handler(args);
 
     // unified-conversation-log: choice presses now append a structured user message
     // with source: "choice". The dual-write inside appendUserMessage still produces
@@ -207,7 +182,7 @@ describe("registerChoiceHandler", () => {
     assert.equal(appended.value, "option-a");
 
     assert.equal(mockExecuteAndDeliver.mock.calls.length, 1);
-    const deliverArgs = mockExecuteAndDeliver.mock.calls[0][0] as Record<string, unknown>;
+    const deliverArgs = mockExecuteAndDeliver.mock.calls[0][0];
     assert.equal(deliverArgs.client, client);
     assert.equal(deliverArgs.session, updatedSession);
     assert.equal(deliverArgs.sessionInfo, sessionInfo);
@@ -228,14 +203,12 @@ describe("registerChoiceHandler", () => {
       changesWorkflowEnabled: true,
     }));
 
-    await capturedHandler({
-      ack: async () => {},
-      body: { actions: [{ value: "raw" }] },
-      client: makeClient(),
-    });
+    const [, handler] = app.action.mock.calls[0];
+    const args = createBlockActionArgs({ value: "raw", client: makeClient() });
+    await handler(args);
 
-    const deliverArgs = mockExecuteAndDeliver.mock.calls[0][0] as Record<string, unknown>;
-    const opts = deliverArgs.claudeOptions as AskClaudeOptions;
+    const deliverArgs = mockExecuteAndDeliver.mock.calls[0][0];
+    const opts = deliverArgs.claudeOptions;
     assert.equal(opts.workMode, false);
   });
 
@@ -256,14 +229,12 @@ describe("registerChoiceHandler", () => {
     }));
     mockCanRequestChanges.mockImplementation(() => true);
 
-    await capturedHandler({
-      ack: async () => {},
-      body: { actions: [{ value: "raw" }] },
-      client: makeClient(),
-    });
+    const [, handler] = app.action.mock.calls[0];
+    const args = createBlockActionArgs({ value: "raw", client: makeClient() });
+    await handler(args);
 
-    const deliverArgs = mockExecuteAndDeliver.mock.calls[0][0] as Record<string, unknown>;
-    const opts = deliverArgs.claudeOptions as AskClaudeOptions;
+    const deliverArgs = mockExecuteAndDeliver.mock.calls[0][0];
+    const opts = deliverArgs.claudeOptions;
     assert.equal(opts.workMode, true);
   });
 
@@ -283,14 +254,12 @@ describe("registerChoiceHandler", () => {
       changesWorkflowEnabled: false,
     }));
 
-    await capturedHandler({
-      ack: async () => {},
-      body: { actions: [{ value: "raw" }] },
-      client: makeClient(),
-    });
+    const [, handler] = app.action.mock.calls[0];
+    const args = createBlockActionArgs({ value: "raw", client: makeClient() });
+    await handler(args);
 
-    const deliverArgs = mockExecuteAndDeliver.mock.calls[0][0] as Record<string, unknown>;
-    const opts = deliverArgs.claudeOptions as AskClaudeOptions;
+    const deliverArgs = mockExecuteAndDeliver.mock.calls[0][0];
+    const opts = deliverArgs.claudeOptions;
     assert.equal(opts.workMode, false);
   });
 
@@ -311,14 +280,12 @@ describe("registerChoiceHandler", () => {
     }));
     mockCanRequestChanges.mockImplementation(() => false);
 
-    await capturedHandler({
-      ack: async () => {},
-      body: { actions: [{ value: "raw" }] },
-      client: makeClient(),
-    });
+    const [, handler] = app.action.mock.calls[0];
+    const args = createBlockActionArgs({ value: "raw", client: makeClient() });
+    await handler(args);
 
-    const deliverArgs = mockExecuteAndDeliver.mock.calls[0][0] as Record<string, unknown>;
-    const opts = deliverArgs.claudeOptions as AskClaudeOptions;
+    const deliverArgs = mockExecuteAndDeliver.mock.calls[0][0];
+    const opts = deliverArgs.claudeOptions;
     assert.equal(opts.workMode, false);
   });
 });

@@ -1,11 +1,12 @@
 import { describe, it, beforeEach, vi } from "vitest";
 import assert from "node:assert/strict";
-import type { App, BlockAction, ViewSubmitAction } from "@slack/bolt";
 import type { SessionContext } from "../../sessions.js";
 import type { ResponseSnapshot } from "../../tools/types.js";
 import type { SessionInfo } from "../activeSessions.js";
 import type { DmActionsDeps } from "./dmActions.js";
 import { postAnswerToChannel, resolveOrigin, registerDmActionHandlers } from "./dmActions.js";
+import { createSlackClientMock, type MockSlackClient } from "../testSlackClient.js";
+import { createBlockActionArgs, createSlackAppMock, type MockSlackApp } from "../testBoltApp.js";
 
 /**
  * Polls `calls.length` until it reaches `expected`. Used by tests covering
@@ -50,62 +51,32 @@ function makeDeps(): DmActionsDeps {
 // Helpers
 // ============================================================================
 
-type BlockActionHandler = (args: {
-  ack: () => Promise<void>;
-  body: BlockAction;
-  client: App["client"];
-}) => Promise<void>;
-
-type ViewSubmitHandler = (args: {
-  ack: () => Promise<void>;
-  view: ViewSubmitAction["view"];
-  client: App["client"];
-}) => Promise<void>;
-
-let capturedBlockHandlers: Map<string, BlockActionHandler> = new Map();
-let capturedViewHandlers: Map<string, ViewSubmitHandler> = new Map();
-
-function makeApp(deps: DmActionsDeps): App {
-  capturedBlockHandlers.clear();
-  capturedViewHandlers.clear();
-
-  const app = {
-    action: (pattern: string | RegExp, handler: BlockActionHandler) => {
-      const key = typeof pattern === "string" ? pattern : pattern.source;
-      capturedBlockHandlers.set(key, handler);
-    },
-    view: (id: string, handler: ViewSubmitHandler) => {
-      capturedViewHandlers.set(id, handler);
-    },
-  } as never as App;
-
+function makeApp(deps: DmActionsDeps): MockSlackApp {
+  const app = createSlackAppMock();
   registerDmActionHandlers(app, deps);
   return app;
 }
 
-let mockPostMessage: ReturnType<typeof vi.fn<(...args: any[]) => any>>;
-
-function makeChatApi(): App["client"]["chat"] {
-  const postMessageFn = vi.fn<() => Promise<{ ts?: string }>>(async () => ({
-    ts: "1700.999",
-  }));
-  mockPostMessage = postMessageFn;
-  const postEphemeralFn = vi.fn<() => Promise<{ ok?: boolean }>>(async () => ({ ok: true }));
-  const updateFn = vi.fn<() => Promise<{ ok?: boolean }>>(async () => ({
-    ok: true,
-  }));
-
-  return {
-    postMessage: postMessageFn,
-    postEphemeral: postEphemeralFn,
-    update: updateFn,
-  } as never as App["client"]["chat"];
+/** Find a registered `app.action(...)` call by its pattern (string, or a regex's `.source`). */
+function findAction(app: MockSlackApp, key: string) {
+  return app.action.mock.calls.find(([pattern]) => {
+    if (typeof pattern === "string") return pattern === key;
+    if (pattern instanceof RegExp) return pattern.source === key;
+    return false;
+  });
 }
 
-function makeClient(): App["client"] {
-  return {
-    chat: makeChatApi(),
-  } as never as App["client"];
+/** Find a registered `app.view(...)` call by its callback ID. */
+function findView(app: MockSlackApp, callbackId: string) {
+  return app.view.mock.calls.find(([id]) => id === callbackId);
+}
+
+function makeClient(): MockSlackClient {
+  const client = createSlackClientMock();
+  client.chat.postMessage.mockResolvedValue({ ok: true, ts: "1700.999", channel: "C100" });
+  client.chat.postEphemeral.mockResolvedValue({ ok: true });
+  client.chat.update.mockResolvedValue({ ok: true });
+  return client;
 }
 
 function makeSession(overrides: Partial<SessionContext> = {}): SessionContext {
@@ -209,10 +180,7 @@ describe("postAnswerToChannel", () => {
 
     await postAnswerToChannel(client, snapshot, "C100", undefined, deps);
 
-    const callArgs = mockPostMessage.mock.calls[0]![0] as {
-      unfurl_links?: false;
-      unfurl_media?: false;
-    };
+    const callArgs = client.chat.postMessage.mock.calls[0]![0];
     assert.equal("unfurl_links" in callArgs, false);
     assert.equal("unfurl_media" in callArgs, false);
   });
@@ -226,10 +194,7 @@ describe("postAnswerToChannel", () => {
       suppressUnfurls: true,
     });
 
-    const callArgs = mockPostMessage.mock.calls[0]![0] as {
-      unfurl_links?: false;
-      unfurl_media?: false;
-    };
+    const callArgs = client.chat.postMessage.mock.calls[0]![0];
     assert.equal(callArgs.unfurl_links, false);
     assert.equal(callArgs.unfurl_media, false);
   });
@@ -241,10 +206,7 @@ describe("postAnswerToChannel", () => {
 
     await postAnswerToChannel(client, snapshot, "C100", undefined, deps);
 
-    const callArgs = mockPostMessage.mock.calls[0]![0] as {
-      unfurl_links?: false;
-      unfurl_media?: false;
-    };
+    const callArgs = client.chat.postMessage.mock.calls[0]![0];
     assert.equal(callArgs.unfurl_links, false);
     assert.equal(callArgs.unfurl_media, false);
   });
@@ -253,19 +215,13 @@ describe("postAnswerToChannel", () => {
   // post_to message-content parity: actions + reactions on cross-posted messages
   // -------------------------------------------------------------------------
 
-  function attachReactionsMock(client: App["client"]): {
+  function attachReactionsMock(client: MockSlackClient): {
     calls: { channel: string; timestamp: string; name: string }[];
   } {
     const calls: { channel: string; timestamp: string; name: string }[] = [];
-    const addFn = vi.fn(async (args: { channel: string; timestamp: string; name: string }) => {
-      calls.push(args);
-      return { ok: true as const };
-    });
-    // The fake client from makeClient() doesn't have `reactions` set, so attach
-    // the full surface here. Real `App["client"]` has it; this mirrors that.
-    Object.defineProperty(client, "reactions", {
-      configurable: true,
-      value: { add: addFn },
+    client.reactions.add.mockImplementation(async (args) => {
+      calls.push({ channel: args.channel, timestamp: args.timestamp, name: args.name });
+      return { ok: true };
     });
     return { calls };
   }
@@ -332,15 +288,17 @@ describe("postAnswerToChannel", () => {
     // The postMessage call should have been invoked once with blocks containing
     // both the content blocks AND a rendered actions block whose button value
     // encodes the original session ID.
-    assert.equal(mockPostMessage.mock.calls.length, 1);
-    const postArgs = mockPostMessage.mock.calls[0][0] as {
-      blocks: { type: string; elements?: { value?: string }[] }[];
-    };
+    assert.equal(client.chat.postMessage.mock.calls.length, 1);
+    const postArgs = client.chat.postMessage.mock.calls[0][0];
+    if (!("blocks" in postArgs)) throw new Error("expected a blocks-based postMessage call");
     const actionsBlock = postArgs.blocks.find((b) => b.type === "actions");
     assert.ok(actionsBlock, "expected an actions block on the cross-posted message");
+    const firstElement =
+      actionsBlock && "elements" in actionsBlock ? actionsBlock.elements[0] : undefined;
+    const value = firstElement && "value" in firstElement ? firstElement.value : undefined;
     assert.ok(
-      actionsBlock?.elements?.[0]?.value?.includes("sess-99"),
-      `expected button value to encode session ID, got: ${JSON.stringify(actionsBlock?.elements)}`,
+      value?.includes("sess-99"),
+      `expected button value to encode session ID, got: ${JSON.stringify(actionsBlock && "elements" in actionsBlock ? actionsBlock.elements : undefined)}`,
     );
   });
 
@@ -353,9 +311,8 @@ describe("postAnswerToChannel", () => {
       sessionId: "sess-99",
     });
 
-    const postArgs = mockPostMessage.mock.calls[0][0] as {
-      blocks: { type: string }[];
-    };
+    const postArgs = client.chat.postMessage.mock.calls[0][0];
+    if (!("blocks" in postArgs)) throw new Error("expected a blocks-based postMessage call");
     const actionsBlock = postArgs.blocks.find((b) => b.type === "actions");
     assert.equal(actionsBlock, undefined);
   });
@@ -418,59 +375,51 @@ describe("resolveOrigin", () => {
 
 describe("registerDmActionHandlers", () => {
   it("registers post_to handler with regex pattern", () => {
-    const deps = makeDeps();
-    makeApp(deps);
+    const app = makeApp(makeDeps());
 
-    assert.ok(capturedBlockHandlers.has("^clack_post_to_\\d+$"));
+    assert.ok(findAction(app, "^clack_post_to_\\d+$"));
   });
 
   it("registers backward compat handler with old action ID", () => {
-    const deps = makeDeps();
-    makeApp(deps);
+    const app = makeApp(makeDeps());
 
-    assert.ok(capturedBlockHandlers.has("^clack_dm_send_to_thread_\\d+$"));
+    assert.ok(findAction(app, "^clack_dm_send_to_thread_\\d+$"));
   });
 
   it("registers dm_accept_synthesis handler", () => {
-    const deps = makeDeps();
-    makeApp(deps);
+    const app = makeApp(makeDeps());
 
-    assert.ok(capturedBlockHandlers.has("clack_dm_accept_synthesis"));
+    assert.ok(findAction(app, "clack_dm_accept_synthesis"));
   });
 
   it("registers dm_edit_synthesis handler", () => {
-    const deps = makeDeps();
-    makeApp(deps);
+    const app = makeApp(makeDeps());
 
-    assert.ok(capturedBlockHandlers.has("clack_dm_edit_synthesis"));
+    assert.ok(findAction(app, "clack_dm_edit_synthesis"));
   });
 
   it("registers dm_edit_synthesis_modal view handler", () => {
-    const deps = makeDeps();
-    makeApp(deps);
+    const app = makeApp(makeDeps());
 
-    assert.ok(capturedViewHandlers.has("dm_edit_synthesis_modal"));
+    assert.ok(findView(app, "dm_edit_synthesis_modal"));
   });
 
   it("registers dm_reject handler", () => {
-    const deps = makeDeps();
-    makeApp(deps);
+    const app = makeApp(makeDeps());
 
-    assert.ok(capturedBlockHandlers.has("clack_dm_reject"));
+    assert.ok(findAction(app, "clack_dm_reject"));
   });
 
   it("registers dm_update_post handler", () => {
-    const deps = makeDeps();
-    makeApp(deps);
+    const app = makeApp(makeDeps());
 
-    assert.ok(capturedBlockHandlers.has("clack_dm_update_post"));
+    assert.ok(findAction(app, "clack_dm_update_post"));
   });
 
   it("registers dm_post_new handler", () => {
-    const deps = makeDeps();
-    makeApp(deps);
+    const app = makeApp(makeDeps());
 
-    assert.ok(capturedBlockHandlers.has("clack_dm_post_new"));
+    assert.ok(findAction(app, "clack_dm_post_new"));
   });
 });
 
@@ -479,27 +428,16 @@ describe("registerDmActionHandlers", () => {
 // ============================================================================
 
 describe("handlePostTo — legacy snapshot guard", () => {
-  function makeBlockAction(value: string): BlockAction {
-    return {
-      type: "block_actions",
-      trigger_id: "t1",
-      user: { id: "U001", username: "user", name: "user", team_id: "T1" },
-      channel: { id: "C001", name: "general" },
-      actions: [
-        {
-          type: "button",
-          action_id: "clack_post_to_0",
-          value,
-          block_id: "b",
-          action_ts: "1",
-        },
-      ],
-    } as BlockAction;
+  /** Read the `^clack_post_to_\d+$` handler back off the mocked app. */
+  function getPostToHandler(app: MockSlackApp) {
+    const found = findAction(app, "^clack_post_to_\\d+$");
+    assert.ok(found, "expected the post_to handler to be registered");
+    const [, handler] = found;
+    return handler;
   }
 
   it("sends expiration DM when snapshot has legacy sections shape (no blocks)", async () => {
-    const deps = makeDeps();
-    makeApp(deps);
+    const app = makeApp(makeDeps());
 
     // Simulate legacy persisted data: snapshots saved before the Block Kit
     // migration have { text, sections } but no `blocks` field. At runtime the
@@ -516,31 +454,29 @@ describe("handlePostTo — legacy snapshot guard", () => {
     mockRestoreSession.mockImplementation(async () => sessionInfo);
 
     const client = makeClient();
-    const handler = capturedBlockHandlers.get("^clack_post_to_\\d+$")!;
-    await handler({
-      ack: async () => {},
-      body: makeBlockAction("sess-1"),
+    const handler = getPostToHandler(app);
+    const args = createBlockActionArgs({
+      value: "sess-1",
+      actionId: "clack_post_to_0",
+      userId: "U001",
+      channelId: "C001",
       client,
     });
+    await handler(args);
 
     // Should NOT have called getStructuredAcceptedBlocks (no post attempted)
     assert.equal(mockGetStructuredAcceptedBlocks.mock.calls.length, 0);
 
     // Should have sent the expiration DM via postMessage (confirmInDm path)
-    const postCalls = mockPostMessage.mock.calls;
+    const postCalls = client.chat.postMessage.mock.calls;
     assert.ok(postCalls.length >= 1, "expected at least one postMessage call");
-    const lastCall = postCalls[postCalls.length - 1][0] as {
-      text: string;
-    };
-    assert.ok(
-      lastCall.text.includes("older response"),
-      `expected expiration message, got: ${lastCall.text}`,
-    );
+    const lastCallArgs = postCalls[postCalls.length - 1][0];
+    const text = "text" in lastCallArgs ? lastCallArgs.text : undefined;
+    assert.ok(text?.includes("older response"), `expected expiration message, got: ${text}`);
   });
 
   it("proceeds normally when snapshot has current blocks shape", async () => {
-    const deps = makeDeps();
-    makeApp(deps);
+    const app = makeApp(makeDeps());
 
     const currentSnapshot = makeSnapshot({
       text: "current answer",
@@ -561,12 +497,15 @@ describe("handlePostTo — legacy snapshot guard", () => {
     mockRestoreSession.mockImplementation(async () => sessionInfo);
 
     const client = makeClient();
-    const handler = capturedBlockHandlers.get("^clack_post_to_\\d+$")!;
-    await handler({
-      ack: async () => {},
-      body: makeBlockAction("sess-1"),
+    const handler = getPostToHandler(app);
+    const args = createBlockActionArgs({
+      value: "sess-1",
+      actionId: "clack_post_to_0",
+      userId: "U001",
+      channelId: "C001",
       client,
     });
+    await handler(args);
 
     // Should have called getStructuredAcceptedBlocks (post went through)
     assert.equal(mockGetStructuredAcceptedBlocks.mock.calls.length, 1);

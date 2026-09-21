@@ -2,24 +2,14 @@ import { describe, it, vi } from "vitest";
 import assert from "node:assert/strict";
 import { cleanupAfterPRAction, type CleanupAfterPRActionDeps } from "./prHelpers.js";
 import type { WorkerToolContext } from "../types.js";
+import { makeWorkerCtx } from "./testCtx.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
 function makeCtx(overrides?: Partial<WorkerToolContext>): WorkerToolContext {
-  return {
-    mode: "worker",
-    worktreePath: "/tmp/worktrees/my-repo/branch",
-    branchName: "clack/fix/my-branch",
-    repoName: "my-repo",
-    repoUrl: "https://github.com/org/my-repo.git",
-    channelId: "C123",
-    threadTs: "1.0",
-    sessionId: "sess-1",
-    config: { repositories: [] } as never as WorkerToolContext["config"],
-    ...overrides,
-  };
+  return makeWorkerCtx(overrides);
 }
 
 function makeDeps() {
@@ -30,14 +20,11 @@ function makeDeps() {
   const mockDeleteBranch = vi.fn<(...args: unknown[]) => Promise<void>>(async () => {});
 
   const deps: CleanupAfterPRActionDeps = {
-    updateActiveChangeStatus:
-      mockUpdateActiveChangeStatus as never as CleanupAfterPRActionDeps["updateActiveChangeStatus"],
-    clearActiveChange:
-      mockClearActiveChange as never as CleanupAfterPRActionDeps["clearActiveChange"],
-    appendExecutionLog:
-      mockAppendExecutionLog as never as CleanupAfterPRActionDeps["appendExecutionLog"],
-    removeWorktree: mockRemoveWorktree as never as CleanupAfterPRActionDeps["removeWorktree"],
-    deleteBranch: mockDeleteBranch as never as CleanupAfterPRActionDeps["deleteBranch"],
+    updateActiveChangeStatus: mockUpdateActiveChangeStatus,
+    clearActiveChange: mockClearActiveChange,
+    appendExecutionLog: mockAppendExecutionLog,
+    removeWorktree: mockRemoveWorktree,
+    deleteBranch: mockDeleteBranch,
   };
 
   return {

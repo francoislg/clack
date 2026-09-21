@@ -1,10 +1,11 @@
 import { describe, it, vi, beforeEach } from "vitest";
 import assert from "node:assert/strict";
-import type { App } from "@slack/bolt";
 import type { SessionInfo } from "../activeSessions.js";
 import type { SessionContext, ThreadMessage } from "../../sessions.js";
 import { registerRetryHandler, type RetryDeps } from "./retry.js";
-import type { FetchThreadContextOptions } from "../messagesApi.js";
+import { stub } from "../../testStubs.js";
+import { createSlackClientMock, type MockSlackClient } from "../testSlackClient.js";
+import { createSlackAppMock, createBlockActionArgs, respondedWith } from "../testBoltApp.js";
 import type { AskClaudeOptions, ClaudeResponse } from "../../claude/index.js";
 import type { Config } from "../../config.js";
 
@@ -16,25 +17,8 @@ const mockGetSession = vi.fn<(sessionId: string) => Promise<SessionContext | nul
 const mockUpdateThreadContext =
   vi.fn<(sessionId: string, context: ThreadMessage[]) => Promise<SessionContext | null>>();
 const mockRestoreSessionInfo = vi.fn<(sessionId: string) => Promise<SessionInfo | undefined>>();
-const mockFetchThreadContext =
-  vi.fn<
-    (
-      client: App["client"],
-      channelId: string,
-      threadTs: string,
-      botUserId: string,
-      opts?: FetchThreadContextOptions,
-    ) => Promise<ThreadMessage[]>
-  >();
-const mockExecuteAndDeliver =
-  vi.fn<
-    (params: {
-      client: App["client"];
-      session: SessionContext;
-      sessionInfo: SessionInfo;
-      claudeOptions: AskClaudeOptions;
-    }) => Promise<ClaudeResponse>
-  >();
+const mockFetchThreadContext = vi.fn<RetryDeps["fetchThreadContext"]>();
+const mockExecuteAndDeliver = vi.fn<RetryDeps["executeAndDeliver"]>();
 const mockGetHandlerClaudeOptions = vi.fn<(info: SessionInfo) => Promise<AskClaudeOptions>>();
 const mockGetConfig = vi.fn<() => Config>();
 
@@ -54,33 +38,16 @@ function makeDeps(): RetryDeps {
 // Helpers
 // ============================================================================
 
-type ActionHandler = (args: {
-  ack: () => Promise<void>;
-  body: { actions: Array<{ value: string }> };
-  client: App["client"];
-  respond: (msg: { replace_original?: boolean; text: string }) => Promise<void>;
-}) => Promise<void>;
-
-let capturedHandler: ActionHandler;
-let capturedActionId: string;
-
-function makeApp(deps: RetryDeps): App {
-  const app = {
-    action: (actionId: string, handler: ActionHandler) => {
-      capturedActionId = actionId;
-      capturedHandler = handler;
-    },
-  } as never as App;
+function makeApp(deps: RetryDeps) {
+  const app = createSlackAppMock();
   registerRetryHandler(app, deps);
   return app;
 }
 
-function makeClient(botUserId: string = "B001"): App["client"] {
-  return {
-    auth: {
-      test: vi.fn(async () => ({ user_id: botUserId })),
-    },
-  } as never as App["client"];
+function makeClient(botUserId: string = "B001"): MockSlackClient {
+  const client = createSlackClientMock();
+  client.auth.test.mockImplementation(async () => ({ ok: true, user_id: botUserId }));
+  return client;
 }
 
 function makeSession(overrides: Partial<SessionContext> = {}): SessionContext {
@@ -109,6 +76,8 @@ function makeSessionInfo(overrides: Partial<SessionInfo> = {}): SessionInfo {
   };
 }
 
+let app: ReturnType<typeof createSlackAppMock>;
+
 beforeEach(() => {
   mockGetSession.mockClear();
   mockUpdateThreadContext.mockClear();
@@ -119,16 +88,15 @@ beforeEach(() => {
   mockGetConfig.mockClear();
 
   // Default config (minimal mock)
-  mockGetConfig.mockImplementation(
-    () =>
-      ({
-        slack: {
-          fetchAndStoreUsername: false,
-        },
-      }) as never as Config,
+  mockGetConfig.mockImplementation(() =>
+    stub<Config>({
+      slack: {
+        fetchAndStoreUsername: false,
+      },
+    }),
   );
 
-  makeApp(makeDeps());
+  app = makeApp(makeDeps());
 });
 
 // ============================================================================
@@ -137,48 +105,35 @@ beforeEach(() => {
 
 describe("registerRetryHandler", () => {
   it("registers a clack_retry action handler", () => {
-    assert.equal(capturedActionId, "clack_retry");
-    assert.ok(capturedHandler, "handler should have been registered");
+    const [constraints, handler] = app.action.mock.calls[0];
+    assert.equal(constraints, "clack_retry");
+    assert.ok(handler, "handler should have been registered");
   });
 
   it("responds with expired message when session is not found", async () => {
     mockGetSession.mockImplementation(async () => null);
     mockRestoreSessionInfo.mockImplementation(async () => undefined);
-    const mockRespond = vi.fn<(msg: { replace_original?: boolean; text: string }) => Promise<void>>(
-      async () => {},
-    );
-    const mockAck = vi.fn<() => Promise<void>>(async () => {});
 
-    await capturedHandler({
-      ack: mockAck,
-      body: { actions: [{ value: "session-1" }] },
-      client: makeClient(),
-      respond: mockRespond,
-    });
+    const [, handler] = app.action.mock.calls[0];
+    const args = createBlockActionArgs({ value: "session-1", client: makeClient() });
+    await handler(args);
 
-    assert.equal(mockAck.mock.calls.length, 1);
-    assert.equal(mockRespond.mock.calls.length, 1);
-    const respondArgs = mockRespond.mock.calls[0][0];
-    assert.ok(respondArgs.text.includes("expired"));
-    assert.equal(respondArgs.replace_original, true);
+    assert.equal(args.ack.mock.calls.length, 1);
+    assert.equal(args.respond.mock.calls.length, 1);
+    const responded = respondedWith(args);
+    assert.ok(responded?.text?.includes("expired"));
+    assert.equal(responded?.replace_original, true);
   });
 
   it("responds with expired message when sessionInfo is not found", async () => {
     mockGetSession.mockImplementation(async () => makeSession());
     mockRestoreSessionInfo.mockImplementation(async () => undefined);
-    const mockRespond = vi.fn<(msg: { replace_original?: boolean; text: string }) => Promise<void>>(
-      async () => {},
-    );
-    const mockAck = vi.fn<() => Promise<void>>(async () => {});
 
-    await capturedHandler({
-      ack: mockAck,
-      body: { actions: [{ value: "session-1" }] },
-      client: makeClient(),
-      respond: mockRespond,
-    });
+    const [, handler] = app.action.mock.calls[0];
+    const args = createBlockActionArgs({ value: "session-1", client: makeClient() });
+    await handler(args);
 
-    assert.equal(mockRespond.mock.calls.length, 1);
+    assert.equal(args.respond.mock.calls.length, 1);
   });
 
   it("re-fetches thread context and calls executeAndDeliver", async () => {
@@ -187,7 +142,7 @@ describe("registerRetryHandler", () => {
       threadContext: [{ text: "msg", userId: "U001", isBot: false, ts: "1" }],
     });
     const sessionInfo = makeSessionInfo();
-    const claudeOptions: AskClaudeOptions = { model: "claude-test" } as never;
+    const claudeOptions: AskClaudeOptions = { model: "claude-test" } as AskClaudeOptions;
     const response: ClaudeResponse = { success: true, answer: "done" };
 
     let getSessionCallCount = 0;
@@ -203,18 +158,11 @@ describe("registerRetryHandler", () => {
     mockGetHandlerClaudeOptions.mockImplementation(async () => claudeOptions);
     mockExecuteAndDeliver.mockImplementation(async () => response);
 
-    const mockAck = vi.fn<() => Promise<void>>(async () => {});
-    const mockRespond = vi.fn<(msg: { replace_original?: boolean; text: string }) => Promise<void>>(
-      async () => {},
-    );
     const client = makeClient("B001");
+    const [, handler] = app.action.mock.calls[0];
+    const args = createBlockActionArgs({ value: "session-1", client });
 
-    await capturedHandler({
-      ack: mockAck,
-      body: { actions: [{ value: "session-1" }] },
-      client,
-      respond: mockRespond,
-    });
+    await handler(args);
 
     // Should have fetched thread context
     assert.equal(mockFetchThreadContext.mock.calls.length, 1);
@@ -244,38 +192,28 @@ describe("registerRetryHandler", () => {
     mockFetchThreadContext.mockImplementation(async () => []);
     mockGetHandlerClaudeOptions.mockImplementation(async () => ({}) as AskClaudeOptions);
 
-    mockGetConfig.mockImplementation(
-      () =>
-        ({
-          slack: {
-            fetchAndStoreUsername: true,
-          },
-        }) as never as Config,
+    mockGetConfig.mockImplementation(() =>
+      stub<Config>({
+        slack: {
+          fetchAndStoreUsername: true,
+        },
+      }),
     );
 
-    const mockAck = vi.fn<() => Promise<void>>(async () => {});
-    const mockRespond = vi.fn<(msg: { replace_original?: boolean; text: string }) => Promise<void>>(
-      async () => {},
-    );
-
-    await capturedHandler({
-      ack: mockAck,
-      body: { actions: [{ value: "session-1" }] },
-      client: makeClient(),
-      respond: mockRespond,
-    });
+    const [, handler] = app.action.mock.calls[0];
+    const args = createBlockActionArgs({ value: "session-1", client: makeClient() });
+    await handler(args);
 
     const fetchArgs = mockFetchThreadContext.mock.calls[0];
     assert.deepEqual(fetchArgs[4], { fetchUserNames: true });
 
     // Reset config
-    mockGetConfig.mockImplementation(
-      () =>
-        ({
-          slack: {
-            fetchAndStoreUsername: false,
-          },
-        }) as never as Config,
+    mockGetConfig.mockImplementation(() =>
+      stub<Config>({
+        slack: {
+          fetchAndStoreUsername: false,
+        },
+      }),
     );
   });
 
@@ -283,45 +221,26 @@ describe("registerRetryHandler", () => {
     mockGetSession.mockImplementation(async () => null);
     mockRestoreSessionInfo.mockImplementation(async () => undefined);
 
-    const callOrder: string[] = [];
-    const mockAck = vi.fn<() => Promise<void>>(async () => {
-      callOrder.push("ack");
-    });
-    const mockRespond = vi.fn<(msg: { replace_original?: boolean; text: string }) => Promise<void>>(
-      async () => {
-        callOrder.push("respond");
-      },
-    );
+    const [, handler] = app.action.mock.calls[0];
+    const args = createBlockActionArgs({ value: "session-1", client: makeClient() });
+    await handler(args);
 
-    await capturedHandler({
-      ack: mockAck,
-      body: { actions: [{ value: "session-1" }] },
-      client: makeClient(),
-      respond: mockRespond,
-    });
-
-    assert.equal(callOrder[0], "ack");
+    const [ackOrder] = args.ack.mock.invocationCallOrder;
+    const [respondOrder] = args.respond.mock.invocationCallOrder;
+    assert.ok(ackOrder < respondOrder, "ack should be called before respond");
   });
 
   it("gets handler claude options from sessionInfo", async () => {
     const session = makeSession();
-    const sessionInfo = makeSessionInfo({ triggerType: "reactions" } as never);
+    const sessionInfo = makeSessionInfo({ triggerType: "reactions" });
     mockGetSession.mockImplementation(async () => session);
     mockRestoreSessionInfo.mockImplementation(async () => sessionInfo);
     mockFetchThreadContext.mockImplementation(async () => []);
     mockGetHandlerClaudeOptions.mockImplementation(async () => ({}) as AskClaudeOptions);
 
-    const mockAck = vi.fn<() => Promise<void>>(async () => {});
-    const mockRespond = vi.fn<(msg: { replace_original?: boolean; text: string }) => Promise<void>>(
-      async () => {},
-    );
-
-    await capturedHandler({
-      ack: mockAck,
-      body: { actions: [{ value: "session-1" }] },
-      client: makeClient(),
-      respond: mockRespond,
-    });
+    const [, handler] = app.action.mock.calls[0];
+    const args = createBlockActionArgs({ value: "session-1", client: makeClient() });
+    await handler(args);
 
     assert.equal(mockGetHandlerClaudeOptions.mock.calls.length, 1);
     assert.equal(mockGetHandlerClaudeOptions.mock.calls[0][0], sessionInfo);

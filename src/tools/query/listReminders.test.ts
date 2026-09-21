@@ -1,8 +1,9 @@
-import { describe, it, vi } from "vitest";
+import { describe, it } from "vitest";
 import assert from "node:assert/strict";
 import { createListRemindersTool } from "./listReminders.js";
 import type { QueryToolContext } from "../types.js";
 import { parseToolResult } from "../testHelpers.js";
+import { createSlackClientMock, type MockSlackClient } from "../../slack/testSlackClient.js";
 
 function makeContext(overrides?: Partial<QueryToolContext>): QueryToolContext {
   return {
@@ -21,33 +22,27 @@ function makeContext(overrides?: Partial<QueryToolContext>): QueryToolContext {
   };
 }
 
-function makeSlackClient(listResult?: unknown) {
-  return {
-    chat: {
-      scheduledMessages: {
-        list: vi.fn(
-          async () =>
-            listResult ?? {
-              ok: true,
-              scheduled_messages: [
-                {
-                  id: "Q123",
-                  channel_id: "C_OPS",
-                  post_at: 1743523200,
-                  date_created: 1743436800,
-                  text: "🔔 Reminder from <@U123>:\nCheck the dashboard",
-                },
-              ],
-            },
-        ),
-      },
-    },
-  } as unknown as QueryToolContext["slackClient"];
-}
+type ScheduledMessagesListResult = Awaited<
+  ReturnType<MockSlackClient["chat"]["scheduledMessages"]["list"]>
+>;
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function getMockCalls(obj: unknown): any[] {
-  return (obj as { mock: { calls: unknown[][] } }).mock.calls;
+function makeSlackClient(
+  listResult: ScheduledMessagesListResult = {
+    ok: true,
+    scheduled_messages: [
+      {
+        id: "Q123",
+        channel_id: "C_OPS",
+        post_at: 1743523200,
+        date_created: 1743436800,
+        text: "🔔 Reminder from <@U123>:\nCheck the dashboard",
+      },
+    ],
+  },
+) {
+  const client = createSlackClientMock();
+  client.chat.scheduledMessages.list.mockResolvedValue(listResult);
+  return client;
 }
 
 describe("createListRemindersTool", () => {
@@ -79,8 +74,10 @@ describe("createListRemindersTool", () => {
 
     await tool.handler({ channel: "C_OPS" }, {});
 
-    const calls = getMockCalls(client!.chat.scheduledMessages.list);
-    const callArgs = calls[0][0] as Record<string, string>;
+    const [callArgs] = client.chat.scheduledMessages.list.mock.calls[0];
+    if (!callArgs) {
+      throw new Error("expected scheduledMessages.list to be called with args");
+    }
     assert.equal(callArgs.channel, "C_OPS");
   });
 

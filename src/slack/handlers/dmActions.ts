@@ -53,7 +53,7 @@ export interface DmActionsDeps {
 
 export const defaultDmActionsDeps: DmActionsDeps = {
   getSession,
-  updateSession: updateSession as never,
+  updateSession,
   appendAssistantMessage,
   restoreSession: (sessionId: string) => activeSessions.restore(sessionId),
   setSessionInfo: (sessionId, info) => activeSessions.set(sessionId, info),

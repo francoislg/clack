@@ -19,14 +19,12 @@ import {
 
 function makeDeps(overrides: Partial<AllowlistDeps> = {}): AllowlistDeps {
   // validateConfig only checks for thrown errors in allowlist, return value is unused
-  const validateConfig = vi.fn((_config: unknown, _auth: SlackAuthConfig) => {
-    // no-op: does not throw = valid
-  });
+  const validateConfig = vi.fn<AllowlistDeps["validateConfig"]>();
   return {
     ...defaultAllowlistDeps,
     getDataDir: () => "/tmp/test-data",
     // The allowlist only checks whether validateConfig throws, not its return value
-    validateConfig: validateConfig as never as AllowlistDeps["validateConfig"],
+    validateConfig,
     loadSlackAuth: vi.fn((): SlackAuthConfig => ({
       botToken: "xoxb-test",
       appToken: "xapp-test",

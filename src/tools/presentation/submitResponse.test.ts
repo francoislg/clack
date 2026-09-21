@@ -6,6 +6,7 @@ import type { IntentStore, ResponseCapture, ToolCallRecorder } from "../server.j
 import type { AttentionLevel, DeliveryMode } from "../../sessions.js";
 import type { StagedIntent, ResponseSnapshot } from "../types.js";
 import { parseToolResult, toolResultText } from "../testHelpers.js";
+import { stub } from "../../testStubs.js";
 import {
   buildSubmitResponseSchema,
   createSubmitResponseTool,
@@ -1781,7 +1782,7 @@ describe("createSubmitResponseTool", () => {
     /** Call the tool with arbitrary args (no type enforcement for skip tests). */
     async function callToolRaw(deps: ReturnType<typeof makeDeps>, args: Record<string, unknown>) {
       const toolDef = createSubmitResponseTool(deps);
-      return toolDef.handler(args as never, {});
+      return toolDef.handler(stub<Parameters<typeof toolDef.handler>[0]>(args), {});
     }
 
     it("accepts skip with correct acknowledgment message", async () => {
@@ -1796,14 +1797,7 @@ describe("createSubmitResponseTool", () => {
       assert.equal(parsed.success, true);
       assert.equal(parsed.skipped, true);
       // Verify setSkipped was actually called (this is the signal to buildSuccessResponse)
-      assert.equal(
-        (
-          deps.responseCapture.setSkipped as unknown as ReturnType<
-            typeof vi.fn<(...args: any[]) => any>
-          >
-        ).mock.calls.length,
-        1,
-      );
+      assert.equal(vi.mocked(deps.responseCapture.setSkipped).mock.calls.length, 1);
     });
 
     it.each([

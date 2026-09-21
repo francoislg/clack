@@ -1,8 +1,9 @@
-import { describe, it, vi } from "vitest";
+import { describe, it } from "vitest";
 import assert from "node:assert/strict";
 import { createCancelReminderTool } from "./cancelReminder.js";
 import { parseToolResult } from "../testHelpers.js";
 import type { QueryToolContext } from "../types.js";
+import { createSlackClientMock } from "../../slack/testSlackClient.js";
 
 function makeContext(overrides?: Partial<QueryToolContext>): QueryToolContext {
   return {
@@ -21,12 +22,10 @@ function makeContext(overrides?: Partial<QueryToolContext>): QueryToolContext {
   };
 }
 
-function makeSlackClient(deleteResult?: unknown) {
-  return {
-    chat: {
-      deleteScheduledMessage: vi.fn(async () => deleteResult ?? { ok: true }),
-    },
-  } as unknown as QueryToolContext["slackClient"];
+function makeSlackClient() {
+  const client = createSlackClientMock();
+  client.chat.deleteScheduledMessage.mockResolvedValue({ ok: true });
+  return client;
 }
 
 describe("createCancelReminderTool", () => {
@@ -56,12 +55,8 @@ describe("createCancelReminderTool", () => {
   });
 
   it("returns error for invalid_scheduled_message_id", async () => {
-    const deleteMsg = vi.fn(async () => {
-      throw new Error("invalid_scheduled_message_id");
-    });
-    const client = {
-      chat: { deleteScheduledMessage: deleteMsg },
-    } as unknown as QueryToolContext["slackClient"];
+    const client = createSlackClientMock();
+    client.chat.deleteScheduledMessage.mockRejectedValue(new Error("invalid_scheduled_message_id"));
     const ctx = makeContext({ slackClient: client });
     const tool = createCancelReminderTool(ctx);
 

@@ -91,6 +91,7 @@ describe("extractImageFiles", () => {
   });
 
   it("returns empty for non-array input", () => {
-    assert.deepEqual(extractImageFiles("not an array" as unknown as unknown[]), []);
+    const notAnArray: unknown[] = JSON.parse('"not an array"');
+    assert.deepEqual(extractImageFiles(notAnArray), []);
   });
 });

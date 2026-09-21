@@ -6,6 +6,7 @@ import {
 } from "./resolveReviewThread.js";
 import type { QueryToolContext } from "../types.js";
 import { parseToolResult } from "../testHelpers.js";
+import { stub } from "../../testStubs.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -29,9 +30,9 @@ function makeCtx(overrides?: Partial<QueryToolContext>): QueryToolContext {
       lastActivity: Date.now(),
       createdAt: Date.now(),
     },
-    config: {
+    config: stub<QueryToolContext["config"]>({
       repositories: [],
-    } as never as QueryToolContext["config"],
+    }),
     changesWorkflowEnabled: false,
     cronUserSchedules: false,
     ...overrides,

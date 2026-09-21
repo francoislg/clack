@@ -4,6 +4,7 @@ import { WebClient } from "@slack/web-api";
 import { createScheduleReminderTool } from "./scheduleReminder.js";
 import type { QueryToolContext } from "../types.js";
 import { parseToolResult } from "../testHelpers.js";
+import { createSlackClientMock, type MockSlackClient } from "../../slack/testSlackClient.js";
 
 function makeContext(overrides?: Partial<QueryToolContext>): QueryToolContext {
   return {
@@ -22,27 +23,17 @@ function makeContext(overrides?: Partial<QueryToolContext>): QueryToolContext {
   };
 }
 
-function makeSlackClient(scheduleResult?: unknown, listResult?: unknown) {
-  return {
-    chat: {
-      scheduleMessage: vi.fn(
-        async () =>
-          scheduleResult ?? {
-            ok: true,
-            scheduled_message_id: "Q1234567890",
-          },
-      ),
-    },
-    conversations: {
-      list: vi.fn(
-        async () =>
-          listResult ?? {
-            ok: true,
-            channels: [{ id: "C_OPS", name: "ops" }],
-          },
-      ),
-    },
-  } as unknown as QueryToolContext["slackClient"];
+type ScheduleMessageResult = Awaited<ReturnType<MockSlackClient["chat"]["scheduleMessage"]>>;
+type ConversationsListResult = Awaited<ReturnType<MockSlackClient["conversations"]["list"]>>;
+
+function makeSlackClient(
+  scheduleResult: ScheduleMessageResult = { ok: true, scheduled_message_id: "Q1234567890" },
+  listResult: ConversationsListResult = { ok: true, channels: [{ id: "C_OPS", name: "ops" }] },
+) {
+  const client = createSlackClientMock();
+  client.chat.scheduleMessage.mockResolvedValue(scheduleResult);
+  client.conversations.list.mockResolvedValue(listResult);
+  return client;
 }
 
 type ScheduleArgs = Parameters<ReturnType<typeof createScheduleReminderTool>["handler"]>[0];
@@ -54,11 +45,6 @@ function scheduleArgs(overrides?: Partial<ScheduleArgs>): ScheduleArgs {
     post_at: "2026-04-01T15:00:00Z",
     ...overrides,
   };
-}
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function getMockCalls(obj: unknown): any[] {
-  return (obj as { mock: { calls: unknown[][] } }).mock.calls;
 }
 
 describe("createScheduleReminderTool", () => {
@@ -80,9 +66,11 @@ describe("createScheduleReminderTool", () => {
     assert.equal(parsed.scheduled_message_id, "Q1234567890");
     assert.equal(parsed.channel, "C_OPS");
 
-    const calls = getMockCalls(client!.chat.scheduleMessage);
-    const callArgs = calls[0][0] as Record<string, string>;
+    const [callArgs] = client.chat.scheduleMessage.mock.calls[0];
     assert.equal(callArgs.channel, "C_OPS");
+    if (!("text" in callArgs) || typeof callArgs.text !== "string") {
+      throw new Error("expected scheduleMessage call to include text");
+    }
     assert.ok(callArgs.text.includes("🔔 Reminder from <@U123>:"));
     assert.ok(callArgs.text.includes("Check the dashboard"));
   });
@@ -124,13 +112,9 @@ describe("createScheduleReminderTool", () => {
   });
 
   it("returns error for time_in_past", async () => {
-    const scheduleMsg = vi.fn(async () => {
-      throw new Error("time_in_past");
-    });
-    const client = {
-      chat: { scheduleMessage: scheduleMsg },
-      conversations: { list: vi.fn(async () => ({ ok: true, channels: [] })) },
-    } as unknown as QueryToolContext["slackClient"];
+    const client = createSlackClientMock();
+    client.chat.scheduleMessage.mockRejectedValue(new Error("time_in_past"));
+    client.conversations.list.mockResolvedValue({ ok: true, channels: [] });
     const ctx = makeContext({ slackClient: client });
     const tool = createScheduleReminderTool(ctx);
 
@@ -142,13 +126,9 @@ describe("createScheduleReminderTool", () => {
   });
 
   it("returns error for time_too_far", async () => {
-    const scheduleMsg = vi.fn(async () => {
-      throw new Error("time_too_far");
-    });
-    const client = {
-      chat: { scheduleMessage: scheduleMsg },
-      conversations: { list: vi.fn(async () => ({ ok: true, channels: [] })) },
-    } as unknown as QueryToolContext["slackClient"];
+    const client = createSlackClientMock();
+    client.chat.scheduleMessage.mockRejectedValue(new Error("time_too_far"));
+    client.conversations.list.mockResolvedValue({ ok: true, channels: [] });
     const ctx = makeContext({ slackClient: client });
     const tool = createScheduleReminderTool(ctx);
 

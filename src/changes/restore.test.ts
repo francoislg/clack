@@ -115,10 +115,10 @@ function makeDeps(overrides: Partial<RestoreDeps> = {}): RestoreDeps {
 
 describe("restoreWorkerSessions", () => {
   it("returns immediately when there are no persisted sessions", async () => {
-    const mockSetActiveChange = vi.fn();
+    const mockSetActiveChange = vi.fn<typeof setActiveChange>();
     const deps = makeDeps({
-      getAllPersistedSessions: vi.fn(async () => []) as never,
-      setActiveChange: mockSetActiveChange as never,
+      getAllPersistedSessions: vi.fn(async () => []),
+      setActiveChange: mockSetActiveChange,
     });
 
     await restoreWorkerSessions(deps);
@@ -132,12 +132,10 @@ describe("restoreWorkerSessions", () => {
 
   describe("skipping terminal states", () => {
     it("skips completed sessions", async () => {
-      const mockSetActiveChange = vi.fn();
+      const mockSetActiveChange = vi.fn<typeof setActiveChange>();
       const deps = makeDeps({
-        getAllPersistedSessions: vi.fn(async () => [
-          makePersistedState({ status: "completed" }),
-        ]) as never,
-        setActiveChange: mockSetActiveChange as never,
+        getAllPersistedSessions: vi.fn(async () => [makePersistedState({ status: "completed" })]),
+        setActiveChange: mockSetActiveChange,
       });
 
       await restoreWorkerSessions(deps);
@@ -146,12 +144,10 @@ describe("restoreWorkerSessions", () => {
     });
 
     it("skips failed sessions", async () => {
-      const mockSetActiveChange = vi.fn();
+      const mockSetActiveChange = vi.fn<typeof setActiveChange>();
       const deps = makeDeps({
-        getAllPersistedSessions: vi.fn(async () => [
-          makePersistedState({ status: "failed" }),
-        ]) as never,
-        setActiveChange: mockSetActiveChange as never,
+        getAllPersistedSessions: vi.fn(async () => [makePersistedState({ status: "failed" })]),
+        setActiveChange: mockSetActiveChange,
       });
 
       await restoreWorkerSessions(deps);
@@ -160,12 +156,10 @@ describe("restoreWorkerSessions", () => {
     });
 
     it("skips cancelled sessions", async () => {
-      const mockSetActiveChange = vi.fn();
+      const mockSetActiveChange = vi.fn<typeof setActiveChange>();
       const deps = makeDeps({
-        getAllPersistedSessions: vi.fn(async () => [
-          makePersistedState({ status: "cancelled" }),
-        ]) as never,
-        setActiveChange: mockSetActiveChange as never,
+        getAllPersistedSessions: vi.fn(async () => [makePersistedState({ status: "cancelled" })]),
+        setActiveChange: mockSetActiveChange,
       });
 
       await restoreWorkerSessions(deps);
@@ -180,12 +174,10 @@ describe("restoreWorkerSessions", () => {
 
   describe("skipping sessions with missing data", () => {
     it("skips sessions with null channel", async () => {
-      const mockSetActiveChange = vi.fn();
+      const mockSetActiveChange = vi.fn<typeof setActiveChange>();
       const deps = makeDeps({
-        getAllPersistedSessions: vi.fn(async () => [
-          makePersistedState({ channel: null }),
-        ]) as never,
-        setActiveChange: mockSetActiveChange as never,
+        getAllPersistedSessions: vi.fn(async () => [makePersistedState({ channel: null })]),
+        setActiveChange: mockSetActiveChange,
       });
 
       await restoreWorkerSessions(deps);
@@ -194,12 +186,10 @@ describe("restoreWorkerSessions", () => {
     });
 
     it("skips sessions with null threadTs", async () => {
-      const mockSetActiveChange = vi.fn();
+      const mockSetActiveChange = vi.fn<typeof setActiveChange>();
       const deps = makeDeps({
-        getAllPersistedSessions: vi.fn(async () => [
-          makePersistedState({ threadTs: null }),
-        ]) as never,
-        setActiveChange: mockSetActiveChange as never,
+        getAllPersistedSessions: vi.fn(async () => [makePersistedState({ threadTs: null })]),
+        setActiveChange: mockSetActiveChange,
       });
 
       await restoreWorkerSessions(deps);
@@ -214,12 +204,10 @@ describe("restoreWorkerSessions", () => {
 
   describe("skipping sessions with missing repo or worktree", () => {
     it("skips sessions whose repo is no longer configured", async () => {
-      const mockSetActiveChange = vi.fn();
+      const mockSetActiveChange = vi.fn<typeof setActiveChange>();
       const deps = makeDeps({
-        getAllPersistedSessions: vi.fn(async () => [
-          makePersistedState({ repo: "deleted-repo" }),
-        ]) as never,
-        setActiveChange: mockSetActiveChange as never,
+        getAllPersistedSessions: vi.fn(async () => [makePersistedState({ repo: "deleted-repo" })]),
+        setActiveChange: mockSetActiveChange,
       });
 
       await restoreWorkerSessions(deps);
@@ -228,11 +216,11 @@ describe("restoreWorkerSessions", () => {
     });
 
     it("skips sessions whose worktree is not found", async () => {
-      const mockSetActiveChange = vi.fn();
+      const mockSetActiveChange = vi.fn<typeof setActiveChange>();
       const deps = makeDeps({
-        getAllPersistedSessions: vi.fn(async () => [makePersistedState()]) as never,
+        getAllPersistedSessions: vi.fn(async () => [makePersistedState()]),
         pool: buildRestorePool({ findByBranch: () => null }),
-        setActiveChange: mockSetActiveChange as never,
+        setActiveChange: mockSetActiveChange,
       });
 
       await restoreWorkerSessions(deps);
@@ -250,12 +238,10 @@ describe("restoreWorkerSessions", () => {
 
     for (const status of midExecStatuses) {
       it(`marks ${status} session without PR as failed`, async () => {
-        const mockWriteSessionState = vi.fn();
+        const mockWriteSessionState = vi.fn<RestoreDeps["writeSessionState"]>();
         const deps = makeDeps({
-          getAllPersistedSessions: vi.fn(async () => [
-            makePersistedState({ status, prUrl: null }),
-          ]) as never,
-          writeSessionState: mockWriteSessionState as never,
+          getAllPersistedSessions: vi.fn(async () => [makePersistedState({ status, prUrl: null })]),
+          writeSessionState: mockWriteSessionState,
         });
 
         await restoreWorkerSessions(deps);
@@ -271,12 +257,12 @@ describe("restoreWorkerSessions", () => {
 
     for (const status of midExecStatuses) {
       it(`downgrades ${status} session with PR to pr_created`, async () => {
-        const mockSetActiveChange = vi.fn();
+        const mockSetActiveChange = vi.fn<typeof setActiveChange>();
         const deps = makeDeps({
           getAllPersistedSessions: vi.fn(async () => [
             makePersistedState({ status, prUrl: "https://github.com/org/repo/pull/1" }),
-          ]) as never,
-          setActiveChange: mockSetActiveChange as never,
+          ]),
+          setActiveChange: mockSetActiveChange,
         });
 
         await restoreWorkerSessions(deps);
@@ -288,12 +274,12 @@ describe("restoreWorkerSessions", () => {
     }
 
     it("writes updated session state to disk when downgrading", async () => {
-      const mockWriteSessionState = vi.fn();
+      const mockWriteSessionState = vi.fn<RestoreDeps["writeSessionState"]>();
       const deps = makeDeps({
         getAllPersistedSessions: vi.fn(async () => [
           makePersistedState({ status: "executing", prUrl: "https://github.com/org/repo/pull/1" }),
-        ]) as never,
-        writeSessionState: mockWriteSessionState as never,
+        ]),
+        writeSessionState: mockWriteSessionState,
       });
 
       await restoreWorkerSessions(deps);
@@ -313,12 +299,10 @@ describe("restoreWorkerSessions", () => {
 
   describe("successful restoration", () => {
     it("restores a pr_created session into active state", async () => {
-      const mockSetActiveChange = vi.fn();
+      const mockSetActiveChange = vi.fn<typeof setActiveChange>();
       const deps = makeDeps({
-        getAllPersistedSessions: vi.fn(async () => [
-          makePersistedState({ status: "pr_created" }),
-        ]) as never,
-        setActiveChange: mockSetActiveChange as never,
+        getAllPersistedSessions: vi.fn(async () => [makePersistedState({ status: "pr_created" })]),
+        setActiveChange: mockSetActiveChange,
       });
 
       await restoreWorkerSessions(deps);
@@ -337,12 +321,10 @@ describe("restoreWorkerSessions", () => {
     });
 
     it("does not write session state when not downgraded", async () => {
-      const mockWriteSessionState = vi.fn();
+      const mockWriteSessionState = vi.fn<RestoreDeps["writeSessionState"]>();
       const deps = makeDeps({
-        getAllPersistedSessions: vi.fn(async () => [
-          makePersistedState({ status: "pr_created" }),
-        ]) as never,
-        writeSessionState: mockWriteSessionState as never,
+        getAllPersistedSessions: vi.fn(async () => [makePersistedState({ status: "pr_created" })]),
+        writeSessionState: mockWriteSessionState,
       });
 
       await restoreWorkerSessions(deps);
@@ -351,7 +333,7 @@ describe("restoreWorkerSessions", () => {
     });
 
     it("converts startedAt and lastActivityAt strings to Date objects", async () => {
-      const mockSetActiveChange = vi.fn();
+      const mockSetActiveChange = vi.fn<typeof setActiveChange>();
       const deps = makeDeps({
         getAllPersistedSessions: vi.fn(async () => [
           makePersistedState({
@@ -359,8 +341,8 @@ describe("restoreWorkerSessions", () => {
             startedAt: "2026-02-01T08:00:00.000Z",
             lastActivityAt: "2026-02-01T09:00:00.000Z",
           }),
-        ]) as never,
-        setActiveChange: mockSetActiveChange as never,
+        ]),
+        setActiveChange: mockSetActiveChange,
       });
 
       await restoreWorkerSessions(deps);
@@ -376,12 +358,12 @@ describe("restoreWorkerSessions", () => {
     });
 
     it("converts null prUrl to undefined", async () => {
-      const mockSetActiveChange = vi.fn();
+      const mockSetActiveChange = vi.fn<typeof setActiveChange>();
       const deps = makeDeps({
         getAllPersistedSessions: vi.fn(async () => [
           makePersistedState({ status: "pr_created", prUrl: null }),
-        ]) as never,
-        setActiveChange: mockSetActiveChange as never,
+        ]),
+        setActiveChange: mockSetActiveChange,
       });
 
       await restoreWorkerSessions(deps);
@@ -397,7 +379,7 @@ describe("restoreWorkerSessions", () => {
         worktreePath: "/tmp/worktrees/custom",
         createdAt: new Date("2026-03-01T00:00:00Z"),
       };
-      const mockSetActiveChange = vi.fn();
+      const mockSetActiveChange = vi.fn<typeof setActiveChange>();
       const deps = makeDeps({
         pool: buildRestorePool({
           findByBranch: () => ({
@@ -413,10 +395,8 @@ describe("restoreWorkerSessions", () => {
             createdAt: customWorktree.createdAt,
           }),
         }),
-        getAllPersistedSessions: vi.fn(async () => [
-          makePersistedState({ status: "pr_created" }),
-        ]) as never,
-        setActiveChange: mockSetActiveChange as never,
+        getAllPersistedSessions: vi.fn(async () => [makePersistedState({ status: "pr_created" })]),
+        setActiveChange: mockSetActiveChange,
       });
 
       await restoreWorkerSessions(deps);
@@ -472,13 +452,11 @@ describe("restoreWorkerSessions", () => {
 
   describe("missing unified session", () => {
     it("skips restoration when findSessionByThread returns null", async () => {
-      const mockSetActiveChange = vi.fn();
+      const mockSetActiveChange = vi.fn<typeof setActiveChange>();
       const deps = makeDeps({
-        findSessionByThread: vi.fn(async () => null) as never,
-        getAllPersistedSessions: vi.fn(async () => [
-          makePersistedState({ status: "pr_created" }),
-        ]) as never,
-        setActiveChange: mockSetActiveChange as never,
+        findSessionByThread: vi.fn(async () => null),
+        getAllPersistedSessions: vi.fn(async () => [makePersistedState({ status: "pr_created" })]),
+        setActiveChange: mockSetActiveChange,
       });
 
       await restoreWorkerSessions(deps);
@@ -517,10 +495,10 @@ describe("restoreWorkerSessions", () => {
       });
 
       let findCallCount = 0;
-      const mockSetActiveChange = vi.fn();
-      const mockWriteSessionState = vi.fn();
+      const mockSetActiveChange = vi.fn<typeof setActiveChange>();
+      const mockWriteSessionState = vi.fn<RestoreDeps["writeSessionState"]>();
       const deps = makeDeps({
-        getAllPersistedSessions: vi.fn(async () => [session1, session2, session3]) as never,
+        getAllPersistedSessions: vi.fn(async () => [session1, session2, session3]),
         findSessionByThread: vi.fn(async () => {
           findCallCount++;
           return {
@@ -529,10 +507,10 @@ describe("restoreWorkerSessions", () => {
             threadTs: `170000000${findCallCount}.000001`,
             userId: "U001",
             triggerType: "reactions",
-          };
-        }) as never,
-        setActiveChange: mockSetActiveChange as never,
-        writeSessionState: mockWriteSessionState as never,
+          } as Awaited<ReturnType<RestoreDeps["findSessionByThread"]>>;
+        }),
+        setActiveChange: mockSetActiveChange,
+        writeSessionState: mockWriteSessionState,
       });
 
       await restoreWorkerSessions(deps);
@@ -664,10 +642,10 @@ describe("restoreWorkerSessions", () => {
         threadTs: "1700000999.000001",
       });
 
-      const mockWriteSessionState = vi.fn();
+      const mockWriteSessionState = vi.fn<RestoreDeps["writeSessionState"]>();
       const deps = makeDeps({
-        getAllPersistedSessions: vi.fn(async () => [state]) as never,
-        writeSessionState: mockWriteSessionState as never,
+        getAllPersistedSessions: vi.fn(async () => [state]),
+        writeSessionState: mockWriteSessionState,
       });
 
       await restoreWorkerSessions(deps);
@@ -689,12 +667,12 @@ describe("restoreWorkerSessions", () => {
     });
 
     it("converts null prUrl to undefined in failed session", async () => {
-      const mockWriteSessionState = vi.fn();
+      const mockWriteSessionState = vi.fn<RestoreDeps["writeSessionState"]>();
       const deps = makeDeps({
         getAllPersistedSessions: vi.fn(async () => [
           makePersistedState({ status: "planning", prUrl: null }),
-        ]) as never,
-        writeSessionState: mockWriteSessionState as never,
+        ]),
+        writeSessionState: mockWriteSessionState,
       });
 
       await restoreWorkerSessions(deps);
@@ -721,7 +699,7 @@ describe("restoreWorkerSessions", () => {
       const deps = makeDeps({
         getAllPersistedSessions: vi.fn(async () => [
           makePersistedState({ repo: "my-repo", branch: "feat/test-branch" }),
-        ]) as never,
+        ]),
         pool: buildRestorePool({
           findByBranch: (repo, branch) => {
             findByBranchCalls.push({ repo, branch });
@@ -738,14 +716,15 @@ describe("restoreWorkerSessions", () => {
     });
 
     it("uses the state's channel and threadTs for findSessionByThread", async () => {
-      const mockFindSessionByThread = vi.fn<
-        (channelId: string, threadTs: string) => Promise<typeof defaultUnifiedSession>
-      >(async () => defaultUnifiedSession);
+      const mockFindSessionByThread = vi.fn<RestoreDeps["findSessionByThread"]>(
+        async () =>
+          defaultUnifiedSession as Awaited<ReturnType<RestoreDeps["findSessionByThread"]>>,
+      );
       const deps = makeDeps({
         getAllPersistedSessions: vi.fn(async () => [
           makePersistedState({ status: "pr_created", channel: "C-CHAN", threadTs: "170.thread" }),
-        ]) as never,
-        findSessionByThread: mockFindSessionByThread as never,
+        ]),
+        findSessionByThread: mockFindSessionByThread,
       });
 
       await restoreWorkerSessions(deps);
@@ -757,19 +736,19 @@ describe("restoreWorkerSessions", () => {
     });
 
     it("passes triggerType from unified session to setActiveChange ref", async () => {
-      const mockSetActiveChange = vi.fn();
+      const mockSetActiveChange = vi.fn<typeof setActiveChange>();
       const deps = makeDeps({
-        findSessionByThread: vi.fn(async () => ({
-          sessionId: "us-1",
-          channelId: "C001",
-          threadTs: "170.001",
-          userId: "U001",
-          triggerType: "mentions",
-        })) as never,
-        getAllPersistedSessions: vi.fn(async () => [
-          makePersistedState({ status: "pr_created" }),
-        ]) as never,
-        setActiveChange: mockSetActiveChange as never,
+        findSessionByThread: vi.fn(async () => {
+          return {
+            sessionId: "us-1",
+            channelId: "C001",
+            threadTs: "170.001",
+            userId: "U001",
+            triggerType: "mentions",
+          } as Awaited<ReturnType<RestoreDeps["findSessionByThread"]>>;
+        }),
+        getAllPersistedSessions: vi.fn(async () => [makePersistedState({ status: "pr_created" })]),
+        setActiveChange: mockSetActiveChange,
       });
 
       await restoreWorkerSessions(deps);

@@ -27,15 +27,15 @@ function makeDeps(): PreAnalysisDeps {
   };
 }
 
-/** Build an async iterable from an array of messages. Return typed as never so it satisfies any AsyncIterable<T> parameter. */
-function asyncIterableOf<T>(items: T[]): never {
+/** Build an async iterable from an array of messages, shaped as the query stream callers expect. */
+function asyncIterableOf<T>(items: T[]): ReturnType<typeof clackQuery> {
   return {
     async *[Symbol.asyncIterator]() {
       for (const item of items) {
         yield item;
       }
     },
-  } as never;
+  } as ReturnType<typeof clackQuery>;
 }
 
 interface QueryCallArg {

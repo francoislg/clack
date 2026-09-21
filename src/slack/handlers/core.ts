@@ -66,7 +66,7 @@ export interface CoreDeps {
     sessionId: string,
     updates: Partial<SessionContext>,
   ) => Promise<SessionContext | null>;
-  updateThreadContext: (sessionId: string, context: unknown[]) => Promise<SessionContext | null>;
+  updateThreadContext: typeof updateThreadContext;
   getConfig: () => Config;
   setSessionInfo: (sessionId: string, info: SessionInfo) => void;
   fetchThreadContext: typeof fetchThreadContext;
@@ -93,8 +93,8 @@ export const defaultCoreDeps: CoreDeps = {
   findSessionByThread,
   createSession,
   getSession,
-  updateSession: updateSession as never,
-  updateThreadContext: updateThreadContext as never,
+  updateSession,
+  updateThreadContext,
   getConfig,
   setSessionInfo: (sessionId, info) => activeSessions.set(sessionId, info),
   fetchThreadContext,

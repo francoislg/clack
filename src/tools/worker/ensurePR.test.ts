@@ -2,6 +2,7 @@ import { describe, it, vi } from "vitest";
 import assert from "node:assert/strict";
 import { createEnsurePRTool, type EnsurePRDeps } from "./ensurePR.js";
 import type { WorkerToolContext } from "../types.js";
+import { makeWorkerCtx } from "./testCtx.js";
 import { parseToolResult } from "../testHelpers.js";
 
 // ---------------------------------------------------------------------------
@@ -9,22 +10,7 @@ import { parseToolResult } from "../testHelpers.js";
 // ---------------------------------------------------------------------------
 
 function makeCtx(overrides?: Partial<WorkerToolContext>): WorkerToolContext {
-  return {
-    mode: "worker",
-    worktreePath: "/tmp/worktrees/my-repo/branch",
-    branchName: "clack/fix/my-branch",
-    repoName: "my-repo",
-    repoUrl: "https://github.com/org/my-repo.git",
-    channelId: "C123",
-    threadTs: "1.0",
-    sessionId: "sess-1",
-    config: {
-      repositories: [
-        { name: "my-repo", url: "https://github.com/org/my-repo.git", branch: "main" },
-      ],
-    } as never as WorkerToolContext["config"],
-    ...overrides,
-  };
+  return makeWorkerCtx(overrides);
 }
 
 function makeDeps() {
@@ -45,14 +31,12 @@ function makeDeps() {
   const mockAppendExecutionLog = vi.fn<(...args: unknown[]) => void>();
 
   const deps: EnsurePRDeps = {
-    getOctokit: mockGetOctokit as never as EnsurePRDeps["getOctokit"],
-    parseRepoUrl: mockParseRepoUrl as never as EnsurePRDeps["parseRepoUrl"],
-    findRepoByName: mockFindRepoByName as never as EnsurePRDeps["findRepoByName"],
-    updateActiveChangePrUrl:
-      mockUpdateActiveChangePrUrl as never as EnsurePRDeps["updateActiveChangePrUrl"],
-    updateActiveChangeStatus:
-      mockUpdateActiveChangeStatus as never as EnsurePRDeps["updateActiveChangeStatus"],
-    appendExecutionLog: mockAppendExecutionLog as never as EnsurePRDeps["appendExecutionLog"],
+    getOctokit: mockGetOctokit as EnsurePRDeps["getOctokit"],
+    parseRepoUrl: mockParseRepoUrl,
+    findRepoByName: mockFindRepoByName as EnsurePRDeps["findRepoByName"],
+    updateActiveChangePrUrl: mockUpdateActiveChangePrUrl,
+    updateActiveChangeStatus: mockUpdateActiveChangeStatus,
+    appendExecutionLog: mockAppendExecutionLog,
   };
 
   return {
@@ -117,9 +101,18 @@ describe("ensurePR tool", () => {
 
   it("creates a new PR when none exists", async () => {
     const mockList = vi.fn(async () => ({ data: [] }));
-    const mockCreate = vi.fn(async () => ({
-      data: { html_url: "https://github.com/org/my-repo/pull/99" },
-    }));
+    const mockCreate = vi.fn(
+      async (_params: {
+        owner: string;
+        repo: string;
+        title: string;
+        body: string;
+        head: string;
+        base: string;
+      }) => ({
+        data: { html_url: "https://github.com/org/my-repo/pull/99" },
+      }),
+    );
     const { deps, mockGetOctokit } = makeDeps();
     mockGetOctokit.mockImplementation(async () => ({
       pulls: { list: mockList, create: mockCreate },
@@ -139,9 +132,7 @@ describe("ensurePR tool", () => {
 
     // Verify create was called with correct args
     assert.equal(mockCreate.mock.calls.length, 1);
-    const createArgs = mockCreate.mock.calls[0]! as never as [
-      { owner: string; repo: string; title: string; body: string; head: string; base: string },
-    ];
+    const createArgs = mockCreate.mock.calls[0]!;
     assert.equal(createArgs[0].owner, "org");
     assert.equal(createArgs[0].repo, "my-repo");
     assert.equal(createArgs[0].title, "My PR");
@@ -242,7 +233,7 @@ describe("ensurePR tool", () => {
     }));
 
     const mockList = vi.fn(async () => ({ data: [] }));
-    const mockCreate = vi.fn(async () => ({
+    const mockCreate = vi.fn(async (_params: { base: string }) => ({
       data: { html_url: "https://github.com/org/my-repo/pull/1" },
     }));
     mockGetOctokit.mockImplementation(async () => ({
@@ -255,7 +246,7 @@ describe("ensurePR tool", () => {
       { sessionId: "test" },
     );
 
-    const createArgs = mockCreate.mock.calls[0]! as never as [{ base: string }];
+    const createArgs = mockCreate.mock.calls[0]!;
     assert.equal(createArgs[0].base, "main");
   });
 
@@ -419,7 +410,7 @@ describe("ensurePR tool", () => {
   });
 
   it("calls list with correct owner:branch head filter", async () => {
-    const mockList = vi.fn(async () => ({
+    const mockList = vi.fn(async (_params: { head: string; state: string }) => ({
       data: [{ html_url: "https://github.com/org/my-repo/pull/1" }],
     }));
     const { deps, mockGetOctokit } = makeDeps();
@@ -434,7 +425,7 @@ describe("ensurePR tool", () => {
       { sessionId: "test" },
     );
 
-    const listArgs = mockList.mock.calls[0]! as never as [{ head: string; state: string }];
+    const listArgs = mockList.mock.calls[0]!;
     assert.equal(listArgs[0].head, `org:${ctx.branchName}`);
     assert.equal(listArgs[0].state, "open");
   });

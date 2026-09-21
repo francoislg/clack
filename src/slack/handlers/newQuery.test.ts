@@ -2,14 +2,15 @@ import { describe, it, vi, beforeEach } from "vitest";
 import assert from "node:assert/strict";
 import type { App } from "@slack/bolt";
 import { registerNewQueryHandler, type NewQueryDeps } from "./newQuery.js";
+import { stub } from "../../testStubs.js";
 
 // ============================================================================
 // Helpers
 // ============================================================================
 
-const mockProcessMessage = vi.fn<(...args: never[]) => Promise<void>>(async () => {});
+const mockProcessMessage = vi.fn<NewQueryDeps["processMessage"]>();
 const mockIsDev = vi.fn<(userId: string) => Promise<boolean>>(async () => false);
-const mockExtractMessageText = vi.fn<(msg: never) => string>(() => "");
+const mockExtractMessageText = vi.fn<NewQueryDeps["extractMessageText"]>(() => "");
 
 // Config mock — needs to return a config object with reactions shape
 const mockConfig = {
@@ -22,10 +23,10 @@ const mockGetConfig = vi.fn(() => mockConfig);
 
 function makeDeps(): NewQueryDeps {
   return {
-    getConfig: mockGetConfig as never,
-    processMessage: mockProcessMessage as never,
+    getConfig: stub<NewQueryDeps["getConfig"]>(mockGetConfig),
+    processMessage: mockProcessMessage,
     isDev: mockIsDev,
-    extractMessageText: mockExtractMessageText as never,
+    extractMessageText: stub<NewQueryDeps["extractMessageText"]>(mockExtractMessageText),
   };
 }
 
@@ -92,9 +93,7 @@ beforeEach(() => {
   mockConfig.reactions.changesWorkflow = undefined;
 
   // Default: extractMessageText returns the text
-  mockExtractMessageText.mockImplementation(
-    (msg: never) => ((msg as { text?: string }).text as string) || "",
-  );
+  mockExtractMessageText.mockImplementation((msg) => msg.text ?? "");
 
   // Register handler
   const app = makeApp();

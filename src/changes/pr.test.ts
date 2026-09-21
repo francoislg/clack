@@ -1,5 +1,6 @@
 import { describe, it, vi } from "vitest";
 import assert from "node:assert/strict";
+import { stub, type StubShape } from "../testStubs.js";
 import {
   classifyCheckRuns,
   fetchPRReviewContext,
@@ -12,27 +13,23 @@ import {
 // Helpers
 // ---------------------------------------------------------------------------
 
-function makeOctokit(
-  overrides: {
-    pulls?: {
-      get?: (args: unknown) => Promise<unknown>;
-      listReviewComments?: (args: unknown) => Promise<unknown>;
-      listReviews?: (args: unknown) => Promise<unknown>;
-    };
-  } = {},
-) {
-  return {
+type Octokit = Awaited<ReturnType<PrDeps["getOctokit"]>>;
+
+function makeOctokit(overrides: StubShape<Octokit> = {}) {
+  return stub<Octokit>({
+    ...overrides,
     pulls: {
-      get: overrides.pulls?.get ?? (async () => ({ data: {} })),
-      listReviewComments: overrides.pulls?.listReviewComments ?? (async () => ({ data: [] })),
-      listReviews: overrides.pulls?.listReviews ?? (async () => ({ data: [] })),
+      get: async () => ({ data: {} }),
+      listReviewComments: async () => ({ data: [] }),
+      listReviews: async () => ({ data: [] }),
+      ...overrides.pulls,
     },
-  };
+  });
 }
 
 function makeDeps(overrides: Partial<PrDeps> = {}): PrDeps {
   return {
-    getOctokit: vi.fn(async () => makeOctokit()) as never,
+    getOctokit: vi.fn(async () => makeOctokit()),
     ...overrides,
   };
 }
@@ -64,7 +61,7 @@ describe("fetchPRReviewContext", () => {
             }),
           },
         }),
-      ) as never,
+      ),
     });
 
     const result = await fetchPRReviewContext("https://github.com/myorg/myrepo/pull/123", deps);
@@ -86,7 +83,7 @@ describe("fetchPRReviewContext", () => {
             listReviewComments: async () => ({ data: [] }),
           },
         }),
-      ) as never,
+      ),
     });
 
     const result = await fetchPRReviewContext("https://github.com/myorg/myrepo/pull/1", deps);
@@ -110,7 +107,7 @@ describe("fetchPRReviewContext", () => {
             listReviewComments: async () => ({ data: [] }),
           },
         }),
-      ) as never,
+      ),
     });
 
     const result = await fetchPRReviewContext("https://github.com/myorg/myrepo/pull/5", deps);
@@ -127,14 +124,14 @@ describe("fetchPRReviewContext", () => {
         makeOctokit({
           pulls: {
             listReviews: async () => ({
-              data: [{ user: null, state: "APPROVED", body: "LGTM" }],
+              data: [{ state: "APPROVED", body: "LGTM" }],
             }),
             listReviewComments: async () => ({
-              data: [{ user: null, path: "README.md", line: 1, body: "Fix this" }],
+              data: [{ path: "README.md", line: 1, body: "Fix this" }],
             }),
           },
         }),
-      ) as never,
+      ),
     });
 
     const result = await fetchPRReviewContext("https://github.com/myorg/myrepo/pull/7", deps);
@@ -153,14 +150,13 @@ describe("fetchPRReviewContext", () => {
                 {
                   user: { login: "reviewer" },
                   path: "src/app.ts",
-                  line: null,
                   body: "General comment",
                 },
               ],
             }),
           },
         }),
-      ) as never,
+      ),
     });
 
     const result = await fetchPRReviewContext("https://github.com/myorg/myrepo/pull/10", deps);
@@ -186,7 +182,7 @@ describe("fetchPRReviewContext", () => {
             },
           },
         }),
-      ) as never,
+      ),
     });
 
     await fetchPRReviewContext("https://github.com/acme-corp/widget-api/pull/456", deps);
@@ -221,7 +217,7 @@ describe("fetchPRReviewContext", () => {
             listReviewComments: async () => ({ data: [] }),
           },
         }),
-      ) as never,
+      ),
     });
 
     const result = await fetchPRReviewContext("https://github.com/myorg/myrepo/pull/1", deps);
@@ -233,7 +229,7 @@ describe("fetchPRReviewContext", () => {
     const deps = makeDeps({
       getOctokit: vi.fn(async () => {
         throw new Error("GitHub credentials not loaded");
-      }) as never,
+      }),
     });
 
     const result = await fetchPRReviewContext("https://github.com/myorg/myrepo/pull/1", deps);
@@ -252,7 +248,7 @@ describe("fetchPRReviewContext", () => {
             listReviewComments: async () => ({ data: [] }),
           },
         }),
-      ) as never,
+      ),
     });
 
     const result = await fetchPRReviewContext("https://github.com/myorg/myrepo/pull/1", deps);
@@ -273,7 +269,7 @@ describe("fetchPRReviewContext", () => {
             }),
           },
         }),
-      ) as never,
+      ),
     });
 
     const result = await fetchPRReviewContext("https://github.com/myorg/myrepo/pull/1", deps);
@@ -297,7 +293,7 @@ describe("getPRStatus", () => {
             get: async () => ({ data: { state: "open", merged: false } }),
           },
         }),
-      ) as never,
+      ),
     });
 
     const result = await getPRStatus("https://github.com/myorg/myrepo/pull/1", deps);
@@ -312,7 +308,7 @@ describe("getPRStatus", () => {
             get: async () => ({ data: { state: "closed", merged: true } }),
           },
         }),
-      ) as never,
+      ),
     });
 
     const result = await getPRStatus("https://github.com/myorg/myrepo/pull/2", deps);
@@ -327,7 +323,7 @@ describe("getPRStatus", () => {
             get: async () => ({ data: { state: "closed", merged: false } }),
           },
         }),
-      ) as never,
+      ),
     });
 
     const result = await getPRStatus("https://github.com/myorg/myrepo/pull/3", deps);
@@ -342,7 +338,7 @@ describe("getPRStatus", () => {
             get: async () => ({ data: { state: "closed", merged: true } }),
           },
         }),
-      ) as never,
+      ),
     });
 
     const result = await getPRStatus("https://github.com/myorg/myrepo/pull/4", deps);
@@ -361,7 +357,7 @@ describe("getPRStatus", () => {
             },
           },
         }),
-      ) as never,
+      ),
     });
 
     await getPRStatus("https://github.com/acme/widgets/pull/789", deps);
@@ -378,7 +374,7 @@ describe("getPRStatus", () => {
             },
           },
         }),
-      ) as never,
+      ),
     });
 
     const result = await getPRStatus("https://github.com/myorg/myrepo/pull/999", deps);
@@ -389,7 +385,7 @@ describe("getPRStatus", () => {
     const deps = makeDeps({
       getOctokit: vi.fn(async () => {
         throw new Error("No credentials");
-      }) as never,
+      }),
     });
 
     const result = await getPRStatus("https://github.com/myorg/myrepo/pull/1", deps);
@@ -410,7 +406,7 @@ describe("getPRStatus", () => {
             get: async () => ({ data: { state: "open", merged: false } }),
           },
         }),
-      ) as never,
+      ),
     });
 
     const result = await getPRStatus("https://github.com/myorg/myrepo/pull/42/files", deps);
