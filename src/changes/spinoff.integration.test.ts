@@ -1,9 +1,29 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { simpleGit } from "simple-git";
 import { defaultSpinoffGitOps } from "./spinoff.js";
+
+// `git rev-parse --local-env-vars`: a git hook exports these for the repo being committed, and
+// inherited they'd aim the scratch repos' `init`/`addConfig` at that repo's config.
+const REPO_LOCAL_GIT_ENV = [
+  "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+  "GIT_CONFIG",
+  "GIT_CONFIG_PARAMETERS",
+  "GIT_CONFIG_COUNT",
+  "GIT_OBJECT_DIRECTORY",
+  "GIT_DIR",
+  "GIT_WORK_TREE",
+  "GIT_IMPLICIT_WORK_TREE",
+  "GIT_GRAFT_FILE",
+  "GIT_INDEX_FILE",
+  "GIT_NO_REPLACE_OBJECTS",
+  "GIT_REPLACE_REF_BASE",
+  "GIT_PREFIX",
+  "GIT_SHALLOW_FILE",
+  "GIT_COMMON_DIR",
+];
 
 async function initRepo(dir: string): Promise<void> {
   mkdirSync(join(dir, "src"), { recursive: true });
@@ -24,6 +44,7 @@ describe("spinoff git ops (integration)", () => {
   let patchPath: string;
 
   beforeEach(() => {
+    for (const name of REPO_LOCAL_GIT_ENV) vi.stubEnv(name, undefined);
     root = mkdtempSync(join(tmpdir(), "clack-spinoff-"));
     origin = join(root, "origin");
     sibling = join(root, "sibling");
@@ -31,6 +52,7 @@ describe("spinoff git ops (integration)", () => {
   });
 
   afterEach(() => {
+    vi.unstubAllEnvs();
     rmSync(root, { recursive: true, force: true });
   });
 
