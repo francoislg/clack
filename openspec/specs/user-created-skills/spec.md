@@ -300,7 +300,7 @@ A user skill SHALL support an optional `editableByAnyone: boolean` attribute, pe
 
 ### Requirement: Shared Skills Presentation
 
-Shared status is conveyed by the Home Tab grouping alone — skill rows carry NO badge for `editableByAnyone`, and rows in the Shared group omit the owner mention. The skill EDIT modal names the original creator ("Created by <@owner>") and keeps the "Shared" checkbox (owner/admin-gated) as the flag's control surface.
+Shared status SHALL be conveyed by the Home Tab grouping alone — skill rows carry NO badge for `editableByAnyone`, and rows in the Shared group omit the owner mention. The skill EDIT modal SHALL name the original creator ("Created by <@owner>") and keep the "Shared" checkbox (owner/admin-gated) as the flag's control surface.
 
 #### Scenario: No badge or owner on shared rows
 

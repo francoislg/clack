@@ -139,6 +139,16 @@ Loaded MCP config: metabase
 
 If `watchMcpConfig` is enabled in your config, changes to `data/mcp.json` and `data/auth/.env` are picked up automatically on the next query — no restart needed.
 
+## Accessing Metabase behind IAP
+
+If the Metabase instance is not publicly reachable but sits behind Google Cloud
+**Identity-Aware Proxy** (IAP) — a private LB backend that answers `302` to a
+Google sign-in for anonymous requests — the MCP can't authenticate through it on
+its own. Run a small token-injecting reverse proxy beside Clack and point
+`METABASE_URL` at it. See [`docs/mcp-behind-iap.md`](mcp-behind-iap.md) for the
+full, generic recipe (credential shapes, the IAM grant, the sidecar, and the
+verification ladder).
+
 ## Security Considerations
 
 **Defense in depth** — read-only access is enforced at multiple layers:
