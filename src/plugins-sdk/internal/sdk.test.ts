@@ -1,4 +1,4 @@
-import { describe, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import assert from "node:assert/strict";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -816,170 +816,67 @@ describe("ClackSdk", () => {
   });
 
   describe("reconcileCronJobs", () => {
-    // Minimal in-memory store mimicking the cronJobs.ts persistence surface.
-    interface StoredJob {
-      id: string;
-      cronExpression: string;
-      channel?: string;
-      prompt: string;
-      timezone: string;
-      name?: string;
-      createdBy: string | null;
-      systemActor?: string;
-      plugin?: string;
-      pluginManaged?: boolean;
-      specKey?: string;
-      enabled: boolean;
-      requiredTools?: string[];
-      skipConditions?: string;
-      submitResponseMode?: "always" | "optional" | "optional-post-to" | "skipped";
-      skipDates?: Array<{ date: string; label: string }>;
-      attachedTopics?: string[];
-      jitterMinutes?: number;
-      runs?: Array<{ executedAt: string; status: "success" | "error" | "skipped" }>;
-      lastRunAt?: string;
-      lastRunStatus?: "success" | "error" | "skipped";
-    }
+    // Injected cron-store deps as vitest mocks typed from the real signatures. The store's own
+    // semantics (id assignment, name trimming, null-clearing) belong to src/cronJobs.ts and are
+    // covered there — these tests assert only which dep reconcile calls with which arguments.
+    let findByPluginOwner: Mock<NonNullable<ClackSdkDeps["findByPluginOwner"]>>;
+    let createJob: Mock<NonNullable<ClackSdkDeps["createJob"]>>;
+    let updateJob: Mock<NonNullable<ClackSdkDeps["updateJob"]>>;
+    let deleteJob: Mock<NonNullable<ClackSdkDeps["deleteJob"]>>;
 
-    interface FakeStore {
-      jobs: StoredJob[];
-      deps: Partial<ClackSdkDeps>;
-    }
-
-    function makeFakeStore(): FakeStore {
-      const jobs: StoredJob[] = [];
-      let nextId = 1;
-      const deps: Partial<ClackSdkDeps> = {
-        findByPluginOwner: async (ownerKey: string) => {
-          // The real findByPluginOwner returns CronJob[]. The store's StoredJob is structurally
-          // compatible with the read-only fields used by reconcile (id, plugin, pluginManaged,
-          // specKey). Return a typed copy mapped through the CronJob shape.
-          return jobs
-            .filter((j) => j.plugin === ownerKey && j.pluginManaged === true)
-            .map((j) => ({
-              id: j.id,
-              cronExpression: j.cronExpression,
-              channel: j.channel,
-              prompt: j.prompt,
-              createdBy: j.createdBy,
-              ...(j.systemActor ? { systemActor: j.systemActor } : {}),
-              createdAt: "2026-01-01T00:00:00Z",
-              enabled: j.enabled,
-              timezone: j.timezone,
-              plugin: j.plugin,
-              pluginManaged: j.pluginManaged,
-              specKey: j.specKey,
-              requiredTools: j.requiredTools,
-              skipConditions: j.skipConditions,
-              submitResponseMode: j.submitResponseMode,
-              skipDates: j.skipDates,
-              attachedTopics: j.attachedTopics,
-              jitterMinutes: j.jitterMinutes,
-              runs: j.runs,
-              lastRunAt: j.lastRunAt,
-              lastRunStatus: j.lastRunStatus,
-            }));
-        },
-        createJob: async (params) => {
-          const trimmedName = params.name?.trim();
-          const job: StoredJob = {
-            id: `job-${nextId++}`,
-            cronExpression: params.cronExpression,
-            channel: params.channel,
-            prompt: params.prompt,
-            timezone: params.timezone,
-            ...(trimmedName && trimmedName.length > 0 ? { name: trimmedName } : {}),
-            createdBy: params.createdBy,
-            ...(params.systemActor ? { systemActor: params.systemActor } : {}),
-            enabled: true,
-            plugin: params.plugin,
-            pluginManaged: params.pluginManaged,
-            specKey: params.specKey,
-            requiredTools: params.requiredTools,
-            skipConditions: params.skipConditions,
-            submitResponseMode: params.submitResponseMode,
-            skipDates: params.skipDates,
-            attachedTopics: params.attachedTopics,
-            jitterMinutes: params.jitterMinutes,
-          };
-          jobs.push(job);
-          return {
-            id: job.id,
-            cronExpression: job.cronExpression,
-            channel: job.channel,
-            prompt: job.prompt,
-            createdBy: job.createdBy,
-            ...(job.systemActor ? { systemActor: job.systemActor } : {}),
-            createdAt: "2026-01-01T00:00:00Z",
-            enabled: job.enabled,
-            timezone: job.timezone,
-            plugin: job.plugin,
-            pluginManaged: job.pluginManaged,
-            specKey: job.specKey,
-          };
-        },
-        updateJob: async (jobId, updates) => {
-          const job = jobs.find((j) => j.id === jobId);
-          if (!job) return null;
-          if (updates.cronExpression !== undefined) job.cronExpression = updates.cronExpression;
-          if (updates.channel !== undefined) {
-            job.channel = updates.channel === null ? undefined : updates.channel;
-          }
-          if (updates.prompt !== undefined) job.prompt = updates.prompt;
-          if (updates.timezone !== undefined) job.timezone = updates.timezone;
-          if (updates.requiredTools !== undefined) {
-            job.requiredTools =
-              updates.requiredTools.length > 0 ? updates.requiredTools : undefined;
-          }
-          if (updates.skipConditions !== undefined) {
-            job.skipConditions =
-              updates.skipConditions.length > 0 ? updates.skipConditions : undefined;
-          }
-          if (updates.submitResponseMode !== undefined) {
-            job.submitResponseMode =
-              updates.submitResponseMode === null ? undefined : updates.submitResponseMode;
-          }
-          if (updates.skipDates !== undefined) {
-            job.skipDates = updates.skipDates.length > 0 ? updates.skipDates : undefined;
-          }
-          if (updates.attachedTopics !== undefined) {
-            job.attachedTopics =
-              updates.attachedTopics.length > 0 ? updates.attachedTopics : undefined;
-          }
-          if (updates.jitterMinutes !== undefined) {
-            job.jitterMinutes =
-              updates.jitterMinutes === null || updates.jitterMinutes === 0
-                ? undefined
-                : updates.jitterMinutes;
-          }
-          if (updates.name !== undefined) {
-            const trimmed = updates.name.trim();
-            job.name = trimmed.length > 0 ? trimmed : undefined;
-          }
-          return {
-            id: job.id,
-            cronExpression: job.cronExpression,
-            channel: job.channel,
-            prompt: job.prompt,
-            createdBy: job.createdBy,
-            ...(job.systemActor ? { systemActor: job.systemActor } : {}),
-            createdAt: "2026-01-01T00:00:00Z",
-            enabled: job.enabled,
-            timezone: job.timezone,
-            plugin: job.plugin,
-            pluginManaged: job.pluginManaged,
-            specKey: job.specKey,
-          };
-        },
-        deleteJob: async (jobId) => {
-          const idx = jobs.findIndex((j) => j.id === jobId);
-          if (idx === -1) return false;
-          jobs.splice(idx, 1);
-          return true;
-        },
+    // Data fixture for an existing plugin-managed job returned by findByPluginOwner.
+    function pluginJob(overrides: Partial<CronJob> = {}): CronJob {
+      return {
+        id: "job-1",
+        cronExpression: "0 9 * * 1-5",
+        prompt: "embedded prompt",
+        createdBy: null,
+        systemActor: "plugin:trivia",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        enabled: true,
+        timezone: "America/New_York",
+        channel: "C123ABC",
+        plugin: "trivia",
+        pluginManaged: true,
+        specKey: "ops:question",
+        ...overrides,
       };
-      return { jobs, deps };
     }
+
+    function makeReconcileSdk(pluginName: string) {
+      return makeSdk(pluginName, { findByPluginOwner, createJob, updateJob, deleteJob });
+    }
+
+    beforeEach(() => {
+      findByPluginOwner = vi.fn<NonNullable<ClackSdkDeps["findByPluginOwner"]>>();
+      createJob = vi.fn<NonNullable<ClackSdkDeps["createJob"]>>();
+      updateJob = vi.fn<NonNullable<ClackSdkDeps["updateJob"]>>();
+      deleteJob = vi.fn<NonNullable<ClackSdkDeps["deleteJob"]>>();
+      findByPluginOwner.mockResolvedValue([]);
+      createJob.mockImplementation(async (params) =>
+        pluginJob({
+          cronExpression: params.cronExpression,
+          channel: params.channel,
+          prompt: params.prompt,
+          createdBy: params.createdBy,
+          systemActor: params.systemActor,
+          timezone: params.timezone,
+          plugin: params.plugin,
+          pluginManaged: params.pluginManaged,
+          specKey: params.specKey,
+          name: params.name,
+          requiredTools: params.requiredTools,
+          skipConditions: params.skipConditions,
+          submitResponseMode: params.submitResponseMode,
+          skipDates: params.skipDates,
+          attachedTopics: params.attachedTopics,
+          attentionLevel: params.attentionLevel,
+          jitterMinutes: params.jitterMinutes,
+        }),
+      );
+      updateJob.mockImplementation(async (id) => pluginJob({ id }));
+      deleteJob.mockResolvedValue(true);
+    });
 
     const validSpec = {
       specKey: "ops:question",
@@ -991,139 +888,129 @@ describe("ClackSdk", () => {
     };
 
     it("creates a new spec as pluginManaged with the right owner", async () => {
-      const store = makeFakeStore();
-      const { sdk } = makeSdk("trivia", store.deps);
+      const { sdk } = makeReconcileSdk("trivia");
 
       await sdk.reconcileCronJobs("trivia", [validSpec]);
 
-      assert.equal(store.jobs.length, 1);
-      assert.equal(store.jobs[0].plugin, "trivia");
-      assert.equal(store.jobs[0].pluginManaged, true);
-      assert.equal(store.jobs[0].specKey, "ops:question");
-      assert.equal(store.jobs[0].cronExpression, "0 9 * * 1-5");
+      expect(createJob).toHaveBeenCalledTimes(1);
+      expect(createJob).toHaveBeenCalledWith(
+        expect.objectContaining({
+          plugin: "trivia",
+          pluginManaged: true,
+          specKey: "ops:question",
+          cronExpression: "0 9 * * 1-5",
+        }),
+      );
     });
 
-    it("persists new specs with createdBy: null and systemActor: plugin:<ownerKey>", async () => {
-      const store = makeFakeStore();
-      const { sdk } = makeSdk("trivia", store.deps);
+    it("passes createdBy: null and systemActor: plugin:<ownerKey> to createJob", async () => {
+      const { sdk } = makeReconcileSdk("trivia");
 
       await sdk.reconcileCronJobs("trivia", [validSpec]);
 
-      assert.equal(store.jobs[0].createdBy, null);
-      assert.equal(store.jobs[0].systemActor, "plugin:trivia");
+      expect(createJob).toHaveBeenCalledWith(
+        expect.objectContaining({ createdBy: null, systemActor: "plugin:trivia" }),
+      );
     });
 
     it("empty spec list deletes all owner-managed jobs", async () => {
-      const store = makeFakeStore();
-      const { sdk } = makeSdk("trivia", store.deps);
-
-      await sdk.reconcileCronJobs("trivia", [validSpec]);
-      assert.equal(store.jobs.length, 1);
+      const { sdk } = makeReconcileSdk("trivia");
+      findByPluginOwner.mockResolvedValue([pluginJob({ id: "job-9", specKey: "ops:question" })]);
 
       await sdk.reconcileCronJobs("trivia", []);
-      assert.equal(store.jobs.length, 0);
+
+      expect(deleteJob).toHaveBeenCalledWith("job-9");
+      expect(createJob).not.toHaveBeenCalled();
     });
 
-    it("updates existing matching spec in place, preserving id/enabled", async () => {
-      const store = makeFakeStore();
-      const { sdk } = makeSdk("trivia", store.deps);
-
-      await sdk.reconcileCronJobs("trivia", [validSpec]);
-      const originalId = store.jobs[0].id;
-      // Simulate admin disabling the job from the Home Tab.
-      store.jobs[0].enabled = false;
-      store.jobs[0].runs = [{ executedAt: "2026-01-01T09:00:00Z", status: "success" }];
+    it("updates the matching spec in place by its id instead of recreating it", async () => {
+      const { sdk } = makeReconcileSdk("trivia");
+      findByPluginOwner.mockResolvedValue([pluginJob({ id: "job-7", specKey: "ops:question" })]);
 
       await sdk.reconcileCronJobs("trivia", [
         { ...validSpec, cronExpression: "0 10 * * 1-5", prompt: "updated prompt" },
       ]);
 
-      assert.equal(store.jobs.length, 1);
-      assert.equal(store.jobs[0].id, originalId, "id preserved across update");
-      assert.equal(store.jobs[0].enabled, false, "admin-disabled flag preserved");
-      assert.equal(store.jobs[0].cronExpression, "0 10 * * 1-5");
-      assert.equal(store.jobs[0].prompt, "updated prompt");
-      assert.equal(store.jobs[0].runs?.length, 1, "run history preserved");
+      expect(updateJob).toHaveBeenCalledTimes(1);
+      expect(updateJob).toHaveBeenCalledWith(
+        "job-7",
+        expect.objectContaining({ cronExpression: "0 10 * * 1-5", prompt: "updated prompt" }),
+      );
+      expect(createJob).not.toHaveBeenCalled();
     });
 
     it("removing a spec deletes the job even when admin had disabled it", async () => {
-      const store = makeFakeStore();
-      const { sdk } = makeSdk("trivia", store.deps);
-
-      await sdk.reconcileCronJobs("trivia", [validSpec]);
-      store.jobs[0].enabled = false;
+      const { sdk } = makeReconcileSdk("trivia");
+      findByPluginOwner.mockResolvedValue([
+        pluginJob({ id: "job-3", specKey: "ops:question", enabled: false }),
+      ]);
 
       await sdk.reconcileCronJobs("trivia", []);
-      assert.equal(store.jobs.length, 0);
+
+      expect(deleteJob).toHaveBeenCalledWith("job-3");
     });
 
-    it("does not touch jobs owned by other plugins or by users", async () => {
-      const store = makeFakeStore();
-      // Pre-seed: one weather-plugin job, one user-created job (no pluginManaged tag)
-      store.jobs.push({
-        id: "weather-1",
-        cronExpression: "0 8 * * *",
-        channel: "C111",
-        prompt: "weather",
-        timezone: "UTC",
-        createdBy: null,
-        systemActor: "plugin:weather",
-        plugin: "weather",
-        pluginManaged: true,
-        specKey: "morning",
-        enabled: true,
-      });
-      store.jobs.push({
-        id: "user-1",
-        cronExpression: "0 10 * * *",
-        channel: "C222",
-        prompt: "user job",
-        timezone: "UTC",
-        createdBy: "U_USER",
-        enabled: true,
-      });
-
-      const { sdk } = makeSdk("trivia", store.deps);
-      await sdk.reconcileCronJobs("trivia", [validSpec]);
-
-      assert.equal(store.jobs.length, 3, "weather + user + new trivia job all present");
-      assert.ok(store.jobs.find((j) => j.id === "weather-1"));
-      assert.ok(store.jobs.find((j) => j.id === "user-1"));
+    it("scopes its read and deletions to its own owner key", async () => {
+      const { sdk } = makeReconcileSdk("trivia");
+      findByPluginOwner.mockResolvedValue([pluginJob({ id: "trivia-1", specKey: "ops:question" })]);
 
       await sdk.reconcileCronJobs("trivia", []);
-      assert.equal(store.jobs.length, 2, "trivia gone, weather + user retained");
+
+      // Owner scoping is delegated to findByPluginOwner: reconcile only removes jobs that read
+      // returned, so jobs owned by other plugins/users (never in the result) go untouched.
+      expect(findByPluginOwner).toHaveBeenCalledWith("trivia");
+      expect(deleteJob).toHaveBeenCalledTimes(1);
+      expect(deleteJob).toHaveBeenCalledWith("trivia-1");
     });
 
     it("skips invalid specs but applies valid neighbors", async () => {
-      const store = makeFakeStore();
-      const { sdk } = makeSdk("trivia", store.deps);
+      const { sdk } = makeReconcileSdk("trivia");
 
       await sdk.reconcileCronJobs("trivia", [
         validSpec,
         { ...validSpec, specKey: "bad", cronExpression: "not a cron" },
       ]);
 
-      assert.equal(store.jobs.length, 1, "only the valid spec was applied");
-      assert.equal(store.jobs[0].specKey, "ops:question");
+      expect(createJob).toHaveBeenCalledTimes(1);
+      expect(createJob).toHaveBeenCalledWith(expect.objectContaining({ specKey: "ops:question" }));
+      expect(createJob).not.toHaveBeenCalledWith(expect.objectContaining({ specKey: "bad" }));
     });
 
-    it("idempotent on repeat call with identical input", async () => {
-      const store = makeFakeStore();
-      const { sdk } = makeSdk("trivia", store.deps);
+    it("skips a spec with an invalid attentionLevel without dropping siblings", async () => {
+      const { sdk } = makeReconcileSdk("trivia");
+
+      await sdk.reconcileCronJobs("trivia", [
+        // @ts-expect-error — testing runtime guard
+        { ...validSpec, specKey: "bad", attentionLevel: "off" },
+        { ...validSpec, specKey: "good", attentionLevel: "high" },
+      ]);
+
+      expect(createJob).toHaveBeenCalledTimes(1);
+      expect(createJob).toHaveBeenCalledWith(
+        expect.objectContaining({ specKey: "good", attentionLevel: "high" }),
+      );
+    });
+
+    it("re-declaring an existing spec updates in place instead of recreating", async () => {
+      const { sdk } = makeReconcileSdk("trivia");
+      findByPluginOwner.mockResolvedValue([pluginJob({ id: "job-5", specKey: "ops:question" })]);
 
       await sdk.reconcileCronJobs("trivia", [validSpec]);
-      const firstId = store.jobs[0].id;
-      const firstSnapshot = JSON.stringify(store.jobs[0]);
 
-      await sdk.reconcileCronJobs("trivia", [validSpec]);
-      assert.equal(store.jobs.length, 1);
-      assert.equal(store.jobs[0].id, firstId, "no recreation on identical input");
-      assert.equal(JSON.stringify(store.jobs[0]), firstSnapshot, "state unchanged");
+      expect(updateJob).toHaveBeenCalledTimes(1);
+      expect(updateJob).toHaveBeenCalledWith(
+        "job-5",
+        expect.objectContaining({
+          cronExpression: validSpec.cronExpression,
+          prompt: validSpec.prompt,
+        }),
+      );
+      expect(createJob).not.toHaveBeenCalled();
+      expect(deleteJob).not.toHaveBeenCalled();
     });
 
     it("throws on non-string ownerKey", async () => {
-      const store = makeFakeStore();
-      const { sdk } = makeSdk("trivia", store.deps);
+      const { sdk } = makeReconcileSdk("trivia");
       await assert.rejects(
         () => sdk.reconcileCronJobs("", [validSpec]),
         /ownerKey must be a non-empty string/,
@@ -1131,16 +1018,14 @@ describe("ClackSdk", () => {
     });
 
     it("throws on non-array specs", async () => {
-      const store = makeFakeStore();
-      const { sdk } = makeSdk("trivia", store.deps);
+      const { sdk } = makeReconcileSdk("trivia");
       // @ts-expect-error — testing runtime guard
       await assert.rejects(() => sdk.reconcileCronJobs("trivia", null), /specs must be an array/);
     });
 
     describe("skipDates persistence", () => {
       it("creates a job with skipDates when the spec carries them", async () => {
-        const store = makeFakeStore();
-        const { sdk } = makeSdk("trivia", store.deps);
+        const { sdk } = makeReconcileSdk("trivia");
         const skipDates = [
           { date: "12-25", label: "Christmas" },
           { date: "01-01", label: "New Year's Day" },
@@ -1148,210 +1033,205 @@ describe("ClackSdk", () => {
 
         await sdk.reconcileCronJobs("trivia", [{ ...validSpec, skipDates }]);
 
-        assert.equal(store.jobs.length, 1);
-        assert.deepEqual(store.jobs[0].skipDates, skipDates);
+        expect(createJob).toHaveBeenCalledWith(expect.objectContaining({ skipDates }));
       });
 
-      it("creates a job without skipDates when the spec omits them", async () => {
-        const store = makeFakeStore();
-        const { sdk } = makeSdk("trivia", store.deps);
+      it("omits skipDates from createJob when the spec omits them", async () => {
+        const { sdk } = makeReconcileSdk("trivia");
 
         await sdk.reconcileCronJobs("trivia", [validSpec]);
 
-        assert.equal(store.jobs[0].skipDates, undefined);
+        expect(createJob).toHaveBeenCalledTimes(1);
+        expect(createJob.mock.calls[0][0]).not.toHaveProperty("skipDates");
       });
 
       it("updates skipDates in place on an existing job when the spec changes", async () => {
-        const store = makeFakeStore();
-        const { sdk } = makeSdk("trivia", store.deps);
-        const first = [{ date: "12-25", label: "Christmas" }];
+        const { sdk } = makeReconcileSdk("trivia");
         const second = [
           { date: "12-25", label: "Christmas" },
           { date: "07-01", label: "Summer Holiday" },
         ];
+        findByPluginOwner.mockResolvedValue([pluginJob({ id: "job-2", specKey: "ops:question" })]);
 
-        await sdk.reconcileCronJobs("trivia", [{ ...validSpec, skipDates: first }]);
-        const id = store.jobs[0].id;
         await sdk.reconcileCronJobs("trivia", [{ ...validSpec, skipDates: second }]);
 
-        assert.equal(store.jobs.length, 1);
-        assert.equal(store.jobs[0].id, id, "same job, updated in place");
-        assert.deepEqual(store.jobs[0].skipDates, second);
+        expect(updateJob).toHaveBeenCalledWith(
+          "job-2",
+          expect.objectContaining({ skipDates: second }),
+        );
       });
 
       it("clears skipDates when a subsequent spec omits them", async () => {
-        const store = makeFakeStore();
-        const { sdk } = makeSdk("trivia", store.deps);
-
-        await sdk.reconcileCronJobs("trivia", [
-          { ...validSpec, skipDates: [{ date: "12-25", label: "Christmas" }] },
-        ]);
-        assert.ok(store.jobs[0].skipDates);
+        const { sdk } = makeReconcileSdk("trivia");
+        findByPluginOwner.mockResolvedValue([pluginJob({ id: "job-2", specKey: "ops:question" })]);
 
         await sdk.reconcileCronJobs("trivia", [validSpec]);
-        assert.equal(store.jobs[0].skipDates, undefined);
+
+        expect(updateJob).toHaveBeenCalledWith("job-2", expect.objectContaining({ skipDates: [] }));
       });
     });
 
     describe("attachedTopics propagation", () => {
       it("persists attachedTopics through createJob when the spec sets it", async () => {
-        const store = makeFakeStore();
-        const { sdk } = makeSdk("trivia", store.deps);
+        const { sdk } = makeReconcileSdk("trivia");
 
         await sdk.reconcileCronJobs("trivia", [{ ...validSpec, attachedTopics: ["trivia"] }]);
 
-        assert.equal(store.jobs.length, 1);
-        assert.deepEqual(store.jobs[0].attachedTopics, ["trivia"]);
+        expect(createJob).toHaveBeenCalledWith(
+          expect.objectContaining({ attachedTopics: ["trivia"] }),
+        );
       });
 
       it("omits attachedTopics when the spec does not set it", async () => {
-        const store = makeFakeStore();
-        const { sdk } = makeSdk("trivia", store.deps);
+        const { sdk } = makeReconcileSdk("trivia");
 
         await sdk.reconcileCronJobs("trivia", [validSpec]);
 
-        assert.equal(store.jobs[0].attachedTopics, undefined);
+        expect(createJob).toHaveBeenCalledTimes(1);
+        expect(createJob.mock.calls[0][0]).not.toHaveProperty("attachedTopics");
       });
 
       it("updates attachedTopics in place when the spec changes the value", async () => {
-        const store = makeFakeStore();
-        const { sdk } = makeSdk("trivia", store.deps);
-
-        await sdk.reconcileCronJobs("trivia", [{ ...validSpec, attachedTopics: ["trivia"] }]);
-        const id = store.jobs[0].id;
+        const { sdk } = makeReconcileSdk("trivia");
+        findByPluginOwner.mockResolvedValue([pluginJob({ id: "job-2", specKey: "ops:question" })]);
 
         await sdk.reconcileCronJobs("trivia", [
           { ...validSpec, attachedTopics: ["trivia", "extra"] },
         ]);
 
-        assert.equal(store.jobs.length, 1);
-        assert.equal(store.jobs[0].id, id, "same job, updated in place");
-        assert.deepEqual(store.jobs[0].attachedTopics, ["trivia", "extra"]);
+        expect(updateJob).toHaveBeenCalledWith(
+          "job-2",
+          expect.objectContaining({ attachedTopics: ["trivia", "extra"] }),
+        );
       });
 
       it("clears attachedTopics when a subsequent spec omits the field", async () => {
-        const store = makeFakeStore();
-        const { sdk } = makeSdk("trivia", store.deps);
-
-        await sdk.reconcileCronJobs("trivia", [{ ...validSpec, attachedTopics: ["trivia"] }]);
-        assert.deepEqual(store.jobs[0].attachedTopics, ["trivia"]);
+        const { sdk } = makeReconcileSdk("trivia");
+        findByPluginOwner.mockResolvedValue([pluginJob({ id: "job-2", specKey: "ops:question" })]);
 
         await sdk.reconcileCronJobs("trivia", [validSpec]);
-        assert.equal(store.jobs[0].attachedTopics, undefined);
+
+        expect(updateJob).toHaveBeenCalledWith(
+          "job-2",
+          expect.objectContaining({ attachedTopics: [] }),
+        );
       });
     });
 
     describe("submitResponseMode propagation", () => {
       it("persists submitResponseMode through createJob when the spec sets it", async () => {
-        const store = makeFakeStore();
-        const { sdk } = makeSdk("trivia", store.deps);
+        const { sdk } = makeReconcileSdk("trivia");
 
         await sdk.reconcileCronJobs("trivia", [{ ...validSpec, submitResponseMode: "skipped" }]);
 
-        assert.equal(store.jobs.length, 1);
-        assert.equal(store.jobs[0].submitResponseMode, "skipped");
+        expect(createJob).toHaveBeenCalledWith(
+          expect.objectContaining({ submitResponseMode: "skipped" }),
+        );
       });
 
       it("omits submitResponseMode when the spec does not set it", async () => {
-        const store = makeFakeStore();
-        const { sdk } = makeSdk("trivia", store.deps);
+        const { sdk } = makeReconcileSdk("trivia");
 
         await sdk.reconcileCronJobs("trivia", [validSpec]);
 
-        assert.equal(store.jobs[0].submitResponseMode, undefined);
+        expect(createJob).toHaveBeenCalledTimes(1);
+        expect(createJob.mock.calls[0][0]).not.toHaveProperty("submitResponseMode");
       });
 
       it("updates submitResponseMode in place when the spec changes the value", async () => {
-        const store = makeFakeStore();
-        const { sdk } = makeSdk("trivia", store.deps);
-
-        await sdk.reconcileCronJobs("trivia", [{ ...validSpec, submitResponseMode: "always" }]);
-        assert.equal(store.jobs[0].submitResponseMode, "always");
+        const { sdk } = makeReconcileSdk("trivia");
+        findByPluginOwner.mockResolvedValue([pluginJob({ id: "job-2", specKey: "ops:question" })]);
 
         await sdk.reconcileCronJobs("trivia", [{ ...validSpec, submitResponseMode: "skipped" }]);
-        assert.equal(store.jobs[0].submitResponseMode, "skipped");
+
+        expect(updateJob).toHaveBeenCalledWith(
+          "job-2",
+          expect.objectContaining({ submitResponseMode: "skipped" }),
+        );
       });
 
       it("clears submitResponseMode when a subsequent spec omits it", async () => {
-        const store = makeFakeStore();
-        const { sdk } = makeSdk("trivia", store.deps);
-
-        await sdk.reconcileCronJobs("trivia", [{ ...validSpec, submitResponseMode: "skipped" }]);
-        assert.equal(store.jobs[0].submitResponseMode, "skipped");
+        const { sdk } = makeReconcileSdk("trivia");
+        findByPluginOwner.mockResolvedValue([pluginJob({ id: "job-2", specKey: "ops:question" })]);
 
         await sdk.reconcileCronJobs("trivia", [validSpec]);
-        assert.equal(store.jobs[0].submitResponseMode, undefined);
+
+        expect(updateJob).toHaveBeenCalledWith(
+          "job-2",
+          expect.objectContaining({ submitResponseMode: null }),
+        );
       });
     });
 
     describe("name field", () => {
-      it("persists name when spec carries one (new entry)", async () => {
-        const store = makeFakeStore();
-        const { sdk } = makeSdk("trivia", store.deps);
+      it("passes name to createJob when the spec carries one (new entry)", async () => {
+        const { sdk } = makeReconcileSdk("trivia");
 
         await sdk.reconcileCronJobs("trivia", [{ ...validSpec, name: "Trivia: daily question" }]);
 
-        assert.equal(store.jobs[0].name, "Trivia: daily question");
+        expect(createJob).toHaveBeenCalledWith(
+          expect.objectContaining({ name: "Trivia: daily question" }),
+        );
       });
 
       it("creates a nameless job when spec omits name", async () => {
-        const store = makeFakeStore();
-        const { sdk } = makeSdk("trivia", store.deps);
+        const { sdk } = makeReconcileSdk("trivia");
 
         await sdk.reconcileCronJobs("trivia", [validSpec]);
 
-        assert.equal(store.jobs[0].name, undefined);
+        expect(createJob).toHaveBeenCalledTimes(1);
+        expect(createJob.mock.calls[0][0]).not.toHaveProperty("name");
       });
 
       it("adopts a name on re-reconcile when the spec now has one", async () => {
-        const store = makeFakeStore();
-        const { sdk } = makeSdk("trivia", store.deps);
-
-        await sdk.reconcileCronJobs("trivia", [validSpec]);
-        assert.equal(store.jobs[0].name, undefined);
+        const { sdk } = makeReconcileSdk("trivia");
+        findByPluginOwner.mockResolvedValue([pluginJob({ id: "job-2", specKey: "ops:question" })]);
 
         await sdk.reconcileCronJobs("trivia", [{ ...validSpec, name: "Game A — daily" }]);
-        assert.equal(store.jobs[0].name, "Game A — daily");
+
+        expect(updateJob).toHaveBeenCalledWith(
+          "job-2",
+          expect.objectContaining({ name: "Game A — daily" }),
+        );
       });
 
-      it("leaves the persisted name untouched when re-reconciled spec omits name", async () => {
-        const store = makeFakeStore();
-        const { sdk } = makeSdk("trivia", store.deps);
-
-        await sdk.reconcileCronJobs("trivia", [{ ...validSpec, name: "Initial name" }]);
-        assert.equal(store.jobs[0].name, "Initial name");
+      it("omits name from the update patch when the re-reconciled spec has none", async () => {
+        const { sdk } = makeReconcileSdk("trivia");
+        findByPluginOwner.mockResolvedValue([pluginJob({ id: "job-2", specKey: "ops:question" })]);
 
         await sdk.reconcileCronJobs("trivia", [validSpec]);
-        assert.equal(store.jobs[0].name, "Initial name");
+
+        expect(updateJob).toHaveBeenCalledTimes(1);
+        expect(updateJob.mock.calls[0][1]).not.toHaveProperty("name");
       });
 
       it("overwrites name when the spec provides a different one", async () => {
-        const store = makeFakeStore();
-        const { sdk } = makeSdk("trivia", store.deps);
+        const { sdk } = makeReconcileSdk("trivia");
+        findByPluginOwner.mockResolvedValue([
+          pluginJob({ id: "job-2", specKey: "ops:question", name: "Old" }),
+        ]);
 
-        await sdk.reconcileCronJobs("trivia", [{ ...validSpec, name: "Old" }]);
         await sdk.reconcileCronJobs("trivia", [{ ...validSpec, name: "New" }]);
 
-        assert.equal(store.jobs[0].name, "New");
+        expect(updateJob).toHaveBeenCalledWith("job-2", expect.objectContaining({ name: "New" }));
       });
 
       it("skips a spec whose name is too long", async () => {
-        const store = makeFakeStore();
-        const { sdk } = makeSdk("trivia", store.deps);
+        const { sdk } = makeReconcileSdk("trivia");
         const oversized = "x".repeat(81);
 
         await sdk.reconcileCronJobs("trivia", [{ ...validSpec, name: oversized }]);
 
-        assert.equal(store.jobs.length, 0);
+        expect(createJob).not.toHaveBeenCalled();
+        expect(updateJob).not.toHaveBeenCalled();
       });
 
       it("skips a spec whose name is whitespace-only", async () => {
-        const store = makeFakeStore();
-        const { sdk } = makeSdk("trivia", store.deps);
+        const { sdk } = makeReconcileSdk("trivia");
 
         await sdk.reconcileCronJobs("trivia", [{ ...validSpec, name: "   " }]);
 
-        assert.equal(store.jobs.length, 0);
+        expect(createJob).not.toHaveBeenCalled();
       });
     });
 
@@ -1364,97 +1244,98 @@ describe("ClackSdk", () => {
       };
 
       it("accepts a spec with no channel field", async () => {
-        const store = makeFakeStore();
-        const { sdk } = makeSdk("casual-talk", store.deps);
+        const { sdk } = makeReconcileSdk("casual-talk");
 
         await sdk.reconcileCronJobs("casual-talk", [channellessSpec]);
 
-        assert.equal(store.jobs.length, 1);
-        assert.equal(store.jobs[0].channel, undefined);
-        assert.equal(store.jobs[0].pluginManaged, true);
-        assert.equal(store.jobs[0].systemActor, "plugin:casual-talk");
+        expect(createJob).toHaveBeenCalledTimes(1);
+        expect(createJob).toHaveBeenCalledWith(
+          expect.objectContaining({ pluginManaged: true, systemActor: "plugin:casual-talk" }),
+        );
+        expect(createJob.mock.calls[0][0]).not.toHaveProperty("channel");
       });
 
       it("rejects a spec with an invalid channel string (regression for shape check)", async () => {
-        const store = makeFakeStore();
-        const { sdk } = makeSdk("casual-talk", store.deps);
+        const { sdk } = makeReconcileSdk("casual-talk");
 
         await sdk.reconcileCronJobs("casual-talk", [
           { ...channellessSpec, channel: "not-a-channel-id" },
         ]);
 
-        assert.equal(store.jobs.length, 0, "invalid channel rejected");
+        expect(createJob).not.toHaveBeenCalled();
       });
 
       it("clears the persisted channel when a previously-bound spec is re-reconciled without one", async () => {
-        const store = makeFakeStore();
-        const { sdk } = makeSdk("casual-talk", store.deps);
-
-        await sdk.reconcileCronJobs("casual-talk", [{ ...channellessSpec, channel: "C123ABC" }]);
-        assert.equal(store.jobs[0].channel, "C123ABC");
+        const { sdk } = makeReconcileSdk("casual-talk");
+        findByPluginOwner.mockResolvedValue([
+          pluginJob({
+            id: "job-2",
+            specKey: "chatter",
+            plugin: "casual-talk",
+            channel: "C123ABC",
+          }),
+        ]);
 
         await sdk.reconcileCronJobs("casual-talk", [channellessSpec]);
 
-        assert.equal(store.jobs[0].channel, undefined, "channel cleared on re-reconcile");
+        expect(updateJob).toHaveBeenCalledWith("job-2", expect.objectContaining({ channel: null }));
       });
     });
 
     describe("jitterMinutes", () => {
       it("persists jitterMinutes on create", async () => {
-        const store = makeFakeStore();
-        const { sdk } = makeSdk("casual-talk", store.deps);
+        const { sdk } = makeReconcileSdk("casual-talk");
 
         await sdk.reconcileCronJobs("casual-talk", [{ ...validSpec, jitterMinutes: 5 }]);
 
-        assert.equal(store.jobs[0].jitterMinutes, 5);
+        expect(createJob).toHaveBeenCalledWith(expect.objectContaining({ jitterMinutes: 5 }));
       });
 
       it("creates a job without jitterMinutes when the spec omits it", async () => {
-        const store = makeFakeStore();
-        const { sdk } = makeSdk("casual-talk", store.deps);
+        const { sdk } = makeReconcileSdk("casual-talk");
 
         await sdk.reconcileCronJobs("casual-talk", [validSpec]);
 
-        assert.equal(store.jobs[0].jitterMinutes, undefined);
+        expect(createJob).toHaveBeenCalledTimes(1);
+        expect(createJob.mock.calls[0][0]).not.toHaveProperty("jitterMinutes");
       });
 
       it("updates jitterMinutes in place, preserving id", async () => {
-        const store = makeFakeStore();
-        const { sdk } = makeSdk("casual-talk", store.deps);
-
-        await sdk.reconcileCronJobs("casual-talk", [{ ...validSpec, jitterMinutes: 5 }]);
-        const originalId = store.jobs[0].id;
+        const { sdk } = makeReconcileSdk("casual-talk");
+        findByPluginOwner.mockResolvedValue([pluginJob({ id: "job-2", specKey: "ops:question" })]);
 
         await sdk.reconcileCronJobs("casual-talk", [{ ...validSpec, jitterMinutes: 8 }]);
 
-        assert.equal(store.jobs[0].id, originalId);
-        assert.equal(store.jobs[0].jitterMinutes, 8);
+        expect(updateJob).toHaveBeenCalledWith(
+          "job-2",
+          expect.objectContaining({ jitterMinutes: 8 }),
+        );
       });
 
       it("clears jitterMinutes on re-reconcile without it (declarative ownership)", async () => {
-        const store = makeFakeStore();
-        const { sdk } = makeSdk("casual-talk", store.deps);
-
-        await sdk.reconcileCronJobs("casual-talk", [{ ...validSpec, jitterMinutes: 6 }]);
-        assert.equal(store.jobs[0].jitterMinutes, 6);
+        const { sdk } = makeReconcileSdk("casual-talk");
+        findByPluginOwner.mockResolvedValue([pluginJob({ id: "job-2", specKey: "ops:question" })]);
 
         await sdk.reconcileCronJobs("casual-talk", [validSpec]);
 
-        assert.equal(store.jobs[0].jitterMinutes, undefined);
+        expect(updateJob).toHaveBeenCalledWith(
+          "job-2",
+          expect.objectContaining({ jitterMinutes: null }),
+        );
       });
 
       it("skips a spec with an out-of-range jitterMinutes without dropping siblings", async () => {
-        const store = makeFakeStore();
-        const { sdk } = makeSdk("casual-talk", store.deps);
+        const { sdk } = makeReconcileSdk("casual-talk");
 
         await sdk.reconcileCronJobs("casual-talk", [
           { ...validSpec, specKey: "bad", jitterMinutes: 99 },
           { ...validSpec, specKey: "good", jitterMinutes: 4 },
         ]);
 
-        assert.equal(store.jobs.length, 1);
-        assert.equal(store.jobs[0].specKey, "good");
-        assert.equal(store.jobs[0].jitterMinutes, 4);
+        expect(createJob).toHaveBeenCalledTimes(1);
+        expect(createJob).toHaveBeenCalledWith(
+          expect.objectContaining({ specKey: "good", jitterMinutes: 4 }),
+        );
       });
     });
   });
