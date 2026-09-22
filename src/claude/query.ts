@@ -7,6 +7,10 @@
  * - `clackQuery`   — fire-and-forget, no session persistence, string-prompt mode
  * - `clackSession` — persisted, resumable, streaming-input mode; returns a
  *                    `ClaudeRunDriver` so callers can `sendUpdate`/`stop` mid-run.
+ *
+ * Both force `verbatimPrompts: true`: prompts carry Slack text other people typed, and
+ * without it the CLI expands `@path` mentions into file contents (any file the process can
+ * read, credentials included) and dispatches leading `/commands`.
  */
 import {
   query as _query,
@@ -53,6 +57,7 @@ export function clackQuery(
     prompt: params.prompt,
     options: {
       ...params.options,
+      verbatimPrompts: true,
       persistSession: false,
       stderr: (data) => logger.warn(`[claude-stderr] ${data.trimEnd()}`),
     },
@@ -234,6 +239,7 @@ export function clackSession(
       prompt: currentInputStream,
       options: {
         ...options,
+        verbatimPrompts: true,
         persistSession: true,
         ...(useResume && resumeSessionId ? { resume: resumeSessionId } : {}),
         abortController: driver.abortController,

@@ -129,6 +129,7 @@ function makeMockQuery(items: ReadonlyArray<MessageFixture>): Query {
     | "getContextUsage"
     | "usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET"
     | "readFile"
+    | "readMcpResource"
     | "reloadPlugins"
     | "reloadSkills"
     | "reloadOutputStyles"
@@ -161,6 +162,7 @@ function makeMockQuery(items: ReadonlyArray<MessageFixture>): Query {
       "usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET",
     ),
     readFile: () => Promise.resolve(null),
+    readMcpResource: notImplemented("readMcpResource"),
     reloadPlugins: notImplemented("reloadPlugins"),
     reloadSkills: notImplemented("reloadSkills"),
     reloadOutputStyles: notImplemented("reloadOutputStyles"),
@@ -224,6 +226,14 @@ describe("clackQuery", () => {
     assert.equal(args.options.model, "sonnet");
   });
 
+  it("forces verbatimPrompts on, even when the caller turns it off", () => {
+    mockQuery.mockImplementation(() => makeMockQuery([makeResultMessage("done")]));
+
+    clackQuery({ prompt: "@/app/data/auth/.env", options: { verbatimPrompts: false } }, makeDeps());
+
+    assert.equal(mockQuery.mock.calls[0]?.[0].options?.verbatimPrompts, true);
+  });
+
   it("does not pass resume", () => {
     mockQuery.mockImplementation(() => makeMockQuery([makeResultMessage("done")]));
 
@@ -256,6 +266,20 @@ describe("clackSession", () => {
     // Streaming-input mode: prompt is now an async iterable of SDKUserMessage
     assert.notEqual(typeof args.prompt, "string");
     assert.equal(messages.length, 2);
+  });
+
+  it("forces verbatimPrompts on, even when the caller turns it off", async () => {
+    mockQuery.mockImplementation(() =>
+      makeMockQuery([makeInitMessage("abc-123"), makeResultMessage("done")]),
+    );
+
+    const run = clackSession(
+      { prompt: "@/app/data/auth/.env", options: { verbatimPrompts: false } },
+      makeDeps(),
+    );
+    await collectMessages(run.messages);
+
+    assert.equal(mockQuery.mock.calls[0]?.[0].options?.verbatimPrompts, true);
   });
 
   it("captures session_id from init message via onSessionId callback", async () => {
