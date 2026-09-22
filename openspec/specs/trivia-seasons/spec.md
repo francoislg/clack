@@ -1433,6 +1433,13 @@ A season SHALL NOT set both `slotOverrides` and a structural `format`; the parse
 - **THEN** the override has no game slot to layer over (`gameSlot[5]` is `null`), and any axis it does not set falls through `seasonSlot → season → gameSlot (null) → game → workspace → default`
 - **AND** the count is unaffected (still the game's)
 
+#### Scenario: upsert_season takes slotOverrides as slot/override pairs
+
+- **WHEN** `upsert_season` is called with `slotOverrides: [{ slot: 2, overrides: { promptMedium: { image: 1 } } }]`
+- **THEN** the season stores `slotOverrides: { "2": { promptMedium: { image: 1 } } }`
+- **AND** a slot listed more than once is rejected with an error naming that slot, leaving the season unchanged
+- **AND** the tool's input schema carries no `z.record` — a record crashes the served `tools/list` conversion, which would hide every `trivia:management` tool
+
 #### Scenario: Both slotOverrides and a structural format is rejected
 
 - **WHEN** `upsert_season` is called with both `slotOverrides` and `format` set

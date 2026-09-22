@@ -145,7 +145,7 @@ describe("upsert_season — points argument", () => {
         slug: "overridden",
         startedAt: future,
         expectedEndAt: future + 30 * DAY,
-        slotOverrides: { 1: { points: { max: 4 } } },
+        slotOverrides: [{ slot: 1, overrides: { points: { max: 4 } } }],
       }),
       SESSION,
     );

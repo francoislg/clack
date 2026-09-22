@@ -34,6 +34,7 @@ import { clearUserSkillBodyCache } from "./userSkillsBodyCache.js";
 import { loadAndInstallPlugins } from "./plugins-core/registry.js";
 import { startThreadConversation } from "./slack/handlers/core.js";
 import { getLoadedPlugins } from "./plugins-core/state.js";
+import { checkServedToolServers } from "./tools/servedToolsCheck.js";
 import { unregisterByPluginName as unregisterPluginInteractivity } from "./slack/pluginActionRegistry.js";
 
 // ---------------------------------------------------------------------------
@@ -77,6 +78,7 @@ export interface LifecycleDeps {
   clearCronJobsCache: typeof clearCronJobsCache;
   clearUserSkillBodyCache: typeof clearUserSkillBodyCache;
   loadAndInstallPlugins: typeof loadAndInstallPlugins;
+  checkServedToolServers: typeof checkServedToolServers;
 }
 
 export const defaultLifecycleDeps: LifecycleDeps = {
@@ -116,6 +118,7 @@ export const defaultLifecycleDeps: LifecycleDeps = {
   clearCronJobsCache,
   clearUserSkillBodyCache,
   loadAndInstallPlugins,
+  checkServedToolServers,
 };
 
 // ---------------------------------------------------------------------------
@@ -336,6 +339,16 @@ export async function restartAll(
       warnings.push(
         `Plugin reload failed: ${error instanceof Error ? error.message : String(error)}`,
       );
+    }
+
+    // Step 4.7: The reloaded config may open a gate that registers a tool whose schema the
+    // SDK can't list — which hides its whole server. Report it like boot does.
+    const unlistable = await deps.checkServedToolServers(
+      config,
+      deps.getSlackClient() ?? undefined,
+    );
+    for (const { name, error } of unlistable) {
+      warnings.push(`Tool server ${name} cannot list its tools: ${error}`);
     }
 
     // Step 5: Reload GitHub credentials (skipped entirely when GitHub is not

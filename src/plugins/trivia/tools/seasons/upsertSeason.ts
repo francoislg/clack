@@ -23,8 +23,8 @@ import {
   normalizeCategories,
   normalizeInstructions,
   normalizeTheme,
+  seasonFormatSlotZod,
   seasonFormatZod,
-  slotOverridesZod,
   triviaAdditionalInstructionsZod,
   triviaCategoriesZod,
   triviaInstructionsZod,
@@ -87,6 +87,34 @@ import { perfectRoundsAwardZod } from "../../core/configParsers/axes.js";
 
 const SLOT_OVERRIDES_VS_FORMAT_MSG =
   "A season cannot set both `format` and `slotOverrides`: `format` declares the question count/structure, while `slotOverrides` layers count-decoupled per-slot deltas over the game format. Pick one.";
+
+/**
+ * Tool-argument schema for `slotOverrides`: `{ slot, overrides }` pairs, folded into the
+ * stored slot-index map by the handler. A `z.record` here crashes the served `tools/list`
+ * conversion, which takes down every tool on the `trivia:management` server.
+ */
+const slotOverridesArgZod = z.array(
+  z.object({
+    slot: z.number().int().min(0),
+    overrides: seasonFormatSlotZod,
+  }),
+);
+
+function slotOverridesFromArg(
+  pairs: z.infer<typeof slotOverridesArgZod>,
+): ReturnType<typeof validateSlotOverrides> {
+  const slots = pairs.map((entry) => entry.slot);
+  const repeated = slots.find((slot, i) => slots.indexOf(slot) !== i);
+  if (repeated !== undefined) {
+    return {
+      ok: false,
+      error: `Invalid \`slotOverrides\`: slot ${repeated} is listed more than once.`,
+    };
+  }
+  return validateSlotOverrides(
+    Object.fromEntries(pairs.map(({ slot, overrides }) => [slot, overrides])),
+  );
+}
 
 /**
  * Loose tool-argument schema for `phases`: an ordered array of slice objects.
@@ -242,11 +270,20 @@ export function createUpsertSeasonTool(
         .describe(
           "Optional per-season question composition. When set, each question-cron fire posts `format.questions.length` questions in slot order. Each slot may narrow `label` / `categories` / `answersFormat` / `questionType` / `freeformAnswerShape` / `contexts` / `difficulty` / `liveAnswersVisible` / `revealResponses`; missing fields cascade to the season's defaults. On UPDATE: object value replaces the whole format; explicit `null` clears the field; mid-season mutation permitted.",
         ),
-      slotOverrides: slotOverridesZod
+      slotOverrides: slotOverridesArgZod
         .nullable()
         .optional()
         .describe(
-          'Optional sparse per-slot overrides keyed by GAME-format slot index (e.g. `{ "2": { promptMedium: { text: 0, image: 1 } } }`). Each value overrides that game slot field-by-field for THIS season only (the `seasonSlot` tier). COUNT-DECOUPLED — it never changes how many questions a fire posts (that stays the game format\'s slot count). Use this for "make question 3 an image question this season" without restating the whole format. MUTUALLY EXCLUSIVE with `format`: set one or the other, never both. On UPDATE: passing `null` clears the field. Mid-season mutation permitted.',
+          [
+            "Optional sparse per-slot overrides as `{ slot, overrides }` pairs, where `slot` is the",
+            "zero-based GAME-format slot index (e.g.",
+            "`[{ slot: 2, overrides: { promptMedium: { text: 0, image: 1 } } }]`); each slot may appear once.",
+            "Each `overrides` bag overrides that game slot field-by-field for THIS season only (the",
+            "`seasonSlot` tier). COUNT-DECOUPLED — it never changes how many questions a fire posts (that",
+            "stays the game format's slot count). Use this for \"make question 3 an image question this",
+            'season" without restating the whole format. MUTUALLY EXCLUSIVE with `format`: set one or the',
+            "other, never both. On UPDATE: passing `null` clears the field. Mid-season mutation permitted.",
+          ].join(" "),
         ),
       phases: phasesArgZod
         .nullable()
@@ -452,7 +489,7 @@ export function createUpsertSeasonTool(
 
         let slotOverrides: Record<number, SeasonFormatSlot> | undefined;
         if (args.slotOverrides !== undefined && args.slotOverrides !== null) {
-          const validated = validateSlotOverrides(args.slotOverrides);
+          const validated = slotOverridesFromArg(args.slotOverrides);
           if (!validated.ok) return errorResult(validated.error);
           slotOverrides = validated.value;
         }
@@ -761,7 +798,7 @@ export function createUpsertSeasonTool(
       if (args.slotOverrides === null) {
         updatedSlotOverrides = undefined;
       } else if (args.slotOverrides !== undefined) {
-        const validated = validateSlotOverrides(args.slotOverrides);
+        const validated = slotOverridesFromArg(args.slotOverrides);
         if (!validated.ok) return errorResult(validated.error);
         updatedSlotOverrides = validated.value;
       }

@@ -377,6 +377,13 @@ export const en = {
   "state.quarantine.freeze_footer":
     "This store is paused until the file is repaired. The original file has NOT been overwritten.",
 
+  // ─── Unlistable tool server owner DM ───────────────────────────────
+  "tools.unlistable.dm_title":
+    ":rotating_light: {count} tool server(s) cannot list their tools — Claude sees none of them",
+  "tools.unlistable.dm_entry": "• `{server}`: {error}",
+  "tools.unlistable.dm_footer":
+    "A tool input schema on each server can't be converted for Claude, which hides every tool on that server. The cause is in code (often a `z.record` or `.default()` in a tool schema) — it needs a fix and a deploy.",
+
   // ─── Quarantined state Home Tab panel ──────────────────────────────
   "home.state_quarantine.header": "Quarantined state",
   "home.state_quarantine.hint":

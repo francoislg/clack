@@ -2,57 +2,63 @@ import { describe, it, vi } from "vitest";
 import assert from "node:assert/strict";
 import { restartAll } from "./lifecycle.js";
 import type { LifecycleDeps } from "./lifecycle.js";
+import type { Config } from "./config.js";
 import type { LoadedPlugins } from "./plugins-core/registry.js";
+import { createSlackClientMock } from "./slack/testSlackClient.js";
+import { stub } from "./testStubs.js";
 
 // ============================================================================
 // Mocks and Helpers
 // ============================================================================
 
-const defaultConfig = () => ({
-  repositories: [{ name: "test-repo" }],
-  changesWorkflow: { enabled: false },
-  claudeCode: { watchMcpConfig: false },
-  cron: { enabled: false },
-});
+const defaultConfig = (): Config =>
+  stub<Config>({
+    repositories: [{ name: "test-repo" }],
+    changesWorkflow: { enabled: false },
+    claudeCode: { watchMcpConfig: false },
+    cron: { enabled: false },
+  });
 
-function createMockDeps(): {
-  deps: LifecycleDeps;
-  mocks: Record<string, ReturnType<typeof vi.fn<(...args: any[]) => any>>>;
-} {
-  const mockLoadConfig = vi.fn(defaultConfig);
-  const mockGetConfig = vi.fn(defaultConfig);
-  const mockDotenvConfig = vi.fn();
-  const mockLoadGitHubCredentials = vi.fn();
-  const mockClearGitHubTokenCache = vi.fn();
-  const mockStartSyncScheduler = vi.fn();
-  const mockStopSyncScheduler = vi.fn();
-  const mockInitializeRepositories = vi.fn(async () => {});
-  const mockSyncAllRepositories = vi.fn(async () => {});
-  const mockStartCleanupScheduler = vi.fn();
-  const mockStopCleanupScheduler = vi.fn();
-  const mockGetSlackClient = vi.fn(() => null);
-  const mockEnsureWorktreeDirectories = vi.fn();
-  const mockStartCompletionMonitor = vi.fn();
-  const mockStopCompletionMonitor = vi.fn();
-  const mockValidateInstructionFiles = vi.fn();
-  const mockStartConfigWatcher = vi.fn(() => vi.fn());
-  const mockStartCronScheduler = vi.fn();
-  const mockStopCronScheduler = vi.fn();
-  const mockResetMcpCache = vi.fn();
-  const mockInstallAllPinnedMcpServers = vi.fn(async () => ({ failed: [] as string[] }));
-  const mockResetToolMappingCache = vi.fn();
-  const mockClearRolesCache = vi.fn();
-  const mockClearPreferencesCache = vi.fn();
-  const mockClearAutoRespondCache = vi.fn();
-  const mockClearCronJobsCache = vi.fn();
-  const mockClearUserSkillBodyCache = vi.fn();
-  const mockArmDelayedBootDispatch = vi.fn();
-  const mockCancelDelayedBootDispatch = vi.fn();
-  const mockClearDelayedBootHandlers = vi.fn();
-  const mockGetCronCatchUpDelayMinutes = vi.fn(() => 3);
-  const mockLoadAndInstallPlugins = vi.fn(
-    async (_pluginNames: string[]): Promise<LoadedPlugins> => ({ results: [] }),
+function createMockDeps() {
+  const mockLoadConfig = vi.fn<LifecycleDeps["loadConfig"]>(defaultConfig);
+  const mockGetConfig = vi.fn<LifecycleDeps["getConfig"]>(defaultConfig);
+  const mockDotenvConfig = vi.fn<LifecycleDeps["dotenvConfig"]>();
+  const mockLoadGitHubCredentials = vi.fn<LifecycleDeps["loadGitHubCredentials"]>();
+  const mockClearGitHubTokenCache = vi.fn<LifecycleDeps["clearGitHubTokenCache"]>();
+  const mockStartSyncScheduler = vi.fn<LifecycleDeps["startSyncScheduler"]>();
+  const mockStopSyncScheduler = vi.fn<LifecycleDeps["stopSyncScheduler"]>();
+  const mockInitializeRepositories = vi.fn<LifecycleDeps["initializeRepositories"]>(async () => {});
+  const mockSyncAllRepositories = vi.fn<LifecycleDeps["syncAllRepositories"]>(async () => {});
+  const mockStartCleanupScheduler = vi.fn<LifecycleDeps["startCleanupScheduler"]>();
+  const mockStopCleanupScheduler = vi.fn<LifecycleDeps["stopCleanupScheduler"]>();
+  const mockGetSlackClient = vi.fn<LifecycleDeps["getSlackClient"]>(() => null);
+  const mockEnsureWorktreeDirectories = vi.fn<LifecycleDeps["ensureWorktreeDirectories"]>();
+  const mockStartCompletionMonitor = vi.fn<LifecycleDeps["startCompletionMonitor"]>();
+  const mockStopCompletionMonitor = vi.fn<LifecycleDeps["stopCompletionMonitor"]>();
+  const mockValidateInstructionFiles = vi.fn<LifecycleDeps["validateInstructionFiles"]>();
+  const mockStartConfigWatcher = vi.fn<LifecycleDeps["startConfigWatcher"]>(() => vi.fn());
+  const mockStartCronScheduler = vi.fn<LifecycleDeps["startCronScheduler"]>();
+  const mockStopCronScheduler = vi.fn<LifecycleDeps["stopCronScheduler"]>();
+  const mockResetMcpCache = vi.fn<LifecycleDeps["resetMcpCache"]>();
+  const mockInstallAllPinnedMcpServers = vi.fn<LifecycleDeps["installAllPinnedMcpServers"]>(
+    async () => ({ failed: [] }),
   );
+  const mockResetToolMappingCache = vi.fn<LifecycleDeps["resetToolMappingCache"]>();
+  const mockClearRolesCache = vi.fn<LifecycleDeps["clearRolesCache"]>();
+  const mockClearPreferencesCache = vi.fn<LifecycleDeps["clearPreferencesCache"]>();
+  const mockClearAutoRespondCache = vi.fn<LifecycleDeps["clearAutoRespondCache"]>();
+  const mockClearCronJobsCache = vi.fn<LifecycleDeps["clearCronJobsCache"]>();
+  const mockClearUserSkillBodyCache = vi.fn<LifecycleDeps["clearUserSkillBodyCache"]>();
+  const mockArmDelayedBootDispatch = vi.fn<LifecycleDeps["armDelayedBootDispatch"]>();
+  const mockCancelDelayedBootDispatch = vi.fn<LifecycleDeps["cancelDelayedBootDispatch"]>();
+  const mockClearDelayedBootHandlers = vi.fn<LifecycleDeps["clearDelayedBootHandlers"]>();
+  const mockGetCronCatchUpDelayMinutes = vi.fn<LifecycleDeps["getCronCatchUpDelayMinutes"]>(
+    () => 3,
+  );
+  const mockLoadAndInstallPlugins = vi.fn<LifecycleDeps["loadAndInstallPlugins"]>(
+    async (): Promise<LoadedPlugins> => ({ results: [] }),
+  );
+  const mockCheckServedToolServers = vi.fn<LifecycleDeps["checkServedToolServers"]>(async () => []);
 
   const mocks = {
     mockLoadConfig,
@@ -87,15 +93,15 @@ function createMockDeps(): {
     mockClearDelayedBootHandlers,
     mockGetCronCatchUpDelayMinutes,
     mockLoadAndInstallPlugins,
+    mockCheckServedToolServers,
   };
 
   const deps: LifecycleDeps = {
-    dotenvConfig: mockDotenvConfig as Function as LifecycleDeps["dotenvConfig"],
-    loadConfig: mockLoadConfig as () => void as LifecycleDeps["loadConfig"],
-    getConfig: mockGetConfig as () => void as LifecycleDeps["getConfig"],
-    loadGitHubCredentials:
-      mockLoadGitHubCredentials as Function as LifecycleDeps["loadGitHubCredentials"],
-    gitHubCredentialsExist: (() => true) as LifecycleDeps["gitHubCredentialsExist"],
+    dotenvConfig: mockDotenvConfig,
+    loadConfig: mockLoadConfig,
+    getConfig: mockGetConfig,
+    loadGitHubCredentials: mockLoadGitHubCredentials,
+    gitHubCredentialsExist: () => true,
     clearGitHubTokenCache: mockClearGitHubTokenCache,
     logger: { info: () => {}, warn: () => {}, error: () => {}, debug: () => {}, startup: () => {} },
     initializeRepositories: mockInitializeRepositories,
@@ -109,7 +115,7 @@ function createMockDeps(): {
     startCompletionMonitor: mockStartCompletionMonitor,
     stopCompletionMonitor: mockStopCompletionMonitor,
     validateInstructionFiles: mockValidateInstructionFiles,
-    startConfigWatcher: mockStartConfigWatcher as Function as LifecycleDeps["startConfigWatcher"],
+    startConfigWatcher: mockStartConfigWatcher,
     startCronScheduler: mockStartCronScheduler,
     stopCronScheduler: mockStopCronScheduler,
     startStateBackupScheduler: () => {},
@@ -127,6 +133,7 @@ function createMockDeps(): {
     clearCronJobsCache: mockClearCronJobsCache,
     clearUserSkillBodyCache: mockClearUserSkillBodyCache,
     loadAndInstallPlugins: mockLoadAndInstallPlugins,
+    checkServedToolServers: mockCheckServedToolServers,
   };
 
   return { deps, mocks };
@@ -170,16 +177,17 @@ describe("restartAll", () => {
 
   it("arms the delayed-boot dispatch with the config delay after starting the cron scheduler", async () => {
     const { deps, mocks } = createMockDeps();
-    const cronEnabledConfig = () => ({
-      repositories: [{ name: "test-repo" }],
-      changesWorkflow: { enabled: false },
-      claudeCode: { watchMcpConfig: false },
-      cron: { enabled: true },
-    });
+    const cronEnabledConfig = () =>
+      stub<Config>({
+        repositories: [{ name: "test-repo" }],
+        changesWorkflow: { enabled: false },
+        claudeCode: { watchMcpConfig: false },
+        cron: { enabled: true },
+      });
     mocks.mockLoadConfig.mockImplementation(cronEnabledConfig);
     mocks.mockGetConfig.mockImplementation(cronEnabledConfig);
-    const fakeClient = {} as ReturnType<LifecycleDeps["getSlackClient"]>;
-    mocks.mockGetSlackClient.mockImplementation(() => fakeClient);
+    const client = createSlackClientMock();
+    mocks.mockGetSlackClient.mockImplementation(() => client);
     mocks.mockGetCronCatchUpDelayMinutes.mockReturnValue(7);
 
     await restartAll(deps);
@@ -234,13 +242,13 @@ describe("restartAll", () => {
 
   it("reloads plugins from the freshly-loaded config", async () => {
     const { deps, mocks } = createMockDeps();
-    const configWithPlugins = {
+    const configWithPlugins = stub<Config>({
       repositories: [],
       changesWorkflow: { enabled: false },
       claudeCode: { watchMcpConfig: false },
       cron: { enabled: false },
       plugins: ["trivia", "giphy"],
-    };
+    });
     mocks.mockLoadConfig.mockImplementation(() => configWithPlugins);
     mocks.mockGetConfig.mockImplementation(() => configWithPlugins);
     const harvested: LoadedPlugins = { results: [] };
@@ -278,26 +286,49 @@ describe("restartAll", () => {
     assert.equal(mocks.mockStartSyncScheduler.mock.calls.length, 1);
   });
 
+  it("checks the served tool servers against the reloaded plugins and config", async () => {
+    const { deps, mocks } = createMockDeps();
+    const client = createSlackClientMock();
+    mocks.mockGetSlackClient.mockImplementation(() => client);
+
+    await restartAll(deps);
+
+    assert.equal(mocks.mockCheckServedToolServers.mock.calls.length, 1);
+    assert.deepEqual(mocks.mockCheckServedToolServers.mock.calls[0], [
+      mocks.mockGetConfig.mock.results[0].value,
+      client,
+    ]);
+    assert.ok(
+      mocks.mockCheckServedToolServers.mock.invocationCallOrder[0]! >
+        mocks.mockLoadAndInstallPlugins.mock.invocationCallOrder[0]!,
+      "the check must see the freshly reloaded plugins",
+    );
+  });
+
+  it("surfaces unlistable tool servers as warnings without aborting", async () => {
+    const { deps, mocks } = createMockDeps();
+    mocks.mockCheckServedToolServers.mockResolvedValue([
+      { name: "trivia:management", error: "Cannot read properties of undefined" },
+    ]);
+
+    const result = await restartAll(deps);
+
+    assert.ok(
+      result.warnings.includes(
+        "Tool server trivia:management cannot list its tools: Cannot read properties of undefined",
+      ),
+      `got: ${JSON.stringify(result.warnings)}`,
+    );
+    assert.equal(mocks.mockStartSyncScheduler.mock.calls.length, 1);
+  });
+
   it("reloads config before stopping schedulers", async () => {
     const { deps, mocks } = createMockDeps();
     const callOrder: string[] = [];
 
     mocks.mockLoadConfig.mockImplementation(() => {
       callOrder.push("loadConfig");
-      return {
-        repositories: [],
-        changesWorkflow: { enabled: false },
-        claudeCode: { watchMcpConfig: false },
-        cron: { enabled: false },
-      };
-    });
-    mocks.mockGetConfig.mockImplementation(() => {
-      return {
-        repositories: [],
-        changesWorkflow: { enabled: false },
-        claudeCode: { watchMcpConfig: false },
-        cron: { enabled: false },
-      };
+      return defaultConfig();
     });
     mocks.mockStopSyncScheduler.mockImplementation(() => {
       callOrder.push("stopSync");

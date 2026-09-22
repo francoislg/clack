@@ -73,7 +73,7 @@ describe("upsert_season — slotOverrides argument", () => {
           slug: "img-q3",
           startedAt: future,
           expectedEndAt: future + 30 * DAY,
-          slotOverrides: { 2: { promptMedium: { text: 0, image: 1 } } },
+          slotOverrides: [{ slot: 2, overrides: { promptMedium: { text: 0, image: 1 } } }],
         }),
         SESSION,
       ),
@@ -97,7 +97,7 @@ describe("upsert_season — slotOverrides argument", () => {
           startedAt: future,
           expectedEndAt: future + 30 * DAY,
           format: { questions: [{ label: "Q1" }] },
-          slotOverrides: { 0: { promptMedium: { text: 0, image: 1 } } },
+          slotOverrides: [{ slot: 0, overrides: { promptMedium: { text: 0, image: 1 } } }],
         }),
         SESSION,
       ),
@@ -114,7 +114,9 @@ describe("upsert_season — slotOverrides argument", () => {
         slug: "clearme",
         startedAt: future,
         expectedEndAt: future + 30 * DAY,
-        slotOverrides: { 1: { answersFormat: { boolean: 0, choice: 1, freeform: 0 } } },
+        slotOverrides: [
+          { slot: 1, overrides: { answersFormat: { boolean: 0, choice: 1, freeform: 0 } } },
+        ],
       }),
       SESSION,
     );
@@ -139,11 +141,39 @@ describe("upsert_season — slotOverrides argument", () => {
           startedAt: future,
           expectedEndAt: future + 30 * DAY,
           // all-zero weight map is invalid (needs ≥1 positive)
-          slotOverrides: { 0: { answersFormat: { boolean: 0, choice: 0, freeform: 0 } } },
+          slotOverrides: [
+            { slot: 0, overrides: { answersFormat: { boolean: 0, choice: 0, freeform: 0 } } },
+          ],
         }),
         SESSION,
       ),
     );
     assert.ok(result.error || result.isError);
+  });
+
+  it("rejects a slot listed more than once, leaving the season unwritten", async () => {
+    const tool = createUpsertSeasonTool(data, fixtureGetGames);
+    const future = Date.now() + 30 * DAY;
+    const result = parseToolResult(
+      await tool.handler(
+        makeArgs({
+          slug: "dup-slot",
+          startedAt: future,
+          expectedEndAt: future + 30 * DAY,
+          slotOverrides: [
+            { slot: 1, overrides: { label: "first" } },
+            { slot: 1, overrides: { label: "second" } },
+          ],
+        }),
+        SESSION,
+      ),
+    );
+    assert.match(String(result.error), /slot 1 is listed more than once/);
+
+    const state = await data.forGame(FIXTURE_GAME_NAME).loadSeasonsState();
+    assert.equal(
+      state?.seasons.find((s) => s.slug === "dup-slot"),
+      undefined,
+    );
   });
 });

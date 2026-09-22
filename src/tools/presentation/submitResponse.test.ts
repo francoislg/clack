@@ -3036,6 +3036,16 @@ describe("createSubmitResponseTool", () => {
       assert.equal(parsed.skipped, true);
     });
 
+    it("treats a bare call as the skip", async () => {
+      const deliver = vi.fn(async () => ({ ok: true as const }));
+      const deps = makeDeps({ deliver, submitResponseMode: "skipped" });
+      const result = await createSubmitResponseTool(deps).handler({}, {});
+
+      assert.equal(parseToolResult(result).skipped, true);
+      assert.equal(vi.mocked(deps.responseCapture.setSkipped).mock.calls.length, 1);
+      assert.equal(deliver.mock.calls.length, 0);
+    });
+
     it("does not call deliver when in skipped mode", async () => {
       const deliver = vi.fn(async () => ({ ok: true as const }));
       const deps = makeDeps({ deliver, allowSkip: true, submitResponseMode: "skipped" });

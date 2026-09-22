@@ -64,9 +64,11 @@ When the active run's `submitResponseMode === "skipped"`, the `submit_response` 
 
 ```ts
 {
-  skip_response: z.literal(true);
+  skip_response: z.preprocess(coerceBooleanString, z.literal(true)).optional();
 }
 ```
+
+Every call in this mode is the skip: `skip_response` is the only field Claude is taught to send, but its absence is not an error.
 
 The schema SHALL NOT include `blocks`, `actions`, `table`, `reactions`, `message`, `post_top_level`, or `attention_level`. Any of those keys in the input SHALL cause Zod to reject the call with an unknown-field error before the handler runs.
 
@@ -100,12 +102,13 @@ The schema SHALL NOT include `blocks`, `actions`, `table`, `reactions`, `message
 - **THEN** Zod rejects the call (literal type mismatch)
 - **AND** the handler is NOT invoked
 
-#### Scenario: Skipped schema rejects an empty call
+#### Scenario: Skipped schema treats an empty call as the skip
 
 - **GIVEN** an active run with `submitResponseMode === "skipped"`
 - **WHEN** Claude calls `submit_response({})`
-- **THEN** Zod rejects the call (missing required `skip_response`)
-- **AND** the handler is NOT invoked
+- **THEN** the call passes Zod validation — the served JSON Schema lists `skip_response` as optional (a coercing `z.preprocess` field is never listed as required), and the validator agrees with it
+- **AND** the handler proceeds to the requiredTools gate, then to the skip branch
+- **AND** the run is recorded as skipped
 
 ### Requirement: Mode Precedence Over Auto-Derivation
 

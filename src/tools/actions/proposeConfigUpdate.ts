@@ -8,7 +8,6 @@ import {
   CONFIG_TARGET_FIELDS,
   validateConfigTarget,
   buildConfigPath,
-  type ConfigTargetArgs,
 } from "../query/configFieldSchemas.js";
 
 export interface ProposeConfigUpdateDeps {
@@ -48,16 +47,13 @@ export function createProposeConfigUpdateTool(
         ),
       operation: z
         .enum(["append", "replace", "delete"])
-        .default("append")
+        .optional()
         .describe(
           "'append' (default) adds content to the end of the existing file. 'replace' overwrites the entire file. 'delete' removes the custom override (reverts to shipped default if one exists, otherwise deletes the file).",
         ),
     },
-    async (rawArgs) => {
-      const args = rawArgs as ConfigTargetArgs & {
-        content?: string;
-        operation: "append" | "replace" | "delete";
-      };
+    async (args) => {
+      const operation = args.operation ?? "append";
 
       const targetError = validateConfigTarget(args);
       if (targetError !== null) {
@@ -72,7 +68,7 @@ export function createProposeConfigUpdateTool(
 
       const path = buildConfigPath(args);
 
-      if (args.operation === "delete") {
+      if (operation === "delete") {
         if (args.content !== undefined && args.content !== "") {
           return errorResult(
             "`content` must be omitted when operation is 'delete'. To replace file contents, use operation 'replace' instead.",
@@ -111,7 +107,7 @@ export function createProposeConfigUpdateTool(
       }
 
       let finalContent: string;
-      if (args.operation === "replace") {
+      if (operation === "replace") {
         finalContent = args.content;
       } else {
         const current = deps.readInstructionFile(path);

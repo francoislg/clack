@@ -207,7 +207,6 @@ export function createFindSessionTranscriptTool(
         .int()
         .min(0)
         .optional()
-        .default(0)
         .describe("Number of messages to skip from the start of the transcript. Defaults to 0."),
       limit: z
         .number()
@@ -215,10 +214,9 @@ export function createFindSessionTranscriptTool(
         .min(1)
         .max(100)
         .optional()
-        .default(20)
         .describe("Maximum number of messages to return. Defaults to 20, capped at 100."),
     },
-    async ({ sessionId, offset, limit }) => {
+    async ({ sessionId, offset = 0, limit = 20 }) => {
       const result = await fetchSessionTranscript(ctx, { sessionId, offset, limit }, deps);
       if ("error" in result) {
         return errorResult(result.error);

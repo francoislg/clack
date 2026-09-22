@@ -430,7 +430,6 @@ export function createFindRecentInteractionsTool(
       type: z
         .enum(["all", "dm", "public_channels"])
         .optional()
-        .default("all")
         .describe(
           'Filter by interaction type: "all" (default) returns public channels + your own DMs; "public_channels" returns only public channel interactions; "dm" returns only your own DM interactions.',
         ),
@@ -456,7 +455,6 @@ export function createFindRecentInteractionsTool(
       include_auto_respond: z
         .boolean()
         .optional()
-        .default(false)
         .describe(
           "Whether to include auto-respond sessions (passive thread monitoring) in results. Defaults to false — most recall queries are about intentional Q&A sessions.",
         ),
@@ -465,14 +463,12 @@ export function createFindRecentInteractionsTool(
         .int()
         .positive()
         .optional()
-        .default(10)
         .describe("Maximum number of results to return (default: 10)."),
       offset: z
         .number()
         .int()
         .min(0)
         .optional()
-        .default(0)
         .describe("Number of results to skip (for paginating further back in history)."),
       since: z
         .number()
@@ -498,7 +494,6 @@ export function createFindRecentInteractionsTool(
       include: z
         .array(INCLUDE_SECTION_ENUM)
         .optional()
-        .default(["entries"])
         .describe(
           'Which sections to return, as a projected object. "entries" (default) → the paginated per-session summaries; "usage" → a `totalUsage` object summing token + cost usage across ALL matched sessions (the full set, independent of limit/offset). Request `["usage"]` alone to tally spend over a window without pulling back entries — a bounded result that will not hit the tool-result size cap. An empty array is treated as `["entries"]`.',
         ),

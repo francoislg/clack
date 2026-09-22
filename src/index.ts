@@ -1,6 +1,7 @@
 import { config as dotenvConfig } from "dotenv";
 import { join } from "path";
 import { testMCP } from "./claude/testMcp.js";
+import { checkServedToolServers } from "./tools/servedToolsCheck.js";
 import { reconcileMemoryReviewCron } from "./memory/dailyReview.js";
 import { loadConfig, getConfig } from "./config.js";
 import { loadGitHubCredentials, validateGitHubApp, gitHubCredentialsExist } from "./github.js";
@@ -299,6 +300,11 @@ async function main(): Promise<void> {
     logger.error("Failed to start Slack app:", error);
     process.exit(1);
   }
+
+  // Step 4.5: List every tool server — on-demand plugin servers included — under the live
+  // config. testMCP only proves the core server lists; a plugin tool schema the SDK can't
+  // convert hides its whole server, so report it to the owner (after the app is up to DM).
+  await checkServedToolServers(getConfig(), getSlackClient() ?? undefined);
 
   // Step 5: Start all schedulers, watchers, and monitors (after Slack app is ready)
   startAll();

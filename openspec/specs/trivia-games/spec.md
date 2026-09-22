@@ -1125,9 +1125,9 @@ Validation of `TriviaGame` config fields (the axis weight maps, `format`/`slotOv
 - **WHEN** any invalid field is validated through the file-load path versus the `upsert_game` tool path
 - **THEN** both call `safeParse` on the identical schema object, the file-load path accumulates the issue, logs a warning, and drops the field while keeping the rest of the game, and the tool path returns an error result and does NOT apply the change — neither path consults a separate validator, so the two cannot diverge in which inputs they accept
 
-#### Scenario: slotOverrides validated per-slot under numeric-string keys
+#### Scenario: slotOverrides validated per-slot
 
-- **WHEN** a `slotOverrides` record is supplied with a non-numeric key, or with a slot value that fails the slot schema (e.g. an `answersFormat` with no positive weight)
+- **WHEN** a `slotOverrides` entry is supplied with a slot value that fails the slot schema (e.g. an `answersFormat` with no positive weight)
 - **THEN** the schema rejects it with a path-labeled error (e.g. `'slotOverrides.2.answersFormat' must have at least one strictly positive weight`), using the same slot schema applied to `format.questions[n]`
 
 #### Scenario: Adding an axis requires only the schema

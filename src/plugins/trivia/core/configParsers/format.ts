@@ -358,8 +358,8 @@ export function validateSlotConfig(slot: RawSlot, slotLabel: string): Result<Sea
 
 /**
  * Validate a season `slotOverrides` map — each value is a per-slot axis bag validated
- * exactly like a format slot. The map shape (object, integer-string keys) is enforced by
- * the caller's zod schema (`slotOverridesZod`); this only runs the per-slot semantics.
+ * exactly like a format slot. The caller owns the map's shape (slot-index keys); this only
+ * runs the per-slot semantics.
  */
 export function validateSlotOverrides(
   raw: { [slotIndex: string]: RawSlot },
@@ -421,12 +421,6 @@ export const seasonFormatZod = z.object({
   questions: z.array(seasonFormatSlotZod),
   flexible: z.boolean().optional(),
 });
-
-/**
- * Shared zod schema for a season's `slotOverrides` map: integer-string keys → partial
- * slot bags. Deep per-axis semantics are validated by `validateSlotOverrides`.
- */
-export const slotOverridesZod = z.record(z.string().regex(/^\d+$/), seasonFormatSlotZod);
 
 /** Shared zod schema for the per-tier `categories` field. */
 export const triviaCategoriesZod = z.array(z.string());

@@ -387,6 +387,13 @@ export const fr: Partial<Record<StringKey, string>> = {
   "state.quarantine.freeze_footer":
     "Ce magasin est suspendu tant que le fichier n'est pas réparé. Le fichier d'origine n'a PAS été écrasé.",
 
+  // ─── Serveur d'outils non listable — DM au propriétaire ────────────
+  "tools.unlistable.dm_title":
+    ":rotating_light: {count} serveur(s) d'outils ne peuvent pas lister leurs outils — Claude n'en voit aucun",
+  "tools.unlistable.dm_entry": "• `{server}` : {error}",
+  "tools.unlistable.dm_footer":
+    "Un schéma d'entrée d'outil sur chaque serveur ne peut pas être converti pour Claude, ce qui masque tous les outils de ce serveur. La cause est dans le code (souvent un `z.record` ou un `.default()` dans un schéma d'outil) — il faut un correctif et un déploiement.",
+
   // ─── État en quarantaine — panneau de l'onglet Accueil ─────────────
   "home.state_quarantine.header": "État en quarantaine",
   "home.state_quarantine.hint":

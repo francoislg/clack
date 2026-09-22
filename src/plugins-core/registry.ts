@@ -26,7 +26,7 @@ import {
 // Built-in Plugin Registry
 // ============================================================================
 
-const BUILTIN_PLUGINS: { [key: string]: ClackPlugin } = {
+export const BUILTIN_PLUGINS: { [key: string]: ClackPlugin } = {
   trivia: triviaPlugin,
   "tenor-gif": tenorGifPlugin,
   giphy: giphyPlugin,
@@ -114,9 +114,9 @@ export function synthesizeErrorResult(name: string, error: unknown): PluginLoadR
 export async function loadPlugins(
   pluginNames: string[],
   sdkDeps?: Partial<ClackSdkDeps>,
+  dataDir: string = resolve(getDataDir(), "plugins"),
 ): Promise<LoadedPlugins> {
   const results: PluginLoadResult[] = [];
-  const dataDir = resolve(getDataDir(), "plugins");
   // Resolve runtime capabilities once per load. Defaults to crons: true so tests that
   // never load a config still see the historical behavior; production reads `cron.enabled`
   // (default true) from the loaded config.

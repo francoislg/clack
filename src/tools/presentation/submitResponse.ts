@@ -942,13 +942,17 @@ const skipOnlyResponseSchema = {
 // `skip_response: true` — `blocks`, `actions`, `table`, `reactions`, `message`,
 // `post_top_level`, and `attention_level` are all absent. Use when the run's actual deliverable
 // is produced by another required tool and `submit_response` is purely a run terminator.
+// `skip_response` is optional because zod treats a transform's input as omittable, so the served
+// JSON Schema never lists a `z.preprocess` field as required — the validator has to agree with
+// it. Every call in this mode is the skip, with or without the flag.
 const skippedOnlyResponseSchema = {
   skip_response: z
     .preprocess(coerceBooleanString, z.literal(true))
+    .optional()
     .describe(
-      'REQUIRED to be `true`. This run\'s `submitResponseMode` is `"skipped"` — the actual deliverable ' +
+      'Always `true`. This run\'s `submitResponseMode` is `"skipped"` — the actual deliverable ' +
         "was produced by another required tool, and `submit_response` is purely the run terminator. " +
-        "The schema accepts ONLY `{ skip_response: true }` (optionally with `escalate_to_owner`) and " +
+        "Call it as `{ skip_response: true }` (optionally with `escalate_to_owner`) and " +
         "nothing else. Do NOT include `blocks`, `actions`, `table`, `reactions`, `message`, " +
         "`post_top_level`, or `attention_level`.",
     ),
@@ -1347,7 +1351,7 @@ export function createSubmitResponseTool(deps: SubmitResponseDeps) {
       }
 
       // --- Skip path ---
-      if ("skip_response" in args && args.skip_response) {
+      if (submitResponseMode === "skipped" || ("skip_response" in args && args.skip_response)) {
         // Cannot skip after a response was already delivered
         if (responseCapture.get()) {
           return recordError(recorder, args, {
