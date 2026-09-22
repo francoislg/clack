@@ -31,6 +31,11 @@ RUN npm ci --omit=dev
 # Copy built application from builder stage
 COPY --from=builder /app/dist ./dist
 
+# Commit this image was built from (set by scripts/gce-deploy.sh); the deploy
+# compares it with HEAD before replacing a running container.
+ARG BUILD_SHA=unknown
+LABEL clack.build-sha=$BUILD_SHA
+
 # Copy example configs for reference
 COPY data/config.example.json ./data/
 COPY data/mcp.example.json ./data/
