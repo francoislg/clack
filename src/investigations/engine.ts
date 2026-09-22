@@ -152,12 +152,15 @@ export function initInvestigationsEngine(): void {
 }
 
 /** Drive one investigation round as a resumed turn on the main-surface session. The core
- *  refresh hook drains the followed threads before the turn. */
+ *  refresh hook drains the followed threads before the turn. Pass `deferProgress: true` when
+ *  nobody is waiting on the round (a followed-thread event or boot reconciliation), so its
+ *  progress card stays hidden until the round does visible work. */
 export async function runInvestigationRound(
   client: SlackClient,
   sessionId: string,
   userId: string,
   messageText: string,
+  { deferProgress = false }: { deferProgress?: boolean } = {},
 ): Promise<void> {
   const anchor = listOpenInvestigations().find((i) => i.sessionId === sessionId);
   if (!anchor) {
@@ -173,6 +176,7 @@ export async function runInvestigationRound(
     threadTs: anchor.mainThreadTs,
     triggerType: "mentions",
     resumeSessionId: sessionId,
+    deferProgress,
   });
 }
 
@@ -377,6 +381,7 @@ export async function handleFollowedThreadEvent(
     entry.sessionId,
     entry.startedBy,
     "New activity in a followed thread. Review the injected updates and continue the investigation.",
+    { deferProgress: true },
   );
 }
 
@@ -404,6 +409,7 @@ async function reconcileOneInvestigation(
     inv.sessionId,
     inv.startedBy,
     "Catching up after downtime. Review the injected updates and continue the investigation.",
+    { deferProgress: true },
   );
 }
 

@@ -191,14 +191,18 @@ export type SessionMessage = SessionUserMessage | SessionAssistantMessage;
  *   - `"off"`    — disengaged; thread replies are ignored.
  * A thread is engaged iff its level is not `"off"` (see {@link isEngaged}).
  */
-export type AttentionLevel = "always" | "high" | "medium" | "low" | "off";
+export type AttentionLevel = SettableAttentionLevel | "off";
+
+/** Every {@link SettableAttentionLevel}, most to least attentive — the one list schemas and
+ *  pickers enumerate. */
+export const SETTABLE_ATTENTION_LEVELS = ["always", "high", "medium", "low"] as const;
 
 /**
  * The subset of {@link AttentionLevel} a trigger source (plugin cron, auto-respond rule,
  * session creation) may seed. `"off"` is excluded: a dead thread is only ever reached by an
  * explicit disengage action, never born disengaged.
  */
-export type SettableAttentionLevel = Exclude<AttentionLevel, "off">;
+export type SettableAttentionLevel = (typeof SETTABLE_ATTENTION_LEVELS)[number];
 
 /**
  * Per-thread delivery mode. `"streamer"` (the default — absent reads as this) shows the live

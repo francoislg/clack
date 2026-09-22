@@ -5,6 +5,7 @@ import type { App, ViewOutput, ViewStateValue } from "@slack/bolt";
 import type { View } from "@slack/types";
 import type { HomeTabDeps } from "./homeTab.js";
 import { registerHomeTabHandler } from "./homeTab.js";
+import { t } from "../../i18n/t.js";
 import { createSlackClientMock, type MockSlackClient } from "../testSlackClient.js";
 import {
   createAppHomeOpenedArgs,
@@ -18,6 +19,7 @@ import {
   clearQuarantineStores,
 } from "../../state/stateQuarantineRegistry.js";
 import type { AutoRespondRule } from "../../autoRespond.js";
+import type { SettableAttentionLevel } from "../../sessions.js";
 import type { CronJob } from "../../cronJobs.js";
 import type { UserRole } from "../../roles.js";
 import type { JobOutcome } from "../../cronScheduler.js";
@@ -68,6 +70,7 @@ const mockAddRule = vi.fn<
     keywords?: string[],
     extraContext?: string,
     preAnalysisContext?: string,
+    attentionLevel?: SettableAttentionLevel,
   ) => Promise<void>
 >(async () => {});
 const mockUpdateRule = vi.fn<
@@ -79,6 +82,7 @@ const mockUpdateRule = vi.fn<
       keywords?: string[];
       extraContext?: string;
       preAnalysisContext?: string;
+      attentionLevel?: SettableAttentionLevel | "";
     },
   ) => Promise<AutoRespondRule | null>
 >(async (ruleId) => ({ id: ruleId, channels: ["C1"], enabled: true }));
@@ -244,6 +248,14 @@ function staticSelectValue(value: string | null): ViewStateValue {
     type: "static_select",
     selected_option: value === null ? null : { value, text: { type: "plain_text", text: value } },
   };
+}
+
+function multiConversationsValue(ids: string[]): ViewStateValue {
+  return { type: "multi_conversations_select", selected_conversations: ids };
+}
+
+function multiUsersValue(ids: string[]): ViewStateValue {
+  return { type: "multi_users_select", selected_users: ids };
 }
 
 function checkboxesValue(values: string[]): ViewStateValue {
@@ -1468,6 +1480,289 @@ describe("ai_stop_following action", () => {
       }),
     );
     assert.equal(mockDeleteRule.mock.calls[0]![0], "my-rule-id");
+  });
+});
+
+describe("ai_add_rule_modal submission — attention level", () => {
+  beforeEach(() => {
+    mockAddRule.mockClear();
+    mockAddRule.mockImplementation(async () => {});
+  });
+
+  it("passes the selected attention level as addRule's sixth argument", async () => {
+    const handler = getViewHandler("ai_add_rule_modal");
+    const args = createViewSubmitArgs({
+      userId: "U_ADMIN",
+      values: {
+        channels_block: { channels: multiConversationsValue(["C1"]) },
+        users_block: { users: multiUsersValue([]) },
+        attention_block: { attention_level: staticSelectValue("always") },
+      },
+    });
+
+    await handler(args);
+
+    assert.equal(mockAddRule.mock.calls.length, 1);
+    assert.equal(mockAddRule.mock.calls[0]![5], "always");
+  });
+
+  it("passes undefined when the default option is selected", async () => {
+    const handler = getViewHandler("ai_add_rule_modal");
+    const args = createViewSubmitArgs({
+      userId: "U_ADMIN",
+      values: {
+        channels_block: { channels: multiConversationsValue(["C1"]) },
+        users_block: { users: multiUsersValue([]) },
+        attention_block: { attention_level: staticSelectValue("default") },
+      },
+    });
+
+    await handler(args);
+
+    assert.equal(mockAddRule.mock.calls.length, 1);
+    assert.equal(mockAddRule.mock.calls[0]![5], undefined);
+  });
+});
+
+describe("ai_edit_rule_modal submission — attention level", () => {
+  beforeEach(() => {
+    mockUpdateRule.mockClear();
+    mockUpdateRule.mockImplementation(async (ruleId) => ({
+      id: ruleId,
+      channels: ["C1"],
+      enabled: true,
+    }));
+  });
+
+  it("sets the patch attentionLevel to the selected level", async () => {
+    const handler = getViewHandler("ai_edit_rule_modal");
+    const args = createViewSubmitArgs({
+      userId: "U_ADMIN",
+      privateMetadata: "rule-1",
+      values: {
+        channels_block: { channels: multiConversationsValue(["C1"]) },
+        users_block: { users: multiUsersValue([]) },
+        attention_block: { attention_level: staticSelectValue("medium") },
+      },
+    });
+
+    await handler(args);
+
+    assert.equal(mockUpdateRule.mock.calls.length, 1);
+    assert.equal(mockUpdateRule.mock.calls[0]![1].attentionLevel, "medium");
+  });
+
+  it("clears the field with an empty string when the default option is selected", async () => {
+    const handler = getViewHandler("ai_edit_rule_modal");
+    const args = createViewSubmitArgs({
+      userId: "U_ADMIN",
+      privateMetadata: "rule-1",
+      values: {
+        channels_block: { channels: multiConversationsValue(["C1"]) },
+        users_block: { users: multiUsersValue([]) },
+        attention_block: { attention_level: staticSelectValue("default") },
+      },
+    });
+
+    await handler(args);
+
+    assert.equal(mockUpdateRule.mock.calls[0]![1].attentionLevel, "");
+  });
+
+  it("rejects an unknown attention value and does not update", async () => {
+    const handler = getViewHandler("ai_edit_rule_modal");
+    const args = createViewSubmitArgs({
+      userId: "U_ADMIN",
+      privateMetadata: "rule-1",
+      values: {
+        channels_block: { channels: multiConversationsValue(["C1"]) },
+        users_block: { users: multiUsersValue([]) },
+        attention_block: { attention_level: staticSelectValue("off") },
+      },
+    });
+
+    await handler(args);
+
+    const ackResponse = args.ack.mock.calls[0]?.[0];
+    assert.ok(ackResponse);
+    assert.equal(ackResponse.response_action, "errors");
+    assert.ok(ackResponse.errors.attention_block);
+    assert.equal(mockUpdateRule.mock.calls.length, 0);
+  });
+
+  it("preserves the existing level when only channels changed", async () => {
+    const handler = getViewHandler("ai_edit_rule_modal");
+    const args = createViewSubmitArgs({
+      userId: "U_ADMIN",
+      privateMetadata: "rule-1",
+      values: {
+        channels_block: { channels: multiConversationsValue(["C1", "C2"]) },
+        users_block: { users: multiUsersValue([]) },
+        attention_block: { attention_level: staticSelectValue("always") },
+      },
+    });
+
+    await handler(args);
+
+    assert.equal(mockUpdateRule.mock.calls[0]![1].attentionLevel, "always");
+  });
+});
+
+describe("ai_add_rule_modal / ai_edit_rule_modal submission — errors", () => {
+  beforeEach(() => {
+    mockAddRule.mockClear();
+    mockAddRule.mockImplementation(async () => {});
+    mockUpdateRule.mockClear();
+  });
+
+  it("add: rejects a user who cannot manage roles and adds nothing", async () => {
+    mockUserCanManageRoles.mockResolvedValue(false);
+    const handler = getViewHandler("ai_add_rule_modal");
+    const args = createViewSubmitArgs({
+      userId: "U_MEMBER",
+      values: {
+        channels_block: { channels: multiConversationsValue(["C1"]) },
+        users_block: { users: multiUsersValue([]) },
+        attention_block: { attention_level: staticSelectValue("default") },
+      },
+    });
+
+    await handler(args);
+
+    const ackResponse = args.ack.mock.calls[0]?.[0];
+    assert.ok(ackResponse);
+    assert.equal(ackResponse.response_action, "errors");
+    assert.equal(ackResponse.errors.channels_block, t("home.auto_respond.error_no_permission"));
+    assert.equal(mockAddRule.mock.calls.length, 0);
+  });
+
+  it("add: rejects a submission with no channels", async () => {
+    const handler = getViewHandler("ai_add_rule_modal");
+    const args = createViewSubmitArgs({
+      userId: "U_ADMIN",
+      values: {
+        channels_block: { channels: multiConversationsValue([]) },
+        users_block: { users: multiUsersValue([]) },
+        attention_block: { attention_level: staticSelectValue("default") },
+      },
+    });
+
+    await handler(args);
+
+    const ackResponse = args.ack.mock.calls[0]?.[0];
+    assert.ok(ackResponse);
+    assert.equal(ackResponse.response_action, "errors");
+    assert.equal(ackResponse.errors.channels_block, t("home.auto_respond.error_no_channels"));
+    assert.equal(mockAddRule.mock.calls.length, 0);
+  });
+
+  it("edit: rejects a user who cannot manage roles and updates nothing", async () => {
+    mockUserCanManageRoles.mockResolvedValue(false);
+    const handler = getViewHandler("ai_edit_rule_modal");
+    const args = createViewSubmitArgs({
+      userId: "U_MEMBER",
+      privateMetadata: "rule-1",
+      values: {
+        channels_block: { channels: multiConversationsValue(["C1"]) },
+        users_block: { users: multiUsersValue([]) },
+        attention_block: { attention_level: staticSelectValue("default") },
+      },
+    });
+
+    await handler(args);
+
+    const ackResponse = args.ack.mock.calls[0]?.[0];
+    assert.ok(ackResponse);
+    assert.equal(ackResponse.response_action, "errors");
+    assert.equal(ackResponse.errors.channels_block, t("home.auto_respond.error_no_permission"));
+    assert.equal(mockUpdateRule.mock.calls.length, 0);
+  });
+
+  it("edit: rejects a submission with no channels", async () => {
+    const handler = getViewHandler("ai_edit_rule_modal");
+    const args = createViewSubmitArgs({
+      userId: "U_ADMIN",
+      privateMetadata: "rule-1",
+      values: {
+        channels_block: { channels: multiConversationsValue([]) },
+        users_block: { users: multiUsersValue([]) },
+        attention_block: { attention_level: staticSelectValue("default") },
+      },
+    });
+
+    await handler(args);
+
+    const ackResponse = args.ack.mock.calls[0]?.[0];
+    assert.ok(ackResponse);
+    assert.equal(ackResponse.response_action, "errors");
+    assert.equal(ackResponse.errors.channels_block, t("home.auto_respond.error_no_channels"));
+    assert.equal(mockUpdateRule.mock.calls.length, 0);
+  });
+
+  it("edit: reports a rule deleted while the modal was open", async () => {
+    mockUpdateRule.mockResolvedValue(null);
+    const handler = getViewHandler("ai_edit_rule_modal");
+    const args = createViewSubmitArgs({
+      userId: "U_ADMIN",
+      privateMetadata: "rule-1",
+      values: {
+        channels_block: { channels: multiConversationsValue(["C1"]) },
+        users_block: { users: multiUsersValue([]) },
+        attention_block: { attention_level: staticSelectValue("default") },
+      },
+    });
+
+    await handler(args);
+
+    const ackResponse = args.ack.mock.calls[0]?.[0];
+    assert.ok(ackResponse);
+    assert.equal(ackResponse.response_action, "errors");
+    assert.equal(ackResponse.errors.channels_block, t("home.auto_respond.error_rule_gone"));
+    assert.equal(mockUpdateRule.mock.calls.length, 1);
+    assert.equal(mockUpdateRule.mock.calls[0]![0], "rule-1");
+  });
+
+  it("add: reports a failed save on the modal instead of leaving it unacked", async () => {
+    mockAddRule.mockRejectedValue(new Error("disk full"));
+    const handler = getViewHandler("ai_add_rule_modal");
+    const args = createViewSubmitArgs({
+      userId: "U_ADMIN",
+      values: {
+        channels_block: { channels: multiConversationsValue(["C1"]) },
+        users_block: { users: multiUsersValue([]) },
+        attention_block: { attention_level: staticSelectValue("default") },
+      },
+    });
+
+    await handler(args);
+
+    const ackResponse = args.ack.mock.calls[0]?.[0];
+    assert.ok(ackResponse);
+    assert.equal(ackResponse.response_action, "errors");
+    assert.equal(ackResponse.errors.channels_block, t("home.auto_respond.error_save_failed"));
+    assert.equal(args.ack.mock.calls.length, 1);
+  });
+
+  it("edit: reports a failed save on the modal instead of leaving it unacked", async () => {
+    mockUpdateRule.mockRejectedValue(new Error("disk full"));
+    const handler = getViewHandler("ai_edit_rule_modal");
+    const args = createViewSubmitArgs({
+      userId: "U_ADMIN",
+      privateMetadata: "rule-1",
+      values: {
+        channels_block: { channels: multiConversationsValue(["C1"]) },
+        users_block: { users: multiUsersValue([]) },
+        attention_block: { attention_level: staticSelectValue("default") },
+      },
+    });
+
+    await handler(args);
+
+    const ackResponse = args.ack.mock.calls[0]?.[0];
+    assert.ok(ackResponse);
+    assert.equal(ackResponse.response_action, "errors");
+    assert.equal(ackResponse.errors.channels_block, t("home.auto_respond.error_save_failed"));
+    assert.equal(args.ack.mock.calls.length, 1);
   });
 });
 

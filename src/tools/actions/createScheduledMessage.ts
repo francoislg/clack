@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { SETTABLE_ATTENTION_LEVELS } from "../../sessions.js";
 import { tool } from "@anthropic-ai/claude-agent-sdk";
 import { CronExpressionParser } from "cron-parser";
 import type { QueryToolContext } from "../types.js";
@@ -170,7 +171,7 @@ export function createCreateScheduledMessageTool(
             "a run terminator. Omit to let today's auto-derivation rules apply.",
         ),
       attentionLevel: z
-        .enum(["always", "high", "medium", "low"])
+        .enum(SETTABLE_ATTENTION_LEVELS)
         .optional()
         .describe(
           "How eagerly Clack auto-follows the thread created when this scheduled message posts " +

@@ -228,4 +228,29 @@ describe("registerFollowupHandler", () => {
     assert.equal(mockDecodeActionValue.mock.calls.length, 1);
     assert.equal(mockDecodeActionValue.mock.calls[0]![0], "encoded-json-payload");
   });
+
+  it.each(["autoRespond", "threadReply", "channelReply"] as const)(
+    "does not defer the progress surface when continuing a %s session",
+    async (trigger) => {
+      const session = makeSession();
+      const sessionInfo = makeSessionInfo({ triggerType: trigger });
+
+      mockDecodeActionValue.mockImplementation(() => ({
+        sessionId: "sess-1",
+        prompt: "tell me more",
+      }));
+      mockRestoreSessionInfo.mockImplementation(async () => sessionInfo);
+      mockGetSession.mockImplementation(async () => session);
+
+      await capturedHandler({
+        ack: async () => {},
+        body: { actions: [{ value: "raw" }] },
+        client: makeClient(),
+      });
+
+      assert.equal(mockExecuteAndDeliver.mock.calls.length, 1);
+      const deliverArgs = mockExecuteAndDeliver.mock.calls[0]![0];
+      assert.equal(deliverArgs.deferProgress, undefined);
+    },
+  );
 });

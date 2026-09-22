@@ -3,9 +3,7 @@
 ## Purpose
 
 Allow Claude to gracefully decline responding in auto-respond and thread-reply contexts via a `skip_response` flag on `submit_response`, with safeguard validation, message cleanup, and trigger gating.
-
 ## Requirements
-
 ### Requirement: Skip Response Safeguard Validation
 
 For interactive triggers (`autoRespond`, `threadReply`, and any other non-scheduled trigger), the `submit_response` tool SHALL validate a skip request by requiring an exact acknowledgment message, rejecting with an instructive error if the message doesn't match — a speed bump before silently ignoring a user. A `scheduled` run's skip is an outcome the job declares (`skipConditions` or `submitResponseMode`), so the tool SHALL accept it without an acknowledgment. When `attention_level: "off"` is also set, the tool SHALL additionally signal the session to disengage from auto-respond.
@@ -69,7 +67,7 @@ The `skip_response` flag SHALL accept the strings `"true"` and `"false"` as thei
 
 ### Requirement: Skip Response Message Deletion
 
-When a skip is accepted, the system SHALL delete the streamer's message from Slack so that no visual trace of the response attempt remains.
+When a skip is accepted, the system SHALL delete the streamer's message from Slack so that no visual trace of the response attempt remains. When the turn's progress surface was deferred and never committed, there is no message to delete and the system SHALL make no Slack call at all.
 
 #### Scenario: Streamer message deleted after skip
 
@@ -77,6 +75,13 @@ When a skip is accepted, the system SHALL delete the streamer's message from Sla
 - **AND** a SlackStreamer was active with a known message `ts`
 - **THEN** the system calls `chat.delete` with the streamer's channel and message `ts`
 - **AND** the thinking indicator and all task cards are removed from Slack
+
+#### Scenario: Skip with an uncommitted deferred surface makes no Slack call
+
+- **WHEN** `askClaude` returns with `response.skipped === true`
+- **AND** the turn's progress surface was deferred and never committed
+- **THEN** the system makes no `chat.startStream`, `chat.appendStream`, `chat.stopStream`, or `chat.delete` call for that surface
+- **AND** Slack shows no trace that the turn occurred
 
 #### Scenario: Skip with no streamer (defensive)
 
@@ -243,3 +248,66 @@ The system SHALL include prompt guidance telling Claude when it can skip a respo
 - **THEN** the prompt includes a `"skipped"`-mode hint explaining that the run's deliverable is produced by another required tool
 - **AND** the hint tells Claude that the only valid `submit_response` call is `{ skip_response: true }` and that the schema rejects any other fields
 - **AND** the skipConditions pre-check guidance is NOT rendered (even if `skipConditions` is also set; the strict-skip semantic makes pre-check moot)
+
+### Requirement: Skipped Or Cancelled Runs Retract The Queued Follow-Up Acks
+
+The queued follow-up acknowledgement reaction (`reactions.queuedFollowup`, default `eyes`) is added when a message is pushed into an in-flight run, before the run's outcome is known. When that run ends without delivering a response — an accepted skip (`response.skipped`) or a cancellation (`response.cancelled`) that arrives before anything was delivered — the system SHALL remove every queued-follow-up reaction added for messages queued onto that run, so no artifact outlives a run that produced no response. A run that delivered a response (including one cancelled only after delivering) or that ended in an error (which posts an error message in reply) SHALL keep its acks.
+
+The reaction SHALL still be added immediately when the follow-up is queued — its purpose is to tell the sender their message landed while the run is live. Each added ack SHALL be recorded against the run that received the message, in memory, keyed by that run's handle; the record SHALL be reachable from the delivery orchestrator that owns the run, since the queuing call and the owning run are separate invocations. A retraction SHALL wait for the corresponding add to settle before removing, so a fast skip never races an in-flight add and leaves the reaction behind. Removal is best-effort: a failure SHALL be logged and SHALL NOT affect the skip or cancellation.
+
+#### Scenario: Ack retracted when the run skips
+
+- **GIVEN** a message queued onto an in-flight run, for which the queued-follow-up reaction was added to the user's message
+- **WHEN** that run ends with `response.skipped === true`
+- **THEN** the system calls `reactions.remove` for the configured emoji on that message
+- **AND** no acknowledgement remains on a message that received no response
+
+#### Scenario: Ack retracted when the run is cancelled
+
+- **GIVEN** a message queued onto an in-flight run, for which the queued-follow-up reaction was added
+- **WHEN** that run is cancelled (e.g., via the stop reaction) and resolves with `response.cancelled === true`
+- **THEN** the system retracts the reaction the same as on skip
+
+#### Scenario: Ack retained when the run is cancelled after delivering
+
+- **GIVEN** a message queued onto an in-flight run, for which the queued-follow-up reaction was added
+- **WHEN** the run delivers a response and a cancellation then resolves it with `response.cancelled === true`
+- **THEN** the reaction is left in place, because a response reached the thread
+
+#### Scenario: Every queued ack on the run is retracted
+
+- **GIVEN** two messages queued onto the same in-flight run, each receiving its own queued-follow-up reaction
+- **WHEN** that run ends in a skip
+- **THEN** the system retracts the reaction from every queued message, not just the most recent
+
+#### Scenario: Retraction waits for an in-flight add
+
+- **GIVEN** a queued-follow-up reaction whose add call has not yet completed
+- **WHEN** the run ends in a skip
+- **THEN** the retraction awaits the add's completion before calling `reactions.remove`
+- **AND** the reaction is not left on the message after the add lands
+
+#### Scenario: Ack retained when the run delivers
+
+- **GIVEN** a message queued onto an in-flight run, for which the queued-follow-up reaction was added
+- **WHEN** that run delivers a response
+- **THEN** the reaction is left in place
+
+#### Scenario: Ack retained when the run errors
+
+- **GIVEN** a message queued onto an in-flight run, for which the queued-follow-up reaction was added
+- **WHEN** that run ends in an error and an error message is posted in reply
+- **THEN** the reaction is left in place
+
+#### Scenario: Retraction failure is non-fatal
+
+- **WHEN** `reactions.remove` fails (e.g., reaction already removed, permission error), or the add it awaited failed
+- **THEN** the system logs the error and continues
+- **AND** the skip or cancellation is still considered successful
+
+#### Scenario: Nothing to retract when the ack is disabled
+
+- **GIVEN** `reactions.queuedFollowup` is configured as `null` or an empty string
+- **WHEN** a run that received a queued follow-up ends in a skip or cancellation
+- **THEN** no `reactions.remove` call is made
+

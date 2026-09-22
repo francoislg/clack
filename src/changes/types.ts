@@ -126,6 +126,18 @@ export function isRecoveryCommand(command: FollowUpCommand): boolean {
   return RECOVERY_COMMANDS.has(command);
 }
 
+/** Triggers that start a turn nobody explicitly aimed at Clack — it chose to look on its own.
+ *  Their progress card is deferred until the turn commits to visible work. */
+export const PROACTIVE_TRIGGERS: ReadonlySet<TriggerType> = new Set<TriggerType>([
+  "autoRespond",
+  "threadReply",
+  "channelReply",
+]);
+
+export function isProactiveTrigger(triggerType: TriggerType): boolean {
+  return PROACTIVE_TRIGGERS.has(triggerType);
+}
+
 export interface FollowUpInfo {
   command: FollowUpCommand;
   additionalInstructions?: string;

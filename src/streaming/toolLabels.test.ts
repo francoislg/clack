@@ -1,6 +1,11 @@
 import { describe, it, afterEach } from "vitest";
 import assert from "node:assert/strict";
-import { getToolLabel, getToolGroup, getToolDetails } from "./toolLabels.js";
+import {
+  getToolLabel,
+  getToolGroup,
+  getToolDetails,
+  hasConditionalHiddenRule,
+} from "./toolLabels.js";
 import {
   __setServerOverridesForTest,
   resetToolMappingCache,
@@ -151,6 +156,13 @@ describe("getToolLabel", () => {
 
     it("returns null for submit_response (excluded from task cards)", () => {
       assert.equal(getToolLabel("mcp__clack__submit_response", {}), null);
+    });
+
+    it("returns null for switch_delivery_context (excluded from task cards)", () => {
+      assert.equal(
+        getToolLabel("mcp__clack__switch_delivery_context", { mode: "invisible" }),
+        null,
+      );
     });
 
     it("returns null for report_status (excluded from task cards)", () => {
@@ -473,6 +485,23 @@ describe("getToolDetails", () => {
     assert.equal(getToolDetails("mcp__clack__list_repositories", {}), null);
     assert.equal(getToolDetails("mcp__github__get_pull_request", {}), null);
     assert.equal(getToolDetails("mcp__sentry__search_issues", {}), null);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// hasConditionalHiddenRule
+// ---------------------------------------------------------------------------
+describe("hasConditionalHiddenRule", () => {
+  it("returns true for a tool with a conditionalHidden rule (Read)", () => {
+    assert.equal(hasConditionalHiddenRule("Read"), true);
+  });
+
+  it("returns false for a tool without a conditionalHidden rule (Glob)", () => {
+    assert.equal(hasConditionalHiddenRule("Glob"), false);
+  });
+
+  it("returns false for an unmapped MCP tool", () => {
+    assert.equal(hasConditionalHiddenRule("mcp__nonexistent__foo"), false);
   });
 });
 

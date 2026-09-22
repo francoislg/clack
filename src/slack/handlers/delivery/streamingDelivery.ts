@@ -10,10 +10,14 @@ export interface StreamingDeliveryOptions {
   client: App["client"];
   targetChannel: string;
   targetThread: string;
+  /** Open the surface in deferred mode — the streamer posts nothing until the turn's first
+   *  visible tool task. */
+  defer?: boolean;
   /** Constructs (but does not start) the streamer. Async so its bot-fallback `auth.test` runs
    *  only when a card is actually opened. Called lazily in `windUp` so a handler installed
-   *  mid-run opens a fresh card at the switch point. */
-  makeStreamer: () => Promise<StreamerLike>;
+   *  mid-run opens a fresh card at the switch point. The flag is forwarded to the streamer's
+   *  deferred-open option. */
+  makeStreamer: (defer: boolean) => Promise<StreamerLike>;
 }
 
 /**
@@ -22,6 +26,9 @@ export interface StreamingDeliveryOptions {
  * hidden inside `deliver`, which returns a `ts` regardless. `deliver` reports `notified: false`
  * on an in-place finalize (a message edit triggers no Slack notification) so the orchestrator
  * can decide whether to send a follow-up ping.
+ *
+ * A deferred surface (`defer: true`) that never committed lands its answer via `chat.postMessage`
+ * (`notified: true`) and its teardown makes no Slack call.
  */
 export class StreamingDelivery implements DeliveryHandler {
   private streamer: StreamerLike | null = null;
@@ -34,7 +41,7 @@ export class StreamingDelivery implements DeliveryHandler {
     // deliver() then falls back to chat.postMessage. This keeps every call site (turn start,
     // mid-run switch, finally net) safe without each guarding the call.
     try {
-      this.streamer = await this.opts.makeStreamer();
+      this.streamer = await this.opts.makeStreamer(this.opts.defer ?? false);
       const started = await this.streamer.start();
       if (!started) {
         logger.warn("Stream failed to start, will fall back to one-shot posting");
@@ -52,7 +59,8 @@ export class StreamingDelivery implements DeliveryHandler {
   async deliver(payload: DeliveryPayload): Promise<DeliveryResult> {
     const { client, targetChannel, targetThread } = this.opts;
     try {
-      if (this.streamer && !this.streamer.hasFailed) {
+      // An uncommitted streamer has no card to finalize, so the answer posts fresh below.
+      if (this.streamer && !this.streamer.hasFailed && !this.streamer.isUncommitted) {
         await this.streamer.stop({
           ...(payload.blocks && { blocks: payload.blocks }),
           ...(payload.markdownText && { markdownText: payload.markdownText }),
@@ -80,7 +88,8 @@ export class StreamingDelivery implements DeliveryHandler {
   }
 
   async windDown(opts?: { discard?: boolean }): Promise<void> {
-    await this.streamer?.stop();
+    // An uncommitted streamer posted nothing; stopping it would start the stream.
+    if (this.streamer && !this.streamer.isUncommitted) await this.streamer.stop();
     if (opts?.discard) {
       for (const ts of this.streamer?.getAllMessageTss() ?? []) {
         try {

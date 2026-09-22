@@ -14,6 +14,7 @@ import {
   buildConfigurationSection,
   type ConfigurationSectionOptions,
   buildAutoRespondModalView,
+  buildAutoRespondModal,
   buildSchedulesModalView,
   buildMcpModalView,
   buildPluginsModalView,
@@ -320,6 +321,97 @@ describe("buildHomeView — followed conversations", () => {
     const view = await buildAutoRespondModalView(makeDeps());
     const texts = getSectionTexts(view.blocks as KnownBlock[]);
     assert.ok(!texts.some((tx) => tx.includes("Conversations being followed")));
+  });
+
+  it("renders the short attention label on a followed conversation row", async () => {
+    setDefaultMocks("admin");
+    mockGetRules.mockImplementation(async () => [ephemeralRule({ attentionLevel: "low" })]);
+    const view = await buildAutoRespondModalView(makeDeps());
+    const texts = getSectionTexts(view.blocks as KnownBlock[]);
+    const row = texts.find((tx) => tx.includes("<#C_CONV>"));
+    assert.ok(row, "conversation row must render");
+    assert.ok(row.includes("attention: low"));
+  });
+});
+
+describe("buildAutoRespondModal — attention level", () => {
+  function findAttentionInput(view: View): KnownBlock | undefined {
+    const blocks = view.blocks as KnownBlock[];
+    return blocks.find((b) => "block_id" in b && b.block_id === "attention_block");
+  }
+
+  it("includes an optional attention static_select listing the settable rungs and no off", () => {
+    const input = findAttentionInput(buildAutoRespondModal());
+    assert.ok(input, "modal should include the attention input block");
+    assert.ok(input.type === "input");
+    assert.equal(input.optional, true);
+    const element = input.element as {
+      type: string;
+      options: Array<{ value: string }>;
+      initial_option?: { value: string };
+    };
+    assert.equal(element.type, "static_select");
+    assert.deepEqual(
+      element.options.map((o) => o.value),
+      ["default", "always", "high", "medium", "low"],
+    );
+    assert.equal(element.initial_option?.value, "default");
+  });
+
+  it("pre-selects the rule's attentionLevel when editing", () => {
+    const input = findAttentionInput(
+      buildAutoRespondModal({ id: "r1", channels: ["C1"], enabled: true, attentionLevel: "high" }),
+    );
+    assert.ok(input && input.type === "input");
+    const element = input.element as { initial_option?: { value: string } };
+    assert.equal(element.initial_option?.value, "high");
+  });
+
+  it("pre-selects default when editing a rule without an attentionLevel", () => {
+    const input = findAttentionInput(
+      buildAutoRespondModal({ id: "r1", channels: ["C1"], enabled: true }),
+    );
+    assert.ok(input && input.type === "input");
+    const element = input.element as { initial_option?: { value: string } };
+    assert.equal(element.initial_option?.value, "default");
+  });
+});
+
+describe("buildAutoRespondModalView — rule attention summary", () => {
+  it("appends the short attention suffix for a rule with an attentionLevel", async () => {
+    setDefaultMocks("admin");
+    mockGetRules.mockImplementation(async () => [
+      { id: "std-1", channels: ["C_STD"], enabled: true, attentionLevel: "high" },
+    ]);
+    const view = await buildAutoRespondModalView(makeDeps());
+    const texts = getSectionTexts(view.blocks as KnownBlock[]);
+    const row = texts.find((tx) => tx.includes("<#C_STD>"));
+    assert.ok(row);
+    assert.ok(row.includes(" · Attention: high"));
+  });
+
+  it("renders the always short label for an always rule", async () => {
+    setDefaultMocks("admin");
+    mockGetRules.mockImplementation(async () => [
+      { id: "std-1", channels: ["C_STD"], enabled: true, attentionLevel: "always" },
+    ]);
+    const view = await buildAutoRespondModalView(makeDeps());
+    const texts = getSectionTexts(view.blocks as KnownBlock[]);
+    const row = texts.find((tx) => tx.includes("<#C_STD>"));
+    assert.ok(row);
+    assert.ok(row.includes("always (unfiltered)"));
+  });
+
+  it("omits the attention suffix when the rule has no attentionLevel", async () => {
+    setDefaultMocks("admin");
+    mockGetRules.mockImplementation(async () => [
+      { id: "std-1", channels: ["C_STD"], enabled: true },
+    ]);
+    const view = await buildAutoRespondModalView(makeDeps());
+    const texts = getSectionTexts(view.blocks as KnownBlock[]);
+    const row = texts.find((tx) => tx.includes("<#C_STD>"));
+    assert.ok(row);
+    assert.ok(!row.includes("Attention:"));
   });
 });
 

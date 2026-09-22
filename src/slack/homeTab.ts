@@ -19,6 +19,7 @@ import { discoverSkillPluginInfo } from "../skillPlugins.js";
 import { type UserSkill } from "../userSkills.js";
 import { buildUserSkillsSection } from "./userSkillsHomeTab.js";
 import { getRules, type AutoRespondRule } from "../autoRespond.js";
+import { SETTABLE_ATTENTION_LEVELS, type SettableAttentionLevel } from "../sessions.js";
 import { isEphemeralRule } from "../ephemeralRules.js";
 import { formatElapsedSeconds } from "../claude/preAnalysis.js";
 import { getJobs, type CronJob } from "../cronJobs.js";
@@ -1573,6 +1574,28 @@ export function buildRemoveUserModal(title: string, actionId: string, users: str
 // Auto-Respond Section
 // ============================================================================
 
+/** The static_select value for the "inherit the medium default" attention choice. */
+export const ATTENTION_DEFAULT_OPTION = "default";
+
+/** The static_select option-text key for each settable level. */
+const ATTENTION_OPTION_KEYS = {
+  always: "home.auto_respond.attention_option_always",
+  high: "home.auto_respond.attention_option_high",
+  medium: "home.auto_respond.attention_option_medium",
+  low: "home.auto_respond.attention_option_low",
+} as const;
+
+/** Short label used in rule summaries and followed-conversation rows. */
+export function attentionShortLabel(level: SettableAttentionLevel): string {
+  const labels: Record<SettableAttentionLevel, string> = {
+    always: t("home.auto_respond.attention_short_always"),
+    high: t("home.auto_respond.attention_short_high"),
+    medium: t("home.auto_respond.attention_short_medium"),
+    low: t("home.auto_respond.attention_short_low"),
+  };
+  return labels[level];
+}
+
 export async function buildAutoRespondSection(
   deps: HomeTabDeps = defaultHomeTabDeps,
 ): Promise<(KnownBlock | Block)[]> {
@@ -1596,7 +1619,7 @@ export async function buildAutoRespondSection(
     for (const conversation of conversations) {
       const channel = `<#${conversation.channels[0]}>`;
       const level = t("home.auto_respond.conversation_level", {
-        level: conversation.attentionLevel,
+        level: attentionShortLabel(conversation.attentionLevel),
       });
       const expiry =
         conversation.expiresAt > now
@@ -1639,13 +1662,18 @@ export async function buildAutoRespondSection(
           })
         : "";
       const preAnalysis = rule.preAnalysisContext ? t("home.auto_respond.pre_analysis_suffix") : "";
+      const attention = rule.attentionLevel
+        ? t("home.auto_respond.attention_suffix", {
+            level: attentionShortLabel(rule.attentionLevel),
+          })
+        : "";
       const status = rule.enabled ? "" : t("home.auto_respond.paused_suffix");
 
       blocks.push({
         type: "section",
         text: {
           type: "mrkdwn",
-          text: `${channels}${users}${keywords}${preAnalysis}${status}`,
+          text: `${channels}${users}${keywords}${preAnalysis}${attention}${status}`,
         },
         accessory: {
           type: "button",
@@ -1780,6 +1808,21 @@ function buildInvestigationsSection(
 
 export function buildAutoRespondModal(rule?: AutoRespondRule): View {
   const isEdit = !!rule;
+
+  const attentionDefaultOption = {
+    text: { type: "plain_text" as const, text: t("home.auto_respond.attention_option_default") },
+    value: ATTENTION_DEFAULT_OPTION,
+  };
+  const attentionOptions = [
+    attentionDefaultOption,
+    ...SETTABLE_ATTENTION_LEVELS.map((level) => ({
+      text: { type: "plain_text" as const, text: t(ATTENTION_OPTION_KEYS[level]) },
+      value: level,
+    })),
+  ];
+  const initialAttentionOption =
+    attentionOptions.find((o) => o.value === rule?.attentionLevel) ?? attentionDefaultOption;
+
   const blocks: (KnownBlock | Block)[] = [
     {
       type: "input",
@@ -1863,6 +1906,19 @@ export function buildAutoRespondModal(rule?: AutoRespondRule): View {
         type: "plain_text",
         text: t("home.auto_respond.pre_analysis_hint"),
       },
+    },
+    {
+      type: "input",
+      block_id: "attention_block",
+      optional: true,
+      label: { type: "plain_text", text: t("home.auto_respond.attention_label") },
+      element: {
+        type: "static_select",
+        action_id: "attention_level",
+        initial_option: initialAttentionOption,
+        options: attentionOptions,
+      },
+      hint: { type: "plain_text", text: t("home.auto_respond.attention_hint") },
     },
     {
       type: "context",

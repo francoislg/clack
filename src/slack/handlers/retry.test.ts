@@ -245,4 +245,25 @@ describe("registerRetryHandler", () => {
     assert.equal(mockGetHandlerClaudeOptions.mock.calls.length, 1);
     assert.equal(mockGetHandlerClaudeOptions.mock.calls[0][0], sessionInfo);
   });
+
+  it.each(["autoRespond", "threadReply", "channelReply"] as const)(
+    "does not defer the progress surface when continuing a %s session",
+    async (trigger) => {
+      const session = makeSession();
+      const sessionInfo = makeSessionInfo({ triggerType: trigger });
+
+      mockGetSession.mockImplementation(async () => session);
+      mockRestoreSessionInfo.mockImplementation(async () => sessionInfo);
+      mockFetchThreadContext.mockImplementation(async () => []);
+      mockGetHandlerClaudeOptions.mockImplementation(async () => stub<AskClaudeOptions>({}));
+
+      const [, handler] = app.action.mock.calls[0];
+      const args = createBlockActionArgs({ value: "session-1", client: makeClient() });
+      await handler(args);
+
+      assert.equal(mockExecuteAndDeliver.mock.calls.length, 1);
+      const deliverArgs = mockExecuteAndDeliver.mock.calls[0][0];
+      assert.equal(deliverArgs.deferProgress, undefined);
+    },
+  );
 });

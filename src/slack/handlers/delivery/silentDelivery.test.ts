@@ -1,21 +1,12 @@
 import { describe, it, expect, vi } from "vitest";
-import type { App } from "@slack/bolt";
 import type { Block } from "@slack/types";
 import { SilentDelivery } from "./silentDelivery.js";
-
-interface PostArg {
-  channel: string;
-  thread_ts?: string;
-  text?: string;
-  blocks?: Block[];
-}
+import { createSlackClientMock } from "../../testSlackClient.js";
 
 function makeClient() {
-  const postMessage = vi.fn(async (_arg: PostArg) => ({ ok: true, ts: "555.000" }));
-  const client: App["client"] = Object.assign(Object.create(null), {
-    chat: { postMessage },
-  });
-  return { client, postMessage };
+  const client = createSlackClientMock();
+  client.chat.postMessage.mockResolvedValue({ ok: true, ts: "555.000" });
+  return { client, postMessage: client.chat.postMessage };
 }
 
 const SECTION: Block[] = [{ type: "section" }];

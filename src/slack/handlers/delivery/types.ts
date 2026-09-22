@@ -11,6 +11,8 @@ export interface StreamerLike {
   getMessageTs(): string | undefined;
   getAllMessageTss(): string[];
   readonly hasFailed: boolean;
+  /** True while a deferred streamer has not yet opened its card (nothing posted to Slack). */
+  readonly isUncommitted: boolean;
 }
 
 /** The final content a handler lands. Either structured `blocks` (submit_response) or raw

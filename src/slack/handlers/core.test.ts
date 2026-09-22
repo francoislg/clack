@@ -1,9 +1,9 @@
-import { describe, it, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, vi, expect, beforeEach, afterEach } from "vitest";
 import assert from "node:assert/strict";
 import type { App } from "@slack/bolt";
 import type { SessionContext } from "../../sessions.js";
 import type { ProcessMessageParams, CoreDeps } from "./core.js";
-import { processMessage } from "./core.js";
+import { processMessage, startThreadConversation } from "./core.js";
 import type { GetClaudeOptionsArgs } from "./changeWorkflowHelper.js";
 import { createSlackClientMock } from "../testSlackClient.js";
 import {
@@ -17,6 +17,7 @@ import type { SessionInfo } from "../activeSessions.js";
 import type { TriggerType } from "../../changes/types.js";
 import type { AskClaudeOptions } from "../../claude/index.js";
 import type { UserRecord } from "../../userRegistry.js";
+import { stub } from "../../testStubs.js";
 
 function makeUserRecord(overrides: Partial<UserRecord> & { userId: string }): UserRecord {
   return { displayName: "", lastFetched: 0, ...overrides };
@@ -113,6 +114,7 @@ const mockStoreDmCoordinates =
   >();
 const mockExecuteAndDeliver = vi.fn<CoreDeps["executeAndDeliver"]>();
 const mockAppendUserMessage = vi.fn<CoreDeps["appendUserMessage"]>(async () => null);
+const mockTrackQueuedAck = vi.fn<CoreDeps["trackQueuedAck"]>();
 
 function makeDeps(): CoreDeps {
   return {
@@ -137,6 +139,7 @@ function makeDeps(): CoreDeps {
     executeAndDeliver: mockExecuteAndDeliver,
     appendUserMessage: mockAppendUserMessage,
     withThreadLock,
+    trackQueuedAck: mockTrackQueuedAck,
   };
 }
 
@@ -160,6 +163,7 @@ function resetAllMocks() {
   mockGetReactionDelivery.mockClear();
   mockStoreDmCoordinates.mockClear();
   mockExecuteAndDeliver.mockClear();
+  mockTrackQueuedAck.mockClear();
 
   // Reset to defaults
   mockFindSessionByThread.mockImplementation(async () => null);
@@ -181,14 +185,12 @@ function resetAllMocks() {
     role: "dev" as const,
     changesWorkflowEnabled: false,
   }));
-  // Test fixture: only the fields processMessage actually reads. Cast at the const so
-  // the mock implementation can return it without an inline cast.
-  type FakeConfig = ReturnType<CoreDeps["getConfig"]>;
-  const fakeConfig: FakeConfig = {
+  // Test fixture: only the fields processMessage actually reads.
+  const fakeConfig = stub<ReturnType<CoreDeps["getConfig"]>>({
     slack: { fetchAndStoreUsername: false },
     directMessages: { enabled: false },
     mentions: { enabled: false },
-  } as FakeConfig;
+  });
   mockGetConfig.mockImplementation(() => fakeConfig);
 }
 
@@ -502,6 +504,7 @@ describe("processMessage — concurrent same-thread dedup", () => {
     assert.equal(sendUpdate.mock.calls.length, 1, "attempted the fast path once");
     assert.notEqual(result.skipped, true, "did not short-circuit as a queued follow-up");
     assert.equal(mockExecuteAndDeliver.mock.calls.length, 1, "fell through to a fresh spawn");
+    assert.equal(mockTrackQueuedAck.mock.calls.length, 0, "a rejected follow-up is never acked");
   });
 
   it("serializes two concurrent triggers: exactly one spawn, the other sendUpdate", async () => {
@@ -610,6 +613,167 @@ describe("processMessage — concurrent same-thread dedup", () => {
 
     runGate.resolve();
     await p1;
+  });
+
+  it("records the queued ack against the registered run under the default config", async () => {
+    const sendUpdate = vi.fn<(text: string) => Promise<void>>(async () => {});
+    const handle = fakeRunHandle(sendUpdate);
+    registerActiveRun({ channelId: "C001", threadTs: THREAD }, handle);
+
+    const deps = makeDeps();
+    await processMessage(
+      makeParams({
+        triggerType: "directMessages",
+        threadTs: THREAD,
+        messageTs: "1700000000.000112",
+        messageText: "follow-up",
+      }),
+      deps,
+    );
+
+    expect(mockTrackQueuedAck).toHaveBeenCalledTimes(1);
+    expect(mockTrackQueuedAck).toHaveBeenCalledWith(handle, {
+      channel: "C001",
+      ts: "1700000000.000112",
+      emoji: "eyes",
+      added: expect.any(Promise),
+    });
+  });
+
+  it("records no ack when reactions.queuedFollowup is null", async () => {
+    const sendUpdate = vi.fn<(text: string) => Promise<void>>(async () => {});
+    registerActiveRun({ channelId: "C001", threadTs: THREAD }, fakeRunHandle(sendUpdate));
+    const nullAckConfig = stub<ReturnType<CoreDeps["getConfig"]>>({
+      slack: { fetchAndStoreUsername: false },
+      reactions: { queuedFollowup: null },
+    });
+    mockGetConfig.mockImplementation(() => nullAckConfig);
+
+    const deps = makeDeps();
+    await processMessage(
+      makeParams({
+        triggerType: "directMessages",
+        threadTs: THREAD,
+        messageTs: "1700000000.000113",
+        messageText: "follow-up",
+      }),
+      deps,
+    );
+
+    expect(mockTrackQueuedAck).not.toHaveBeenCalled();
+  });
+
+  it("records the queued ack before persisting the follow-up", async () => {
+    const sendUpdate = vi.fn<(text: string) => Promise<void>>(async () => {});
+    registerActiveRun({ channelId: "C001", threadTs: THREAD }, fakeRunHandle(sendUpdate));
+
+    await processMessage(
+      makeParams({
+        triggerType: "directMessages",
+        threadTs: THREAD,
+        messageTs: "1700000000.000114",
+        messageText: "follow-up",
+      }),
+      makeDeps(),
+    );
+
+    expect(mockTrackQueuedAck).toHaveBeenCalledTimes(1);
+    expect(mockFindSessionByThread).toHaveBeenCalledTimes(1);
+    expect(mockTrackQueuedAck.mock.invocationCallOrder[0]).toBeLessThan(
+      mockFindSessionByThread.mock.invocationCallOrder[0],
+    );
+  });
+
+  it("stays queued (no fresh run) when persisting the follow-up fails", async () => {
+    const sendUpdate = vi.fn<(text: string) => Promise<void>>(async () => {});
+    registerActiveRun({ channelId: "C001", threadTs: THREAD }, fakeRunHandle(sendUpdate));
+    mockFindSessionByThread.mockRejectedValueOnce(new Error("disk unavailable"));
+
+    const result = await processMessage(
+      makeParams({
+        triggerType: "directMessages",
+        threadTs: THREAD,
+        messageTs: "1700000000.000115",
+        messageText: "follow-up",
+      }),
+      makeDeps(),
+    );
+
+    assert.equal(result.skipped, true);
+    expect(sendUpdate).toHaveBeenCalledTimes(1);
+    expect(mockExecuteAndDeliver).not.toHaveBeenCalled();
+  });
+});
+
+describe("processMessage — deferProgress", () => {
+  beforeEach(() => {
+    resetAllMocks();
+  });
+
+  afterEach(() => {
+    resetShutdown();
+  });
+
+  it.each(["autoRespond", "threadReply", "channelReply"] satisfies TriggerType[])(
+    "defers the progress card for the proactive trigger %s",
+    async (triggerType) => {
+      const deps = makeDeps();
+      await processMessage(makeParams({ triggerType }), deps);
+
+      expect(mockExecuteAndDeliver).toHaveBeenCalledWith(
+        expect.objectContaining({ deferProgress: true }),
+      );
+    },
+  );
+
+  it.each(["directMessages", "mentions", "reactions"] satisfies TriggerType[])(
+    "shows the progress card eagerly for the user-driven trigger %s",
+    async (triggerType) => {
+      const deps = makeDeps();
+      await processMessage(makeParams({ triggerType }), deps);
+
+      expect(mockExecuteAndDeliver).toHaveBeenCalledWith(
+        expect.objectContaining({ deferProgress: false }),
+      );
+    },
+  );
+
+  it("honors an explicit deferProgress:false over a proactive trigger", async () => {
+    const deps = makeDeps();
+    await processMessage(makeParams({ triggerType: "autoRespond", deferProgress: false }), deps);
+
+    expect(mockExecuteAndDeliver).toHaveBeenCalledWith(
+      expect.objectContaining({ deferProgress: false }),
+    );
+  });
+
+  it("honors an explicit deferProgress:true over a user-driven trigger", async () => {
+    const deps = makeDeps();
+    await processMessage(makeParams({ triggerType: "mentions", deferProgress: true }), deps);
+
+    expect(mockExecuteAndDeliver).toHaveBeenCalledWith(
+      expect.objectContaining({ deferProgress: true }),
+    );
+  });
+
+  it("startThreadConversation shows progress eagerly on its borrowed autoRespond trigger", async () => {
+    await startThreadConversation(
+      {
+        client: makeClient(),
+        channel: "C001",
+        threadTs: "1700000000.000001",
+        userId: "U001",
+        prompt: "hi",
+      },
+      makeDeps(),
+    );
+
+    expect(mockExecuteAndDeliver).toHaveBeenCalledWith(
+      expect.objectContaining({
+        deferProgress: false,
+        sessionInfo: expect.objectContaining({ triggerType: "autoRespond" }),
+      }),
+    );
   });
 });
 

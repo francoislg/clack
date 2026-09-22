@@ -243,6 +243,23 @@ export const fr: Partial<Record<StringKey, string>> = {
   "home.auto_respond.modal_title": "Règles de réponse auto",
   "home.auto_respond.conversations_header": "*Conversations suivies*",
   "home.auto_respond.conversation_level": "attention : {level}",
+  "home.auto_respond.attention_label": "Suivi du fil (facultatif)",
+  "home.auto_respond.attention_hint":
+    "Comment Clack traite les réponses dans les fils que cette règle démarre. Un niveau plus élevé ne rend pas la réponse au premier message de la règle plus fiable.",
+  "home.auto_respond.attention_option_default": "Par défaut (moyenne)",
+  "home.auto_respond.attention_option_always":
+    "Toujours : répondre à chaque message du fil, sans filtre",
+  "home.auto_respond.attention_option_high":
+    "Élevée : répondre à presque tout, sauf aux échanges entre d'autres",
+  "home.auto_respond.attention_option_medium":
+    "Moyenne : répondre quand un message semble pertinent",
+  "home.auto_respond.attention_option_low":
+    "Faible : répondre seulement si interpellé; peut cesser de suivre",
+  "home.auto_respond.attention_short_always": "toujours (sans filtre)",
+  "home.auto_respond.attention_short_high": "élevée",
+  "home.auto_respond.attention_short_medium": "moyenne",
+  "home.auto_respond.attention_short_low": "faible",
+  "home.auto_respond.attention_suffix": " · Attention : {level}",
   "home.auto_respond.conversation_expires": "expire dans {time}",
   "home.auto_respond.conversation_dormant": "en veille — se réengagera si la conversation reprend",
   "home.auto_respond.conversation_sessions": "{count} session(s) liée(s)",
@@ -276,6 +293,14 @@ export const fr: Partial<Record<StringKey, string>> = {
   "home.auto_respond.delete_confirm_title": "Supprimer la règle ?",
   "home.auto_respond.delete_confirm_text":
     "Ceci supprimera définitivement cette règle auto-respond.",
+  "home.auto_respond.error_no_permission":
+    "Vous n'avez pas la permission de gérer les règles de réponse auto",
+  "home.auto_respond.error_no_channels": "Sélectionnez au moins un canal",
+  "home.auto_respond.error_unknown_attention": "Niveau d'attention inconnu",
+  "home.auto_respond.error_rule_gone": "La règle n'existe plus (elle a peut-être été supprimée)",
+  "home.auto_respond.error_save_failed": "Impossible d'enregistrer la règle. Réessayez.",
+  "home.auto_respond.deleted_title": "Supprimée",
+  "home.auto_respond.deleted_text": "Règle supprimée.",
 
   // ─── Scheduled messages ────────────────────────────────────────────
   "home.scheduled.header": "Messages programmés",

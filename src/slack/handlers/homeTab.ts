@@ -32,9 +32,11 @@ import {
   buildMcpModalView,
   buildPluginsModalView,
   buildStatusModalView,
+  ATTENTION_DEFAULT_OPTION,
   type ConfigFilePickerEntry,
   type ConfigFileState,
 } from "../homeTab.js";
+import { SETTABLE_ATTENTION_LEVELS, type SettableAttentionLevel } from "../../sessions.js";
 import { addRule, updateRule, toggleRule, deleteRule, getRule } from "../../autoRespond.js";
 import {
   listInstructionFiles,
@@ -60,6 +62,67 @@ import { getLoadedPluginPreferences } from "../../plugins-core/state.js";
 
 const configFileModalMetaZod = z.object({ dir: z.string(), filename: z.string() });
 const configCreateModalMetaZod = z.object({ dir: z.string() });
+
+const attentionSelectionSchema = z.enum(SETTABLE_ATTENTION_LEVELS);
+
+/**
+ * Parse the auto-respond attention static_select value. An absent value or the default option
+ * resolves to `undefined` (inherit the medium default); a settable level resolves to that level;
+ * anything else is an error the caller surfaces on the block.
+ */
+function parseAttentionSelection(
+  value: string | undefined | null,
+): { ok: true; level: SettableAttentionLevel | undefined } | { ok: false } {
+  if (value === undefined || value === null || value === ATTENTION_DEFAULT_OPTION) {
+    return { ok: true, level: undefined };
+  }
+  const parsed = attentionSelectionSchema.safeParse(value);
+  if (!parsed.success) {
+    return { ok: false };
+  }
+  return { ok: true, level: parsed.data };
+}
+
+/** The auto-respond rule fields submitted through the shared Add/Edit Rule modal. */
+interface RuleModalInput {
+  channels: string[];
+  users: string[];
+  keywords: string[] | undefined;
+  extraContext: string | undefined;
+  preAnalysisContext: string | undefined;
+  attentionLevel: SettableAttentionLevel | undefined;
+}
+
+/** Read and validate the Add/Edit Rule modal, or return the block errors to show. */
+function readRuleModal(
+  view: ViewSubmitAction["view"],
+): { ok: true; input: RuleModalInput } | { ok: false; errors: Record<string, string> } {
+  const values = view.state.values;
+  const channels = values.channels_block.channels.selected_conversations;
+  if (!channels || channels.length === 0) {
+    return { ok: false, errors: { channels_block: t("home.auto_respond.error_no_channels") } };
+  }
+  const attention = parseAttentionSelection(
+    values.attention_block?.attention_level?.selected_option?.value,
+  );
+  if (!attention.ok) {
+    return {
+      ok: false,
+      errors: { attention_block: t("home.auto_respond.error_unknown_attention") },
+    };
+  }
+  return {
+    ok: true,
+    input: {
+      channels,
+      users: values.users_block.users.selected_users ?? [],
+      keywords: parseKeywords(values.keywords_block?.keywords?.value),
+      extraContext: values.extra_context_block?.extra_context?.value ?? undefined,
+      preAnalysisContext: values.pre_analysis_block?.pre_analysis_context?.value ?? undefined,
+      attentionLevel: attention.level,
+    },
+  };
+}
 
 // Some BlockAction variants carry the surrounding view; read its id without unsafe casts.
 function viewIdFromBody(body: object): string | undefined {
@@ -1002,12 +1065,12 @@ export function registerHomeTabHandler(app: App, deps: HomeTabDeps = defaultHome
           view_id: viewId,
           view: {
             type: "modal",
-            title: { type: "plain_text", text: "Deleted" },
-            close: { type: "plain_text", text: "Close" },
+            title: { type: "plain_text", text: t("home.auto_respond.deleted_title") },
+            close: { type: "plain_text", text: t("common.close") },
             blocks: [
               {
                 type: "section",
-                text: { type: "mrkdwn", text: "Rule deleted." },
+                text: { type: "mrkdwn", text: t("home.auto_respond.deleted_text") },
               },
             ],
           },
@@ -1024,30 +1087,34 @@ export function registerHomeTabHandler(app: App, deps: HomeTabDeps = defaultHome
     if (!(await deps.userCanManageRoles(body.user.id))) {
       await ack({
         response_action: "errors",
-        errors: { channels_block: "You don't have permission to manage auto-respond rules" },
+        errors: { channels_block: t("home.auto_respond.error_no_permission") },
       });
       return;
     }
-    const channels = view.state.values.channels_block.channels.selected_conversations;
-    if (!channels || channels.length === 0) {
+    const read = readRuleModal(view);
+    if (!read.ok) {
+      await ack({ response_action: "errors", errors: read.errors });
+      return;
+    }
+    const { channels, users, keywords, extraContext, preAnalysisContext, attentionLevel } =
+      read.input;
+    try {
+      await deps.addRule(
+        channels,
+        users.length > 0 ? users : undefined,
+        keywords,
+        extraContext,
+        preAnalysisContext,
+        attentionLevel,
+      );
+    } catch (error) {
+      logger.error("Failed to add auto-respond rule:", error);
       await ack({
         response_action: "errors",
-        errors: { channels_block: "Select at least one channel" },
+        errors: { channels_block: t("home.auto_respond.error_save_failed") },
       });
       return;
     }
-    const users = view.state.values.users_block.users.selected_users;
-    const keywordsRaw = view.state.values.keywords_block?.keywords?.value;
-    const keywords = parseKeywords(keywordsRaw);
-    const extraContext = view.state.values.extra_context_block?.extra_context?.value;
-    const preAnalysisContext = view.state.values.pre_analysis_block?.pre_analysis_context?.value;
-    await deps.addRule(
-      channels,
-      users && users.length > 0 ? users : undefined,
-      keywords,
-      extraContext ?? undefined,
-      preAnalysisContext ?? undefined,
-    );
     await ack();
     await publishHomeView(client, body.user.id, deps);
   });
@@ -1057,35 +1124,40 @@ export function registerHomeTabHandler(app: App, deps: HomeTabDeps = defaultHome
     if (!(await deps.userCanManageRoles(body.user.id))) {
       await ack({
         response_action: "errors",
-        errors: { channels_block: "You don't have permission to manage auto-respond rules" },
+        errors: { channels_block: t("home.auto_respond.error_no_permission") },
       });
       return;
     }
     const ruleId = view.private_metadata;
-    const channels = view.state.values.channels_block.channels.selected_conversations;
-    if (!channels || channels.length === 0) {
+    const read = readRuleModal(view);
+    if (!read.ok) {
+      await ack({ response_action: "errors", errors: read.errors });
+      return;
+    }
+    const { channels, users, keywords, extraContext, preAnalysisContext, attentionLevel } =
+      read.input;
+    let updated: Awaited<ReturnType<HomeTabDeps["updateRule"]>>;
+    try {
+      updated = await deps.updateRule(ruleId, {
+        channels,
+        userFilters: users,
+        keywords: keywords ?? [],
+        extraContext: extraContext ?? "",
+        preAnalysisContext: preAnalysisContext ?? "",
+        attentionLevel: attentionLevel ?? "",
+      });
+    } catch (error) {
+      logger.error(`Failed to update auto-respond rule ${ruleId}:`, error);
       await ack({
         response_action: "errors",
-        errors: { channels_block: "Select at least one channel" },
+        errors: { channels_block: t("home.auto_respond.error_save_failed") },
       });
       return;
     }
-    const users = view.state.values.users_block.users.selected_users;
-    const keywordsRaw = view.state.values.keywords_block?.keywords?.value;
-    const keywords = parseKeywords(keywordsRaw);
-    const extraContext = view.state.values.extra_context_block?.extra_context?.value;
-    const preAnalysisContext = view.state.values.pre_analysis_block?.pre_analysis_context?.value;
-    const updated = await deps.updateRule(ruleId, {
-      channels,
-      userFilters: users ?? [],
-      keywords: keywords ?? [],
-      extraContext: extraContext ?? "",
-      preAnalysisContext: preAnalysisContext ?? "",
-    });
     if (!updated) {
       await ack({
         response_action: "errors",
-        errors: { channels_block: "Rule no longer exists (it may have been deleted)" },
+        errors: { channels_block: t("home.auto_respond.error_rule_gone") },
       });
       return;
     }

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { SETTABLE_ATTENTION_LEVELS } from "../../sessions.js";
 import { tool } from "@anthropic-ai/claude-agent-sdk";
 import type { QueryToolContext } from "../types.js";
 import { textResult, errorResult } from "../helpers.js";
@@ -69,12 +70,17 @@ export function createAddAutoRespondRuleTool(
           "Optional pre-analysis context. When set, a lightweight Claude Haiku call evaluates message relevance before responding. Leave empty to skip pre-analysis (default).",
         ),
       attentionLevel: z
-        .enum(["always", "high", "medium", "low"])
+        .enum(SETTABLE_ATTENTION_LEVELS)
         .optional()
         .describe(
-          "Optional attention level for sessions this rule creates — how eagerly Clack follows " +
-            'the thread. "always" replies to every message (no relevance check), "high"/"medium"/' +
-            '"low" lean progressively less toward replying. Omit for the "medium" default.',
+          "Optional attention level seeded onto sessions this rule creates. It governs thread " +
+            "follow-up — how Clack treats replies in the thread it starts: " +
+            '"always" replies to every reply with no relevance check (unfiltered), ' +
+            '"high"/"medium"/"low" lean progressively less toward replying, and "low" may stop ' +
+            "following. It does not decide whether the rule's triggering message is answered: a " +
+            "rule without pre-analysis context always fires, and with pre-analysis context the " +
+            'level only tunes that screen\'s lean ("always" is treated as "high" there). Omit for ' +
+            'the "medium" default.',
         ),
     },
     async (args) => {

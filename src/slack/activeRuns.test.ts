@@ -10,6 +10,8 @@ import {
   snapshot,
   snapshotHandles,
   withThreadLock,
+  trackQueuedAck,
+  takeQueuedAcks,
   _resetForTesting,
 } from "./activeRuns.js";
 import { makeFakeRunHandle } from "../claude/runHandle.testFixtures.js";
@@ -284,6 +286,60 @@ describe("activeRuns snapshot", () => {
     // The slot is still held — snapshot only observes.
     assert.equal(size(), 1);
     assert.ok(getByThread("C1", "T1"));
+  });
+});
+
+describe("queued acks", () => {
+  beforeEach(() => {
+    _resetForTesting();
+  });
+
+  it("returns acks in append order", () => {
+    const h = fakeHandle("a");
+    trackQueuedAck(h, { channel: "C1", ts: "T1", emoji: "eyes", added: Promise.resolve() });
+    trackQueuedAck(h, { channel: "C1", ts: "T2", emoji: "eyes", added: Promise.resolve() });
+    assert.deepEqual(
+      takeQueuedAcks(h).map((a) => a.ts),
+      ["T1", "T2"],
+    );
+  });
+
+  it("takeQueuedAcks clears — a second take returns []", () => {
+    const h = fakeHandle("a");
+    trackQueuedAck(h, { channel: "C1", ts: "T1", emoji: "eyes", added: Promise.resolve() });
+    assert.equal(takeQueuedAcks(h).length, 1);
+    assert.deepEqual(takeQueuedAcks(h), []);
+  });
+
+  it("keeps acks for two handles independent", () => {
+    const a = fakeHandle("a");
+    const b = fakeHandle("b");
+    trackQueuedAck(a, { channel: "C1", ts: "T1", emoji: "eyes", added: Promise.resolve() });
+    trackQueuedAck(b, { channel: "C2", ts: "T2", emoji: "eyes", added: Promise.resolve() });
+    assert.deepEqual(
+      takeQueuedAcks(a).map((x) => x.ts),
+      ["T1"],
+    );
+    assert.deepEqual(
+      takeQueuedAcks(b).map((x) => x.ts),
+      ["T2"],
+    );
+  });
+
+  it("returns [] for a handle with nothing tracked", () => {
+    const h = fakeHandle("a");
+    assert.deepEqual(takeQueuedAcks(h), []);
+  });
+
+  it("survives unregister(handle)", () => {
+    const h = fakeHandle("a");
+    register({ channelId: "C1", threadTs: "T1" }, h);
+    trackQueuedAck(h, { channel: "C1", ts: "T1", emoji: "eyes", added: Promise.resolve() });
+    unregister(h);
+    assert.deepEqual(
+      takeQueuedAcks(h).map((x) => x.ts),
+      ["T1"],
+    );
   });
 });
 

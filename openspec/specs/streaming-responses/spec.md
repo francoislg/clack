@@ -8,11 +8,20 @@ Manage Slack chat streams for Claude queries, displaying real-time tool call pro
 
 The system SHALL manage a Slack chat stream for each Claude query, using `chat.startStream` to begin, `chat.appendStream` to send task updates, and `chat.stopStream` to finalize the response with the answer and action buttons. The streamer SHALL also expose the message timestamp for post-delivery operations such as deletion. The streamer SHALL transparently rotate to a new chat stream **only reactively** — when `appendStream` fails with a recoverable error code (see the Reactive Stream Rollover requirement). There is no scheduled/preemptive rotation. Reactive rollover is unbounded: the streamer enters failed state only when rollover is not attempted (non-recoverable code, `stopped_by_user`) or when the new stream itself fails to open.
 
+A stream MAY be started in **deferred** mode (see the `deferred-progress-surface` capability). In deferred mode `start()` SHALL construct the chat-stream handle but SHALL NOT append the initial thinking task, so no Slack message is created until the stream commits. A successful `start()` therefore does not imply that a Slack message exists.
+
 #### Scenario: Stream started on query begin
 
-- **WHEN** a Claude query begins processing (any trigger mode)
+- **WHEN** a Claude query begins processing with a non-deferred stream (any user-initiated trigger mode)
 - **THEN** the system starts a chat stream in the target channel/thread with `task_display_mode: "plan"`
 - **AND** immediately shows an initial "Acknowledged, working on it..." task card in `in_progress` status
+
+#### Scenario: Deferred stream start creates no message
+
+- **WHEN** a Claude query begins processing with a deferred stream
+- **THEN** the system constructs the chat-stream handle
+- **AND** does NOT append the initial thinking task
+- **AND** no Slack message exists for the stream
 
 #### Scenario: Message timestamp captured on first append
 
@@ -22,8 +31,14 @@ The system SHALL manage a Slack chat stream for each Claude query, using `chat.s
 
 #### Scenario: Message timestamp available after start
 
-- **WHEN** `start()` completes successfully (the initial append posts the thinking task)
+- **WHEN** a non-deferred `start()` completes successfully (the initial append posts the thinking task)
 - **THEN** `getMessageTs()` returns the streaming message `ts`
+
+#### Scenario: Message timestamp absent while deferred and uncommitted
+
+- **WHEN** `start()` completes successfully in deferred mode and the stream has not committed
+- **THEN** `getMessageTs()` returns `undefined`
+- **AND** `getAllMessageTss()` returns an empty array
 
 #### Scenario: Message timestamp null on failed start
 
@@ -35,6 +50,12 @@ The system SHALL manage a Slack chat stream for each Claude query, using `chat.s
 - **WHEN** Claude's query completes and the answer is ready
 - **THEN** the system marks the thinking task as `complete` and stops the stream
 - **AND** the `stopStream` call includes the rendered answer blocks and action buttons
+
+#### Scenario: Stop is inert on an uncommitted deferred stream
+
+- **WHEN** `stop()` is called on a deferred stream that has not committed
+- **THEN** no completion task is appended, no stream is started, and no message is created
+- **AND** the call returns without error
 
 #### Scenario: Stream stopped on error
 
@@ -66,10 +87,12 @@ The system SHALL manage a Slack chat stream for each Claude query, using `chat.s
 - **AND** the log message SHALL include `reactiveRolloverCount` (the number of successful reactive rollovers performed so far)
 - **AND** the streamer enters failed state as normal
 
-#### Scenario: Cancellation stops stream
+#### Scenario: Cancellation discards the stream
 
-- **WHEN** a request is cancelled (e.g., via message edit)
-- **THEN** the system stops the stream with a "_Request cancelled._" markdown text
+- **WHEN** a run is cancelled (e.g., via the stop reaction or inline stop emoji)
+- **THEN** the delivery handler winds the surface down with `discard: true`, removing every message the streamer opened
+- **AND** no cancellation text is posted through the streamer
+- **AND** when the stream is deferred and uncommitted, there is nothing to remove and no Slack call is made
 
 #### Scenario: Stream always cleaned up
 
@@ -77,12 +100,14 @@ The system SHALL manage a Slack chat stream for each Claude query, using `chat.s
 - **THEN** the system calls `streamer.stop()` in a `finally` block to prevent orphaned streams
 - **AND** `stop()` is idempotent -- safe to call multiple times
 - **AND** the keepalive timer is always cleared
+- **AND** for a deferred stream that never committed, the `finally` call makes no Slack call (see "Stop is inert on an uncommitted deferred stream")
 
 #### Scenario: Stream message deleted on skip
 
 - **WHEN** a response is skipped and `getAllMessageTss()` returns one or more timestamps
 - **THEN** the caller uses `chat.delete` with the channel and each `ts` to remove every block the streamer opened
 - **AND** the thinking indicator and all task cards across every block disappear from Slack
+- **AND** when `getAllMessageTss()` returns an empty array (a deferred stream that never committed), no `chat.delete` call is made
 
 ### Requirement: Reactive Stream Rollover
 
@@ -205,10 +230,23 @@ The `SlackStreamer` SHALL expose a public method `getAllMessageTss(): string[]` 
 
 The system SHALL periodically send keepalive appends to prevent Slack from expiring the chat stream during idle periods. Keepalive content SHALL target every currently in-progress task that has been running for at least a visible-progress threshold, updating the task's title with a live elapsed-time suffix and appending incremental content to the task's details field to ensure Slack registers the update as activity.
 
+The keepalive timer SHALL NOT run while a deferred stream is uncommitted, since a keepalive append would create the very message deferral withholds. It SHALL start when the stream commits. Once running, keepalive behaves identically for a committed deferred stream and a non-deferred stream.
+
 #### Scenario: Keepalive timer started after stream starts
 
-- **WHEN** `start()` completes successfully (initial append succeeds)
+- **WHEN** a non-deferred `start()` completes successfully (initial append succeeds)
 - **THEN** a periodic keepalive timer is started at a fixed interval (15 seconds)
+
+#### Scenario: Keepalive withheld while deferred and uncommitted
+
+- **WHEN** a deferred stream has started but not committed
+- **THEN** no keepalive timer is running
+- **AND** no keepalive append is emitted regardless of elapsed time
+
+#### Scenario: Keepalive starts on commit
+
+- **WHEN** a deferred stream commits and opens its card
+- **THEN** the periodic keepalive timer is started at the same fixed interval
 
 #### Scenario: Per-task tracking of in-progress work
 
@@ -246,6 +284,7 @@ The system SHALL periodically send keepalive appends to prevent Slack from expir
 - **WHEN** the keepalive timer fires and no task is in-progress (e.g., before the first tool event or between tool completion and a follow-up)
 - **THEN** the system SHALL emit a `task_update` chunk targeting the thinking task id
 - **AND** the chunk SHALL contain the current thinking task title and `in_progress` status, preserving the pre-existing fallback behavior for pre-first-tool dead zones
+- **AND** this applies only while the timer is running — i.e. never to a deferred stream that has not committed
 
 #### Scenario: Keepalive dots append after existing details content
 

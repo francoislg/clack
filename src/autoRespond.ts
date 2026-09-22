@@ -9,7 +9,7 @@ import {
   clearEphemeralRulesCache,
   isEphemeralRule,
 } from "./ephemeralRules.js";
-import type { SettableAttentionLevel } from "./sessions.js";
+import { SETTABLE_ATTENTION_LEVELS, type SettableAttentionLevel } from "./sessions.js";
 
 // ============================================================================
 // Types
@@ -52,7 +52,7 @@ const autoRespondRuleZod = z.object({
   keywords: z.array(z.string()).optional(),
   extraContext: z.string().optional(),
   preAnalysisContext: z.string().optional(),
-  attentionLevel: z.enum(["always", "high", "medium", "low"]).optional(),
+  attentionLevel: z.enum(SETTABLE_ATTENTION_LEVELS).optional(),
   enabled: z.boolean(),
 });
 

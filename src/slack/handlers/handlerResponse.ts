@@ -36,12 +36,14 @@ import {
 import { appendSessionToEphemeralRule } from "../../ephemeralRules.js";
 import type { SessionAssistantMessage, DeliveryMode } from "../../sessions.js";
 import { askClaude } from "../../claude/index.js";
+import type { ClaudeRunHandle } from "../../claude/runHandle.js";
 import { analyzeError } from "../../claude/utilities.js";
 import { sendErrorReport } from "../messagesApi.js";
 import { getConfig } from "../../config.js";
 import { getClaudeOptions } from "./changeWorkflowHelper.js";
 import { handleAutoExecuteActions } from "./autoExecute.js";
-import { addDeliveryReactions } from "../messageReactions.js";
+import { addDeliveryReactions, removeDeliveryReaction } from "../messageReactions.js";
+import { takeQueuedAcks } from "../activeRuns.js";
 import { notificationText } from "../messagePoster.js";
 import { unfurlOptions } from "../unfurlOptions.js";
 import { SlackStreamer } from "../../streaming/slackStreamer.js";
@@ -86,6 +88,10 @@ export interface HandlerResponseDeps {
   getUserInfo: typeof getUserInfo;
   resolveChannelLabel: typeof resolveChannelLabel;
   slackLink: typeof slackLink;
+  /** Takes (and forgets) the queued-followup acks recorded for a run handle. */
+  takeQueuedAcks: typeof takeQueuedAcks;
+  /** Removes a single reaction this bot added. Never throws. */
+  removeDeliveryReaction: typeof removeDeliveryReaction;
 }
 
 export const defaultHandlerResponseDeps: HandlerResponseDeps = {
@@ -116,6 +122,8 @@ export const defaultHandlerResponseDeps: HandlerResponseDeps = {
   getUserInfo,
   resolveChannelLabel,
   slackLink,
+  takeQueuedAcks,
+  removeDeliveryReaction,
 };
 
 // ============================================================
@@ -136,6 +144,12 @@ export interface ExecuteAndDeliverParams {
    * GitHub-side effects still happen. See the `silent-change-execution` capability.
    */
   silent?: boolean;
+  /**
+   * Open the streaming progress card deferred — nothing is posted until the turn's first visible
+   * tool task, and an answer with no visible tool lands without a card. Default `false`. Governs
+   * only the initial handler; a mid-run switch into streaming always opens immediately.
+   */
+  deferProgress?: boolean;
   /** Pre-analysis verdict from the autoRespond gate for THIS turn. Stamped onto the appended
    *  `SessionAssistantMessage` so the per-turn decision trail is preserved on disk. */
   preAnalysis?: string;
@@ -176,6 +190,7 @@ export async function executeAndDeliver(params: ExecuteAndDeliverParams): Promis
     abortController,
     silentThinking = false,
     silent = false,
+    deferProgress = false,
     preAnalysis,
     deps = defaultHandlerResponseDeps,
   } = params;
@@ -190,7 +205,7 @@ export async function executeAndDeliver(params: ExecuteAndDeliverParams): Promis
   // streaming surface is actually opened — at turn start for streamer mode, or at a mid-run
   // switch into streamer mode. Slack's streaming API requires a human recipient, so fall back
   // to the bot's own user id when the session user is a bot (e.g. a Sentry-triggered run).
-  const makeStreamer = async (): Promise<SlackStreamer> => {
+  const makeStreamer = async (defer: boolean): Promise<SlackStreamer> => {
     let streamUserId = sessionInfo.userId;
     if (userInfo?.isBot || sessionInfo.userId === "auto-respond") {
       const authResult = await client.auth.test();
@@ -201,12 +216,13 @@ export async function executeAndDeliver(params: ExecuteAndDeliverParams): Promis
       channel: targetChannel,
       threadTs: targetThread,
       userId: streamUserId,
+      deferUntilFirstTask: defer,
     });
   };
 
   // A `silent` run posts nothing at all (NullDelivery). Otherwise `silentThinking` picks the
   // no-progress-card SilentDelivery, and the default is the live StreamingDelivery.
-  const handlerFor = (thinkingSilent: boolean): DeliveryHandler =>
+  const handlerFor = (thinkingSilent: boolean, defer: boolean): DeliveryHandler =>
     silent
       ? new NullDelivery()
       : thinkingSilent
@@ -218,14 +234,14 @@ export async function executeAndDeliver(params: ExecuteAndDeliverParams): Promis
               await deps.updateSession(session.sessionId, { responseTs: ts });
             },
           })
-        : new StreamingDelivery({ client, targetChannel, targetThread, makeStreamer });
+        : new StreamingDelivery({ client, targetChannel, targetThread, makeStreamer, defer });
 
   const ctx: DeliveryContext = {
     client,
     session,
     sessionInfo,
     claudeOptions,
-    current: handlerFor(silentThinking),
+    current: handlerFor(silentThinking, deferProgress),
     targetChannel,
     targetThread,
     alreadyDelivered: false,
@@ -251,7 +267,8 @@ export async function executeAndDeliver(params: ExecuteAndDeliverParams): Promis
     switchTo: async (mode) => {
       if (ctx.alreadyDelivered) return; // this turn's surface is already finalized
       if (mode === currentMode) return; // idempotent
-      await setDelivery(handlerFor(mode === "invisible"));
+      // An explicit switch into streaming is itself the decision to show a card, so it never defers.
+      await setDelivery(handlerFor(mode === "invisible", false));
       currentMode = mode;
       try {
         await deps.setDeliveryMode(session.sessionId, mode);
@@ -293,12 +310,12 @@ export async function executeAndDeliver(params: ExecuteAndDeliverParams): Promis
     const response = await handle.futureResponse;
 
     if (response.cancelled) {
-      await handleCancellation(ctx);
+      await handleCancellation(ctx, handle);
       return response;
     }
 
     if (response.skipped) {
-      await handleSkip(ctx, response);
+      await handleSkip(ctx, response, handle);
       return response;
     }
 
@@ -507,25 +524,47 @@ async function deliverViaStreamerOrFallback(ctx: DeliveryContext, text: string):
   }
 }
 
-/**
- * Handle a cancelled response: delete the streamer message so the thread shows
- * no trace of the cancelled run. If a message was already delivered (rare — the
- * streamer has committed a partial reply), leave it alone.
- */
-async function handleCancellation(ctx: DeliveryContext): Promise<void> {
-  if (ctx.alreadyDelivered) return;
-  // Discard the surface so the thread shows no trace of the cancelled run.
-  await ctx.current.windDown({ discard: true });
+/** A run that produced no response retracts the `queuedFollowup` acks added for messages queued
+ *  onto it, so the "queued" signal never outlives a run that said nothing. Each removal awaits
+ *  its add, so a fast skip never removes a reaction before it lands. Best-effort. */
+async function retractQueuedAcks(ctx: DeliveryContext, handle: ClaudeRunHandle): Promise<void> {
+  for (const ack of ctx.deps.takeQueuedAcks(handle)) {
+    try {
+      await ack.added;
+    } catch {
+      // The add failed and logged itself; the removal below is then a benign no-op.
+    }
+    await ctx.deps.removeDeliveryReaction(ctx.client, ack.channel, ack.ts, ack.emoji);
+  }
 }
 
 /**
- * Handle a skipped response: delete the streamer message so no trace remains.
- * Skips session persistence and auto-execute.
+ * Handle a cancelled response: remove the streamer message so the thread shows
+ * no trace of the cancelled run. If a message was already delivered (rare — the
+ * streamer has committed a partial reply), leave it alone. When nothing was delivered,
+ * also retracts the queued-followup acks added for messages queued onto this run.
  */
-async function handleSkip(ctx: DeliveryContext, response: ClaudeResponse): Promise<void> {
+async function handleCancellation(ctx: DeliveryContext, handle: ClaudeRunHandle): Promise<void> {
+  if (ctx.alreadyDelivered) return;
+  // Discard the surface so the thread shows no trace of the cancelled run.
+  await ctx.current.windDown({ discard: true });
+  await retractQueuedAcks(ctx, handle);
+}
+
+/**
+ * Handle a skipped response: remove the streamer message so no trace remains, and retract the
+ * queued-followup acks added for messages queued onto this run. Skips session persistence and
+ * auto-execute.
+ */
+async function handleSkip(
+  ctx: DeliveryContext,
+  response: ClaudeResponse,
+  handle: ClaudeRunHandle,
+): Promise<void> {
   // Discard the surface so no trace remains. windDown stops first, so the finally net's
   // windDown becomes a no-op (the streamer checks its own stopped state internally).
   await ctx.current.windDown({ discard: true });
+  await retractQueuedAcks(ctx, handle);
 
   // unified-conversation-log: persist the skipped turn in a single updateSession
   // call together with the disengage flag (per skip-response spec requirement:

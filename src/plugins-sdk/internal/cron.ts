@@ -3,6 +3,7 @@
 import { CronExpressionParser } from "cron-parser";
 import { isChannelId } from "../../slack/channelResolver.js";
 import { logger } from "../../logger.js";
+import { SETTABLE_ATTENTION_LEVELS } from "../../sessions.js";
 import {
   findByPluginOwner,
   createJob,
@@ -51,9 +52,9 @@ function validateCronJobSpec(spec: CronJobSpec): string | null {
   }
   if (
     spec.attentionLevel !== undefined &&
-    !["always", "high", "medium", "low"].includes(spec.attentionLevel)
+    !SETTABLE_ATTENTION_LEVELS.includes(spec.attentionLevel)
   ) {
-    return `attentionLevel "${spec.attentionLevel}" is invalid (expected always | high | medium | low)`;
+    return `attentionLevel "${spec.attentionLevel}" is invalid (expected ${SETTABLE_ATTENTION_LEVELS.join(" | ")})`;
   }
   if (spec.jitterMinutes !== undefined) {
     if (

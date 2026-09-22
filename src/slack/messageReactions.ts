@@ -1,4 +1,5 @@
-import type { ReactionsAddResponse } from "@slack/web-api";
+import type { ReactionsAddResponse, ReactionsRemoveResponse } from "@slack/web-api";
+import { errorMessage } from "../errors.js";
 import { logger } from "../logger.js";
 
 /**
@@ -13,6 +14,11 @@ export interface ReactionsClient {
       timestamp: string;
       name: string;
     }) => Promise<ReactionsAddResponse>;
+    remove: (args: {
+      channel: string;
+      timestamp: string;
+      name: string;
+    }) => Promise<ReactionsRemoveResponse>;
   };
 }
 
@@ -39,13 +45,31 @@ export async function addDeliveryReactions(
     try {
       await client.reactions.add({ channel, timestamp, name: emoji });
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
+      const msg = errorMessage(err);
       if (!msg.includes("already_reacted")) {
         logger.warn(`Failed to add reaction :${emoji}: — ${msg}`);
       }
     }
     if (i < reactions.length - 1 && delayBetweenMs > 0) {
       await new Promise((resolve) => setTimeout(resolve, delayBetweenMs));
+    }
+  }
+}
+
+/** Remove one reaction this bot added. Never throws: `no_reaction` (already gone) is ignored
+ *  silently; any other failure is logged. */
+export async function removeDeliveryReaction(
+  client: ReactionsClient,
+  channel: string,
+  timestamp: string,
+  emoji: string,
+): Promise<void> {
+  try {
+    await client.reactions.remove({ channel, timestamp, name: emoji });
+  } catch (err) {
+    const msg = errorMessage(err);
+    if (!msg.includes("no_reaction")) {
+      logger.warn(`Failed to remove reaction :${emoji}: — ${msg}`);
     }
   }
 }

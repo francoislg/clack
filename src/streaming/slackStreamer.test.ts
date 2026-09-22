@@ -1,9 +1,8 @@
 import { describe, it, beforeEach, afterEach, vi } from "vitest";
 import assert from "node:assert/strict";
 import { setImmediate } from "node:timers/promises";
-import type { App } from "@slack/bolt";
-import type { TaskUpdateChunk } from "@slack/types";
-import type { ChatStreamer } from "@slack/web-api";
+import type { AnyChunk, TaskUpdateChunk } from "@slack/types";
+import { WebClient } from "@slack/web-api";
 import {
   SlackStreamer,
   finalizeStreamedWorkflow,
@@ -11,8 +10,7 @@ import {
   type SlackStreamerLogger,
 } from "./slackStreamer.js";
 import type { StreamEvent } from "./types.js";
-import { createSlackClientMock } from "../slack/testSlackClient.js";
-import { stub } from "../testStubs.js";
+import { createSlackClientMock, type MockSlackClient } from "../slack/testSlackClient.js";
 
 // ---------------------------------------------------------------------------
 // Shared mock logger — injected via SlackStreamerOptions.logger
@@ -53,23 +51,23 @@ const mockLogger = makeLoggerRecorder();
 // Helpers
 // ---------------------------------------------------------------------------
 
-interface MockChatStreamer {
-  append: ReturnType<typeof vi.fn<(...args: any[]) => any>>;
-  stop: ReturnType<typeof vi.fn<(...args: any[]) => any>>;
+/** A real `ChatStreamer` (via `WebClient.chatStream`) with every method a vitest mock. */
+function makeMockChatStreamer() {
+  const streamer = vi.mockObject(
+    new WebClient().chatStream({ channel: "C_CHAN", thread_ts: "1234.5678" }),
+  );
+  streamer.append.mockResolvedValue(null);
+  streamer.stop.mockResolvedValue({ ok: true });
+  return streamer;
 }
 
-function makeMockChatStreamer(): MockChatStreamer {
-  return {
-    append: vi.fn(async () => {}),
-    stop: vi.fn(async () => {}),
-  };
-}
+type MockChatStreamer = ReturnType<typeof makeMockChatStreamer>;
 
 function makeClient(opts?: {
   chatStreamer?: MockChatStreamer;
   teamId?: string;
   throwOnChatStream?: boolean;
-}): App["client"] {
+}): MockSlackClient {
   const streamer = opts?.chatStreamer ?? makeMockChatStreamer();
   const client = createSlackClientMock();
 
@@ -78,7 +76,7 @@ function makeClient(opts?: {
       throw new Error("chatStream failed");
     });
   } else {
-    client.chatStream.mockReturnValue(stub<ChatStreamer>(streamer));
+    client.chatStream.mockReturnValue(streamer);
   }
   client.auth.test.mockResolvedValue({ ok: true, team_id: opts?.teamId ?? "T_TEAM" });
   client.chat.postMessage.mockResolvedValue({ ok: true });
@@ -87,38 +85,15 @@ function makeClient(opts?: {
   return client;
 }
 
-interface PostMessageCallArgs {
-  channel?: string;
-  thread_ts?: string;
-  text?: string;
-  unfurl_links?: false;
-  unfurl_media?: false;
-}
-
-interface MockedPostMessageHandle {
-  mock: {
-    calls: ReadonlyArray<ReadonlyArray<PostMessageCallArgs>>;
-  };
-}
-
-function assertIsMockedPostMessage(fn: object): asserts fn is MockedPostMessageHandle {
-  const maybeMock = (fn as { mock?: unknown }).mock;
-  if (
-    !maybeMock ||
-    typeof maybeMock !== "object" ||
-    !Array.isArray((maybeMock as { calls?: unknown }).calls)
-  ) {
-    throw new Error("expected mock fn");
-  }
+/** The task-update chunks of one append call — the only chunk kind the streamer emits. */
+function taskUpdates(chunks: AnyChunk[] | undefined): TaskUpdateChunk[] {
+  return (chunks ?? []).filter((c): c is TaskUpdateChunk => c.type === "task_update");
 }
 
 /** Extract all chunks sent via append calls. */
 function getAppendedChunks(streamer: MockChatStreamer): TaskUpdateChunk[] {
   const chunks: TaskUpdateChunk[] = [];
-  for (const call of streamer.append.mock.calls) {
-    const arg = call[0] as { chunks: TaskUpdateChunk[] };
-    if (arg?.chunks) chunks.push(...arg.chunks);
-  }
+  for (const call of streamer.append.mock.calls) chunks.push(...taskUpdates(call[0]?.chunks));
   return chunks;
 }
 
@@ -654,8 +629,7 @@ describe("SlackStreamer.stop", () => {
     await streamer.stop({ markdownText: "Done!" });
 
     assert.equal(mockStreamerObj.stop.mock.calls.length, 1);
-    const stopArgs = mockStreamerObj.stop.mock.calls[0][0] as Record<string, unknown>;
-    assert.equal(stopArgs.markdown_text, "Done!");
+    assert.equal(mockStreamerObj.stop.mock.calls[0][0]?.markdown_text, "Done!");
   });
 
   it("passes blocks to chatStreamer.stop", async () => {
@@ -673,8 +647,7 @@ describe("SlackStreamer.stop", () => {
     const blocks = [{ type: "section" as const, text: { type: "mrkdwn" as const, text: "hello" } }];
     await streamer.stop({ blocks });
 
-    const stopArgs = mockStreamerObj.stop.mock.calls[0][0] as Record<string, unknown>;
-    assert.deepEqual(stopArgs.blocks, blocks);
+    assert.deepEqual(mockStreamerObj.stop.mock.calls[0][0]?.blocks, blocks);
   });
 
   it("is idempotent (calling stop twice does not fail)", async () => {
@@ -880,8 +853,9 @@ describe("finalizeStreamedWorkflow", () => {
     );
 
     assert.equal(mockStreamerObj.stop.mock.calls.length, 1);
-    const stopArgs = mockStreamerObj.stop.mock.calls[0][0] as Record<string, unknown>;
-    assert.ok((stopArgs.markdown_text as string).includes("Change failed: timeout"));
+    assert.ok(
+      mockStreamerObj.stop.mock.calls[0][0]?.markdown_text?.includes("Change failed: timeout"),
+    );
   });
 
   it("posts fallback message when streamer has failed", async () => {
@@ -945,9 +919,9 @@ describe("finalizeStreamedWorkflow", () => {
     );
 
     const pm = client.chat.postMessage;
-    assertIsMockedPostMessage(pm);
     assert.equal(pm.mock.calls.length, 1);
-    const text = pm.mock.calls[0]?.[0]?.text ?? "";
+    const args = pm.mock.calls[0]?.[0];
+    const text = args && "text" in args ? (args.text ?? "") : "";
     assert.ok(text.includes("Change request complete"));
     assert.ok(text.includes("https://example.com/pull/42"));
   });
@@ -974,7 +948,6 @@ describe("finalizeStreamedWorkflow", () => {
     );
 
     const pm = client.chat.postMessage;
-    assertIsMockedPostMessage(pm);
     assert.equal(pm.mock.calls.length, 0);
   });
 
@@ -1003,7 +976,6 @@ describe("finalizeStreamedWorkflow", () => {
     );
 
     const pm = client.chat.postMessage;
-    assertIsMockedPostMessage(pm);
     const args = pm.mock.calls[0]?.[0] ?? {};
     assert.equal("unfurl_links" in args, false);
     assert.equal("unfurl_media" in args, false);
@@ -1035,7 +1007,6 @@ describe("finalizeStreamedWorkflow", () => {
     );
 
     const pm = client.chat.postMessage;
-    assertIsMockedPostMessage(pm);
     const args = pm.mock.calls[0]?.[0] ?? {};
     assert.equal(args.unfurl_links, false);
     assert.equal(args.unfurl_media, false);
@@ -1071,7 +1042,7 @@ describe("SlackStreamer keepalive", () => {
 
     // The keepalive append should be a thinking task update
     const lastCall = mockStreamerObj.append.mock.calls.at(-1);
-    const chunks = (lastCall![0] as { chunks: TaskUpdateChunk[] }).chunks;
+    const chunks = taskUpdates(lastCall![0].chunks);
     assert.equal(chunks.length, 1);
     assert.equal(chunks[0].id, "__thinking__");
     assert.equal(chunks[0].status, "in_progress");
@@ -1968,7 +1939,10 @@ function makeSlackError(code: string): Error & { data: { error: string } } {
 /** Build a client whose `chatStream()` returns the next streamer from an ordered list,
  *  one per call. Throws if the streamers are exhausted (catches over-rollover bugs).
  *  Built atop `makeClient` to inherit `auth.test` + `chat.*` mocks. */
-function makeClientWithStreamers(streamers: MockChatStreamer[], teamId = "T_TEAM"): App["client"] {
+function makeClientWithStreamers(
+  streamers: MockChatStreamer[],
+  teamId = "T_TEAM",
+): MockSlackClient {
   const base = makeClient({ chatStreamer: streamers[0], teamId });
   let i = 0;
   return Object.assign(base, {
@@ -1998,12 +1972,11 @@ function makeStreamerFailingAfter(
   return streamer;
 }
 
-/** Read chunks from a specific append call on a mock streamer without paren-as casts. */
+/** Read the task-update chunks of one append call on a mock streamer. */
 function chunksOfCall(streamer: MockChatStreamer, callIndex: number): TaskUpdateChunk[] {
   const call = streamer.append.mock.calls[callIndex];
   if (!call) return [];
-  const arg = call[0] as { chunks?: TaskUpdateChunk[] };
-  return arg.chunks ?? [];
+  return taskUpdates(call[0].chunks);
 }
 
 describe("SlackStreamer rollover", () => {
@@ -2606,5 +2579,247 @@ describe("SlackStreamer unbounded reactive rollover", () => {
       block2.append.mock.calls.length > 0,
       "stale appends replay onto the new (live) stream",
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// SlackStreamer deferred (deferUntilFirstTask) — open the block only on a visible task
+// ---------------------------------------------------------------------------
+
+describe("SlackStreamer deferred (deferUntilFirstTask)", () => {
+  function makeDeferred(): {
+    streamer: InstanceType<typeof SlackStreamer>;
+    mockStreamerObj: MockChatStreamer;
+    client: MockSlackClient;
+  } {
+    const mockStreamerObj = makeMockChatStreamer();
+    const client = makeClient({ chatStreamer: mockStreamerObj });
+    const streamer = new SlackStreamer({
+      client,
+      channel: "C_CHAN",
+      threadTs: "1234.5678",
+      teamId: "T_TEAM",
+      deferUntilFirstTask: true,
+      logger: mockLogger.logger,
+    });
+    return { streamer, mockStreamerObj, client };
+  }
+
+  /** No Slack call: no append, no stop, no chat.postMessage. */
+  function assertNoSlackCall(mockStreamerObj: MockChatStreamer, client: MockSlackClient): void {
+    assert.equal(mockStreamerObj.append.mock.calls.length, 0, "expected no append");
+    assert.equal(mockStreamerObj.stop.mock.calls.length, 0, "expected no stop");
+    const pm = client.chat.postMessage;
+    assert.equal(pm.mock.calls.length, 0, "expected no postMessage");
+  }
+
+  it("start() opens the stream but posts nothing while uncommitted", async () => {
+    const { streamer, mockStreamerObj, client } = makeDeferred();
+
+    const result = await streamer.start();
+
+    assert.equal(result, true);
+    assert.equal(streamer.isUncommitted, true);
+    assertNoSlackCall(mockStreamerObj, client);
+    assert.equal(streamer.getMessageTs(), undefined);
+    assert.deepEqual(streamer.getAllMessageTss(), []);
+  });
+
+  it("does not commit or append on hidden tools", async () => {
+    const { streamer, mockStreamerObj, client } = makeDeferred();
+    await streamer.start();
+
+    for (const toolName of [
+      "mcp__clack__submit_response",
+      "ToolSearch",
+      "mcp__clack__switch_delivery_context",
+    ]) {
+      streamer.handleEvent({ type: "tool_start", taskId: "hidden", toolName, toolArgs: {} });
+    }
+
+    assert.equal(streamer.isUncommitted, true);
+    assertNoSlackCall(mockStreamerObj, client);
+  });
+
+  it("defers on an empty-args Read (conditionalHidden), commits once file_path is known", async () => {
+    const { streamer, mockStreamerObj } = makeDeferred();
+    await streamer.start();
+
+    streamer.handleEvent({ type: "tool_start", taskId: "read-1", toolName: "Read", toolArgs: {} });
+    assert.equal(streamer.isUncommitted, true);
+    assert.equal(mockStreamerObj.append.mock.calls.length, 0);
+
+    streamer.handleEvent({
+      type: "tool_start",
+      taskId: "read-1",
+      toolName: "Read",
+      toolArgs: { file_path: "/app/src/index.ts" },
+    });
+    assert.equal(streamer.isUncommitted, false);
+    assert.ok(mockStreamerObj.append.mock.calls.length > 0);
+
+    await streamer.stop();
+  });
+
+  it("commits on an empty-args visible tool with no conditionalHidden rule", async () => {
+    const { streamer, mockStreamerObj } = makeDeferred();
+    await streamer.start();
+
+    streamer.handleEvent({ type: "tool_start", taskId: "g-1", toolName: "Glob", toolArgs: {} });
+
+    assert.equal(streamer.isUncommitted, false);
+    assert.ok(mockStreamerObj.append.mock.calls.length > 0);
+
+    await streamer.stop();
+  });
+
+  it("does not commit on a Read whose file_path matches a conditionalHidden pattern", async () => {
+    const { streamer, mockStreamerObj, client } = makeDeferred();
+    await streamer.start();
+
+    streamer.handleEvent({
+      type: "tool_start",
+      taskId: "read-hidden",
+      toolName: "Read",
+      toolArgs: { file_path: "/x/tool-results/y.txt" },
+    });
+
+    assert.equal(streamer.isUncommitted, true);
+    assertNoSlackCall(mockStreamerObj, client);
+  });
+
+  it("first committing tool emits one append: thinking row then the tool task, no Acknowledged", async () => {
+    const { streamer, mockStreamerObj } = makeDeferred();
+    await streamer.start();
+
+    streamer.handleEvent({
+      type: "tool_start",
+      taskId: "task-1",
+      toolName: "mcp__clack__list_repositories",
+      toolArgs: {},
+    });
+
+    assert.equal(mockStreamerObj.append.mock.calls.length, 1, "exactly one append on commit");
+    const chunks = chunksOfCall(mockStreamerObj, 0);
+    assert.equal(chunks.length, 2);
+    assert.equal(chunks[0].id, "__thinking__");
+    assert.equal(chunks[0].title, "Analyzing…");
+    assert.equal(chunks[0].status, "in_progress");
+    assert.equal(chunks[1].id, "task-1");
+    assert.ok(
+      !chunks.some((c) => c.title === "Acknowledged, working on it…"),
+      "no Acknowledged chunk should precede the first task",
+    );
+
+    await streamer.stop();
+  });
+
+  it("holds every later append and the stop until the committing append has opened the stream", async () => {
+    const { streamer, mockStreamerObj } = makeDeferred();
+    await streamer.start();
+    let openStream!: () => void;
+    mockStreamerObj.append.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          openStream = () => resolve({ ok: true, ts: "1700000000.000500" });
+        }),
+    );
+
+    streamer.handleEvent({
+      type: "tool_start",
+      taskId: "fast",
+      toolName: "mcp__clack__list_repositories",
+      toolArgs: {},
+    });
+    streamer.handleEvent({ type: "tool_end", taskId: "fast" });
+    const stopped = streamer.stop();
+    for (let i = 0; i < 10; i++) await Promise.resolve();
+
+    assert.equal(mockStreamerObj.append.mock.calls.length, 1, "only the opening append in flight");
+    assert.equal(mockStreamerObj.stop.mock.calls.length, 0);
+
+    openStream();
+    await stopped;
+
+    assert.ok(mockStreamerObj.append.mock.calls.length > 1, "the held appends follow the opening");
+    assert.equal(mockStreamerObj.stop.mock.calls.length, 1);
+    assert.equal(streamer.getMessageTs(), "1700000000.000500");
+  });
+
+  it("stop() on an uncommitted stream makes no Slack call; a later tool_start stays silent", async () => {
+    const { streamer, mockStreamerObj, client } = makeDeferred();
+    await streamer.start();
+
+    await streamer.stop();
+    assert.equal(streamer.isUncommitted, true);
+    assertNoSlackCall(mockStreamerObj, client);
+
+    streamer.handleEvent({
+      type: "tool_start",
+      taskId: "late",
+      toolName: "mcp__clack__list_repositories",
+      toolArgs: {},
+    });
+    assertNoSlackCall(mockStreamerObj, client);
+  });
+
+  it("runs no keepalive while uncommitted, then resumes after commit", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "Date"] });
+
+    const mockStreamerObj = makeMockChatStreamer();
+    const client = makeClient({ chatStreamer: mockStreamerObj });
+    const streamer = new SlackStreamer({
+      client,
+      channel: "C_CHAN",
+      threadTs: "1234.5678",
+      teamId: "T_TEAM",
+      deferUntilFirstTask: true,
+      logger: mockLogger.logger,
+    });
+
+    await streamer.start();
+
+    // No keepalive timer while uncommitted — advancing well past several intervals is silent.
+    vi.advanceTimersByTime(60_000);
+    assert.equal(mockStreamerObj.append.mock.calls.length, 0);
+
+    // Commit on a visible tool, then let the standalone task cross the decoration threshold.
+    streamer.handleEvent({
+      type: "tool_start",
+      taskId: "task-1",
+      toolName: "mcp__clack__list_repositories",
+      toolArgs: {},
+    });
+    mockStreamerObj.append.mockClear();
+
+    // Async advance: each keepalive append first waits on the committing append that opens the stream.
+    await vi.advanceTimersByTimeAsync(45_000);
+    assert.ok(mockStreamerObj.append.mock.calls.length > 0, "keepalive should fire after commit");
+
+    await streamer.stop();
+    vi.useRealTimers();
+  });
+
+  it("non-deferred start() still appends the Acknowledged thinking task and is committed", async () => {
+    const mockStreamerObj = makeMockChatStreamer();
+    const client = makeClient({ chatStreamer: mockStreamerObj });
+    const streamer = new SlackStreamer({
+      client,
+      channel: "C_CHAN",
+      threadTs: "1234.5678",
+      teamId: "T_TEAM",
+      logger: mockLogger.logger,
+    });
+
+    await streamer.start();
+
+    assert.equal(streamer.isUncommitted, false);
+    const chunks = getAppendedChunks(mockStreamerObj);
+    assert.equal(chunks.length, 1);
+    assert.equal(chunks[0].id, "__thinking__");
+    assert.equal(chunks[0].title, "Acknowledged, working on it…");
+    assert.equal(chunks[0].status, "in_progress");
+
+    await streamer.stop();
   });
 });

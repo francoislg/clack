@@ -288,4 +288,27 @@ describe("registerChoiceHandler", () => {
     const opts = deliverArgs.claudeOptions;
     assert.equal(opts.workMode, false);
   });
+
+  it.each(["autoRespond", "threadReply", "channelReply"] as const)(
+    "does not defer the progress surface when continuing a %s session",
+    async (trigger) => {
+      const session = makeSession();
+      const sessionInfo = makeSessionInfo({ triggerType: trigger });
+
+      mockDecodeActionValue.mockImplementation(() => ({
+        sessionId: "sess-1",
+        choiceValue: "option-a",
+      }));
+      mockRestoreSessionInfo.mockImplementation(async () => sessionInfo);
+      mockGetSession.mockImplementation(async () => session);
+
+      const [, handler] = app.action.mock.calls[0];
+      const args = createBlockActionArgs({ value: "raw", client: makeClient() });
+      await handler(args);
+
+      assert.equal(mockExecuteAndDeliver.mock.calls.length, 1);
+      const deliverArgs = mockExecuteAndDeliver.mock.calls[0][0];
+      assert.equal(deliverArgs.deferProgress, undefined);
+    },
+  );
 });

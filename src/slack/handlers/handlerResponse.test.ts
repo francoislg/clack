@@ -43,9 +43,14 @@ function fakeHandleFromResponse(response: ClaudeResponse): ClaudeRunHandle {
   };
 }
 
+/** The handle the most recent `askClaudeAdapter` call produced, so tests can assert that a
+ *  retract path was handed the run's own handle. */
+let lastFakeHandle: ClaudeRunHandle | undefined;
+
 async function askClaudeAdapter(...args: AskClaudeArgs): Promise<ClaudeRunHandle> {
   const response = await mockAskClaude(...args);
-  return fakeHandleFromResponse(response);
+  lastFakeHandle = fakeHandleFromResponse(response);
+  return lastFakeHandle;
 }
 
 const mockAppendAssistantMessage = vi.fn<
@@ -85,6 +90,7 @@ const mockGetUserPreference = vi.fn(async () => false);
 
 // Track SlackStreamer instances for inspection
 let streamerHasFailed = false;
+let streamerIsUncommitted = false;
 let streamerMessageTs: string | undefined;
 let streamerAllMessageTss: string[] = [];
 let mockStreamerStart: ReturnType<typeof vi.fn<(...args: any[]) => any>>;
@@ -93,8 +99,16 @@ let mockStreamerHandleEvent: ReturnType<typeof vi.fn<(...args: any[]) => any>>;
 let mockStreamerGetMessageTs: ReturnType<typeof vi.fn<(...args: any[]) => any>>;
 let mockStreamerGetAllMessageTss: ReturnType<typeof vi.fn<(...args: any[]) => any>>;
 
+// Assigned per test inside makeDeps() so their arguments can be asserted.
+let mockCreateStreamer: ReturnType<typeof vi.fn<HandlerResponseDeps["createStreamer"]>>;
+let mockTakeQueuedAcks: ReturnType<typeof vi.fn<HandlerResponseDeps["takeQueuedAcks"]>>;
+let mockRemoveDeliveryReaction: ReturnType<
+  typeof vi.fn<HandlerResponseDeps["removeDeliveryReaction"]>
+>;
+
 function resetStreamerInstance(overrides?: {
   hasFailed?: boolean;
+  isUncommitted?: boolean;
   startReturns?: boolean;
   messageTs?: string;
   /** Override the full list returned by getAllMessageTss. If omitted, defaults to
@@ -102,6 +116,7 @@ function resetStreamerInstance(overrides?: {
   allMessageTss?: string[];
 }) {
   streamerHasFailed = overrides?.hasFailed ?? false;
+  streamerIsUncommitted = overrides?.isUncommitted ?? false;
   streamerMessageTs = overrides?.messageTs;
   streamerAllMessageTss =
     overrides?.allMessageTss ?? (streamerMessageTs ? [streamerMessageTs] : []);
@@ -128,6 +143,33 @@ const mockCreateSession = vi.fn<NonNullable<HandlerResponseDeps["createSession"]
 );
 
 function makeDeps(): HandlerResponseDeps {
+  mockCreateStreamer = vi.fn<HandlerResponseDeps["createStreamer"]>(() => {
+    const fake: Pick<
+      ReturnType<HandlerResponseDeps["createStreamer"]>,
+      | "start"
+      | "stop"
+      | "handleEvent"
+      | "getMessageTs"
+      | "getAllMessageTss"
+      | "hasFailed"
+      | "isUncommitted"
+    > = {
+      start: () => mockStreamerStart(),
+      stop: (opts) => mockStreamerStop(opts),
+      handleEvent: (event) => mockStreamerHandleEvent(event),
+      getMessageTs: () => mockStreamerGetMessageTs(),
+      getAllMessageTss: () => mockStreamerGetAllMessageTss(),
+      get hasFailed() {
+        return streamerHasFailed;
+      },
+      get isUncommitted() {
+        return streamerIsUncommitted;
+      },
+    };
+    return stub<ReturnType<HandlerResponseDeps["createStreamer"]>>(fake);
+  });
+  mockTakeQueuedAcks = vi.fn<HandlerResponseDeps["takeQueuedAcks"]>(() => []);
+  mockRemoveDeliveryReaction = vi.fn<HandlerResponseDeps["removeDeliveryReaction"]>(async () => {});
   return {
     askClaude: askClaudeAdapter,
     appendStagedIntents: mockAppendStagedIntents,
@@ -147,22 +189,7 @@ function makeDeps(): HandlerResponseDeps {
     getConfig: stub<HandlerResponseDeps["getConfig"]>(mockGetConfig),
     getClaudeOptions: mockGetClaudeOptions,
     handleAutoExecuteActions: mockHandleAutoExecuteActions,
-    createStreamer: () => {
-      const fake: Pick<
-        ReturnType<HandlerResponseDeps["createStreamer"]>,
-        "start" | "stop" | "handleEvent" | "getMessageTs" | "getAllMessageTss" | "hasFailed"
-      > = {
-        start: () => mockStreamerStart(),
-        stop: (opts) => mockStreamerStop(opts),
-        handleEvent: (event) => mockStreamerHandleEvent(event),
-        getMessageTs: () => mockStreamerGetMessageTs(),
-        getAllMessageTss: () => mockStreamerGetAllMessageTss(),
-        get hasFailed() {
-          return streamerHasFailed;
-        },
-      };
-      return stub<ReturnType<HandlerResponseDeps["createStreamer"]>>(fake);
-    },
+    createStreamer: mockCreateStreamer,
     getUserPreference: stub<HandlerResponseDeps["getUserPreference"]>(mockGetUserPreference),
     writeErrorReport: mockWriteErrorReport,
     getOwnerUserId: mockGetOwnerUserId,
@@ -174,6 +201,8 @@ function makeDeps(): HandlerResponseDeps {
     },
     resolveChannelLabel: async () => "#test",
     slackLink: async () => "",
+    takeQueuedAcks: mockTakeQueuedAcks,
+    removeDeliveryReaction: mockRemoveDeliveryReaction,
   };
 }
 
@@ -2417,5 +2446,438 @@ describe("executeAndDeliver — seedChannelReplyThreadHandoff", () => {
     >;
     const options = registerArgs[2] as { attentionLevel: string; creationContext?: string };
     assert.equal(options.creationContext, "extra context here");
+  });
+});
+
+// ============================================================================
+// executeAndDeliver — deferred progress (deferProgress)
+// ============================================================================
+
+describe("executeAndDeliver — deferred progress", () => {
+  it("passes deferUntilFirstTask: true to createStreamer when deferProgress is true", async () => {
+    const client = makeClient();
+    await executeAndDeliver({
+      client,
+      session: makeSession(),
+      sessionInfo: makeSessionInfo(),
+      claudeOptions: makeClaudeOptions(),
+      deferProgress: true,
+      deps,
+    });
+
+    assert.equal(mockCreateStreamer.mock.calls.length, 1);
+    const opts = mockCreateStreamer.mock.calls[0][0];
+    assert.equal(opts.deferUntilFirstTask, true);
+  });
+
+  it("passes deferUntilFirstTask: false when deferProgress is omitted", async () => {
+    const client = makeClient();
+    await executeAndDeliver({
+      client,
+      session: makeSession(),
+      sessionInfo: makeSessionInfo(),
+      claudeOptions: makeClaudeOptions(),
+      deps,
+    });
+
+    assert.equal(mockCreateStreamer.mock.calls.length, 1);
+    const opts = mockCreateStreamer.mock.calls[0][0];
+    assert.equal(opts.deferUntilFirstTask, false);
+  });
+
+  it("never creates a streamer for a silentThinking turn, even with deferProgress", async () => {
+    const client = makeClient();
+    await executeAndDeliver({
+      client,
+      session: makeSession(),
+      sessionInfo: makeSessionInfo(),
+      claudeOptions: makeClaudeOptions(),
+      silentThinking: true,
+      deferProgress: true,
+      deps,
+    });
+
+    assert.equal(mockCreateStreamer.mock.calls.length, 0);
+  });
+
+  it("opens a mid-run switch into streaming WITHOUT deferring", async () => {
+    mockAskClaude.mockImplementationOnce(async (_session, options) => {
+      await options?.deliveryControl?.switchTo("streamer");
+      return { success: true, answer: "now working" };
+    });
+
+    const client = makeClient();
+    await executeAndDeliver({
+      client,
+      session: makeSession({ deliveryMode: "invisible" }),
+      sessionInfo: makeSessionInfo(),
+      claudeOptions: makeClaudeOptions(),
+      silentThinking: true,
+      deferProgress: true,
+      deps,
+    });
+
+    // The silent turn opened no card; the switch is the first streamer creation, and an explicit
+    // switch into streaming shows a card immediately (never defers).
+    assert.equal(mockCreateStreamer.mock.calls.length, 1);
+    const opts = mockCreateStreamer.mock.calls[0][0];
+    assert.equal(opts.deferUntilFirstTask, false);
+  });
+});
+
+// ============================================================================
+// executeAndDeliver — uncommitted deferred streamer
+// ============================================================================
+
+describe("executeAndDeliver — uncommitted deferred streamer", () => {
+  it("lands blocks via chat.postMessage without stopping the streamer or pinging", async () => {
+    resetStreamerInstance({ isUncommitted: true });
+    // A committed streamer would ping only after 60s with the pref on; make both true so this
+    // test proves the notified:true short-circuit, not just the default gate.
+    mockGetUserPreference.mockImplementation(async () => true);
+    vi.useFakeTimers({ toFake: ["Date"], now: Date.now() });
+
+    const blocks = [{ type: "section", text: { type: "mrkdwn", text: "delivered" } }];
+    mockAskClaude.mockImplementationOnce(async (...args: Parameters<typeof mockAskClaude>) => {
+      const opts = args[1] as { deliver: (o: DeliverOpts) => DeliverResult };
+      vi.advanceTimersByTime(61_000);
+      await opts.deliver({ blocks });
+      return { success: true, answer: "delivered" };
+    });
+
+    const client = makeClient();
+    await executeAndDeliver({
+      client,
+      session: makeSession(),
+      sessionInfo: makeSessionInfo({ threadTs: "1700000000.000001" }),
+      claudeOptions: makeClaudeOptions(),
+      deferProgress: true,
+      deps,
+    });
+
+    vi.useRealTimers();
+
+    const post = mockPostMessage.mock.calls.find(
+      (c) => (c[0] as { blocks?: unknown[] }).blocks !== undefined,
+    );
+    assert.ok(post, "expected a chat.postMessage carrying the blocks");
+    const arg = post![0] as { channel: string; thread_ts?: string; blocks: unknown[] };
+    assert.equal(arg.channel, "C001");
+    assert.equal(arg.thread_ts, "1700000000.000001");
+    assert.deepEqual(arg.blocks, blocks);
+
+    // An uncommitted streamer has no card to finalize.
+    assert.equal(mockStreamerStop.mock.calls.length, 0);
+
+    // notified:true → no response-ready follow-up ping.
+    const ping = mockPostMessage.mock.calls.find((c) =>
+      (c[0] as { text?: string }).text?.includes("Response ready"),
+    );
+    assert.equal(ping, undefined);
+  });
+
+  it("skip: no stop, no chat.delete, no chat.postMessage", async () => {
+    resetStreamerInstance({ isUncommitted: true });
+    mockAskClaude.mockImplementationOnce(async () => ({
+      success: true,
+      skipped: true,
+      answer: "",
+    }));
+
+    const client = makeClient();
+    await executeAndDeliver({
+      client,
+      session: makeSession(),
+      sessionInfo: makeSessionInfo(),
+      claudeOptions: makeClaudeOptions(),
+      deferProgress: true,
+      deps,
+    });
+
+    assert.equal(mockStreamerStop.mock.calls.length, 0);
+    assert.equal(mockChatDelete.mock.calls.length, 0);
+    assert.equal(mockPostMessage.mock.calls.length, 0);
+  });
+
+  it("cancelled: no stop, no chat.delete, no chat.postMessage", async () => {
+    resetStreamerInstance({ isUncommitted: true });
+    mockAskClaude.mockImplementationOnce(async () => ({
+      success: false,
+      cancelled: true,
+      answer: "",
+    }));
+
+    const client = makeClient();
+    await executeAndDeliver({
+      client,
+      session: makeSession(),
+      sessionInfo: makeSessionInfo(),
+      claudeOptions: makeClaudeOptions(),
+      deferProgress: true,
+      deps,
+    });
+
+    assert.equal(mockStreamerStop.mock.calls.length, 0);
+    assert.equal(mockChatDelete.mock.calls.length, 0);
+    assert.equal(mockPostMessage.mock.calls.length, 0);
+  });
+
+  it("error: no stop, but chat.postMessage carries the error", async () => {
+    resetStreamerInstance({ isUncommitted: true });
+    mockAskClaude.mockImplementationOnce(async () => ({
+      success: false,
+      answer: "",
+      error: "boom",
+      conversationTrace: [],
+    }));
+
+    const client = makeClient();
+    await executeAndDeliver({
+      client,
+      session: makeSession(),
+      sessionInfo: makeSessionInfo(),
+      claudeOptions: makeClaudeOptions(),
+      deferProgress: true,
+      deps,
+    });
+
+    assert.equal(mockStreamerStop.mock.calls.length, 0);
+    const errorPost = mockPostMessage.mock.calls.find((c) =>
+      (c[0] as { text?: string }).text?.includes("crashed"),
+    );
+    assert.ok(errorPost, "expected the error message posted via chat.postMessage");
+  });
+
+  it("switchTo('invisible') mid-run: no stop, no delete, silent handler delivers", async () => {
+    resetStreamerInstance({ isUncommitted: true });
+    mockAskClaude.mockImplementationOnce(async (_session, options) => {
+      await options?.deliveryControl?.switchTo("invisible");
+      return { success: true, answer: "casual now" };
+    });
+
+    const client = makeClient();
+    await executeAndDeliver({
+      client,
+      session: makeSession({ deliveryMode: "streamer" }),
+      sessionInfo: makeSessionInfo(),
+      claudeOptions: makeClaudeOptions(),
+      deferProgress: true,
+      deps,
+    });
+
+    assert.equal(mockStreamerStop.mock.calls.length, 0);
+    assert.equal(mockChatDelete.mock.calls.length, 0);
+    const delivered = mockPostMessage.mock.calls.find(
+      (c) => (c[0] as { text?: string }).text === "casual now",
+    );
+    assert.ok(delivered, "silent handler should land the answer via chat.postMessage");
+  });
+});
+
+// ============================================================================
+// executeAndDeliver — queued-ack retraction
+// ============================================================================
+
+const HOURGLASS = "hourglass_flowing_sand";
+
+describe("executeAndDeliver — queued-ack retraction", () => {
+  it("skip retracts each queued ack against the run handle", async () => {
+    mockTakeQueuedAcks.mockReturnValue([
+      { channel: "C001", ts: "t1", emoji: HOURGLASS, added: Promise.resolve() },
+      { channel: "C001", ts: "t2", emoji: HOURGLASS, added: Promise.resolve() },
+    ]);
+    mockAskClaude.mockImplementationOnce(async () => ({
+      success: true,
+      skipped: true,
+      answer: "",
+    }));
+
+    const client = makeClient();
+    await executeAndDeliver({
+      client,
+      session: makeSession(),
+      sessionInfo: makeSessionInfo(),
+      claudeOptions: makeClaudeOptions(),
+      deps,
+    });
+
+    assert.equal(mockTakeQueuedAcks.mock.calls.length, 1);
+    assert.equal(mockTakeQueuedAcks.mock.calls[0][0], lastFakeHandle);
+
+    assert.equal(mockRemoveDeliveryReaction.mock.calls.length, 2);
+    const [c0, ch0, ts0, e0] = mockRemoveDeliveryReaction.mock.calls[0];
+    assert.equal(c0, client);
+    assert.equal(ch0, "C001");
+    assert.equal(ts0, "t1");
+    assert.equal(e0, HOURGLASS);
+    const [, ch1, ts1] = mockRemoveDeliveryReaction.mock.calls[1];
+    assert.equal(ch1, "C001");
+    assert.equal(ts1, "t2");
+  });
+
+  it("cancelled before delivery retracts queued acks", async () => {
+    mockTakeQueuedAcks.mockReturnValue([
+      { channel: "C001", ts: "t1", emoji: HOURGLASS, added: Promise.resolve() },
+    ]);
+    mockAskClaude.mockImplementationOnce(async () => ({
+      success: false,
+      cancelled: true,
+      answer: "",
+    }));
+
+    await executeAndDeliver({
+      client: makeClient(),
+      session: makeSession(),
+      sessionInfo: makeSessionInfo(),
+      claudeOptions: makeClaudeOptions(),
+      deps,
+    });
+
+    assert.equal(mockTakeQueuedAcks.mock.calls.length, 1);
+    assert.equal(mockRemoveDeliveryReaction.mock.calls.length, 1);
+  });
+
+  it("cancelled AFTER delivery does not retract", async () => {
+    resetStreamerInstance({ messageTs: "d.1" });
+    mockTakeQueuedAcks.mockReturnValue([
+      { channel: "C001", ts: "t1", emoji: HOURGLASS, added: Promise.resolve() },
+    ]);
+    mockAskClaude.mockImplementationOnce(async (...args: Parameters<typeof mockAskClaude>) => {
+      const opts = args[1] as { deliver: (o: DeliverOpts) => DeliverResult };
+      await opts.deliver({
+        blocks: [{ type: "section", text: { type: "mrkdwn", text: "answer" } }],
+      });
+      return { success: false, cancelled: true, answer: "" };
+    });
+
+    await executeAndDeliver({
+      client: makeClient(),
+      session: makeSession(),
+      sessionInfo: makeSessionInfo(),
+      claudeOptions: makeClaudeOptions(),
+      deps,
+    });
+
+    assert.equal(mockTakeQueuedAcks.mock.calls.length, 0);
+    assert.equal(mockRemoveDeliveryReaction.mock.calls.length, 0);
+  });
+
+  it("success does not retract", async () => {
+    mockTakeQueuedAcks.mockReturnValue([
+      { channel: "C001", ts: "t1", emoji: HOURGLASS, added: Promise.resolve() },
+    ]);
+    mockAskClaude.mockImplementationOnce(async () => ({ success: true, answer: "done" }));
+
+    await executeAndDeliver({
+      client: makeClient(),
+      session: makeSession(),
+      sessionInfo: makeSessionInfo(),
+      claudeOptions: makeClaudeOptions(),
+      deps,
+    });
+
+    assert.equal(mockTakeQueuedAcks.mock.calls.length, 0);
+    assert.equal(mockRemoveDeliveryReaction.mock.calls.length, 0);
+  });
+
+  it("error does not retract", async () => {
+    mockTakeQueuedAcks.mockReturnValue([
+      { channel: "C001", ts: "t1", emoji: HOURGLASS, added: Promise.resolve() },
+    ]);
+    mockAskClaude.mockImplementationOnce(async () => ({
+      success: false,
+      answer: "",
+      error: "boom",
+      conversationTrace: [],
+    }));
+
+    await executeAndDeliver({
+      client: makeClient(),
+      session: makeSession(),
+      sessionInfo: makeSessionInfo(),
+      claudeOptions: makeClaudeOptions(),
+      deps,
+    });
+
+    assert.equal(mockTakeQueuedAcks.mock.calls.length, 0);
+    assert.equal(mockRemoveDeliveryReaction.mock.calls.length, 0);
+  });
+
+  it("awaits a still-pending add before removing the reaction", async () => {
+    let resolveAdd!: () => void;
+    const added = new Promise<void>((resolve) => {
+      resolveAdd = resolve;
+    });
+    mockTakeQueuedAcks.mockReturnValue([{ channel: "C001", ts: "t1", emoji: HOURGLASS, added }]);
+    mockAskClaude.mockImplementationOnce(async () => ({
+      success: true,
+      skipped: true,
+      answer: "",
+    }));
+
+    const promise = executeAndDeliver({
+      client: makeClient(),
+      session: makeSession(),
+      sessionInfo: makeSessionInfo(),
+      claudeOptions: makeClaudeOptions(),
+      deps,
+    });
+
+    // Drain the microtask queue up to the still-pending `await ack.added`.
+    for (let i = 0; i < 50; i++) await Promise.resolve();
+    assert.equal(mockRemoveDeliveryReaction.mock.calls.length, 0);
+
+    resolveAdd();
+    await promise;
+    assert.equal(mockRemoveDeliveryReaction.mock.calls.length, 1);
+  });
+
+  it("resolves with the skipped response even when an ack's add rejects", async () => {
+    // retractQueuedAcks awaits `ack.added` inside its own try/catch (attaching the handler in
+    // the same microtask cycle), so the rejection is swallowed and the removal still runs.
+    let rejectAdd!: (reason: Error) => void;
+    const added = new Promise<void>((_resolve, reject) => {
+      rejectAdd = reject;
+    });
+    mockTakeQueuedAcks.mockReturnValue([{ channel: "C001", ts: "t1", emoji: HOURGLASS, added }]);
+    mockAskClaude.mockImplementationOnce(async () => ({
+      success: true,
+      skipped: true,
+      answer: "",
+    }));
+
+    const promise = executeAndDeliver({
+      client: makeClient(),
+      session: makeSession(),
+      sessionInfo: makeSessionInfo(),
+      claudeOptions: makeClaudeOptions(),
+      deps,
+    });
+    rejectAdd(new Error("add failed"));
+
+    const response = await promise;
+    assert.equal(response.skipped, true);
+    // The add rejected (caught), but the removal is still attempted (a benign no-op).
+    assert.equal(mockRemoveDeliveryReaction.mock.calls.length, 1);
+  });
+
+  it("does not call removeDeliveryReaction when there are no queued acks", async () => {
+    mockTakeQueuedAcks.mockReturnValue([]);
+    mockAskClaude.mockImplementationOnce(async () => ({
+      success: true,
+      skipped: true,
+      answer: "",
+    }));
+
+    await executeAndDeliver({
+      client: makeClient(),
+      session: makeSession(),
+      sessionInfo: makeSessionInfo(),
+      claudeOptions: makeClaudeOptions(),
+      deps,
+    });
+
+    assert.equal(mockTakeQueuedAcks.mock.calls.length, 1);
+    assert.equal(mockRemoveDeliveryReaction.mock.calls.length, 0);
   });
 });

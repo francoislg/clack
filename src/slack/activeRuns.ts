@@ -98,6 +98,40 @@ export function unregister(handle: ClaudeRunHandle): void {
   logger.debug(`active-runs: unregistered ${key}`);
 }
 
+/** A `queuedFollowup` reaction added to a message that was queued onto an in-flight run. */
+export interface QueuedAck {
+  channel: string;
+  ts: string;
+  emoji: string;
+  /** The add call's promise — retraction awaits it so it never races the add. */
+  added: Promise<void>;
+}
+
+/**
+ * Acks recorded per run handle. Deliberately separate from the registry so acks survive
+ * `unregister` — the run's outcome (and thus whether to retract its queued acks) is known only
+ * after it unregisters. Keyed by the handle reference, so a forgotten handle drops its acks and
+ * no `_resetForTesting` entry is needed.
+ */
+const queuedAcks = new WeakMap<ClaudeRunHandle, QueuedAck[]>();
+
+/** Record an ack added for a message queued onto `handle`. */
+export function trackQueuedAck(handle: ClaudeRunHandle, ack: QueuedAck): void {
+  const existing = queuedAcks.get(handle);
+  if (existing) {
+    existing.push(ack);
+  } else {
+    queuedAcks.set(handle, [ack]);
+  }
+}
+
+/** Return every ack recorded for `handle`, oldest first, and forget them. */
+export function takeQueuedAcks(handle: ClaudeRunHandle): QueuedAck[] {
+  const acks = queuedAcks.get(handle) ?? [];
+  queuedAcks.delete(handle);
+  return acks;
+}
+
 /**
  * Observe the currently-registered runs without mutating the registry. Used by the
  * runtime status endpoint. Reports per-run identity, the handle's lifecycle status, and

@@ -1,35 +1,17 @@
-import { describe, it } from "vitest";
+import { describe, it, beforeEach, vi } from "vitest";
 import assert from "node:assert/strict";
-import type { ReactionsAddResponse } from "@slack/web-api";
-import { addDeliveryReactions, type ReactionsClient } from "./messageReactions.js";
-
-interface AddCall {
-  channel: string;
-  timestamp: string;
-  name: string;
-}
-
-function makeFakeClient(behavior: (call: AddCall) => Promise<void> | void = async () => {}): {
-  client: ReactionsClient;
-  calls: AddCall[];
-} {
-  const calls: AddCall[] = [];
-  const client: ReactionsClient = {
-    reactions: {
-      add: async (args) => {
-        calls.push(args);
-        await behavior(args);
-        const response: ReactionsAddResponse = { ok: true };
-        return response;
-      },
-    },
-  };
-  return { client, calls };
-}
+import { logger } from "../logger.js";
+import { createSlackClientMock, type MockSlackClient } from "./testSlackClient.js";
+import { addDeliveryReactions, removeDeliveryReaction } from "./messageReactions.js";
 
 describe("addDeliveryReactions", () => {
+  let client: MockSlackClient;
+
+  beforeEach(() => {
+    client = createSlackClientMock();
+  });
+
   it("adds each emoji as a reaction in order", async () => {
-    const { client, calls } = makeFakeClient();
     await addDeliveryReactions(
       client,
       "C123",
@@ -37,21 +19,24 @@ describe("addDeliveryReactions", () => {
       ["white_check_mark", "thumbsup"],
       0,
     );
-    assert.deepEqual(calls, [
-      { channel: "C123", timestamp: "1700000000.000100", name: "white_check_mark" },
-      { channel: "C123", timestamp: "1700000000.000100", name: "thumbsup" },
-    ]);
+    assert.deepEqual(
+      client.reactions.add.mock.calls.map((c) => c[0]),
+      [
+        { channel: "C123", timestamp: "1700000000.000100", name: "white_check_mark" },
+        { channel: "C123", timestamp: "1700000000.000100", name: "thumbsup" },
+      ],
+    );
   });
 
   it("is a no-op for an empty reactions array", async () => {
-    const { client, calls } = makeFakeClient();
     await addDeliveryReactions(client, "C123", "1700000000.000100", [], 0);
-    assert.deepEqual(calls, []);
+    assert.equal(client.reactions.add.mock.calls.length, 0);
   });
 
   it("silently ignores already_reacted errors and continues", async () => {
-    const { client, calls } = makeFakeClient(({ name }) => {
+    client.reactions.add.mockImplementation(async ({ name }) => {
       if (name === "thumbsup") throw new Error("already_reacted");
+      return { ok: true };
     });
     await addDeliveryReactions(
       client,
@@ -60,16 +45,16 @@ describe("addDeliveryReactions", () => {
       ["white_check_mark", "thumbsup", "tada"],
       0,
     );
-    assert.equal(calls.length, 3);
     assert.deepEqual(
-      calls.map((c) => c.name),
+      client.reactions.add.mock.calls.map((c) => c[0].name),
       ["white_check_mark", "thumbsup", "tada"],
     );
   });
 
   it("continues after a non-already_reacted failure (warn-logged, does not throw)", async () => {
-    const { client, calls } = makeFakeClient(({ name }) => {
+    client.reactions.add.mockImplementation(async ({ name }) => {
       if (name === "thumbsup") throw new Error("invalid_name");
+      return { ok: true };
     });
     await addDeliveryReactions(
       client,
@@ -78,6 +63,37 @@ describe("addDeliveryReactions", () => {
       ["white_check_mark", "thumbsup", "tada"],
       0,
     );
-    assert.equal(calls.length, 3);
+    assert.equal(client.reactions.add.mock.calls.length, 3);
+  });
+});
+
+describe("removeDeliveryReaction", () => {
+  let client: MockSlackClient;
+
+  beforeEach(() => {
+    client = createSlackClientMock();
+  });
+
+  it("calls reactions.remove with { channel, timestamp, name }", async () => {
+    await removeDeliveryReaction(client, "C123", "1700000000.000100", "eyes");
+    assert.deepEqual(client.reactions.remove.mock.calls[0][0], {
+      channel: "C123",
+      timestamp: "1700000000.000100",
+      name: "eyes",
+    });
+  });
+
+  it("resolves and does not warn on a no_reaction error", async () => {
+    const warn = vi.spyOn(logger, "warn").mockImplementation(() => {});
+    client.reactions.remove.mockRejectedValue(new Error("no_reaction"));
+    await removeDeliveryReaction(client, "C123", "1700000000.000100", "eyes");
+    assert.equal(warn.mock.calls.length, 0);
+  });
+
+  it("resolves and warns on any other error", async () => {
+    const warn = vi.spyOn(logger, "warn").mockImplementation(() => {});
+    client.reactions.remove.mockRejectedValue(new Error("invalid_name"));
+    await removeDeliveryReaction(client, "C123", "1700000000.000100", "eyes");
+    assert.equal(warn.mock.calls.length, 1);
   });
 });

@@ -32,11 +32,12 @@ import { getReactionDelivery } from "../../userPreferences.js";
 import {
   getForChannelMessage as getActiveRunForChannelMessage,
   withThreadLock,
+  trackQueuedAck,
 } from "../activeRuns.js";
 import { addDeliveryReactions } from "../messageReactions.js";
 import { storeDmCoordinates } from "../dmResponse.js";
 import { executeAndDeliver } from "./handlerResponse.js";
-import type { TriggerType } from "../../changes/types.js";
+import { isProactiveTrigger, type TriggerType } from "../../changes/types.js";
 import type { SlackImageFile, SlackFile } from "../slackFileBase.js";
 import type { AskClaudeOptions, ClaudeResponse } from "../../claude/index.js";
 import type { RequesterIdentity } from "../../claude/promptBuilder.js";
@@ -56,6 +57,40 @@ function resolveQueuedFollowupReaction(config: Config): string | null {
   if (configured === null) return null;
   if (configured === undefined) return DEFAULT_QUEUED_FOLLOWUP_REACTION;
   return configured || null;
+}
+
+/**
+ * Persist a follow-up queued onto an in-flight run into its session's `messages[]` so
+ * debug-session and find_session_transcript see it — the SDK JSONL records the turn, and without
+ * this the assistant's combined response would appear to come from nowhere. Best-effort: the
+ * message is already queued, so a failure only loses the attribution (a session miss is rare —
+ * the run wouldn't be in the registry without an owning session).
+ */
+async function persistQueuedFollowup(
+  deps: CoreDeps,
+  channelId: string,
+  threadTs: string,
+  text: string,
+): Promise<void> {
+  try {
+    const session = await deps.findSessionByThread(channelId, threadTs);
+    if (!session) {
+      logger.warn(
+        `processMessage: in-flight run for ${channelId}:${threadTs} has no session — follow-up text not persisted to messages[]`,
+      );
+      return;
+    }
+    await deps.appendUserMessage(session.sessionId, {
+      role: "user",
+      source: "reply",
+      text,
+      ts: Date.now(),
+    });
+  } catch (err) {
+    logger.warn(
+      `processMessage: failed to persist queued follow-up for ${channelId}:${threadTs}: ${errorMessage(err)}`,
+    );
+  }
 }
 
 export interface CoreDeps {
@@ -87,6 +122,7 @@ export interface CoreDeps {
   executeAndDeliver: typeof executeAndDeliver;
   appendUserMessage: typeof appendUserMessage;
   withThreadLock: typeof withThreadLock;
+  trackQueuedAck: typeof trackQueuedAck;
 }
 
 export const defaultCoreDeps: CoreDeps = {
@@ -111,6 +147,7 @@ export const defaultCoreDeps: CoreDeps = {
   executeAndDeliver,
   appendUserMessage,
   withThreadLock,
+  trackQueuedAck,
 };
 
 /**
@@ -232,6 +269,11 @@ export interface ProcessMessageParams {
    * its `sdkSessionId` — so Claude keeps the conversation's context.
    */
   resumeSessionId?: string;
+  /** Open the progress card deferred — hidden until the turn's first visible tool task, and never
+   *  shown when the turn skips or answers without one. Defaults to deferring exactly the proactive
+   *  triggers (`autoRespond`, `threadReply`, `channelReply`); a caller whose borrowed trigger type
+   *  doesn't match whether anyone is waiting overrides it. */
+  deferProgress?: boolean;
 }
 
 interface ProcessingContext {
@@ -585,9 +627,7 @@ export async function processMessage(
           text: t("shutdown.restarting_notice"),
         });
       } catch (err) {
-        logger.warn(
-          `Quiesce ephemeral notice failed: ${err instanceof Error ? err.message : String(err)}`,
-        );
+        logger.warn(`Quiesce ephemeral notice failed: ${errorMessage(err)}`);
       }
     }
     return { success: true, skipped: true, answer: "" };
@@ -620,46 +660,42 @@ export async function processMessage(
     // Skip empty/whitespace text — pushing "" into the live SDK stream is not useful.
     const existingRun = getActiveRunForChannelMessage(channelId, effectiveThreadTs, userId);
     if (existingRun && messageText.trim().length > 0) {
+      let queued = false;
       try {
         await existingRun.sendUpdate(messageText);
+        queued = true;
+      } catch (err) {
+        logger.debug(
+          `processMessage: existing run rejected sendUpdate (${errorMessage(err)}); spawning a fresh run`,
+        );
+      }
+      if (queued) {
         logger.debug(
           `processMessage: appended follow-up to active run for ${channelId}:${effectiveThreadTs}`,
         );
-        // Persist the follow-up into the session's `messages[]` so debug-session and
-        // find_session_transcript see it. Without this, the SDK JSONL records the new user
-        // turn but the Clack session log stays out of sync — the assistant's combined
-        // response would appear to come from nowhere. Best-effort: a session miss just means
-        // we couldn't attribute the follow-up (rare; the run wouldn't be in the registry
-        // without an owning session).
-        const followupSession = await deps.findSessionByThread(channelId, effectiveThreadTs);
-        if (followupSession) {
-          await deps.appendUserMessage(followupSession.sessionId, {
-            role: "user",
-            source: "reply",
-            text: messageText,
-            ts: Date.now(),
-          });
-        } else {
-          logger.warn(
-            `processMessage: in-flight run for ${channelId}:${effectiveThreadTs} has no session — follow-up text not persisted to messages[]`,
-          );
-        }
         // Visible ack so the user sees their follow-up was accepted into the running
         // conversation. Configurable via `reactions.queuedFollowup` (null/empty disables).
+        // The ack is retracted if the run ends without a response (skip or a cancel before
+        // anything was delivered), so it is recorded before any await: a run that settles in
+        // the meantime must still find it.
         const ackEmoji = resolveQueuedFollowupReaction(config);
         if (ackEmoji) {
-          addDeliveryReactions(client, channelId, messageTs, [ackEmoji]).catch((err) =>
-            logger.warn(`addDeliveryReactions threw: ${err}`),
+          const added = addDeliveryReactions(client, channelId, messageTs, [ackEmoji]).catch(
+            (err: unknown) => {
+              logger.warn(`addDeliveryReactions threw: ${errorMessage(err)}`);
+            },
           );
+          deps.trackQueuedAck(existingRun, {
+            channel: channelId,
+            ts: messageTs,
+            emoji: ackEmoji,
+            added,
+          });
         }
+        await persistQueuedFollowup(deps, channelId, effectiveThreadTs, messageText);
         // Queued onto the existing run — nothing to register, so release the lock now.
         release();
         return { success: true, skipped: true, answer: "" };
-      } catch (err) {
-        logger.debug(
-          `processMessage: existing run rejected sendUpdate (${err instanceof Error ? err.message : String(err)}); spawning a fresh run`,
-        );
-        // fall through
       }
     }
 
@@ -783,6 +819,7 @@ export async function processMessage(
       silentThinking: silentThinking || session.deliveryMode === "invisible",
       silent: ctx.silent,
       preAnalysis: ctx.preAnalysis,
+      deferProgress: params.deferProgress ?? isProactiveTrigger(triggerType),
     });
   });
 }
@@ -795,26 +832,35 @@ export async function processMessage(
  * distinct triggering message. Bound into `ClackSdkDeps.startThreadConversation`
  * at the `loadAndInstallPlugins` call sites.
  */
-export async function startThreadConversation(params: {
-  client: App["client"];
-  channel: string;
-  threadTs: string;
-  userId: string;
-  prompt: string;
-  additionalSystemPrompt?: string;
-  attentionLevel?: SettableAttentionLevel;
-}): Promise<void> {
-  await processMessage({
-    client: params.client,
-    userId: params.userId,
-    channelId: params.channel,
-    messageTs: params.threadTs,
-    messageText: params.prompt,
-    threadTs: params.threadTs,
-    triggerType: "autoRespond",
-    ...(params.additionalSystemPrompt !== undefined
-      ? { additionalSystemPrompt: params.additionalSystemPrompt }
-      : {}),
-    ...(params.attentionLevel !== undefined ? { attentionLevel: params.attentionLevel } : {}),
-  });
+export async function startThreadConversation(
+  params: {
+    client: App["client"];
+    channel: string;
+    threadTs: string;
+    userId: string;
+    prompt: string;
+    additionalSystemPrompt?: string;
+    attentionLevel?: SettableAttentionLevel;
+  },
+  deps: CoreDeps = defaultCoreDeps,
+): Promise<void> {
+  await processMessage(
+    {
+      client: params.client,
+      userId: params.userId,
+      channelId: params.channel,
+      messageTs: params.threadTs,
+      messageText: params.prompt,
+      threadTs: params.threadTs,
+      triggerType: "autoRespond",
+      // Show progress eagerly: it borrows `triggerType: "autoRespond"` while the user who clicked
+      // the plugin button is waiting.
+      deferProgress: false,
+      ...(params.additionalSystemPrompt !== undefined
+        ? { additionalSystemPrompt: params.additionalSystemPrompt }
+        : {}),
+      ...(params.attentionLevel !== undefined ? { attentionLevel: params.attentionLevel } : {}),
+    },
+    deps,
+  );
 }

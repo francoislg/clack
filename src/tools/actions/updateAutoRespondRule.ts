@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { SETTABLE_ATTENTION_LEVELS } from "../../sessions.js";
 import { tool } from "@anthropic-ai/claude-agent-sdk";
 import type { QueryToolContext } from "../types.js";
 import { textResult, errorResult } from "../helpers.js";
@@ -62,11 +63,16 @@ export function createUpdateAutoRespondRuleTool(
         .optional()
         .describe("Replace preAnalysisContext. Pass an empty string to clear. Omit to preserve."),
       attentionLevel: z
-        .enum(["always", "high", "medium", "low", ""])
+        .enum([...SETTABLE_ATTENTION_LEVELS, ""])
         .optional()
         .describe(
-          "Set the attention level for sessions this rule creates (always | high | medium | low). " +
-            'Pass an empty string "" to clear it (reverts to the "medium" default). Omit to preserve.',
+          "Set the attention level seeded onto sessions this rule creates " +
+            "(always | high | medium | low). It governs thread follow-up — how Clack treats " +
+            'replies in the thread it starts; "always" is the unfiltered rung (every reply ' +
+            "answered, no relevance check). It does not decide whether the rule's triggering " +
+            "message is answered beyond tuning the pre-analysis screen's lean when the rule has " +
+            'pre-analysis context ("always" is treated as "high" there). Pass an empty string "" ' +
+            'to clear it (reverts to the "medium" default). Omit to preserve.',
         ),
     },
     async (args) => {

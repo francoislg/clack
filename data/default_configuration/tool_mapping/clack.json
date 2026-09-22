@@ -1,5 +1,5 @@
 {
-  "hidden": ["submit_response", "report_status"],
+  "hidden": ["submit_response", "report_status", "switch_delivery_context"],
   "argOptions": {
     "title": { "truncate": 50 },
     "query": { "truncate": 30 }
@@ -62,12 +62,6 @@
       "label": {
         "en": "Reading conversation stats",
         "fr": "Lecture des statistiques de conversation"
-      }
-    },
-    "switch_delivery_context": {
-      "label": {
-        "en": "Switching delivery to {mode}",
-        "fr": "Changement de mode de diffusion vers {mode}"
       }
     },
     "await_ci": {

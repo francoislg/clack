@@ -1,15 +1,17 @@
 import { describe, it, expect, vi } from "vitest";
-import type { App } from "@slack/bolt";
 import type { Block } from "@slack/types";
 import { StreamingDelivery } from "./streamingDelivery.js";
 import type { StreamerLike } from "./types.js";
+import { createSlackClientMock } from "../../testSlackClient.js";
 
 function makeStreamerMock(overrides?: {
   hasFailed?: boolean;
+  isUncommitted?: boolean;
   messageTs?: string;
   allMessageTss?: string[];
 }) {
   const failed = overrides?.hasFailed ?? false;
+  const uncommitted = overrides?.isUncommitted ?? false;
   const mock = {
     start: vi.fn(async () => true),
     handleEvent: vi.fn(),
@@ -19,27 +21,19 @@ function makeStreamerMock(overrides?: {
     get hasFailed() {
       return failed;
     },
+    get isUncommitted() {
+      return uncommitted;
+    },
   };
   const streamer: StreamerLike = mock;
   return { streamer, mock };
 }
 
-interface PostArg {
-  channel: string;
-  thread_ts?: string;
-  text?: string;
-  blocks?: Block[];
-}
-
 function makeClient() {
-  const postMessage = vi.fn(async (_arg: PostArg) => ({ ok: true, ts: "999.000" }));
-  const remove = vi.fn(async (_arg: { channel: string; ts: string }) => ({ ok: true }));
-  // Object.create(null) is `any`, so Object.assign yields a value assignable to the client
-  // type without a cast — only the methods the handler touches need to exist.
-  const client: App["client"] = Object.assign(Object.create(null), {
-    chat: { postMessage, delete: remove },
-  });
-  return { client, postMessage, remove };
+  const client = createSlackClientMock();
+  client.chat.postMessage.mockResolvedValue({ ok: true, ts: "999.000" });
+  client.chat.delete.mockResolvedValue({ ok: true });
+  return { client, postMessage: client.chat.postMessage, remove: client.chat.delete };
 }
 
 const SECTION: Block[] = [{ type: "section" }];
@@ -52,7 +46,7 @@ describe("StreamingDelivery", () => {
       client,
       targetChannel: "C1",
       targetThread: "T1",
-      makeStreamer: async () => streamer,
+      makeStreamer: vi.fn(async () => streamer),
     });
 
     await handler.windUp();
@@ -69,7 +63,7 @@ describe("StreamingDelivery", () => {
       client,
       targetChannel: "C1",
       targetThread: "T1",
-      makeStreamer: async () => streamer,
+      makeStreamer: vi.fn(async () => streamer),
     });
     await handler.windUp();
 
@@ -86,7 +80,7 @@ describe("StreamingDelivery", () => {
       client,
       targetChannel: "C1",
       targetThread: "T1",
-      makeStreamer: async () => streamer,
+      makeStreamer: vi.fn(async () => streamer),
     });
     await handler.windUp();
 
@@ -119,7 +113,7 @@ describe("StreamingDelivery", () => {
       client,
       targetChannel: "C1",
       targetThread: "T1",
-      makeStreamer: async () => streamer,
+      makeStreamer: vi.fn(async () => streamer),
     });
     await handler.windUp();
 
@@ -136,7 +130,7 @@ describe("StreamingDelivery", () => {
       client,
       targetChannel: "C1",
       targetThread: "T1",
-      makeStreamer: async () => streamer,
+      makeStreamer: vi.fn(async () => streamer),
     });
     await handler.windUp();
 
@@ -153,12 +147,97 @@ describe("StreamingDelivery", () => {
       client,
       targetChannel: "C1",
       targetThread: "T1",
-      makeStreamer: async () => streamer,
+      makeStreamer: vi.fn(async () => streamer),
     });
     await handler.windUp();
 
     await handler.windDown();
     expect(mock.stop).toHaveBeenCalled();
+    expect(remove).not.toHaveBeenCalled();
+  });
+
+  it("windUp calls makeStreamer(true) when constructed with defer:true", async () => {
+    const { streamer } = makeStreamerMock();
+    const { client } = makeClient();
+    const makeStreamer = vi.fn(async () => streamer);
+    const handler = new StreamingDelivery({
+      client,
+      targetChannel: "C1",
+      targetThread: "T1",
+      defer: true,
+      makeStreamer,
+    });
+
+    await handler.windUp();
+    expect(makeStreamer).toHaveBeenCalledWith(true);
+  });
+
+  it("windUp calls makeStreamer(false) when defer is omitted", async () => {
+    const { streamer } = makeStreamerMock();
+    const { client } = makeClient();
+    const makeStreamer = vi.fn(async () => streamer);
+    const handler = new StreamingDelivery({
+      client,
+      targetChannel: "C1",
+      targetThread: "T1",
+      makeStreamer,
+    });
+
+    await handler.windUp();
+    expect(makeStreamer).toHaveBeenCalledWith(false);
+  });
+
+  it("deliver with an uncommitted streamer posts fresh and never stops the streamer", async () => {
+    const { streamer, mock } = makeStreamerMock({ isUncommitted: true });
+    const { client, postMessage } = makeClient();
+    const handler = new StreamingDelivery({
+      client,
+      targetChannel: "C1",
+      targetThread: "T1",
+      makeStreamer: vi.fn(async () => streamer),
+    });
+    await handler.windUp();
+
+    const res = await handler.deliver({ blocks: SECTION });
+    expect(res).toEqual({ ok: true, ts: "999.000", notified: true });
+    expect(postMessage).toHaveBeenCalledTimes(1);
+    expect(postMessage.mock.calls[0][0]).toMatchObject({
+      channel: "C1",
+      thread_ts: "T1",
+      blocks: SECTION,
+    });
+    expect(mock.stop).not.toHaveBeenCalled();
+  });
+
+  it("windDown({ discard: true }) with an uncommitted streamer stops nothing and deletes nothing", async () => {
+    const { streamer, mock } = makeStreamerMock({ isUncommitted: true, allMessageTss: [] });
+    const { client, remove } = makeClient();
+    const handler = new StreamingDelivery({
+      client,
+      targetChannel: "C1",
+      targetThread: "T1",
+      makeStreamer: vi.fn(async () => streamer),
+    });
+    await handler.windUp();
+
+    await handler.windDown({ discard: true });
+    expect(mock.stop).not.toHaveBeenCalled();
+    expect(remove).not.toHaveBeenCalled();
+  });
+
+  it("windDown() without discard with an uncommitted streamer stops nothing", async () => {
+    const { streamer, mock } = makeStreamerMock({ isUncommitted: true });
+    const { client, remove } = makeClient();
+    const handler = new StreamingDelivery({
+      client,
+      targetChannel: "C1",
+      targetThread: "T1",
+      makeStreamer: vi.fn(async () => streamer),
+    });
+    await handler.windUp();
+
+    await handler.windDown();
+    expect(mock.stop).not.toHaveBeenCalled();
     expect(remove).not.toHaveBeenCalled();
   });
 });

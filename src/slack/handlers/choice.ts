@@ -5,7 +5,7 @@ import { decodeActionValue } from "../blocks.js";
 import { activeSessions, type SessionInfo } from "../activeSessions.js";
 import { executeAndDeliver, getHandlerClaudeOptions } from "./handlerResponse.js";
 import { canRequestChanges } from "../../permissions.js";
-import type { AskClaudeOptions, ClaudeResponse } from "../../claude/index.js";
+import type { AskClaudeOptions } from "../../claude/index.js";
 import type { UserRole } from "../../roles.js";
 
 export interface ChoiceDeps {
@@ -19,12 +19,7 @@ export interface ChoiceDeps {
   appendUserMessage: typeof appendUserMessage;
   getHandlerClaudeOptions: (info: SessionInfo) => Promise<AskClaudeOptions>;
   canRequestChanges: (role: UserRole) => boolean;
-  executeAndDeliver: (params: {
-    client: App["client"];
-    session: SessionContext;
-    sessionInfo: SessionInfo;
-    claudeOptions: AskClaudeOptions;
-  }) => Promise<ClaudeResponse>;
+  executeAndDeliver: typeof executeAndDeliver;
 }
 
 export const defaultChoiceDeps: ChoiceDeps = {

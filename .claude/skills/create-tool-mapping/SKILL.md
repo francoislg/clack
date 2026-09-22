@@ -258,6 +258,7 @@ Even if some args might be missing, write the link — the cleanup logic strips 
    ]
    ```
    The shipped `_builtins.json` already hides SDK tool-result reads this way. Use this for any case where the tool itself is useful but certain invocations are noise.
+8. **Hiding also gates proactive cards** — a proactive turn's progress card opens on its first visible tool call, so a hidden tool (or a `conditionalHidden` match) never opens one
 
 ---
 

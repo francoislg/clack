@@ -6,7 +6,7 @@ import { logger } from "./logger.js";
 import { errorMessage } from "./errors.js";
 import { fileExists } from "./fs.js";
 import { getCronMaxRunHistory } from "./config.js";
-import type { SettableAttentionLevel } from "./sessions.js";
+import { SETTABLE_ATTENTION_LEVELS, type SettableAttentionLevel } from "./sessions.js";
 
 // ============================================================================
 // Types
@@ -284,7 +284,7 @@ const cronJobZod = z.object({
   pluginManaged: z.boolean().optional(),
   specKey: z.string().optional(),
   attachedTopics: z.array(z.string()).optional(),
-  attentionLevel: z.enum(["always", "high", "medium", "low"]).optional(),
+  attentionLevel: z.enum(SETTABLE_ATTENTION_LEVELS).optional(),
   jitterMinutes: z.number().optional(),
   editableByAnyone: z.boolean().optional(),
   runs: z.array(cronRunZod).optional(),

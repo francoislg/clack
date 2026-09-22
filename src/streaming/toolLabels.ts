@@ -44,6 +44,24 @@ function parseToolName(toolName: string): { serverName: string; rawToolName: str
   return { serverName: "_builtins", rawToolName: toolName };
 }
 
+/** Resolve the mapping for a tool (server + name + override) without touching args. */
+function resolveMapping(toolName: string): {
+  serverName: string;
+  rawToolName: string;
+  mappingKey: string;
+  labelSuffix: string | undefined;
+  hasOverride: boolean;
+  mapping: ResolvedToolMapping | undefined;
+} {
+  const { serverName, rawToolName } = parseToolName(toolName);
+  const override = loadServerOverrides().get(serverName);
+  const mappingKey = override?.mappingName ?? serverName;
+  const labelSuffix = override?.label;
+  const hasOverride = override !== undefined;
+  const mapping = loadToolMappings().get(mappingKey);
+  return { serverName, rawToolName, mappingKey, labelSuffix, hasOverride, mapping };
+}
+
 /** Resolve the mapping for a tool, augment args, and collect truncation limits. */
 function resolve(
   toolName: string,
@@ -58,15 +76,11 @@ function resolve(
   args: Record<string, unknown>;
   truncations: Map<string, number>;
 } {
-  const { serverName, rawToolName } = parseToolName(toolName);
-  const override = loadServerOverrides().get(serverName);
-  const mappingKey = override?.mappingName ?? serverName;
-  const labelSuffix = override?.label;
-  const hasOverride = override !== undefined;
+  const { serverName, rawToolName, mappingKey, labelSuffix, hasOverride, mapping } =
+    resolveMapping(toolName);
   // Run registered arg enrichers first so synthetic args (e.g. {name} looked up from a
   // cron job by id) are visible to applyArgConfigs and the template interpolator.
   const enrichedArgs = applyArgEnrichers(toolName, toolArgs as ToolArgs);
-  const mapping = loadToolMappings().get(mappingKey);
   if (!mapping)
     return {
       serverName,
@@ -89,6 +103,17 @@ function resolve(
     args,
     truncations,
   };
+}
+
+/**
+ * Whether the tool's mapping declares a conditionalHidden rule targeting it — i.e. the tool
+ * might be hidden once its arg values are known, so a hide decision needs real args.
+ */
+export function hasConditionalHiddenRule(toolName: string): boolean {
+  const { rawToolName, mapping } = resolveMapping(toolName);
+  return (
+    mapping !== undefined && mapping.conditionalHidden.some((rule) => rule.tool === rawToolName)
+  );
 }
 
 /** Append an environment label suffix `(label)` if one was configured for this server. */

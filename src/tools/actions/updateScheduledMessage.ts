@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { SETTABLE_ATTENTION_LEVELS } from "../../sessions.js";
 import { tool } from "@anthropic-ai/claude-agent-sdk";
 import { CronExpressionParser } from "cron-parser";
 import type { QueryToolContext } from "../types.js";
@@ -120,12 +121,13 @@ export function createUpdateScheduledMessageTool(
             "string to clear it. Pass a non-empty string to replace it.",
         ),
       attentionLevel: z
-        .enum(["always", "high", "medium", "low", ""])
+        .enum([...SETTABLE_ATTENTION_LEVELS, ""])
         .optional()
         .describe(
           "How eagerly Clack auto-follows the thread this scheduled message creates when someone " +
-            'replies (always | high | medium | low). Pass an empty string "" to clear it (reverts ' +
-            'to the "medium" default). Omit to leave unchanged.',
+            'replies (always | high | medium | low). "always" replies to every reply (no relevance ' +
+            'check), "high"/"medium"/"low" lean progressively less toward replying. Pass an empty ' +
+            'string "" to clear it (reverts to the "medium" default). Omit to leave unchanged.',
         ),
       attached_topics: z
         .array(z.string())

@@ -236,6 +236,21 @@ export const en = {
   "home.auto_respond.modal_title": "Auto-Respond Rules",
   "home.auto_respond.conversations_header": "*Conversations being followed*",
   "home.auto_respond.conversation_level": "attention: {level}",
+  "home.auto_respond.attention_label": "Thread follow-up (optional)",
+  "home.auto_respond.attention_hint":
+    "How Clack treats replies in the threads this rule starts. A higher level does not make Clack answer the rule's first message more reliably.",
+  "home.auto_respond.attention_option_default": "Default (medium)",
+  "home.auto_respond.attention_option_always":
+    "Always: reply to every thread message, with no relevance check",
+  "home.auto_respond.attention_option_high":
+    "High: reply to nearly everything except side-talk between others",
+  "home.auto_respond.attention_option_medium": "Medium: reply when a message is plausibly relevant",
+  "home.auto_respond.attention_option_low": "Low: reply only when addressed; may stop following",
+  "home.auto_respond.attention_short_always": "always (unfiltered)",
+  "home.auto_respond.attention_short_high": "high",
+  "home.auto_respond.attention_short_medium": "medium",
+  "home.auto_respond.attention_short_low": "low",
+  "home.auto_respond.attention_suffix": " · Attention: {level}",
   "home.auto_respond.conversation_expires": "expires in {time}",
   "home.auto_respond.conversation_dormant": "dormant — will re-engage if the conversation resumes",
   "home.auto_respond.conversation_sessions": "{count} linked session(s)",
@@ -268,6 +283,13 @@ export const en = {
   "home.auto_respond.delete_rule": "Delete Rule",
   "home.auto_respond.delete_confirm_title": "Delete rule?",
   "home.auto_respond.delete_confirm_text": "This will permanently remove this auto-respond rule.",
+  "home.auto_respond.error_no_permission": "You don't have permission to manage auto-respond rules",
+  "home.auto_respond.error_no_channels": "Select at least one channel",
+  "home.auto_respond.error_unknown_attention": "Unknown attention level",
+  "home.auto_respond.error_rule_gone": "Rule no longer exists (it may have been deleted)",
+  "home.auto_respond.error_save_failed": "Couldn't save the rule. Try again.",
+  "home.auto_respond.deleted_title": "Deleted",
+  "home.auto_respond.deleted_text": "Rule deleted.",
 
   // ─── Home Tab: scheduled messages ──────────────────────────────────
   "home.scheduled.header": "Scheduled Messages",

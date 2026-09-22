@@ -2,10 +2,36 @@ import type { App } from "@slack/bolt";
 import type { Block, KnownBlock, TaskUpdateChunk } from "@slack/types";
 import type { ChatStreamer } from "@slack/web-api";
 import { logger as defaultLogger } from "../logger.js";
-import { getToolLabel, getToolGroup, getToolDetails } from "./toolLabels.js";
+import {
+  getToolLabel,
+  getToolGroup,
+  getToolDetails,
+  hasConditionalHiddenRule,
+  type ToolGroupInfo,
+} from "./toolLabels.js";
 import type { StreamEvent } from "./types.js";
 import { unfurlOptions } from "../slack/unfurlOptions.js";
 import { t } from "../i18n/t.js";
+
+type ToolStartEvent = Extract<StreamEvent, { type: "tool_start" }>;
+type ToolEndEvent = Extract<StreamEvent, { type: "tool_end" }>;
+
+type OpenGroup = {
+  slackId: string;
+  key: string;
+  title: string;
+  count: number;
+  pending: number;
+  /** Cap on detail lines for this group; resolved when the group is opened. */
+  maxDetails: number;
+  /**
+   * Detail line for the FIRST item, deferred while count === 1. Single-item groups
+   * already convey the same info in their title, so we only flush this when count
+   * grows to 2+ (where the first item's contribution is no longer redundant with the
+   * group header).
+   */
+  pendingFirstDetail?: string;
+};
 
 export interface SlackStreamerLogger {
   warn: (...args: unknown[]) => void;
@@ -22,6 +48,12 @@ export interface SlackStreamerOptions {
   teamId?: string;
   /** Custom title for the thinking task once tools start (defaults to "Analyzing…"). */
   thinkingTitle?: string;
+  /**
+   * When true, `start()` constructs the chat-stream handle but posts nothing (no thinking
+   * task, no keepalive) until the first `tool_start` whose label is visible and can no longer
+   * be hidden by its args; until then the stream is "uncommitted".
+   */
+  deferUntilFirstTask?: boolean;
   /** Logger instance for dependency injection in tests. */
   logger?: SlackStreamerLogger;
 }
@@ -50,6 +82,13 @@ export class SlackStreamer {
   private thinkingFinalized = false;
   private failed = false;
   private stopped = false;
+  private committed: boolean;
+  /** Set by `commit()`: the next append is the one that creates the deferred stream's message. */
+  private openingPending = false;
+  /** That opening append while in flight. Until it resolves the stream has no `ts`, and
+   *  `ChatStreamer` answers any concurrent append or stop with a second `chat.startStream` — a
+   *  second message — so every later append waits on it. */
+  private opening: Promise<void> | null = null;
   private messageTs: string | undefined;
   /** Timestamps of every prior block opened by this streamer (oldest first). The
    *  current block's ts lives in `messageTs` until rollover, at which point it is
@@ -75,22 +114,7 @@ export class SlackStreamer {
   private static readonly THINKING_TASK_ID = "__thinking__";
 
   /** Currently open group: consecutive same-key tools share one Slack task. */
-  private openGroup: {
-    slackId: string;
-    key: string;
-    title: string;
-    count: number;
-    pending: number;
-    /** Cap on detail lines for this group; resolved when the group is opened. */
-    maxDetails: number;
-    /**
-     * Detail line for the FIRST item, deferred while count === 1. Single-item groups
-     * already convey the same info in their title, so we only flush this when count
-     * grows to 2+ (where the first item's contribution is no longer redundant with the
-     * group header).
-     */
-    pendingFirstDetail?: string;
-  } | null = null;
+  private openGroup: OpenGroup | null = null;
   /** Maps each SDK taskId to the Slack task ID it belongs to. */
   private taskSlack = new Map<string, string>();
   /** Tracks individual task labels for non-grouped tools. */
@@ -112,18 +136,22 @@ export class SlackStreamer {
     this.userId = opts.userId;
     this.teamId = opts.teamId;
     this.thinkingTitle = opts.thinkingTitle ?? t("streamer.analyzing");
+    this.committed = !opts.deferUntilFirstTask;
     this.logger = opts.logger ?? defaultLogger;
   }
 
   /**
    * Start the chat stream. Call this before handling any events.
-   * Immediately shows a "Thinking" task so the user gets instant feedback.
+   * Shows a "Thinking" task immediately, unless `deferUntilFirstTask` is set — then the stream
+   * handle is opened but nothing is posted (no thinking task, no keepalive) until the first
+   * committing tool — see `commit()`.
    * Returns false if the stream failed to start (caller should use fallback).
    */
   async start(): Promise<boolean> {
     try {
       this.chatStreamer = await this.openChatStream();
       this.generation++;
+      if (!this.committed) return true;
 
       await this.append([
         {
@@ -304,229 +332,269 @@ export class SlackStreamer {
     this.lastEventAt = Date.now();
 
     switch (event.type) {
-      case "tool_start": {
-        const label = getToolLabel(event.toolName, event.toolArgs);
-        const hasArgs = Object.keys(event.toolArgs).length > 0;
-
-        // Re-emit with real args — check if the tool should now be hidden
-        // (e.g., conditionalHidden rules that depend on arg values like file_path)
-        const existingSlackId = this.taskSlack.get(event.taskId);
-        if (existingSlackId && hasArgs && label === null) {
-          this.taskSlack.delete(event.taskId);
-          this.taskLabels.delete(event.taskId);
-          // Standalone dropped via conditionalHidden — clean up active-task tracking
-          if (this.openGroup?.slackId !== existingSlackId) {
-            this.activeTasks.delete(existingSlackId);
-          }
-          if (this.openGroup?.slackId === existingSlackId) {
-            this.openGroup.pending--;
-            this.openGroup.count--;
-            if (this.openGroup.count === 0) {
-              this.openGroup = null;
-              this.activeTasks.delete(existingSlackId);
-            } else {
-              const title = this.groupTitle(
-                this.taskLabels.get(existingSlackId) ?? this.openGroup.title,
-              );
-              this.append([
-                {
-                  type: "task_update",
-                  id: existingSlackId,
-                  title,
-                  status: this.openGroup.pending === 0 ? "complete" : "in_progress",
-                },
-              ]);
-            }
-          }
-          break;
-        }
-
-        if (label === null) break;
-
-        // Re-emit with real args — update the existing task
-        if (existingSlackId && hasArgs) {
-          if (existingSlackId === event.taskId) {
-            // Standalone tool, OR first item of a group (count=1) — update label.
-            // For the group case we ALSO defer the now-resolvable itemDetail into
-            // pendingFirstDetail so it can flush if a second item folds in later.
-            this.taskLabels.set(event.taskId, label);
-            const chunk: TaskUpdateChunk = {
-              type: "task_update",
-              id: existingSlackId,
-              title: label,
-              status: "in_progress",
-            };
-            const details = getToolDetails(event.toolName, event.toolArgs);
-            if (details) chunk.details = details;
-            if (
-              this.openGroup &&
-              this.openGroup.slackId === existingSlackId &&
-              this.openGroup.count === 1 &&
-              this.openGroup.pendingFirstDetail === undefined
-            ) {
-              const group = getToolGroup(event.toolName, event.toolArgs);
-              if (group?.itemDetail) {
-                const formatted = this.formatGroupDetail(group.itemDetail, false);
-                if (formatted !== null) this.openGroup.pendingFirstDetail = formatted;
-              }
-            }
-            this.append([chunk]);
-          } else {
-            // Grouped tool — update the group's details with real args
-            const group = getToolGroup(event.toolName, event.toolArgs);
-            if (group && this.openGroup && existingSlackId === this.openGroup.slackId) {
-              const chunk: TaskUpdateChunk = {
-                type: "task_update",
-                id: existingSlackId,
-                title: this.groupTitle(label),
-                status: "in_progress",
-              };
-              // Once the group's cap is reached, emit one final "…" overflow marker, then
-              // stay silent. The header count keeps climbing via groupTitle().
-              if (group.itemDetail) {
-                const formatted = this.formatGroupDetail(
-                  group.itemDetail,
-                  this.openGroup.count > 1,
-                );
-                if (formatted !== null) chunk.details = formatted;
-              }
-              const details = getToolDetails(event.toolName, event.toolArgs);
-              if (details) chunk.details = (chunk.details ? chunk.details + "\n" : "") + details;
-              this.append([chunk]);
-            }
-          }
-          break;
-        }
-        if (existingSlackId) break;
-
-        const group = getToolGroup(event.toolName, event.toolArgs);
-        const groupKey = group?.key ?? event.toolName;
-        const chunks: TaskUpdateChunk[] = [];
-
-        if (!this.thinkingFinalized) {
-          this.thinkingFinalized = true;
-          chunks.push({
-            type: "task_update",
-            id: SlackStreamer.THINKING_TASK_ID,
-            title: this.thinkingTitle,
-            status: "in_progress",
-          });
-        }
-
-        if (group && this.openGroup?.key === groupKey) {
-          // Same consecutive group — fold into the open task
-          this.openGroup.count++;
-          this.openGroup.pending++;
-          this.taskSlack.set(event.taskId, this.openGroup.slackId);
-          // activeTasks entry for this group already exists; do not reset startedAt
-
-          const chunk: TaskUpdateChunk = {
-            type: "task_update",
-            id: this.openGroup.slackId,
-            title: this.groupTitle(this.openGroup.title),
-            status: "in_progress",
-          };
-          // Flush the deferred first-item detail when count grows past 1. From count=3
-          // onward, pendingFirstDetail is already cleared and we fall back to normal
-          // per-item appending.
-          const pending = this.openGroup.pendingFirstDetail;
-          this.openGroup.pendingFirstDetail = undefined;
-          // Only append itemDetail when we have real args (skip generic placeholders).
-          // Within the cap → real detail; at cap+1 → "…" overflow marker; beyond → silent.
-          let thisDetail: string | null = null;
-          if (group.itemDetail && hasArgs) {
-            thisDetail = this.formatGroupDetail(group.itemDetail, true);
-          }
-          // Combine the pending first-item detail (stored without a leading newline)
-          // with this item's detail (which starts with "\n" because prefixNewline=true).
-          // Result: "pending\nthisDetail" — no leading newline because the task had no
-          // prior details.
-          if (pending !== undefined && thisDetail !== null) chunk.details = pending + thisDetail;
-          else if (pending !== undefined) chunk.details = pending;
-          else if (thisDetail !== null) chunk.details = thisDetail;
-          chunks.push(chunk);
-        } else {
-          // New task (grouped or standalone)
-          this.openGroup = group
-            ? {
-                slackId: event.taskId,
-                key: groupKey,
-                title: group.title,
-                count: 1,
-                pending: 1,
-                maxDetails: group.maxDetails,
-              }
-            : null;
-          this.taskSlack.set(event.taskId, event.taskId);
-          this.taskLabels.set(event.taskId, label);
-          this.activeTasks.set(event.taskId, {
-            startedAt: this.lastEventAt,
-            baseTitle: undefined,
-            isGroup: group !== null,
-            tickCount: 0,
-          });
-
-          const chunk: TaskUpdateChunk = {
-            type: "task_update",
-            id: event.taskId,
-            title: label,
-            status: "in_progress",
-          };
-
-          // Attach details: for grouped, defer the first item's detail until count > 1
-          // (a single-item group's title already conveys the same info as the detail line).
-          // For standalone, emit rich details immediately.
-          if (group) {
-            if (group.itemDetail && hasArgs && this.openGroup) {
-              const formatted = this.formatGroupDetail(group.itemDetail, false);
-              if (formatted !== null) this.openGroup.pendingFirstDetail = formatted;
-            }
-          } else {
-            const details = getToolDetails(event.toolName, event.toolArgs);
-            if (details) chunk.details = details;
-          }
-          chunks.push(chunk);
-        }
-
-        this.append(chunks);
+      case "tool_start":
+        this.onToolStart(event);
         break;
-      }
-      case "tool_end": {
-        const slackId = this.taskSlack.get(event.taskId);
-        if (!slackId) break;
-        this.taskSlack.delete(event.taskId);
-
-        // Grouped task — decrement pending, only complete when all done
-        if (this.openGroup?.slackId === slackId) {
-          this.openGroup.pending--;
-          const done = this.openGroup.pending === 0;
-          const title = this.groupTitle(this.taskLabels.get(slackId) ?? this.openGroup.title);
-          this.append([
-            { type: "task_update", id: slackId, title, status: done ? "complete" : "in_progress" },
-          ]);
-          if (done) this.activeTasks.delete(slackId);
-          break;
-        }
-
-        // Standalone task
-        const label = this.taskLabels.get(event.taskId) ?? "Task";
-        this.taskLabels.delete(event.taskId);
-        this.activeTasks.delete(slackId);
-        const task: TaskUpdateChunk = {
-          type: "task_update",
-          id: slackId,
-          title: event.error ? `${label} (failed)` : label,
-          status: "complete",
-        };
-        if (event.error && event.errorMessage) task.details = event.errorMessage;
-        this.append([task]);
+      case "tool_end":
+        this.onToolEnd(event);
         break;
-      }
-      case "text": {
+      case "text":
         break;
-      }
     }
   };
+
+  private onToolStart(event: ToolStartEvent): void {
+    const label = getToolLabel(event.toolName, event.toolArgs);
+    const hasArgs = Object.keys(event.toolArgs).length > 0;
+
+    // A deferred stream opens only on a task whose label is visible and can no longer be hidden by its args.
+    if (!this.committed) {
+      if (label === null || (!hasArgs && hasConditionalHiddenRule(event.toolName))) return;
+      this.commit();
+    }
+
+    // A follow-up tool_start for a task already on the card — acted on only once real args arrive.
+    const existingSlackId = this.taskSlack.get(event.taskId);
+    if (existingSlackId) {
+      if (!hasArgs) return;
+      if (label === null) this.dropHiddenTask(event.taskId, existingSlackId);
+      else this.relabelTask(event, existingSlackId, label);
+      return;
+    }
+    if (label === null) return;
+    this.openTask(event, label, hasArgs);
+  }
+
+  /** A re-emit whose real args hide the tool (a conditionalHidden rule) — take it back off the card. */
+  private dropHiddenTask(taskId: string, existingSlackId: string): void {
+    this.taskSlack.delete(taskId);
+    this.taskLabels.delete(taskId);
+    // Standalone dropped via conditionalHidden — clean up active-task tracking
+    if (this.openGroup?.slackId !== existingSlackId) {
+      this.activeTasks.delete(existingSlackId);
+    }
+    if (this.openGroup?.slackId === existingSlackId) {
+      this.openGroup.pending--;
+      this.openGroup.count--;
+      if (this.openGroup.count === 0) {
+        this.openGroup = null;
+        this.activeTasks.delete(existingSlackId);
+      } else {
+        const title = this.groupTitle(this.taskLabels.get(existingSlackId) ?? this.openGroup.title);
+        this.append([
+          {
+            type: "task_update",
+            id: existingSlackId,
+            title,
+            status: this.openGroup.pending === 0 ? "complete" : "in_progress",
+          },
+        ]);
+      }
+    }
+  }
+
+  /** A re-emit with real args for a visible task — update its label and details. */
+  private relabelTask(event: ToolStartEvent, existingSlackId: string, label: string): void {
+    if (existingSlackId === event.taskId) this.relabelStandaloneTask(event, existingSlackId, label);
+    else this.relabelGroupedTask(event, existingSlackId, label);
+  }
+
+  /** Standalone task, or the first item of a group (count = 1): update its label and details. */
+  private relabelStandaloneTask(
+    event: ToolStartEvent,
+    existingSlackId: string,
+    label: string,
+  ): void {
+    // For the group case we ALSO defer the now-resolvable itemDetail into
+    // pendingFirstDetail so it can flush if a second item folds in later.
+    this.taskLabels.set(event.taskId, label);
+    const chunk: TaskUpdateChunk = {
+      type: "task_update",
+      id: existingSlackId,
+      title: label,
+      status: "in_progress",
+    };
+    const details = getToolDetails(event.toolName, event.toolArgs);
+    if (details) chunk.details = details;
+    if (
+      this.openGroup &&
+      this.openGroup.slackId === existingSlackId &&
+      this.openGroup.count === 1 &&
+      this.openGroup.pendingFirstDetail === undefined
+    ) {
+      const group = getToolGroup(event.toolName, event.toolArgs);
+      if (group?.itemDetail) {
+        const formatted = this.formatGroupDetail(group.itemDetail, false);
+        if (formatted !== null) this.openGroup.pendingFirstDetail = formatted;
+      }
+    }
+    this.append([chunk]);
+  }
+
+  /** A task already folded into the open group: refresh the group row with this item's real args. */
+  private relabelGroupedTask(event: ToolStartEvent, existingSlackId: string, label: string): void {
+    const group = getToolGroup(event.toolName, event.toolArgs);
+    if (group && this.openGroup && existingSlackId === this.openGroup.slackId) {
+      const chunk: TaskUpdateChunk = {
+        type: "task_update",
+        id: existingSlackId,
+        title: this.groupTitle(label),
+        status: "in_progress",
+      };
+      // Once the group's cap is reached, emit one final "…" overflow marker, then
+      // stay silent. The header count keeps climbing via groupTitle().
+      if (group.itemDetail) {
+        const formatted = this.formatGroupDetail(group.itemDetail, this.openGroup.count > 1);
+        if (formatted !== null) chunk.details = formatted;
+      }
+      const details = getToolDetails(event.toolName, event.toolArgs);
+      if (details) chunk.details = (chunk.details ? chunk.details + "\n" : "") + details;
+      this.append([chunk]);
+    }
+  }
+
+  /** A new task: fold it into the open group of the same key, or open a new card row. */
+  private openTask(event: ToolStartEvent, label: string, hasArgs: boolean): void {
+    const group = getToolGroup(event.toolName, event.toolArgs);
+    const groupKey = group?.key ?? event.toolName;
+    const chunks: TaskUpdateChunk[] = [];
+
+    if (!this.thinkingFinalized) {
+      this.thinkingFinalized = true;
+      chunks.push({
+        type: "task_update",
+        id: SlackStreamer.THINKING_TASK_ID,
+        title: this.thinkingTitle,
+        status: "in_progress",
+      });
+    }
+
+    chunks.push(
+      group && this.openGroup?.key === groupKey
+        ? this.foldIntoOpenGroup(event, group, this.openGroup, hasArgs)
+        : this.openNewTask(event, label, group, groupKey, hasArgs),
+    );
+    this.append(chunks);
+  }
+
+  /** Fold a task into the open group of the same key: bump its count and add this item's detail. */
+  private foldIntoOpenGroup(
+    event: ToolStartEvent,
+    group: ToolGroupInfo,
+    open: OpenGroup,
+    hasArgs: boolean,
+  ): TaskUpdateChunk {
+    open.count++;
+    open.pending++;
+    this.taskSlack.set(event.taskId, open.slackId);
+    // activeTasks entry for this group already exists; do not reset startedAt
+
+    const chunk: TaskUpdateChunk = {
+      type: "task_update",
+      id: open.slackId,
+      title: this.groupTitle(open.title),
+      status: "in_progress",
+    };
+    // Flush the deferred first-item detail when count grows past 1. From count=3
+    // onward, pendingFirstDetail is already cleared and we fall back to normal
+    // per-item appending.
+    const pending = open.pendingFirstDetail;
+    open.pendingFirstDetail = undefined;
+    // Only append itemDetail when we have real args (skip generic placeholders).
+    // Within the cap → real detail; at cap+1 → "…" overflow marker; beyond → silent.
+    let thisDetail: string | null = null;
+    if (group.itemDetail && hasArgs) {
+      thisDetail = this.formatGroupDetail(group.itemDetail, true);
+    }
+    // Combine the pending first-item detail (stored without a leading newline)
+    // with this item's detail (which starts with "\n" because prefixNewline=true).
+    // Result: "pending\nthisDetail" — no leading newline because the task had no
+    // prior details.
+    if (pending !== undefined && thisDetail !== null) chunk.details = pending + thisDetail;
+    else if (pending !== undefined) chunk.details = pending;
+    else if (thisDetail !== null) chunk.details = thisDetail;
+    return chunk;
+  }
+
+  /** Open a new card row — a group's first item or a standalone task — and start tracking it. */
+  private openNewTask(
+    event: ToolStartEvent,
+    label: string,
+    group: ToolGroupInfo | null,
+    groupKey: string,
+    hasArgs: boolean,
+  ): TaskUpdateChunk {
+    this.openGroup = group
+      ? {
+          slackId: event.taskId,
+          key: groupKey,
+          title: group.title,
+          count: 1,
+          pending: 1,
+          maxDetails: group.maxDetails,
+        }
+      : null;
+    this.taskSlack.set(event.taskId, event.taskId);
+    this.taskLabels.set(event.taskId, label);
+    this.activeTasks.set(event.taskId, {
+      startedAt: this.lastEventAt,
+      baseTitle: undefined,
+      isGroup: group !== null,
+      tickCount: 0,
+    });
+
+    const chunk: TaskUpdateChunk = {
+      type: "task_update",
+      id: event.taskId,
+      title: label,
+      status: "in_progress",
+    };
+
+    // Attach details: for grouped, defer the first item's detail until count > 1
+    // (a single-item group's title already conveys the same info as the detail line).
+    // For standalone, emit rich details immediately.
+    if (group) {
+      if (group.itemDetail && hasArgs && this.openGroup) {
+        const formatted = this.formatGroupDetail(group.itemDetail, false);
+        if (formatted !== null) this.openGroup.pendingFirstDetail = formatted;
+      }
+    } else {
+      const details = getToolDetails(event.toolName, event.toolArgs);
+      if (details) chunk.details = details;
+    }
+    return chunk;
+  }
+
+  private onToolEnd(event: ToolEndEvent): void {
+    const slackId = this.taskSlack.get(event.taskId);
+    if (!slackId) return;
+    this.taskSlack.delete(event.taskId);
+
+    // Grouped task — decrement pending, only complete when all done
+    if (this.openGroup?.slackId === slackId) {
+      this.openGroup.pending--;
+      const done = this.openGroup.pending === 0;
+      const title = this.groupTitle(this.taskLabels.get(slackId) ?? this.openGroup.title);
+      this.append([
+        { type: "task_update", id: slackId, title, status: done ? "complete" : "in_progress" },
+      ]);
+      if (done) this.activeTasks.delete(slackId);
+      return;
+    }
+
+    // Standalone task
+    const label = this.taskLabels.get(event.taskId) ?? "Task";
+    this.taskLabels.delete(event.taskId);
+    this.activeTasks.delete(slackId);
+    const task: TaskUpdateChunk = {
+      type: "task_update",
+      id: slackId,
+      title: event.error ? `${label} (failed)` : label,
+      status: "complete",
+    };
+    if (event.error && event.errorMessage) task.details = event.errorMessage;
+    this.append([task]);
+  }
 
   /**
    * Stop the stream and finalize the message.
@@ -537,6 +605,10 @@ export class SlackStreamer {
     if (!this.chatStreamer || this.stopped) return;
 
     this.stopped = true;
+
+    // An uncommitted stream never posted anything, and ChatStreamer.stop() would start the
+    // stream, so stopping it must make no Slack call.
+    if (!this.committed) return;
 
     // Force-complete standalone tasks still in-flight (tool_end hasn't arrived yet)
     const openGroupSlackId = this.openGroup?.slackId;
@@ -594,6 +666,11 @@ export class SlackStreamer {
     return this.failed;
   }
 
+  /** Whether a deferred stream is still uncommitted — opened but nothing posted yet. */
+  get isUncommitted(): boolean {
+    return !this.committed;
+  }
+
   /** The Slack message timestamp of the streamed message (available after start()).
    *  After rollover, this returns the LATEST block's ts (where the final answer is rendered). */
   getMessageTs(): string | undefined {
@@ -638,6 +715,18 @@ export class SlackStreamer {
     return this.openGroup.count > 1
       ? `${this.openGroup.title} (${this.openGroup.count})`
       : fallback;
+  }
+
+  /**
+   * Open a deferred stream on its first visible task: begin posting and start the keepalive.
+   * Appends nothing itself — the first-task branch in `openTask` prepends the thinking row
+   * via `!this.thinkingFinalized`.
+   */
+  private commit(): void {
+    this.committed = true;
+    this.openingPending = true;
+    this.lastKeepaliveTickAt = Date.now();
+    this.startKeepalive();
   }
 
   private startKeepalive(): void {
@@ -714,6 +803,18 @@ export class SlackStreamer {
   }
 
   private async append(chunks: TaskUpdateChunk[]): Promise<void> {
+    if (this.openingPending) {
+      this.openingPending = false;
+      this.opening = this.send(chunks).finally(() => {
+        this.opening = null;
+      });
+      return this.opening;
+    }
+    if (this.opening) await this.opening;
+    return this.send(chunks);
+  }
+
+  private async send(chunks: TaskUpdateChunk[]): Promise<void> {
     if (!this.chatStreamer || this.failed) return;
     // Snapshot the stream generation before the call. If a recoverable failure later finds the
     // generation has advanced, a sibling append already rolled this stream over and we must not

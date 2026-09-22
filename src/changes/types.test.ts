@@ -1,5 +1,6 @@
 import { describe, it } from "vitest";
 import assert from "node:assert/strict";
+import { isProactiveTrigger } from "./types.js";
 import type {
   TriggerType,
   ChangeRequest,
@@ -24,6 +25,21 @@ describe("changes/types", () => {
     it("accepts valid trigger types", () => {
       const types: TriggerType[] = ["directMessages", "mentions", "reactions"];
       assert.equal(types.length, 3);
+    });
+  });
+
+  describe("isProactiveTrigger", () => {
+    it("is true for autoRespond, threadReply, and channelReply", () => {
+      assert.equal(isProactiveTrigger("autoRespond"), true);
+      assert.equal(isProactiveTrigger("threadReply"), true);
+      assert.equal(isProactiveTrigger("channelReply"), true);
+    });
+
+    it("is false for every other trigger type", () => {
+      assert.equal(isProactiveTrigger("scheduled"), false);
+      assert.equal(isProactiveTrigger("directMessages"), false);
+      assert.equal(isProactiveTrigger("mentions"), false);
+      assert.equal(isProactiveTrigger("reactions"), false);
     });
   });
 
