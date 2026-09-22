@@ -480,23 +480,26 @@ describe("setRole", () => {
   it("rejects changing the owner's role", async () => {
     seedRoles({ owner: "U1", admins: [], devs: [] });
     const result = await setRole("U1", "dev");
-    assert.equal(result.success, false);
-    assert.ok(result.error?.includes("owner"));
+    assert.ok(!result.success);
+    assert.equal(result.code, "owner_role_locked");
+    assert.ok(result.error.includes("owner"));
   });
 
   it("rejects assigning system at runtime even if a caller casts past AssignableRole", async () => {
     seedRoles({ owner: "U_OWNER", admins: [], devs: [] });
     const result = await setRole("U2", "system" as "admin");
-    assert.equal(result.success, false);
-    assert.ok(result.error?.includes("not assignable"));
+    assert.ok(!result.success);
+    assert.equal(result.code, "role_not_assignable");
+    assert.ok(result.error.includes("not assignable"));
     assert.equal(mockWriteFile.mock.calls.length, 0);
   });
 
   it("rejects assigning owner at runtime even if a caller casts past AssignableRole", async () => {
     seedRoles({ owner: "U_OWNER", admins: [], devs: [] });
     const result = await setRole("U2", "owner" as "admin");
-    assert.equal(result.success, false);
-    assert.ok(result.error?.includes("not assignable"));
+    assert.ok(!result.success);
+    assert.equal(result.code, "role_not_assignable");
+    assert.ok(result.error.includes("not assignable"));
     assert.equal(mockWriteFile.mock.calls.length, 0);
   });
 });
@@ -539,7 +542,8 @@ describe("claimOwnershipFromDisabled", () => {
     });
 
     const result = await claimOwnershipFromDisabled(client, "U_ADMIN");
-    assert.equal(result.success, false);
+    assert.ok(!result.success);
+    assert.equal(result.code, "owner_still_active");
     assert.equal(result.error, "Current owner is still active");
   });
 
@@ -550,7 +554,8 @@ describe("claimOwnershipFromDisabled", () => {
     });
 
     const result = await claimOwnershipFromDisabled(client, "U_DEV");
-    assert.equal(result.success, false);
+    assert.ok(!result.success);
+    assert.equal(result.code, "not_admin");
     assert.equal(result.error, "Only admins can claim ownership from disabled owner");
   });
 
@@ -610,7 +615,8 @@ describe("transferOwnership", () => {
     });
 
     const result = await transferOwnership(client, "U_IMPOSTER", "U_TARGET");
-    assert.equal(result.success, false);
+    assert.ok(!result.success);
+    assert.equal(result.code, "not_owner");
     assert.equal(result.error, "Only the owner can transfer ownership");
   });
 
@@ -621,7 +627,8 @@ describe("transferOwnership", () => {
     });
 
     const result = await transferOwnership(client, "U_CURRENT", "U_DISABLED");
-    assert.equal(result.success, false);
+    assert.ok(!result.success);
+    assert.equal(result.code, "target_disabled");
     assert.equal(result.error, "Cannot transfer ownership to a disabled user");
   });
 });

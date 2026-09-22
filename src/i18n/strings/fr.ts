@@ -52,6 +52,27 @@ export const fr: Partial<Record<StringKey, string>> = {
   "home.roles.add_dev": "+ Ajouter un dev",
   "home.roles.remove_dev": "- Retirer un dev",
   "home.roles.modal_title": "Gestion des rôles",
+  "home.roles.add_admin_modal_title": "Ajouter un admin",
+  "home.roles.add_admin_select_prompt": "Sélectionner l'utilisateur à promouvoir admin",
+  "home.roles.add_admin_no_permission": "Vous n'avez pas la permission d'ajouter des admins",
+  "home.roles.remove_admin_modal_title": "Retirer un admin",
+  "home.roles.remove_admin_no_permission": "Vous n'avez pas la permission de retirer des admins",
+  "home.roles.add_dev_modal_title": "Ajouter un dev",
+  "home.roles.add_dev_select_prompt": "Sélectionner l'utilisateur à promouvoir dev",
+  "home.roles.add_dev_no_permission": "Vous n'avez pas la permission d'ajouter des devs",
+  "home.roles.remove_dev_modal_title": "Retirer un dev",
+  "home.roles.remove_dev_no_permission": "Vous n'avez pas la permission de retirer des devs",
+  "home.roles.transfer_modal_title": "Transférer la propriété",
+  "home.roles.transfer_select_prompt": "Sélectionner le nouveau propriétaire",
+  "home.roles.error_role_not_assignable": "Ce rôle ne peut pas être attribué.",
+  "home.roles.error_owner_role_locked":
+    "Impossible de changer le rôle du propriétaire. Utilisez le transfert de propriété à la place.",
+  "home.roles.error_owner_still_active": "Le propriétaire actuel est toujours actif.",
+  "home.roles.error_not_admin":
+    "Seuls les admins peuvent revendiquer la propriété d'un propriétaire désactivé.",
+  "home.roles.error_not_owner": "Seul le propriétaire peut transférer la propriété.",
+  "home.roles.error_target_disabled":
+    "Impossible de transférer la propriété à un utilisateur désactivé.",
 
   // ─── Configuration ─────────────────────────────────────────────────
   "home.config.header": "Configuration",
@@ -94,6 +115,19 @@ export const fr: Partial<Record<StringKey, string>> = {
   "home.config.filename_placeholder": "mes-instructions",
   "home.config.filename_hint": "L'extension .md est ajoutée automatiquement",
   "home.config.content_placeholder": "Saisissez le contenu des instructions…",
+  "home.config.source_customized": "Personnalisé",
+  "home.config.source_custom": "Sur mesure",
+  "home.config.error_no_edit_permission":
+    "Vous n'avez pas la permission de modifier la configuration",
+  "home.config.error_save_failed": "Échec de l'enregistrement du fichier",
+  "home.config.error_no_create_permission": "Vous n'avez pas la permission de créer des fichiers",
+  "home.config.error_file_exists": "Le fichier « {filename} » existe déjà dans {dir}/",
+  "home.config.error_create_failed": "Échec de la création du fichier",
+  "home.config.deleted_title": "Supprimé",
+  "home.config.file_deleted_text": "`{filename}` a été supprimé.",
+  "home.config.chat_edit_intro":
+    "Voici le contenu actuel de `{filepath}`. Répondez avec vos modifications ou des instructions pour mettre à jour ce fichier.",
+  "home.config.chat_edit_sent": "`{filepath}` a été envoyé dans vos DM. Consultez vos messages.",
 
   // ─── Status ────────────────────────────────────────────────────────
   "home.status.header": "Statut",
@@ -210,6 +244,7 @@ export const fr: Partial<Record<StringKey, string>> = {
 
   // ─── User select / remove modals ───────────────────────────────────
   "home.user_select.label": "Sélectionner un utilisateur",
+  "home.user_select.error_none": "Veuillez sélectionner un utilisateur",
   "home.user_remove.prompt": "Sélectionnez un utilisateur à retirer :",
   "home.user_remove.placeholder": "Sélectionner un utilisateur à retirer",
   "home.user_remove.label": "Utilisateur",
@@ -356,6 +391,17 @@ export const fr: Partial<Record<StringKey, string>> = {
     "Lecture seule — ce message programmé est réconcilié depuis la config plugin. Pour modifier la programmation ou le prompt, éditez `data/config.json`.",
   "home.scheduled.plugin_pause_explanation":
     "Mettre en pause empêche cette programmation de s'exécuter jusqu'à la reprise. La config plugin reste inchangée — la prochaine réconciliation ne la réactivera pas.",
+  "home.scheduled.sending_title": "Envoi en cours...",
+  "home.scheduled.sending_text":
+    "Exécution du message programmé dans <#{channel}>. Cela peut prendre un instant.",
+  "home.scheduled.deleted_title": "Supprimé",
+  "home.scheduled.deleted_text": "Message programmé supprimé.",
+  "home.scheduled.error_name_required": "Indiquez un nom court et descriptif",
+  "home.scheduled.error_channel_required": "Sélectionnez un canal",
+  "home.scheduled.error_cron_required": "Indiquez une expression cron",
+  "home.scheduled.error_prompt_required": "Indiquez un prompt",
+  "home.scheduled.error_cron_invalid": "Expression cron invalide",
+  "home.scheduled.error_jitter_range": "Saisissez un nombre entier de minutes entre 0 et {max}",
   "home.scheduled.shared_header": "Partagées",
   "home.scheduled.yours_header": "Vos programmations",
   "home.scheduled.non_accessible_header": "Non accessibles",

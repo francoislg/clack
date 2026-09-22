@@ -21,7 +21,7 @@ import {
 import type { AutoRespondRule } from "../../autoRespond.js";
 import type { SettableAttentionLevel } from "../../sessions.js";
 import type { CronJob } from "../../cronJobs.js";
-import type { UserRole } from "../../roles.js";
+import type { RoleChangeResult, UserRole } from "../../roles.js";
 import type { JobOutcome } from "../../cronScheduler.js";
 import type { JsonObject } from "../../config.js";
 import type { RegisteredPreferences } from "../../plugins-sdk/sdk.js";
@@ -33,19 +33,12 @@ import type { RegisteredPreferences } from "../../plugins-sdk/sdk.js";
 const mockLoadRoles =
   vi.fn<() => Promise<{ owner: string | null; admins: string[]; devs: string[] }>>();
 const mockSetOwner = vi.fn<(userId: string) => Promise<void>>(async () => {});
-const mockSetRole =
-  vi.fn<(userId: string, role: string) => Promise<{ success: boolean; error?: string }>>();
+const mockSetRole = vi.fn<(userId: string, role: string) => Promise<RoleChangeResult>>();
 const mockIsUserDisabled = vi.fn<(client: App["client"], userId: string) => Promise<boolean>>();
 const mockClaimOwnershipFromDisabled =
-  vi.fn<(client: App["client"], userId: string) => Promise<{ success: boolean; error?: string }>>();
+  vi.fn<(client: App["client"], userId: string) => Promise<RoleChangeResult>>();
 const mockTransferOwnership =
-  vi.fn<
-    (
-      client: App["client"],
-      fromId: string,
-      toId: string,
-    ) => Promise<{ success: boolean; error?: string }>
-  >();
+  vi.fn<(client: App["client"], fromId: string, toId: string) => Promise<RoleChangeResult>>();
 const mockHasOwner = vi.fn<() => Promise<boolean>>();
 const mockUserCanManageRoles = vi.fn<(userId: string) => Promise<boolean>>();
 const mockUserCanEditConfig = vi.fn<(userId: string) => Promise<boolean>>();
@@ -479,6 +472,7 @@ describe("claim_ownership action", () => {
     mockHasOwner.mockImplementation(async () => true);
     mockClaimOwnershipFromDisabled.mockImplementation(async () => ({
       success: false,
+      code: "owner_still_active",
       error: "Owner is active",
     }));
     const client = makeClient();
@@ -531,13 +525,14 @@ describe("transfer_ownership_modal submission", () => {
     const ackResponse = args.ack.mock.calls[0]?.[0];
     assert.ok(ackResponse);
     assert.ok(ackResponse.response_action === "errors");
-    assert.ok(ackResponse.errors.user_select_block.includes("select a user"));
+    assert.equal(ackResponse.errors.user_select_block, t("home.user_select.error_none"));
   });
 
-  it("returns error when transfer fails", async () => {
+  it("returns the localized failure message when transfer fails", async () => {
     mockTransferOwnership.mockImplementation(async () => ({
       success: false,
-      error: "Cannot transfer to yourself",
+      code: "target_disabled",
+      error: "Cannot transfer ownership to a disabled user",
     }));
     const handler = getViewHandler("transfer_ownership_modal");
     const args = createViewSubmitArgs({
@@ -550,6 +545,7 @@ describe("transfer_ownership_modal submission", () => {
     const ackResponse = args.ack.mock.calls[0]?.[0];
     assert.ok(ackResponse);
     assert.equal(ackResponse.response_action, "errors");
+    assert.equal(ackResponse.errors.user_select_block, t("home.roles.error_target_disabled"));
   });
 
   it("refreshes both users home views on success", async () => {
@@ -592,7 +588,22 @@ describe("add_admin_modal submission", () => {
     assert.equal(mockSetRole.mock.calls[0][1], "admin");
   });
 
-  it("returns error when user has no permission", async () => {
+  it("returns the localized error when no user is selected", async () => {
+    const handler = getViewHandler("add_admin_modal");
+    const args = createViewSubmitArgs({
+      userId: "U_OWNER",
+      values: { user_select_block: { selected_user: usersSelectValue(null) } },
+    });
+
+    await handler(args);
+
+    const ackResponse = args.ack.mock.calls[0]?.[0];
+    assert.ok(ackResponse);
+    assert.ok(ackResponse.response_action === "errors");
+    assert.equal(ackResponse.errors.user_select_block, t("home.user_select.error_none"));
+  });
+
+  it("returns the localized no-permission error", async () => {
     mockUserCanManageRoles.mockImplementation(async () => false);
     const handler = getViewHandler("add_admin_modal");
     const args = createViewSubmitArgs({
@@ -605,13 +616,14 @@ describe("add_admin_modal submission", () => {
     const ackResponse = args.ack.mock.calls[0]?.[0];
     assert.ok(ackResponse);
     assert.ok(ackResponse.response_action === "errors");
-    assert.ok(ackResponse.errors.user_select_block.includes("permission"));
+    assert.equal(ackResponse.errors.user_select_block, t("home.roles.add_admin_no_permission"));
   });
 
-  it("returns error when addAdmin fails", async () => {
+  it("renders the localized code message when the role change fails", async () => {
     mockSetRole.mockImplementation(async () => ({
       success: false,
-      error: "User is already an admin",
+      code: "owner_role_locked",
+      error: "Cannot change the owner's role. Use transfer ownership instead.",
     }));
     const handler = getViewHandler("add_admin_modal");
     const args = createViewSubmitArgs({
@@ -624,7 +636,7 @@ describe("add_admin_modal submission", () => {
     const ackResponse = args.ack.mock.calls[0]?.[0];
     assert.ok(ackResponse);
     assert.ok(ackResponse.response_action === "errors");
-    assert.ok(ackResponse.errors.user_select_block.includes("already an admin"));
+    assert.equal(ackResponse.errors.user_select_block, t("home.roles.error_owner_role_locked"));
   });
 });
 
@@ -680,7 +692,7 @@ describe("remove_admin_modal submission", () => {
     assert.equal(mockSetRole.mock.calls[0][1], "member");
   });
 
-  it("returns error when no user selected", async () => {
+  it("returns the localized error when no user selected", async () => {
     const handler = getViewHandler("remove_admin_modal");
     const args = createViewSubmitArgs({
       userId: "U_OWNER",
@@ -692,6 +704,43 @@ describe("remove_admin_modal submission", () => {
     const ackResponse = args.ack.mock.calls[0]?.[0];
     assert.ok(ackResponse);
     assert.equal(ackResponse.response_action, "errors");
+    assert.equal(ackResponse.errors.user_select_block, t("home.user_select.error_none"));
+  });
+
+  it("returns the localized no-permission error", async () => {
+    mockUserCanManageRoles.mockImplementation(async () => false);
+    const handler = getViewHandler("remove_admin_modal");
+    const args = createViewSubmitArgs({
+      userId: "U_MEMBER",
+      values: { user_select_block: { selected_user: staticSelectValue("U_ADMIN1") } },
+    });
+
+    await handler(args);
+
+    const ackResponse = args.ack.mock.calls[0]?.[0];
+    assert.ok(ackResponse);
+    assert.equal(ackResponse.response_action, "errors");
+    assert.equal(ackResponse.errors.user_select_block, t("home.roles.remove_admin_no_permission"));
+  });
+
+  it("renders the localized code message when the role change fails", async () => {
+    mockSetRole.mockImplementation(async () => ({
+      success: false,
+      code: "owner_role_locked",
+      error: "Cannot change the owner's role. Use transfer ownership instead.",
+    }));
+    const handler = getViewHandler("remove_admin_modal");
+    const args = createViewSubmitArgs({
+      userId: "U_OWNER",
+      values: { user_select_block: { selected_user: staticSelectValue("U_ADMIN1") } },
+    });
+
+    await handler(args);
+
+    const ackResponse = args.ack.mock.calls[0]?.[0];
+    assert.ok(ackResponse);
+    assert.equal(ackResponse.response_action, "errors");
+    assert.equal(ackResponse.errors.user_select_block, t("home.roles.error_owner_role_locked"));
   });
 });
 
@@ -1190,7 +1239,7 @@ describe("config_editor_modal submission", () => {
     const ackResponse = args.ack.mock.calls[0]?.[0];
     assert.ok(ackResponse);
     assert.ok(ackResponse.response_action === "errors");
-    assert.ok(ackResponse.errors.content_block.includes("permission"));
+    assert.equal(ackResponse.errors.content_block, t("home.config.error_no_edit_permission"));
     assert.equal(mockWriteInstructionFile.mock.calls.length, 0);
   });
 });
@@ -1260,7 +1309,10 @@ describe("config_create_modal submission", () => {
     const ackResponse = args.ack.mock.calls[0]?.[0];
     assert.ok(ackResponse);
     assert.ok(ackResponse.response_action === "errors");
-    assert.ok(ackResponse.errors.filename_block.includes("already exists"));
+    assert.equal(
+      ackResponse.errors.filename_block,
+      t("home.config.error_file_exists", { filename: "identity.md", dir: "user" }),
+    );
     assert.equal(mockWriteInstructionFile.mock.calls.length, 0);
   });
 
@@ -1281,7 +1333,7 @@ describe("config_create_modal submission", () => {
     const ackResponse = args.ack.mock.calls[0]?.[0];
     assert.ok(ackResponse);
     assert.ok(ackResponse.response_action === "errors");
-    assert.ok(ackResponse.errors.filename_block.includes("permission"));
+    assert.equal(ackResponse.errors.filename_block, t("home.config.error_no_create_permission"));
   });
 });
 

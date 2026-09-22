@@ -51,6 +51,25 @@ export const en = {
   "home.roles.add_dev": "+ Add Dev",
   "home.roles.remove_dev": "- Remove Dev",
   "home.roles.modal_title": "Role Management",
+  "home.roles.add_admin_modal_title": "Add Admin",
+  "home.roles.add_admin_select_prompt": "Select user to add admin",
+  "home.roles.add_admin_no_permission": "You don't have permission to add admins",
+  "home.roles.remove_admin_modal_title": "Remove Admin",
+  "home.roles.remove_admin_no_permission": "You don't have permission to remove admins",
+  "home.roles.add_dev_modal_title": "Add Dev",
+  "home.roles.add_dev_select_prompt": "Select user to add dev",
+  "home.roles.add_dev_no_permission": "You don't have permission to add devs",
+  "home.roles.remove_dev_modal_title": "Remove Dev",
+  "home.roles.remove_dev_no_permission": "You don't have permission to remove devs",
+  "home.roles.transfer_modal_title": "Transfer Ownership",
+  "home.roles.transfer_select_prompt": "Select new owner",
+  "home.roles.error_role_not_assignable": "That role can't be assigned.",
+  "home.roles.error_owner_role_locked":
+    "Can't change the owner's role. Use transfer ownership instead.",
+  "home.roles.error_owner_still_active": "The current owner is still active.",
+  "home.roles.error_not_admin": "Only admins can claim ownership from a disabled owner.",
+  "home.roles.error_not_owner": "Only the owner can transfer ownership.",
+  "home.roles.error_target_disabled": "Can't transfer ownership to a disabled user.",
 
   // ─── Home Tab: configuration section ───────────────────────────────
   "home.config.header": "Configuration",
@@ -92,6 +111,18 @@ export const en = {
   "home.config.filename_placeholder": "my-instructions",
   "home.config.filename_hint": ".md extension is added automatically",
   "home.config.content_placeholder": "Enter instruction content...",
+  "home.config.source_customized": "Customized",
+  "home.config.source_custom": "Custom",
+  "home.config.error_no_edit_permission": "You don't have permission to edit configuration",
+  "home.config.error_save_failed": "Failed to save file",
+  "home.config.error_no_create_permission": "You don't have permission to create files",
+  "home.config.error_file_exists": 'File "{filename}" already exists in {dir}/',
+  "home.config.error_create_failed": "Failed to create file",
+  "home.config.deleted_title": "Deleted",
+  "home.config.file_deleted_text": "`{filename}` has been deleted.",
+  "home.config.chat_edit_intro":
+    "Here's the current content of `{filepath}`. Reply with your changes or instructions for how to update this file.",
+  "home.config.chat_edit_sent": "Sent `{filepath}` to your DMs. Check your messages.",
 
   // ─── Home Tab: status section ──────────────────────────────────────
   "home.status.header": "Status",
@@ -203,6 +234,7 @@ export const en = {
 
   // ─── Home Tab: user select / remove modals ─────────────────────────
   "home.user_select.label": "Select User",
+  "home.user_select.error_none": "Please select a user",
   "home.user_remove.prompt": "Select a user to remove:",
   "home.user_remove.placeholder": "Select user to remove",
   "home.user_remove.label": "User",
@@ -343,6 +375,17 @@ export const en = {
     "Read-only — this scheduled message is reconciled from plugin config. To change the schedule or prompt, edit `data/config.json`.",
   "home.scheduled.plugin_pause_explanation":
     "Pausing stops this schedule from firing until you resume it. The plugin config is unchanged — the next reconcile will not bring it back.",
+  "home.scheduled.sending_title": "Sending...",
+  "home.scheduled.sending_text":
+    "Running scheduled message in <#{channel}>. This may take a moment.",
+  "home.scheduled.deleted_title": "Deleted",
+  "home.scheduled.deleted_text": "Scheduled message deleted.",
+  "home.scheduled.error_name_required": "Provide a short descriptive name",
+  "home.scheduled.error_channel_required": "Select a channel",
+  "home.scheduled.error_cron_required": "Provide a cron expression",
+  "home.scheduled.error_prompt_required": "Provide a prompt",
+  "home.scheduled.error_cron_invalid": "Invalid cron expression",
+  "home.scheduled.error_jitter_range": "Enter a whole number of minutes between 0 and {max}",
   "home.scheduled.shared_header": "Shared",
   "home.scheduled.yours_header": "Yours",
   "home.scheduled.non_accessible_header": "Non-Accessible",

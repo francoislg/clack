@@ -1,4 +1,4 @@
-import type { App, BlockAction, ViewSubmitAction } from "@slack/bolt";
+import type { App, BlockAction, ButtonAction, ViewSubmitAction } from "@slack/bolt";
 import type { View } from "@slack/types";
 import { logger } from "../../logger.js";
 import {
@@ -10,6 +10,8 @@ import {
   transferOwnership,
   hasOwner,
   getRole,
+  type RoleChangeFailure,
+  type RoleChangeResult,
 } from "../../roles.js";
 import { clearQuarantinedWorker } from "../../workers/index.js";
 import { userCanManageRoles, userCanEditConfig } from "../../permissions.js";
@@ -50,6 +52,7 @@ import type { ReactionDelivery } from "../../userPreferences.js";
 import { getConfig, type JsonObject } from "../../config.js";
 import { discoverUserSkills } from "../../userSkills.js";
 import { t } from "../../i18n/t.js";
+import type { StringKey } from "../../i18n/strings/en.js";
 import { toggleJob, deleteJob, getJob, updateJob, MAX_JITTER_MINUTES } from "../../cronJobs.js";
 import { getQuarantineStore } from "../../state/stateQuarantineRegistry.js";
 import { runJobNow } from "../../cronScheduler.js";
@@ -286,7 +289,50 @@ export async function publishHomeView(
   });
 }
 
-type RoleResult = { success: boolean; error?: string };
+/**
+ * i18n key bundle for a role add/remove flow. Keys (not resolved strings) are held so `t()`
+ * runs inside the handler at interaction time, reading the configured language per interaction.
+ */
+interface RoleActionLabels {
+  title: StringKey;
+  selectPrompt?: StringKey;
+  noPermission: StringKey;
+}
+
+const ADD_ADMIN_LABELS = {
+  title: "home.roles.add_admin_modal_title",
+  selectPrompt: "home.roles.add_admin_select_prompt",
+  noPermission: "home.roles.add_admin_no_permission",
+} as const satisfies RoleActionLabels;
+
+const ADD_DEV_LABELS = {
+  title: "home.roles.add_dev_modal_title",
+  selectPrompt: "home.roles.add_dev_select_prompt",
+  noPermission: "home.roles.add_dev_no_permission",
+} as const satisfies RoleActionLabels;
+
+const REMOVE_ADMIN_LABELS = {
+  title: "home.roles.remove_admin_modal_title",
+  noPermission: "home.roles.remove_admin_no_permission",
+} as const satisfies RoleActionLabels;
+
+const REMOVE_DEV_LABELS = {
+  title: "home.roles.remove_dev_modal_title",
+  noPermission: "home.roles.remove_dev_no_permission",
+} as const satisfies RoleActionLabels;
+
+type AddRoleLabels = typeof ADD_ADMIN_LABELS | typeof ADD_DEV_LABELS;
+type RemoveRoleLabels = typeof REMOVE_ADMIN_LABELS | typeof REMOVE_DEV_LABELS;
+
+/** Localized message key for each role-change failure code (direct-to-Slack path). */
+const ROLE_CHANGE_FAILURE_KEYS = {
+  role_not_assignable: "home.roles.error_role_not_assignable",
+  owner_role_locked: "home.roles.error_owner_role_locked",
+  owner_still_active: "home.roles.error_owner_still_active",
+  not_admin: "home.roles.error_not_admin",
+  not_owner: "home.roles.error_not_owner",
+  target_disabled: "home.roles.error_target_disabled",
+} as const satisfies Record<RoleChangeFailure, StringKey>;
 
 /**
  * Register a pair of button + modal handlers for adding a role.
@@ -295,21 +341,21 @@ function registerAddRoleHandlers(
   app: App,
   buttonId: string,
   modalId: string,
-  title: string,
-  roleFn: (userId: string) => Promise<RoleResult>,
+  labels: AddRoleLabels,
+  roleFn: (userId: string) => Promise<RoleChangeResult>,
   deps: HomeTabDeps = defaultHomeTabDeps,
 ) {
-  app.action<BlockAction>(buttonId, async ({ ack, body, client }) => {
+  app.action<BlockAction<ButtonAction>>(buttonId, async ({ ack, body, client }) => {
     await ack();
     try {
       await openOrPushModal(
         client,
         body,
         body.trigger_id,
-        deps.buildUserSelectModal(title, modalId, `Select user to ${title.toLowerCase()}`),
+        deps.buildUserSelectModal(t(labels.title), modalId, t(labels.selectPrompt)),
       );
     } catch (error) {
-      logger.error(`Failed to open ${title} modal:`, error);
+      logger.error(`Failed to open ${modalId} modal:`, error);
     }
   });
 
@@ -320,14 +366,14 @@ function registerAddRoleHandlers(
     if (!selectedUser) {
       await ack({
         response_action: "errors",
-        errors: { user_select_block: "Please select a user" },
+        errors: { user_select_block: t("home.user_select.error_none") },
       });
       return;
     }
     if (!(await deps.userCanManageRoles(currentUserId))) {
       await ack({
         response_action: "errors",
-        errors: { user_select_block: `You don't have permission to ${title.toLowerCase()}s` },
+        errors: { user_select_block: t(labels.noPermission) },
       });
       return;
     }
@@ -336,7 +382,7 @@ function registerAddRoleHandlers(
     if (!result.success) {
       await ack({
         response_action: "errors",
-        errors: { user_select_block: result.error || `Failed to ${title.toLowerCase()}` },
+        errors: { user_select_block: t(ROLE_CHANGE_FAILURE_KEYS[result.code]) },
       });
       return;
     }
@@ -353,12 +399,12 @@ function registerRemoveRoleHandlers(
   app: App,
   buttonId: string,
   modalId: string,
-  title: string,
+  labels: RemoveRoleLabels,
   listKey: "admins" | "devs",
-  roleFn: (userId: string) => Promise<RoleResult>,
+  roleFn: (userId: string) => Promise<RoleChangeResult>,
   deps: HomeTabDeps = defaultHomeTabDeps,
 ) {
-  app.action<BlockAction>(buttonId, async ({ ack, body, client }) => {
+  app.action<BlockAction<ButtonAction>>(buttonId, async ({ ack, body, client }) => {
     await ack();
     try {
       const roles = await deps.loadRoles();
@@ -367,10 +413,10 @@ function registerRemoveRoleHandlers(
         client,
         body,
         body.trigger_id,
-        deps.buildRemoveUserModal(title, modalId, roles[listKey]),
+        deps.buildRemoveUserModal(t(labels.title), modalId, roles[listKey]),
       );
     } catch (error) {
-      logger.error(`Failed to open ${title} modal:`, error);
+      logger.error(`Failed to open ${modalId} modal:`, error);
     }
   });
 
@@ -381,14 +427,14 @@ function registerRemoveRoleHandlers(
     if (!selectedUser) {
       await ack({
         response_action: "errors",
-        errors: { user_select_block: "Please select a user" },
+        errors: { user_select_block: t("home.user_select.error_none") },
       });
       return;
     }
     if (!(await deps.userCanManageRoles(currentUserId))) {
       await ack({
         response_action: "errors",
-        errors: { user_select_block: `You don't have permission to ${title.toLowerCase()}s` },
+        errors: { user_select_block: t(labels.noPermission) },
       });
       return;
     }
@@ -397,7 +443,7 @@ function registerRemoveRoleHandlers(
     if (!result.success) {
       await ack({
         response_action: "errors",
-        errors: { user_select_block: result.error || `Failed to ${title.toLowerCase()}` },
+        errors: { user_select_block: t(ROLE_CHANGE_FAILURE_KEYS[result.code]) },
       });
       return;
     }
@@ -458,9 +504,9 @@ export function registerHomeTabHandler(app: App, deps: HomeTabDeps = defaultHome
         body,
         body.trigger_id,
         deps.buildUserSelectModal(
-          "Transfer Ownership",
+          t("home.roles.transfer_modal_title"),
           "transfer_ownership_modal",
-          "Select new owner",
+          t("home.roles.transfer_select_prompt"),
         ),
       );
     } catch (error) {
@@ -477,7 +523,7 @@ export function registerHomeTabHandler(app: App, deps: HomeTabDeps = defaultHome
       await ack({
         response_action: "errors",
         errors: {
-          user_select_block: "Please select a user",
+          user_select_block: t("home.user_select.error_none"),
         },
       });
       return;
@@ -489,7 +535,7 @@ export function registerHomeTabHandler(app: App, deps: HomeTabDeps = defaultHome
       await ack({
         response_action: "errors",
         errors: {
-          user_select_block: result.error || "Failed to transfer ownership",
+          user_select_block: t(ROLE_CHANGE_FAILURE_KEYS[result.code]),
         },
       });
       return;
@@ -507,7 +553,7 @@ export function registerHomeTabHandler(app: App, deps: HomeTabDeps = defaultHome
     app,
     "add_admin",
     "add_admin_modal",
-    "Add Admin",
+    ADD_ADMIN_LABELS,
     (userId) => deps.setRole(userId, "admin"),
     deps,
   );
@@ -515,7 +561,7 @@ export function registerHomeTabHandler(app: App, deps: HomeTabDeps = defaultHome
     app,
     "remove_admin",
     "remove_admin_modal",
-    "Remove Admin",
+    REMOVE_ADMIN_LABELS,
     "admins",
     (userId) => deps.setRole(userId, "member"),
     deps,
@@ -524,7 +570,7 @@ export function registerHomeTabHandler(app: App, deps: HomeTabDeps = defaultHome
     app,
     "add_dev",
     "add_dev_modal",
-    "Add Dev",
+    ADD_DEV_LABELS,
     (userId) => deps.setRole(userId, "dev"),
     deps,
   );
@@ -532,7 +578,7 @@ export function registerHomeTabHandler(app: App, deps: HomeTabDeps = defaultHome
     app,
     "remove_dev",
     "remove_dev_modal",
-    "Remove Dev",
+    REMOVE_DEV_LABELS,
     "devs",
     (userId) => deps.setRole(userId, "member"),
     deps,
@@ -599,11 +645,8 @@ export function registerHomeTabHandler(app: App, deps: HomeTabDeps = defaultHome
     for (const { plugin, preferences } of deps.getLoadedPluginPreferences()) {
       const partial: { [key: string]: boolean } = {};
       for (const field of preferences.fields) {
-        const selected = (
-          view.state.values as {
-            [key: string]: { [key: string]: { selected_options?: Array<{ value: string }> } };
-          }
-        )[`plugin_pref:${plugin}:${field.key}`]?.[field.key]?.selected_options;
+        const selected =
+          view.state.values[`plugin_pref:${plugin}:${field.key}`]?.[field.key]?.selected_options;
         partial[field.key] = Array.isArray(selected) && selected.length > 0;
       }
       const parsed = preferences.schema.safeParse(partial);
@@ -741,102 +784,118 @@ export function registerHomeTabHandler(app: App, deps: HomeTabDeps = defaultHome
   // =========================================================================
 
   // Handle [View] button on a directory — open file picker modal
-  app.action<BlockAction>(/^view_config_dir:/, async ({ ack, body, client, action }) => {
-    await ack();
+  app.action<BlockAction<ButtonAction>>(
+    /^view_config_dir:/,
+    async ({ ack, body, client, action }) => {
+      await ack();
 
-    try {
-      const dir = (action as { value?: string }).value;
-      if (!dir) return;
+      try {
+        const dir = action.value;
+        if (!dir) return;
 
-      const listing = deps.listInstructionFiles();
+        const listing = deps.listInstructionFiles();
 
-      // The picker handles three kinds of directories: real roles, the pre-analysis
-      // pseudo-directory, and per-repo directories. Topic files are not surfaced here
-      // — the Home Tab keeps its baseline-only representation; topic editing flows
-      // through chat-based MCP tools.
-      const roleEntry = listing.roles.find((r) => r.role === dir);
-      const isPreAnalysis = dir === "pre-analysis";
-      let files: ConfigFilePickerEntry[];
-      let isRepoDir: boolean;
+        // The picker handles three kinds of directories: real roles, the pre-analysis
+        // pseudo-directory, and per-repo directories. Topic files are not surfaced here
+        // — the Home Tab keeps its baseline-only representation; topic editing flows
+        // through chat-based MCP tools.
+        const roleEntry = listing.roles.find((r) => r.role === dir);
+        const isPreAnalysis = dir === "pre-analysis";
+        let files: ConfigFilePickerEntry[];
+        let isRepoDir: boolean;
 
-      if (roleEntry) {
-        isRepoDir = false;
-        files = roleEntry.files.map((f) => ({
-          filename: f.file,
-          sourceLabel:
-            f.status === "customized" ? "Customized" : f.status === "custom-only" ? "Custom" : "",
-          effectiveLength: deps.getEffectiveContentLength(`${dir}/${f.file}`),
-        }));
-      } else if (isPreAnalysis) {
-        isRepoDir = false;
-        files = listing.preAnalysis.map((f) => ({
-          filename: f.file,
-          sourceLabel:
-            f.status === "customized" ? "Customized" : f.status === "custom-only" ? "Custom" : "",
-          effectiveLength: deps.getEffectiveContentLength(`${dir}/${f.file}`),
-        }));
-      } else {
-        isRepoDir = true;
-        const repoEntry = listing.repos.find((r) => r.repo === dir);
-        files = (repoEntry?.files ?? []).map((f) => {
-          const sourceLabel =
-            f.status === "customized" || f.status === "custom-only" ? "Customized" : "";
-          return {
+        if (roleEntry) {
+          isRepoDir = false;
+          files = roleEntry.files.map((f) => ({
             filename: f.file,
-            sourceLabel,
+            sourceLabel:
+              f.status === "customized"
+                ? t("home.config.source_customized")
+                : f.status === "custom-only"
+                  ? t("home.config.source_custom")
+                  : "",
             effectiveLength: deps.getEffectiveContentLength(`${dir}/${f.file}`),
-          };
-        });
-      }
+          }));
+        } else if (isPreAnalysis) {
+          isRepoDir = false;
+          files = listing.preAnalysis.map((f) => ({
+            filename: f.file,
+            sourceLabel:
+              f.status === "customized"
+                ? t("home.config.source_customized")
+                : f.status === "custom-only"
+                  ? t("home.config.source_custom")
+                  : "",
+            effectiveLength: deps.getEffectiveContentLength(`${dir}/${f.file}`),
+          }));
+        } else {
+          isRepoDir = true;
+          const repoEntry = listing.repos.find((r) => r.repo === dir);
+          files = (repoEntry?.files ?? []).map((f) => {
+            const sourceLabel =
+              f.status === "customized" || f.status === "custom-only"
+                ? t("home.config.source_customized")
+                : "";
+            return {
+              filename: f.file,
+              sourceLabel,
+              effectiveLength: deps.getEffectiveContentLength(`${dir}/${f.file}`),
+            };
+          });
+        }
 
-      await client.views.open({
-        trigger_id: body.trigger_id,
-        view: deps.buildConfigFilePickerModal(dir, files, isRepoDir),
-      });
-    } catch (error) {
-      logger.error("Failed to open config file picker:", error);
-    }
-  });
+        await client.views.open({
+          trigger_id: body.trigger_id,
+          view: deps.buildConfigFilePickerModal(dir, files, isRepoDir),
+        });
+      } catch (error) {
+        logger.error("Failed to open config file picker:", error);
+      }
+    },
+  );
 
   // Handle [Edit] button on a file — push editor modal
-  app.action<BlockAction>("edit_config_file", async ({ ack, body, client, action }) => {
-    await ack();
+  app.action<BlockAction<ButtonAction>>(
+    "edit_config_file",
+    async ({ ack, body, client, action }) => {
+      await ack();
 
-    try {
-      const filepath = (action as { value?: string }).value;
-      if (!filepath) return;
+      try {
+        const filepath = action.value;
+        if (!filepath) return;
 
-      const parts = filepath.split("/");
-      if (parts.length !== 2) return;
-      const [dir, filename] = parts;
+        const parts = filepath.split("/");
+        if (parts.length !== 2) return;
+        const [dir, filename] = parts;
 
-      const { default_content, custom_content } = deps.readInstructionFile(filepath);
+        const { default_content, custom_content } = deps.readInstructionFile(filepath);
 
-      let fileState: ConfigFileState;
-      let content: string;
-      if (custom_content !== null && default_content !== null) {
-        fileState = "has-override";
-        content = custom_content;
-      } else if (custom_content !== null) {
-        fileState = "custom-only";
-        content = custom_content;
-      } else {
-        fileState = "default-only";
-        content = default_content ?? "";
+        let fileState: ConfigFileState;
+        let content: string;
+        if (custom_content !== null && default_content !== null) {
+          fileState = "has-override";
+          content = custom_content;
+        } else if (custom_content !== null) {
+          fileState = "custom-only";
+          content = custom_content;
+        } else {
+          fileState = "default-only";
+          content = default_content ?? "";
+        }
+
+        // Get the view ID from the body to push onto it
+        const viewId = viewIdFromBody(body);
+        if (!viewId) return;
+
+        await client.views.push({
+          trigger_id: body.trigger_id,
+          view: deps.buildConfigEditorModal(dir, filename, content, fileState),
+        });
+      } catch (error) {
+        logger.error("Failed to open config editor:", error);
       }
-
-      // Get the view ID from the body to push onto it
-      const viewId = viewIdFromBody(body);
-      if (!viewId) return;
-
-      await client.views.push({
-        trigger_id: body.trigger_id,
-        view: deps.buildConfigEditorModal(dir, filename, content, fileState),
-      });
-    } catch (error) {
-      logger.error("Failed to open config editor:", error);
-    }
-  });
+    },
+  );
 
   // Handle editor modal submission — save file
   app.view<ViewSubmitAction>("config_editor_modal", async ({ ack, view, body, client }) => {
@@ -845,7 +904,7 @@ export function registerHomeTabHandler(app: App, deps: HomeTabDeps = defaultHome
     if (!(await deps.userCanEditConfig(userId))) {
       await ack({
         response_action: "errors",
-        errors: { content_block: "You don't have permission to edit configuration" },
+        errors: { content_block: t("home.config.error_no_edit_permission") },
       });
       return;
     }
@@ -860,26 +919,32 @@ export function registerHomeTabHandler(app: App, deps: HomeTabDeps = defaultHome
       await publishHomeView(client, userId, deps);
     } catch (error) {
       logger.error(`Failed to save config file ${dir}/${filename}:`, error);
-      await ack({ response_action: "errors", errors: { content_block: "Failed to save file" } });
+      await ack({
+        response_action: "errors",
+        errors: { content_block: t("home.config.error_save_failed") },
+      });
     }
   });
 
   // Handle [+ Create New File] button — push create modal
-  app.action<BlockAction>("create_config_file", async ({ ack, body, client, action }) => {
-    await ack();
+  app.action<BlockAction<ButtonAction>>(
+    "create_config_file",
+    async ({ ack, body, client, action }) => {
+      await ack();
 
-    try {
-      const dir = (action as { value?: string }).value;
-      if (!dir) return;
+      try {
+        const dir = action.value;
+        if (!dir) return;
 
-      await client.views.push({
-        trigger_id: body.trigger_id,
-        view: deps.buildConfigCreateFileModal(dir),
-      });
-    } catch (error) {
-      logger.error("Failed to open create config file modal:", error);
-    }
-  });
+        await client.views.push({
+          trigger_id: body.trigger_id,
+          view: deps.buildConfigCreateFileModal(dir),
+        });
+      } catch (error) {
+        logger.error("Failed to open create config file modal:", error);
+      }
+    },
+  );
 
   // Handle create file modal submission
   app.view<ViewSubmitAction>("config_create_modal", async ({ ack, view, body, client }) => {
@@ -888,7 +953,7 @@ export function registerHomeTabHandler(app: App, deps: HomeTabDeps = defaultHome
     if (!(await deps.userCanEditConfig(userId))) {
       await ack({
         response_action: "errors",
-        errors: { filename_block: "You don't have permission to create files" },
+        errors: { filename_block: t("home.config.error_no_create_permission") },
       });
       return;
     }
@@ -907,7 +972,7 @@ export function registerHomeTabHandler(app: App, deps: HomeTabDeps = defaultHome
     if (existing.default_content !== null || existing.custom_content !== null) {
       await ack({
         response_action: "errors",
-        errors: { filename_block: `File "${filename}" already exists in ${dir}/` },
+        errors: { filename_block: t("home.config.error_file_exists", { filename, dir }) },
       });
       return;
     }
@@ -919,66 +984,72 @@ export function registerHomeTabHandler(app: App, deps: HomeTabDeps = defaultHome
       await publishHomeView(client, userId, deps);
     } catch (error) {
       logger.error(`Failed to create config file ${dir}/${filename}:`, error);
-      await ack({ response_action: "errors", errors: { filename_block: "Failed to create file" } });
+      await ack({
+        response_action: "errors",
+        errors: { filename_block: t("home.config.error_create_failed") },
+      });
     }
   });
 
   // Handle delete/reset button in editor modal
-  app.action<BlockAction>("delete_config_file", async ({ ack, body, client, action }) => {
-    await ack();
+  app.action<BlockAction<ButtonAction>>(
+    "delete_config_file",
+    async ({ ack, body, client, action }) => {
+      await ack();
 
-    const userId = body.user.id;
+      const userId = body.user.id;
 
-    try {
-      if (!(await deps.userCanEditConfig(userId))) {
-        return;
+      try {
+        if (!(await deps.userCanEditConfig(userId))) {
+          return;
+        }
+
+        const filepath = action.value;
+        if (!filepath) return;
+
+        const parts = filepath.split("/");
+        if (parts.length !== 2) return;
+        const [dir, filename] = parts;
+
+        // Check if a default exists before deleting
+        const { default_content } = deps.readInstructionFile(filepath);
+
+        deps.deleteInstructionFile(filepath);
+        logger.info(`User ${userId} deleted config file ${filepath}`);
+
+        const viewId = viewIdFromBody(body);
+        if (!viewId) return;
+
+        if (default_content !== null) {
+          // Default exists — update the modal to show default content
+          await client.views.update({
+            view_id: viewId,
+            view: deps.buildConfigEditorModal(dir, filename, default_content, "default-only"),
+          });
+        } else {
+          // Custom-only file deleted — close stacked modal by clearing it
+          await client.views.update({
+            view_id: viewId,
+            view: {
+              type: "modal",
+              title: { type: "plain_text", text: t("home.config.deleted_title") },
+              close: { type: "plain_text", text: t("common.close") },
+              blocks: [
+                {
+                  type: "section",
+                  text: { type: "mrkdwn", text: t("home.config.file_deleted_text", { filename }) },
+                },
+              ],
+            },
+          });
+        }
+
+        await publishHomeView(client, userId, deps);
+      } catch (error) {
+        logger.error("Failed to delete config file:", error);
       }
-
-      const filepath = (action as { value?: string }).value;
-      if (!filepath) return;
-
-      const parts = filepath.split("/");
-      if (parts.length !== 2) return;
-      const [dir, filename] = parts;
-
-      // Check if a default exists before deleting
-      const { default_content } = deps.readInstructionFile(filepath);
-
-      deps.deleteInstructionFile(filepath);
-      logger.info(`User ${userId} deleted config file ${filepath}`);
-
-      const viewId = viewIdFromBody(body);
-      if (!viewId) return;
-
-      if (default_content !== null) {
-        // Default exists — update the modal to show default content
-        await client.views.update({
-          view_id: viewId,
-          view: deps.buildConfigEditorModal(dir, filename, default_content, "default-only"),
-        });
-      } else {
-        // Custom-only file deleted — close stacked modal by clearing it
-        await client.views.update({
-          view_id: viewId,
-          view: {
-            type: "modal",
-            title: { type: "plain_text", text: "Deleted" },
-            close: { type: "plain_text", text: "Close" },
-            blocks: [
-              {
-                type: "section",
-                text: { type: "mrkdwn", text: `\`${filename}\` has been deleted.` },
-              },
-            ],
-          },
-        });
-      }
-
-      await publishHomeView(client, userId, deps);
-    } catch (error) {
-      logger.error("Failed to delete config file:", error);
-    }
-  });
+    },
+  );
 
   // =========================================================================
   // Auto-respond handlers
@@ -996,11 +1067,11 @@ export function registerHomeTabHandler(app: App, deps: HomeTabDeps = defaultHome
   });
 
   // Edit Rule button → open pre-populated modal (admin only)
-  app.action<BlockAction>(/^ai_edit_rule:/, async ({ ack, body, client, action }) => {
+  app.action<BlockAction<ButtonAction>>(/^ai_edit_rule:/, async ({ ack, body, client, action }) => {
     await ack();
     try {
       if (!(await deps.userCanManageRoles(body.user.id))) return;
-      const ruleId = (action as { action_id: string }).action_id.split(":")[1];
+      const ruleId = action.action_id.split(":")[1];
       const rule = await deps.getRule(ruleId);
       if (!rule) return;
       await openOrPushModal(client, body, body.trigger_id, deps.buildAutoRespondModal(rule));
@@ -1010,77 +1081,86 @@ export function registerHomeTabHandler(app: App, deps: HomeTabDeps = defaultHome
   });
 
   // Toggle Rule button (inside edit modal)
-  app.action<BlockAction>(/^ai_toggle_rule:/, async ({ ack, body, client, action }) => {
-    await ack();
-    try {
-      if (!(await deps.userCanManageRoles(body.user.id))) return;
-      const ruleId = (action as { action_id: string }).action_id.split(":")[1];
-      const updated = await deps.toggleRule(ruleId);
-      // Refresh the modal to reflect the new state
-      if (updated) {
-        const viewId = viewIdFromBody(body);
-        if (viewId) {
-          await client.views.update({
-            view_id: viewId,
-            view: deps.buildAutoRespondModal(updated),
-          });
+  app.action<BlockAction<ButtonAction>>(
+    /^ai_toggle_rule:/,
+    async ({ ack, body, client, action }) => {
+      await ack();
+      try {
+        if (!(await deps.userCanManageRoles(body.user.id))) return;
+        const ruleId = action.action_id.split(":")[1];
+        const updated = await deps.toggleRule(ruleId);
+        // Refresh the modal to reflect the new state
+        if (updated) {
+          const viewId = viewIdFromBody(body);
+          if (viewId) {
+            await client.views.update({
+              view_id: viewId,
+              view: deps.buildAutoRespondModal(updated),
+            });
+          }
         }
+        await publishHomeView(client, body.user.id, deps);
+      } catch (error) {
+        logger.error("Failed to toggle auto-respond rule:", error);
       }
-      await publishHomeView(client, body.user.id, deps);
-    } catch (error) {
-      logger.error("Failed to toggle auto-respond rule:", error);
-    }
-  });
+    },
+  );
 
   // Stop following button on an ephemeral conversation row (admin only) — deletes the
   // channel's conversation window. The row lives inside the Auto-Respond modal, so refresh
   // that modal in place, then re-render the Home Tab underneath.
-  app.action<BlockAction>(/^ai_stop_following:/, async ({ ack, body, client, action }) => {
-    await ack();
-    try {
-      if (!(await deps.userCanManageRoles(body.user.id))) return;
-      const ruleId = (action as { action_id: string }).action_id.split(":")[1];
-      await deps.deleteRule(ruleId);
-      const viewId = viewIdFromBody(body);
-      if (viewId) {
-        await client.views.update({ view_id: viewId, view: await buildAutoRespondModalView() });
+  app.action<BlockAction<ButtonAction>>(
+    /^ai_stop_following:/,
+    async ({ ack, body, client, action }) => {
+      await ack();
+      try {
+        if (!(await deps.userCanManageRoles(body.user.id))) return;
+        const ruleId = action.action_id.split(":")[1];
+        await deps.deleteRule(ruleId);
+        const viewId = viewIdFromBody(body);
+        if (viewId) {
+          await client.views.update({ view_id: viewId, view: await buildAutoRespondModalView() });
+        }
+        await publishHomeView(client, body.user.id, deps);
+      } catch (error) {
+        logger.error("Failed to stop following channel conversation:", error);
       }
-      await publishHomeView(client, body.user.id, deps);
-    } catch (error) {
-      logger.error("Failed to stop following channel conversation:", error);
-    }
-  });
+    },
+  );
 
   // Delete Rule button (inside edit modal — has confirm dialog)
-  app.action<BlockAction>(/^ai_delete_rule:/, async ({ ack, body, client, action }) => {
-    await ack();
-    try {
-      if (!(await deps.userCanManageRoles(body.user.id))) return;
-      const ruleId = (action as { action_id: string }).action_id.split(":")[1];
-      await deps.deleteRule(ruleId);
-      // Close the modal by replacing it with a brief confirmation
-      const viewId = viewIdFromBody(body);
-      if (viewId) {
-        await client.views.update({
-          view_id: viewId,
-          view: {
-            type: "modal",
-            title: { type: "plain_text", text: t("home.auto_respond.deleted_title") },
-            close: { type: "plain_text", text: t("common.close") },
-            blocks: [
-              {
-                type: "section",
-                text: { type: "mrkdwn", text: t("home.auto_respond.deleted_text") },
-              },
-            ],
-          },
-        });
+  app.action<BlockAction<ButtonAction>>(
+    /^ai_delete_rule:/,
+    async ({ ack, body, client, action }) => {
+      await ack();
+      try {
+        if (!(await deps.userCanManageRoles(body.user.id))) return;
+        const ruleId = action.action_id.split(":")[1];
+        await deps.deleteRule(ruleId);
+        // Close the modal by replacing it with a brief confirmation
+        const viewId = viewIdFromBody(body);
+        if (viewId) {
+          await client.views.update({
+            view_id: viewId,
+            view: {
+              type: "modal",
+              title: { type: "plain_text", text: t("home.auto_respond.deleted_title") },
+              close: { type: "plain_text", text: t("common.close") },
+              blocks: [
+                {
+                  type: "section",
+                  text: { type: "mrkdwn", text: t("home.auto_respond.deleted_text") },
+                },
+              ],
+            },
+          });
+        }
+        await publishHomeView(client, body.user.id, deps);
+      } catch (error) {
+        logger.error("Failed to delete auto-respond rule:", error);
       }
-      await publishHomeView(client, body.user.id, deps);
-    } catch (error) {
-      logger.error("Failed to delete auto-respond rule:", error);
-    }
-  });
+    },
+  );
 
   // Add Rule modal submission (admin only)
   app.view<ViewSubmitAction>("ai_add_rule_modal", async ({ ack, view, body, client }) => {
@@ -1166,108 +1246,117 @@ export function registerHomeTabHandler(app: App, deps: HomeTabDeps = defaultHome
   });
 
   // Handle "Chat to Edit" button — open DM with file content and close modal
-  app.action<BlockAction>("chat_edit_config_file", async ({ ack, body, client, action }) => {
-    await ack();
+  app.action<BlockAction<ButtonAction>>(
+    "chat_edit_config_file",
+    async ({ ack, body, client, action }) => {
+      await ack();
 
-    try {
-      const filepath = (action as { value?: string }).value;
-      if (!filepath) return;
+      try {
+        const filepath = action.value;
+        if (!filepath) return;
 
-      const userId = body.user.id;
-      const { default_content, custom_content } = deps.readInstructionFile(filepath);
-      const content = custom_content ?? default_content ?? "";
+        const userId = body.user.id;
+        const { default_content, custom_content } = deps.readInstructionFile(filepath);
+        const content = custom_content ?? default_content ?? "";
 
-      // Open DM and upload the file, then send an intro message
-      const dmChannelId = await openDmChannel(client, userId);
-      if (!dmChannelId) return;
+        // Open DM and upload the file, then send an intro message
+        const dmChannelId = await openDmChannel(client, userId);
+        if (!dmChannelId) return;
 
-      const filename = filepath.split("/").pop() ?? filepath;
-      await client.files.uploadV2({
-        channel_id: dmChannelId,
-        content,
-        filename,
-        title: filepath,
-        initial_comment: `Here's the current content of \`${filepath}\`. Reply with your changes or instructions for how to update this file.`,
-      });
-
-      // Close the modal by replacing it with a brief confirmation
-      const viewId = viewIdFromBody(body);
-      if (viewId) {
-        await client.views.update({
-          view_id: viewId,
-          view: {
-            type: "modal",
-            title: { type: "plain_text", text: "Chat to Edit" },
-            close: { type: "plain_text", text: "Close" },
-            blocks: [
-              {
-                type: "section",
-                text: {
-                  type: "mrkdwn",
-                  text: `Sent \`${filepath}\` to your DMs. Check your messages.`,
-                },
-              },
-            ],
-          },
+        const filename = filepath.split("/").pop() ?? filepath;
+        await client.files.uploadV2({
+          channel_id: dmChannelId,
+          content,
+          filename,
+          title: filepath,
+          initial_comment: t("home.config.chat_edit_intro", { filepath }),
         });
+
+        // Close the modal by replacing it with a brief confirmation
+        const viewId = viewIdFromBody(body);
+        if (viewId) {
+          await client.views.update({
+            view_id: viewId,
+            view: {
+              type: "modal",
+              title: { type: "plain_text", text: t("home.config.chat_to_edit") },
+              close: { type: "plain_text", text: t("common.close") },
+              blocks: [
+                {
+                  type: "section",
+                  text: {
+                    type: "mrkdwn",
+                    text: t("home.config.chat_edit_sent", { filepath }),
+                  },
+                },
+              ],
+            },
+          });
+        }
+      } catch (error) {
+        logger.error("Failed to start chat edit:", error);
       }
-    } catch (error) {
-      logger.error("Failed to start chat edit:", error);
-    }
-  });
+    },
+  );
 
   // Edit scheduled message button → open modal. For plugin-managed jobs, the modal opens
   // in a read-only variant (`buildCronJobModal` branches on `job.pluginManaged`) — the
   // `cron_edit_job_modal` submission handler below still rejects plugin-managed updates.
-  app.action<BlockAction>(/^cron_edit_job:/, async ({ ack, body, client, action }) => {
-    await ack();
-    try {
-      const jobId = (action as { action_id: string }).action_id.split(":")[1];
-      const job = await deps.getJob(jobId);
-      if (!job) return;
-      const viewerTz = (await getUserInfo(client, body.user.id))?.tz;
-      const role = await deps.getRole(body.user.id);
-      const canShare = canToggleShared(job, { userId: body.user.id, role });
-      await openOrPushModal(
-        client,
-        body,
-        body.trigger_id,
-        deps.buildCronJobModal(job, viewerTz, canShare),
-      );
-    } catch (error) {
-      logger.error("Failed to open edit cron job modal:", error);
-    }
-  });
+  app.action<BlockAction<ButtonAction>>(
+    /^cron_edit_job:/,
+    async ({ ack, body, client, action }) => {
+      await ack();
+      try {
+        const jobId = action.action_id.split(":")[1];
+        const job = await deps.getJob(jobId);
+        if (!job) return;
+        const viewerTz = (await getUserInfo(client, body.user.id))?.tz;
+        const role = await deps.getRole(body.user.id);
+        const canShare = canToggleShared(job, { userId: body.user.id, role });
+        await openOrPushModal(
+          client,
+          body,
+          body.trigger_id,
+          deps.buildCronJobModal(job, viewerTz, canShare),
+        );
+      } catch (error) {
+        logger.error("Failed to open edit cron job modal:", error);
+      }
+    },
+  );
 
   // Toggle button inside cron job modal
-  app.action<BlockAction>(/^cron_toggle_job:/, async ({ ack, body, client, action }) => {
-    await ack();
-    try {
-      const jobId = (action as { action_id: string }).action_id.split(":")[1];
-      const updated = await deps.toggleJob(jobId);
-      if (updated) {
-        const viewId = viewIdFromBody(body);
-        if (viewId) {
-          const viewerTz = (await getUserInfo(client, body.user.id))?.tz;
-          const role = await deps.getRole(body.user.id);
-          const canShare = canToggleShared(updated, { userId: body.user.id, role });
-          await client.views.update({
-            view_id: viewId,
-            view: deps.buildCronJobModal(updated, viewerTz, canShare),
-          });
+  app.action<BlockAction<ButtonAction>>(
+    /^cron_toggle_job:/,
+    async ({ ack, body, client, action }) => {
+      await ack();
+      try {
+        const jobId = action.action_id.split(":")[1];
+        const updated = await deps.toggleJob(jobId);
+        if (updated) {
+          const viewId = viewIdFromBody(body);
+          if (viewId) {
+            const viewerTz = (await getUserInfo(client, body.user.id))?.tz;
+            const role = await deps.getRole(body.user.id);
+            const canShare = canToggleShared(updated, { userId: body.user.id, role });
+            await client.views.update({
+              view_id: viewId,
+              view: deps.buildCronJobModal(updated, viewerTz, canShare),
+            });
+          }
         }
+        await publishHomeView(client, body.user.id, deps);
+      } catch (error) {
+        logger.error("Failed to toggle cron job:", error);
       }
-      await publishHomeView(client, body.user.id, deps);
-    } catch (error) {
-      logger.error("Failed to toggle cron job:", error);
-    }
-  });
+    },
+  );
 
   // Send Now button inside cron job modal
-  app.action<BlockAction>(/^cron_run_job:/, async ({ ack, body, client, action }) => {
+  app.action<BlockAction<ButtonAction>>(/^cron_run_job:/, async ({ ack, body, client, action }) => {
     await ack();
     try {
-      const jobId = (action as { action_id: string }).action_id.split(":")[1];
+      const jobId = action.action_id.split(":")[1];
       const job = await deps.getJob(jobId);
       if (!job) return;
 
@@ -1278,14 +1367,14 @@ export function registerHomeTabHandler(app: App, deps: HomeTabDeps = defaultHome
           view_id: viewId,
           view: {
             type: "modal",
-            title: { type: "plain_text", text: "Sending..." },
-            close: { type: "plain_text", text: "Close" },
+            title: { type: "plain_text", text: t("home.scheduled.sending_title") },
+            close: { type: "plain_text", text: t("common.close") },
             blocks: [
               {
                 type: "section",
                 text: {
                   type: "mrkdwn",
-                  text: `Running scheduled message in <#${job.channel}>. This may take a moment.`,
+                  text: t("home.scheduled.sending_text", { channel: job.channel ?? "" }),
                 },
               },
             ],
@@ -1303,43 +1392,46 @@ export function registerHomeTabHandler(app: App, deps: HomeTabDeps = defaultHome
   });
 
   // Delete button inside cron job modal (with confirm)
-  app.action<BlockAction>(/^cron_delete_job:/, async ({ ack, body, client, action }) => {
-    await ack();
-    try {
-      const jobId = (action as { action_id: string }).action_id.split(":")[1];
-      // Defense in depth: the Home Tab strips the Delete button for plugin-managed jobs,
-      // but reject any direct invocation too. Plugin-managed jobs are removed by editing
-      // the plugin's config block, not the Home Tab.
-      const existing = await deps.getJob(jobId);
-      if (existing?.pluginManaged) {
-        logger.warn(
-          `Refused to delete plugin-managed cron job ${jobId} (plugin: ${existing.plugin ?? "unknown"})`,
-        );
-        return;
+  app.action<BlockAction<ButtonAction>>(
+    /^cron_delete_job:/,
+    async ({ ack, body, client, action }) => {
+      await ack();
+      try {
+        const jobId = action.action_id.split(":")[1];
+        // Defense in depth: the Home Tab strips the Delete button for plugin-managed jobs,
+        // but reject any direct invocation too. Plugin-managed jobs are removed by editing
+        // the plugin's config block, not the Home Tab.
+        const existing = await deps.getJob(jobId);
+        if (existing?.pluginManaged) {
+          logger.warn(
+            `Refused to delete plugin-managed cron job ${jobId} (plugin: ${existing.plugin ?? "unknown"})`,
+          );
+          return;
+        }
+        await deps.deleteJob(jobId);
+        const viewId = viewIdFromBody(body);
+        if (viewId) {
+          await client.views.update({
+            view_id: viewId,
+            view: {
+              type: "modal",
+              title: { type: "plain_text", text: t("home.scheduled.deleted_title") },
+              close: { type: "plain_text", text: t("common.close") },
+              blocks: [
+                {
+                  type: "section",
+                  text: { type: "mrkdwn", text: t("home.scheduled.deleted_text") },
+                },
+              ],
+            },
+          });
+        }
+        await publishHomeView(client, body.user.id, deps);
+      } catch (error) {
+        logger.error("Failed to delete cron job:", error);
       }
-      await deps.deleteJob(jobId);
-      const viewId = viewIdFromBody(body);
-      if (viewId) {
-        await client.views.update({
-          view_id: viewId,
-          view: {
-            type: "modal",
-            title: { type: "plain_text", text: "Deleted" },
-            close: { type: "plain_text", text: "Close" },
-            blocks: [
-              {
-                type: "section",
-                text: { type: "mrkdwn", text: "Scheduled message deleted." },
-              },
-            ],
-          },
-        });
-      }
-      await publishHomeView(client, body.user.id, deps);
-    } catch (error) {
-      logger.error("Failed to delete cron job:", error);
-    }
-  });
+    },
+  );
 
   // Edit cron job modal submission
   app.view<ViewSubmitAction>("cron_edit_job_modal", async ({ ack, view, body, client }) => {
@@ -1358,23 +1450,29 @@ export function registerHomeTabHandler(app: App, deps: HomeTabDeps = defaultHome
     if (name.length === 0) {
       await ack({
         response_action: "errors",
-        errors: { cron_name_block: "Provide a short descriptive name" },
+        errors: { cron_name_block: t("home.scheduled.error_name_required") },
       });
       return;
     }
     if (!channel) {
-      await ack({ response_action: "errors", errors: { cron_channel_block: "Select a channel" } });
+      await ack({
+        response_action: "errors",
+        errors: { cron_channel_block: t("home.scheduled.error_channel_required") },
+      });
       return;
     }
     if (!cronExpression) {
       await ack({
         response_action: "errors",
-        errors: { cron_expression_block: "Provide a cron expression" },
+        errors: { cron_expression_block: t("home.scheduled.error_cron_required") },
       });
       return;
     }
     if (!prompt) {
-      await ack({ response_action: "errors", errors: { cron_prompt_block: "Provide a prompt" } });
+      await ack({
+        response_action: "errors",
+        errors: { cron_prompt_block: t("home.scheduled.error_prompt_required") },
+      });
       return;
     }
 
@@ -1383,7 +1481,7 @@ export function registerHomeTabHandler(app: App, deps: HomeTabDeps = defaultHome
     } catch {
       await ack({
         response_action: "errors",
-        errors: { cron_expression_block: "Invalid cron expression" },
+        errors: { cron_expression_block: t("home.scheduled.error_cron_invalid") },
       });
       return;
     }
@@ -1396,7 +1494,7 @@ export function registerHomeTabHandler(app: App, deps: HomeTabDeps = defaultHome
         await ack({
           response_action: "errors",
           errors: {
-            cron_jitter_block: `Enter a whole number of minutes between 0 and ${MAX_JITTER_MINUTES}`,
+            cron_jitter_block: t("home.scheduled.error_jitter_range", { max: MAX_JITTER_MINUTES }),
           },
         });
         return;
@@ -1445,101 +1543,107 @@ export function registerHomeTabHandler(app: App, deps: HomeTabDeps = defaultHome
   // "Discard & restore" button on quarantined worker rows. Admin-gated:
   // discards uncommitted work via `git reset --hard HEAD` + `git clean -fd`,
   // then flips the worker back to idle.
-  app.action<BlockAction>("clack_clear_quarantine", async ({ ack, body, client, action }) => {
-    await ack();
-    try {
-      if (!(await deps.userCanEditConfig(body.user.id))) {
-        logger.warn(`clack_clear_quarantine: user ${body.user.id} lacks edit permission`);
-        return;
-      }
+  app.action<BlockAction<ButtonAction>>(
+    "clack_clear_quarantine",
+    async ({ ack, body, client, action }) => {
+      await ack();
+      try {
+        if (!(await deps.userCanEditConfig(body.user.id))) {
+          logger.warn(`clack_clear_quarantine: user ${body.user.id} lacks edit permission`);
+          return;
+        }
 
-      const value = (action as { value?: string }).value;
-      if (!value || !value.includes("/")) {
-        logger.warn(`clack_clear_quarantine: missing or malformed value: ${value}`);
-        return;
-      }
-      const slash = value.indexOf("/");
-      const repo = value.slice(0, slash);
-      const workerId = value.slice(slash + 1);
+        const value = action.value;
+        if (!value || !value.includes("/")) {
+          logger.warn(`clack_clear_quarantine: missing or malformed value: ${value}`);
+          return;
+        }
+        const slash = value.indexOf("/");
+        const repo = value.slice(0, slash);
+        const workerId = value.slice(slash + 1);
 
-      const result = await deps.clearQuarantinedWorker(workerId, repo);
-      if (!result.ok) {
-        logger.warn(`clack_clear_quarantine: ${repo}/${workerId} failed — ${result.reason}`);
-      } else {
-        logger.info(`clack_clear_quarantine: ${repo}/${workerId} restored by ${body.user.id}`);
-      }
+        const result = await deps.clearQuarantinedWorker(workerId, repo);
+        if (!result.ok) {
+          logger.warn(`clack_clear_quarantine: ${repo}/${workerId} failed — ${result.reason}`);
+        } else {
+          logger.info(`clack_clear_quarantine: ${repo}/${workerId} restored by ${body.user.id}`);
+        }
 
-      await publishHomeView(client, body.user.id, deps);
-    } catch (error) {
-      logger.error("Failed to clear quarantine:", error);
-    }
-  });
+        await publishHomeView(client, body.user.id, deps);
+      } catch (error) {
+        logger.error("Failed to clear quarantine:", error);
+      }
+    },
+  );
 
   // Retry a quarantined state entry: re-validate its raw value; on success it rejoins the live set.
   // Owner/admin-gated, same gate as the worker quarantine controls. Routes to the right store.
-  app.action<BlockAction>("state_quarantine_retry", async ({ ack, body, client, action }) => {
-    await ack();
-    try {
-      if (!(await deps.userCanEditConfig(body.user.id))) {
-        logger.warn(`state_quarantine_retry: user ${body.user.id} lacks edit permission`);
-        return;
-      }
-      const target = parseQuarantineTarget(action as { value?: string });
-      if (!target) return;
-      const store = getQuarantineStore(target.storeId);
-      if (!store) {
-        logger.warn(`state_quarantine_retry: unknown store ${target.storeId}`);
-        return;
-      }
+  app.action<BlockAction<ButtonAction>>(
+    "state_quarantine_retry",
+    async ({ ack, body, client, action }) => {
+      await ack();
+      try {
+        if (!(await deps.userCanEditConfig(body.user.id))) {
+          logger.warn(`state_quarantine_retry: user ${body.user.id} lacks edit permission`);
+          return;
+        }
+        const target = parseQuarantineTarget(action.value);
+        if (!target) return;
+        const store = getQuarantineStore(target.storeId);
+        if (!store) {
+          logger.warn(`state_quarantine_retry: unknown store ${target.storeId}`);
+          return;
+        }
 
-      const result = await store.retry(target.key);
-      if (!result.ok) {
-        logger.warn(
-          `state_quarantine_retry: ${target.storeId}/${target.key} still invalid — ${result.error}`,
-        );
-      } else {
-        logger.info(
-          `state_quarantine_retry: ${target.storeId}/${target.key} restored by ${body.user.id}`,
-        );
+        const result = await store.retry(target.key);
+        if (!result.ok) {
+          logger.warn(
+            `state_quarantine_retry: ${target.storeId}/${target.key} still invalid — ${result.error}`,
+          );
+        } else {
+          logger.info(
+            `state_quarantine_retry: ${target.storeId}/${target.key} restored by ${body.user.id}`,
+          );
+        }
+        await publishHomeView(client, body.user.id, deps);
+      } catch (error) {
+        logger.error("Failed to retry quarantined state entry:", error);
       }
-      await publishHomeView(client, body.user.id, deps);
-    } catch (error) {
-      logger.error("Failed to retry quarantined state entry:", error);
-    }
-  });
+    },
+  );
 
   // Remove a quarantined state entry (the ONLY removal path — explicit, owner/admin-gated).
-  app.action<BlockAction>("state_quarantine_delete", async ({ ack, body, client, action }) => {
-    await ack();
-    try {
-      if (!(await deps.userCanEditConfig(body.user.id))) {
-        logger.warn(`state_quarantine_delete: user ${body.user.id} lacks edit permission`);
-        return;
-      }
-      const target = parseQuarantineTarget(action as { value?: string });
-      if (!target) return;
-      const store = getQuarantineStore(target.storeId);
-      if (!store) {
-        logger.warn(`state_quarantine_delete: unknown store ${target.storeId}`);
-        return;
-      }
+  app.action<BlockAction<ButtonAction>>(
+    "state_quarantine_delete",
+    async ({ ack, body, client, action }) => {
+      await ack();
+      try {
+        if (!(await deps.userCanEditConfig(body.user.id))) {
+          logger.warn(`state_quarantine_delete: user ${body.user.id} lacks edit permission`);
+          return;
+        }
+        const target = parseQuarantineTarget(action.value);
+        if (!target) return;
+        const store = getQuarantineStore(target.storeId);
+        if (!store) {
+          logger.warn(`state_quarantine_delete: unknown store ${target.storeId}`);
+          return;
+        }
 
-      const removed = await store.remove(target.key);
-      logger.info(
-        `state_quarantine_delete: ${target.storeId}/${target.key} removed=${removed} by ${body.user.id}`,
-      );
-      await publishHomeView(client, body.user.id, deps);
-    } catch (error) {
-      logger.error("Failed to remove quarantined state entry:", error);
-    }
-  });
+        const removed = await store.remove(target.key);
+        logger.info(
+          `state_quarantine_delete: ${target.storeId}/${target.key} removed=${removed} by ${body.user.id}`,
+        );
+        await publishHomeView(client, body.user.id, deps);
+      } catch (error) {
+        logger.error("Failed to remove quarantined state entry:", error);
+      }
+    },
+  );
 }
 
 /** Read the `storeId::key` a quarantine action button carries in its `value`. */
-function parseQuarantineTarget(action: {
-  value?: string;
-}): { storeId: string; key: string } | null {
-  const raw = action.value;
+function parseQuarantineTarget(raw: string | undefined): { storeId: string; key: string } | null {
   if (raw === undefined || !raw.includes("::")) {
     logger.warn(`state quarantine action: missing or malformed value: ${raw}`);
     return null;

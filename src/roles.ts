@@ -203,13 +203,27 @@ export async function setOwner(userId: string): Promise<void> {
 
 export type AssignableRole = "admin" | "dev" | "member";
 
-export async function setRole(
-  userId: string,
-  role: AssignableRole,
-): Promise<{ success: boolean; error?: string }> {
+/** Discriminated reason a role change was rejected. The `error` string stays English (via-Claude path). */
+export type RoleChangeFailure =
+  | "role_not_assignable"
+  | "owner_role_locked"
+  | "owner_still_active"
+  | "not_admin"
+  | "not_owner"
+  | "target_disabled";
+
+export type RoleChangeResult =
+  | { success: true }
+  | { success: false; code: RoleChangeFailure; error: string };
+
+export async function setRole(userId: string, role: AssignableRole): Promise<RoleChangeResult> {
   // Defensive runtime guard for callers that cast past `AssignableRole`.
   if ((role as UserRole) === "system" || (role as UserRole) === "owner") {
-    return { success: false, error: `Role "${role}" is not assignable.` };
+    return {
+      success: false,
+      code: "role_not_assignable",
+      error: `Role "${role}" is not assignable.`,
+    };
   }
 
   const roles = await loadRoles();
@@ -217,6 +231,7 @@ export async function setRole(
   if (roles.owner === userId) {
     return {
       success: false,
+      code: "owner_role_locked",
       error: "Cannot change the owner's role. Use transfer ownership instead.",
     };
   }
@@ -257,7 +272,7 @@ export async function isUserDisabled(client: App["client"], userId: string): Pro
 export async function claimOwnershipFromDisabled(
   client: App["client"],
   claimingUserId: string,
-): Promise<{ success: boolean; error?: string }> {
+): Promise<RoleChangeResult> {
   const roles = await loadRoles();
 
   if (!roles.owner) {
@@ -269,12 +284,16 @@ export async function claimOwnershipFromDisabled(
   // Check if current owner is disabled
   const ownerDisabled = await isUserDisabled(client, roles.owner);
   if (!ownerDisabled) {
-    return { success: false, error: "Current owner is still active" };
+    return { success: false, code: "owner_still_active", error: "Current owner is still active" };
   }
 
   // Check if claiming user is an admin
   if (!roles.admins.includes(claimingUserId)) {
-    return { success: false, error: "Only admins can claim ownership from disabled owner" };
+    return {
+      success: false,
+      code: "not_admin",
+      error: "Only admins can claim ownership from disabled owner",
+    };
   }
 
   // Remove old owner completely (they're disabled)
@@ -292,18 +311,22 @@ export async function transferOwnership(
   client: App["client"],
   currentOwnerId: string,
   newOwnerId: string,
-): Promise<{ success: boolean; error?: string }> {
+): Promise<RoleChangeResult> {
   const roles = await loadRoles();
 
   // Verify current user is owner
   if (roles.owner !== currentOwnerId) {
-    return { success: false, error: "Only the owner can transfer ownership" };
+    return { success: false, code: "not_owner", error: "Only the owner can transfer ownership" };
   }
 
   // Check if target is disabled
   const targetDisabled = await isUserDisabled(client, newOwnerId);
   if (targetDisabled) {
-    return { success: false, error: "Cannot transfer ownership to a disabled user" };
+    return {
+      success: false,
+      code: "target_disabled",
+      error: "Cannot transfer ownership to a disabled user",
+    };
   }
 
   // Transfer ownership
