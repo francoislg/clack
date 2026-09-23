@@ -220,17 +220,34 @@ export function buildGameSpecs(games: TriviaGame[], offDays?: OffDay[]): CronJob
   return specs;
 }
 
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/** The fires of `cronExpression` that fall on `anchor`'s calendar date in `timezone`. */
+function firesOnDateOf(cronExpression: string, timezone: string, anchor: Date): Date[] {
+  const dateOf = (d: Date) => d.toLocaleDateString("en-CA", { timeZone: timezone });
+  const anchorDate = dateOf(anchor);
+  const fires = CronExpressionParser.parse(cronExpression, {
+    tz: timezone,
+    currentDate: new Date(anchor.getTime() - DAY_MS),
+  });
+  const sameDate: Date[] = [];
+  const windowEnd = anchor.getTime() + DAY_MS;
+  for (let fire = fires.next().toDate(); fire.getTime() < windowEnd; fire = fires.next().toDate()) {
+    if (dateOf(fire) === anchorDate) sameDate.push(fire);
+  }
+  return sameDate;
+}
+
 /**
- * For each cron expression, compute the next fire time (in the game's timezone). When the reveal's
- * next-fire falls on the same calendar date but earlier than the question's, log a warning. Only
- * checks the immediate next fire — a deeper analysis (every weekday over a month) would be more
- * exhaustive but typical misconfigurations show up on the first comparison.
+ * Warns when the reveal fires earlier than the question on the question's next firing date (in
+ * the game's timezone). Comparing both crons on that one date keeps the check independent of the
+ * time of day it runs. Only that date is checked — a deeper analysis (every weekday over a month)
+ * would be more exhaustive but typical misconfigurations show up on the first comparison.
  */
 function warnIfRevealBeforeQuestion(game: TriviaGame): void {
   try {
     const q = CronExpressionParser.parse(game.questionCron, { tz: game.timezone }).next().toDate();
-    const r = CronExpressionParser.parse(game.revealCron, { tz: game.timezone }).next().toDate();
-    if (r < q) {
+    if (firesOnDateOf(game.revealCron, game.timezone, q).some((r) => r < q)) {
       logger.warn(
         `[plugin:trivia] game "${game.name}": revealCron ("${game.revealCron}") fires before questionCron ("${game.questionCron}") on the next matching date in ${game.timezone}. Schedules will still be created, but this is almost certainly a misconfiguration.`,
       );
@@ -242,11 +259,9 @@ function warnIfRevealBeforeQuestion(game: TriviaGame): void {
 }
 
 /**
- * Mirror of `warnIfRevealBeforeQuestion` for the prep/question relationship: the prep cron's
- * next fire MUST be earlier than the question cron's next fire — otherwise prep is generating
- * for a fire that's already passed. Only checks the immediate next fire for each cron in the
- * game's timezone; deeper analysis (every weekday over a month) would catch more but typical
- * misconfigurations show up on the first comparison.
+ * Mirror of `warnIfRevealBeforeQuestion` for the prep/question relationship: on the question's
+ * next firing date, prep MUST NOT fire later than the question — otherwise prep is generating
+ * for a fire that's already passed.
  *
  * Called only when `game.prepCron` is set. The bad spec set is still emitted (the caller has
  * already pushed before this returns) — the warning is advisory, not blocking.
@@ -254,9 +269,8 @@ function warnIfRevealBeforeQuestion(game: TriviaGame): void {
 function warnIfPrepAfterQuestion(game: TriviaGame): void {
   if (game.prepCron === undefined) return;
   try {
-    const p = CronExpressionParser.parse(game.prepCron, { tz: game.timezone }).next().toDate();
     const q = CronExpressionParser.parse(game.questionCron, { tz: game.timezone }).next().toDate();
-    if (p > q) {
+    if (firesOnDateOf(game.prepCron, game.timezone, q).some((p) => p > q)) {
       logger.warn(
         `[plugin:trivia] game "${game.name}": prepCron ("${game.prepCron}") fires AFTER questionCron ("${game.questionCron}") on the next matching date in ${game.timezone}. Pre-staging will not happen in time for the next question fire. Schedules will still be created, but this is almost certainly a misconfiguration.`,
       );

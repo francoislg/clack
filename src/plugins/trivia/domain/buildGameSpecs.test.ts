@@ -347,6 +347,49 @@ describe("buildGameSpecs", () => {
         const prepWarnings = warnSpy.mock.calls.filter((call) => /prepCron/.test(String(call[0])));
         assert.equal(prepWarnings.length, 0);
       });
+
+      it("does NOT warn when built between today's prep and question fires", () => {
+        vi.setSystemTime(new Date("2026-06-01T12:45:00Z")); // 08:45 EDT
+        buildGameSpecs([{ ...baseGame, prepCron: "30 8 * * 1-5", questionCron: "0 9 * * 1-5" }]);
+        const prepWarnings = warnSpy.mock.calls.filter((call) => /prepCron/.test(String(call[0])));
+        assert.equal(prepWarnings.length, 0);
+      });
+    });
+  });
+
+  describe("warnIfRevealBeforeQuestion", () => {
+    const warnSpy = vi.fn();
+    const revealWarnings = () =>
+      warnSpy.mock.calls.filter((call) => /revealCron/.test(String(call[0])));
+
+    beforeEach(() => {
+      warnSpy.mockReset();
+      setTriviaLogger({ debug: () => {}, info: () => {}, warn: warnSpy, error: () => {} });
+      vi.useFakeTimers();
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+      _resetTriviaLogger();
+    });
+
+    it("warns when the reveal fires earlier in the day than the question", () => {
+      vi.setSystemTime(new Date("2026-06-01T10:00:00Z")); // Monday 06:00 EDT
+      buildGameSpecs([{ ...baseGame, questionCron: "0 16 * * 1-5", revealCron: "0 8 * * 1-5" }]);
+      assert.equal(revealWarnings().length, 1);
+      assert.match(String(revealWarnings()[0][0]), /revealCron.*fires before questionCron/);
+    });
+
+    it("does NOT warn when built between today's question and reveal fires", () => {
+      vi.setSystemTime(new Date("2026-06-01T19:53:00Z")); // Monday 15:53 EDT
+      buildGameSpecs([{ ...baseGame, questionCron: "0 8 * * 1-5", revealCron: "0 16 * * 1-5" }]);
+      assert.equal(revealWarnings().length, 0);
+    });
+
+    it("does NOT warn when the reveal fires later in the day than the question", () => {
+      vi.setSystemTime(new Date("2026-06-01T10:00:00Z")); // Monday 06:00 EDT
+      buildGameSpecs([{ ...baseGame, questionCron: "0 8 * * 1-5", revealCron: "0 16 * * 1-5" }]);
+      assert.equal(revealWarnings().length, 0);
     });
   });
 
