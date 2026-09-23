@@ -2,9 +2,8 @@ import { clackQuery as _clackQuery } from "./query.js";
 import { getConfig } from "../config.js";
 import { logger } from "../logger.js";
 import { truncate } from "../text.js";
-import { detectRuntime } from "./utilities.js";
+import { completeText, type OneShotQuery } from "./utilities.js";
 import type { EphemeralAttentionLevel } from "../ephemeralRules.js";
-import type { SDKMessage, Options } from "@anthropic-ai/claude-agent-sdk";
 
 // ---------------------------------------------------------------------------
 // Dependency injection
@@ -24,10 +23,7 @@ function resolveConfiguredModel(): string {
 }
 
 export interface PreAnalysisDeps {
-  clackQuery: (params: {
-    prompt: string;
-    options?: Omit<Options, "persistSession" | "resume" | "continue">;
-  }) => AsyncIterable<SDKMessage>;
+  clackQuery: OneShotQuery;
   resolveModel: () => string;
 }
 
@@ -61,18 +57,6 @@ export function formatRelativeAge(ts: string, now = Date.now()): string {
 
 export type PreAnalysisResult = "respond" | "skip" | "stop";
 
-const CLASSIFIER_DISALLOWED_TOOLS = [
-  "Write",
-  "Edit",
-  "NotebookEdit",
-  "Bash",
-  "Task",
-  "TaskOutput",
-  "Read",
-  "Glob",
-  "Grep",
-];
-
 function buildConversationContext(recentMessages?: PreAnalysisMessage[]): string {
   if (!recentMessages || recentMessages.length === 0) return "";
   const lines = recentMessages.map(
@@ -105,37 +89,13 @@ async function runClassifierQuery(
 ): Promise<ClassifierRun> {
   const model = deps.resolveModel();
   try {
-    let lastAssistantText = "";
-
-    for await (const message of deps.clackQuery({
-      prompt,
-      options: {
-        cwd: process.cwd(),
-        executable: detectRuntime(),
-        model,
-        systemPrompt,
-        disallowedTools: CLASSIFIER_DISALLOWED_TOOLS,
-        maxTurns: 1,
-      },
-    })) {
-      if (message.type === "assistant" && message.message?.content) {
-        lastAssistantText = "";
-        for (const block of message.message.content) {
-          if ("text" in block && typeof block.text === "string") {
-            lastAssistantText += block.text;
-          }
-        }
-      }
-      if (message.type === "result") {
-        const resultText = ((message as { result?: string }).result || lastAssistantText)
-          .trim()
-          .toLowerCase();
-        if (message.subtype !== "success") return { ok: false, reason: "non_success", model };
-        return { ok: true, text: resultText, model };
-      }
+    const turn = await completeText({ prompt, model, systemPrompt }, deps.clackQuery);
+    if (!turn.result) return { ok: false, reason: "no_result", model };
+    if (!turn.ok) {
+      logger.warn(`Classifier turn failed: ${turn.error}`);
+      return { ok: false, reason: "non_success", model };
     }
-
-    return { ok: false, reason: "no_result", model };
+    return { ok: true, text: turn.text.trim().toLowerCase(), model };
   } catch (error) {
     logger.warn("Classifier call failed:", error);
     return { ok: false, reason: "error", model };

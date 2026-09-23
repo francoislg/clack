@@ -3,7 +3,8 @@
 import type { ChatPostMessageArguments } from "@slack/web-api";
 import { unfurlOptions } from "../../slack/unfurlOptions.js";
 import { logger } from "../../logger.js";
-import { detectRuntime } from "../../claude/utilities.js";
+import { completeText } from "../../claude/utilities.js";
+import type { CollectedTurn } from "../../claude/resultOutcome.js";
 import type {
   AskClaudeOptions,
   AskClaudeResult,
@@ -15,6 +16,12 @@ import type {
   StartThreadConversationOptions,
 } from "../sdk.js";
 import type { AttentionLevel, ThreadEngagementOrigin } from "../../sessions.js";
+
+function askClaudeStopReason(turn: CollectedTurn): string {
+  if (turn.ok) return "end_turn";
+  if (!turn.result) return "unknown";
+  return turn.result.subtype === "success" ? "api_error" : turn.result.subtype;
+}
 
 export function createMessagingSurface(
   pluginName: string,
@@ -43,60 +50,15 @@ export function createMessagingSurface(
       }
       const prompt = promptParts.join("\n\n");
 
-      let text = "";
-      let lastAssistantText = "";
-      let stopReason = "unknown";
-      let inputTokens = 0;
-      let outputTokens = 0;
-
-      for await (const message of deps.clackQuery({
-        prompt,
-        options: {
-          cwd: process.cwd(),
-          executable: detectRuntime(),
-          model: opts.model,
-          permissionMode: "bypassPermissions",
-          disallowedTools: [
-            "Write",
-            "Edit",
-            "NotebookEdit",
-            "Bash",
-            "Task",
-            "TaskOutput",
-            "Read",
-            "Glob",
-            "Grep",
-          ],
-          maxTurns: 1,
-        },
-      })) {
-        if (message.type === "assistant" && message.message?.content) {
-          lastAssistantText = "";
-          for (const block of message.message.content) {
-            if ("text" in block && typeof block.text === "string") {
-              lastAssistantText += block.text;
-            }
-          }
-        }
-        if (message.type === "result") {
-          if (message.subtype === "success") {
-            stopReason = "end_turn";
-            text = (message.result || lastAssistantText).trim();
-          } else {
-            stopReason = message.subtype ?? "error";
-            text = lastAssistantText.trim();
-          }
-          if (message.usage) {
-            inputTokens = message.usage.input_tokens ?? 0;
-            outputTokens = message.usage.output_tokens ?? 0;
-          }
-        }
-      }
-
+      const turn = await completeText({ prompt, model: opts.model }, deps.clackQuery);
+      if (!turn.ok) pluginLogger.warn(`askClaude turn failed: ${turn.error}`);
       return {
-        text,
-        stopReason,
-        usage: { inputTokens, outputTokens },
+        text: turn.text.trim(),
+        stopReason: askClaudeStopReason(turn),
+        usage: {
+          inputTokens: turn.result?.usage.input_tokens ?? 0,
+          outputTokens: turn.result?.usage.output_tokens ?? 0,
+        },
       };
     },
 

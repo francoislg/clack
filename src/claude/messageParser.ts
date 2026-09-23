@@ -2,6 +2,7 @@ import type { SDKMessage, SDKRateLimitInfo } from "@anthropic-ai/claude-agent-sd
 import { truncate } from "../text.js";
 import type { StreamEvent } from "../streaming/types.js";
 import type { ToolCallRecord } from "../tools/types.js";
+import { resultOutcome } from "./resultOutcome.js";
 import { readResultUsage, type SessionUsage } from "./usage.js";
 
 export interface ToolUseInfo {
@@ -284,12 +285,10 @@ export class ClaudeMessageParser {
 
     // 4. result — capture into _result
     if (message.type === "result") {
-      if (message.subtype === "success") {
-        this._result = { success: true, text: message.result || "" };
-      } else {
-        const errorMsg = message.errors.join(", ") || "Unknown error";
-        this._result = { success: false, text: "", error: errorMsg };
-      }
+      const outcome = resultOutcome(message);
+      this._result = outcome.ok
+        ? { success: true, text: outcome.text }
+        : { success: false, text: "", error: outcome.error };
       const usage = readResultUsage(message);
       if (usage) this._result.usage = usage;
     }

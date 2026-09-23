@@ -611,13 +611,13 @@ describe("ClaudeMessageParser", () => {
       });
     });
 
-    it("captures error result with empty errors array", async () => {
+    it("names the subtype for an error result with an empty errors array", async () => {
       await parser.process(resultError([]));
 
       assert.deepEqual(parser.result, {
         success: false,
         text: "",
-        error: "Unknown error",
+        error: "error_during_execution",
       });
     });
 

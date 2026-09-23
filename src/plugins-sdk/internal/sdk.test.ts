@@ -4,7 +4,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { mkdtempSync } from "node:fs";
 import { z } from "zod";
-import { tool, type SDKMessage } from "@anthropic-ai/claude-agent-sdk";
+import {
+  tool,
+  type SDKAssistantMessage,
+  type SDKMessage,
+  type SDKResultError,
+  type SDKResultSuccess,
+} from "@anthropic-ai/claude-agent-sdk";
+import { stub } from "../../testStubs.js";
 import { WebClient } from "@slack/web-api";
 import { createClackSdk } from "./factory.js";
 import type { ClackSdkDeps, AttentionLevel, ThreadEngagementOrigin } from "../sdk.js";
@@ -18,6 +25,7 @@ async function* emptyClackQuery(): AsyncGenerator<SDKMessage, void, void> {}
 type ScriptedStep =
   | { kind: "assistant"; text: string }
   | { kind: "success"; text: string; inputTokens: number; outputTokens: number }
+  | { kind: "apiError"; text: string }
   | { kind: "error"; subtype: "error_max_turns" | "error_during_execution" };
 
 /** Drive `askClaude` against a deterministic sequence of SDK messages. */
@@ -25,19 +33,34 @@ function scriptedQueryResult(steps: ScriptedStep[]): ReturnType<ClackSdkDeps["cl
   async function* gen(): AsyncGenerator<SDKMessage, void, void> {
     for (const step of steps) {
       if (step.kind === "assistant") {
-        yield {
+        yield stub<SDKAssistantMessage>({
           type: "assistant",
           message: { content: [{ type: "text", text: step.text }] },
-        } as SDKMessage;
+        });
       } else if (step.kind === "success") {
-        yield {
+        yield stub<SDKResultSuccess>({
           type: "result",
           subtype: "success",
+          is_error: false,
           result: step.text,
           usage: { input_tokens: step.inputTokens, output_tokens: step.outputTokens },
-        } as SDKMessage;
+        });
+      } else if (step.kind === "apiError") {
+        yield stub<SDKResultSuccess>({
+          type: "result",
+          subtype: "success",
+          is_error: true,
+          result: step.text,
+          usage: { input_tokens: 0, output_tokens: 0 },
+        });
       } else {
-        yield { type: "result", subtype: step.subtype } as SDKMessage;
+        yield stub<SDKResultError>({
+          type: "result",
+          subtype: step.subtype,
+          is_error: true,
+          errors: [],
+          usage: { input_tokens: 0, output_tokens: 0 },
+        });
       }
     }
   }
@@ -1587,6 +1610,19 @@ describe("ClackSdk", () => {
 
       assert.equal(out.stopReason, "error_max_turns");
       assert.equal(out.text, "partial");
+    });
+
+    it("reports an API-error turn as stopReason api_error", async () => {
+      const fakeClackQuery: ClackSdkDeps["clackQuery"] = () =>
+        scriptedQueryResult([{ kind: "apiError", text: "API Error: 400" }]);
+      const { sdk } = makeSdk("trivia", { clackQuery: fakeClackQuery });
+
+      const out = await sdk.askClaude({
+        model: "haiku",
+        messages: [{ role: "user", content: "go" }],
+      });
+
+      assert.equal(out.stopReason, "api_error");
     });
   });
 

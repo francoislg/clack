@@ -1,7 +1,9 @@
+import type { Options, SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import { clackQuery as _clackQuery } from "./query.js";
 import { basename } from "node:path";
 import { logger } from "../logger.js";
 import type { ConversationMessage } from "./index.js";
+import { collectTurn, type CollectedTurn } from "./resultOutcome.js";
 
 // ---------------------------------------------------------------------------
 // Dependency injection
@@ -26,6 +28,38 @@ export function detectRuntime(): "node" | "bun" | "deno" {
   return "node";
 }
 
+/** A one-shot SDK query; `clackQuery` in production, a mock in tests. */
+export type OneShotQuery = (params: {
+  prompt: string;
+  options?: Omit<Options, "persistSession" | "resume" | "continue">;
+}) => AsyncIterable<SDKMessage>;
+
+export interface CompleteTextParams {
+  prompt: string;
+  model: string;
+  systemPrompt?: string;
+}
+
+/** One single-turn, tool-less completion, consumed into how the turn ended. */
+export function completeText(
+  { prompt, model, systemPrompt }: CompleteTextParams,
+  query: OneShotQuery = _clackQuery,
+): Promise<CollectedTurn> {
+  return collectTurn(
+    query({
+      prompt,
+      options: {
+        cwd: process.cwd(),
+        executable: detectRuntime(),
+        model,
+        tools: [],
+        maxTurns: 1,
+        ...(systemPrompt !== undefined && { systemPrompt }),
+      },
+    }),
+  );
+}
+
 /**
  * Summarize text that was too long for Slack using a quick Claude call.
  * Returns a condensed version, or a hard-truncated fallback if the call fails.
@@ -42,44 +76,8 @@ Text to condense:
 ${text}`;
 
   try {
-    let summary = "";
-    let lastAssistantText = "";
-
-    for await (const message of deps.clackQuery({
-      prompt,
-      options: {
-        cwd: process.cwd(),
-        executable: detectRuntime(),
-        model: "haiku",
-        permissionMode: "bypassPermissions",
-        disallowedTools: [
-          "Write",
-          "Edit",
-          "NotebookEdit",
-          "Bash",
-          "Task",
-          "TaskOutput",
-          "Read",
-          "Glob",
-          "Grep",
-        ],
-        maxTurns: 1,
-      },
-    })) {
-      if (message.type === "assistant" && message.message?.content) {
-        lastAssistantText = "";
-        for (const block of message.message.content) {
-          if ("text" in block && typeof block.text === "string") {
-            lastAssistantText += block.text;
-          }
-        }
-      }
-      if (message.type === "result" && message.subtype === "success") {
-        summary = message.result || lastAssistantText;
-      }
-    }
-
-    const result = summary.trim();
+    const turn = await completeText({ prompt, model: "haiku" }, deps.clackQuery);
+    const result = turn.ok ? turn.text.trim() : "";
     if (result) return result;
   } catch (error) {
     logger.error("Error summarizing text for Slack:", error);
@@ -123,44 +121,8 @@ ${traceText}
 Provide a concise, non-technical explanation suitable for a user who encountered this error.`;
 
   try {
-    let analysis = "";
-    let lastAssistantText = "";
-
-    for await (const message of deps.clackQuery({
-      prompt,
-      options: {
-        cwd: process.cwd(),
-        executable: detectRuntime(),
-        model: "haiku", // Use fast, cheap model for analysis
-        permissionMode: "bypassPermissions",
-        disallowedTools: [
-          "Write",
-          "Edit",
-          "NotebookEdit",
-          "Bash",
-          "Task",
-          "TaskOutput",
-          "Read",
-          "Glob",
-          "Grep",
-        ],
-        maxTurns: 1,
-      },
-    })) {
-      if (message.type === "assistant" && message.message?.content) {
-        lastAssistantText = "";
-        for (const block of message.message.content) {
-          if ("text" in block && typeof block.text === "string") {
-            lastAssistantText += block.text;
-          }
-        }
-      }
-      if (message.type === "result" && message.subtype === "success") {
-        analysis = message.result || lastAssistantText;
-      }
-    }
-
-    return analysis.trim() || "Unable to analyze the error.";
+    const turn = await completeText({ prompt, model: "haiku" }, deps.clackQuery);
+    return (turn.ok && turn.text.trim()) || "Unable to analyze the error.";
   } catch (error) {
     logger.error("Error analyzing error trace:", error);
     return "Error analysis unavailable.";

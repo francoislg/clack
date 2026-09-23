@@ -5,6 +5,7 @@ import { clackQuery } from "../claude/query.js";
 import { logger } from "../logger.js";
 import { errorMessage } from "../errors.js";
 import { detectRuntime } from "../claude/utilities.js";
+import { collectTurn } from "../claude/resultOutcome.js";
 import type { Migration, StaticFileResult } from "./types.js";
 
 export function getPendingMigrations(currentVersion: number, migrations: Migration[]): Migration[] {
@@ -114,27 +115,22 @@ Rules:
         : ""
     }${staticErrorContext}`;
 
-    for await (const message of clackQuery({
-      prompt: migration.prompt!,
-      options: {
-        cwd: process.cwd(),
-        executable: detectRuntime(),
-        systemPrompt,
-        model: "sonnet",
-        permissionMode: "bypassPermissions",
-        disallowedTools: ["Bash", "Task", "NotebookEdit", "Glob", "Grep"],
-        maxTurns: 10,
-      },
-    })) {
-      if (message.type === "result") {
-        if (message.subtype === "success") {
-          logger.info(`Migration "${migration.name}" completed successfully`);
-        } else {
-          const errMsg = "errors" in message ? message.errors?.join(", ") : "Unknown error";
-          throw new Error(`Migration "${migration.name}" failed: ${errMsg}`);
-        }
-      }
-    }
+    const turn = await collectTurn(
+      clackQuery({
+        prompt: migration.prompt!,
+        options: {
+          cwd: process.cwd(),
+          executable: detectRuntime(),
+          systemPrompt,
+          model: "sonnet",
+          permissionMode: "bypassPermissions",
+          disallowedTools: ["Bash", "Task", "NotebookEdit", "Glob", "Grep"],
+          maxTurns: 10,
+        },
+      }),
+    );
+    if (!turn.ok) throw new Error(`Migration "${migration.name}" failed: ${turn.error}`);
+    logger.info(`Migration "${migration.name}" completed successfully`);
   } else if (!migration.static && !migration.prompt) {
     throw new Error(`Migration "${migration.name}" has neither static nor prompt defined`);
   } else if (staticSucceeded) {
