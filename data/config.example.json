@@ -83,5 +83,8 @@
     "monitoringIntervalMinutes": 15
   },
   "allowPublicSearch": false,
+  "streaming": {
+    "taskCardTransport": "stream"
+  },
   "plugins": []
 }

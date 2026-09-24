@@ -25,7 +25,8 @@ import {
 } from "../../changes/activeState.js";
 import type { FollowUpCommand } from "../../changes/types.js";
 import type { SlackDeliveryContext } from "./changeAction.js";
-import { SlackStreamer, finalizeStreamedWorkflow } from "../../streaming/slackStreamer.js";
+import { finalizeStreamedWorkflow } from "../../streaming/slackStreamer.js";
+import { createConfiguredStreamer } from "../../streaming/createStreamer.js";
 import type { StreamEvent } from "../../streaming/types.js";
 import type { UserRole } from "../../roles.js";
 
@@ -68,7 +69,7 @@ export const defaultChangeThreadActionsDeps: ChangeThreadActionsDeps = {
   setAttentionLevel,
   getActiveChange,
   getAdoptedAwayRef,
-  createStreamer: (opts) => new SlackStreamer(opts),
+  createStreamer: createConfiguredStreamer,
   finalizeStreamedWorkflow,
 };
 

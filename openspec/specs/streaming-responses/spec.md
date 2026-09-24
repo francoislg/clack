@@ -3,10 +3,12 @@
 ## Purpose
 
 Manage Slack chat streams for Claude queries, displaying real-time tool call progress as task cards and delivering the final answer via stream finalization.
+
 ## Requirements
+
 ### Requirement: Stream Lifecycle
 
-The system SHALL manage a Slack chat stream for each Claude query, using `chat.startStream` to begin, `chat.appendStream` to send task updates, and `chat.stopStream` to finalize the response with the answer and action buttons. The streamer SHALL also expose the message timestamp for post-delivery operations such as deletion. The streamer SHALL transparently rotate to a new chat stream **only reactively** — when `appendStream` fails with a recoverable error code (see the Reactive Stream Rollover requirement). There is no scheduled/preemptive rotation. Reactive rollover is unbounded: the streamer enters failed state only when rollover is not attempted (non-recoverable code, `stopped_by_user`) or when the new stream itself fails to open.
+The system SHALL manage a Slack chat stream for each Claude query, using `chat.startStream` to begin, `chat.appendStream` to send task updates, and `chat.stopStream` to finalize the response with the answer and action buttons. The streamer SHALL also expose the message timestamp for post-delivery operations such as deletion. The streamer SHALL transparently rotate to a new chat stream **only reactively** — when `appendStream` fails with a recoverable error code (see the Reactive Stream Rollover requirement). There is no scheduled/preemptive rotation. Under the `streamThenUpdate` task-card transport the card instead moves onto `chat.update` edits of the same message (see the Task-Card Transport requirement), and rollover applies only when that message's `ts` is not yet known. Reactive rollover is unbounded: the streamer enters failed state only when rollover is not attempted (non-recoverable code, `stopped_by_user`) or when the new stream itself fails to open.
 
 A stream MAY be started in **deferred** mode (see the `deferred-progress-surface` capability). In deferred mode `start()` SHALL construct the chat-stream handle but SHALL NOT append the initial thinking task, so no Slack message is created until the stream commits. A successful `start()` therefore does not imply that a Slack message exists.
 
@@ -111,7 +113,7 @@ A stream MAY be started in **deferred** mode (see the `deferred-progress-surface
 
 ### Requirement: Reactive Stream Rollover
 
-When an `appendStream` call fails with a recoverable Slack error code (`message_not_in_streaming_state` or `message_not_found`), the system SHALL open a new chat stream in the same channel and thread to continue posting task cards. Reactive rollover is **unbounded** — there is no cap on the number of rollovers per `SlackStreamer` instance; a long-running task may open as many continuation blocks as Slack expiries require. Rollover is guarded so that a single expired stream produces exactly one rollover (see the Stream Generation Guard requirement). The new stream SHALL act as a clean continuation: no internal stream state (open groups, task mappings, active-task tracking) carries over to the new block, and the thinking-finalized flag SHALL be reset so the thinking task title can be updated independently on the new block. In-flight task tracking SHALL be re-emitted on the new block so that subsequent `tool_end` events for tasks that were running when rotation occurred are not silently dropped. The system SHALL retain a per-instance ordered list of every `messageTs` the streamer has opened so that callers that need to clean up the streamer's footprint (skip, cancel, top-level repost) can reach every block.
+When an `appendStream` call fails with a recoverable Slack error code (`message_not_in_streaming_state` or `message_not_found`) under the default `stream` task-card transport (or under `streamThenUpdate` before the card's message `ts` is known), the system SHALL open a new chat stream in the same channel and thread to continue posting task cards. Reactive rollover is **unbounded** — there is no cap on the number of rollovers per `SlackStreamer` instance; a long-running task may open as many continuation blocks as Slack expiries require. Rollover is guarded so that a single expired stream produces exactly one rollover (see the Stream Generation Guard requirement). The new stream SHALL act as a clean continuation: no internal stream state (open groups, task mappings, active-task tracking) carries over to the new block, and the thinking-finalized flag SHALL be reset so the thinking task title can be updated independently on the new block. In-flight task tracking SHALL be re-emitted on the new block so that subsequent `tool_end` events for tasks that were running when rotation occurred are not silently dropped. The system SHALL retain a per-instance ordered list of every `messageTs` the streamer has opened so that callers that need to clean up the streamer's footprint (skip, cancel, top-level repost) can reach every block.
 
 #### Scenario: Recoverable failure triggers reactive rollover
 
@@ -559,3 +561,36 @@ The `SlackStreamer` SHALL track a monotonically increasing `generation` counter 
 - **AND** every other rejection SHALL fall into the superseded-generation path and SHALL NOT open an additional stream
 - **AND** the thread SHALL gain exactly one new continuation block for that expiry
 
+### Requirement: Task-Card Transport
+
+The system SHALL select how the task card reaches Slack from `config.streaming.taskCardTransport` (fail-fast zod; `"stream"` or `"streamThenUpdate"`; absent → `"stream"`). `"stream"` SHALL behave exactly as the Stream Lifecycle and Reactive Stream Rollover requirements describe. Under `"streamThenUpdate"` the streamer SHALL keep a projection of every task card it has sent (title and status replaced per update, details appended) and SHALL move the card off the chat stream onto `chat.update` edits of the same message, rendered as one Block Kit `plan` block of `task_card` entries (at most 50: the thinking row plus the 49 most recent). The move is a **handover**: it happens at most once per streamer, never opens a second message, and after it every task update, keepalive tick, and the final answer is a `chat.update` of that message.
+
+#### Scenario: Timed handover before Slack seals the stream
+
+- **WHEN** the transport is `streamThenUpdate` and 270 seconds have passed since the card started posting (the start of a non-deferred stream, or the commit of a deferred one)
+- **THEN** the streamer SHALL end the chat stream with `chat.stopStream` (a failure there is ignored)
+- **AND** SHALL edit the same message with `chat.update`, replacing its content with the projected `plan` block
+
+#### Scenario: Seal before the timer hands over instead of rolling over
+
+- **WHEN** the transport is `streamThenUpdate` and an append fails with `message_not_in_streaming_state` or `message_not_found` while the message `ts` is known
+- **THEN** the streamer SHALL NOT open a new chat stream
+- **AND** SHALL hand over to `chat.update` on the same message without calling `chat.stopStream`
+
+#### Scenario: Final answer lands on the same message
+
+- **WHEN** `stop({ markdownText?, blocks? })` runs after a handover
+- **THEN** the streamer SHALL force-complete in-flight tasks and the thinking row in the projection
+- **AND** SHALL issue one final `chat.update` whose blocks are the `plan` block, then a `markdown` block for `markdownText` when given, then the caller's `blocks`
+- **AND** `getMessageTs()` SHALL return the original message `ts` and `getAllMessageTss()` SHALL contain only that `ts`
+
+#### Scenario: Update failure falls back like a failed stream
+
+- **WHEN** a `chat.update` of the card fails
+- **THEN** the streamer SHALL enter failed state, stop its keepalive, and report `hasFailed`, so callers fall back to `chat.postMessage` as they do for a failed stream
+
+#### Scenario: Default transport schedules no handover
+
+- **WHEN** `taskCardTransport` is absent or `"stream"`
+- **THEN** the streamer SHALL NOT schedule a handover and SHALL NOT call `chat.update` for the card
+- **AND** a recoverable append failure SHALL roll over per the Reactive Stream Rollover requirement

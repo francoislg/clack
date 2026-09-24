@@ -680,6 +680,7 @@ export const en = {
   "streamer.analyzing": "Analyzing…",
   "streamer.working_on": "Working on {branch}",
   "streamer.testing": "Testing {branch}",
+  "streamer.plan_title": "Progress",
   "streamer.tool_label_checking": "Checking {name}",
   "streamer.tool_label_running": "Running {tool}",
 

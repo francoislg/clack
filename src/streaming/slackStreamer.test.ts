@@ -2,7 +2,6 @@ import { describe, it, beforeEach, afterEach, vi } from "vitest";
 import assert from "node:assert/strict";
 import { setImmediate } from "node:timers/promises";
 import type { AnyChunk, TaskUpdateChunk } from "@slack/types";
-import { WebClient } from "@slack/web-api";
 import {
   SlackStreamer,
   finalizeStreamedWorkflow,
@@ -10,7 +9,13 @@ import {
   type SlackStreamerLogger,
 } from "./slackStreamer.js";
 import type { StreamEvent } from "./types.js";
-import { createSlackClientMock, type MockSlackClient } from "../slack/testSlackClient.js";
+import type { MockSlackClient } from "../slack/testSlackClient.js";
+import {
+  makeClient,
+  makeMockChatStreamer,
+  makeSlackError,
+  type MockChatStreamer,
+} from "./slackStreamerTestHelpers.js";
 
 // ---------------------------------------------------------------------------
 // Shared mock logger — injected via SlackStreamerOptions.logger
@@ -50,40 +55,6 @@ const mockLogger = makeLoggerRecorder();
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-/** A real `ChatStreamer` (via `WebClient.chatStream`) with every method a vitest mock. */
-function makeMockChatStreamer() {
-  const streamer = vi.mockObject(
-    new WebClient().chatStream({ channel: "C_CHAN", thread_ts: "1234.5678" }),
-  );
-  streamer.append.mockResolvedValue(null);
-  streamer.stop.mockResolvedValue({ ok: true });
-  return streamer;
-}
-
-type MockChatStreamer = ReturnType<typeof makeMockChatStreamer>;
-
-function makeClient(opts?: {
-  chatStreamer?: MockChatStreamer;
-  teamId?: string;
-  throwOnChatStream?: boolean;
-}): MockSlackClient {
-  const streamer = opts?.chatStreamer ?? makeMockChatStreamer();
-  const client = createSlackClientMock();
-
-  if (opts?.throwOnChatStream) {
-    client.chatStream.mockImplementation(() => {
-      throw new Error("chatStream failed");
-    });
-  } else {
-    client.chatStream.mockReturnValue(streamer);
-  }
-  client.auth.test.mockResolvedValue({ ok: true, team_id: opts?.teamId ?? "T_TEAM" });
-  client.chat.postMessage.mockResolvedValue({ ok: true });
-  client.chat.update.mockResolvedValue({ ok: true });
-
-  return client;
-}
 
 /** The task-update chunks of one append call — the only chunk kind the streamer emits. */
 function taskUpdates(chunks: AnyChunk[] | undefined): TaskUpdateChunk[] {
@@ -1930,11 +1901,6 @@ describe("SlackStreamer.handleEvent — grouped detail cap with custom mapping",
 // ---------------------------------------------------------------------------
 // SlackStreamer rollover (recoverable append failure → continue in a new block)
 // ---------------------------------------------------------------------------
-
-/** Slack-shaped error: `getSlackErrorCode` reads `error.data.error`. */
-function makeSlackError(code: string): Error & { data: { error: string } } {
-  return Object.assign(new Error(code), { data: { error: code } });
-}
 
 /** Build a client whose `chatStream()` returns the next streamer from an ordered list,
  *  one per call. Throws if the streamers are exhausted (catches over-rollover bugs).

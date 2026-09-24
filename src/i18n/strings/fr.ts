@@ -703,6 +703,7 @@ export const fr: Partial<Record<StringKey, string>> = {
   "streamer.analyzing": "Analyse en cours…",
   "streamer.working_on": "Travail sur {branch}",
   "streamer.testing": "Test de {branch}",
+  "streamer.plan_title": "Progression",
   "streamer.tool_label_checking": "Vérification de {name}",
   "streamer.tool_label_running": "Exécution de {tool}",
 

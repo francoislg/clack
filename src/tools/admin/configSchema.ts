@@ -1,5 +1,6 @@
 import type { Config, ThinkingFeedbackConfig, TriggerChangesWorkflowConfig } from "../../config.js";
 import type { SchemaFor } from "./configSchemaTypes.js";
+import { TASK_CARD_TRANSPORTS } from "../../configSchemas.js";
 
 const thinkingBlock = (where: string): SchemaFor<ThinkingFeedbackConfig> => ({
   type: "object",
@@ -611,6 +612,23 @@ export const CONFIG_SCHEMA: SchemaFor<Config> = {
       enum: ["en", "fr"],
       default: "en",
       required: false,
+    },
+    streaming: {
+      type: "object",
+      description: "Task-card transport tuning for the streaming progress card.",
+      required: false,
+      fields: {
+        taskCardTransport: {
+          type: "enum",
+          enum: TASK_CARD_TRANSPORTS,
+          description: [
+            'How the task card reaches Slack. "stream" keeps it on a chat stream and opens a',
+            'continuation message when Slack seals it (~5 min). "streamThenUpdate" streams for',
+            "270s, then keeps editing the same message with chat.update.",
+          ].join(" "),
+          default: "stream",
+        },
+      },
     },
     allowPublicSearch: {
       type: "boolean",

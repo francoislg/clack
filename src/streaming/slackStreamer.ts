@@ -12,6 +12,8 @@ import {
 import type { StreamEvent } from "./types.js";
 import { unfurlOptions } from "../slack/unfurlOptions.js";
 import { t } from "../i18n/t.js";
+import type { TaskCardTransport } from "../config.js";
+import { CardUpdater } from "./cardUpdater.js";
 
 type ToolStartEvent = Extract<StreamEvent, { type: "tool_start" }>;
 type ToolEndEvent = Extract<StreamEvent, { type: "tool_end" }>;
@@ -54,12 +56,23 @@ export interface SlackStreamerOptions {
    * be hidden by its args; until then the stream is "uncommitted".
    */
   deferUntilFirstTask?: boolean;
+  /**
+   * How the task card reaches Slack (default `"stream"`). `"stream"` streams it for the whole
+   * run. `"streamThenUpdate"` streams it, then after `HANDOVER_AFTER_MS` (or when the stream
+   * dies) seals the stream and keeps the same message current with `chat.update`.
+   */
+  taskCardTransport?: TaskCardTransport;
   /** Logger instance for dependency injection in tests. */
   logger?: SlackStreamerLogger;
 }
 
 /**
  * Manages a Slack chat stream with plan blocks for showing Claude's tool call progress.
+ *
+ * Two transports: `"stream"` appends task chunks to the chat stream for the whole run, rolling
+ * over to a new message when Slack expires the stream. `"streamThenUpdate"` also mirrors the
+ * card into a `TaskCardProjection`; after `HANDOVER_AFTER_MS`, or when the stream dies, it seals
+ * the stream and re-renders the projection onto the same message with `chat.update`.
  *
  * Usage:
  *   const streamer = new SlackStreamer(opts);
@@ -108,7 +121,14 @@ export class SlackStreamer {
   private lastEventAt = 0;
   private lastKeepaliveTickAt = 0;
 
+  /** The card's `chat.update` side, kept only for the `"streamThenUpdate"` transport. */
+  private updater: CardUpdater | null;
+  private delivery: "stream" | "update" = "stream";
+  private handoverTimer: ReturnType<typeof setTimeout> | null = null;
+  private handoverInFlight: Promise<void> | null = null;
+
   private static readonly KEEPALIVE_INTERVAL_MS = 15_000;
+  private static readonly HANDOVER_AFTER_MS = 270_000;
   private static readonly VISIBLE_PROGRESS_THRESHOLD_MS = 30_000;
 
   private static readonly THINKING_TASK_ID = "__thinking__";
@@ -138,6 +158,15 @@ export class SlackStreamer {
     this.thinkingTitle = opts.thinkingTitle ?? t("streamer.analyzing");
     this.committed = !opts.deferUntilFirstTask;
     this.logger = opts.logger ?? defaultLogger;
+    this.updater =
+      opts.taskCardTransport === "streamThenUpdate"
+        ? new CardUpdater({
+            client: this.client,
+            channel: this.channel,
+            logger: this.logger,
+            diagnostics: () => this.streamDiagnostics(),
+          })
+        : null;
   }
 
   /**
@@ -166,6 +195,7 @@ export class SlackStreamer {
       this.lastEventAt = now;
       this.lastKeepaliveTickAt = now;
       this.startKeepalive();
+      this.startHandoverTimer();
       return true;
     } catch (error) {
       this.logger.error("Failed to start chat stream:", error);
@@ -220,16 +250,16 @@ export class SlackStreamer {
       // Direct chatStreamer.append rather than `this.append()` so that a failure here throws
       // synchronously and is caught by this method (rather than recursively re-entering
       // append's catch and triggering another rollover attempt).
-      const result = await this.chatStreamer.append({
-        chunks: [
-          {
-            type: "task_update",
-            id: SlackStreamer.THINKING_TASK_ID,
-            title: continuationTitle,
-            status: "in_progress",
-          },
-        ],
-      });
+      const continuation: TaskUpdateChunk[] = [
+        {
+          type: "task_update",
+          id: SlackStreamer.THINKING_TASK_ID,
+          title: continuationTitle,
+          status: "in_progress",
+        },
+      ];
+      this.updater?.apply(continuation);
+      const result = await this.chatStreamer.append({ chunks: continuation });
       if (result?.ts) this.messageTs = result.ts;
 
       const now = Date.now();
@@ -314,6 +344,7 @@ export class SlackStreamer {
         details: "\n .",
       });
     }
+    this.updater?.apply(chunks);
     try {
       await this.chatStreamer.append({ chunks });
     } catch {
@@ -601,6 +632,7 @@ export class SlackStreamer {
    */
   async stop(opts?: { markdownText?: string; blocks?: (KnownBlock | Block)[] }): Promise<void> {
     this.stopKeepalive();
+    this.clearHandoverTimer();
 
     if (!this.chatStreamer || this.stopped) return;
 
@@ -609,6 +641,8 @@ export class SlackStreamer {
     // An uncommitted stream never posted anything, and ChatStreamer.stop() would start the
     // stream, so stopping it must make no Slack call.
     if (!this.committed) return;
+
+    if (this.handoverInFlight) await this.handoverInFlight;
 
     // Force-complete standalone tasks still in-flight (tool_end hasn't arrived yet)
     const openGroupSlackId = this.openGroup?.slackId;
@@ -640,6 +674,11 @@ export class SlackStreamer {
     // skip the stop call — the stream is already gone.
     if (this.failed) {
       this.chatStreamer = null;
+      return;
+    }
+
+    if (this.delivery === "update") {
+      if (this.updater && !(await this.updater.finalize(opts))) this.failUpdate();
       return;
     }
 
@@ -727,12 +766,14 @@ export class SlackStreamer {
     this.openingPending = true;
     this.lastKeepaliveTickAt = Date.now();
     this.startKeepalive();
+    this.startHandoverTimer();
   }
 
   private startKeepalive(): void {
     this.keepaliveTimer = setInterval(() => {
       if (this.failed || this.stopped) {
         this.stopKeepalive();
+        this.clearHandoverTimer();
         return;
       }
       this.lastKeepaliveTickAt = Date.now();
@@ -740,6 +781,8 @@ export class SlackStreamer {
       // No active tasks → fall back to pinging the thinking task so
       // pre-first-tool dead zones (worktree setup, SDK init) stay alive.
       if (this.activeTasks.size === 0) {
+        // A message edited with chat.update has no stream to keep alive.
+        if (this.delivery === "update") return;
         this.append([
           {
             type: "task_update",
@@ -803,6 +846,7 @@ export class SlackStreamer {
   }
 
   private async append(chunks: TaskUpdateChunk[]): Promise<void> {
+    this.updater?.apply(chunks);
     if (this.openingPending) {
       this.openingPending = false;
       this.opening = this.send(chunks).finally(() => {
@@ -816,6 +860,7 @@ export class SlackStreamer {
 
   private async send(chunks: TaskUpdateChunk[]): Promise<void> {
     if (!this.chatStreamer || this.failed) return;
+    if (this.delivery === "update") return this.deliverByUpdate();
     // Snapshot the stream generation before the call. If a recoverable failure later finds the
     // generation has advanced, a sibling append already rolled this stream over and we must not
     // roll over again — we replay onto the new stream instead.
@@ -826,49 +871,143 @@ export class SlackStreamer {
         this.messageTs = result.ts;
       }
     } catch (error) {
-      // If stop() was already called, this is a benign race — an in-flight
-      // append from handleEvent resolved after the stream was finalized.
-      if (this.stopped) return;
+      await this.handleAppendFailure(error, gen, chunks);
+    }
+  }
 
-      const code = getSlackErrorCode(error);
+  /** An append in update delivery: the projection already holds its chunks. A handover in
+   *  flight gets one more update so chunks applied after its flush started still land. After
+   *  stop(), the final update renders the projection instead. */
+  private deliverByUpdate(): Promise<void> {
+    if (this.stopped) return Promise.resolve();
+    if (this.handoverInFlight) {
+      this.updater?.markDirty();
+      return this.handoverInFlight;
+    }
+    return this.flushUpdate();
+  }
 
-      // The user clicked the stop control in the streaming UI. Deliberate halt;
-      // no rollover, no further activity. Log as warn (not error) since it's
-      // an expected outcome of a user-driven feature.
-      if (code === "stopped_by_user") {
-        this.logger.warn("Chat stream stopped by user", this.streamDiagnostics());
-        this.failed = true;
-        this.stopKeepalive();
-        return;
-      }
+  private async handleAppendFailure(
+    error: unknown,
+    gen: number,
+    chunks: TaskUpdateChunk[],
+  ): Promise<void> {
+    // If stop() was already called, this is a benign race — an in-flight
+    // append from handleEvent resolved after the stream was finalized.
+    if (this.stopped) return;
 
-      // Slack expires streams after inactivity OR GCs the assistant API placeholder when a
-      // new userMessage arrives. Both are recoverable by rotating to a fresh stream.
-      const recoverable = code === "message_not_in_streaming_state" || code === "message_not_found";
-      if (recoverable) {
-        // If the generation already advanced, a sibling append rolled this stream over while
-        // our call was in flight (or just before our catch ran). `this.chatStreamer` now points
-        // at the live stream — replay onto it rather than opening a second one.
-        if (this.generation !== gen) {
-          return this.replayOnCurrentStream(chunks);
-        }
-        // We're the first to discover this stream died: roll over exactly once, then replay.
-        const ok = await this.rollover();
-        if (ok && this.chatStreamer) {
-          return this.replayOnCurrentStream(chunks);
-        }
-        // Rollover itself failed to open a new stream — fall through to the failure path.
-        this.logger.warn(
-          `Chat stream no longer writable (${code}), falling back to post`,
-          this.streamDiagnostics(),
-        );
-      } else {
-        this.logger.error("Failed to append to chat stream:", error, this.streamDiagnostics());
-      }
+    const code = getSlackErrorCode(error);
 
+    // The user clicked the stop control in the streaming UI. Deliberate halt;
+    // no rollover, no further activity. Log as warn (not error) since it's
+    // an expected outcome of a user-driven feature.
+    if (code === "stopped_by_user") {
+      this.logger.warn("Chat stream stopped by user", this.streamDiagnostics());
       this.failed = true;
       this.stopKeepalive();
+      this.clearHandoverTimer();
+      return;
     }
+
+    // Slack expires streams after inactivity OR GCs the assistant API placeholder when a
+    // new userMessage arrives. Both are recoverable by rotating to a fresh stream.
+    const recoverable = code === "message_not_in_streaming_state" || code === "message_not_found";
+    if (recoverable) {
+      // If the generation already advanced, a sibling append rolled this stream over while
+      // our call was in flight (or just before our catch ran). `this.chatStreamer` now points
+      // at the live stream — replay onto it rather than opening a second one.
+      if (this.generation !== gen) {
+        return this.replayOnCurrentStream(chunks);
+      }
+      // The chunks are already in the projection, so handing over carries them onto the
+      // same message instead of rolling over to a new one. A timed handover can switch to update
+      // delivery while this append was in flight; then the handover exists and a flush suffices.
+      if (this.updater && this.messageTs) {
+        return this.delivery === "update" ? this.flushUpdate() : this.handover({ sealed: true });
+      }
+      // We're the first to discover this stream died: roll over exactly once, then replay.
+      const ok = await this.rollover();
+      if (ok && this.chatStreamer) {
+        return this.replayOnCurrentStream(chunks);
+      }
+      // Rollover itself failed to open a new stream — fall through to the failure path.
+      this.logger.warn(
+        `Chat stream no longer writable (${code}), falling back to post`,
+        this.streamDiagnostics(),
+      );
+    } else {
+      this.logger.error("Failed to append to chat stream:", error, this.streamDiagnostics());
+    }
+
+    this.failed = true;
+    this.stopKeepalive();
+    this.clearHandoverTimer();
+  }
+
+  private startHandoverTimer(): void {
+    if (!this.updater) return;
+    this.handoverTimer = setTimeout(() => {
+      this.handoverTimer = null;
+      this.handover({ sealed: false }).catch((error: unknown) => {
+        this.logger.error("Task card handover failed:", error, this.streamDiagnostics());
+      });
+    }, SlackStreamer.HANDOVER_AFTER_MS);
+    this.handoverTimer.unref();
+  }
+
+  private clearHandoverTimer(): void {
+    if (this.handoverTimer) {
+      clearTimeout(this.handoverTimer);
+      this.handoverTimer = null;
+    }
+  }
+
+  /** Switch from streaming to `chat.update` delivery on the same message. Single-flight.
+   *  `sealed` means Slack already closed the stream, so there is nothing to stop. */
+  private handover(opts: { sealed: boolean }): Promise<void> {
+    if (this.handoverInFlight) return this.handoverInFlight;
+    if (this.delivery === "update" || this.stopped || this.failed) return Promise.resolve();
+    this.clearHandoverTimer();
+    this.handoverInFlight = this.runHandover(opts).finally(() => {
+      this.handoverInFlight = null;
+    });
+    return this.handoverInFlight;
+  }
+
+  private async runHandover({ sealed }: { sealed: boolean }): Promise<void> {
+    if (this.opening) await this.opening;
+    if (this.rolloverInFlight) await this.rolloverInFlight;
+    if (this.failed) return;
+    this.delivery = "update";
+    if (!sealed) {
+      try {
+        await this.chatStreamer?.stop();
+      } catch (error) {
+        this.logger.warn(
+          "Chat stream stop before handover failed (likely already sealed):",
+          error,
+          this.streamDiagnostics(),
+        );
+      }
+    }
+    if (!this.messageTs) {
+      this.logger.warn("Task card handover has no message ts", this.streamDiagnostics());
+      this.failUpdate();
+      return;
+    }
+    this.updater?.attach(this.messageTs);
+    await this.flushUpdate();
+  }
+
+  private async flushUpdate(): Promise<void> {
+    if (!this.updater || this.failed) return;
+    if (!(await this.updater.flush())) this.failUpdate();
+  }
+
+  private failUpdate(): void {
+    this.failed = true;
+    this.stopKeepalive();
+    this.clearHandoverTimer();
   }
 
   /** Replay an append's chunks onto the current (post-rollover) stream. The rollover already
@@ -894,6 +1033,7 @@ export class SlackStreamer {
     msSinceLastEvent: number;
     activeTaskCount: number;
     reactiveRolloverCount: number;
+    delivery: "stream" | "update";
   } {
     const now = Date.now();
     return {
@@ -901,6 +1041,7 @@ export class SlackStreamer {
       msSinceLastEvent: this.lastEventAt === 0 ? -1 : now - this.lastEventAt,
       activeTaskCount: this.activeTasks.size,
       reactiveRolloverCount: this.reactiveRolloverCount,
+      delivery: this.delivery,
     };
   }
 }

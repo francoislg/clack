@@ -46,7 +46,8 @@ import { addDeliveryReactions, removeDeliveryReaction } from "../messageReaction
 import { takeQueuedAcks } from "../activeRuns.js";
 import { notificationText } from "../messagePoster.js";
 import { unfurlOptions } from "../unfurlOptions.js";
-import { SlackStreamer } from "../../streaming/slackStreamer.js";
+import type { SlackStreamer } from "../../streaming/slackStreamer.js";
+import { createConfiguredStreamer } from "../../streaming/createStreamer.js";
 import { isChannellessChannelId } from "../../channelless.js";
 import { getUserInfo } from "../userCache.js";
 import { getUserPreference } from "../../userPreferences.js";
@@ -113,7 +114,7 @@ export const defaultHandlerResponseDeps: HandlerResponseDeps = {
   getConfig,
   getClaudeOptions,
   handleAutoExecuteActions,
-  createStreamer: (opts) => new SlackStreamer(opts),
+  createStreamer: createConfiguredStreamer,
   getUserPreference,
   writeErrorReport,
   getOwnerUserId,

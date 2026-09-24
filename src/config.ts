@@ -3,6 +3,7 @@ import { resolve } from "node:path";
 import type { UserRole } from "./roles.js";
 import { type Lang } from "./i18n/languages.js";
 import { validateConfig } from "./configZod.js";
+import type { TASK_CARD_TRANSPORTS } from "./configSchemas.js";
 
 export interface SlackAuthConfig {
   botToken: string;
@@ -139,6 +140,12 @@ export interface ReactionsConfig {
 export type DmType = "assistant" | "classic" | "agent";
 
 export const VALID_DM_TYPES: readonly DmType[] = ["assistant", "classic", "agent"] as const;
+
+export type TaskCardTransport = (typeof TASK_CARD_TRANSPORTS)[number];
+
+export interface StreamingConfig {
+  taskCardTransport: TaskCardTransport;
+}
 
 export interface DirectMessagesConfig {
   enabled: boolean;
@@ -441,6 +448,13 @@ export interface Config {
    * (a bot token does not retroactively gain scopes). Absent → `false`, fully inert.
    */
   allowPublicSearch?: boolean;
+  /**
+   * Slack task-card transport. `stream` (default) keeps the card on a chat stream and opens a
+   * continuation message when Slack seals it (~5 min). `streamThenUpdate` streams for the first
+   * ~4.5 min, then ends the stream cleanly and keeps editing the same message with
+   * `chat.update` (plan block), so a long run stays one message.
+   */
+  streaming?: StreamingConfig;
   /**
    * Split-investigation feature. Absent or `enabled: false` → fully inert (no reaction
    * handler, no tools, no event routing, no manifest scopes). The investigations *channel*

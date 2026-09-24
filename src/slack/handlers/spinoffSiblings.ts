@@ -6,7 +6,8 @@ import { getExistingWorktree } from "../../worktrees.js";
 import { createSession } from "../../sessions.js";
 import { resolveNonCollidingBranch } from "../../changes/branchNaming.js";
 import { startChangeWorkflow, type WorkflowDeps } from "../../changes/workflow.js";
-import { SlackStreamer, finalizeStreamedWorkflow } from "../../streaming/slackStreamer.js";
+import { type SlackStreamer, finalizeStreamedWorkflow } from "../../streaming/slackStreamer.js";
+import { createConfiguredStreamer } from "../../streaming/createStreamer.js";
 import type { StreamEvent } from "../../streaming/types.js";
 import type { ChangeRequest, ChangePlan, ChangeResult, TriggerType } from "../../changes/types.js";
 import type { SpinoffIntentData } from "../../changes/spinoff.js";
@@ -42,7 +43,7 @@ export const defaultProvisionSpinoffDeps: ProvisionSpinoffDeps = {
   branchExists: (repo, branch) => getExistingWorktree(repo, branch) !== null,
   createSession,
   startChangeWorkflow,
-  createStreamer: (opts) => new SlackStreamer(opts),
+  createStreamer: createConfiguredStreamer,
   finalizeStreamedWorkflow,
   getPermalink: async (client, channel, ts) => {
     try {

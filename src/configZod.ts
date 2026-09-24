@@ -19,6 +19,7 @@ import {
   assistantZod,
   adminZod,
   submitResponseZod,
+  streamingZod,
   testerZod,
   cronCatchUpZod,
   backupZod,
@@ -291,6 +292,7 @@ export function validateConfig(config: unknown, slackAuth: SlackAuthConfig): Con
     admin: parseOrThrow(adminZod, c.admin),
     tester: parseOrThrow(testerZod, c.tester),
     allowPublicSearch: parseOrThrow(allowPublicSearchZod, c.allowPublicSearch),
+    streaming: parseOrThrow(streamingZod, c.streaming),
     investigations: parseOrThrow(investigationsZod, c.investigations),
     language: isSupportedLanguage(c.language) ? c.language : undefined,
   };

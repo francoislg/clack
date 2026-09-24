@@ -19,6 +19,7 @@ import type {
 export const VALID_ROLES: readonly UserRole[] = ["member", "dev", "admin", "owner"];
 export const VALID_MERGE_STRATEGIES = ["squash", "merge", "rebase"] as const;
 export const VALID_DM_TYPES = ["assistant", "classic", "agent"] as const;
+export const TASK_CARD_TRANSPORTS = ["stream", "streamThenUpdate"] as const;
 const MAX_SUGGESTED_PROMPTS = 4;
 const MAX_ADDITIONAL_MESSAGES_MIN = 1;
 const MAX_ADDITIONAL_MESSAGES_MAX = 10;
@@ -771,3 +772,16 @@ export const submitResponseZod = z.unknown().transform((raw, ctx): Config["submi
   }
   return { maxAdditionalMessages: maxRaw };
 });
+
+export const streamingZod = z
+  .strictObject(
+    {
+      taskCardTransport: z
+        .enum(TASK_CARD_TRANSPORTS, {
+          error: `Config 'streaming.taskCardTransport' must be one of: ${TASK_CARD_TRANSPORTS.join(", ")}`,
+        })
+        .default("stream"),
+    },
+    { error: "Config 'streaming' must be an object" },
+  )
+  .optional();

@@ -21,7 +21,8 @@ import type { ChangeRequest, ChangePlan, ChangeResult, TriggerType } from "../..
 import { startChangeWorkflow, type WorkflowDeps } from "../../changes/workflow.js";
 import { maybeOfferRecovery } from "./changeThreadActions.js";
 import { provisionSpinoffSiblings } from "./spinoffSiblings.js";
-import { SlackStreamer, finalizeStreamedWorkflow } from "../../streaming/slackStreamer.js";
+import { type SlackStreamer, finalizeStreamedWorkflow } from "../../streaming/slackStreamer.js";
+import { createConfiguredStreamer } from "../../streaming/createStreamer.js";
 import type { StreamEvent } from "../../streaming/types.js";
 import type { UserRole } from "../../roles.js";
 import { getUserInfo } from "../userCache.js";
@@ -76,7 +77,7 @@ export const defaultChangeActionDeps: ChangeActionDeps = {
   startChangeWorkflow,
   errorMessage,
   setAttentionLevel,
-  createStreamer: (opts) => new SlackStreamer(opts),
+  createStreamer: createConfiguredStreamer,
   finalizeStreamedWorkflow: (streamer, client, channel, threadTs, result, context) =>
     finalizeStreamedWorkflow(streamer as SlackStreamer, client, channel, threadTs, result, context),
   provisionSpinoffSiblings,
