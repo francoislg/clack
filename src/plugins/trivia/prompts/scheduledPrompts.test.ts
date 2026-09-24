@@ -1056,6 +1056,16 @@ describe("PUZZLE QUALITY GATE", () => {
     assert.match(SEND_QUESTIONS_INSTRUCTIONS, /read equally plausible/i);
   });
 
+  it("rejects answers computable from the question's own numbers, allowing knowledge-supplied operands", () => {
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /NOT COMPUTABLE FROM THE QUESTION/);
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /combined with today's date/);
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /100th anniversary in 2026/);
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /How many years old is the GameCube/);
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /How many squares are on a chessboard\?/);
+    assert.match(SEND_QUESTIONS_INSTRUCTIONS, /reason through all six checks/);
+    assert.doesNotMatch(SEND_QUESTIONS_INSTRUCTIONS, /reason through all five checks/);
+  });
+
   it("defers flavor-leak enforcement to the existing NO-SPOILER GATE (no duplicate prose)", () => {
     assert.match(SEND_QUESTIONS_INSTRUCTIONS, /FLAVOR NEVER LEAKS[\s\S]*?NO-SPOILER GATE/);
   });

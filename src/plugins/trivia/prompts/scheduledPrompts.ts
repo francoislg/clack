@@ -126,7 +126,10 @@ const PUZZLE_QUALITY_GATE = `PUZZLE QUALITY GATE (shared across all paths — in
    2. NO SURFACE TELL. Strip the truth value and read it cold: phrasing, specificity, length, or confidence must NOT tilt a clueless player toward the answer. boolean — a TRUE and a FALSE framing of this fact must read equally plausible (don't let an over-specific statement read as obviously true); choice — the correct option must not stand out from the distractors in length, specificity, or confidence; freeform — the prompt must not telegraph the answer.
    3. DOUBT FITS THE DIFFICULTY. The answer must be genuinely ambiguous on the surface yet resolvable by a player with relevant knowledge and reasoning. Difficulty comes from that doubt, NEVER from obscurity or memorization — a harder question is more plausibly either-way, not about a rarer fact.
    4. FLAVOR NEVER LEAKS. Surfaced non-question text (patter, subtitle, emojis, hint, alt text) must not narrow or reveal the answer. This is enforced in full by the NO-SPOILER GATE at post time — just confirm here that nothing you've drafted leaks.
-   5. WORTH CARING ABOUT. The subject should be something the audience would find interesting or relevant (for topical, genuinely salient) — not a "who cares" datum.`;
+   5. WORTH CARING ABOUT. The subject should be something the audience would find interesting or relevant (for topical, genuinely salient) — not a "who cares" datum.
+   6. NOT COMPUTABLE FROM THE QUESTION. The answer must NOT follow from arithmetic on numbers the question itself supplies (or the event it describes), alone or combined with today's date — anniversaries, "N years after", ages, durations, unit conversions. Such a question tests subtraction, not knowledge. Arithmetic is fine when its inputs are the knowledge being tested.
+      - DON'T: "Festival X celebrates its 100th anniversary in 2026. In what year was it founded?" (2026 − 100) / "How many years old is the GameCube, released in 2001?" (today − 2001) / "The festival marking its 100th anniversary in 2026 was founded in 1926." (T/F — true by arithmetic).
+      - DO: "How many squares are on a chessboard?" — the numbers come from knowing the board, not from the question. Anniversary and milestone news is the usual trap: ask about the subject itself (who founded it, where, what it celebrates), not the date math — and don't just drop the giveaway number and keep a year question (check 1 already rules that out).`;
 
 /**
  * Shared step sequence for generating a new FACT-typed boolean trivia question.
@@ -174,7 +177,7 @@ const QUESTION_FLOW_STEPS = `1. GET CATEGORY IDEAS AND SUGGESTIONS:
 
 8. HINT (optional): apply the HINT DRAFTING GATE (shared definition above). When \`suggestedHintMode\` is non-\`"none"\`, the gate produces an optional \`hint\` field to include in the save_question call below.
 
-9. PUZZLE QUALITY GATE: apply the PUZZLE QUALITY GATE (shared definition above) — reason through all five checks; revise or re-roll on failure.
+9. PUZZLE QUALITY GATE: apply the PUZZLE QUALITY GATE (shared definition above) — reason through all six checks; revise or re-roll on failure.
 
 10. SAVE TO DATABASE:
    - Call save_question with:
@@ -229,7 +232,7 @@ const CHOICE_FLOW_STEPS = `1. GET CATEGORY IDEAS AND SUGGESTIONS:
 
 7. HINT (optional): apply the HINT DRAFTING GATE (shared definition above). When \`suggestedHintMode\` is non-\`"none"\`, the gate produces an optional \`hint\` field to include in the save_question call below.
 
-8. PUZZLE QUALITY GATE: apply the PUZZLE QUALITY GATE (shared definition above) — reason through all five checks; revise or re-roll on failure.
+8. PUZZLE QUALITY GATE: apply the PUZZLE QUALITY GATE (shared definition above) — reason through all six checks; revise or re-roll on failure.
 
 9. SAVE TO DATABASE:
    - Call save_question with:
@@ -361,7 +364,7 @@ const FREEFORM_FACT_FLOW_STEPS = `1. GET CATEGORY IDEAS AND SUGGESTIONS:
 
 9. HINT (optional): apply the HINT DRAFTING GATE (shared definition above). When \`suggestedHintMode\` is non-\`"none"\`, the gate produces an optional \`hint\` field to include in the save_question call below.
 
-10. PUZZLE QUALITY GATE: apply the PUZZLE QUALITY GATE (shared definition above) — reason through all five checks; revise or re-roll on failure.
+10. PUZZLE QUALITY GATE: apply the PUZZLE QUALITY GATE (shared definition above) — reason through all six checks; revise or re-roll on failure.
 
 11. SAVE TO DATABASE:
    - Call save_question with:
@@ -466,7 +469,7 @@ const VISUAL_CHOICE_FLOW_STEPS = `1. Run the VISUAL RESEARCH SUBFLOW (shared def
 5. DIFFICULTY GATE (shared definition above) — CHOICE reframe rule (correct POSITION locked at suggestedCorrectIndex). (Dedup is handled by \`find_previous_subjects\` inside the subflow — do NOT also run the text DUPLICATE CHECK GATE here; the templated "Which … is shown?" prompt would false-positive against every prior visual question.)
 6. Choose 1–4 emojis: apply the EMOJI SELECTION GATE (shared definition above). Compose \`media.altText\` — an accessibility description of the image that does NOT reveal the answer (describe generically, e.g. "a national flag" not "the flag of Ecuador").
 7. HINT (optional): apply the HINT DRAFTING GATE (shared definition above).
-8. PUZZLE QUALITY GATE: apply the PUZZLE QUALITY GATE (shared definition above) — reason through all five checks; revise or re-roll on failure.
+8. PUZZLE QUALITY GATE: apply the PUZZLE QUALITY GATE (shared definition above) — reason through all six checks; revise or re-roll on failure.
 9. SAVE: call save_question with \`promptMedium: "image"\`, \`answersFormat: "choice"\`, \`questionType: "fact"\`, category, statement, choices, correctIndex (= suggestedCorrectIndex), \`media: { kind: "image", url: <imageUrl>, altText, subjectId, title, license?, attribution? }\`, emojis, suggestedDifficulty, difficulty, context?, hint?, points? (apply the POINTS GATE), slot?. Store the returned questionId AND slot.index for the post step.`;
 
 const VISUAL_BOOLEAN_FLOW_STEPS = `1. Run the VISUAL RESEARCH SUBFLOW (shared definition above). get_ideas also returned \`suggestedAnswer\` — the truth value the claim MUST have.
@@ -480,7 +483,7 @@ const VISUAL_BOOLEAN_FLOW_STEPS = `1. Run the VISUAL RESEARCH SUBFLOW (shared de
 6. DIFFICULTY GATE (shared definition above) — BOOLEAN reframe rule (re-run the POLARITY SELF-CHECK on any reframe).
 7. Choose 1–4 emojis: apply the EMOJI SELECTION GATE (shared definition above). Compose \`media.altText\` (generic; never reveal the answer).
 8. HINT (optional): apply the HINT DRAFTING GATE (shared definition above).
-9. PUZZLE QUALITY GATE: apply the PUZZLE QUALITY GATE (shared definition above) — reason through all five checks; revise or re-roll on failure.
+9. PUZZLE QUALITY GATE: apply the PUZZLE QUALITY GATE (shared definition above) — reason through all six checks; revise or re-roll on failure.
 10. SAVE: call save_question with \`promptMedium: "image"\`, \`answersFormat: "boolean"\`, \`questionType: "fact"\`, category, statement, isTrue (= suggestedAnswer), \`media: { kind: "image", url: <imageUrl>, altText, subjectId, title, license?, attribution? }\`, emojis, suggestedDifficulty, difficulty, context?, hint?, points? (apply the POINTS GATE), slot?. Store the returned questionId AND slot.index.`;
 
 const VISUAL_FREEFORM_FLOW_STEPS = `1. Run the VISUAL RESEARCH SUBFLOW (shared definition above). get_ideas also returned \`suggestedFreeformAnswerShape\` — pass it through to save unchanged.
@@ -490,7 +493,7 @@ const VISUAL_FREEFORM_FLOW_STEPS = `1. Run the VISUAL RESEARCH SUBFLOW (shared d
 4. DIFFICULTY GATE (shared definition above) — FREEFORM reframe rule.
 5. Choose 1–4 emojis: apply the EMOJI SELECTION GATE (shared definition above). Compose \`media.altText\` (generic; never reveal the answer).
 6. HINT (optional): apply the HINT DRAFTING GATE (shared definition above).
-7. PUZZLE QUALITY GATE: apply the PUZZLE QUALITY GATE (shared definition above) — reason through all five checks; revise or re-roll on failure.
+7. PUZZLE QUALITY GATE: apply the PUZZLE QUALITY GATE (shared definition above) — reason through all six checks; revise or re-roll on failure.
 8. SAVE: call save_question with \`promptMedium: "image"\`, \`answersFormat: "freeform"\`, \`questionType: "fact"\`, category, statement, expectedAnswer, acceptableAnswers?, gradingNotes?, freeformAnswerShape (= suggestedFreeformAnswerShape), \`media: { kind: "image", url: <imageUrl>, altText, subjectId, title, license?, attribution? }\`, emojis, suggestedDifficulty, difficulty, context?, hint?, points? (apply the POINTS GATE), slot?. Store the returned questionId AND slot.index.`;
 
 const PER_SLOT_GENERATION_PATHS = `Per-question/per-slot generation DISPATCHES on a 3-axis matrix: \`suggestedPromptMedium\` × \`suggestedAnswersFormat\` × \`suggestedQuestionType\`.

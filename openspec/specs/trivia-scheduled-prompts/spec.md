@@ -3,7 +3,9 @@
 ## Purpose
 
 The trivia plugin generates its scheduled-run prompts (question posting, answer reveal) inline as TypeScript constants in `src/plugins/trivia/scheduledPrompts.ts`. The plugin's `buildGameSpecs()` substitutes a `{game}` placeholder per cron spec at plugin load and hands the resulting `CronJobSpec[]` to `sdk.reconcileCronJobs("trivia", ...)`. There are no on-demand "fetch the prompt" MCP tools — admins create games by editing `config.trivia.games[]` and the plugin reconciles automatically. A blocking migration upgrades legacy dispatcher-style cron jobs into the declarative model.
+
 ## Requirements
+
 ### Requirement: Schedule Prompts Are Thin Dispatchers
 
 Cron jobs reconciled by `sdk.reconcileCronJobs("trivia", specs)` from `config.trivia.games[]` SHALL carry full prompts inlined by `buildGameSpecs()`. Each spec's `prompt` SHALL embed the game's `name` at the top (`"Game: <name>. ..."`) and pass `game: "<name>"` literally to every trivia tool call referenced in the prompt's step sequence.
@@ -499,7 +501,7 @@ Inline fat-prompt legacy cron jobs (whose `prompt` does NOT match a dispatcher p
 The answer-reveal prompt SHALL describe a fourth `voters` discriminated-union variant keyed on `voters.revealResponses === "just-winners"`, carrying `correct` (named voters), `incorrectCount` (integer), `noAnswerCount` (integer), and `reactions`. The prompt SHALL instruct Claude to:
 
 - Name and celebrate the `correct` voters (e.g. "<@U1> and <@U2> got it right — nice!"), quoting freeform `answerText` when present.
-- Render an ANONYMOUS miss line derived from the counts (e.g. "*(3 others missed it)*") WITHOUT naming, speculating about, or implying the identity of any misser.
+- Render an ANONYMOUS miss line derived from the counts (e.g. `*(3 others missed it)*`) WITHOUT naming, speculating about, or implying the identity of any misser.
 - When `correct` is empty and `incorrectCount > 0`, render an "everyone got fooled / nobody nailed it" closer instead of a winners line.
 - Preserve the reactions commentary exactly as in the other modes.
 
@@ -771,13 +773,14 @@ On the season's last fire the finale (podium + gated all-time table) SHALL be re
 
 The scheduled question-generation prompt SHALL define a shared **PUZZLE QUALITY GATE** that constrains question quality across every generation path. The gate SHALL follow the same shared-definition pattern as the prompt's other gates (`DUPLICATE CHECK GATE`, `DIFFICULTY GATE`, `EMOJI SELECTION GATE`): defined exactly once and invoked from each path body by wording such as "apply the PUZZLE QUALITY GATE (shared definition above)." Every text and visual path body — fact/topical × boolean/choice/freeform — SHALL invoke the gate immediately before its `save_question` step.
 
-The gate SHALL instruct Claude to reason explicitly (not merely assert "pass") about the question as a puzzle, evaluating at minimum five checks and revising or re-rolling on failure:
+The gate SHALL instruct Claude to reason explicitly (not merely assert "pass") about the question as a puzzle, evaluating at minimum six checks and revising or re-rolling on failure:
 
 1. **Solvable by knowing, not guessing** — a knowledgeable player could reason to the answer; the question SHALL NOT reduce to a coin-flip or to recalling an isolated datum disconnected from understanding (an exact year, a raw figure, a one-off statistic). This check carries the principle of the former boolean-only `AVOID YEAR/DATE ANCHORING` block and applies it to every format.
 2. **No surface tell** — stripped of its truth value, the question's phrasing, specificity, length, or confidence SHALL NOT tilt a clueless player toward the answer. The gate SHALL state the per-format manifestation inline: boolean — a true and a false framing must read equally plausible; choice — the correct option must not stand out from the distractors in length, specificity, or confidence; freeform — the prompt must not telegraph the answer.
 3. **Doubt fits the difficulty** — the answer SHALL be genuinely ambiguous on the surface yet resolvable by a player with relevant knowledge and reasoning; difficulty SHALL come from that ambiguity, never from obscurity or memorization.
 4. **Flavor never leaks** — surfaced non-question text (patter, subtitle, emojis, hint, alt text) SHALL NOT narrow or reveal the answer. This check reinforces the existing post-time **NO-SPOILER GATE** rather than restating it; it SHALL reference that gate, not duplicate its prose.
 5. **Worth caring about** — the subject SHALL be something the audience would plausibly find interesting or relevant (for topical, genuinely salient).
+6. **Not computable from the question** — the answer SHALL NOT follow from arithmetic on numbers the question itself supplies (or the event it describes), alone or combined with today's date (anniversaries, "N years after", ages, durations, unit conversions). Arithmetic whose inputs are the knowledge being tested (e.g. the squares on a chessboard) SHALL remain allowed.
 
 The gate SHALL instruct Claude that, when a question cannot be fixed to pass, re-rolling is preferred over shipping a weak question. The check-1 principle SHALL be expressed once in this shared gate — including at least one worked example contrasting a bad isolated-datum question with a good knowledge-resolvable reframe — so it applies to choice and freeform paths as well as boolean.
 
@@ -809,6 +812,13 @@ The gate SHALL instruct Claude that, when a question cannot be fixed to pass, re
 - **WHEN** the PUZZLE QUALITY GATE text is inspected
 - **THEN** it contains the "solvable by knowing, not an isolated datum" principle absorbed from the former boolean-only block
 - **AND** it includes at least one worked example contrasting a bad isolated-datum question with a good knowledge-resolvable reframe
+
+#### Scenario: Gate rejects answers computable from the question's own numbers
+
+- **WHEN** the PUZZLE QUALITY GATE text is rendered into the prompt
+- **THEN** it instructs Claude that the answer must not be derivable by arithmetic from numbers the question supplies, alone or combined with today's date
+- **AND** it includes a bad example whose answer is computable from the statement (an anniversary or age question)
+- **AND** it includes a good example where the arithmetic's inputs are the knowledge being tested (the squares on a chessboard)
 
 #### Scenario: Flavor-leak check defers to the existing NO-SPOILER GATE
 
@@ -918,4 +928,3 @@ The reveal prompt SHALL include a TEAMS MODE section, active only when the paylo
 
 - **WHEN** the reveal narrative discusses who got a question right with teams mode on
 - **THEN** it references team names (and free agents individually), not team-member names
-
