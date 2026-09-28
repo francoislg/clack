@@ -116,6 +116,8 @@ export const en = {
   "label.post_questions": "Posting trivia question — {game}",
   "label.lock_questions": "Locking trivia questions — {game}",
   "label.remind_unplayed": "Reminding players — {game}",
+  // Appended to every reveal-reminder DM ({channel} = the game's channel id).
+  "reminder.channel_link": "👉 Play in <#{channel}>",
   "label.unlock_questions": "Unlocking trivia questions — {game}",
   "label.find_previous": "Searching past trivia questions — {game}",
   "label.find_previous_subjects": "Checking for repeat image subjects — {subjectId}",
@@ -226,6 +228,7 @@ export const fr: Partial<Record<keyof typeof en, string>> = {
   "label.post_questions": "Publication de la question trivia — {game}",
   "label.lock_questions": "Verrouillage des questions trivia — {game}",
   "label.remind_unplayed": "Rappel aux joueurs — {game}",
+  "reminder.channel_link": "👉 Jouez dans <#{channel}>",
   "label.unlock_questions": "Déverrouillage des questions trivia — {game}",
   "label.find_previous": "Recherche de questions trivia passées — {game}",
   "label.find_previous_subjects": "Vérification des sujets d'image déjà utilisés — {subjectId}",

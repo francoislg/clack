@@ -790,7 +790,7 @@ ${FORMAT_AND_POST_SECTION}`;
  */
 export const REMIND_UNPLAYED_INSTRUCTIONS = `Send a friendly reminder to players who haven't answered yet for game \`{game}\`.
 
-The current trivia round for game \`{game}\` will be revealed in one hour. Call \`remind_unplayed({ message: "<short friendly message>" })\` exactly once with a brief, localized reminder message that nudges players to go answer before the reveal. The message MUST NOT name or @-mention any specific users — the tool fans out DMs to the opted-in audience automatically.
+The current trivia round for game \`{game}\` will be revealed in one hour. Call \`remind_unplayed({ message: "<short friendly message>" })\` exactly once with a brief, localized reminder message that nudges players to go answer before the reveal. The message MUST NOT name or @-mention any specific users — the tool fans out DMs to the opted-in audience automatically. Do not include a channel link or mention — the tool appends a link to the game's channel itself.
 
 Example message format: "Don't miss out! There's still time to play this round of {game} — answers close in 1 hour."
 

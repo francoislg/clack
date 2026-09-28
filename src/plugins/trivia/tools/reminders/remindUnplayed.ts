@@ -1,8 +1,9 @@
 import { z } from "zod";
 import { tool } from "@anthropic-ai/claude-agent-sdk";
-import { textResult, errorResult } from "../../../../plugins-sdk/sdk.js";
+import { textResult, errorResult, type ClackSdk } from "../../../../plugins-sdk/sdk.js";
 import { TRIVIA_USER_PREFS_SCHEMA, revealReminderKey } from "../../core/userPrefs.js";
 import type { TriviaDataLayer } from "../../core/types.js";
+import type { TriviaGame } from "../../core/configTypes.js";
 import { defaultGetGames, type GetGamesFn } from "../../core/configBridge.js";
 import { requireWritableGame } from "../../core/gamesRegistry.js";
 import {
@@ -23,10 +24,11 @@ export interface RemindSlackDeps {
     ): Promise<ReturnType<typeof TRIVIA_USER_PREFS_SCHEMA.parse> | null>;
   };
   logger: { warn(...args: unknown[]): void };
+  t: ClackSdk["t"];
 }
 
 const DESCRIPTION =
-  "Remind players who haven't answered the current round that answers are closing soon. Sends a DM to opted-in players who are candidates but haven't yet submitted an answer to any of the pending questions.";
+  "Remind players who haven't answered the current round that answers are closing soon. Sends a DM to opted-in players who are candidates but haven't yet submitted an answer to any of the pending questions. A link to the game's channel is appended to the message automatically.";
 
 export function createRemindUnplayedTool(
   data: TriviaDataLayer,
@@ -41,8 +43,9 @@ export function createRemindUnplayedTool(
       message: z.string().min(1).describe("DM message to send to unplayed candidates"),
     },
     async (args) => {
+      let game: TriviaGame;
       try {
-        requireWritableGame(getGamesFn(), args.game);
+        game = requireWritableGame(getGamesFn(), args.game);
       } catch (err) {
         return errorResult(err instanceof Error ? err.message : String(err));
       }
@@ -70,6 +73,7 @@ export function createRemindUnplayedTool(
       let skipped = 0;
 
       const reminderKey = revealReminderKey(args.game);
+      const text = `${args.message}\n\n${sdk.t("reminder.channel_link", { channel: game.channel })}`;
       for (const userId of unplayed) {
         const prefs = await sdk.preferences.get(userId, TRIVIA_USER_PREFS_SCHEMA);
         if (prefs?.[reminderKey] !== true) {
@@ -78,7 +82,7 @@ export function createRemindUnplayedTool(
         }
 
         try {
-          const result = await sdk.dmUser(userId, args.message);
+          const result = await sdk.dmUser(userId, text);
           if (result.ok) {
             reminded++;
           } else {

@@ -5,6 +5,7 @@ import {
   createTriviaDataLayer,
   FIXTURE_GAME_NAME,
   fixtureGetGames,
+  multiFixtureGetGames,
   type FakeTriviaDataLayer,
 } from "../../testHelpers.js";
 import { createFakeSdk, primeTriviaConfig } from "../../testHelpers.fakeSdk.js";
@@ -48,6 +49,7 @@ async function run(
     dmUser: sdk.dmUser,
     preferences: sdk.preferences,
     logger: sdk.logger,
+    t: sdk.t,
   };
   const tool = createRemindUnplayedTool(data, remindDeps, fixtureGetGames);
   return parseToolResult(await tool.handler({ game: FIXTURE_GAME_NAME, message }, SESSION));
@@ -93,7 +95,33 @@ describe("remind_unplayed", () => {
     assert.equal(sdk.dmUser.mock.calls.length, 1, "dmUser called once");
     const call = sdk.dmUser.mock.calls[0];
     assert.equal(call[0], "u2");
-    assert.equal(call[1], "Hurry up!");
+    assert.equal(
+      call[1],
+      `Hurry up!\n\n${sdk.t("reminder.channel_link", { channel: "C100000000" })}`,
+    );
+  });
+
+  it("links the target game's own channel", async () => {
+    await data.forGame("sandbox").saveQuestion(pendingQuestion({}));
+    testHelpers.saveUser({ userId: "u1", displayName: "Alice" });
+    testHelpers.savePreference("u1", { [revealReminderKey("sandbox")]: true });
+
+    const remindDeps = {
+      dmUser: sdk.dmUser,
+      preferences: sdk.preferences,
+      logger: sdk.logger,
+      t: sdk.t,
+    };
+    const tool = createRemindUnplayedTool(data, remindDeps, multiFixtureGetGames);
+    const res: RemindResult = parseToolResult(
+      await tool.handler({ game: "sandbox", message: "Hurry up!" }, SESSION),
+    );
+
+    assert.equal(res.reminded, 1);
+    assert.equal(
+      sdk.dmUser.mock.calls[0][1],
+      `Hurry up!\n\n${sdk.t("reminder.channel_link", { channel: "C200000000" })}`,
+    );
   });
 
   it("returns no-op when no current round pending", async () => {
@@ -247,6 +275,7 @@ describe("remind_unplayed", () => {
       dmUser: sdk.dmUser,
       preferences: sdk.preferences,
       logger: sdk.logger,
+      t: sdk.t,
     };
     const tool = createRemindUnplayedTool(data, remindDeps, fixtureGetGames);
     const res: RemindResult = parseToolResult(
