@@ -13,13 +13,10 @@ import assert from "node:assert/strict";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { mkdtempSync, writeFileSync, mkdirSync } from "node:fs";
-import { createClackSdk } from "../../plugins-sdk/testHelpers.js";
+import { createTestClackSdk } from "../../plugins-sdk/testHelpers.js";
 import { setLoadedPlugins, getLoadedPlugins } from "../../plugins-core/state.js";
 import { resolveEffectiveRegistry } from "../../mcp.js";
 import { triviaPlugin } from "./index.js";
-import type { RolesConfig } from "../../roles.js";
-
-const EMPTY_ROLES: RolesConfig = { owner: null, admins: [], devs: [] };
 
 async function bootTrivia(): Promise<() => void> {
   const dataDir = mkdtempSync(join(tmpdir(), "clack-trivia-gating-"));
@@ -31,11 +28,7 @@ async function bootTrivia(): Promise<() => void> {
     join(pluginDir, "config.json"),
     JSON.stringify({ games: [], seasons: { enabled: true, prompt: "test" } }),
   );
-  const { sdk, harvest } = createClackSdk("trivia", dataDir, {
-    getSlackClient: () => null,
-    loadRoles: async () => EMPTY_ROLES,
-    openDmChannel: async () => null,
-    clackQuery: () => emptyClackQuery(),
+  const { sdk, harvest } = createTestClackSdk("trivia", dataDir, {
     findByPluginOwner: async () => [],
     createJob: async () => {
       throw new Error("unexpected createJob in gating test (no specs should reconcile)");
@@ -56,8 +49,6 @@ async function bootTrivia(): Promise<() => void> {
     for (const w of loaded.watchers ?? []) w.close();
   };
 }
-
-async function* emptyClackQuery(): AsyncGenerator<never, void, void> {}
 
 function flattenLoadedIntegrations(): Array<{
   name: string;

@@ -3,8 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
-import { createClackSdk } from "../../plugins-sdk/testHelpers.js";
+import { createTestClackSdk } from "../../plugins-sdk/testHelpers.js";
 import type { ClackSdk } from "../../plugins-sdk/sdk.js";
 import { en, fr } from "./i18n/strings.js";
 import {
@@ -21,16 +20,8 @@ import {
 import { DEFAULT_CONFIG } from "./config.js";
 import type { IdlerWindow } from "./types.js";
 
-async function* emptyClackQuery(): AsyncGenerator<SDKMessage, void, void> {}
-
 function buildSdk(tempDir: string): ClackSdk {
-  const { sdk } = createClackSdk("idler", tempDir, {
-    getSlackClient: () => null,
-    loadRoles: async () => ({ owner: null, admins: [], devs: [] }),
-    openDmChannel: async () => null,
-    clackQuery: emptyClackQuery,
-    requestSoftRestart: () => {},
-  });
+  const { sdk } = createTestClackSdk("idler", tempDir);
   sdk.registerDictionary({ en, fr });
   return sdk;
 }

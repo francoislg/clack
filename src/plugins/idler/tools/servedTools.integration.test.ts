@@ -3,11 +3,10 @@ import assert from "node:assert/strict";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import { createSdkMcpServer } from "@anthropic-ai/claude-agent-sdk";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import { createClackSdk } from "../../../plugins-sdk/testHelpers.js";
+import { createTestClackSdk } from "../../../plugins-sdk/testHelpers.js";
 import type { ClackSdk } from "../../../plugins-sdk/sdk.js";
 import { en as idlerEn, fr as idlerFr } from "../i18n/strings.js";
 import { createListTopIdeasTool, createReprioritizeTool, createUpsertIdeaTool } from "./ideas.js";
@@ -23,8 +22,6 @@ import { createRecordFireOutcomeTool } from "./fireOutcome.js";
 // throws there — taking down the WHOLE server's listing, so every tool on it reads to Claude
 // as "No such tool available". Only a served `tools/list` proves the always-on tools are
 // reachable; `z.record` is one such shape.
-
-async function* emptyClackQuery(): AsyncGenerator<SDKMessage, void, void> {}
 
 type ServerTools = NonNullable<Parameters<typeof createSdkMcpServer>[0]["tools"]>;
 
@@ -52,13 +49,7 @@ describe("idler always-on MCP server", () => {
 
   beforeEach(async () => {
     tempDir = await mkdtemp(join(tmpdir(), "idler-served-"));
-    const created = createClackSdk("idler", tempDir, {
-      getSlackClient: () => null,
-      loadRoles: async () => ({ owner: null, admins: [], devs: [] }),
-      openDmChannel: async () => null,
-      clackQuery: emptyClackQuery,
-      requestSoftRestart: () => {},
-    });
+    const created = createTestClackSdk("idler", tempDir);
     sdk = created.sdk;
     sdk.registerDictionary({ en: idlerEn, fr: idlerFr });
   });

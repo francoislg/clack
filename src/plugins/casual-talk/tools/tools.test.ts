@@ -3,8 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
-import { createClackSdk } from "../../../plugins-sdk/testHelpers.js";
+import { createTestClackSdk } from "../../../plugins-sdk/testHelpers.js";
 import { en as casualTalkEn, fr as casualTalkFr } from "../i18n/strings.js";
 import { DEFAULT_CONFIG, loadConfig, saveConfig } from "../config.js";
 import { createSetConfigTool } from "./setConfig.js";
@@ -21,8 +20,6 @@ import {
   createDisableTool,
   createToggleBuiltinFallbackTopicsTool,
 } from "./toggle.js";
-
-async function* emptyClackQuery(): AsyncGenerator<SDKMessage, void, void> {}
 
 interface ToolTextResultEntry {
   type: string;
@@ -57,17 +54,13 @@ function parsePayload(text: string): ParsedResult {
 }
 
 interface SdkBundle {
-  sdk: ReturnType<typeof createClackSdk>["sdk"];
+  sdk: ReturnType<typeof createTestClackSdk>["sdk"];
   restartCalls: string[];
 }
 
 function buildSdk(tempDir: string): SdkBundle {
   const restartCalls: string[] = [];
-  const { sdk } = createClackSdk("casual-talk", tempDir, {
-    getSlackClient: () => null,
-    loadRoles: async () => ({ owner: null, admins: [], devs: [] }),
-    openDmChannel: async () => null,
-    clackQuery: emptyClackQuery,
+  const { sdk } = createTestClackSdk("casual-talk", tempDir, {
     requestSoftRestart: (reason) => {
       restartCalls.push(reason);
     },

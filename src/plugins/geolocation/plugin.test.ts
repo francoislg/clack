@@ -1,18 +1,10 @@
 import { describe, it, vi } from "vitest";
 import assert from "node:assert/strict";
-import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
-import { createClackSdk } from "../../plugins-sdk/testHelpers.js";
+import { createTestClackSdk } from "../../plugins-sdk/testHelpers.js";
 import { geolocationPlugin } from "./index.js";
 
-async function* emptyClackQuery(): AsyncGenerator<SDKMessage, void, void> {}
-
 function makeSdk() {
-  return createClackSdk("geolocation", "/tmp/geolocation-plugin-test", {
-    getSlackClient: () => null,
-    loadRoles: async () => ({ owner: null, admins: [], devs: [] }),
-    openDmChannel: async () => null,
-    clackQuery: emptyClackQuery,
-  });
+  return createTestClackSdk("geolocation", "/tmp/geolocation-plugin-test");
 }
 
 describe("geolocation plugin load", () => {

@@ -3,14 +3,11 @@ import assert from "node:assert/strict";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
-import { createClackSdk } from "../../plugins-sdk/testHelpers.js";
+import { createTestClackSdk } from "../../plugins-sdk/testHelpers.js";
 import { idlerPlugin } from "./index.js";
 import { DEFAULT_CONFIG, saveConfig } from "./config.js";
 import type { IdlerConfig } from "./types.js";
 import type { CronJob, CreateCronJobParams, UpdateCronJobParams } from "../../plugins-sdk/sdk.js";
-
-async function* emptyClackQuery(): AsyncGenerator<SDKMessage, void, void> {}
 
 interface FakeStore {
   jobs: CronJob[];
@@ -79,11 +76,7 @@ describe("idler plugin reconcile", () => {
   });
 
   function buildSdk(store: FakeStore, capabilities = { crons: true }) {
-    return createClackSdk("idler", tempDir, {
-      getSlackClient: () => null,
-      loadRoles: async () => ({ owner: null, admins: [], devs: [] }),
-      openDmChannel: async () => null,
-      clackQuery: emptyClackQuery,
+    return createTestClackSdk("idler", tempDir, {
       capabilities,
       ...makeFakeStoreDeps(store),
     });

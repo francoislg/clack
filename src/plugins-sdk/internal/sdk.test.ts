@@ -13,14 +13,12 @@ import {
 } from "@anthropic-ai/claude-agent-sdk";
 import { stub } from "../../testStubs.js";
 import { WebClient } from "@slack/web-api";
-import { createClackSdk } from "./factory.js";
+import { createTestClackSdk } from "../testHelpers.js";
 import type { ClackSdkDeps, AttentionLevel, ThreadEngagementOrigin } from "../sdk.js";
 import type { RolesConfig } from "../../roles.js";
 import type { CronJob } from "../../cronJobs.js";
 
 const EMPTY_ROLES: RolesConfig = { owner: null, admins: [], devs: [] };
-
-async function* emptyClackQuery(): AsyncGenerator<SDKMessage, void, void> {}
 
 type ScriptedStep =
   | { kind: "assistant"; text: string }
@@ -70,25 +68,7 @@ function scriptedQueryResult(steps: ScriptedStep[]): ReturnType<ClackSdkDeps["cl
 describe("ClackSdk", () => {
   function makeSdk(pluginName = "test-plugin", deps?: Partial<ClackSdkDeps>) {
     const dataDir = mkdtempSync(join(tmpdir(), "clack-sdk-test-"));
-    const fullDeps: ClackSdkDeps = {
-      getSlackClient: deps?.getSlackClient ?? (() => null),
-      loadRoles: deps?.loadRoles ?? (async () => EMPTY_ROLES),
-      openDmChannel: deps?.openDmChannel ?? (async () => null),
-      // Optional cron-CRUD deps: forward when the test injects them; the SDK falls back to
-      // the real persistence layer when absent (per `ClackSdkDeps` documentation).
-      findByPluginOwner: deps?.findByPluginOwner,
-      createJob: deps?.createJob,
-      updateJob: deps?.updateJob,
-      deleteJob: deps?.deleteJob,
-      registerDelayedBootHandler: deps?.registerDelayedBootHandler,
-      computeMissedRuns: deps?.computeMissedRuns,
-      executeCronJob: deps?.executeCronJob,
-      clackQuery: deps?.clackQuery ?? (() => emptyClackQuery()),
-      startThreadConversation: deps?.startThreadConversation,
-      registerThreadSession: deps?.registerThreadSession,
-      capabilities: deps?.capabilities,
-    };
-    return createClackSdk(pluginName, dataDir, fullDeps);
+    return createTestClackSdk(pluginName, dataDir, deps);
   }
 
   describe("path traversal validation", () => {

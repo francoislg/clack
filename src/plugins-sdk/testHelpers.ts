@@ -1,6 +1,9 @@
 export { createClackSdk } from "./internal/factory.js";
 export { createMemorySurface } from "./internal/memory.js";
 
+import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
+import { createClackSdk } from "./internal/factory.js";
+
 /** Test-only import surface for plugin test files (`*.test.ts` under `src/plugins/<name>/`).
  *
  * The Agent SDK types tool-result `content` as a union (text | image | audio |
@@ -25,4 +28,24 @@ export function toolResultText(result: ToolResult): string {
 /** Parse the first content block as JSON. */
 export function parseToolResult(result: ToolResult): any {
   return JSON.parse(toolResultText(result));
+}
+
+/** A `clackQuery` dep that yields no SDK messages. */
+export async function* emptyClackQuery(): AsyncGenerator<SDKMessage, void, void> {}
+
+/** Build a `ClackSdk` wired with inert test deps (no Slack client, empty roles, no DM
+ * channel, empty `clackQuery`, no-op soft restart). Pass only the deps a test needs to vary. */
+export function createTestClackSdk(
+  pluginName: string,
+  dataDir: string,
+  overrides: Partial<NonNullable<Parameters<typeof createClackSdk>[2]>> = {},
+): ReturnType<typeof createClackSdk> {
+  return createClackSdk(pluginName, dataDir, {
+    getSlackClient: () => null,
+    loadRoles: async () => ({ owner: null, admins: [], devs: [] }),
+    openDmChannel: async () => null,
+    clackQuery: emptyClackQuery,
+    requestSoftRestart: () => {},
+    ...overrides,
+  });
 }

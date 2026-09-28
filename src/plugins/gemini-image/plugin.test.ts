@@ -1,19 +1,11 @@
 import { describe, it } from "vitest";
 import assert from "node:assert/strict";
-import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
-import { createClackSdk } from "../../plugins-sdk/testHelpers.js";
+import { createTestClackSdk } from "../../plugins-sdk/testHelpers.js";
 import { geminiImagePlugin } from "./index.js";
-
-async function* emptyClackQuery(): AsyncGenerator<SDKMessage, void, void> {}
 
 describe("gemini-image plugin load", () => {
   it("registers one usage instruction and the member-gated generate_image tool", async () => {
-    const { sdk, harvest } = createClackSdk("gemini-image", "/tmp/gemini-image-plugin-test", {
-      getSlackClient: () => null,
-      loadRoles: async () => ({ owner: null, admins: [], devs: [] }),
-      openDmChannel: async () => null,
-      clackQuery: emptyClackQuery,
-    });
+    const { sdk, harvest } = createTestClackSdk("gemini-image", "/tmp/gemini-image-plugin-test");
 
     await geminiImagePlugin(sdk);
     const result = harvest();

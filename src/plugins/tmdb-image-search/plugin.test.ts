@@ -1,27 +1,18 @@
 import { describe, it } from "vitest";
 import assert from "node:assert/strict";
-import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
-import { createClackSdk } from "../../plugins-sdk/testHelpers.js";
+import { createTestClackSdk } from "../../plugins-sdk/testHelpers.js";
 import { tmdbImageSearchPlugin } from "./index.js";
 import { createFindMovieTool } from "./findMovie.js";
 import { createFindTvTool } from "./findTv.js";
 import { createFindPersonTool } from "./findPerson.js";
 
-async function* emptyClackQuery(): AsyncGenerator<SDKMessage, void, void> {}
-
 describe("tmdb-image-search plugin load", () => {
   // The plugin never reads TMDB_READ_TOKEN at load time — tools resolve it per call — so
   // registration succeeding here is also the "loads without a token" guarantee.
   it("registers the three tools on the always-on default server", async () => {
-    const { sdk, harvest } = createClackSdk(
+    const { sdk, harvest } = createTestClackSdk(
       "tmdb-image-search",
       "/tmp/tmdb-image-search-plugin-test",
-      {
-        getSlackClient: () => null,
-        loadRoles: async () => ({ owner: null, admins: [], devs: [] }),
-        openDmChannel: async () => null,
-        clackQuery: emptyClackQuery,
-      },
     );
 
     await tmdbImageSearchPlugin(sdk);

@@ -1,19 +1,11 @@
 import { describe, it } from "vitest";
 import assert from "node:assert/strict";
-import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
-import { createClackSdk } from "../../plugins-sdk/testHelpers.js";
+import { createTestClackSdk } from "../../plugins-sdk/testHelpers.js";
 import { giphyPlugin } from "./index.js";
-
-async function* emptyClackQuery(): AsyncGenerator<SDKMessage, void, void> {}
 
 describe("giphy plugin load", () => {
   it("registers one instruction and one tool with the expected names", async () => {
-    const { sdk, harvest } = createClackSdk("giphy", "/tmp/giphy-plugin-test", {
-      getSlackClient: () => null,
-      loadRoles: async () => ({ owner: null, admins: [], devs: [] }),
-      openDmChannel: async () => null,
-      clackQuery: emptyClackQuery,
-    });
+    const { sdk, harvest } = createTestClackSdk("giphy", "/tmp/giphy-plugin-test");
 
     await giphyPlugin(sdk);
     const result = harvest();

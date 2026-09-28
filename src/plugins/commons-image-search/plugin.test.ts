@@ -1,22 +1,13 @@
 import { describe, it } from "vitest";
 import assert from "node:assert/strict";
-import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
-import { createClackSdk } from "../../plugins-sdk/testHelpers.js";
+import { createTestClackSdk } from "../../plugins-sdk/testHelpers.js";
 import { commonsImageSearchPlugin } from "./index.js";
-
-async function* emptyClackQuery(): AsyncGenerator<SDKMessage, void, void> {}
 
 describe("commons-image-search plugin load", () => {
   it("registers the find_subject tool on the always-on default server", async () => {
-    const { sdk, harvest } = createClackSdk(
+    const { sdk, harvest } = createTestClackSdk(
       "commons-image-search",
       "/tmp/commons-image-search-plugin-test",
-      {
-        getSlackClient: () => null,
-        loadRoles: async () => ({ owner: null, admins: [], devs: [] }),
-        openDmChannel: async () => null,
-        clackQuery: emptyClackQuery,
-      },
     );
 
     await commonsImageSearchPlugin(sdk);

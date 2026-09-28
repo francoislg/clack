@@ -1,22 +1,13 @@
 import { describe, it } from "vitest";
 import assert from "node:assert/strict";
-import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
-import { createClackSdk } from "../../plugins-sdk/testHelpers.js";
+import { createTestClackSdk } from "../../plugins-sdk/testHelpers.js";
 import { coverartImageSearchPlugin } from "./index.js";
-
-async function* emptyClackQuery(): AsyncGenerator<SDKMessage, void, void> {}
 
 describe("coverart-image-search plugin load", () => {
   it("registers the find_album tool on the always-on default server with no configuration", async () => {
-    const { sdk, harvest } = createClackSdk(
+    const { sdk, harvest } = createTestClackSdk(
       "coverart-image-search",
       "/tmp/coverart-image-search-plugin-test",
-      {
-        getSlackClient: () => null,
-        loadRoles: async () => ({ owner: null, admins: [], devs: [] }),
-        openDmChannel: async () => null,
-        clackQuery: emptyClackQuery,
-      },
     );
 
     await coverartImageSearchPlugin(sdk);

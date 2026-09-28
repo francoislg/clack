@@ -3,26 +3,13 @@ import assert from "node:assert/strict";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { mkdtempSync } from "node:fs";
-import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
-import { createClackSdk } from "./factory.js";
-import type { ClackSdkDeps } from "../sdk.js";
+import { createTestClackSdk } from "../testHelpers.js";
 import * as configModule from "../../config.js";
 import * as loggerModule from "../../logger.js";
-import type { RolesConfig } from "../../roles.js";
-
-const EMPTY_ROLES: RolesConfig = { owner: null, admins: [], devs: [] };
-
-async function* emptyClackQuery(): AsyncGenerator<SDKMessage, void, void> {}
 
 function makeSdk(pluginName = "test-plugin") {
   const dataDir = mkdtempSync(join(tmpdir(), "clack-sdk-i18n-"));
-  const deps: ClackSdkDeps = {
-    getSlackClient: () => null,
-    loadRoles: async () => EMPTY_ROLES,
-    openDmChannel: async () => null,
-    clackQuery: () => emptyClackQuery(),
-  };
-  return createClackSdk(pluginName, dataDir, deps);
+  return createTestClackSdk(pluginName, dataDir);
 }
 
 function stubConfig(language: "en" | "fr" | undefined | "throw") {
