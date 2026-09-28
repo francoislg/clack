@@ -1,4 +1,4 @@
-import { describe, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import assert from "node:assert/strict";
 import { normalizePath } from "../../testUtils.js";
 import {
@@ -9,10 +9,35 @@ import {
   type InteractionResult,
   type SearchArgs,
   type SearchResult,
+  type UsageAggregate,
 } from "./findRecentInteractions.js";
 import type { QueryToolContext } from "../types.js";
-import { ZERO_USAGE, type SessionUsage } from "../../claude/usage.js";
+import {
+  formatUsageSummary,
+  totalTokens,
+  ZERO_USAGE,
+  type SessionUsage,
+} from "../../claude/usage.js";
 import { parseToolResult } from "../testHelpers.js";
+
+vi.mock("../../claude/usage.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../claude/usage.js")>()),
+  totalTokens: vi.fn(),
+  formatUsageSummary: vi.fn(),
+}));
+
+const MOCK_TOTAL_TOKENS = 123;
+const MOCK_SUMMARY = "SUMMARY";
+
+beforeEach(() => {
+  vi.mocked(totalTokens).mockReturnValue(MOCK_TOTAL_TOKENS);
+  vi.mocked(formatUsageSummary).mockReturnValue(MOCK_SUMMARY);
+});
+
+/** The aggregate the unit returns for summed components `usage`, given the mocked helpers. */
+function aggregateOf(usage: SessionUsage): UsageAggregate {
+  return { ...usage, totalTokens: MOCK_TOTAL_TOKENS, summary: MOCK_SUMMARY };
+}
 
 /** Full tool-handler args (the SDK passes a fully-parsed object — supply every schema key). */
 function toolArgs(over: { include?: IncludeSection[] } = {}) {
@@ -142,7 +167,10 @@ async function searchFull(
     { include: ["entries", "usage"], ...args },
     deps,
   );
-  return { entries: result.entries ?? [], totalUsage: result.totalUsage ?? ZERO_USAGE };
+  return {
+    entries: result.entries ?? [],
+    totalUsage: result.totalUsage ?? aggregateOf(ZERO_USAGE),
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -803,7 +831,61 @@ describe("searchRecentInteractions", () => {
       });
       const { entries, totalUsage } = await searchFull(deps, makeCtx(), { since: 99999 });
       assert.equal(entries.length, 0);
-      assert.deepEqual(totalUsage, usage());
+      assert.deepEqual(totalUsage, aggregateOf(usage()));
+    });
+
+    it("computes totalTokens and summary from the summed components", async () => {
+      const deps = makeDeps({
+        a: makeSessionFile({
+          sessionId: "a",
+          createdAt: 1000,
+          usage: usage({ inputTokens: 10, outputTokens: 2, costUsd: 0.5 }),
+        }),
+        b: makeSessionFile({
+          sessionId: "b",
+          createdAt: 2000,
+          usage: usage({ inputTokens: 5, cacheReadTokens: 100, costUsd: 0.25 }),
+        }),
+      });
+      const summed = usage({
+        inputTokens: 15,
+        outputTokens: 2,
+        cacheReadTokens: 100,
+        costUsd: 0.75,
+      });
+      const { totalUsage } = await searchFull(deps, makeCtx());
+      expect(totalTokens).toHaveBeenCalledWith(summed);
+      expect(formatUsageSummary).toHaveBeenCalledWith(summed);
+      assert.equal(totalUsage.totalTokens, MOCK_TOTAL_TOKENS);
+      assert.equal(totalUsage.summary, MOCK_SUMMARY);
+    });
+
+    it("computes totalTokens and summary from the zero aggregate when no sessions match", async () => {
+      const deps = makeDeps({
+        a: makeSessionFile({ sessionId: "a", createdAt: 1000, usage: usage({ inputTokens: 9 }) }),
+      });
+      const { totalUsage } = await searchFull(deps, makeCtx(), { since: 99999 });
+      expect(totalTokens).toHaveBeenCalledWith(usage());
+      expect(formatUsageSummary).toHaveBeenCalledWith(usage());
+      assert.equal(totalUsage.totalTokens, MOCK_TOTAL_TOKENS);
+      assert.equal(totalUsage.summary, MOCK_SUMMARY);
+    });
+
+    it("computes totalTokens and summary from the zero aggregate when the sessions dir is missing", async () => {
+      const deps: FindRecentInteractionsDeps = {
+        getSessionsDir: () => "/fake/sessions",
+        fileExists: async () => false,
+        readdir: async () => [],
+        readFile: async () => {
+          throw new Error("should not be called");
+        },
+        statMtimeMs: async () => 0,
+        getChannelPrivacy: async () => undefined,
+      };
+      const result = await searchRecentInteractions(makeCtx(), { include: ["usage"] }, deps);
+      expect(totalTokens).toHaveBeenCalledWith(usage());
+      expect(formatUsageSummary).toHaveBeenCalledWith(usage());
+      assert.deepEqual(result, { totalUsage: aggregateOf(usage()) });
     });
 
     it("respects since when aggregating (in-window total only)", async () => {
@@ -855,7 +937,7 @@ describe("find_recent_interactions tool — include projection result shape", ()
       await toolDef.handler(toolArgs({ include: ["entries", "usage"] }), { sessionId: "t" }),
     );
     assert.equal(parsed.entries.length, 1);
-    assert.deepEqual(parsed.totalUsage, usage);
+    assert.deepEqual(parsed.totalUsage, aggregateOf(usage));
   });
 
   it("returns ONLY { totalUsage } and builds no entries for a usage-only request", async () => {
@@ -863,7 +945,7 @@ describe("find_recent_interactions tool — include projection result shape", ()
     const parsed = parseToolResult(
       await toolDef.handler(toolArgs({ include: ["usage"] }), { sessionId: "t" }),
     );
-    assert.deepEqual(parsed.totalUsage, usage);
+    assert.deepEqual(parsed.totalUsage, aggregateOf(usage));
     // The bounded-payload guarantee: no entries are built or returned on the usage-only path.
     assert.deepEqual(Object.keys(parsed), ["totalUsage"]);
   });

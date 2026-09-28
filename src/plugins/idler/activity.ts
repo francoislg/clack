@@ -18,6 +18,11 @@ const entrySchema = z.object({
 
 const activitySchema = z.object({
   entries: z.array(entrySchema).default([]),
+  /**
+   * Epoch ms when the log was last cleared (the start of the current digest window), stamped
+   * from the server clock.
+   */
+  windowStart: z.number().optional(),
 });
 
 export type IdlerActivityEntry = z.infer<typeof entrySchema>;
@@ -37,11 +42,12 @@ export async function loadActivity(sdk: ActivitySdk): Promise<IdlerActivity> {
 
 export async function appendActivity(sdk: ActivitySdk, entry: IdlerActivityEntry): Promise<void> {
   const current = await loadActivity(sdk);
-  const next: IdlerActivity = { entries: [...current.entries, entry] };
+  const next: IdlerActivity = { ...current, entries: [...current.entries, entry] };
   await sdk.writeFile(ACTIVITY_PATH, JSON.stringify(next, null, 2));
 }
 
-/** Clear the log once the summary has consumed it, so the next window starts fresh. */
+/** Clear the log once the summary has consumed it, starting the next window now. */
 export async function clearActivity(sdk: ActivitySdk): Promise<void> {
-  await sdk.writeFile(ACTIVITY_PATH, JSON.stringify({ entries: [] }, null, 2));
+  const next: IdlerActivity = { entries: [], windowStart: Date.now() };
+  await sdk.writeFile(ACTIVITY_PATH, JSON.stringify(next, null, 2));
 }

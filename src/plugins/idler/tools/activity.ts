@@ -53,11 +53,15 @@ export function createRecordActivityTool(sdk: ClackSdk) {
 export function createReadActivityTool(sdk: ClackSdk) {
   return tool(
     "read_activity",
-    "Read all idler activity-log entries for the current window. Used by the summary task to build its digest.",
+    "Read all idler activity-log entries for the current window, plus `windowStart` — the epoch-ms time the window began (when the log was last cleared), or null if it has never been cleared. Pass `windowStart` verbatim as find_recent_interactions' `since` to tally spend over the same window. Used by the summary task to build its digest.",
     {},
     async () => {
       const activity = await loadActivity(sdk);
-      return textResult({ count: activity.entries.length, entries: activity.entries });
+      return textResult({
+        count: activity.entries.length,
+        entries: activity.entries,
+        windowStart: activity.windowStart ?? null,
+      });
     },
   );
 }
@@ -65,7 +69,7 @@ export function createReadActivityTool(sdk: ClackSdk) {
 export function createClearActivityTool(sdk: ClackSdk) {
   return tool(
     "clear_activity",
-    "Clear the idler activity log. The summary task calls this AFTER posting its digest so the next window starts fresh.",
+    "Clear the idler activity log and start the next window (stamps its start time, returned as `windowStart` by read_activity). The summary task calls this AFTER posting its digest so the next window starts fresh.",
     {},
     async () => {
       await clearActivity(sdk);

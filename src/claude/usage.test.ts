@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import type { SDKResultSuccess, SDKAssistantMessage } from "@anthropic-ai/claude-agent-sdk";
 import type { UUID } from "node:crypto";
-import { addUsage, readResultUsage, ZERO_USAGE } from "./usage.js";
+import { addUsage, formatUsageSummary, readResultUsage, totalTokens, ZERO_USAGE } from "./usage.js";
 
 const TEST_UUID = "00000000-0000-0000-0000-000000000000" as UUID;
 
@@ -133,5 +133,64 @@ describe("addUsage", () => {
 
   it("two undefined operands sum to zero", () => {
     expect(addUsage(undefined, undefined)).toEqual(ZERO_USAGE);
+  });
+});
+
+describe("totalTokens", () => {
+  it("sums input, output, cache-read, and cache-creation tokens", () => {
+    expect(
+      totalTokens({
+        inputTokens: 84,
+        outputTokens: 7378,
+        cacheReadTokens: 5093006,
+        cacheCreationTokens: 425833,
+        costUsd: 2.932,
+      }),
+    ).toBe(5526301);
+  });
+});
+
+describe("formatUsageSummary", () => {
+  it("renders cost, abbreviated total, and cached tokens", () => {
+    expect(
+      formatUsageSummary({
+        inputTokens: 84,
+        outputTokens: 7378,
+        cacheReadTokens: 5093006,
+        cacheCreationTokens: 425833,
+        costUsd: 2.932,
+      }),
+    ).toBe("~$2.93 · 5.53M tokens (5.09M cached)");
+  });
+
+  it("omits the cached part for zero usage", () => {
+    expect(formatUsageSummary(ZERO_USAGE)).toBe("~$0.00 · 0 tokens");
+  });
+
+  it("renders small totals as plain integers", () => {
+    expect(
+      formatUsageSummary({ ...ZERO_USAGE, inputTokens: 100, outputTokens: 50, costUsd: 0.01 }),
+    ).toBe("~$0.01 · 150 tokens");
+  });
+
+  it("promotes a K value that rounds to 1000 into M", () => {
+    expect(formatUsageSummary({ ...ZERO_USAGE, inputTokens: 999999, costUsd: 1.5 })).toBe(
+      "~$1.50 · 1.00M tokens",
+    );
+  });
+
+  it("rounds sub-cent cost to two decimals", () => {
+    expect(formatUsageSummary({ ...ZERO_USAGE, inputTokens: 12300, costUsd: 0.003 })).toBe(
+      "~$0.00 · 12.3K tokens",
+    );
+  });
+
+  it.each([
+    [999, "999 tokens"],
+    [1000, "1.00K tokens"],
+    [7378, "7.38K tokens"],
+    [425833, "426K tokens"],
+  ])("abbreviates %i input tokens as %s", (inputTokens, expected) => {
+    expect(formatUsageSummary({ ...ZERO_USAGE, inputTokens })).toBe(`~$0.00 · ${expected}`);
   });
 });

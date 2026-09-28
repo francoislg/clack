@@ -10,7 +10,13 @@ import { getChannelInfo } from "../../slack/channelCache.js";
 import { extractDisplayText } from "../../slack/blockText.js";
 import type { SessionMessage, SessionTrigger } from "../../sessions.js";
 import { synthesizeMessagesFromLegacy } from "../../sessions.js";
-import { addUsage, ZERO_USAGE, type SessionUsage } from "../../claude/usage.js";
+import {
+  addUsage,
+  formatUsageSummary,
+  totalTokens,
+  ZERO_USAGE,
+  type SessionUsage,
+} from "../../claude/usage.js";
 import type { TriggerType } from "../../changes/types.js";
 
 /** Cap on how many session directories are loaded per query.
@@ -260,12 +266,21 @@ export interface SearchArgs {
   include?: IncludeSection[];
 }
 
+/** The summed usage components plus two computed fields: `totalTokens` (all four token
+ *  components summed) and `summary` (a ready-to-print one-line rendering). */
+export type UsageAggregate = SessionUsage & { totalTokens: number; summary: string };
+
 /** A search result, projected to the requested `include` sections.
  *  `entries` is the paginated per-session summaries; `totalUsage` is the usage aggregate over the
- *  FULL matched set (pre-pagination). Each key is present only when its section was requested. */
+ *  FULL matched set (pre-pagination), carrying the computed `totalTokens` and `summary` fields
+ *  beside the summed components. Each key is present only when its section was requested. */
 export interface SearchResult {
   entries?: InteractionResult[];
-  totalUsage?: SessionUsage;
+  totalUsage?: UsageAggregate;
+}
+
+function toAggregate(usage: SessionUsage): UsageAggregate {
+  return { ...usage, totalTokens: totalTokens(usage), summary: formatUsageSummary(usage) };
 }
 
 /** An empty or absent `include` is treated as `["entries"]`. */
@@ -288,7 +303,7 @@ export async function searchRecentInteractions(
   if (!(await deps.fileExists(sessionsDir))) {
     return {
       ...(wantEntries ? { entries: [] } : {}),
-      ...(wantUsage ? { totalUsage: { ...ZERO_USAGE } } : {}),
+      ...(wantUsage ? { totalUsage: toAggregate({ ...ZERO_USAGE }) } : {}),
     };
   }
 
@@ -368,9 +383,9 @@ export async function searchRecentInteractions(
   if (wantUsage) {
     // Aggregate over the FULL matched set, before pagination, so a window-scoped query reports
     // the window's true total regardless of limit/offset.
-    result.totalUsage = filtered.reduce<SessionUsage>((acc, s) => addUsage(acc, s.usage), {
-      ...ZERO_USAGE,
-    });
+    result.totalUsage = toAggregate(
+      filtered.reduce<SessionUsage>((acc, s) => addUsage(acc, s.usage), { ...ZERO_USAGE }),
+    );
   }
 
   // Skip building entry summaries entirely when only usage was requested — a usage-only query
@@ -495,7 +510,7 @@ export function createFindRecentInteractionsTool(
         .array(INCLUDE_SECTION_ENUM)
         .optional()
         .describe(
-          'Which sections to return, as a projected object. "entries" (default) → the paginated per-session summaries; "usage" → a `totalUsage` object summing token + cost usage across ALL matched sessions (the full set, independent of limit/offset). Request `["usage"]` alone to tally spend over a window without pulling back entries — a bounded result that will not hit the tool-result size cap. An empty array is treated as `["entries"]`.',
+          'Which sections to return, as a projected object. "entries" (default) → the paginated per-session summaries; "usage" → a `totalUsage` object with the five usage components summed across ALL matched sessions (the full set, independent of limit/offset), plus `totalTokens` (all four token components summed) and `summary` (a ready-to-print line like "~$2.93 · 5.53M tokens (5.09M cached)" — print it verbatim rather than computing from the components). Request `["usage"]` alone to tally spend over a window without pulling back entries — a bounded result that will not hit the tool-result size cap. An empty array is treated as `["entries"]`.',
         ),
     },
     async ({ include_auto_respond, trigger_type, since_hours, include, ...rest }) => {

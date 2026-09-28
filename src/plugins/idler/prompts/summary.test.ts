@@ -9,9 +9,11 @@ describe("buildSummaryPrompt", () => {
     expect(prompt).not.toContain("channel:");
   });
 
-  it("uses the server-computed relative window and forbids epoch math", () => {
-    expect(prompt).toContain("since_hours: 24");
-    expect(prompt).toContain("never compute epoch timestamps");
+  it("scopes spend to the activity log's windowStart, falling back to 24h, and forbids date math", () => {
+    expect(prompt).toContain("windowStart");
+    expect(prompt).toContain("since: <that windowStart, copied verbatim>");
+    expect(prompt).toContain("pass `since_hours: 24` instead");
+    expect(prompt).toContain("Never compute or adjust a timestamp yourself");
   });
 
   it("instructs a scoped usage-only query via find_recent_interactions", () => {
@@ -23,8 +25,13 @@ describe("buildSummaryPrompt", () => {
   });
 
   it("instructs reporting a spend line and omitting it only on failure", () => {
-    expect(prompt).toContain("Spend:");
+    expect(prompt).toContain("🧮 Spend:");
     expect(prompt.toLowerCase()).toContain("omit this line only if");
+  });
+
+  it("copies the preformatted totalUsage.summary instead of doing arithmetic", () => {
+    expect(prompt).toContain("totalUsage.summary");
+    expect(prompt).not.toContain("inputTokens + outputTokens");
   });
 
   it("still drives the read_activity + clear_activity cycle", () => {

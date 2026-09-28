@@ -482,7 +482,7 @@ The idler SHALL NOT merge any pull request. It MAY triage, implement, continue, 
 
 ### Requirement: Activity logging and summary digest
 
-The plugin SHALL append every autonomous action (PR opened, comments addressed, review/approval posted, unit parked with reason, failure) to an activity log. Each appended entry's `detail` SHALL carry the canonical link to the artifact the action touched — a PR URL, a Slack thread permalink for internal-conversation sources, or the external surface URL (e.g. Sentry/Asana) — captured at record time from the surface the work fire just acted on. The summary task SHALL read that log and post a digest including PRs opened, comments addressed, reviews/approvals, parked units with reasons, a ready-to-merge list, and failures; each reported item that has a link SHALL be rendered as a Slack hyperlink (`<url|label>`) to its artifact rather than as plain text. The summary digest message SHALL be delivered with link/media unfurling suppressed (`submit_response` `suppress_unfurls: true`) so that linked items do not expand into preview cards. The summary digest SHALL additionally report the total tokens consumed (the sum of `inputTokens` and `outputTokens` from `totalUsage`) and the approximate dollar cost (`costUsd`) over the reporting window, obtained by calling `find_recent_interactions` scoped to the idler's reporting channel with `trigger_type: "scheduled"`, a `since` bound at the start of the window, and `include: ["usage"]`, and reading the returned `totalUsage`. Requesting the usage section alone (no entries) keeps the tool result bounded, so the aggregate is always readable regardless of how many fires ran in the window. Because `totalUsage` is always present (zero when the window had no sessions), the digest SHALL render the usage line from it directly; the line is omitted ONLY if the `find_recent_interactions` call itself fails, in which case the digest still posts.
+The plugin SHALL append every autonomous action (PR opened, comments addressed, review/approval posted, unit parked with reason, failure) to an activity log. Each appended entry's `detail` SHALL carry the canonical link to the artifact the action touched — a PR URL, a Slack thread permalink for internal-conversation sources, or the external surface URL (e.g. Sentry/Asana) — captured at record time from the surface the work fire just acted on. The summary task SHALL read that log and post a digest including PRs opened, comments addressed, reviews/approvals, parked units with reasons, a ready-to-merge list, and failures; each reported item that has a link SHALL be rendered as a Slack hyperlink (`<url|label>`) to its artifact rather than as plain text. The summary digest message SHALL be delivered with link/media unfurling suppressed (`submit_response` `suppress_unfurls: true`) so that linked items do not expand into preview cards. The summary digest SHALL additionally report the approximate dollar cost and the total tokens consumed over the reporting window, obtained by calling `find_recent_interactions` scoped to the idler's system actor (`plugin: "idler"`) with `trigger_type: "scheduled"`, `include: ["usage"]`, and a lower bound matching the activity log's window, and reading the returned `totalUsage`. The spend window SHALL be the same as the activity log's window. When the log is cleared, the plugin SHALL record the clear time server-side as `windowStart` (epoch milliseconds) in the activity file, and `read_activity` SHALL return it. The summary SHALL pass that value verbatim as `since`. When no `windowStart` has been recorded yet (a log never cleared), `read_activity` SHALL return `windowStart: null` and the summary SHALL use `since_hours: 24` instead. Claude SHALL NOT compute any timestamp itself. The digest SHALL render this as a spend line `🧮 Spend: <totalUsage.summary>`, copying the server-formatted `summary` verbatim (e.g. `🧮 Spend: ~$2.93 · 5.53M tokens (5.09M cached)`); Claude SHALL NOT compute or reformat any usage figure itself. Requesting the usage section alone (no entries) keeps the tool result bounded, so the aggregate is always readable regardless of how many fires ran in the window. Because `totalUsage` is always present (zero when the window had no sessions), the digest SHALL render the usage line from it directly; the line is omitted ONLY if the `find_recent_interactions` call itself fails, in which case the digest still posts.
 
 Token usage is captured at session finalization, which runs whenever a work fire executes regardless of whether that fire posts visible output. The usage figures the summary reports therefore reflect every work fire in the window, not only the fires that produced visible Slack messages.
 
@@ -510,7 +510,24 @@ Token usage is captured at session finalization, which runs whenever a work fire
 #### Scenario: Summary reports token and cost usage
 
 - **WHEN** the summary task fires
-- **THEN** the digest includes a line reporting the total tokens consumed and approximate dollar cost over the window, sourced from `find_recent_interactions` with `include: ["usage"]`
+- **THEN** the digest includes a line `🧮 Spend: <totalUsage.summary>` reporting the approximate dollar cost and total tokens over the window, sourced from `find_recent_interactions` with `plugin: "idler"`, `include: ["usage"]`, and `since` set to `read_activity`'s `windowStart`
+
+#### Scenario: Spend window spans an off-day gap like the activity log
+
+- **WHEN** the previous summary cleared the log on Friday at 09:00, the next summary fires on Monday at 09:00, and idler fires ran on Friday evening
+- **THEN** `read_activity` returns the Friday 09:00 `windowStart`
+- **AND** the spend line's `find_recent_interactions` call passes it as `since`, so Friday evening's spend is counted alongside Friday evening's logged actions
+
+#### Scenario: Never-cleared log falls back to 24 hours
+
+- **WHEN** the summary fires and the activity file has no recorded `windowStart`
+- **THEN** `read_activity` returns `windowStart: null`
+- **AND** the spend line's call uses `since_hours: 24`
+
+#### Scenario: Spend line is printed verbatim from the server summary
+
+- **WHEN** `totalUsage.summary` is `~$2.93 · 5.53M tokens (5.09M cached)`
+- **THEN** the digest's spend line is exactly `🧮 Spend: ~$2.93 · 5.53M tokens (5.09M cached)`, with no token arithmetic done by Claude
 
 #### Scenario: Usage reflects fires that posted no visible output
 
@@ -525,7 +542,7 @@ Token usage is captured at session finalization, which runs whenever a work fire
 #### Scenario: Zero-usage window reports zero
 
 - **WHEN** the summary task fires and the window had no sessions
-- **THEN** `totalUsage` is zero and the digest renders the usage line with zero values (not omitted)
+- **THEN** `totalUsage` is zero and the digest renders the usage line from its zero `summary` (`🧮 Spend: ~$0.00 · 0 tokens`), not omitted
 
 ### Requirement: Two-layer instructions
 
@@ -754,3 +771,4 @@ A work fire that posts an `@claude review this` trigger SHALL record it via `rec
 - **GIVEN** a pending async trigger and enough empty fires that the breaker would otherwise have tripped
 - **WHEN** the review result arrives and the next work fire runs
 - **THEN** the fire is not early-exited and processes the review as continue work
+

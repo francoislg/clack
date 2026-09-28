@@ -1,10 +1,9 @@
-import { describe, it, beforeEach, afterEach } from "vitest";
+import { describe, it, beforeEach, afterEach, vi } from "vitest";
 import assert from "node:assert/strict";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
-import { createClackSdk } from "../../../plugins-sdk/testHelpers.js";
+import { createTestClackSdk } from "../../../plugins-sdk/testHelpers.js";
 import type { ClackSdk, ClackSdkMemory, MemoryEntry } from "../../../plugins-sdk/sdk.js";
 import { createMemorySurface } from "../../../plugins-sdk/testHelpers.js";
 import { en as idlerEn, fr as idlerFr } from "../i18n/strings.js";
@@ -24,8 +23,6 @@ import {
   createUpdateFetchInstructionsTool,
 } from "./instructionsAdmin.js";
 import { DEFAULT_FETCH_INSTRUCTIONS } from "../fetchInstructions.js";
-
-async function* emptyClackQuery(): AsyncGenerator<SDKMessage, void, void> {}
 
 interface ToolCallResult {
   content: { type: string; text: string }[];
@@ -51,6 +48,7 @@ interface ParsedTool {
   error?: string;
   ideas?: IdeaLite[];
   entryCount?: number;
+  windowStart?: number | null;
   content?: string;
 }
 
@@ -64,6 +62,7 @@ function parseTool(text: string): ParsedTool {
     error?: unknown;
     ideas?: unknown;
     entries?: unknown;
+    windowStart?: unknown;
     content?: unknown;
   };
   const out: ParsedTool = {};
@@ -99,6 +98,7 @@ function parseTool(text: string): ParsedTool {
     });
   }
   if (Array.isArray(c.entries)) out.entryCount = c.entries.length;
+  if (typeof c.windowStart === "number" || c.windowStart === null) out.windowStart = c.windowStart;
   return out;
 }
 
@@ -166,13 +166,7 @@ function statefulMemory(): ClackSdkMemory {
 }
 
 function buildSdk(tempDir: string, memory?: ClackSdkMemory): ClackSdk {
-  const { sdk } = createClackSdk("idler", tempDir, {
-    getSlackClient: () => null,
-    loadRoles: async () => ({ owner: null, admins: [], devs: [] }),
-    openDmChannel: async () => null,
-    clackQuery: emptyClackQuery,
-    requestSoftRestart: () => {},
-  });
+  const { sdk } = createTestClackSdk("idler", tempDir);
   sdk.registerDictionary({ en: idlerEn, fr: idlerFr });
   if (memory) (sdk as { memory: ClackSdkMemory }).memory = memory;
   return sdk;
@@ -656,6 +650,25 @@ describe("idler activity tools", () => {
     await invoke(createClearActivityTool(sdk), {});
     const after = await invoke(createReadActivityTool(sdk), {});
     assert.equal(after.entryCount, 0);
+  });
+
+  it("read_activity returns null windowStart before the log was ever cleared", async () => {
+    const sdk = buildSdk(tempDir);
+    const read = await invoke(createReadActivityTool(sdk), {});
+    assert.equal(read.windowStart, null);
+  });
+
+  it("read_activity returns the windowStart stamped by clear_activity", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(Date.parse("2026-06-15T09:00:00.000Z"));
+      const sdk = buildSdk(tempDir);
+      await invoke(createClearActivityTool(sdk), {});
+      const read = await invoke(createReadActivityTool(sdk), {});
+      assert.equal(read.windowStart, Date.parse("2026-06-15T09:00:00.000Z"));
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

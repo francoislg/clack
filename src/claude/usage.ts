@@ -71,3 +71,31 @@ export function addUsage(a: SessionUsage | undefined, b: SessionUsage | undefine
     costUsd: (a?.costUsd ?? 0) + (b?.costUsd ?? 0),
   };
 }
+
+/** Every token a run billed: input + output + cache-read + cache-creation. */
+export function totalTokens(usage: SessionUsage): number {
+  return usage.inputTokens + usage.outputTokens + usage.cacheReadTokens + usage.cacheCreationTokens;
+}
+
+/**
+ * Abbreviate a token count: plain integer below 1000, otherwise three significant digits with a
+ * `K` / `M` suffix. A `K` value that rounds up to 1000 is promoted to `M`.
+ */
+function formatTokenCount(count: number): string {
+  if (count < 1000) return String(Math.round(count));
+  const thousands = count / 1000;
+  if (Number(thousands.toPrecision(3)) < 1000) return `${thousands.toPrecision(3)}K`;
+  const millions = count / 1_000_000;
+  const text = millions < 1000 ? millions.toPrecision(3) : String(Math.round(millions));
+  return `${text}M`;
+}
+
+/**
+ * One-line usage summary: `~$<cost> · <total> tokens (<cacheRead> cached)`, dropping the cached
+ * part when no tokens were read from cache.
+ */
+export function formatUsageSummary(usage: SessionUsage): string {
+  const base = `~$${usage.costUsd.toFixed(2)} · ${formatTokenCount(totalTokens(usage))} tokens`;
+  if (usage.cacheReadTokens === 0) return base;
+  return `${base} (${formatTokenCount(usage.cacheReadTokens)} cached)`;
+}
