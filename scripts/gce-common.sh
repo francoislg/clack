@@ -179,3 +179,61 @@ verify_container_reads() {
     echo -e "${GREEN}  ✓ container read-access verified${NC}"
     return 0
 }
+
+# Wait, with the bot still running and accepting everything, until its /status
+# reports busy=false (the same definition the in-process shutdown drain uses).
+# Polls inside the clack container (its own loopback + STATUS_PORT) every 5s and
+# prints what is still running whenever that changes, and at least every 30s.
+#   wait_for_idle <max-secs>
+# Returns 0 once idle, 10 when still busy at <max-secs>, 11 when there is nothing
+# to wait on or read (no running clack container, unreachable endpoint,
+# unexpected payload, invalid <max-secs>), and any other code when ssh fails.
+wait_for_idle() {
+    gcloud compute ssh "$INSTANCE_NAME" --zone="$ZONE" --quiet --command="
+        docker ps --format '{{.Names}}' | grep -qx clack || { echo 'Idle wait: clack container not running'; exit 11; }
+        docker exec -i -e IDLE_MAX_WAIT=$1 clack node --input-type=module -" <<'JS'
+const capMs = Number(process.env.IDLE_MAX_WAIT) * 1000;
+if (!Number.isFinite(capMs)) {
+  console.log(`Idle wait: invalid max wait '${process.env.IDLE_MAX_WAIT}'`);
+  process.exit(11);
+}
+const url = `http://127.0.0.1:${process.env.STATUS_PORT || 8787}/status`;
+const start = Date.now();
+const fmt = (ms) => `${Math.floor(ms / 60000)}m ${Math.floor((ms % 60000) / 1000)}s`;
+let lastLine = "";
+let lastPrintAt = 0;
+for (;;) {
+  let status;
+  try {
+    status = await (await fetch(url, { signal: AbortSignal.timeout(10000) })).json();
+  } catch (err) {
+    console.log(`Idle wait: status endpoint unreachable (${err.message})`);
+    process.exit(11);
+  }
+  if (
+    typeof status?.busy !== "boolean" ||
+    !Array.isArray(status.activeRuns?.runs) ||
+    !Array.isArray(status.workers?.changes)
+  ) {
+    console.log("Idle wait: status endpoint returned an unexpected payload");
+    process.exit(11);
+  }
+  const elapsed = Date.now() - start;
+  if (!status.busy) {
+    console.log(`Idle after ${fmt(elapsed)}`);
+    process.exit(0);
+  }
+  if (elapsed >= capMs) process.exit(10);
+  const line = [
+    ...status.activeRuns.runs.map((r) => `run ${r.channel}/${r.thread} ${r.status} ${fmt(r.ageMs)}`),
+    ...status.workers.changes.map((c) => `change ${c.repo}@${c.branch} ${c.status} ${fmt(c.ageMs)}`),
+  ].join("; ");
+  if (line !== lastLine || Date.now() - lastPrintAt >= 30000) {
+    console.log(`Waiting for idle — ${fmt(elapsed)} elapsed: ${line}`);
+    lastLine = line;
+    lastPrintAt = Date.now();
+  }
+  await new Promise((resolve) => setTimeout(resolve, 5000));
+}
+JS
+}

@@ -3,7 +3,7 @@
 # Phase 1.5: wait for the bot to go idle (/status busy=false) before restarting,
 # so an in-flight Claude run is never killed mid-answer.
 #
-# Unlike the deploy (which proceeds on drain timeout — the operator already
+# Unlike the deploy (which proceeds at its idle-wait cap — the operator already
 # committed to a swap), this script ABORTS when the bot is still busy at the
 # deadline. Pass --force to restart anyway.
 #
@@ -17,7 +17,6 @@ source "$SCRIPT_DIR/gce-common.sh"
 FORCE=0
 [ "${1:-}" = "--force" ] && FORCE=1
 
-STATUS_PORT="${STATUS_PORT:-8787}"
 DRAIN_MAX_WAIT="${DRAIN_MAX_WAIT:-300}"
 
 require_project
@@ -26,32 +25,11 @@ require_instance
 echo -e "${YELLOW}Draining: waiting for active runs to finish (up to ${DRAIN_MAX_WAIT}s)...${NC}"
 
 DRAIN_EXIT=0
-gcloud compute ssh "$INSTANCE_NAME" --zone="$ZONE" --quiet \
-    --command="bash -s ${STATUS_PORT} ${DRAIN_MAX_WAIT}" <<'REMOTE' || DRAIN_EXIT=$?
-PORT="$1"
-MAX="$2"
-deadline=$(( $(date +%s) + MAX ))
-probe() {
-    docker exec -e SP="$PORT" clack node -e 'fetch("http://127.0.0.1:"+process.env.SP+"/status").then(r=>r.json()).then(j=>process.stdout.write(j.busy+" "+j.activeRuns.count+" "+j.workers.active)).catch(()=>process.exit(2))' 2>/dev/null
-}
-while :; do
-    out=$(probe) || { echo "Drain check skipped (status endpoint unreachable)."; exit 0; }
-    set -- $out
-    busy="$1"; runs="$2"; workers="$3"
-    if [ "$busy" != "true" ] && [ "$busy" != "false" ]; then
-        echo "Drain check skipped (status endpoint returned unexpected output)."; exit 0
-    fi
-    if [ "$busy" = "false" ]; then echo "Bot idle — proceeding."; exit 0; fi
-    if [ "$(date +%s)" -ge "$deadline" ]; then
-        echo "Drain timeout — still busy ($runs runs, $workers workers)."
-        exit 4
-    fi
-    echo "Draining: ($runs runs, $workers workers) waiting..."
-    sleep 5
-done
-REMOTE
+wait_for_idle "$DRAIN_MAX_WAIT" || DRAIN_EXIT=$?
 
-if [ "$DRAIN_EXIT" = "4" ]; then
+if [ "$DRAIN_EXIT" = "11" ]; then
+    echo -e "${YELLOW}Drain check skipped — restarting.${NC}"
+elif [ "$DRAIN_EXIT" = "10" ]; then
     if [ "$FORCE" = "1" ]; then
         echo -e "${YELLOW}Still busy after ${DRAIN_MAX_WAIT}s — restarting anyway (--force).${NC}"
     else
