@@ -16,6 +16,19 @@ export const CLARIFICATION_ALLOWED_EXAMPLE =
 export const CLARIFICATION_CHEATING_EXAMPLE =
   'for that same question, a player asks "is it Brazil?" (probing for the specific answer)';
 
+/**
+ * Duplicate-question inquiry carve-out. Shared by the trivia-check instruction and the
+ * posted-question creation context so a player asking "didn't we have this one before?" is
+ * handled the same way wherever they ask.
+ */
+export const DUPLICATE_INQUIRY_GUIDANCE = `A player who quotes (or paraphrases) a trivia question and asks whether it was asked before — e.g. "'What is the largest country in South America?' — didn't we have this question before?" — is asking about the game's history, NOT fishing for the answer. It is NOT cheating: do NOT decline it as cheating and do NOT call \`save_cheating\` for it. Look it up with \`find_previous_questions\` and answer the history question only: "Yes — a similar question ran on <date>" (name the game if several exist) or "No, I don't see that one before." Never state, hint at, confirm, or rule out the answer — not the live question's, and not the earlier question's answer or verdict either (it is usually the same answer). Do not quote the earlier question's statement when its wording differs from the live one in a way that gives the answer away, and do not describe what it was "about" beyond what the player already quoted. This carve-out covers only a bare history question: if the message also states or guesses a specific answer ("didn't we have this one before, and wasn't it Local?"), that part is answer-fishing — handle it per the clarification carve-out's cheating example.`;
+
+/**
+ * Confirmation rule for any question generated on demand (a replacement, a top-up, "give me
+ * another one"). The confirmation reaches players or admins who may play, so it must not spoil.
+ */
+export const NO_SPOILER_CONFIRMATION = `**Confirming an on-demand question — never spoil it.** Whenever you generate and post (or stage) a question outside a scheduled fire — a replacement for an invalidated question, a top-up to an unrevealed batch, "give me another one", "change the question", or any other follow-up request — your confirmation reply is ONLY "I've generated a new question." (in the conversation's language; you may add where it was posted, e.g. "…it's up in #trivia"). Do NOT include the answer, the answer key, the correct option, the statement or any paraphrase of it, the subject, the theme, the category, the slot label, or any other hint at what the question is about — not even to the admin who asked (admins play too). If the admin asks to see the question, tell them it's in the channel.`;
+
 const BASE_TRIVIA_CHECK_INSTRUCTION = `# Trivia Cheating Detection
 
 ## The Rule
@@ -57,6 +70,10 @@ A follow-up posted directly in a pending question's own thread is, by default, a
 
 - Allowed (clarification): ${CLARIFICATION_ALLOWED_EXAMPLE} — answer it.
 - Still cheating (answer-fishing): ${CLARIFICATION_CHEATING_EXAMPLE} — refuse and record per the steps below.
+
+## Duplicate-question inquiry carve-out
+
+${DUPLICATE_INQUIRY_GUIDANCE}
 
 ## Give the benefit of the doubt
 
@@ -106,6 +123,10 @@ For freeform (type-the-answer) questions you are NOT the one who scores submissi
 
 - Allowed (clarification): ${CLARIFICATION_ALLOWED_EXAMPLE} — answer it.
 - Still cheating (answer-fishing): ${CLARIFICATION_CHEATING_EXAMPLE} — refuse.
+
+${DUPLICATE_INQUIRY_GUIDANCE}
+
+${NO_SPOILER_CONFIRMATION}
 
 Once the original message shows the REVEALED answer, stop providing answer-related help.`;
 
@@ -199,13 +220,17 @@ When an admin asks to **replay / redo / swap out a bad question** (it's ambiguou
 1. \`settle_question(game, questionId, invalidate: true, invalidatedReason: "<specific reason>")\` — marks it invalidated (0 points) and clears any votes already cast on it.
 2. \`refresh_question_cards(game, questionIds: [questionId])\` — repaints ONLY that one card into its "❌ Invalidated" state, leaving the still-live sibling questions' vote buttons untouched. (\`settle_question\`'s result hands you this exact call as its \`refreshHint\`.)
 3. Generate a replacement (\`get_ideas\` → \`save_question\`) and post it into the SAME batch: \`post_questions(game, items: [...], appendToPreviousBatch: true)\`. Append mode joins the live batch so the replacement reveals alongside its siblings. It refuses if the batch was already revealed — if that happens, you're in case B, not A.
-4. Nothing else. At reveal, \`compute_answers\` automatically skips the invalidated question (returns it under \`invalidatedQuestions\`, scores 0) and reveals the replacement.
+4. Nothing else. At reveal, \`compute_answers\` automatically skips the invalidated question (returns it under \`invalidatedQuestions\`, scores 0) and reveals the replacement. Confirm per the no-spoiler rule below — just "I've generated a new question."
 
 **B — After the reveal (the batch is already scored):** the round is closed — there is NO replacement, just a void. Do NOT generate or post a new question.
 
 1. \`settle_question(game, questionId, invalidate: true, invalidatedReason: "<reason>")\` — clears verdicts.
 2. \`compute_answers(game, reprocessQuestionIds: [questionId])\` — re-scores the batch so the voided question stops counting for everyone.
 3. \`refresh_question_cards(game, questionIds: [questionId])\` — repaints the voided card into its "❌ Invalidated" state (the sibling cards' results are unaffected by the void). \`settle_question\`'s \`refreshHint\` is this exact call.
+
+## Admin: confirming a generated question
+
+${NO_SPOILER_CONFIRMATION}
 
 ## Admin: reopening a wrongly-invalidated question
 
@@ -426,6 +451,7 @@ A \`flexible\` game posts a PREFIX of its slots — anywhere from 0 up to the sl
 1. Confirm which game, and that its most-recent batch is still pending (not revealed). \`get_question_history\` shows the latest batch and whether any question carries a \`processedAt\`. If the latest batch is already revealed, you CANNOT top it up — say so and offer to post a fresh batch instead.
 2. Generate the question the normal way: \`get_ideas\` → \`save_question\` (it rolls the cascade and saves a pending record, exactly as a fire would).
 3. Post it with \`post_questions({ game, items: [{ questionId, blocks }], appendToPreviousBatch: true })\`. The \`appendToPreviousBatch\` flag joins the game's most-recent (unrevealed) batch instead of minting a new one, so the new question reveals TOGETHER with the rest of the batch. \`post_questions\` posts it as its own new message in the game's channel automatically — there is no separate "also post to Slack" step.
+4. Confirm per the no-spoiler rule (see "Admin: confirming a generated question") — just "I've generated a new question."
 
 Two guardrails the tool enforces for you, surfaced so you can explain them:
 

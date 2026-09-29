@@ -8,7 +8,59 @@ import {
   PENDING_QUESTION_CREATION_CONTEXT,
   CLARIFICATION_ALLOWED_EXAMPLE,
   CLARIFICATION_CHEATING_EXAMPLE,
+  DUPLICATE_INQUIRY_GUIDANCE,
+  NO_SPOILER_CONFIRMATION,
 } from "./triviaCheckInstruction.js";
+
+describe("duplicate-question inquiry carve-out", () => {
+  it("is carried by both the trivia-check instruction and the pending-question context", () => {
+    assert.ok(TRIVIA_CHECK_INSTRUCTION.includes(DUPLICATE_INQUIRY_GUIDANCE));
+    assert.ok(PENDING_QUESTION_CREATION_CONTEXT.includes(DUPLICATE_INQUIRY_GUIDANCE));
+  });
+
+  it("is not treated as cheating", () => {
+    assert.match(DUPLICATE_INQUIRY_GUIDANCE, /NOT cheating/);
+    assert.match(DUPLICATE_INQUIRY_GUIDANCE, /do NOT call `save_cheating`/);
+    assert.match(DUPLICATE_INQUIRY_GUIDANCE, /Look it up with `find_previous_questions`/);
+  });
+
+  it("does not cover an inquiry that also guesses a specific answer", () => {
+    assert.match(DUPLICATE_INQUIRY_GUIDANCE, /states or guesses a specific answer.*answer-fishing/);
+  });
+
+  it("forbids leaking the live or the earlier question's answer", () => {
+    assert.match(
+      DUPLICATE_INQUIRY_GUIDANCE,
+      /Never state, hint at, confirm, or rule out the answer/,
+    );
+    assert.match(DUPLICATE_INQUIRY_GUIDANCE, /earlier question's answer or verdict/);
+  });
+});
+
+describe("no-spoiler confirmation for on-demand questions", () => {
+  it("is part of the admin baseline instruction and the pending-question thread context", () => {
+    assert.ok(TRIVIA_GAMES_ADMIN_INSTRUCTION.includes(NO_SPOILER_CONFIRMATION));
+    assert.ok(PENDING_QUESTION_CREATION_CONTEXT.includes(NO_SPOILER_CONFIRMATION));
+  });
+
+  it("limits the confirmation to a bare 'new question' notice", () => {
+    assert.match(NO_SPOILER_CONFIRMATION, /ONLY "I've generated a new question\."/);
+    assert.match(NO_SPOILER_CONFIRMATION, /answer.*subject, the theme, the category/);
+    assert.match(NO_SPOILER_CONFIRMATION, /not even to the admin who asked/);
+  });
+
+  it("covers replacements, top-ups, and follow-up requests", () => {
+    assert.match(NO_SPOILER_CONFIRMATION, /replacement.*top-up.*"change the question".*follow-up/);
+  });
+
+  it("is referenced from the replay and top-up flows", () => {
+    assert.match(
+      TRIVIA_GAMES_ADMIN_INSTRUCTION,
+      /reveals the replacement\. Confirm per the no-spoiler rule/,
+    );
+    assert.match(TRIVIA_MANAGEMENT_INSTRUCTION, /Confirm per the no-spoiler rule/);
+  });
+});
 
 describe("clarification carve-out (anti-cheat ⇄ creation context consistency)", () => {
   it("the trivia-check instruction carves out pending-question clarifications", () => {
