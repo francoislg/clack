@@ -1,6 +1,7 @@
-import { describe, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import assert from "node:assert/strict";
 import { createComputeAnswersTool } from "./computeAnswers.js";
+import { resolveLastFireOfSeason } from "../../domain/seasonStatus.js";
 import {
   createFakeSdk,
   createFakeRevealSlackDeps,
@@ -14,6 +15,11 @@ import {
 } from "../../testHelpers.js";
 import { parseToolResult } from "../../../../plugins-sdk/testHelpers.js";
 import type { TriviaQuestion } from "../../core/types.js";
+
+vi.mock("../../domain/seasonStatus.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../domain/seasonStatus.js")>();
+  return { ...actual, resolveLastFireOfSeason: vi.fn(actual.resolveLastFireOfSeason) };
+});
 
 /**
  * Orchestrator-level tests for `process_reveal_answers`. Per-handler reveal behavior
@@ -2172,5 +2178,63 @@ describe("compute_answers — perfectRoundsChampion", () => {
       userIds: ["U1", "U2"],
       count: 1,
     });
+  });
+});
+
+describe("compute_answers — seasonStatus skips workspace off-days", () => {
+  const OFF_DAYS = [{ date: "2026-09-30", label: "Off" }];
+  const REVEAL_CRON = "0 17 * * *";
+  const TIMEZONE = "America/New_York";
+
+  function toolWithOffDays(
+    data: FakeTriviaDataLayer,
+    sdk: ReturnType<typeof createFakeSdk>["sdk"],
+  ) {
+    const getGames = () =>
+      fixtureGetGames().map((g) =>
+        g.name === FIXTURE_GAME_NAME ? { ...g, revealCron: REVEAL_CRON, timezone: TIMEZONE } : g,
+      );
+    return createComputeAnswersTool(data, sdk, getGames, createFakeRevealSlackDeps(), () => ({
+      offDays: OFF_DAYS,
+    }));
+  }
+
+  async function run(tool: ReturnType<typeof createComputeAnswersTool>) {
+    return parseToolResult(
+      await tool.handler(
+        { game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined, reprocessBatchId: undefined },
+        SESSION,
+      ),
+    );
+  }
+
+  it("resolves the last fire from the game's reveal schedule and the workspace off-days", async () => {
+    const { sdk, dataLayer: data } = makeData();
+    const expectedEndAt = Date.now() + 5 * DAY;
+    await seedCurrentSeason(data, expectedEndAt);
+    vi.mocked(resolveLastFireOfSeason).mockReturnValueOnce({
+      nextFire: new Date(Date.now() + 6 * DAY),
+      isLastFireOfSeason: true,
+    });
+    const res = await run(toolWithOffDays(data, sdk));
+    expect(res.seasonStatus.isLastFireOfSeason).toBe(true);
+    expect(resolveLastFireOfSeason).toHaveBeenCalledWith({
+      revealCron: REVEAL_CRON,
+      timezone: TIMEZONE,
+      now: expect.any(Date),
+      offDays: OFF_DAYS,
+      expectedEndAt,
+    });
+  });
+
+  it("reports not the last fire when the resolver says so", async () => {
+    const { sdk, dataLayer: data } = makeData();
+    await seedCurrentSeason(data, Date.now() + 5 * DAY);
+    vi.mocked(resolveLastFireOfSeason).mockReturnValueOnce({
+      nextFire: new Date(Date.now() + 1 * DAY),
+      isLastFireOfSeason: false,
+    });
+    const res = await run(toolWithOffDays(data, sdk));
+    expect(res.seasonStatus.isLastFireOfSeason).toBe(false);
   });
 });

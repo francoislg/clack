@@ -1,4 +1,4 @@
-import { describe, it, beforeEach, afterEach, vi } from "vitest";
+import { describe, it, beforeEach, afterEach, vi, expect } from "vitest";
 import assert from "node:assert/strict";
 import { createEndSeasonTool } from "./endSeason.js";
 import {
@@ -9,10 +9,16 @@ import {
   type FakeTriviaDataLayer,
 } from "../../testHelpers.js";
 import { createFakeSdk, primeTriviaConfig } from "../../testHelpers.fakeSdk.js";
-import { loadTriviaConfig } from "../../core/configBridge.js";
+import { loadTriviaConfig, type GetTriviaConfigFn } from "../../core/configBridge.js";
+import { resolveLastFireOfSeason } from "../../domain/seasonStatus.js";
 import { parseToolResult } from "../../../../plugins-sdk/testHelpers.js";
 import type { TriviaGame } from "../../core/configTypes.js";
 import type { TriviaQuestion } from "../../core/types.js";
+
+vi.mock("../../domain/seasonStatus.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../domain/seasonStatus.js")>();
+  return { ...actual, resolveLastFireOfSeason: vi.fn(actual.resolveLastFireOfSeason) };
+});
 
 /**
  * Tool-level tests for `end_season`. The rollover MECHANICS (continuation
@@ -51,8 +57,12 @@ const windDownGetGames = () => WIND_DOWN_GAMES;
 const NY_GAMES: readonly TriviaGame[] = [{ ...FIXTURE_GAMES[0], timezone: "America/New_York" }];
 const nyGetGames = () => NY_GAMES;
 
-function makeTool(data: FakeTriviaDataLayer, getGames = fixtureGetGames) {
-  return createEndSeasonTool(data, getGames);
+function makeTool(
+  data: FakeTriviaDataLayer,
+  getGames = fixtureGetGames,
+  getTriviaConfig?: GetTriviaConfigFn,
+) {
+  return createEndSeasonTool(data, getGames, getTriviaConfig);
 }
 
 function makeQuestion(overrides: Partial<TriviaQuestion>): TriviaQuestion {
@@ -241,6 +251,64 @@ describe("end_season", () => {
     assert.equal(res.gameDisabled, undefined, "no wind-down without the flag");
     const state = await scoped.loadSeasonsState();
     assert.ok(state?.seasons.find((s) => s.slug === "s1")?.endedAt !== undefined);
+  });
+
+  it("off-days: closes when the resolver reports the last fire", async () => {
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk);
+    const { dataLayer: data } = createTriviaDataLayer(sdk);
+    const scoped = data.forGame(FIXTURE_GAME_NAME);
+    const now = Date.now();
+    const expectedEndAt = now + 5 * DAY;
+    await scoped.saveSeasonsState({
+      seasons: [{ slug: "s1", startedAt: now - DAY, expectedEndAt }],
+    });
+    vi.mocked(resolveLastFireOfSeason).mockReturnValueOnce({
+      nextFire: new Date(now + 6 * DAY),
+      isLastFireOfSeason: true,
+    });
+
+    const res = parseToolResult(
+      await makeTool(data, fixtureGetGames, () => ({
+        offDays: [{ date: "2026-06-04", label: "Off" }],
+      })).handler({ game: FIXTURE_GAME_NAME, force: undefined }, SESSION),
+    );
+
+    assert.equal(res.seasonClosed, true);
+    expect(resolveLastFireOfSeason).toHaveBeenCalledWith({
+      revealCron: FIXTURE_GAMES[0].revealCron,
+      timezone: FIXTURE_GAMES[0].timezone,
+      now: expect.any(Date),
+      offDays: [{ date: "2026-06-04", label: "Off" }],
+      expectedEndAt,
+    });
+  });
+
+  it("off-days: requires confirmation when the resolver reports a later fire", async () => {
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk);
+    const { dataLayer: data } = createTriviaDataLayer(sdk);
+    const scoped = data.forGame(FIXTURE_GAME_NAME);
+    const now = Date.now();
+    await scoped.saveSeasonsState({
+      seasons: [{ slug: "s1", startedAt: now - DAY, expectedEndAt: now + 5 * DAY }],
+    });
+    vi.mocked(resolveLastFireOfSeason).mockReturnValueOnce({
+      nextFire: new Date(now + 1 * DAY),
+      isLastFireOfSeason: false,
+    });
+
+    const res = parseToolResult(
+      await makeTool(data, fixtureGetGames, () => ({
+        offDays: [{ date: "2026-06-04", label: "Off" }],
+      })).handler({ game: FIXTURE_GAME_NAME, force: undefined }, SESSION),
+    );
+
+    assert.equal(res.requiresConfirmation, true);
+    assert.equal(res.seasonClosed, false);
+    assert.equal(res.nextFireAt, now + 1 * DAY);
+    const state = await scoped.loadSeasonsState();
+    assert.equal(state?.seasons[0]?.endedAt, undefined, "season must not be stamped endedAt");
   });
 
   describe("disableAfterRound wind-down", () => {

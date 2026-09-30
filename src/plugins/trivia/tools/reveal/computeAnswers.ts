@@ -23,7 +23,7 @@ import { findCurrentSeason, findNextSeason, findSeasonBySlug } from "../../core/
 import { hasUnrevealedPostedQuestions } from "../../domain/boardState.js";
 import { resolveCascade } from "../../domain/resolveCascade.js";
 import { buildCascadeContext } from "../../domain/cascadeContext.js";
-import { nextCronFireAfter, isLastFireBeforeSeasonEnd } from "../../domain/seasonStatus.js";
+import { resolveLastFireOfSeason } from "../../domain/seasonStatus.js";
 import { resolvePerfectRoundsAward } from "../../domain/resolvePerfectRoundsAward.js";
 import {
   fetchMessageReactions as fetchReactionsViaSlackClient,
@@ -51,6 +51,7 @@ import { loadAllScoredAnswers } from "../../answering/scoredAnswers.js";
 import { isTeamOwnerKey, teamOwnerKey } from "../../answering/teamKey.js";
 import type { ReStampAxis } from "../../answerTypes/types.js";
 import type { CascadeContext } from "../../core/cascadeAxes.js";
+import type { OffDay } from "../../core/configTypes.js";
 import { selectBatch } from "./batchSelection.js";
 import type {
   ProcessRevealEntry,
@@ -452,6 +453,7 @@ export function createComputeAnswersTool(
           allAnswers: refreshedAnswers,
           revealCron: gameEntry?.revealCron,
           timezone: gameEntry?.timezone,
+          offDays: triviaConfig?.offDays,
         });
       }
 
@@ -767,6 +769,8 @@ interface SeasonStatusParams {
   /** The game's own reveal cron (plugin config), used to find the next fire. */
   revealCron: string | undefined;
   timezone: string | undefined;
+  /** Workspace off-days — a reveal fire landing on one doesn't run. */
+  offDays: readonly OffDay[] | undefined;
 }
 
 /**
@@ -779,19 +783,24 @@ interface SeasonStatusParams {
  *
  * `isLastFireOfSeason` = "the next reveal fire lands after the season's
  * `expectedEndAt`". The next-fire instant is derived from the game's own
- * `revealCron` (plugin config) — the bot-core cron-job registry is NOT consulted.
+ * `revealCron` (plugin config) — the bot-core cron-job registry is NOT consulted —
+ * skipping any fire that lands on a workspace off-day.
  */
 async function computeSeasonStatus(
   params: SeasonStatusParams,
 ): Promise<SeasonStatusOut | undefined> {
-  const { now, scoped, leaderboard, allAnswers, revealCron, timezone } = params;
+  const { now, scoped, leaderboard, allAnswers, revealCron, timezone, offDays } = params;
   const state = await scoped.loadSeasonsState();
   const current = state ? findCurrentSeason(state, now) : null;
   if (current === null || state === null) return undefined;
 
-  const nextFire = revealCron ? nextCronFireAfter(revealCron, timezone, new Date(now)) : null;
-  const isLastFireOfSeason =
-    revealCron !== undefined && isLastFireBeforeSeasonEnd(nextFire, current.expectedEndAt);
+  const { isLastFireOfSeason } = resolveLastFireOfSeason({
+    revealCron,
+    timezone,
+    now: new Date(now),
+    offDays,
+    expectedEndAt: current.expectedEndAt,
+  });
 
   const hasPriorSeasons = allAnswers.some((a) => a.season !== current.slug);
   const mvp = pickSeasonMvp(leaderboard);

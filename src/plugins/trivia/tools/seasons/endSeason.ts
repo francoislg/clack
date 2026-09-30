@@ -9,7 +9,7 @@ import {
   type GetTriviaConfigFn,
 } from "../../core/configBridge.js";
 import { requireGame, GameDisabledError } from "../../core/gamesRegistry.js";
-import { nextCronFireAfter, isLastFireBeforeSeasonEnd } from "../../domain/seasonStatus.js";
+import { resolveLastFireOfSeason } from "../../domain/seasonStatus.js";
 import { windDownGame } from "../../domain/windDown.js";
 import { hasUnrevealedPostedQuestions } from "../../domain/boardState.js";
 import { applySeasonRollover } from "../reveal/rollover.js";
@@ -24,7 +24,7 @@ NO ACTIVE SEASON (seasons disabled workspace-wide, or the timeline is in a gap):
 
 Call this from the reveal flow ONLY when \`compute_answers\` reported \`seasonStatus.isLastFireOfSeason === true\` OR \`windDown: { eligible: true }\`. The whole-reveal replay path is safe: re-running the reveal re-resolves via \`compute_answers\`, the season-level close is idempotent (never re-stamps \`endedAt\`, never duplicates a queued continuation), and replaying an already-wound-down finale is a no-op success (\`alreadyWoundDown: true\`). When the result carries \`gameDisabled: true\`, render the finale as a series wrap (the game is over for good — no next-season preview); corrections afterward require re-enable → fix → re-disable by hand (the result message carries the recipe).
 
-CONFIRMATION GUARD (season branch): the tool re-derives \`isLastFireOfSeason\` from the game's own \`revealCron\` before closing anything. When it is NOT the last fire, the tool performs NO change and returns \`{ requiresConfirmation: true }\` — ending a season early is irreversible, so only proceed with \`force: true\` when an early/manual close is truly intended. On a \`disableAfterRound\` game, \`force\` ALSO winds the game down (ending it now means ending it — the result surfaces \`gameDisabled: true\`). On the seasonless branch, \`force\` bypasses ONLY the board-cleared check.`;
+CONFIRMATION GUARD (season branch): the tool re-derives \`isLastFireOfSeason\` from the game's own \`revealCron\` (skipping fires that land on a workspace off-day) before closing anything. When it is NOT the last fire, the tool performs NO change and returns \`{ requiresConfirmation: true }\` — ending a season early is irreversible, so only proceed with \`force: true\` when an early/manual close is truly intended. On a \`disableAfterRound\` game, \`force\` ALSO winds the game down (ending it now means ending it — the result surfaces \`gameDisabled: true\`). On the seasonless branch, \`force\` bypasses ONLY the board-cleared check.`;
 
 export function createEndSeasonTool(
   data: TriviaDataLayer,
@@ -118,14 +118,15 @@ export function createEndSeasonTool(
       // `compute_answers`/`check_season_status` do, so a stray call that ignored the
       // prompt's "only on the last fire" rule can't silently end a season early.
       // Absent revealCron → can't confirm → treat as NOT the last fire (force required).
-      const revealCron = game.revealCron;
-      const nextFire = revealCron
-        ? nextCronFireAfter(revealCron, game.timezone, new Date(now))
-        : null;
-      const isLastFire =
-        revealCron !== undefined && isLastFireBeforeSeasonEnd(nextFire, current.expectedEndAt);
+      const { nextFire, isLastFireOfSeason } = resolveLastFireOfSeason({
+        revealCron: game.revealCron,
+        timezone: game.timezone,
+        now: new Date(now),
+        offDays: getTriviaConfigFn()?.offDays,
+        expectedEndAt: current.expectedEndAt,
+      });
 
-      if (!isLastFire && args.force !== true) {
+      if (!isLastFireOfSeason && args.force !== true) {
         return textResult({
           game: args.game,
           seasonClosed: false,

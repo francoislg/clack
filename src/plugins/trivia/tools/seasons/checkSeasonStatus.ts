@@ -3,18 +3,24 @@ import { tool } from "@anthropic-ai/claude-agent-sdk";
 import { textResult, errorResult } from "../../../../plugins-sdk/sdk.js";
 import { triviaLogger as logger } from "../../core/pluginLogger.js";
 import { findCurrentSeason, findNextSeason } from "../../core/seasonTimeline.js";
-import { defaultGetGames, type GetGamesFn } from "../../core/configBridge.js";
+import {
+  defaultGetGames,
+  defaultGetTriviaConfig,
+  type GetGamesFn,
+  type GetTriviaConfigFn,
+} from "../../core/configBridge.js";
 import { requireGame } from "../../core/gamesRegistry.js";
-import { nextCronFireAfter, isLastFireBeforeSeasonEnd } from "../../domain/seasonStatus.js";
+import { resolveLastFireOfSeason } from "../../domain/seasonStatus.js";
 import type { TriviaDataLayer } from "../../core/types.js";
 
 export function createCheckSeasonStatusTool(
   data: TriviaDataLayer,
   getGamesFn: GetGamesFn = defaultGetGames,
+  getTriviaConfigFn: GetTriviaConfigFn = defaultGetTriviaConfig,
 ) {
   return tool(
     "check_season_status",
-    "Inspect the current trivia season and the next-queued season on the named game's timeline. Returns currentSlug, currentExpectedEndAt, isLastFireOfSeason, nextSeasonSlug, nextSeasonStartsAt, and isInGap. `isLastFireOfSeason` is derived from the game's own `revealCron` config — it does NOT read the bot-core cron-job registry. Call this near the top of the answer-reveal flow when seasons are enabled.",
+    "Inspect the current trivia season and the next-queued season on the named game's timeline. Returns currentSlug, currentExpectedEndAt, isLastFireOfSeason, nextSeasonSlug, nextSeasonStartsAt, and isInGap. `isLastFireOfSeason` is derived from the game's own `revealCron` config (skipping fires that land on a workspace off-day) — it does NOT read the bot-core cron-job registry. Call this near the top of the answer-reveal flow when seasons are enabled.",
     {
       game: z
         .string()
@@ -72,8 +78,13 @@ export function createCheckSeasonStatusTool(
         });
       }
 
-      const nextFire = nextCronFireAfter(revealCron, game?.timezone, now);
-      const isLastFireOfSeason = isLastFireBeforeSeasonEnd(nextFire, current.expectedEndAt);
+      const { nextFire, isLastFireOfSeason } = resolveLastFireOfSeason({
+        revealCron,
+        timezone: game?.timezone,
+        now,
+        offDays: getTriviaConfigFn()?.offDays,
+        expectedEndAt: current.expectedEndAt,
+      });
 
       return textResult({
         currentSlug: current.slug,

@@ -1,5 +1,6 @@
-import { describe, it, beforeEach } from "vitest";
+import { describe, it, beforeEach, expect, vi } from "vitest";
 import assert from "node:assert/strict";
+import { resolveLastFireOfSeason } from "../../domain/seasonStatus.js";
 import {
   createTriviaDataLayer,
   FIXTURE_GAME_NAME,
@@ -30,6 +31,11 @@ import { buildProcessRevealInstructions } from "../../prompts/scheduledPrompts.j
 const PROCESS_REVEAL_INSTRUCTIONS = buildProcessRevealInstructions();
 import { getTriviaCheckInstruction } from "../../prompts/triviaCheckInstruction.js";
 import type { SeasonEntry } from "../../core/types.js";
+
+vi.mock("../../domain/seasonStatus.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../domain/seasonStatus.js")>();
+  return { ...actual, resolveLastFireOfSeason: vi.fn(actual.resolveLastFireOfSeason) };
+});
 
 const SESSION = { sessionId: "test" };
 
@@ -1747,6 +1753,45 @@ describe("check_season_status tool", () => {
     assert.equal(parsed.currentSlug, "active");
     assert.equal(parsed.isLastFireOfSeason, true);
     assert.ok(typeof parsed.nextFireAt === "number");
+  });
+
+  it("resolves the last fire from the game's reveal schedule and the off-days, and uses the result", async () => {
+    const now = Date.now();
+    const expectedEndAt = now + 5 * DAY;
+    await seedSingleActive(data, { expectedEndAt });
+    const offDays = [{ date: "2026-09-30", label: "Off" }];
+    const tool = createCheckSeasonStatusTool(data, fixtureGetGames, () => ({ offDays }));
+    vi.mocked(resolveLastFireOfSeason).mockReturnValueOnce({
+      nextFire: new Date(now + 6 * DAY),
+      isLastFireOfSeason: true,
+    });
+    const result = await tool.handler({ game: FIXTURE_GAME_NAME }, SESSION);
+    const parsed = parseToolResult(result);
+    const game = fixtureGetGames().find((g) => g.name === FIXTURE_GAME_NAME);
+    expect(resolveLastFireOfSeason).toHaveBeenCalledWith({
+      revealCron: game?.revealCron,
+      timezone: game?.timezone,
+      now: expect.any(Date),
+      offDays: [{ date: "2026-09-30", label: "Off" }],
+      expectedEndAt,
+    });
+    assert.equal(parsed.isLastFireOfSeason, true);
+    assert.equal(parsed.nextFireAt, now + 6 * DAY);
+  });
+
+  it("reports isLastFireOfSeason false when the resolver says the season continues", async () => {
+    const now = Date.now();
+    await seedSingleActive(data, { expectedEndAt: now + 5 * DAY });
+    const offDays = [{ date: "2026-09-30", label: "Off" }];
+    const tool = createCheckSeasonStatusTool(data, fixtureGetGames, () => ({ offDays }));
+    vi.mocked(resolveLastFireOfSeason).mockReturnValueOnce({
+      nextFire: new Date(now + 1 * DAY),
+      isLastFireOfSeason: false,
+    });
+    const result = await tool.handler({ game: FIXTURE_GAME_NAME }, SESSION);
+    const parsed = parseToolResult(result);
+    assert.equal(parsed.isLastFireOfSeason, false);
+    assert.equal(parsed.nextFireAt, now + 1 * DAY);
   });
 
   it("season already expired: no next fire before expectedEnd → last fire", async () => {
