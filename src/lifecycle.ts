@@ -35,6 +35,7 @@ import { loadAndInstallPlugins } from "./plugins-core/registry.js";
 import { startThreadConversation } from "./slack/handlers/core.js";
 import { getLoadedPlugins } from "./plugins-core/state.js";
 import { checkServedToolServers } from "./tools/servedToolsCheck.js";
+import { checkTokenScopes } from "./slack/scopeDriftCheck.js";
 import { unregisterByPluginName as unregisterPluginInteractivity } from "./slack/pluginActionRegistry.js";
 
 // ---------------------------------------------------------------------------
@@ -79,6 +80,7 @@ export interface LifecycleDeps {
   clearUserSkillBodyCache: typeof clearUserSkillBodyCache;
   loadAndInstallPlugins: typeof loadAndInstallPlugins;
   checkServedToolServers: typeof checkServedToolServers;
+  checkTokenScopes: typeof checkTokenScopes;
 }
 
 export const defaultLifecycleDeps: LifecycleDeps = {
@@ -119,6 +121,7 @@ export const defaultLifecycleDeps: LifecycleDeps = {
   clearUserSkillBodyCache,
   loadAndInstallPlugins,
   checkServedToolServers,
+  checkTokenScopes,
 };
 
 // ---------------------------------------------------------------------------
@@ -349,6 +352,13 @@ export async function restartAll(
     );
     for (const { name, error } of unlistable) {
       warnings.push(`Tool server ${name} cannot list its tools: ${error}`);
+    }
+
+    // Step 4.8: The reloaded config may enable a feature whose scope the installed token
+    // lacks. Report it like boot does.
+    const missingScopes = await deps.checkTokenScopes(config, deps.getSlackClient() ?? undefined);
+    for (const scope of missingScopes) {
+      warnings.push(`Bot token is missing scope ${scope}`);
     }
 
     // Step 5: Reload GitHub credentials (skipped entirely when GitHub is not

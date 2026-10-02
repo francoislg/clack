@@ -6,6 +6,7 @@ import { updateSession } from "../../sessions.js";
 import { getInvestigationsChannel, addFollowedThread } from "../../investigations/state.js";
 import type { FollowedThread } from "../../investigations/types.js";
 import { requireInvestigationSession } from "../investigationSession.js";
+import { ACCESS_DENIED_MESSAGE, checkConversationAccess } from "../../slack/requesterAccess.js";
 
 export function createFollowThreadTool(ctx: QueryToolContext) {
   return tool(
@@ -24,6 +25,16 @@ export function createFollowThreadTool(ctx: QueryToolContext) {
       const guard = await requireInvestigationSession(ctx.session.sessionId);
       if (!guard.ok) return guard.error;
       const { session, followedThreads } = guard;
+
+      if (!ctx.slackClient) {
+        return errorResult("Slack client is not available in this context");
+      }
+      // Following a thread makes Clack read it on the requester's behalf.
+      const access = await checkConversationAccess(
+        { client: ctx.slackClient, userId: ctx.userId, role: ctx.role, session: ctx.session },
+        args.channel,
+      );
+      if (!access.allowed) return errorResult(ACCESS_DENIED_MESSAGE);
 
       // Guard: reject threads in the investigations channel (cycle guard)
       const investigationsChannel = getInvestigationsChannel();

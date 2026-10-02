@@ -59,6 +59,7 @@ function createMockDeps() {
     async (): Promise<LoadedPlugins> => ({ results: [] }),
   );
   const mockCheckServedToolServers = vi.fn<LifecycleDeps["checkServedToolServers"]>(async () => []);
+  const mockCheckTokenScopes = vi.fn<LifecycleDeps["checkTokenScopes"]>(async () => []);
 
   const mocks = {
     mockLoadConfig,
@@ -94,6 +95,7 @@ function createMockDeps() {
     mockGetCronCatchUpDelayMinutes,
     mockLoadAndInstallPlugins,
     mockCheckServedToolServers,
+    mockCheckTokenScopes,
   };
 
   const deps: LifecycleDeps = {
@@ -134,6 +136,7 @@ function createMockDeps() {
     clearUserSkillBodyCache: mockClearUserSkillBodyCache,
     loadAndInstallPlugins: mockLoadAndInstallPlugins,
     checkServedToolServers: mockCheckServedToolServers,
+    checkTokenScopes: mockCheckTokenScopes,
   };
 
   return { deps, mocks };
@@ -317,6 +320,26 @@ describe("restartAll", () => {
       result.warnings.includes(
         "Tool server trivia:management cannot list its tools: Cannot read properties of undefined",
       ),
+      `got: ${JSON.stringify(result.warnings)}`,
+    );
+    assert.equal(mocks.mockStartSyncScheduler.mock.calls.length, 1);
+  });
+
+  it("checks the token scopes against the reloaded config and surfaces a missing scope as a warning", async () => {
+    const { deps, mocks } = createMockDeps();
+    const client = createSlackClientMock();
+    mocks.mockGetSlackClient.mockImplementation(() => client);
+    mocks.mockCheckTokenScopes.mockResolvedValue(["channels:join"]);
+
+    const result = await restartAll(deps);
+
+    assert.equal(mocks.mockCheckTokenScopes.mock.calls.length, 1);
+    assert.deepEqual(mocks.mockCheckTokenScopes.mock.calls[0], [
+      mocks.mockGetConfig.mock.results[0].value,
+      client,
+    ]);
+    assert.ok(
+      result.warnings.includes("Bot token is missing scope channels:join"),
       `got: ${JSON.stringify(result.warnings)}`,
     );
     assert.equal(mocks.mockStartSyncScheduler.mock.calls.length, 1);

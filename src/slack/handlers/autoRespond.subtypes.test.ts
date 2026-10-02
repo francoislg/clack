@@ -257,7 +257,11 @@ describe("handleAutoRespondMessageEvent — subtype admission", () => {
   function makeMessageDeps(): AutoRespondMessageDeps {
     return {
       getConfig: vi.fn(() => makeConfig()),
-      getBotIdentity: vi.fn(async () => ({ botUserId: "", botId: undefined })),
+      getBotIdentity: vi.fn(async () => ({
+        botUserId: "",
+        botId: undefined,
+        teamId: undefined,
+      })),
     };
   }
 

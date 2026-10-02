@@ -22,8 +22,15 @@ vi.mock("../../slack/ownerDm.js", () => ({
   sendOwnerDm: vi.fn(),
 }));
 
+// The requester access check is an outside dependency: stub the verdict and assert the wiring.
+vi.mock("../../slack/requesterAccess.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../slack/requesterAccess.js")>();
+  return { ...actual, checkConversationAccess: vi.fn() };
+});
+
 import { bootstrapInvestigation } from "../../investigations/engine.js";
 import { setAttentionLevel } from "../../sessions.js";
+import { ACCESS_DENIED_MESSAGE, checkConversationAccess } from "../../slack/requesterAccess.js";
 
 function makeCtx(overrides?: Partial<QueryToolContext>): QueryToolContext {
   const client = new WebClient();
@@ -62,6 +69,64 @@ function makeCtx(overrides?: Partial<QueryToolContext>): QueryToolContext {
 describe("start_investigation tool", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(checkConversationAccess).mockResolvedValue({ allowed: true });
+  });
+
+  it("refuses with the access-denied message and bootstraps nothing when the requester cannot read the origin channel", async () => {
+    const ctx = makeCtx();
+    vi.mocked(checkConversationAccess).mockResolvedValue({ allowed: false, reason: "not_member" });
+
+    const tool = createStartInvestigationTool(ctx);
+    const result = await tool.handler(
+      {
+        surface: "channel",
+        thread_ref: { channel: "C_OTHER", thread_ts: "2.2" },
+        subject: undefined,
+      },
+      { sessionId: "sess-current" },
+    );
+
+    expect(result.isError).toBe(true);
+    expect(parseToolResult(result)).toEqual({ error: ACCESS_DENIED_MESSAGE });
+    expect(vi.mocked(bootstrapInvestigation)).not.toHaveBeenCalled();
+    expect(vi.mocked(setAttentionLevel)).not.toHaveBeenCalled();
+  });
+
+  it("checks the explicit thread_ref channel as the context's requester", async () => {
+    const ctx = makeCtx();
+    vi.mocked(bootstrapInvestigation).mockResolvedValue({ status: "duplicate" });
+
+    const tool = createStartInvestigationTool(ctx);
+    await tool.handler(
+      {
+        surface: "channel",
+        thread_ref: { channel: "C_OTHER", thread_ts: "2.2" },
+        subject: undefined,
+      },
+      { sessionId: "sess-current" },
+    );
+
+    expect(vi.mocked(checkConversationAccess)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(checkConversationAccess)).toHaveBeenCalledWith(
+      { client: ctx.slackClient, userId: "U_REQUESTER", role: "dev", session: ctx.session },
+      "C_OTHER",
+    );
+  });
+
+  it("checks the session's channel when no thread_ref is given", async () => {
+    const ctx = makeCtx();
+    vi.mocked(bootstrapInvestigation).mockResolvedValue({ status: "duplicate" });
+
+    const tool = createStartInvestigationTool(ctx);
+    await tool.handler(
+      { surface: "channel", thread_ref: undefined, subject: undefined },
+      { sessionId: "sess-current" },
+    );
+
+    expect(vi.mocked(checkConversationAccess)).toHaveBeenCalledWith(
+      { client: ctx.slackClient, userId: "U_REQUESTER", role: "dev", session: ctx.session },
+      "C_CURRENT",
+    );
   });
 
   it("disengages the current thread on ok with no thread_ref", async () => {

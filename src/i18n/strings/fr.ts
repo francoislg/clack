@@ -465,6 +465,13 @@ export const fr: Partial<Record<StringKey, string>> = {
   "tools.unlistable.dm_footer":
     "Un schéma d'entrée d'outil sur chaque serveur ne peut pas être converti pour Claude, ce qui masque tous les outils de ce serveur. La cause est dans le code (souvent un `z.record` ou un `.default()` dans un schéma d'outil) — il faut un correctif et un déploiement.",
 
+  // ─── Portée manquante sur le jeton du bot — DM au propriétaire ─────
+  "scopes.missing.dm_title":
+    ":rotating_light: Il manque au jeton du bot {count} portée(s) requise(s) par la configuration actuelle",
+  "scopes.missing.dm_entry": "• Portée `{scope}`",
+  "scopes.missing.dm_footer":
+    "Les fonctionnalités qui dépendent de ces portées échouent tant que le jeton ne les a pas. Régénérez le manifeste avec `npm run manifest`, téléversez-le de nouveau dans l'application Slack, puis réinstallez l'application dans l'espace de travail.",
+
   // ─── État en quarantaine — panneau de l'onglet Accueil ─────────────
   "home.state_quarantine.header": "État en quarantaine",
   "home.state_quarantine.hint":

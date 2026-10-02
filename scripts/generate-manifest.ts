@@ -11,7 +11,14 @@ import { writeFileSync, readFileSync, existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Manifest } from "@slack/web-api/dist/types/request/manifest.js";
+import { manifestConfigZod, type ManifestConfig } from "../src/configSchemas.js";
 import { en } from "../src/i18n/strings/en.js";
+import {
+  manifestFeatures,
+  requiredBotEvents,
+  requiredBotScopes,
+  type ManifestFeatures,
+} from "../src/slack/requiredScopes.js";
 
 /**
  * Static suggested prompts for `agent_view`. Under agent_view, prompts are a manifest
@@ -28,79 +35,13 @@ const AGENT_SUGGESTED_PROMPTS: Array<{ title: string; message: string }> = [
   { title: en["assistant.prompt_funny_title"], message: en["assistant.prompt_funny_message"] },
 ];
 
-// Extract BotScope and ManifestEvent types from Manifest (they're not exported directly)
-// Extended with `string` to support newer API fields not yet in @slack/web-api types (e.g. assistant:write)
-type ArrayElement<T> = T extends readonly (infer U)[] ? U : T extends (infer U)[] ? U : never;
-type BotScope =
-  | ArrayElement<NonNullable<NonNullable<NonNullable<Manifest["oauth_config"]>["scopes"]>["bot"]>>
-  | (string & {});
-type ManifestEvent =
-  | ArrayElement<
-      NonNullable<NonNullable<Manifest["settings"]>["event_subscriptions"]>["bot_events"]
-    >
-  | (string & {});
-
-interface SlackAppConfig {
-  name?: string;
-  description?: string;
-  backgroundColor?: string;
-}
-
-interface SlackConfig {
-  fetchAndStoreUsername?: boolean;
-}
-
-type DmType = "assistant" | "classic" | "agent";
-
-interface DirectMessagesConfig {
-  enabled?: boolean;
-  dmType?: DmType;
-}
-
-interface MentionsConfig {
-  enabled?: boolean;
-}
-
-interface AutoRespondConfig {
-  enabled?: boolean;
-}
-
-interface PartialConfig {
-  slackApp?: SlackAppConfig;
-  slack?: SlackConfig;
-  directMessages?: DirectMessagesConfig;
-  mentions?: MentionsConfig;
-  autoRespond?: AutoRespondConfig;
-  allowScheduledMessages?: boolean;
-  allowPublicSearch?: boolean;
-  investigations?: { enabled?: boolean };
-}
-
-const DEFAULTS: Required<SlackAppConfig> = {
+const DEFAULTS = {
   name: "Clack",
   description: "Ask questions about your codebase using reactions",
   backgroundColor: "#4A154B",
 };
 
-// Core scopes - always needed for basic reaction functionality and role management
-const CORE_SCOPES: BotScope[] = [
-  "channels:history",
-  "channels:read", // Needed for conversations.info (channel name resolution)
-  "emoji:read", // Needed for find_emoji tool (custom emoji lookup)
-  "files:read", // Needed for downloading images uploaded in Slack messages
-  "files:write", // Needed for uploading files to Slack (upload_file tool, Chat to Edit)
-  "groups:history",
-  "groups:read", // Needed for conversations.info (private channel name resolution)
-  "chat:write",
-  "reactions:read",
-  "reactions:write",
-  "users:read", // Needed for role management (disabled user detection)
-];
-
-// Core events - always needed (including app_home_opened for role management Home tab)
-const CORE_EVENTS: ManifestEvent[] = ["app_home_opened", "reaction_added"];
-
-function loadConfigForManifest(): PartialConfig {
+function loadConfigForManifest(): unknown {
   const configPath = resolve(process.cwd(), "data", "config.json");
 
   if (!existsSync(configPath)) {
@@ -109,130 +50,34 @@ function loadConfigForManifest(): PartialConfig {
   }
 
   const content = readFileSync(configPath, "utf-8");
-  let parsed: PartialConfig;
   try {
-    parsed = JSON.parse(content) as PartialConfig;
+    return JSON.parse(content);
   } catch {
     throw new Error(`Config file is not valid JSON: ${configPath}`);
   }
-
-  return parsed;
 }
 
-function validateSlackAppConfig(config: SlackAppConfig): void {
-  if (config.name !== undefined && (typeof config.name !== "string" || config.name.length === 0)) {
-    throw new Error("slackApp.name must be a non-empty string");
+/** Validates the manifest-relevant config keys; the thrown error lists every invalid value. */
+export function parseManifestConfig(raw: unknown): ManifestConfig {
+  const result = manifestConfigZod.safeParse(raw);
+  if (!result.success) {
+    const issues = result.error.issues.map((issue) => issue.message).join("; ");
+    throw new Error(`Invalid config for manifest generation: ${issues}`);
   }
-
-  if (config.backgroundColor !== undefined) {
-    if (
-      typeof config.backgroundColor !== "string" ||
-      !/^#[0-9A-Fa-f]{6}$/.test(config.backgroundColor)
-    ) {
-      throw new Error("slackApp.backgroundColor must be a hex color (e.g., #4A154B)");
-    }
-  }
+  return result.data;
 }
 
-interface ConfigFeatures {
-  directMessages: boolean;
-  dmType: DmType;
-  mentions: boolean;
-  autoRespond: boolean;
-  fetchUsernames: boolean;
-  scheduledMessages: boolean;
-  publicSearch: boolean;
-  investigations: boolean;
-}
-
-function getEnabledFeatures(config: PartialConfig): ConfigFeatures {
-  return {
-    directMessages: config.directMessages?.enabled ?? false,
-    dmType: config.directMessages?.dmType ?? "assistant",
-    mentions: config.mentions?.enabled ?? false,
-    autoRespond: config.autoRespond?.enabled ?? false,
-    fetchUsernames: config.slack?.fetchAndStoreUsername ?? false,
-    scheduledMessages: config.allowScheduledMessages ?? false,
-    publicSearch: config.allowPublicSearch ?? false,
-    investigations: config.investigations?.enabled ?? false,
-  };
-}
-
-function buildScopes(features: ConfigFeatures): BotScope[] {
-  const scopes: BotScope[] = [...CORE_SCOPES];
-
-  if (features.directMessages) {
-    scopes.push("im:history", "im:read", "mpim:history", "mpim:read");
-    // Both the assistant (assistant_view) and agent (agent_view) DM experiences use the
-    // assistant.threads.* API for status/title/prompts, so both need assistant:write.
-    if (features.dmType === "assistant" || features.dmType === "agent") {
-      scopes.push("assistant:write");
-    }
-  }
-
-  if (features.mentions) {
-    scopes.push("app_mentions:read");
-  }
-
-  // Workspace-wide keyword search (assistant.search.context). No matching bot_events change —
-  // its action_token sources (message, app_mention) are already subscribed by the DM/mention features.
-  if (features.publicSearch) {
-    scopes.push("search:read.public");
-  }
-
-  if (features.investigations) {
-    scopes.push("channels:join");
-  }
-
-  // Always needed for DM delivery (per-user reaction preference)
-  scopes.push("im:write");
-
-  // users:read is now in CORE_SCOPES (needed for role management)
-  // fetchUsernames feature doesn't need additional scopes
-
-  return [...new Set(scopes)].sort((a, b) => a.localeCompare(b));
-}
-
-function buildEvents(features: ConfigFeatures): ManifestEvent[] {
-  const events: ManifestEvent[] = [...CORE_EVENTS];
-
-  if (features.directMessages) {
-    events.push("message.im");
-    if (features.dmType === "assistant") {
-      events.push("assistant_thread_started", "assistant_thread_context_changed");
-    }
-  }
-
-  if (features.mentions) {
-    events.push("app_mention");
-  }
-
-  if (features.autoRespond) {
-    events.push("message.channels", "message.groups");
-  }
-
-  if (features.investigations) {
-    events.push("message.channels", "message.groups");
-  }
-
-  return [...new Set(events)].sort((a, b) => a.localeCompare(b));
-}
-
-export function generateManifest(config: PartialConfig): Manifest {
+function buildManifest(config: ManifestConfig, features: ManifestFeatures): Manifest {
   const slackApp = config.slackApp ?? {};
   const name = slackApp.name ?? DEFAULTS.name;
   const description = slackApp.description ?? DEFAULTS.description;
   const backgroundColor = slackApp.backgroundColor ?? DEFAULTS.backgroundColor;
 
-  const features = getEnabledFeatures(config);
-  const scopes = buildScopes(features);
-  const events = buildEvents(features);
+  const scopes = requiredBotScopes(features);
+  const events = requiredBotEvents(features);
 
   // Type assertion: @slack/web-api types lag behind the Slack API (missing assistant_view, assistant:write, etc.)
   type ManifestBotScopes = NonNullable<NonNullable<Manifest["oauth_config"]>["scopes"]>["bot"];
-  type ManifestBotEvents = NonNullable<
-    NonNullable<Manifest["settings"]>["event_subscriptions"]
-  >["bot_events"];
 
   const manifest: Manifest = {
     display_information: {
@@ -272,7 +117,7 @@ export function generateManifest(config: PartialConfig): Manifest {
     },
     settings: {
       event_subscriptions: {
-        bot_events: events as ManifestBotEvents,
+        bot_events: events,
       },
       interactivity: {
         is_enabled: true,
@@ -286,14 +131,17 @@ export function generateManifest(config: PartialConfig): Manifest {
   return manifest;
 }
 
+export function generateManifest(config: unknown): Manifest {
+  const parsed = parseManifestConfig(config);
+  return buildManifest(parsed, manifestFeatures(parsed));
+}
+
 function main(): void {
   console.log("Generating Slack app manifest...");
 
-  const config = loadConfigForManifest();
-  validateSlackAppConfig(config.slackApp ?? {});
-
-  const features = getEnabledFeatures(config);
-  const manifest = generateManifest(config);
+  const config = parseManifestConfig(loadConfigForManifest());
+  const features = manifestFeatures(config);
+  const manifest = buildManifest(config, features);
 
   const outputPath = resolve(process.cwd(), "slack-app-manifest.json");
   writeFileSync(outputPath, JSON.stringify(manifest, null, 2) + "\n");
@@ -307,8 +155,8 @@ function main(): void {
   );
   console.log(`    - Mentions: ${features.mentions}`);
   console.log(`    - Auto-respond: ${features.autoRespond}`);
-  console.log(`    - Fetch usernames: ${features.fetchUsernames}`);
-  console.log(`    - Scheduled messages: ${features.scheduledMessages}`);
+  console.log(`    - Fetch usernames: ${config.slack?.fetchAndStoreUsername ?? false}`);
+  console.log(`    - Scheduled messages: ${config.allowScheduledMessages ?? false}`);
   console.log(`    - Public message search: ${features.publicSearch}`);
   console.log(`    - Investigations: ${features.investigations}`);
   console.log(`  Scopes: ${manifest.oauth_config?.scopes?.bot?.join(", ")}`);

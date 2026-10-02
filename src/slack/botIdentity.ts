@@ -8,6 +8,8 @@ import type { App } from "@slack/bolt";
 interface BotIdentity {
   botUserId: string;
   botId: string | undefined;
+  /** The workspace (team) the bot token belongs to. */
+  teamId: string | undefined;
 }
 
 let cached: BotIdentity | undefined;
@@ -18,6 +20,7 @@ export async function getBotIdentity(client: App["client"]): Promise<BotIdentity
   cached = {
     botUserId: result.user_id ?? "",
     botId: typeof result.bot_id === "string" ? result.bot_id : undefined,
+    teamId: typeof result.team_id === "string" && result.team_id ? result.team_id : undefined,
   };
   return cached;
 }

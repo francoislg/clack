@@ -7,6 +7,7 @@ import { threadMessageToToolOutput } from "../../slack/messageBuilder.js";
 import { getChannelInfo } from "../../slack/channelCache.js";
 import type { EmojiCache } from "../../slack/emojiCache.js";
 import { buildLoreHint, collectEmojiNames } from "../../emojiLore.js";
+import { ACCESS_DENIED_MESSAGE, checkConversationAccess } from "../../slack/requesterAccess.js";
 
 export interface FetchSlackMessageDeps {
   fetchThreadContext: typeof fetchThreadContext;
@@ -78,6 +79,14 @@ export function createFetchSlackMessageTool(
 
       if ((page + 1) * limit > MAX_FETCH) {
         return errorResult(`Requested range exceeds maximum fetch cap of ${MAX_FETCH} messages`);
+      }
+
+      const access = await checkConversationAccess(
+        { client: ctx.slackClient, userId: ctx.userId, role: ctx.role, session: ctx.session },
+        channelId,
+      );
+      if (!access.allowed) {
+        return errorResult(ACCESS_DENIED_MESSAGE);
       }
 
       // Use threadTs as parent if this is a reply URL, otherwise the message itself is the parent

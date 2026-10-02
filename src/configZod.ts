@@ -3,7 +3,8 @@ import { SUPPORTED_LANGUAGES, isSupportedLanguage } from "./i18n/languages.js";
 import { logger } from "./logger.js";
 import type { Config, SlackAuthConfig, JsonObject, JsonValue, CronConfig } from "./config.js";
 import {
-  VALID_DM_TYPES,
+  dmTypeZod,
+  slackAppZod,
   isPlainObject,
   thinkingZod,
   emojiField,
@@ -89,26 +90,10 @@ export function validateConfig(config: unknown, slackAuth: SlackAuthConfig): Con
   }
 
   const dmRaw = section(c, "directMessages");
-  if (dmRaw && dmRaw.dmType !== undefined) {
-    const dt = dmRaw.dmType;
-    if (typeof dt !== "string" || !(VALID_DM_TYPES as readonly string[]).includes(dt)) {
-      throw new Error(
-        `Config 'directMessages.dmType' must be one of: ${VALID_DM_TYPES.join(", ")} (got ${JSON.stringify(dt)})`,
-      );
-    }
-  }
+  const dmType = parseOrThrow(dmTypeZod, dmRaw?.dmType) ?? "assistant";
 
   const slackAppRaw = section(c, "slackApp");
-  if (slackAppRaw) {
-    const name = slackAppRaw.name;
-    if (name !== undefined && (typeof name !== "string" || name.length === 0)) {
-      throw new Error("Config 'slackApp.name' must be a non-empty string");
-    }
-    const bg = slackAppRaw.backgroundColor;
-    if (bg !== undefined && (typeof bg !== "string" || !/^#[0-9A-Fa-f]{6}$/.test(bg))) {
-      throw new Error("Config 'slackApp.backgroundColor' must be a hex color (e.g., #4A154B)");
-    }
-  }
+  parseOrThrow(slackAppZod, slackAppRaw);
 
   const slackRaw = section(c, "slack");
   const reactionsRaw = section(c, "reactions");
@@ -194,10 +179,6 @@ export function validateConfig(config: unknown, slackAuth: SlackAuthConfig): Con
 
   const dmCw = dmRaw && section(dmRaw, "changesWorkflow");
   const mentionsCw = mentionsRaw && section(mentionsRaw, "changesWorkflow");
-  const dmType =
-    dmRaw && typeof dmRaw.dmType === "string"
-      ? (dmRaw.dmType as Config["directMessages"]["dmType"])
-      : "assistant";
 
   const additionalAllowedTools =
     cwRaw && Array.isArray(cwRaw.additionalAllowedTools)

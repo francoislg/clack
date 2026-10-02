@@ -7,11 +7,23 @@ import type { SlackImageFile } from "../../slack/slackFileBase.js";
 import type { EmojiCache } from "../../slack/emojiCache.js";
 import { buildLoreHint } from "../../emojiLore.js";
 import { stub } from "../../testStubs.js";
+import { ACCESS_DENIED_MESSAGE, checkConversationAccess } from "../../slack/requesterAccess.js";
 
 // The lore store is an outside dependency: stub the hint builder and assert the wiring.
 vi.mock("../../emojiLore.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../emojiLore.js")>();
   return { ...actual, buildLoreHint: vi.fn() };
+});
+
+// The requester access check is an outside dependency: stub the verdict and assert the wiring.
+vi.mock("../../slack/requesterAccess.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../slack/requesterAccess.js")>();
+  return { ...actual, checkConversationAccess: vi.fn() };
+});
+
+beforeEach(() => {
+  vi.mocked(checkConversationAccess).mockReset();
+  vi.mocked(checkConversationAccess).mockResolvedValue({ allowed: true });
 });
 
 // ---------------------------------------------------------------------------
@@ -901,6 +913,78 @@ describe("fetchSlackMessage tool", () => {
 
     const parsed = parseToolResult(result);
     assert.equal(parsed.channel_name, undefined);
+  });
+});
+
+describe("fetchSlackMessage requester access", () => {
+  const args = {
+    url: "https://workspace.slack.com/archives/C0123ABC/p1234567890123456",
+    page: undefined,
+    limit: undefined,
+  };
+
+  it("returns the access-denied error and fetches nothing when denied", async () => {
+    vi.mocked(checkConversationAccess).mockResolvedValue({ allowed: false, reason: "not_member" });
+    const fetchThreadContext = vi.fn<FetchSlackMessageDeps["fetchThreadContext"]>(async () =>
+      makeThreadMessages(3),
+    );
+    const getChannelInfo = vi.fn<FetchSlackMessageDeps["getChannelInfo"]>(async () => ({
+      id: "C0123ABC",
+      name: "secret-plans",
+      purpose: "Top secret roadmap",
+    }));
+    const toolDef = createFetchSlackMessageTool(
+      makeCtx(),
+      makeDeps({ fetchThreadContext, getChannelInfo }),
+    );
+
+    const result = await toolDef.handler(args, { sessionId: "test" });
+
+    const parsed = parseToolResult(result);
+    assert.equal(result.isError, true);
+    assert.equal(parsed.error, ACCESS_DENIED_MESSAGE);
+    assert.equal(fetchThreadContext.mock.calls.length, 0);
+    assert.equal(getChannelInfo.mock.calls.length, 0);
+    assert.ok(!parsed.error.includes("secret-plans"));
+    assert.ok(!parsed.error.includes("Top secret roadmap"));
+  });
+
+  it("checks the URL's channel with the context's requester and session", async () => {
+    const ctx = makeCtx();
+    const fetchThreadContext: FetchSlackMessageDeps["fetchThreadContext"] = async () =>
+      makeThreadMessages(1);
+    const toolDef = createFetchSlackMessageTool(ctx, makeDeps({ fetchThreadContext }));
+
+    await toolDef.handler(args, { sessionId: "test" });
+
+    const calls = vi.mocked(checkConversationAccess).mock.calls;
+    assert.equal(calls.length, 1);
+    const [req, channelId] = calls[0];
+    assert.equal(channelId, "C0123ABC");
+    assert.equal(req.client, ctx.slackClient);
+    assert.equal(req.userId, "U123");
+    assert.equal(req.role, "dev");
+    assert.equal(req.session, ctx.session);
+  });
+
+  it("returns the thread when allowed", async () => {
+    vi.mocked(checkConversationAccess).mockResolvedValue({ allowed: true });
+    const fetchThreadContext = vi.fn<FetchSlackMessageDeps["fetchThreadContext"]>(async () =>
+      makeThreadMessages(3),
+    );
+    const toolDef = createFetchSlackMessageTool(makeCtx(), makeDeps({ fetchThreadContext }));
+
+    const result = await toolDef.handler(args, { sessionId: "test" });
+
+    const parsed = parseToolResult(result);
+    assert.equal(result.isError, undefined);
+    assert.equal(parsed.channel, "C0123ABC");
+    assert.equal(parsed.channel_name, "general");
+    assert.equal(parsed.thread_ts, "1234567890.123456");
+    assert.equal(parsed.message_count, 3);
+    assert.equal(parsed.has_more, false);
+    assert.equal(parsed.messages[0].user, "User 0");
+    assert.equal(fetchThreadContext.mock.calls.length, 1);
   });
 });
 

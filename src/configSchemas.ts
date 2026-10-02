@@ -785,3 +785,92 @@ export const streamingZod = z
     { error: "Config 'streaming' must be an object" },
   )
   .optional();
+
+// ---------------------------------------------------------------------------
+// Manifest config schema
+// ---------------------------------------------------------------------------
+
+function manifestEnabledZod(
+  key: string,
+): z.ZodOptional<z.ZodObject<{ enabled: z.ZodOptional<z.ZodBoolean> }>> {
+  return z
+    .object(
+      { enabled: z.boolean({ error: `Config '${key}.enabled' must be a boolean` }).optional() },
+      { error: `Config '${key}' must be an object` },
+    )
+    .optional();
+}
+
+/** The optional `slackApp` block: the app's display name, description and background color. */
+export const slackAppZod = z
+  .object(
+    {
+      name: z
+        .string({ error: "Config 'slackApp.name' must be a non-empty string" })
+        .min(1, { error: "Config 'slackApp.name' must be a non-empty string" })
+        .optional(),
+      description: z.string({ error: "Config 'slackApp.description' must be a string" }).optional(),
+      backgroundColor: z
+        .string({
+          error: "Config 'slackApp.backgroundColor' must be a hex color (e.g., #4A154B)",
+        })
+        .regex(/^#[0-9A-Fa-f]{6}$/, {
+          error: "Config 'slackApp.backgroundColor' must be a hex color (e.g., #4A154B)",
+        })
+        .optional(),
+    },
+    { error: "Config 'slackApp' must be an object" },
+  )
+  .optional();
+
+/** The optional `directMessages.dmType` value: one of `VALID_DM_TYPES`. */
+export const dmTypeZod = z
+  .enum(VALID_DM_TYPES, {
+    error: (issue) =>
+      `Config 'directMessages.dmType' must be one of: ${VALID_DM_TYPES.join(", ")} (got ${JSON.stringify(issue.input)})`,
+  })
+  .optional();
+
+/**
+ * The config keys the Slack app manifest is generated from. Every key is optional, so the
+ * manifest can be generated before Slack auth or any repository is configured. Unknown keys are
+ * ignored at the top level and inside every nested object except `investigations`, which reuses
+ * the boot schema and rejects an unknown key. A problem under a key the manifest does not read
+ * never blocks it.
+ */
+export const manifestConfigZod = z.object(
+  {
+    slackApp: slackAppZod,
+    slack: z
+      .object(
+        {
+          fetchAndStoreUsername: z
+            .boolean({ error: "Config 'slack.fetchAndStoreUsername' must be a boolean" })
+            .optional(),
+        },
+        { error: "Config 'slack' must be an object" },
+      )
+      .optional(),
+    directMessages: z
+      .object(
+        {
+          enabled: z
+            .boolean({ error: "Config 'directMessages.enabled' must be a boolean" })
+            .optional(),
+          dmType: dmTypeZod,
+        },
+        { error: "Config 'directMessages' must be an object" },
+      )
+      .optional(),
+    mentions: manifestEnabledZod("mentions"),
+    autoRespond: manifestEnabledZod("autoRespond"),
+    allowScheduledMessages: z
+      .boolean({ error: "Config 'allowScheduledMessages' must be a boolean" })
+      .optional(),
+    allowPublicSearch: allowPublicSearchZod,
+    investigations: investigationsZod.optional(),
+  },
+  { error: "Config must be an object" },
+);
+
+export type ManifestConfig = z.infer<typeof manifestConfigZod>;

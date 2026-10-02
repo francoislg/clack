@@ -17,6 +17,7 @@ import { resolveUsers, transformUserMentions } from "../../slack/userCache.js";
 import { getChannelInfo } from "../../slack/channelCache.js";
 import { slackLink } from "../../slack/logContext.js";
 import { errorMessage } from "../../errors.js";
+import { ACCESS_DENIED_MESSAGE, checkConversationAccess } from "../../slack/requesterAccess.js";
 
 type SlackClient = NonNullable<QueryToolContext["slackClient"]>;
 type UserInfoMap = Awaited<ReturnType<typeof resolveUsers>>;
@@ -282,6 +283,14 @@ export function createFetchChannelMessagesTool(
       if (normalizedLatest !== undefined) {
         windowEcho.latest = normalizedLatest;
         windowEcho.latest_iso = new Date(parseFloat(normalizedLatest) * 1000).toISOString();
+      }
+
+      const access = await checkConversationAccess(
+        { client, userId: ctx.userId, role: ctx.role, session: ctx.session },
+        args.channel_id,
+      );
+      if (!access.allowed) {
+        return errorResult(ACCESS_DENIED_MESSAGE);
       }
 
       try {

@@ -3,6 +3,7 @@ import { tool } from "@anthropic-ai/claude-agent-sdk";
 import type { QueryToolContext } from "../types.js";
 import { textResult, errorResult } from "../helpers.js";
 import { errorMessage } from "../../errors.js";
+import { checkConversationAccess } from "../../slack/requesterAccess.js";
 
 type SlackClient = NonNullable<QueryToolContext["slackClient"]>;
 
@@ -124,6 +125,7 @@ export function createSearchMessagesTool(
       if (!ctx.slackClient) {
         return errorResult("Slack client is not available in this context");
       }
+      const client = ctx.slackClient;
       const query = args.query.trim();
       if (!query) {
         return errorResult("Query cannot be empty");
@@ -131,7 +133,7 @@ export function createSearchMessagesTool(
 
       let response: SearchContextResponse;
       try {
-        response = await deps.searchContext(ctx.slackClient, {
+        response = await deps.searchContext(client, {
           query,
           action_token: actionToken,
           disable_semantic_search: true,
@@ -151,14 +153,32 @@ export function createSearchMessagesTool(
       const truncated =
         messages.length >= MAX_RESULTS || Boolean(response.response_metadata?.next_cursor);
 
+      // Each distinct channel is checked once, concurrently; a result with no channel id cannot be checked
+      // and is dropped.
+      const channelIds = [
+        ...new Set(messages.flatMap((m) => (m.channel_id ? [m.channel_id] : []))),
+      ];
+      const verdicts = await Promise.all(
+        channelIds.map((channelId) =>
+          checkConversationAccess(
+            { client, userId: ctx.userId, role: ctx.role, session: ctx.session },
+            channelId,
+          ),
+        ),
+      );
+      const allowedChannels = new Set(channelIds.filter((_, i) => verdicts[i]?.allowed));
+      const visible = messages.filter(
+        (m) => m.channel_id !== undefined && allowedChannels.has(m.channel_id),
+      );
+
       return textResult({
         query,
-        match_count: messages.length,
+        match_count: visible.length,
         truncated,
         ...(truncated && {
-          truncation_note: `Showing the first ${messages.length} matches (Slack caps a single search at ${MAX_RESULTS}). Narrow the query with operators like in:<#channel>, from:<@user>, or before:/after: rather than asking for more.`,
+          truncation_note: `Showing the first ${visible.length} matches (Slack caps a single search at ${MAX_RESULTS}). Narrow the query with operators like in:<#channel>, from:<@user>, or before:/after: rather than asking for more.`,
         }),
-        messages: messages.map(formatMatch),
+        messages: visible.map(formatMatch),
       });
     },
   );

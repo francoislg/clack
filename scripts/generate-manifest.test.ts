@@ -1,6 +1,6 @@
 import { describe, it } from "vitest";
 import assert from "node:assert/strict";
-import { generateManifest } from "./generate-manifest.js";
+import { generateManifest, parseManifestConfig } from "./generate-manifest.js";
 
 function getScopes(m: ReturnType<typeof generateManifest>): readonly string[] {
   return (m.oauth_config?.scopes?.bot ?? []) as readonly string[];
@@ -203,5 +203,82 @@ describe("generateManifest — investigations", () => {
     const absent = generateManifest({});
     assert.deepEqual(getScopes(disabled), getScopes(absent));
     assert.deepEqual(getEvents(disabled), getEvents(absent));
+  });
+});
+
+describe("generateManifest — config validation", () => {
+  it("rejects a wrong-typed investigations.enabled, naming the key", () => {
+    assert.throws(
+      () => generateManifest({ investigations: { enabled: "true" } }),
+      /investigations\.enabled/,
+    );
+  });
+
+  it("names every invalid value in one error", () => {
+    assert.throws(
+      () =>
+        generateManifest({
+          directMessages: { enabled: true, dmType: "threads" },
+          investigations: { enabled: "true" },
+        }),
+      (error: Error) => {
+        assert.match(error.message, /directMessages\.dmType/);
+        assert.match(error.message, /investigations\.enabled/);
+        return true;
+      },
+    );
+  });
+
+  it("lists the supported values when dmType is invalid", () => {
+    assert.throws(
+      () => generateManifest({ directMessages: { enabled: true, dmType: "threads" } }),
+      /must be one of: assistant, classic, agent/,
+    );
+  });
+
+  it("generates from a config with no repositories key", () => {
+    const manifest = generateManifest({ mentions: { enabled: true } });
+    assert.ok(getScopes(manifest).includes("app_mentions:read"));
+  });
+
+  it("ignores an invalid value under a key the manifest does not read", () => {
+    const manifest = generateManifest({ repositories: "nope", mentions: { enabled: true } });
+    assert.deepEqual(manifest, generateManifest({ mentions: { enabled: true } }));
+  });
+
+  it("generates the default manifest from an empty config", () => {
+    const manifest = generateManifest({});
+
+    assert.deepEqual(manifest.display_information, {
+      name: "Clack",
+      description: "Ask questions about your codebase using reactions",
+      background_color: "#4A154B",
+    });
+    assert.deepEqual(getScopes(manifest), [
+      "channels:history",
+      "channels:read",
+      "chat:write",
+      "emoji:read",
+      "files:read",
+      "files:write",
+      "groups:history",
+      "groups:read",
+      "im:write",
+      "reactions:read",
+      "reactions:write",
+      "users:read",
+    ]);
+    assert.deepEqual(getEvents(manifest), ["app_home_opened", "reaction_added"]);
+    assert.equal(manifest.features?.app_home?.messages_tab_enabled, false);
+    assert.equal(manifest.features && "assistant_view" in manifest.features, false);
+  });
+
+  it("parseManifestConfig keeps the keys the summary reads", () => {
+    const parsed = parseManifestConfig({
+      slack: { fetchAndStoreUsername: true },
+      allowScheduledMessages: true,
+    });
+    assert.equal(parsed.slack?.fetchAndStoreUsername, true);
+    assert.equal(parsed.allowScheduledMessages, true);
   });
 });

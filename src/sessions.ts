@@ -38,6 +38,15 @@ function sanitizeFollowedThreads(raw: unknown): FollowedThread[] | undefined {
   return kept.length > 0 ? kept : undefined;
 }
 
+/** Graceful validator for the persisted `accessGranted` list — anything but a list of strings
+ *  reads as no grants. */
+const accessGrantedZod = z.array(z.string());
+
+function sanitizeAccessGranted(raw: unknown): string[] | undefined {
+  const parsed = accessGrantedZod.safeParse(raw);
+  return parsed.success ? parsed.data : undefined;
+}
+
 export interface SlackAttachmentField {
   title?: string;
   value?: string;
@@ -314,6 +323,8 @@ export interface SessionContext {
    * only a projection. See `src/investigations/`.
    */
   followedThreads?: FollowedThread[];
+  /** Conversation and file ids the requester-access check allowed during this session. */
+  accessGranted?: string[];
 }
 
 function generateSessionId(channelId: string, messageTs: string, userId: string): string {
@@ -797,6 +808,10 @@ export async function getSession(sessionId: string): Promise<SessionContext | nu
     if ("followedThreads" in session) {
       session.followedThreads = sanitizeFollowedThreads(session.followedThreads);
     }
+    // Graceful: a malformed grant list reads as no grants rather than failing the load.
+    if ("accessGranted" in session) {
+      session.accessGranted = sanitizeAccessGranted(session.accessGranted);
+    }
 
     // Merge active change state from dedicated module
     const ac = getActiveChange(sessionId);
@@ -971,6 +986,27 @@ export function addSessionUsage(
     const session = await getSession(sessionId);
     if (!session) return null;
     return updateSessionUnlocked(sessionId, { usage: addUsage(session.usage, delta) });
+  });
+}
+
+/**
+ * Append a target (conversation or file id) to a session's persisted `accessGranted` list.
+ * Read-modify-write inside the session lock so concurrent grants (e.g. two tool calls checking
+ * different targets close together) don't clobber each other. A target already on the list
+ * returns the session as is, without a write. Returns null if the session no longer exists
+ * (evicted) — never throws.
+ */
+export function addAccessGrant(
+  sessionId: string,
+  targetId: string,
+): Promise<SessionContext | null> {
+  return withSessionLock(sessionId, async () => {
+    const session = await getSession(sessionId);
+    if (!session) return null;
+    if (session.accessGranted?.includes(targetId)) return session;
+    return updateSessionUnlocked(sessionId, {
+      accessGranted: [...(session.accessGranted ?? []), targetId],
+    });
   });
 }
 

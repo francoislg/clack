@@ -15,6 +15,7 @@ import {
   getSession,
   getSessionPath,
   addSessionUsage,
+  addAccessGrant,
 } from "./sessions.js";
 import type { SessionContext, SessionAssistantMessage } from "./sessions.js";
 import type { SessionUsage } from "./claude/usage.js";
@@ -842,5 +843,159 @@ describe("followedThreads persistence", () => {
     writeColdSession(id, { not: "an array" });
     const loaded = await getSession(id);
     assert.equal(loaded?.followedThreads, undefined);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// accessGranted (requester-access session grants) persistence + graceful load
+// ---------------------------------------------------------------------------
+describe("accessGranted persistence", () => {
+  const tmpBase = resolve(tmpdir(), `sessions-access-${process.pid}`);
+  const sessionsDir = join(tmpBase, "data", "sessions");
+  const originalCwd = process.cwd();
+
+  beforeEach(() => {
+    if (existsSync(tmpBase)) rmSync(tmpBase, { recursive: true });
+    mkdirSync(sessionsDir, { recursive: true });
+    process.chdir(tmpBase);
+  });
+
+  afterEach(() => {
+    process.chdir(originalCwd);
+    if (existsSync(tmpBase)) rmSync(tmpBase, { recursive: true });
+  });
+
+  interface ColdRecord {
+    sessionId: string;
+    channelId: string;
+    messageTs: string;
+    threadTs: string;
+    userId: string;
+    trigger: { type: string; userId: string; messageTs: string; messageText: string };
+    messages: never[];
+    accessGranted?: string | Array<string | number>;
+  }
+
+  function coldRecord(sessionId: string, messageTs: string): ColdRecord {
+    return {
+      sessionId,
+      channelId: "CMAIN",
+      messageTs,
+      threadTs: messageTs,
+      userId: "UOWN",
+      trigger: { type: "mentions", userId: "UOWN", messageTs, messageText: "grants" },
+      messages: [],
+    };
+  }
+
+  function writeColdSession(sessionId: string, record: ColdRecord): void {
+    const dir = join(sessionsDir, sessionId);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "context.json"), JSON.stringify(record), "utf-8");
+  }
+
+  it("persists accessGranted via updateSession and reads it back", async () => {
+    const session = await createSession({
+      channelId: "CMAIN",
+      messageTs: "8100.0001",
+      threadTs: "8100.0001",
+      userId: "UOWN",
+      trigger: { type: "mentions", userId: "UOWN", messageTs: "8100.0001", messageText: "grants" },
+    });
+    await updateSession(session.sessionId, { accessGranted: ["CPRIV", "F123"] });
+
+    const reloaded = await getSession(session.sessionId);
+    assert.deepEqual(reloaded?.accessGranted, ["CPRIV", "F123"]);
+
+    const onDisk: unknown = JSON.parse(
+      readFileSync(join(sessionsDir, session.sessionId, "context.json"), "utf-8"),
+    );
+    assert.ok(typeof onDisk === "object" && onDisk !== null && "accessGranted" in onDisk);
+    assert.deepEqual(onDisk.accessGranted, ["CPRIV", "F123"]);
+  });
+
+  it("loads persisted grants on a cold load", async () => {
+    const id = "C800-8000-0001-UOWN-8000000000001";
+    writeColdSession(id, { ...coldRecord(id, "8000.0001"), accessGranted: ["CPRIV", "F123"] });
+    const loaded = await getSession(id);
+    assert.deepEqual(loaded?.accessGranted, ["CPRIV", "F123"]);
+  });
+
+  it("leaves sessions without accessGranted undefined", async () => {
+    const id = "C801-8000-0002-UOWN-8000000000002";
+    writeColdSession(id, coldRecord(id, "8000.0002"));
+    const loaded = await getSession(id);
+    assert.ok(loaded);
+    assert.equal(loaded.accessGranted, undefined);
+  });
+
+  it("loads a non-array accessGranted as no grants", async () => {
+    const id = "C802-8000-0003-UOWN-8000000000003";
+    writeColdSession(id, { ...coldRecord(id, "8000.0003"), accessGranted: "CPRIV" });
+    const loaded = await getSession(id);
+    assert.ok(loaded);
+    assert.equal(loaded.accessGranted, undefined);
+  });
+
+  it("loads an accessGranted array holding a non-string as no grants", async () => {
+    const id = "C803-8000-0004-UOWN-8000000000004";
+    writeColdSession(id, { ...coldRecord(id, "8000.0004"), accessGranted: ["CPRIV", 42] });
+    const loaded = await getSession(id);
+    assert.ok(loaded);
+    assert.equal(loaded.accessGranted, undefined);
+  });
+
+  function readGrantsOnDisk(sessionId: string): unknown {
+    const onDisk: unknown = JSON.parse(
+      readFileSync(join(sessionsDir, sessionId, "context.json"), "utf-8"),
+    );
+    assert.ok(typeof onDisk === "object" && onDisk !== null);
+    return "accessGranted" in onDisk ? onDisk.accessGranted : undefined;
+  }
+
+  async function freshSession(messageTs: string) {
+    return createSession({
+      channelId: "CMAIN",
+      messageTs,
+      threadTs: messageTs,
+      userId: "UOWN",
+      trigger: { type: "mentions", userId: "UOWN", messageTs, messageText: "grants" },
+    });
+  }
+
+  describe("addAccessGrant", () => {
+    it("appends a grant to a session that has none", async () => {
+      const session = await freshSession("8200.0001");
+
+      const updated = await addAccessGrant(session.sessionId, "CPRIV");
+
+      assert.deepEqual(updated?.accessGranted, ["CPRIV"]);
+      assert.deepEqual(readGrantsOnDisk(session.sessionId), ["CPRIV"]);
+    });
+
+    it("appends to the list read from disk instead of overwriting it", async () => {
+      const session = await freshSession("8200.0002");
+
+      await addAccessGrant(session.sessionId, "CPRIV");
+      const updated = await addAccessGrant(session.sessionId, "F123");
+
+      assert.deepEqual(updated?.accessGranted, ["CPRIV", "F123"]);
+      assert.deepEqual(readGrantsOnDisk(session.sessionId), ["CPRIV", "F123"]);
+    });
+
+    it("does not duplicate a target that is already granted", async () => {
+      const session = await freshSession("8200.0003");
+
+      await addAccessGrant(session.sessionId, "CPRIV");
+      const updated = await addAccessGrant(session.sessionId, "CPRIV");
+
+      assert.deepEqual(updated?.accessGranted, ["CPRIV"]);
+      assert.deepEqual(readGrantsOnDisk(session.sessionId), ["CPRIV"]);
+    });
+
+    it("returns null for a missing session without throwing", async () => {
+      const result = await addAccessGrant("C000-0-0-U000-0", "CPRIV");
+      assert.equal(result, null);
+    });
   });
 });

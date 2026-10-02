@@ -2,6 +2,7 @@ import { config as dotenvConfig } from "dotenv";
 import { join } from "path";
 import { testMCP } from "./claude/testMcp.js";
 import { checkServedToolServers } from "./tools/servedToolsCheck.js";
+import { checkTokenScopes } from "./slack/scopeDriftCheck.js";
 import { reconcileMemoryReviewCron } from "./memory/dailyReview.js";
 import { loadConfig, getConfig } from "./config.js";
 import { loadGitHubCredentials, validateGitHubApp, gitHubCredentialsExist } from "./github.js";
@@ -305,6 +306,11 @@ async function main(): Promise<void> {
   // config. testMCP only proves the core server lists; a plugin tool schema the SDK can't
   // convert hides its whole server, so report it to the owner (after the app is up to DM).
   await checkServedToolServers(getConfig(), getSlackClient() ?? undefined);
+
+  // Step 4.6: Compare the bot scopes the live config requires with the ones the installed
+  // token carries. A feature enabled without a manifest re-upload and reinstall fails at its
+  // first API call, so report the gap to the owner.
+  await checkTokenScopes(getConfig(), getSlackClient() ?? undefined);
 
   // Step 5: Start all schedulers, watchers, and monitors (after Slack app is ready)
   startAll();

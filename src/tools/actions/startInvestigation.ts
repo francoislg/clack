@@ -7,6 +7,7 @@ import { getOwnerUserId, sendOwnerDm } from "../../slack/ownerDm.js";
 import { t } from "../../i18n/t.js";
 import { setAttentionLevel } from "../../sessions.js";
 import { logger } from "../../logger.js";
+import { ACCESS_DENIED_MESSAGE, checkConversationAccess } from "../../slack/requesterAccess.js";
 
 export function createStartInvestigationTool(ctx: QueryToolContext) {
   return tool(
@@ -42,6 +43,13 @@ export function createStartInvestigationTool(ctx: QueryToolContext) {
 
       const originChannel = args.thread_ref?.channel ?? ctx.session.channelId;
       const originThreadTs = args.thread_ref?.thread_ts ?? ctx.session.threadTs;
+
+      // An investigation reads the origin thread on the requester's behalf.
+      const access = await checkConversationAccess(
+        { client, userId: ctx.userId, role: ctx.role, session: ctx.session },
+        originChannel,
+      );
+      if (!access.allowed) return errorResult(ACCESS_DENIED_MESSAGE);
 
       const isCurrentThread =
         originChannel === ctx.session.channelId && originThreadTs === ctx.session.threadTs;

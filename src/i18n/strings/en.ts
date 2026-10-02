@@ -449,6 +449,13 @@ export const en = {
   "tools.unlistable.dm_footer":
     "A tool input schema on each server can't be converted for Claude, which hides every tool on that server. The cause is in code (often a `z.record` or `.default()` in a tool schema) — it needs a fix and a deploy.",
 
+  // ─── Missing bot token scope owner DM ──────────────────────────────
+  "scopes.missing.dm_title":
+    ":rotating_light: The bot token is missing {count} scope(s) the current config requires",
+  "scopes.missing.dm_entry": "• `{scope}`",
+  "scopes.missing.dm_footer":
+    "The features that need these scopes fail until the token gains them. Regenerate the manifest with `npm run manifest`, re-upload it to the Slack app, then reinstall the app to the workspace.",
+
   // ─── Quarantined state Home Tab panel ──────────────────────────────
   "home.state_quarantine.header": "Quarantined state",
   "home.state_quarantine.hint":

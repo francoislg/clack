@@ -9,6 +9,7 @@ import type { QueryToolContext } from "../types.js";
 import type { ThreadMessage } from "../../sessions.js";
 import type { EmojiCache } from "../../slack/emojiCache.js";
 import { buildLoreHint } from "../../emojiLore.js";
+import { ACCESS_DENIED_MESSAGE, checkConversationAccess } from "../../slack/requesterAccess.js";
 
 // The lore store is an outside dependency of this tool: stub the hint builder and assert the
 // wiring (what the tool feeds it, and what it does with the answer). `collectEmojiNames` stays
@@ -16,6 +17,17 @@ import { buildLoreHint } from "../../emojiLore.js";
 vi.mock("../../emojiLore.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../emojiLore.js")>();
   return { ...actual, buildLoreHint: vi.fn() };
+});
+
+// The requester access check is an outside dependency: stub the verdict and assert the wiring.
+vi.mock("../../slack/requesterAccess.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../slack/requesterAccess.js")>();
+  return { ...actual, checkConversationAccess: vi.fn() };
+});
+
+beforeEach(() => {
+  vi.mocked(checkConversationAccess).mockReset();
+  vi.mocked(checkConversationAccess).mockResolvedValue({ allowed: true });
 });
 
 // ---------------------------------------------------------------------------
@@ -1116,6 +1128,84 @@ describe("fetchChannelMessages tool", () => {
 
     const parsed = parseToolResult(result);
     assert.equal("reactions" in parsed.messages[0], false);
+  });
+});
+
+describe("fetchChannelMessages requester access", () => {
+  const args = {
+    channel_id: "C123",
+    limit: undefined,
+    oldest: undefined,
+    latest: undefined,
+    include_threads: undefined,
+  };
+
+  it("returns the access-denied error and reads nothing from Slack when denied", async () => {
+    vi.mocked(checkConversationAccess).mockResolvedValue({ allowed: false, reason: "not_member" });
+    const getChannelInfo = vi.fn<FetchChannelMessagesDeps["getChannelInfo"]>(async () => ({
+      id: "C123",
+      name: "secret-plans",
+      purpose: "Top secret roadmap",
+    }));
+    const client = makeSlackClient({
+      messages: [{ ts: "1.0", text: "hidden", user: "U1" }],
+      has_more: false,
+    });
+    const toolDef = createFetchChannelMessagesTool(
+      makeCtx({ slackClient: client }),
+      makeDeps({ getChannelInfo }),
+    );
+
+    const result = await toolDef.handler(args, { sessionId: "test" });
+
+    const parsed = parseToolResult(result);
+    assert.equal(result.isError, true);
+    assert.equal(parsed.error, ACCESS_DENIED_MESSAGE);
+    assert.equal(client.conversations.history.mock.calls.length, 0);
+    assert.equal(client.conversations.replies.mock.calls.length, 0);
+    assert.equal(getChannelInfo.mock.calls.length, 0);
+    assert.ok(!parsed.error.includes("secret-plans"));
+    assert.ok(!parsed.error.includes("Top secret roadmap"));
+  });
+
+  it("checks the requested channel with the context's requester and session", async () => {
+    const client = makeSlackClient({ messages: [], has_more: false });
+    const ctx = makeCtx({ slackClient: client });
+    const toolDef = createFetchChannelMessagesTool(ctx, makeDeps());
+
+    await toolDef.handler(args, { sessionId: "test" });
+
+    const calls = vi.mocked(checkConversationAccess).mock.calls;
+    assert.equal(calls.length, 1);
+    const [req, channelId] = calls[0];
+    assert.equal(channelId, "C123");
+    assert.equal(req.client, ctx.slackClient);
+    assert.equal(req.userId, "U123");
+    assert.equal(req.role, "dev");
+    assert.equal(req.session, ctx.session);
+  });
+
+  it("returns the channel's messages when allowed", async () => {
+    vi.mocked(checkConversationAccess).mockResolvedValue({ allowed: true });
+    const client = makeSlackClient({
+      messages: [
+        { ts: "1234567890.000002", text: "Second message", user: "U2" },
+        { ts: "1234567890.000001", text: "First message", user: "U1" },
+      ],
+      has_more: false,
+    });
+    const toolDef = createFetchChannelMessagesTool(makeCtx({ slackClient: client }), makeDeps());
+
+    const result = await toolDef.handler(args, { sessionId: "test" });
+
+    const parsed = parseToolResult(result);
+    assert.notEqual(result.isError, true);
+    assert.equal(parsed.channel, "C123");
+    assert.equal(parsed.channel_name, "general");
+    assert.equal(parsed.message_count, 2);
+    assert.equal(parsed.messages[0].text, "First message");
+    assert.equal(parsed.messages[1].text, "Second message");
+    assert.equal(client.conversations.history.mock.calls.length, 1);
   });
 });
 

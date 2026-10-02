@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import assert from "node:assert/strict";
 import {
   createSearchMessagesTool,
@@ -7,6 +7,18 @@ import {
 } from "./searchMessages.js";
 import { parseToolResult } from "../testHelpers.js";
 import type { QueryToolContext } from "../types.js";
+import { checkConversationAccess } from "../../slack/requesterAccess.js";
+
+// The requester access check is an outside dependency: stub the verdict and assert the wiring.
+vi.mock("../../slack/requesterAccess.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../slack/requesterAccess.js")>();
+  return { ...actual, checkConversationAccess: vi.fn() };
+});
+
+beforeEach(() => {
+  vi.mocked(checkConversationAccess).mockReset();
+  vi.mocked(checkConversationAccess).mockResolvedValue({ allowed: true });
+});
 
 function makeCtx(opts: { actionToken?: string; hasSlackClient?: boolean } = {}): QueryToolContext {
   const ctx: QueryToolContext = Object.assign(Object.create(null), {
@@ -154,6 +166,108 @@ describe("search_messages — full shape (action_token present)", () => {
 
     assert.equal(result.isError, true);
     expect(searchContext).not.toHaveBeenCalled();
+  });
+});
+
+describe("search_messages — requester access", () => {
+  const inChannel = (channelId: string, content: string) => ({
+    ...sampleMessage,
+    channel_id: channelId,
+    channel_name: `name-${channelId}`,
+    content,
+  });
+
+  it("drops results from denied channels and keeps the rest", async () => {
+    vi.mocked(checkConversationAccess).mockImplementation(async (_req, channelId) =>
+      channelId === "CDENIED" ? { allowed: false, reason: "not_member" } : { allowed: true },
+    );
+    const { deps } = makeDeps(async () => ({
+      ok: true,
+      results: {
+        messages: [
+          inChannel("COPEN", "open one"),
+          inChannel("CDENIED", "hidden one"),
+          inChannel("COPEN", "open two"),
+          inChannel("CDENIED", "hidden two"),
+          inChannel("COTHER", "other one"),
+        ],
+      },
+    }));
+    const toolDef = createSearchMessagesTool(makeCtx({ actionToken: "AT-1" }), deps);
+
+    const result = await toolDef.handler({ query: "one" }, { sessionId: "s1" });
+
+    assert.notEqual(result.isError, true);
+    const parsed = parseToolResult(result);
+    assert.equal(parsed.match_count, 3);
+    assert.deepEqual(
+      parsed.messages.map((m: { text: string }) => m.text),
+      ["open one", "open two", "other one"],
+    );
+    assert.ok(parsed.messages.every((m: { channel: string }) => m.channel !== "CDENIED"));
+    assert.doesNotMatch(JSON.stringify(parsed), /CDENIED|hidden/);
+  });
+
+  it("checks each distinct channel once, with the context's requester and session", async () => {
+    const ctx = makeCtx({ actionToken: "AT-1" });
+    const { deps } = makeDeps(async () => ({
+      ok: true,
+      results: {
+        messages: [inChannel("CA", "a1"), inChannel("CB", "b1"), inChannel("CA", "a2")],
+      },
+    }));
+    const toolDef = createSearchMessagesTool(ctx, deps);
+
+    await toolDef.handler({ query: "x" }, { sessionId: "s1" });
+
+    const calls = vi.mocked(checkConversationAccess).mock.calls;
+    assert.deepEqual(
+      calls.map(([, channelId]) => channelId),
+      ["CA", "CB"],
+    );
+    const [req] = calls[0];
+    assert.equal(req.client, ctx.slackClient);
+    assert.equal(req.userId, "U1");
+    assert.equal(req.role, "member");
+    assert.equal(req.session, ctx.session);
+  });
+
+  it("drops a result that carries no channel id", async () => {
+    const { channel_id: _channelId, ...noChannel } = sampleMessage;
+    const { deps } = makeDeps(async () => ({
+      ok: true,
+      results: { messages: [noChannel, sampleMessage] },
+    }));
+    const toolDef = createSearchMessagesTool(makeCtx({ actionToken: "AT-1" }), deps);
+
+    const parsed = parseToolResult(await toolDef.handler({ query: "x" }, { sessionId: "s1" }));
+
+    assert.equal(parsed.match_count, 1);
+    assert.equal(parsed.messages[0].channel, "C123");
+    expect(checkConversationAccess).toHaveBeenCalledTimes(1);
+  });
+
+  it("computes truncated from the unfiltered response", async () => {
+    vi.mocked(checkConversationAccess).mockResolvedValue({ allowed: false, reason: "not_member" });
+    const full = Array.from({ length: 20 }, () => sampleMessage);
+    const { deps } = makeDeps(async () => ({ ok: true, results: { messages: full } }));
+    const toolDef = createSearchMessagesTool(makeCtx({ actionToken: "AT-1" }), deps);
+
+    const parsed = parseToolResult(await toolDef.handler({ query: "x" }, { sessionId: "s1" }));
+
+    assert.equal(parsed.match_count, 0);
+    assert.deepEqual(parsed.messages, []);
+    assert.equal(parsed.truncated, true);
+  });
+
+  it("makes no access check when the search itself fails", async () => {
+    const { deps } = makeDeps(async () => ({ ok: false, error: "ratelimited" }));
+    const toolDef = createSearchMessagesTool(makeCtx({ actionToken: "AT-1" }), deps);
+
+    const result = await toolDef.handler({ query: "x" }, { sessionId: "s1" });
+
+    assert.equal(result.isError, true);
+    expect(checkConversationAccess).not.toHaveBeenCalled();
   });
 });
 

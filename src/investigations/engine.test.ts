@@ -29,6 +29,7 @@ vi.mock("./state.js", () => ({
 }));
 vi.mock("../sessions.js", () => ({
   createSession: vi.fn(),
+  findSessionByThread: vi.fn(),
   getSession: vi.fn(),
   updateSession: vi.fn(),
 }));
@@ -61,7 +62,7 @@ import {
   listOpenInvestigations,
   openInvestigation,
 } from "./state.js";
-import { createSession, getSession, updateSession } from "../sessions.js";
+import { createSession, findSessionByThread, getSession, updateSession } from "../sessions.js";
 import { drainFollowedThreads } from "./drain.js";
 import { getUserPreference } from "../userPreferences.js";
 import { getUserInfo } from "../slack/userCache.js";
@@ -131,7 +132,11 @@ describe("investigations engine (unit)", () => {
         slackApp: { name: "Clack" },
       }),
     );
-    vi.mocked(getBotIdentity).mockResolvedValue({ botUserId: "BOT", botId: "B1" });
+    vi.mocked(getBotIdentity).mockResolvedValue({
+      botUserId: "BOT",
+      botId: "B1",
+      teamId: "T1",
+    });
     vi.mocked(processMessage).mockResolvedValue({ success: true, answer: "" });
     vi.mocked(runInvestigationPreAnalysis).mockResolvedValue("skip");
     vi.mocked(findInvestigationByFollowedThread).mockReturnValue(undefined);
@@ -139,6 +144,7 @@ describe("investigations engine (unit)", () => {
     vi.mocked(listOpenInvestigations).mockReturnValue([]);
     vi.mocked(openInvestigation).mockResolvedValue(undefined);
     vi.mocked(getSession).mockResolvedValue(null);
+    vi.mocked(findSessionByThread).mockResolvedValue(null);
     vi.mocked(createSession).mockResolvedValue(makeSession("SID", []));
     vi.mocked(updateSession).mockResolvedValue(makeSession("SID", []));
     vi.mocked(drainFollowedThreads).mockResolvedValue({
@@ -225,5 +231,63 @@ describe("investigations engine (unit)", () => {
     // The first round is launched detached; drain pending microtasks before asserting.
     await vi.waitFor(() => expect(processMessage).toHaveBeenCalled());
     expect(vi.mocked(processMessage).mock.calls[0]?.[0]).toMatchObject({ deferProgress: false });
+  });
+
+  describe("bootstrapInvestigation access grants", () => {
+    function bootstrap() {
+      return bootstrapInvestigation({
+        client: createSlackClientMock(),
+        surface: "channel",
+        originChannel: ORIGIN.channel,
+        originThreadTs: ORIGIN.threadTs,
+        requester: "U1",
+      });
+    }
+
+    it("copies the origin session's grants onto the investigation session", async () => {
+      const grants = ["CPRIV", "F123"];
+      const origin = { ...makeSession("SID-origin", []), accessGranted: grants };
+      vi.mocked(findSessionByThread).mockResolvedValue(origin);
+
+      const result = await bootstrap();
+
+      expect(result.status).toBe("ok");
+      expect(findSessionByThread).toHaveBeenCalledWith(ORIGIN.channel, ORIGIN.threadTs);
+      expect(updateSession).toHaveBeenCalledWith(
+        "SID",
+        expect.objectContaining({ accessGranted: ["CPRIV", "F123"] }),
+      );
+      const updates = vi.mocked(updateSession).mock.calls[0]?.[1];
+      expect(updates?.accessGranted).not.toBe(grants);
+      expect(updates?.followedThreads).toHaveLength(1);
+    });
+
+    it("starts with no grants when the origin message has no session", async () => {
+      vi.mocked(findSessionByThread).mockResolvedValue(null);
+
+      const result = await bootstrap();
+
+      expect(result.status).toBe("ok");
+      const updates = vi.mocked(updateSession).mock.calls[0]?.[1];
+      expect(updates?.followedThreads).toHaveLength(1);
+      expect(updates).not.toHaveProperty("accessGranted");
+    });
+
+    it("starts with no grants when the origin session holds none", async () => {
+      vi.mocked(findSessionByThread).mockResolvedValue(makeSession("SID-origin", []));
+
+      await bootstrap();
+
+      expect(vi.mocked(updateSession).mock.calls[0]?.[1]).not.toHaveProperty("accessGranted");
+    });
+
+    it("continues with no grants when the origin session lookup fails", async () => {
+      vi.mocked(findSessionByThread).mockRejectedValue(new Error("disk unreadable"));
+
+      const result = await bootstrap();
+
+      expect(result.status).toBe("ok");
+      expect(vi.mocked(updateSession).mock.calls[0]?.[1]).not.toHaveProperty("accessGranted");
+    });
   });
 });

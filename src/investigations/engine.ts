@@ -12,7 +12,13 @@ import { logger } from "../logger.js";
 import { t } from "../i18n/t.js";
 import { getBotIdentity } from "../slack/botIdentity.js";
 import { openDmChannel } from "../slack/channelResolver.js";
-import { createSession, getSession, updateSession, type SessionContext } from "../sessions.js";
+import {
+  createSession,
+  findSessionByThread,
+  getSession,
+  updateSession,
+  type SessionContext,
+} from "../sessions.js";
 import { processMessage, setInvestigationSessionRefresher } from "../slack/handlers/core.js";
 import { runInvestigationPreAnalysis } from "../claude/preAnalysis.js";
 import { isBotMessage } from "../slack/isBotMessage.js";
@@ -105,6 +111,20 @@ async function renderRequesterLabel(client: SlackClient, requester: string): Pro
   const info = await getUserInfo(client, requester);
   const name = info?.displayName ?? info?.username ?? requester;
   return `@${name}`;
+}
+
+/** The requester-access grants held by the session of the origin thread, copied so the forked
+ *  session owns its own list. No origin session, no grants, or a failed lookup → none. */
+async function originAccessGrants(channel: string, threadTs: string): Promise<string[]> {
+  try {
+    const origin = await findSessionByThread(channel, threadTs);
+    return [...(origin?.accessGranted ?? [])];
+  } catch (err) {
+    logger.warn(
+      `investigations: origin session lookup failed for ${channel}/${threadTs}: ${String(err)}`,
+    );
+    return [];
+  }
 }
 
 /**
@@ -267,7 +287,11 @@ export async function bootstrapInvestigation(params: BootstrapParams): Promise<B
       messageText: params.subject ?? "Investigation",
     },
   });
-  await updateSession(session.sessionId, { followedThreads: [originThread] });
+  const accessGranted = await originAccessGrants(originChannel, originThreadTs);
+  await updateSession(session.sessionId, {
+    followedThreads: [originThread],
+    ...(accessGranted.length > 0 ? { accessGranted } : {}),
+  });
 
   await openInvestigation({
     sessionId: session.sessionId,

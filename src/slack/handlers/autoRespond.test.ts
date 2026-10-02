@@ -449,7 +449,11 @@ describe("handleAutoRespondMessageEvent — DM ownership guard", () => {
       getConfig: vi.fn(() =>
         makeConfig({ directMessages: { enabled: dmEnabled } } as Partial<Config>),
       ),
-      getBotIdentity: vi.fn(async () => ({ botUserId: "", botId: undefined })),
+      getBotIdentity: vi.fn(async () => ({
+        botUserId: "",
+        botId: undefined,
+        teamId: undefined,
+      })),
     };
   }
 
