@@ -73,6 +73,7 @@ describe("requesterAccess: slackAccessMode", () => {
       expect(await checkFileAccess(makeRequest(client, { session }), "F1")).toEqual({
         allowed: true,
         botAccess: "write",
+        creator: "U_OTHER",
       });
       expect(client.conversations.members).not.toHaveBeenCalled();
       expect(addAccessGrant).not.toHaveBeenCalled();

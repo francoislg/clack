@@ -42,7 +42,7 @@ export type AccessDenialReason =
 export type ConversationAccess = { allowed: true } | { allowed: false; reason: AccessDenialReason };
 
 export type FileAccess =
-  | { allowed: true; botAccess: "read" | "write" | undefined }
+  | { allowed: true; botAccess: "read" | "write" | undefined; creator: string | undefined }
   | { allowed: false; reason: AccessDenialReason };
 
 export const ACCESS_DENIED_MESSAGE =
@@ -129,9 +129,10 @@ function isSessionGranted(req: AccessRequest, targetId: string): boolean {
   return req.session?.accessGranted?.includes(targetId) === true;
 }
 
-/** Record an allowed target on the session. The persisted list is the source of truth; when the
- *  grant can't be persisted it is kept in memory only, and the verdict is left as is. */
-async function recordGrant(req: AccessRequest, targetId: string): Promise<void> {
+/** Record an allowance for a conversation or file on the request's session. The persisted list
+ *  is the source of truth; when the grant can't be persisted it is kept in memory only, and the
+ *  verdict is left as is. */
+export async function recordGrant(req: AccessRequest, targetId: string): Promise<void> {
   const session = req.session;
   if (!session || session.accessGranted?.includes(targetId)) return;
   const inMemory = [...(session.accessGranted ?? []), targetId];
@@ -375,14 +376,18 @@ async function isSharedWithRequester(req: AccessRequest, file: FileEvidence): Pr
 
 /**
  * Whether the requester can see a Slack file (canvases and lists included), from positive
- * evidence only. Fetches the file's info itself and reports the bot's own access level on an
- * allowance. Never throws: every Slack error is a denial. An allowance is recorded on
- * `req.session`; a denial never is.
+ * evidence only. Fetches the file's info itself and reports the bot's own access level and the
+ * file's creator on an allowance. Never throws: every Slack error is a denial. An allowance is
+ * recorded on `req.session`; a denial never is.
  */
 export async function checkFileAccess(req: AccessRequest, fileId: string): Promise<FileAccess> {
   const file = await fetchFileEvidence(req.client, fileId);
   if (!file) return deny("file_unavailable");
-  const allowed: FileAccess = { allowed: true, botAccess: botAccessOf(file) };
+  const allowed: FileAccess = {
+    allowed: true,
+    botAccess: botAccessOf(file),
+    creator: file.user,
+  };
   if (getSlackAccessMode() === "bot" || isSessionGranted(req, fileId)) return allowed;
   try {
     if (!isNamedOnFile(req, file) && !(await isSharedWithRequester(req, file))) {

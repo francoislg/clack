@@ -159,6 +159,7 @@ function main(): void {
   console.log(`    - Scheduled messages: ${config.allowScheduledMessages ?? false}`);
   console.log(`    - Public message search: ${features.publicSearch}`);
   console.log(`    - Investigations: ${features.investigations}`);
+  console.log(`    - Canvases: ${features.canvases}`);
   console.log(`  Scopes: ${manifest.oauth_config?.scopes?.bot?.join(", ")}`);
   console.log(`  Events: ${manifest.settings?.event_subscriptions?.bot_events?.join(", ")}`);
 

@@ -214,6 +214,10 @@ describe("generateManifest — config validation", () => {
     );
   });
 
+  it("rejects an unsupported canvases.mode, naming the key", () => {
+    assert.throws(() => generateManifest({ canvases: { mode: "edit" } }), /canvases\.mode/);
+  });
+
   it("names every invalid value in one error", () => {
     assert.throws(
       () =>

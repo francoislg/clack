@@ -62,6 +62,9 @@ import { createUploadFileTool } from "./query/uploadFile.js";
 import { createAddReactionTool } from "./query/addReaction.js";
 import { createFindChannelTool } from "./query/findChannel.js";
 import { createSearchMessagesTool } from "./query/searchMessages.js";
+import { createReadCanvasTool } from "./query/readCanvas.js";
+import { createCreateCanvasTool } from "./actions/createCanvas.js";
+import { createEditCanvasTool } from "./actions/editCanvas.js";
 import { createRemoveReactionTool } from "./query/removeReaction.js";
 import { createGetSessionTraceTool } from "./query/getSessionTrace.js";
 import { createAttachIntegrationTool } from "./query/attachIntegration.js";
@@ -458,6 +461,17 @@ function buildQueryTools(ctx: QueryToolContext): ClackQueryToolsResult {
     // shape depending on whether this session carries an action_token (the tool decides).
     if (ctx.config.allowPublicSearch) {
       tools.push(createSearchMessagesTool(ctx));
+    }
+
+    // Slack canvases. "read" opens canvases for every role; "write" also creates and edits
+    // them for roles at or above `canvases.writeRole`.
+    const canvases = ctx.config.canvases;
+    if (canvases && canvases.mode !== "off") {
+      tools.push(createReadCanvasTool(ctx));
+      if (canvases.mode === "write" && meetsMinimumRole(ctx.role, canvases.writeRole ?? "dev")) {
+        tools.push(createCreateCanvasTool(ctx));
+        tools.push(createEditCanvasTool(ctx));
+      }
     }
   }
 

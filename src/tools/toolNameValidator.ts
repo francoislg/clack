@@ -25,6 +25,9 @@ export const CLACK_CORE_TOOL_NAMES: readonly string[] = [
   "remove_reaction",
   "find_channel",
   "search_messages",
+  "read_canvas",
+  "create_canvas",
+  "edit_canvas",
   "view_slack_image",
   "view_slack_file",
   // Read-only query tools

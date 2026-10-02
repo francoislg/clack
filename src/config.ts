@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 import type { UserRole } from "./roles.js";
 import { type Lang } from "./i18n/languages.js";
 import { validateConfig } from "./configZod.js";
-import type { SlackAccessMode, TASK_CARD_TRANSPORTS } from "./configSchemas.js";
+import type { CanvasesConfig, SlackAccessMode, TASK_CARD_TRANSPORTS } from "./configSchemas.js";
 
 export interface SlackAuthConfig {
   botToken: string;
@@ -469,6 +469,13 @@ export interface Config {
    * operator note as `allowPublicSearch`.
    */
   investigations?: InvestigationsConfig;
+  /**
+   * Slack canvases. `mode: "read"` requests the `canvases:read` bot scope and registers
+   * `read_canvas`; `"write"` also requests `canvases:write` and registers `create_canvas` /
+   * `edit_canvas` for roles at or above `writeRole`. Absent or `"off"` → fully inert. Changing
+   * the mode requires re-uploading the manifest AND reinstalling the app to the workspace.
+   */
+  canvases?: CanvasesConfig;
   /**
    * Workspace-global user-facing language. BCP-47 short code. When absent or `"en"`,
    * the bot behaves identically to its pre-localization state. When set to `"fr"`,

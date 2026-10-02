@@ -624,6 +624,60 @@ export const investigationsZod = z
     return { enabled: obj.enabled, emoji };
   });
 
+export const CANVAS_MODES = ["off", "read", "write"] as const;
+export type CanvasMode = (typeof CANVAS_MODES)[number];
+export const CANVAS_WRITE_ROLES = ["member", "dev", "admin", "owner"] as const;
+export type CanvasWriteRole = (typeof CANVAS_WRITE_ROLES)[number];
+
+export interface CanvasesConfig {
+  mode: CanvasMode;
+  writeRole?: CanvasWriteRole;
+}
+
+const isCanvasMode = (value: JsonValue | undefined): value is CanvasMode =>
+  CANVAS_MODES.some((mode) => mode === value);
+const isCanvasWriteRole = (value: JsonValue | undefined): value is CanvasWriteRole =>
+  CANVAS_WRITE_ROLES.some((role) => role === value);
+
+/**
+ * Fail-fast `canvases` block. Absent → undefined (callers treat as mode `"off"`). `mode` picks
+ * the canvas scopes and tools; `writeRole` is the lowest role allowed to create and edit.
+ */
+export const canvasesZod = z.unknown().transform((raw, ctx): CanvasesConfig | undefined => {
+  if (raw === undefined) return undefined;
+  if (!isPlainObject(raw as JsonValue)) {
+    ctx.addIssue({ code: "custom", message: "Config 'canvases' must be an object" });
+    return z.NEVER;
+  }
+  const obj = raw as JsonObject;
+  for (const key of Object.keys(obj)) {
+    if (key !== "mode" && key !== "writeRole") {
+      ctx.addIssue({
+        code: "custom",
+        message: `Config 'canvases' contains unknown key '${key}'`,
+      });
+      return z.NEVER;
+    }
+  }
+  const { mode, writeRole } = obj;
+  if (!isCanvasMode(mode)) {
+    ctx.addIssue({
+      code: "custom",
+      message: `Config 'canvases.mode' must be one of: ${CANVAS_MODES.join(", ")}`,
+    });
+    return z.NEVER;
+  }
+  if (writeRole === undefined) return { mode };
+  if (!isCanvasWriteRole(writeRole)) {
+    ctx.addIssue({
+      code: "custom",
+      message: `Config 'canvases.writeRole' must be one of: ${CANVAS_WRITE_ROLES.join(", ")}`,
+    });
+    return z.NEVER;
+  }
+  return { mode, writeRole };
+});
+
 export const cronCatchUpZod = z.unknown().transform((raw, ctx): CronConfig["catchUp"] => {
   if (raw === undefined) return undefined;
   if (!isPlainObject(raw as JsonValue)) {
@@ -883,6 +937,7 @@ export const manifestConfigZod = z.object(
       .optional(),
     allowPublicSearch: allowPublicSearchZod,
     investigations: investigationsZod.optional(),
+    canvases: canvasesZod.optional(),
   },
   { error: "Config must be an object" },
 );

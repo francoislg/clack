@@ -1,6 +1,11 @@
 import type { Config, ThinkingFeedbackConfig, TriggerChangesWorkflowConfig } from "../../config.js";
 import type { SchemaFor } from "./configSchemaTypes.js";
-import { SLACK_ACCESS_MODES, TASK_CARD_TRANSPORTS } from "../../configSchemas.js";
+import {
+  CANVAS_MODES,
+  CANVAS_WRITE_ROLES,
+  SLACK_ACCESS_MODES,
+  TASK_CARD_TRANSPORTS,
+} from "../../configSchemas.js";
 
 const thinkingBlock = (where: string): SchemaFor<ThinkingFeedbackConfig> => ({
   type: "object",
@@ -662,6 +667,27 @@ export const CONFIG_SCHEMA: SchemaFor<Config> = {
           type: "string",
           description: "Emoji name (no colons) that starts an investigation.",
           default: "mag",
+          required: false,
+        },
+      },
+    },
+    canvases: {
+      type: "object",
+      description:
+        "Slack canvases. mode 'read' adds the canvases:read bot scope and the read_canvas tool; 'write' also adds canvases:write and the create_canvas / edit_canvas tools for roles at or above writeRole. Changing the mode requires re-uploading the manifest AND reinstalling the app to the workspace.",
+      required: false,
+      fields: {
+        mode: {
+          type: "enum",
+          enum: CANVAS_MODES,
+          description: "Which canvas scopes and tools are available.",
+          default: "off",
+        },
+        writeRole: {
+          type: "enum",
+          enum: CANVAS_WRITE_ROLES,
+          description: "Lowest role allowed to create and edit canvases.",
+          default: "dev",
           required: false,
         },
       },

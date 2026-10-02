@@ -19,6 +19,7 @@ import {
 import type { QueryToolContext } from "./types.js";
 import { makeWorkerCtx } from "./worker/testCtx.js";
 import type { Config } from "../config.js";
+import type { UserRole } from "../roles.js";
 import type { SessionContext } from "../sessions.js";
 import { setLoadedPlugins } from "../plugins-core/state.js";
 import type { PluginLoadResult, RegisteredTool } from "../plugins-sdk/sdk.js";
@@ -752,6 +753,72 @@ describe("buildClackTools — tester mode (kind: 'test')", () => {
   it("stages no intents", () => {
     const result = buildClackTools(makeWorkerCtx({ kind: "test" }));
     assert.equal(result.getStagedIntents().size, 0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Canvas tool registration gating (canvases.mode + canvases.writeRole)
+// ---------------------------------------------------------------------------
+
+describe("buildClackTools — canvas tools gating", () => {
+  beforeEach(() => {
+    setLoadedPlugins({ results: [] });
+  });
+  afterEach(() => {
+    setLoadedPlugins({ results: [] });
+  });
+
+  const CANVAS_TOOLS = ["read_canvas", "create_canvas", "edit_canvas"];
+
+  const registered = (
+    canvases: Config["canvases"],
+    role: UserRole,
+    slackClient: WebClient | undefined = new WebClient("xoxb-test"),
+  ): string[] => {
+    const ctx = makeQueryCtx({
+      config: Object.assign({} as Config, { canvases }),
+      role,
+      slackClient,
+    });
+    const { toolNames } = buildClackTools(ctx);
+    return CANVAS_TOOLS.filter((name) => toolNames.includes(name));
+  };
+
+  it("registers no canvas tool when the block is absent", () => {
+    assert.deepEqual(registered(undefined, "owner"), []);
+  });
+
+  it("registers no canvas tool in off mode", () => {
+    assert.deepEqual(registered({ mode: "off" }, "owner"), []);
+  });
+
+  it("registers only read_canvas in read mode, even for an owner", () => {
+    assert.deepEqual(registered({ mode: "read" }, "owner"), ["read_canvas"]);
+  });
+
+  it("registers only read_canvas in write mode below the default dev threshold", () => {
+    assert.deepEqual(registered({ mode: "write" }, "member"), ["read_canvas"]);
+  });
+
+  it("registers the write tools in write mode at the default dev threshold", () => {
+    assert.deepEqual(registered({ mode: "write" }, "dev"), CANVAS_TOOLS);
+  });
+
+  it("honors a configured writeRole", () => {
+    assert.deepEqual(registered({ mode: "write", writeRole: "admin" }, "dev"), ["read_canvas"]);
+    assert.deepEqual(registered({ mode: "write", writeRole: "admin" }, "admin"), CANVAS_TOOLS);
+    assert.deepEqual(registered({ mode: "write", writeRole: "member" }, "member"), CANVAS_TOOLS);
+  });
+
+  it("registers no canvas tool without a Slack client", () => {
+    const ctx = makeQueryCtx({
+      config: Object.assign({} as Config, { canvases: { mode: "write" } }),
+    });
+    const { toolNames } = buildClackTools(ctx);
+    assert.deepEqual(
+      CANVAS_TOOLS.filter((name) => toolNames.includes(name)),
+      [],
+    );
   });
 });
 

@@ -6,6 +6,7 @@
 
 import type { Manifest } from "@slack/web-api/dist/types/request/manifest.js";
 import type { DmType } from "../config.js";
+import type { CanvasMode } from "../configSchemas.js";
 
 type ManifestBotScopes = NonNullable<
   NonNullable<NonNullable<Manifest["oauth_config"]>["scopes"]>["bot"]
@@ -15,7 +16,11 @@ type ManifestBotEvents = NonNullable<
 >;
 
 // The scopes the Slack API accepts that @slack/web-api's manifest type does not list.
-type UntypedBotScope = "assistant:write" | "search:read.public";
+type UntypedBotScope =
+  | "assistant:write"
+  | "search:read.public"
+  | "canvases:read"
+  | "canvases:write";
 
 export type BotScope = ManifestBotScopes[number] | UntypedBotScope;
 export type ManifestEvent = ManifestBotEvents[number];
@@ -45,6 +50,7 @@ export interface ManifestFeatures {
   autoRespond: boolean;
   publicSearch: boolean;
   investigations: boolean;
+  canvases: CanvasMode;
 }
 
 /**
@@ -57,6 +63,7 @@ export interface ManifestFeatureSource {
   autoRespond?: { enabled?: boolean };
   allowPublicSearch?: boolean;
   investigations?: { enabled?: boolean };
+  canvases?: { mode?: CanvasMode };
 }
 
 export function manifestFeatures(source: ManifestFeatureSource): ManifestFeatures {
@@ -67,6 +74,7 @@ export function manifestFeatures(source: ManifestFeatureSource): ManifestFeature
     autoRespond: source.autoRespond?.enabled ?? false,
     publicSearch: source.allowPublicSearch ?? false,
     investigations: source.investigations?.enabled ?? false,
+    canvases: source.canvases?.mode ?? "off",
   };
 }
 
@@ -90,6 +98,12 @@ export function requiredBotScopes(features: ManifestFeatures): BotScope[] {
   // its action_token sources (message, app_mention) are already subscribed by the DM/mention features.
   if (features.publicSearch) {
     scopes.push("search:read.public");
+  }
+
+  // Canvas tools. "read" opens canvases; "write" also creates and edits them. No bot events.
+  if (features.canvases !== "off") {
+    scopes.push("canvases:read");
+    if (features.canvases === "write") scopes.push("canvases:write");
   }
 
   if (features.investigations) {

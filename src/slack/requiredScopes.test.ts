@@ -17,6 +17,7 @@ const NO_FEATURES: ManifestFeatures = {
   autoRespond: false,
   publicSearch: false,
   investigations: false,
+  canvases: "off",
 };
 
 const DM_CORE_SCOPES = ["im:history", "im:read", "mpim:history", "mpim:read"];
@@ -34,6 +35,7 @@ describe("manifestFeatures", () => {
         autoRespond: { enabled: true },
         allowPublicSearch: true,
         investigations: { enabled: true },
+        canvases: { mode: "write" },
       }),
     ).toEqual({
       directMessages: true,
@@ -42,6 +44,7 @@ describe("manifestFeatures", () => {
       autoRespond: true,
       publicSearch: true,
       investigations: true,
+      canvases: "write",
     });
   });
 
@@ -99,6 +102,25 @@ describe("requiredBotScopes", () => {
     expect(requiredBotScopes({ ...NO_FEATURES, investigations: true })).toContain("channels:join");
   });
 
+  it("adds only canvases:read for canvases mode read", () => {
+    const scopes = requiredBotScopes({ ...NO_FEATURES, canvases: "read" });
+    expect(scopes).toContain("canvases:read");
+    expect(scopes).not.toContain("canvases:write");
+  });
+
+  it("adds canvases:read and canvases:write for canvases mode write", () => {
+    const scopes = requiredBotScopes({ ...NO_FEATURES, canvases: "write" });
+    expect(scopes).toEqual(expect.arrayContaining(["canvases:read", "canvases:write"]));
+  });
+
+  it("adds no canvas scope when canvases is off or absent", () => {
+    for (const features of [NO_FEATURES, manifestFeatures({})]) {
+      const scopes = requiredBotScopes(features);
+      expect(scopes).not.toContain("canvases:read");
+      expect(scopes).not.toContain("canvases:write");
+    }
+  });
+
   it("adds no scope for autoRespond", () => {
     expect(requiredBotScopes({ ...NO_FEATURES, autoRespond: true })).toEqual(
       requiredBotScopes(NO_FEATURES),
@@ -113,6 +135,7 @@ describe("requiredBotScopes", () => {
       autoRespond: true,
       publicSearch: true,
       investigations: true,
+      canvases: "write",
     });
     expect(new Set(scopes).size).toBe(scopes.length);
     expect(scopes).toEqual([...scopes].sort((a, b) => a.localeCompare(b)));
@@ -153,6 +176,12 @@ describe("requiredBotEvents", () => {
 
   it("adds no event for public search", () => {
     expect(requiredBotEvents({ ...NO_FEATURES, publicSearch: true })).toEqual(
+      requiredBotEvents(NO_FEATURES),
+    );
+  });
+
+  it("adds no event for canvases", () => {
+    expect(requiredBotEvents({ ...NO_FEATURES, canvases: "write" })).toEqual(
       requiredBotEvents(NO_FEATURES),
     );
   });

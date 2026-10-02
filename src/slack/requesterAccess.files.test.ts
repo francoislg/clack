@@ -65,7 +65,11 @@ describe("requesterAccess: files", () => {
     it("fetches the file's info itself and allows the creator without a membership lookup", async () => {
       setFile(client, { user: "U_ALICE", groups: [PRIVATE], access: "read" });
 
-      expect(await checkFileAccess(request(), "F1")).toEqual({ allowed: true, botAccess: "read" });
+      expect(await checkFileAccess(request(), "F1")).toEqual({
+        allowed: true,
+        botAccess: "read",
+        creator: "U_ALICE",
+      });
       expect(client.files.info).toHaveBeenCalledWith({ file: "F1" });
       expect(client.conversations.members).not.toHaveBeenCalled();
     });
@@ -156,23 +160,47 @@ describe("requesterAccess: files", () => {
     it("reports the bot's read access", async () => {
       setFile(client, { user: "U_ALICE", access: "read" });
 
-      expect(await checkFileAccess(request(), "F1")).toEqual({ allowed: true, botAccess: "read" });
+      expect(await checkFileAccess(request(), "F1")).toEqual({
+        allowed: true,
+        botAccess: "read",
+        creator: "U_ALICE",
+      });
     });
 
     it("reports the bot's write access", async () => {
       setFile(client, { user: "U_ALICE", access: "write" });
 
-      expect(await checkFileAccess(request(), "F1")).toEqual({ allowed: true, botAccess: "write" });
+      expect(await checkFileAccess(request(), "F1")).toEqual({
+        allowed: true,
+        botAccess: "write",
+        creator: "U_ALICE",
+      });
     });
 
     it("reports no bot access level when Slack returns none or an unknown one", async () => {
-      const noLevel = { allowed: true, botAccess: undefined };
+      const noLevel = { allowed: true, botAccess: undefined, creator: "U_ALICE" };
 
       setFile(client, { user: "U_ALICE" });
       expect(await checkFileAccess(request(), "F1")).toEqual(noLevel);
 
       setFile(client, { user: "U_ALICE", access: "owner" });
       expect(await checkFileAccess(request(), "F1")).toEqual(noLevel);
+    });
+
+    it("reports the file's creator", async () => {
+      setFile(client, { user: "U1", channels: [PUBLIC] });
+
+      const verdict = await checkFileAccess(request(), "F1");
+
+      expect(verdict).toMatchObject({ allowed: true, creator: "U1" });
+    });
+
+    it("reports no creator for a file allowed through a channel share that names no user", async () => {
+      setFile(client, { channels: [PUBLIC] });
+
+      const verdict = await checkFileAccess(request(), "F1");
+
+      expect(verdict).toStrictEqual({ allowed: true, botAccess: undefined, creator: undefined });
     });
 
     it("denies a run with no requester a file shared only to private channels", async () => {
@@ -217,7 +245,11 @@ describe("requesterAccess: files", () => {
 
       const verdict = await checkFileAccess(request({ session, userId: "U_BOB" }), "F1");
 
-      expect(verdict).toEqual({ allowed: true, botAccess: "write" });
+      expect(verdict).toEqual({
+        allowed: true,
+        botAccess: "write",
+        creator: "U_ALICE",
+      });
       expect(client.files.info).toHaveBeenCalledTimes(2);
       expect(addAccessGrant).toHaveBeenCalledTimes(1);
     });

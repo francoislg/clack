@@ -15,6 +15,7 @@ import {
   allowPublicSearchZod,
   slackAccessModeZod,
   investigationsZod,
+  canvasesZod,
   mcpServersZod,
   skillPluginsZod,
   userSkillsZod,
@@ -277,6 +278,7 @@ export function validateConfig(config: unknown, slackAuth: SlackAuthConfig): Con
     slackAccessMode: parseOrThrow(slackAccessModeZod, c.slackAccessMode),
     streaming: parseOrThrow(streamingZod, c.streaming),
     investigations: parseOrThrow(investigationsZod, c.investigations),
+    canvases: parseOrThrow(canvasesZod.optional(), c.canvases),
     language: isSupportedLanguage(c.language) ? c.language : undefined,
   };
 

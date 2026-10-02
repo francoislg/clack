@@ -89,6 +89,7 @@ const GATED_SENTINELS = [
   "clack/load_skill",
   "clack/switch_delivery_context",
   "clack/start_investigation",
+  "clack/edit_canvas",
   "clack/create_scheduled_message",
   "clack/propose_skill_create",
   "clack/run_test",
@@ -109,6 +110,7 @@ function allGatesConfig(): Config {
       repositories: [],
       allowPublicSearch: true,
       investigations: { enabled: true },
+      canvases: { mode: "write" },
       tester: {
         enabled: true,
         sidecarUrl: "http://localhost:8931/mcp",

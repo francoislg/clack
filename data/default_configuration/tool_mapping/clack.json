@@ -168,6 +168,24 @@
       "group": "messages",
       "itemDetail": { "en": "search \"{query}\"", "fr": "recherche « {query} »" }
     },
+    "read_canvas": {
+      "label": { "en": "Reading canvas {canvas}", "fr": "Lecture du canevas {canvas}" },
+      "group": "canvases",
+      "itemDetail": { "en": "Read {canvas}", "fr": "Lire {canvas}" }
+    },
+    "create_canvas": {
+      "label": { "en": "Creating canvas \"{title}\"", "fr": "Création du canevas « {title} »" },
+      "group": "canvases",
+      "itemDetail": { "en": "Create \"{title}\"", "fr": "Créer « {title} »" }
+    },
+    "edit_canvas": {
+      "label": {
+        "en": "Editing canvas {canvas} ({operation})",
+        "fr": "Modification du canevas {canvas} ({operation})"
+      },
+      "group": "canvases",
+      "itemDetail": { "en": "{operation} in {canvas}", "fr": "{operation} dans {canvas}" }
+    },
     "fetch_channel_messages": {
       "label": {
         "en": "Reading messages in <#{channel_id}>",
@@ -469,6 +487,7 @@
     "memory": { "title": { "en": "Working with memory", "fr": "Gestion de la mémoire" } },
     "messages": { "title": { "en": "Reading messages", "fr": "Lecture des messages" } },
     "files": { "title": { "en": "Working with files", "fr": "Gestion des fichiers" } },
+    "canvases": { "title": { "en": "Working with canvases", "fr": "Gestion des canevas" } },
     "reactions": { "title": { "en": "Updating reactions", "fr": "Mise à jour des réactions" } },
     "lookups": { "title": { "en": "Looking up in Slack", "fr": "Recherche dans Slack" } },
     "reminders": { "title": { "en": "Managing reminders", "fr": "Gestion des rappels" } },
