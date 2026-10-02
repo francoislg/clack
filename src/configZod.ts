@@ -13,6 +13,7 @@ import {
   reactionsChangesWorkflowZod,
   triggerChangesWorkflowZod,
   allowPublicSearchZod,
+  slackAccessModeZod,
   investigationsZod,
   mcpServersZod,
   skillPluginsZod,
@@ -273,10 +274,17 @@ export function validateConfig(config: unknown, slackAuth: SlackAuthConfig): Con
     admin: parseOrThrow(adminZod, c.admin),
     tester: parseOrThrow(testerZod, c.tester),
     allowPublicSearch: parseOrThrow(allowPublicSearchZod, c.allowPublicSearch),
+    slackAccessMode: parseOrThrow(slackAccessModeZod, c.slackAccessMode),
     streaming: parseOrThrow(streamingZod, c.streaming),
     investigations: parseOrThrow(investigationsZod, c.investigations),
     language: isSupportedLanguage(c.language) ? c.language : undefined,
   };
+
+  if (merged.slackAccessMode === "bot") {
+    logger.warn(
+      "Config 'slackAccessMode' is \"bot\": the requester-access check is off, so anyone can read through Clack any private channel or file the bot can see.",
+    );
+  }
 
   return merged;
 }

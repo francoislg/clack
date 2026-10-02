@@ -1,4 +1,4 @@
-import { describe, it, beforeEach, afterEach } from "vitest";
+import { describe, it, beforeEach, afterEach, vi } from "vitest";
 import assert from "node:assert/strict";
 import { writeFileSync, mkdirSync, rmSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -18,12 +18,14 @@ import {
   getCronMaxRunHistory,
   getCronCatchUpDelayMinutes,
   getAdditionalAdminWords,
+  getSlackAccessMode,
   DEFAULT_TASK_CARD_MAX_DETAILS,
   DEFAULT_SCHEDULED_MESSAGES_MAX_RUN_HISTORY,
   DEFAULT_MAX_ADDITIONAL_MESSAGES,
   type Config,
   type RepositoryConfig,
 } from "./config.js";
+import { logger } from "./logger.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -542,6 +544,49 @@ describe("loadConfig", () => {
     writeConfig(minimalConfig({ allowPublicSearch: "yes" }));
 
     assert.throws(() => loadConfig(configPath, true), /allowPublicSearch.*must be a boolean/);
+  });
+
+  // ---- slackAccessMode ----
+
+  it("resolves an absent slackAccessMode to requester", () => {
+    writeSlackAuth();
+    writeConfig(minimalConfig());
+
+    const cfg = loadConfig(configPath, true);
+    assert.equal(cfg.slackAccessMode, undefined);
+    assert.equal(getSlackAccessMode(), "requester");
+  });
+
+  it("reads slackAccessMode: bot", () => {
+    writeSlackAuth();
+    writeConfig(minimalConfig({ slackAccessMode: "bot" }));
+
+    loadConfig(configPath, true);
+    assert.equal(getSlackAccessMode(), "bot");
+  });
+
+  it("warns when slackAccessMode is bot, and not when it is requester", () => {
+    const warn = vi.spyOn(logger, "warn").mockImplementation(() => {});
+    writeSlackAuth();
+
+    writeConfig(minimalConfig({ slackAccessMode: "requester" }));
+    loadConfig(configPath, true);
+    assert.equal(warn.mock.calls.length, 0);
+
+    writeConfig(minimalConfig({ slackAccessMode: "bot" }));
+    loadConfig(configPath, true);
+    assert.equal(warn.mock.calls.length, 1);
+    assert.match(String(warn.mock.calls[0][0]), /slackAccessMode.*requester-access check is off/);
+  });
+
+  it("throws when slackAccessMode is not a known mode", () => {
+    writeSlackAuth();
+    writeConfig(minimalConfig({ slackAccessMode: "everyone" }));
+
+    assert.throws(
+      () => loadConfig(configPath, true),
+      /slackAccessMode.*must be one of: requester, bot/,
+    );
   });
 
   // ---- investigations ----

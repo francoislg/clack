@@ -111,6 +111,7 @@ The bot token sees what the bot can see, so a tool that reads Slack on someone's
 - **File rule**: positive evidence only — the requester created the file, is in its `dm_mpdm_users_with_file_access`, or passes the conversation rule for a channel the file is shared to. `editors` grants nothing. An allowance reports the bot's own `read`/`write` level as `botAccess`.
 - **Session grants**: an allowed target is recorded on `SessionContext.accessGranted` and stays allowed for that session whoever asks next; denials are never recorded. `bootstrapInvestigation` copies the origin session's grants into the investigation's session.
 - **Cache**: verdicts live in process memory only (allow 5 min, deny 1 min, guest classification 1 h), never on disk.
+- **Switch**: top-level `config.slackAccessMode: "requester" | "bot"` (fail-fast zod, default `"requester"`). `"bot"` turns the requester evaluation off inside the two check functions — a conversation is always allowed, a file whenever the bot can see it, no session grant is recorded — and `validateConfig` logs a warning on every load. It is the revert path, not a supported mode: it reopens private-channel reads for everyone.
 
 ### Token scope check
 

@@ -1,6 +1,6 @@
 import type { Config, ThinkingFeedbackConfig, TriggerChangesWorkflowConfig } from "../../config.js";
 import type { SchemaFor } from "./configSchemaTypes.js";
-import { TASK_CARD_TRANSPORTS } from "../../configSchemas.js";
+import { SLACK_ACCESS_MODES, TASK_CARD_TRANSPORTS } from "../../configSchemas.js";
 
 const thinkingBlock = (where: string): SchemaFor<ThinkingFeedbackConfig> => ({
   type: "object",
@@ -635,6 +635,17 @@ export const CONFIG_SCHEMA: SchemaFor<Config> = {
       description:
         "Opt-in workspace keyword search. Adds the search:read.public bot scope and the search_messages tool. Enabling requires re-uploading the manifest AND reinstalling the app to the workspace.",
       default: false,
+      required: false,
+    },
+    slackAccessMode: {
+      type: "enum",
+      enum: SLACK_ACCESS_MODES,
+      description: [
+        'Whose Slack access bounds what Clack reads on someone\'s behalf. "requester" reads only',
+        'what the person asking can see. "bot" reads anything the bot can see, so a user can',
+        "read a private channel Clack is in and they are not.",
+      ].join(" "),
+      default: "requester",
       required: false,
     },
     investigations: {

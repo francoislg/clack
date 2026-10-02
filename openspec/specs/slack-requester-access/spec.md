@@ -281,3 +281,33 @@ The system SHALL record on the session every conversation and file the access ch
 - **WHEN** a guest requester's `search_messages` call matches messages in a public channel they have not joined
 - **THEN** those messages are absent from the result
 
+### Requirement: Access mode switch
+
+The system SHALL read a top-level `slackAccessMode` config value of `requester` or `bot`, defaulting to `requester` when absent, and SHALL fail config loading on any other value. In `requester` mode the access check SHALL behave as specified above. In `bot` mode the check SHALL allow every conversation without evaluating the requester, SHALL allow every file the bot can see, and SHALL record no session grant. The system SHALL log a warning whenever a config is loaded with `bot`.
+
+#### Scenario: Default mode
+
+- **WHEN** the config has no `slackAccessMode`
+- **THEN** the access check evaluates the requester
+
+#### Scenario: Bot mode allows a private channel
+
+- **WHEN** `slackAccessMode` is `bot` and a requester asks for a private channel they are not a member of
+- **THEN** the check allows access without a membership lookup
+- **AND** no session grant is recorded
+
+#### Scenario: Bot mode still needs the bot to see the file
+
+- **WHEN** `slackAccessMode` is `bot` and the bot cannot see the file
+- **THEN** the check denies access
+
+#### Scenario: Bot mode is logged
+
+- **WHEN** a config with `slackAccessMode` set to `bot` is loaded
+- **THEN** a warning is logged
+
+#### Scenario: Unknown mode
+
+- **WHEN** `slackAccessMode` is neither `requester` nor `bot`
+- **THEN** config loading fails with an error listing the two modes
+

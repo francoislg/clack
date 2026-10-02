@@ -1,5 +1,6 @@
 import type { App } from "@slack/bolt";
 import { z } from "zod";
+import { getSlackAccessMode } from "../config.js";
 import { logger } from "../logger.js";
 import type { UserRole } from "../roles.js";
 import { addAccessGrant, type SessionContext } from "../sessions.js";
@@ -13,6 +14,9 @@ import { getBotIdentity } from "./botIdentity.js";
  * judged as private as soon as the cached verdict expires. Verdicts and requester
  * classifications are cached in process memory only; the verdict cache and its in-flight
  * dedupe bound the conversation lookup to one per `(conversation, requester)` per TTL.
+ *
+ * `config.slackAccessMode: "bot"` turns the requester evaluation off: a conversation is always
+ * allowed, a file is allowed whenever the bot can see it, and no session grant is recorded.
  */
 
 type SlackClient = App["client"];
@@ -320,6 +324,7 @@ export async function checkConversationAccess(
   req: AccessRequest,
   channelId: string,
 ): Promise<ConversationAccess> {
+  if (getSlackAccessMode() === "bot") return ALLOWED;
   const verdict = await conversationVerdict(req, channelId);
   if (verdict.allowed) await recordGrant(req, channelId);
   return verdict;
@@ -372,7 +377,7 @@ export async function checkFileAccess(req: AccessRequest, fileId: string): Promi
   const file = await fetchFileEvidence(req.client, fileId);
   if (!file) return deny("file_unavailable");
   const allowed: FileAccess = { allowed: true, botAccess: botAccessOf(file) };
-  if (isSessionGranted(req, fileId)) return allowed;
+  if (getSlackAccessMode() === "bot" || isSessionGranted(req, fileId)) return allowed;
   try {
     if (!isNamedOnFile(req, file) && !(await isSharedWithRequester(req, file))) {
       return deny(hasRequester(req) ? "no_evidence" : "no_requester");

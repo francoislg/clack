@@ -171,6 +171,20 @@ export const allowPublicSearchZod: z.ZodType<boolean | undefined> = z
   .boolean({ error: "Config 'allowPublicSearch' must be a boolean" })
   .optional();
 
+export const SLACK_ACCESS_MODES = ["requester", "bot"] as const;
+export type SlackAccessMode = (typeof SLACK_ACCESS_MODES)[number];
+
+/**
+ * Fail-fast optional enum for the top-level `slackAccessMode` switch. Absent → undefined
+ * (callers treat as `"requester"`). A typo throws at boot: silently reading as either mode
+ * would widen or narrow what Clack reads without anyone noticing.
+ */
+export const slackAccessModeZod: z.ZodType<SlackAccessMode | undefined> = z
+  .enum(SLACK_ACCESS_MODES, {
+    error: `Config 'slackAccessMode' must be one of: ${SLACK_ACCESS_MODES.join(", ")}`,
+  })
+  .optional();
+
 export const triggerChangesWorkflowZod = z
   .object({ enabled: z.boolean().catch(false) })
   .transform((c) => ({ enabled: c.enabled ?? false }));

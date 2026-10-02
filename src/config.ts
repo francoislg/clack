@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 import type { UserRole } from "./roles.js";
 import { type Lang } from "./i18n/languages.js";
 import { validateConfig } from "./configZod.js";
-import type { TASK_CARD_TRANSPORTS } from "./configSchemas.js";
+import type { SlackAccessMode, TASK_CARD_TRANSPORTS } from "./configSchemas.js";
 
 export interface SlackAuthConfig {
   botToken: string;
@@ -449,6 +449,12 @@ export interface Config {
    */
   allowPublicSearch?: boolean;
   /**
+   * Whose Slack access bounds what Clack reads on someone's behalf. `requester` (default):
+   * only what the person asking can see (`src/slack/requesterAccess.ts`). `bot`: anything the
+   * bot token can see, so a user can read a private channel Clack is in and they are not.
+   */
+  slackAccessMode?: SlackAccessMode;
+  /**
    * Slack task-card transport. `stream` (default) keeps the card on a chat stream and opens a
    * continuation message when Slack seals it (~5 min). `streamThenUpdate` streams for the first
    * ~4.5 min, then ends the stream cleanly and keeps editing the same message with
@@ -556,6 +562,13 @@ export function getConfig(): Config {
     throw new Error("Config not loaded. Call loadConfig() first.");
   }
   return cachedConfig;
+}
+
+/**
+ * Resolved `config.slackAccessMode`, `"requester"` when it is absent or the config is unloaded.
+ */
+export function getSlackAccessMode(): SlackAccessMode {
+  return cachedConfig?.slackAccessMode ?? "requester";
 }
 
 /**
