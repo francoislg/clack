@@ -154,6 +154,11 @@ export interface CronJob {
    */
   attachedTopics?: string[];
   /**
+   * Conversation ids the requester-access check allowed when the job's channel was set.
+   * Seeded into each fire's session.
+   */
+  accessGranted?: string[];
+  /**
    * Attention level seeded onto the session this job's fire creates. Forwarded by the cron
    * scheduler into `processMessage`. Absent → the session defaults to `"medium"`. Plugins set
    * it via `CronJobSpec.attentionLevel`.
@@ -284,6 +289,7 @@ const cronJobZod = z.object({
   pluginManaged: z.boolean().optional(),
   specKey: z.string().optional(),
   attachedTopics: z.array(z.string()).optional(),
+  accessGranted: z.array(z.string()).optional(),
   attentionLevel: z.enum(SETTABLE_ATTENTION_LEVELS).optional(),
   jitterMinutes: z.number().optional(),
   editableByAnyone: z.boolean().optional(),
@@ -510,6 +516,8 @@ export interface CreateCronJobParams {
   specKey?: string;
   /** Topic names to pre-attach when this job fires. See `CronJob.attachedTopics`. */
   attachedTopics?: string[];
+  /** Conversation ids granted to each fire's session. See `CronJob.accessGranted`. */
+  accessGranted?: string[];
   /** Attention level for the session this job creates. See `CronJob.attentionLevel`. */
   attentionLevel?: SettableAttentionLevel;
   /** Forward match-window jitter in minutes. See `CronJob.jitterMinutes`. */
@@ -580,6 +588,9 @@ export async function createJob(params: CreateCronJobParams): Promise<CronJob> {
     ...(params.attachedTopics && params.attachedTopics.length > 0
       ? { attachedTopics: params.attachedTopics }
       : {}),
+    ...(params.accessGranted && params.accessGranted.length > 0
+      ? { accessGranted: params.accessGranted }
+      : {}),
     ...(params.attentionLevel ? { attentionLevel: params.attentionLevel } : {}),
     ...(params.jitterMinutes && params.jitterMinutes > 0
       ? { jitterMinutes: params.jitterMinutes }
@@ -642,6 +653,11 @@ export interface UpdateCronJobParams {
    * array to overwrite. See `CronJob.attachedTopics`.
    */
   attachedTopics?: string[];
+  /**
+   * Pass an empty array to clear; undefined leaves the field unchanged. Pass a non-empty
+   * array to overwrite. See `CronJob.accessGranted`.
+   */
+  accessGranted?: string[];
   /** Pass a level to set; `null` to clear; undefined leaves the field unchanged. */
   attentionLevel?: SettableAttentionLevel | null;
   /** Pass minutes to set; `null` or `0` to clear; undefined leaves the field unchanged. */
@@ -692,6 +708,9 @@ export async function updateJob(
   }
   if (params.attachedTopics !== undefined) {
     job.attachedTopics = params.attachedTopics.length > 0 ? params.attachedTopics : undefined;
+  }
+  if (params.accessGranted !== undefined) {
+    job.accessGranted = params.accessGranted.length > 0 ? params.accessGranted : undefined;
   }
   if (params.attentionLevel !== undefined) {
     job.attentionLevel = params.attentionLevel === null ? undefined : params.attentionLevel;

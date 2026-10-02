@@ -13,6 +13,12 @@ import { parseToolResult, toolResultText } from "../testHelpers.js";
 import { createSlackClientMock } from "../../slack/testSlackClient.js";
 import { clearCronJobsCache, getJobs, createJob } from "../../cronJobs.js";
 import { validateTopicNames } from "./topicValidation.js";
+import { ACCESS_DENIED_MESSAGE, checkConversationAccess } from "../../slack/requesterAccess.js";
+
+vi.mock("../../slack/requesterAccess.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../slack/requesterAccess.js")>()),
+  checkConversationAccess: vi.fn(),
+}));
 
 const originalCwd = process.cwd;
 
@@ -112,6 +118,7 @@ describe("createScheduledMessage tool", () => {
     await mkdir(join(tempDir, "data", "state"), { recursive: true });
     process.cwd = () => tempDir;
     clearCronJobsCache();
+    vi.mocked(checkConversationAccess).mockReset().mockResolvedValue({ allowed: true });
   });
 
   afterEach(async () => {
@@ -528,6 +535,43 @@ describe("createScheduledMessage tool", () => {
     assert.match(text, /Known topics: .*response-rendering/);
     const jobs = await getJobs();
     assert.equal(jobs.length, 0);
+  });
+
+  it("refuses a channel the requester cannot see and creates no job", async () => {
+    vi.mocked(checkConversationAccess).mockResolvedValue({ allowed: false, reason: "not_member" });
+    const tool = createCreateScheduledMessageTool(buildCtx(), makeDeps());
+
+    const result = await callHandler(tool, { channel: "C456", prompt: "Summarize PRs" });
+
+    assert.equal(result.isError, true);
+    assert.equal(parseToolResult(result).error, ACCESS_DENIED_MESSAGE);
+    const jobs = await getJobs();
+    assert.equal(jobs.length, 0);
+  });
+
+  it("grants the created job access to its resolved channel", async () => {
+    const tool = createCreateScheduledMessageTool(buildCtx(), makeDeps());
+
+    await callHandler(tool, { channel: "#engineering", prompt: "Summarize PRs" });
+
+    const jobs = await getJobs();
+    assert.equal(jobs.length, 1);
+    assert.deepEqual(jobs[0].accessGranted, ["C456"]);
+  });
+
+  it("checks access for the requester against the resolved channel", async () => {
+    const ctx = buildCtx({ userId: "U777", role: "member" });
+    const tool = createCreateScheduledMessageTool(ctx, makeDeps());
+
+    await callHandler(tool, { channel: "#engineering", prompt: "Summarize PRs" });
+
+    const calls = vi.mocked(checkConversationAccess).mock.calls;
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0][0].client, ctx.slackClient);
+    assert.equal(calls[0][0].userId, "U777");
+    assert.equal(calls[0][0].role, "member");
+    assert.equal(calls[0][0].session, ctx.session);
+    assert.equal(calls[0][1], "C456");
   });
 
   it("creates a job with editable_by_anyone: true", async () => {

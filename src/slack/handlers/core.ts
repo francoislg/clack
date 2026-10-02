@@ -263,6 +263,11 @@ export interface ProcessMessageParams {
    */
   preAttachedTopics?: string[];
   /**
+   * Conversation ids seeded onto a NEW session as already allowed by the requester-access
+   * check. Populated by the cron scheduler from the originating job's `accessGranted`.
+   */
+  accessGranted?: string[];
+  /**
    * Explicit session to continue instead of resolving by thread. Set by the ephemeral
    * channel-conversation path (`triggerType: "channelReply"`): the incoming message is
    * top-level (no `thread_ts`), but the turn must resume the anchor session — its record,
@@ -318,6 +323,8 @@ interface ProcessingContext {
   readonly roleOverride?: UserRole;
   /** Topic names pre-attached for the session — see ProcessMessageParams.preAttachedTopics. */
   readonly preAttachedTopics?: string[];
+  /** Access grants seeded onto a NEW session — see ProcessMessageParams.accessGranted. */
+  readonly accessGranted?: string[];
   /** Explicit session to continue — see ProcessMessageParams.resumeSessionId. */
   readonly resumeSessionId?: string;
 }
@@ -471,6 +478,7 @@ async function setupSession(
       additionalSystemPrompt: ctx.additionalSystemPrompt,
       channelName: channelInfo?.name,
       attentionLevel: ctx.attentionLevel,
+      accessGranted: ctx.accessGranted,
     });
     logger.debug(`Created session ${session.sessionId}`);
   } else {
@@ -726,6 +734,7 @@ export async function processMessage(
       autoRespondRuleName: params.autoRespondRuleName,
       roleOverride: params.roleOverride,
       preAttachedTopics: params.preAttachedTopics,
+      accessGranted: params.accessGranted,
       resumeSessionId: params.resumeSessionId,
     };
 

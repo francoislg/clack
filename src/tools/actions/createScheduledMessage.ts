@@ -5,6 +5,7 @@ import { CronExpressionParser } from "cron-parser";
 import type { QueryToolContext } from "../types.js";
 import { textResult, errorResult } from "../helpers.js";
 import { resolveChannelId } from "../../slack/channelResolver.js";
+import { ACCESS_DENIED_MESSAGE, checkConversationAccess } from "../../slack/requesterAccess.js";
 import { createJob, MAX_JITTER_MINUTES, type CronJob } from "../../cronJobs.js";
 import { isValidTimezone } from "../../timezone.js";
 import { logger } from "../../logger.js";
@@ -249,6 +250,12 @@ export function createCreateScheduledMessageTool(
         return errorResult("DM-targeted schedules cannot be shared.");
       }
 
+      const access = await checkConversationAccess(
+        { client: ctx.slackClient, userId: ctx.userId, role: ctx.role, session: ctx.session },
+        channelId,
+      );
+      if (!access.allowed) return errorResult(ACCESS_DENIED_MESSAGE);
+
       try {
         const job = await deps.createJob({
           name: args.name,
@@ -265,6 +272,7 @@ export function createCreateScheduledMessageTool(
           submitResponseMode: args.submitResponseMode,
           attentionLevel: args.attentionLevel,
           attachedTopics,
+          accessGranted: [channelId],
           editableByAnyone: args.editable_by_anyone,
         });
 

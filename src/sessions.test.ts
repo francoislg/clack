@@ -914,6 +914,41 @@ describe("accessGranted persistence", () => {
     assert.deepEqual(onDisk.accessGranted, ["CPRIV", "F123"]);
   });
 
+  it("persists accessGranted on a session created with it", async () => {
+    const session = await createSession({
+      channelId: "CMAIN",
+      messageTs: "8200.0001",
+      threadTs: "8200.0001",
+      userId: "UOWN",
+      trigger: { type: "mentions", userId: "UOWN", messageTs: "8200.0001", messageText: "grants" },
+      accessGranted: ["CMAIN"],
+    });
+
+    assert.deepEqual(session.accessGranted, ["CMAIN"]);
+    const onDisk: unknown = JSON.parse(
+      readFileSync(join(sessionsDir, session.sessionId, "context.json"), "utf-8"),
+    );
+    assert.ok(typeof onDisk === "object" && onDisk !== null && "accessGranted" in onDisk);
+    assert.deepEqual(onDisk.accessGranted, ["CMAIN"]);
+  });
+
+  it("leaves accessGranted absent on a session created without it", async () => {
+    const session = await createSession({
+      channelId: "CMAIN",
+      messageTs: "8300.0001",
+      threadTs: "8300.0001",
+      userId: "UOWN",
+      trigger: { type: "mentions", userId: "UOWN", messageTs: "8300.0001", messageText: "grants" },
+    });
+
+    assert.equal("accessGranted" in session, false);
+    const onDisk: unknown = JSON.parse(
+      readFileSync(join(sessionsDir, session.sessionId, "context.json"), "utf-8"),
+    );
+    assert.ok(typeof onDisk === "object" && onDisk !== null);
+    assert.equal("accessGranted" in onDisk, false);
+  });
+
   it("loads persisted grants on a cold load", async () => {
     const id = "C800-8000-0001-UOWN-8000000000001";
     writeColdSession(id, { ...coldRecord(id, "8000.0001"), accessGranted: ["CPRIV", "F123"] });

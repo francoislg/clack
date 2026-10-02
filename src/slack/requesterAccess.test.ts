@@ -20,6 +20,8 @@ import { createSlackClientMock, type MockSlackClient } from "./testSlackClient.j
 import {
   DM,
   GROUP_DM,
+  GROUP_DM_BOT_IN,
+  PRIVATE_BOT_IN,
   HOME_TEAM,
   NO_PRIVACY,
   PRIVATE,
@@ -197,13 +199,25 @@ describe("requesterAccess: conversations", () => {
       expect(client.conversations.members).not.toHaveBeenCalled();
     });
 
-    it("denies a run with no requester a private channel", async () => {
+    it("denies a run with no requester a private channel the bot is not in", async () => {
       expect(await checkConversationAccess(request({ role: "system" }), PRIVATE)).toEqual(
         NO_REQUESTER,
       );
     });
 
-    it("denies a run with no requester a group DM and a DM", async () => {
+    it("allows a run with no requester a private channel and a group DM the bot is in", async () => {
+      const req = request({ role: "system" });
+
+      expect(await checkConversationAccess(req, PRIVATE_BOT_IN)).toEqual({ allowed: true });
+      expect(await checkConversationAccess(req, GROUP_DM_BOT_IN)).toEqual({ allowed: true });
+      expect(client.conversations.members).not.toHaveBeenCalled();
+    });
+
+    it("does not let the bot's own membership stand in for a requester's", async () => {
+      expect(await checkConversationAccess(request(), PRIVATE_BOT_IN)).toEqual(NOT_MEMBER);
+    });
+
+    it("denies a run with no requester a group DM the bot is not in and a DM", async () => {
       const req = request({ role: "system" });
 
       expect(await checkConversationAccess(req, GROUP_DM)).toEqual(NO_REQUESTER);

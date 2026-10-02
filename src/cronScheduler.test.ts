@@ -518,6 +518,26 @@ describe("cronScheduler", () => {
       assert.equal(calls.processMessage[0].preAttachedTopics, undefined);
     });
 
+    it("forwards job.accessGranted to processMessage", async () => {
+      const { deps, calls } = makeDeps({ skipped: false });
+      const client = fakeClient();
+
+      await executeJob(baseJob({ accessGranted: ["C123"] }), client, deps);
+
+      assert.equal(calls.processMessage.length, 1);
+      assert.deepEqual(calls.processMessage[0].accessGranted, ["C123"]);
+    });
+
+    it("passes undefined accessGranted when the job carries none", async () => {
+      const { deps, calls } = makeDeps({ skipped: false });
+      const client = fakeClient();
+
+      await executeJob(baseJob(), client, deps);
+
+      assert.equal(calls.processMessage.length, 1);
+      assert.equal(calls.processMessage[0].accessGranted, undefined);
+    });
+
     it("cleans up one-shot jobs after a skipped run", async () => {
       const { deps, calls } = makeDeps({ skipped: true });
       const client = fakeClient();

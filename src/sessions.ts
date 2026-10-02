@@ -626,6 +626,9 @@ export interface CreateSessionOptions {
   attentionLevel?: SettableAttentionLevel;
   /** Initial delivery mode seeded by the trigger source. Omit to leave it default (`"streamer"`). */
   deliveryMode?: DeliveryMode;
+  /** Conversation or file ids the session starts with as already allowed by the
+   *  requester-access check. See `SessionContext.accessGranted`. */
+  accessGranted?: string[];
 }
 
 export async function createSession(opts: CreateSessionOptions): Promise<SessionContext> {
@@ -661,6 +664,9 @@ export async function createSession(opts: CreateSessionOptions): Promise<Session
     createdAt: now,
     attentionLevel: opts.attentionLevel ?? "medium",
     ...(opts.deliveryMode && { deliveryMode: opts.deliveryMode }),
+    ...(opts.accessGranted && opts.accessGranted.length > 0
+      ? { accessGranted: opts.accessGranted }
+      : {}),
   };
 
   // Write to disk (strip runtime fields)

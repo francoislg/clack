@@ -1,8 +1,11 @@
 # slack-requester-access Specification
 
 ## Purpose
+
 TBD - created by archiving change slack-requester-access. Update Purpose after archive.
+
 ## Requirements
+
 ### Requirement: Requester identity
 
 The access check SHALL treat the query context's `userId` as the requester. When the context's role is `system`, the check SHALL treat the run as having no requester. No Clack role, including `owner`, SHALL bypass the check.
@@ -39,7 +42,8 @@ The system SHALL allow access to a Slack conversation only as follows, and SHALL
 - A public channel is allowed for a full-member requester and for a run with no requester.
 - A public channel is allowed for a guest or external requester only when they are a member of it.
 - A private channel or group DM is allowed only when the requester is a member of it.
-- A DM is allowed only when the requester is the DM's user.
+- For a run with no requester, a private channel or group DM is allowed only when the bot itself is a member of it.
+- A DM is allowed only when the requester is the DM's user, and never for a run with no requester.
 
 #### Scenario: Full member reads a public channel
 
@@ -71,9 +75,24 @@ The system SHALL allow access to a Slack conversation only as follows, and SHALL
 - **WHEN** a run with no requester asks for a public channel
 - **THEN** the check allows access
 
-#### Scenario: No requester and a private channel
+#### Scenario: No requester and a private channel the bot is not in
 
-- **WHEN** a run with no requester asks for a private channel
+- **WHEN** a run with no requester asks for a private channel the bot is not a member of
+- **THEN** the check denies access
+
+#### Scenario: No requester and a private channel the bot was invited into
+
+- **WHEN** a run with no requester asks for a private channel or group DM the bot is a member of
+- **THEN** the check allows access
+
+#### Scenario: No requester and a DM
+
+- **WHEN** a run with no requester asks for a DM
+- **THEN** the check denies access
+
+#### Scenario: The bot's membership does not stand in for a requester's
+
+- **WHEN** a requester asks for a private channel the bot is a member of and they are not
 - **THEN** the check denies access
 
 #### Scenario: Channel info unavailable
@@ -156,7 +175,7 @@ The system SHALL allow access to a Slack file (including canvases and lists) onl
 
 #### Scenario: No requester
 
-- **WHEN** a run with no requester asks for a file shared only to private channels
+- **WHEN** a run with no requester asks for a file shared only to private channels the bot is not a member of
 - **THEN** the check denies access
 
 ### Requirement: Verdict cache
@@ -244,6 +263,40 @@ The system SHALL record on the session every conversation and file the access ch
 - **WHEN** a file was allowed for one participant in a session
 - **THEN** it is allowed for the other participants of that session
 
+### Requirement: Schedule grants
+
+When a user creates a scheduled message, or changes its target channel, the system SHALL run the conversation access check for that user on the target channel and SHALL refuse the creation or change when access is denied. When allowed, the system SHALL record the channel as a grant on the schedule, replacing any earlier grant. Every fire of the schedule SHALL start its session with the schedule's grants, so the granted channel is allowed without evaluating the creator again. A channel set without a check SHALL carry no grant.
+
+#### Scenario: Creator cannot see the channel
+
+- **WHEN** a user creates a scheduled message targeting a private channel they are not a member of
+- **THEN** the tool returns an error and no schedule is created
+
+#### Scenario: Creator can see the channel
+
+- **WHEN** a user creates a scheduled message targeting a channel they can see
+- **THEN** the schedule records that channel as a grant
+
+#### Scenario: Fire uses the grant
+
+- **WHEN** a schedule with a granted channel fires after its creator has left that channel
+- **THEN** the run is allowed that channel without a membership lookup
+
+#### Scenario: Channel change is checked
+
+- **WHEN** a user changes a schedule's channel to a private channel they are not a member of
+- **THEN** the tool returns an error and the schedule is unchanged
+
+#### Scenario: Channel change replaces the grant
+
+- **WHEN** a user changes a schedule's channel to one they can see
+- **THEN** the schedule's grant is the new channel only
+
+#### Scenario: Other edits keep the grant
+
+- **WHEN** a schedule is edited without changing its channel
+- **THEN** its grant is unchanged
+
 ### Requirement: Message-reading tools enforce the check
 
 `fetch_slack_message` and `fetch_channel_messages` SHALL run the conversation access check before reading from Slack and SHALL return a tool error without calling a Slack read method when access is denied. The error SHALL NOT include the conversation's name or content. `search_messages` SHALL omit results from conversations the requester is denied. `follow_thread` and `start_investigation`, which make Clack read a thread into an investigation, SHALL run the same check on the thread's conversation before following it.
@@ -310,4 +363,3 @@ The system SHALL read a top-level `slackAccessMode` config value of `requester` 
 
 - **WHEN** `slackAccessMode` is neither `requester` nor `bot`
 - **THEN** config loading fails with an error listing the two modes
-

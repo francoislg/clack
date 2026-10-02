@@ -10,7 +10,9 @@ export const PUBLIC = "C_PUBLIC";
 export const PUBLIC_2 = "C_PUBLIC_2";
 export const PRIVATE = "C_PRIVATE";
 export const PRIVATE_2 = "C_PRIVATE_2";
+export const PRIVATE_BOT_IN = "C_PRIVATE_BOT_IN";
 export const GROUP_DM = "G_MPIM";
+export const GROUP_DM_BOT_IN = "G_MPIM_BOT_IN";
 export const NO_PRIVACY = "C_NO_PRIVACY";
 export const DM = "D_ALICE";
 
@@ -26,6 +28,16 @@ function channelFor(channelId: string, dmUser: string | undefined) {
       return { id: PRIVATE, name: "secret", is_private: true };
     case PRIVATE_2:
       return { id: PRIVATE_2, name: "secret-2", is_private: true };
+    case PRIVATE_BOT_IN:
+      return { id: PRIVATE_BOT_IN, name: "ops", is_private: true, is_member: true };
+    case GROUP_DM_BOT_IN:
+      return {
+        id: GROUP_DM_BOT_IN,
+        name: "mpdm-a--b--bot-1",
+        is_private: true,
+        is_mpim: true,
+        is_member: true,
+      };
     case GROUP_DM:
       return { id: GROUP_DM, name: "mpdm-a--b--c-1", is_private: true, is_mpim: true };
     case NO_PRIVACY:

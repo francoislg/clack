@@ -11,6 +11,13 @@ import { validateTopicNames } from "./topicValidation.js";
 import type { QueryToolContext } from "../types.js";
 import { parseToolResult, toolResultText } from "../testHelpers.js";
 import { clearCronJobsCache, createJob, getJob, toggleJob } from "../../cronJobs.js";
+import { createSlackClientMock } from "../../slack/testSlackClient.js";
+import { ACCESS_DENIED_MESSAGE, checkConversationAccess } from "../../slack/requesterAccess.js";
+
+vi.mock("../../slack/requesterAccess.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../slack/requesterAccess.js")>()),
+  checkConversationAccess: vi.fn(),
+}));
 
 const originalCwd = process.cwd;
 
@@ -49,6 +56,7 @@ function callHandler(
     attached_topics?: string[];
     enabled?: boolean;
     editable_by_anyone?: boolean;
+    channel?: string;
   },
 ) {
   return tool.handler(
@@ -57,7 +65,7 @@ function callHandler(
       schedule: args.schedule,
       timezone: args.timezone,
       jitterMinutes: args.jitterMinutes,
-      channel: undefined,
+      channel: args.channel,
       prompt: args.prompt,
       requiredTools: undefined,
       plugin: undefined,
@@ -80,6 +88,7 @@ describe("update_scheduled_message tool — skipConditions", () => {
     await mkdir(join(tempDir, "data", "state"), { recursive: true });
     process.cwd = () => tempDir;
     clearCronJobsCache();
+    vi.mocked(checkConversationAccess).mockReset().mockResolvedValue({ allowed: true });
   });
 
   afterEach(async () => {
@@ -396,6 +405,67 @@ describe("update_scheduled_message tool — skipConditions", () => {
     assert.match(toolResultText(result), /Known topics: response-rendering, trivia/);
     const unchanged = await getJob(job.id);
     assert.equal(unchanged?.attachedTopics, undefined);
+  });
+
+  async function seedGrantedJob() {
+    return createJob({
+      cronExpression: "0 9 * * *",
+      channel: "C456",
+      prompt: "Summarize PRs",
+      createdBy: "U123",
+      timezone: "UTC",
+      accessGranted: ["C456"],
+    });
+  }
+
+  it("refuses a new channel the editing user cannot see and leaves the job untouched", async () => {
+    vi.mocked(checkConversationAccess).mockResolvedValue({ allowed: false, reason: "not_member" });
+    const job = await seedGrantedJob();
+    const tool = createUpdateScheduledMessageTool(
+      buildCtx({ slackClient: createSlackClientMock() }),
+    );
+
+    const result = await callHandler(tool, { id: job.id, channel: "C789" });
+
+    assert.equal(result.isError, true);
+    assert.equal(parseToolResult(result).error, ACCESS_DENIED_MESSAGE);
+    const unchanged = await getJob(job.id);
+    assert.equal(unchanged?.channel, "C456");
+    assert.deepEqual(unchanged?.accessGranted, ["C456"]);
+  });
+
+  it("grants the job access to a new channel the editing user can see", async () => {
+    const job = await seedGrantedJob();
+    const ctx = buildCtx({ slackClient: createSlackClientMock() });
+    const tool = createUpdateScheduledMessageTool(ctx);
+
+    const result = await callHandler(tool, { id: job.id, channel: "C789" });
+
+    assert.notEqual(result.isError, true);
+    const updated = await getJob(job.id);
+    assert.equal(updated?.channel, "C789");
+    assert.deepEqual(updated?.accessGranted, ["C789"]);
+    const calls = vi.mocked(checkConversationAccess).mock.calls;
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0][0].client, ctx.slackClient);
+    assert.equal(calls[0][0].userId, "U123");
+    assert.equal(calls[0][0].role, "dev");
+    assert.equal(calls[0][0].session, ctx.session);
+    assert.equal(calls[0][1], "C789");
+  });
+
+  it("skips the access check and keeps accessGranted when the channel is not changed", async () => {
+    const job = await seedGrantedJob();
+    const tool = createUpdateScheduledMessageTool(
+      buildCtx({ slackClient: createSlackClientMock() }),
+    );
+
+    const result = await callHandler(tool, { id: job.id, prompt: "New prompt" });
+
+    assert.notEqual(result.isError, true);
+    assert.equal(vi.mocked(checkConversationAccess).mock.calls.length, 0);
+    const updated = await getJob(job.id);
+    assert.deepEqual(updated?.accessGranted, ["C456"]);
   });
 
   it("sets enabled to false to pause the schedule", async () => {

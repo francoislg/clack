@@ -218,6 +218,52 @@ describe("cronJobs", () => {
       assert.equal(job.attachedTopics, undefined);
     });
 
+    it("persists accessGranted when supplied", async () => {
+      const job = await createJob({
+        name: "Test schedule",
+        cronExpression: "0 9 * * *",
+        channel: "C123",
+        prompt: "Summarize PRs",
+        createdBy: "U456",
+        timezone: "UTC",
+        accessGranted: ["C123"],
+      });
+
+      assert.deepEqual(job.accessGranted, ["C123"]);
+
+      clearCronJobsCache();
+      const loaded = await getJob(job.id);
+      assert.ok(loaded);
+      assert.deepEqual(loaded.accessGranted, ["C123"]);
+    });
+
+    it("omits accessGranted when not supplied", async () => {
+      const job = await createJob({
+        name: "Test schedule",
+        cronExpression: "0 9 * * *",
+        channel: "C123",
+        prompt: "Summarize PRs",
+        createdBy: "U456",
+        timezone: "UTC",
+      });
+
+      assert.equal(job.accessGranted, undefined);
+    });
+
+    it("omits accessGranted when supplied as empty array", async () => {
+      const job = await createJob({
+        name: "Test schedule",
+        cronExpression: "0 9 * * *",
+        channel: "C123",
+        prompt: "Summarize PRs",
+        createdBy: "U456",
+        timezone: "UTC",
+        accessGranted: [],
+      });
+
+      assert.equal(job.accessGranted, undefined);
+    });
+
     it("creates a system-owned job with createdBy: null + systemActor", async () => {
       const job = await createJob({
         name: "Test schedule",
@@ -350,6 +396,47 @@ describe("cronJobs", () => {
 
       assert.equal(updated?.skipConditions, "Keep me");
       assert.equal(updated?.prompt, "New prompt");
+    });
+  });
+
+  describe("updateJob (accessGranted)", () => {
+    async function seedGrantedJob() {
+      return createJob({
+        name: "Test schedule",
+        cronExpression: "0 9 * * *",
+        channel: "C123",
+        prompt: "Summarize PRs",
+        createdBy: "U456",
+        timezone: "UTC",
+        accessGranted: ["C123"],
+      });
+    }
+
+    it("replaces accessGranted when supplied as a non-empty array", async () => {
+      const job = await seedGrantedJob();
+
+      const updated = await updateJob(job.id, { accessGranted: ["C999"] });
+
+      assert.deepEqual(updated?.accessGranted, ["C999"]);
+      clearCronJobsCache();
+      const loaded = await getJob(job.id);
+      assert.deepEqual(loaded?.accessGranted, ["C999"]);
+    });
+
+    it("clears accessGranted when supplied as an empty array", async () => {
+      const job = await seedGrantedJob();
+
+      const updated = await updateJob(job.id, { accessGranted: [] });
+
+      assert.equal(updated?.accessGranted, undefined);
+    });
+
+    it("leaves accessGranted unchanged when the field is omitted", async () => {
+      const job = await seedGrantedJob();
+
+      const updated = await updateJob(job.id, { prompt: "New prompt" });
+
+      assert.deepEqual(updated?.accessGranted, ["C123"]);
     });
   });
 

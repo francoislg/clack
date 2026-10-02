@@ -104,12 +104,15 @@ type FileEvidence = z.infer<typeof fileEvidenceZod>;
 const conversationZod = z.object({
   is_im: z.boolean().optional().catch(undefined),
   is_private: z.boolean().optional().catch(undefined),
+  is_member: z.boolean().optional().catch(undefined),
   user: z.string().optional().catch(undefined),
 });
 
 interface ConversationFacts {
   isIm: boolean;
   isPrivate: boolean | undefined;
+  /** Whether the bot itself is a member of the conversation. */
+  botIsMember: boolean;
   /** A DM's other party. */
   user: string | undefined;
 }
@@ -222,6 +225,7 @@ async function lookupConversation(
     return {
       isIm: parsed.data.is_im === true,
       isPrivate: parsed.data.is_private,
+      botIsMember: parsed.data.is_member === true,
       user: parsed.data.user,
     };
   } catch (error) {
@@ -250,14 +254,16 @@ async function evaluateForRequester(
   return membershipVerdict(client, channelId, userId);
 }
 
-/** A run with no requester sees public channels only. */
+/** A run with no requester sees public channels, plus the private channels and group DMs the
+ *  bot was invited into. It never sees a DM. */
 async function evaluateWithoutRequester(
   client: SlackClient,
   channelId: string,
 ): Promise<ConversationAccess> {
   const conversation = await lookupConversation(client, channelId);
   if (!conversation) return deny("unknown_conversation");
-  if (!conversation.isIm && conversation.isPrivate === false) return ALLOWED;
+  if (conversation.isIm) return deny("no_requester");
+  if (conversation.isPrivate === false || conversation.botIsMember) return ALLOWED;
   return deny("no_requester");
 }
 

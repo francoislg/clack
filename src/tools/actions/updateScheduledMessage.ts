@@ -5,6 +5,7 @@ import { CronExpressionParser } from "cron-parser";
 import type { QueryToolContext } from "../types.js";
 import { textResult, errorResult } from "../helpers.js";
 import { resolveChannelId } from "../../slack/channelResolver.js";
+import { ACCESS_DENIED_MESSAGE, checkConversationAccess } from "../../slack/requesterAccess.js";
 import { getJob, updateJob, MAX_JITTER_MINUTES } from "../../cronJobs.js";
 import { humanReadableSchedule } from "../../cronFormatter.js";
 import { isValidTimezone } from "../../timezone.js";
@@ -240,6 +241,7 @@ export function createUpdateScheduledMessageTool(
 
       // Resolve channel if provided
       let channelId = args.channel;
+      let accessGranted: string[] | undefined;
       if (channelId && ctx.slackClient) {
         const resolved = await resolveChannelId(
           { client: ctx.slackClient, userId: ctx.userId },
@@ -247,6 +249,16 @@ export function createUpdateScheduledMessageTool(
         );
         if (!resolved.ok) return errorResult(resolved.error);
         channelId = resolved.channelId;
+
+        const access = await checkConversationAccess(
+          { client: ctx.slackClient, userId: ctx.userId, role: ctx.role, session: ctx.session },
+          channelId,
+        );
+        if (!access.allowed) return errorResult(ACCESS_DENIED_MESSAGE);
+        accessGranted = [channelId];
+      } else if (channelId) {
+        // A channel set without a check carries no grant, and must not keep the old channel's.
+        accessGranted = [];
       }
 
       try {
@@ -255,6 +267,7 @@ export function createUpdateScheduledMessageTool(
           ...(args.timezone !== undefined && { timezone: args.timezone }),
           ...(args.jitterMinutes !== undefined && { jitterMinutes: args.jitterMinutes }),
           ...(channelId && { channel: channelId }),
+          ...(accessGranted && { accessGranted }),
           ...(args.prompt !== undefined && { prompt: args.prompt }),
           ...(args.requiredTools !== undefined && { requiredTools: args.requiredTools }),
           ...(args.plugin !== undefined && { plugin: args.plugin }),
