@@ -12,7 +12,7 @@ const validBase = {
 };
 
 describe("validateJudgeLeniency", () => {
-  for (const preset of ["strict", "strict-with-typos", "lenient"] as const) {
+  for (const preset of ["strict", "strict-with-typos", "lenient", "evaluate"] as const) {
     it(`accepts '${preset}'`, () => {
       const r = validateJudgeLeniency(preset, "trivia.judgeLeniency");
       assert.equal(r.ok, true);
@@ -24,6 +24,12 @@ describe("validateJudgeLeniency", () => {
     const r = validateJudgeLeniency("loose", "trivia.judgeLeniency");
     assert.equal(r.ok, false);
     if (!r.ok) assert.match(r.error, /trivia\.judgeLeniency.*one of/);
+  });
+
+  it("lists the four presets in the rejection error", () => {
+    const r = validateJudgeLeniency("loose", "trivia.judgeLeniency");
+    assert.equal(r.ok, false);
+    if (!r.ok) assert.match(r.error, /one of strict, strict-with-typos, lenient, evaluate/);
   });
 
   it("rejects non-string values", () => {
@@ -38,6 +44,12 @@ describe("parseTriviaGames — per-game judgeLeniency", () => {
     const { games, issues } = parseTriviaGames([{ ...validBase, judgeLeniency: "lenient" }]);
     assert.equal(issues.length, 0);
     assert.equal(games?.[0].judgeLeniency, "lenient");
+  });
+
+  it("accepts the evaluate preset and stores it on the game", () => {
+    const { games, issues } = parseTriviaGames([{ ...validBase, judgeLeniency: "evaluate" }]);
+    assert.equal(issues.length, 0);
+    assert.equal(games?.[0].judgeLeniency, "evaluate");
   });
 
   it("drops the field with an issue when invalid", () => {

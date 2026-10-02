@@ -127,6 +127,29 @@ describe("resolveCascade — seasonPhase tier", () => {
     expect(r.value).toBe("[Workspace] ws\n\n[Season] season\n\n[Phase] phase");
   });
 
+  it("judgeInstructions concatenates workspace + season + phase broadest-first, labelled [Phase]", () => {
+    const phase: PhaseSlice = { slug: "p", judgeInstructions: "phase" };
+    const s = season({ phases: [phase], judgeInstructions: "season" });
+    const config: TriviaConfig = { judgeInstructions: "ws" };
+    const ctx = buildCascadeContext(s, baseGame, null, config, { slug: "p" });
+    const r = resolveCascade("judgeInstructions", ctx);
+    expect(r.tier).toBe("merged");
+    expect(r.value).toBe("[Workspace] ws\n\n[Season] season\n\n[Phase] phase");
+  });
+
+  it("judgeInstructions follows the selected phase, not another slice", () => {
+    const s = season({
+      phases: [
+        { slug: "ramp", days: 5, judgeInstructions: "ramp rules" },
+        { slug: "gauntlet", judgeInstructions: "gauntlet rules" },
+      ],
+    });
+    const ctx = buildCascadeContext(s, baseGame, null, null, { slug: "ramp" });
+    const r = resolveCascade("judgeInstructions", ctx);
+    expect(r.tier).toBe("seasonPhase");
+    expect(r.value).toBe("[Phase] ramp rules");
+  });
+
   it("every axis's ladder has one entry per CASCADE_TIER_ORDER member, in order, including seasonPhase", () => {
     const phase: PhaseSlice = { slug: "p", promptMedium: { text: 1, image: 0 } };
     const ctx = buildCascadeContext(season({ phases: [phase] }), baseGame, 0, null, { slug: "p" });

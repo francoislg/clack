@@ -180,4 +180,33 @@ describe("TRIVIA_MANAGEMENT_INSTRUCTION — correcting an already-posted batch",
     assert.match(TRIVIA_MANAGEMENT_INSTRUCTION, /Never reprocess on your own initiative/);
     assert.match(TRIVIA_MANAGEMENT_INSTRUCTION, /automatic follow-up to a config change/);
   });
+
+  it("states judgeInstructions is not stamped, so only revealed questions need a reprocess", () => {
+    assert.match(
+      TRIVIA_MANAGEMENT_INSTRUCTION,
+      /`judgeInstructions` is the exception: it is NOT stamped/,
+    );
+    assert.match(TRIVIA_MANAGEMENT_INSTRUCTION, /Only an ALREADY-REVEALED question needs a/);
+  });
+});
+
+describe("TRIVIA_MANAGEMENT_INSTRUCTION — judging levers", () => {
+  it("names evaluate as the only preset accepting an answer outside the key", () => {
+    assert.match(TRIVIA_MANAGEMENT_INSTRUCTION, /Judging levers \(freeform answers\)/);
+    assert.match(
+      TRIVIA_MANAGEMENT_INSTRUCTION,
+      /`"evaluate"` — the ONLY preset that accepts a correct answer OUTSIDE the answer key/,
+    );
+  });
+
+  it("names judgeInstructions as the only free-text channel reaching the judge", () => {
+    assert.match(
+      TRIVIA_MANAGEMENT_INSTRUCTION,
+      /`judgeInstructions` — the ONLY free-text channel that reaches the freeform judge/,
+    );
+    assert.match(
+      TRIVIA_MANAGEMENT_INSTRUCTION,
+      /`additionalInstructions` does NOT reach the judge/,
+    );
+  });
 });

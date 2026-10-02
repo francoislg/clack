@@ -258,7 +258,10 @@ export const freeformAnswerHandler: AnswerTypeHandler = {
     // pending (never scored wrong) and report the failure instead.
     const judged =
       submissions.length > 0
-        ? await judgeSubmissions(deps.askClaude, question, submissions, { logger })
+        ? await judgeSubmissions(deps.askClaude, question, submissions, {
+            judgeInstructions: deps.judgeInstructions,
+            logger,
+          })
         : [];
 
     let unjudgedCount = 0;
@@ -306,16 +309,23 @@ export const freeformAnswerHandler: AnswerTypeHandler = {
     // judge run still shows every scored submission. Freeform carries no Slack
     // reactions and no no-answer bucket (modal-only), matching buildFreeformVoters.
     const questionAnswers = await deps.strategy.getFinalAnswers(question.id);
-    const correctVoters: Array<{ userId: string; displayName: string; answerText: string }> = [];
-    const incorrectVoters: Array<{ userId: string; displayName: string; answerText: string }> = [];
+    const correctVoters: FreeformVoter[] = [];
+    const incorrectVoters: FreeformVoter[] = [];
     for (const row of questionAnswers) {
       if (row.correct === undefined) continue;
-      const voter = {
+      const voter: FreeformVoter = {
         userId: row.userId,
         displayName: deps.users.get(row.userId)?.displayName ?? row.userId,
         answerText: row.answerText ?? "",
       };
-      (row.correct ? correctVoters : incorrectVoters).push(voter);
+      if (row.correct) {
+        // An answer the judge accepted outside the answer key is flagged so the
+        // reveal can name it as an accepted alternate.
+        if (row.judgeReason === ALTERNATE_SOLVE_REASON) voter.alternateSolve = true;
+        correctVoters.push(voter);
+      } else {
+        incorrectVoters.push(voter);
+      }
     }
 
     const voters = buildFreeformVoters(question, correctVoters, incorrectVoters);
@@ -537,17 +547,30 @@ export const freeformAnswerHandler: AnswerTypeHandler = {
   },
 };
 
+/** The `judgeReason` the judge stamps on an answer accepted outside the answer key. */
+const ALTERNATE_SOLVE_REASON = "alternate-solve";
+
+/** A scored freeform voter before the `revealResponses` mode is applied. */
+interface FreeformVoter {
+  userId: string;
+  displayName: string;
+  answerText: string;
+  alternateSolve?: true;
+}
+
 /**
  * Assemble the discriminated `VoterBuckets` variant for a freeform reveal.
  * Strips `answerText` when `revealResponses === "just-correctness"`; reduces
  * the missers to a count (winners keep `answerText`) when `"just-winners"`;
- * drops the named buckets entirely when `"no"`. Reactions stay empty — the
- * freeform path doesn't fetch reactions today (could be added later).
+ * drops the named buckets entirely when `"no"`. A correct voter's
+ * `alternateSolve` flag survives every mode that keeps the `correct` bucket.
+ * Reactions stay empty — the freeform path doesn't fetch reactions today
+ * (could be added later).
  */
 function buildFreeformVoters(
   question: TriviaQuestion,
-  correctVoters: Array<{ userId: string; displayName: string; answerText: string }>,
-  incorrectVoters: Array<{ userId: string; displayName: string; answerText: string }>,
+  correctVoters: FreeformVoter[],
+  incorrectVoters: FreeformVoter[],
 ): VoterBuckets {
   const mode = question.revealResponses ?? "yes";
   if (mode === "no") {
@@ -565,7 +588,11 @@ function buildFreeformVoters(
   if (mode === "just-correctness") {
     return {
       revealResponses: "just-correctness",
-      correct: correctVoters.map(({ userId, displayName }) => ({ userId, displayName })),
+      correct: correctVoters.map(({ userId, displayName, alternateSolve }) => ({
+        userId,
+        displayName,
+        ...(alternateSolve ? { alternateSolve } : {}),
+      })),
       incorrect: incorrectVoters.map(({ userId, displayName }) => ({ userId, displayName })),
       noAnswer: [],
       reactions: [],

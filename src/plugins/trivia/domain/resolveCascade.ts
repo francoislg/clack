@@ -10,11 +10,12 @@
  * - Uniform first-wins axes (13) are walked generically by key over the 6-tier
  *   `CASCADE_TIER_ORDER`: seasonSlot → seasonPhase → season → gameSlot → game →
  *   workspace → built-in default.
- * - Custom axes (3) delegate to their dedicated resolvers for the VALUE and compute
+ * - Custom axes (4) delegate to their dedicated resolvers for the VALUE and compute
  *   provenance for the ladder:
  *     - `difficulty` — per-field merge, answersFormat-keyed; reports `"merged"` when fields span tiers.
  *     - `difficultyRatio` — answersFormat-keyed first-wins.
- *     - `additionalInstructions` — cumulative concat across tiers; reports `"merged"`.
+ *     - `additionalInstructions` / `judgeInstructions` — cumulative concat across tiers
+ *       (one shared implementation); report `"merged"`.
  */
 import { DEFAULT_ANSWERS_FORMAT_WEIGHTS } from "./questionTypes.js";
 import {
@@ -50,8 +51,10 @@ function nonEmpty(raw: string | undefined): string | undefined {
   return trimmed.length === 0 ? undefined : trimmed;
 }
 
-/** The three axes whose resolution is bespoke (not the generic first-wins walk). */
-type CustomAxisKey = "difficulty" | "difficultyRatio" | "additionalInstructions";
+/** The axes resolved by cumulative concat across tiers. */
+type CumulativeAxisKey = "additionalInstructions" | "judgeInstructions";
+/** The axes whose resolution is bespoke (not the generic first-wins walk). */
+type CustomAxisKey = "difficulty" | "difficultyRatio" | CumulativeAxisKey;
 /** The axes the generic walker handles: their resolved type IS their field type. */
 type FirstWinsKey = Exclude<keyof CascadeAxes, CustomAxisKey>;
 
@@ -160,8 +163,8 @@ function resolveDifficultyRatioCustom(
   return { value, tier: winnerTier, ladder };
 }
 
-/** Human-readable label for each tier's `additionalInstructions` segment. */
-const ADDITIONAL_INSTRUCTIONS_LABEL: Record<ConcreteTier, (slotIndex: number | null) => string> = {
+/** Human-readable label for each tier's segment of a cumulative axis. */
+const CUMULATIVE_TIER_LABEL: Record<ConcreteTier, (slotIndex: number | null) => string> = {
   workspace: () => "[Workspace]",
   game: () => "[Game]",
   gameSlot: (i) => `[Game Slot ${i ?? 0}]`,
@@ -171,38 +174,35 @@ const ADDITIONAL_INSTRUCTIONS_LABEL: Record<ConcreteTier, (slotIndex: number | n
 };
 
 /**
- * `additionalInstructions` custom resolver. CUMULATIVE: concatenates each contributing
- * tier's non-empty segment, broadest-first (`workspace → game → gameSlot → season →
- * seasonSlot`), each prefixed with its tier label. Reads the context tiers directly so
- * value and ladder cannot disagree. `"merged"` when more than one tier contributes.
+ * The shared resolver for the cumulative axes (`additionalInstructions`,
+ * `judgeInstructions`). Concatenates each contributing tier's non-empty segment,
+ * broadest-first (`CASCADE_TIER_ORDER` reversed: `workspace → game → gameSlot → season →
+ * seasonPhase → seasonSlot`), each prefixed with its tier label. Reads the context tiers
+ * directly so value and ladder cannot disagree. `"merged"` when more than one tier
+ * contributes.
  */
-function resolveAdditionalInstructionsCustom(
+function resolveCumulative<K extends CumulativeAxisKey>(
+  key: K,
   ctx: CascadeContext,
-): CascadeResolution<"additionalInstructions"> {
+): { value: string | null; tier: CascadeTier; ladder: CascadeLadderEntry<string>[] } {
   const tiers = tierObjects(ctx);
   const broadestFirst = [...CASCADE_TIER_ORDER].reverse();
 
   const segments: string[] = [];
   const contributing: ConcreteTier[] = [];
   for (const tier of broadestFirst) {
-    const v = nonEmpty(tiers[tier]?.additionalInstructions);
+    const v = nonEmpty(tiers[tier]?.[key]);
     if (v !== undefined) {
-      segments.push(`${ADDITIONAL_INSTRUCTIONS_LABEL[tier](ctx.slotIndex)} ${v}`);
+      segments.push(`${CUMULATIVE_TIER_LABEL[tier](ctx.slotIndex)} ${v}`);
       contributing.push(tier);
     }
   }
   const value = segments.length === 0 ? null : segments.join("\n\n");
 
-  const ladder: CascadeLadderEntry<CascadeAxes["additionalInstructions"]>[] =
-    CASCADE_TIER_ORDER.map((tier) => {
-      const present = contributing.includes(tier);
-      return {
-        tier,
-        value: present ? tiers[tier]?.additionalInstructions : undefined,
-        present,
-        winner: present,
-      };
-    });
+  const ladder: CascadeLadderEntry<string>[] = CASCADE_TIER_ORDER.map((tier) => {
+    const present = contributing.includes(tier);
+    return { tier, value: present ? tiers[tier]?.[key] : undefined, present, winner: present };
+  });
 
   const tier: CascadeTier =
     contributing.length === 0 ? "default" : contributing.length === 1 ? contributing[0] : "merged";
@@ -230,7 +230,14 @@ export const AXIS_REGISTRY: AxisRegistry = {
   revealResponses: makeFirstWins("revealResponses", "yes"),
   difficulty: { kind: "custom", resolve: resolveDifficultyCustom },
   difficultyRatio: { kind: "custom", resolve: resolveDifficultyRatioCustom },
-  additionalInstructions: { kind: "custom", resolve: resolveAdditionalInstructionsCustom },
+  additionalInstructions: {
+    kind: "custom",
+    resolve: (ctx) => resolveCumulative("additionalInstructions", ctx),
+  },
+  judgeInstructions: {
+    kind: "custom",
+    resolve: (ctx) => resolveCumulative("judgeInstructions", ctx),
+  },
 };
 
 /**
@@ -255,6 +262,7 @@ export const AXIS_KEYS: readonly (keyof CascadeAxes)[] = [
   "difficulty",
   "difficultyRatio",
   "additionalInstructions",
+  "judgeInstructions",
 ];
 
 /** Copy `src[key]` onto `dst` when set. Generic-key-safe (no cast). */

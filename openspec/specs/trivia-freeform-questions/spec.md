@@ -250,16 +250,34 @@ Normalization SHALL be maximally conservative to eliminate false-accept risk: it
 
 ### Requirement: Per-Answer Reveal-Time Judging via Small Model
 
-`process_reveal_answers` SHALL detect freeform questions within the batch it is about to process. For every freeform question, it SHALL collect all pending `SubmittedAnswer` rows (those with `correct === undefined`) and judge EACH submission with its OWN `sdk.askClaude` call to a small/fast Claude model (Haiku-class) — there is NO batched prompt and NO echoed per-row key. The per-answer prompt SHALL include the question's `statement`, `expectedAnswer`, `acceptableAnswers[]` (if any), `gradingNotes` (if any), and the single `answerText` under judgment. The model SHALL return a single verdict `{ correct: boolean, reason?: string }`, which maps to its submission positionally and is applied via `updateAnswer`. Per-answer calls MAY run with bounded concurrency.
+`process_reveal_answers` SHALL detect freeform questions within the batch it is about to process. For every freeform question, it SHALL collect all pending `SubmittedAnswer` rows (those with `correct === undefined`), group them by normalized answer text (the normalization the exact-match pre-check uses), and judge EACH DISTINCT answer with its OWN `sdk.askClaude` call — there is NO batched prompt and NO echoed per-row key. The verdict for a distinct answer SHALL be applied to every submission in its group via `updateAnswer`. When the judge yields no verdict for a group after its retries, every submission in the group SHALL stay pending. The model SHALL be a small/fast Claude model (Haiku-class), except for a question stamped `judgeLeniency: "evaluate"`, which SHALL be judged by a Sonnet-tier model (per `trivia-judge-leniency`). The per-answer prompt SHALL include the question's `statement`, `expectedAnswer`, `acceptableAnswers[]` (if any), `gradingNotes` (if any), the resolved `judgeInstructions` (if any, per `trivia-judge-instructions`), and the single `answerText` under judgment. The model SHALL return a single verdict `{ correct: boolean, reason?: string }`. Per-answer calls MAY run with bounded concurrency.
 
 The judge SHALL accept correct answers regardless of the natural language in which the user types them. When `answerText` is an unambiguous translation of `expectedAnswer` or any entry in `acceptableAnswers[]` — including translations of named entities (cities, countries, people, works), common nouns, and direct translations of free-form descriptions — the judge SHALL return `correct: true`. This cross-language acceptance SHALL NOT override any other rule: multi-guess hedges, too-broad answers, out-of-tolerance values, and ambiguous translations all continue to be rejected with their existing reasons.
 
-#### Scenario: One judge call per submission
+#### Scenario: One judge call per distinct answer
 
-- **WHEN** `process_reveal_answers` processes a freeform question with three pending answers
-- **THEN** three independent `sdk.askClaude` calls are made, one per submission
-- **AND** each call's prompt contains exactly that submission's `answerText`
+- **WHEN** `process_reveal_answers` processes a freeform question with three pending answers whose normalized texts all differ
+- **THEN** three independent `sdk.askClaude` calls are made, one per distinct answer
+- **AND** each call's prompt contains exactly that answer's `answerText`
 - **AND** each returned verdict flips its row's `correct` from undefined via `updateAnswer`
+
+#### Scenario: Identical answers share one call
+
+- **WHEN** two players submit `"the debt"` and `"The Debt"` to the same question and neither is an exact match of the key
+- **THEN** exactly one judge call is made for the pair
+- **AND** both rows receive the same verdict and reason
+
+#### Scenario: Group with no verdict stays pending
+
+- **WHEN** the judge exhausts its retries for a group of three identical answers
+- **THEN** none of the three rows is scored
+- **AND** the reveal reports three unjudged submissions
+
+#### Scenario: Evaluate question uses the stronger model
+
+- **WHEN** an answer to a question stamped `judgeLeniency: "evaluate"` reaches the model judge
+- **THEN** the call uses the Sonnet-tier judge model
+- **AND** an answer to a `strict`, `strict-with-typos`, or `lenient` question uses the Haiku-class judge model
 
 #### Scenario: No freeform questions in batch
 

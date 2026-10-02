@@ -84,6 +84,7 @@ ${PER_FORMAT_ANSWER_SHAPES}
     - \`{ revealResponses: "just-correctness", correct, incorrect, noAnswer, reactions }\` — same bucket structure but freeform \`Voter\`s have NO \`answerText\` (admin chose to hide typed strings).
     - \`{ revealResponses: "just-winners", correct: Voter[], incorrectCount: number, noAnswerCount: number, reactions }\` — names the \`correct\` voters ONLY (freeform winners keep \`answerText\`); the missers are reduced to anonymous counts. There are NO \`incorrect\`/\`noAnswer\` named arrays.
     - \`{ revealResponses: "no", reactions }\` — reactions list only; no per-user vote info at all.
+  - ALTERNATE SOLVES: a freeform \`Voter\` in \`correct\` carries \`alternateSolve: true\` when the judge accepted an answer OUTSIDE the answer key (stored \`judgeReason: "alternate-solve"\`, \`evaluate\` judging only). The flag is present in every variant that has a \`correct\` bucket — including \`"just-correctness"\`, where the entry has no \`answerText\`. On-key answers and boolean/choice voters never carry the field. A shared-buzzer team voter (\`userId\` starting with \`team:\`) is flagged the same way. In teams mode \`teamVoters\` mirrors it: a \`correctTeams[]\` entry carries \`alternateSolve: true\` when any member's accepted answer was an alternate solve, plus \`alternateAnswerTexts: string[]\` (the accepted alternates, unattributed) whenever the mode exposes answer text; \`correctFreeAgents[]\` entries keep their own flag.
   - \`reactions\` (present in every variant) is the message's emoji reactions as COMMENTARY, not votes. Each \`ReactionVoter\` is \`{ userId, displayName, emojis: string[] }\`. The bot and cheaters are stripped from every list.
   - SHARED-BUZZER voters: on a byTeam question a \`Voter\` represents a TEAM, not a person — its \`userId\` starts with \`team:\` and its \`displayName\` is the team name. Name such a voter by its \`displayName\` in bold (e.g. *Red Team*), NEVER as a \`<@...>\` mention (there is no user to ping). Free-agent voters on the same question are normal individuals. Count a team as ONE answerer.
 - \`leaderboard\`: same shape as retrieve_scores' return.
@@ -328,10 +329,7 @@ export function createComputeAnswersTool(
         const handler = getAnswerTypeHandler(question.answersFormat);
         // Ownership is per-question: a byTeam-stamped question reads/writes its team
         // slots, an individual question its raw rows. The batch may mix both.
-        const revealDeps = {
-          ...baseRevealDeps,
-          strategy: selectAnsweringStrategy(question, scoped, data),
-        };
+        const strategy = selectAnsweringStrategy(question, scoped, data);
         // Invalidated → 0 points, never scored. Surface it (for the "invalidated" reveal
         // line + the card repaint) and stamp `processedAt` so it's terminal.
         if (question.invalidated === true) {
@@ -352,26 +350,28 @@ export function createComputeAnswersTool(
         if (!handler.hasAnswerKey(question)) {
           continue;
         }
+        // The live cascade for THIS question, built from its OWN stamped slot /
+        // season / phase (not the reveal-time clock, not the batch's first target)
+        // so a rollover or a phase boundary crossed since posting can't reshuffle
+        // the tiers, and a slot-tier value reaches only its own slot's question.
+        const questionCascadeCtx = buildCascadeContext(
+          cascadeSeasonFor(question),
+          gameEntry,
+          question.slot?.index ?? null,
+          triviaConfig,
+          { slug: question.phase },
+        );
         // Reprocess re-applies CURRENT config: re-resolve each format's frozen
-        // axes from the live cascade, rebuilt from this question's OWN stamped
-        // slot / season / phase (not the reveal-time clock) so a rollover or a
-        // phase boundary crossed since posting can't reshuffle the tiers. Then
-        // re-stamp them before scoring. Isolated per question — a resolution
-        // failure records a per-id error and skips it, never a silent clobber of
-        // the stamped value.
+        // axes from the question's cascade and re-stamp them before scoring.
+        // Isolated per question — a resolution failure records a per-id error and
+        // skips it, never a silent clobber of the stamped value.
         if (isReprocessMode) {
           try {
             await reStampReprocessedConfig(
               scoped,
               question,
               handler.reprocessReStampAxes,
-              buildCascadeContext(
-                cascadeSeasonFor(question),
-                gameEntry,
-                question.slot?.index ?? null,
-                triviaConfig,
-                { slug: question.phase },
-              ),
+              questionCascadeCtx,
             );
           } catch (err) {
             perIdErrors.push({
@@ -381,6 +381,14 @@ export function createComputeAnswersTool(
             continue;
           }
         }
+        // `judgeInstructions` is never stamped: it resolves from the live cascade
+        // at every reveal, default and reprocess alike.
+        const judgeInstructions = resolveCascade("judgeInstructions", questionCascadeCtx).value;
+        const revealDeps = {
+          ...baseRevealDeps,
+          strategy,
+          ...(judgeInstructions !== null ? { judgeInstructions } : {}),
+        };
         const outcome = await handler.processReveal(question, revealDeps);
         if (outcome.ok) {
           // Image-medium questions carry attribution for the reveal's "📷 Image: …"

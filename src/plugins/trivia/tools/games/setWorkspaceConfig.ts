@@ -123,7 +123,13 @@ export function createSetWorkspaceConfigTool() {
         .nullable()
         .optional()
         .describe(
-          'Workspace tier of the cumulative-cascade `additionalInstructions` axis (e.g. "Avoid politics."). Every non-empty tier stacks — workspace + game + season + slot all apply, concatenated tier-labeled. Surfaced verbatim to Claude via the `get_ideas` and `process_reveal_answers` payloads. null clears this tier.',
+          'Workspace tier of the cumulative-cascade `additionalInstructions` axis (e.g. "Avoid politics."). Every non-empty tier stacks — workspace + game + season + slot all apply, concatenated tier-labeled. Surfaced verbatim to Claude via the `get_ideas` and `process_reveal_answers` payloads. Does NOT reach the freeform reveal judge — use `judgeInstructions` for anything the judge must honor. null clears this tier.',
+        ),
+      judgeInstructions: triviaAdditionalInstructionsZod
+        .nullable()
+        .optional()
+        .describe(
+          'Workspace tier of the cumulative-cascade `judgeInstructions` axis (e.g. "Accept French or English answers."). The ONLY free-text channel that reaches the freeform reveal judge. Every non-empty tier stacks, concatenated tier-labeled. Under `judgeLeniency: "evaluate"` it can widen or narrow what counts as a correct answer; under the other presets it only refines accepted forms and never overrides the expected answer. Not stamped on questions: resolved at reveal, so an edit reaches every not-yet-revealed question and any reprocess. null clears this tier. Empty / whitespace-only strings are rejected.',
         ),
       hint: triviaHintZod
         .nullable()
@@ -167,7 +173,7 @@ export function createSetWorkspaceConfigTool() {
         .nullable()
         .optional()
         .describe(
-          'Workspace tier of the reveal-judge leniency axis for freeform answers. One of `"strict"` | `"strict-with-typos"` | `"lenient"`. `"strict"` forgives only case, numeral↔word substitution, decade-form, and singular/plural; `"strict-with-typos"` (the built-in default) adds typo + loose-writing tolerance; `"lenient"` accepts any rendering that unmistakably shows the player knew the answer. Resolved at save time and stamped on each freeform question. Cascade: `slot → season → game → workspace → "strict-with-typos"`. null clears.',
+          'Workspace tier of the reveal-judge leniency axis for freeform answers. One of `"strict"` | `"strict-with-typos"` | `"lenient"` | `"evaluate"`. `"strict"` forgives only case, numeral↔word substitution, decade-form, and singular/plural; `"strict-with-typos"` (the built-in default) adds typo + loose-writing tolerance; `"lenient"` accepts any rendering that unmistakably shows the player knew the answer; `"evaluate"` is the ONLY preset that accepts a correct answer OUTSIDE the answer key (the expected answer is a reference solution; a single committed answer that satisfies every clue of the question is accepted). Resolved at save time and stamped on each freeform question. Cascade: `slot → season → game → workspace → "strict-with-typos"`. null clears.',
         ),
       choiceEmojiStyle: triviaChoiceEmojiStyleZod
         .nullable()
@@ -478,6 +484,19 @@ export function createSetWorkspaceConfigTool() {
         else {
           next.additionalInstructions = r.value;
           updatedFields.push("additionalInstructions");
+        }
+      }
+
+      // judgeInstructions: validate + apply.
+      if (args.judgeInstructions === null) {
+        delete next.judgeInstructions;
+        updatedFields.push("judgeInstructions (cleared)");
+      } else if (args.judgeInstructions !== undefined) {
+        const r = normalizeAdditionalInstructions(args.judgeInstructions, "judgeInstructions");
+        if (!r.ok) issues.push({ field: "judgeInstructions", error: r.error });
+        else {
+          next.judgeInstructions = r.value;
+          updatedFields.push("judgeInstructions");
         }
       }
 

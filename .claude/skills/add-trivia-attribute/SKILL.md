@@ -16,15 +16,15 @@ A **cascading attribute** is a configuration knob that can be set (or overridden
 Before starting the checklist, decide your axis's **resolution strategy**:
 
 1. **Whole-object resolve (flat axis)** — The axis cascades a single composite value, swapping the whole object per tier. Example: `hint: { mode: "button", minDifficulty: "easy" }`. Used when the value is a bundle of related fields that must be consistent (all-or-nothing override per tier).
-   - Resolver function shape: **Parameter order varies by axis.** See Layer 2 for verified examples.
+   - Resolution: an `AXIS_REGISTRY` entry (`makeFirstWins(key, default)`), read through `resolveCascade(key, ctx).value`. See Layer 2.
    - Roll by `get_ideas`: NO — value is resolved and used directly.
    - Stamp on question record: OPTIONAL (only if it affects question generation or reveal behavior).
-   - Zod schema pattern: `z.object({ ... })` with enum/tuple sub-fields, no `.array()`.
-   - **NOTE:** Flat axes (like `hint`, `judgeLeniency`) are NOT added to `TriviaAxisBag` (see Layer 3).
+   - Zod schema pattern: `z.object({ ... })` with enum/tuple sub-fields, no `.array()` (a bare `z.enum(...)` for a single-value axis like `judgeLeniency`).
+   - **NOTE:** Flat axes (like `hint`, `judgeLeniency`) are `CascadeAxes` members registered in `AXIS_REGISTRY` exactly like weighted axes. They differ only in the parser: they are NOT added to `TriviaAxisBag` (see Layer 3).
 
 2. **Weighted-roll random axis** — The axis cascades a map of options to weights; `get_ideas` randomly picks one option. Example: `answersFormat: { boolean: 1, choice: 1, freeform: 0 }`. Used when each generation run should sample from configured possibilities.
-   - Resolver function shape: `resolveAnswersFormat(currentSeason, slotIndex, game, triviaConfig): TriviaAnswersFormatWeights` (see Layer 2 for verified signature).
-   - Roll by `get_ideas`: YES — called inside `createGetIdeasTool`, result rolled via `weightedPick(weights)`, returned in response payload as `suggestedAnswersFormat`.
+   - Resolution: an `AXIS_REGISTRY` entry (`makeFirstWins(key, DEFAULT_WEIGHTS)`), read through `resolveCascade(key, ctx).value`. See Layer 2.
+   - Roll by `get_ideas`: YES — the resolved weights are rolled via `weightedPick(weights)` and returned in the response payload as `suggestedAnswersFormat`.
    - Stamp on question record: YES — axes rolled by `get_ideas` are stamped on save so mid-config edits don't retroactively change question meaning.
    - Zod schema pattern: `z.object({ key1: integerWeight, key2: integerWeight, ... })` where `integerWeight = z.number().int().nonnegative().optional()`.
    - **NOTE:** Weighted axes belong in `TriviaAxisBag` (see Layer 3).
@@ -84,82 +84,52 @@ Before starting the checklist, decide your axis's **resolution strategy**:
   myAxis?: MyAxisWeights;
   ```
 
-### Layer 2: Domain Resolver
+### Layer 2: Cascade Membership and Registry Entry
 
-**File: `src/plugins/trivia/domain/<axisnamen>.ts`** (create a new file)
+There is NO per-axis resolver file. Do not create `src/plugins/trivia/domain/<axis>.ts` with a hand-written cascade walk — `resolveCascade` is the only resolution function, enforced by the `cascadeSingleImplementation` guard test. Flat and weighted-roll axes are registered the same way.
 
-- [ ] Create a **pure resolver function** that walks the cascade and returns the resolved value. **IMPORTANT: Resolver parameter order is NOT standardized — it varies per axis.** Below are two verified real examples; match the parameter order of whichever existing resolver you are mirroring:
+**File: `src/plugins/trivia/core/cascadeAxes.ts`**
 
-  **Flat axis example (hint)** — from `src/plugins/trivia/domain/hint.ts` line 13:
+- [ ] Add the field to the `CascadeAxes` interface. Every tier type (`SeasonFormatSlot`, `PhaseSlice`, `SeasonEntry`, `TriviaGame`, `TriviaConfig`) `extends CascadeAxes`, so this one declaration puts the axis on all of them:
   ```typescript
-  export function resolveHintConfig(
-    slotIndex: number | null,
-    currentSeason: SeasonEntry | null,
-    game: TriviaGame | null,
-    workspace: TriviaConfig | null,
-  ): TriviaHintConfig {
-    if (slotIndex !== null && currentSeason?.format) {
-      const slot = currentSeason.format.questions[slotIndex];
-      if (slot?.hint !== undefined) return slot.hint;
-    }
-    if (currentSeason?.hint !== undefined) return currentSeason.hint;
-    if (game?.hint !== undefined) return game.hint;
-    if (workspace?.hint !== undefined) return workspace.hint;
-    return { mode: "none" };
+  export interface CascadeAxes {
+    // --- Uniform first-wins (whole-value replace per tier) ---
+    // ... existing
+    myAxis?: MyAxisWeights;
   }
   ```
+- [ ] Update the membership count and list in the file header.
 
-  **Weighted-roll axis example (promptMedium)** — from `src/plugins/trivia/domain/promptMediums.ts` line 18:
+**File: `src/plugins/trivia/domain/resolveCascade.ts`**
+
+- [ ] Add the `AXIS_REGISTRY` entry. `AxisRegistry` is a mapped type over `keyof CascadeAxes`, so a missing or extra entry is a compile error:
   ```typescript
-  export function resolvePromptMedium(
-    currentSeason: SeasonEntry | null,
-    slotIndex: number | null,
-    game: TriviaGame | null,
-    triviaConfig: TriviaConfig | null,
-  ): PromptMediumWeights {
-    if (currentSeason !== null && slotIndex !== null && currentSeason.format !== undefined) {
-      const slot = currentSeason.format.questions[slotIndex];
-      if (slot?.promptMedium !== undefined) return slot.promptMedium;
-    }
-    if (currentSeason?.promptMedium !== undefined) return currentSeason.promptMedium;
-    if (game?.promptMedium !== undefined) return game.promptMedium;
-    if (triviaConfig?.promptMedium !== undefined) return triviaConfig.promptMedium;
-    return DEFAULT_PROMPT_MEDIUM_WEIGHTS;
-  }
+  export const AXIS_REGISTRY: AxisRegistry = {
+    // ... existing
+    // Uniform first-wins (flat OR weighted):
+    myAxis: makeFirstWins("myAxis", DEFAULT_MY_AXIS_WEIGHTS),
+    // Merge / format-keyed / cumulative axes use a bespoke resolver instead:
+    // myAxis: { kind: "custom", resolve: (ctx, opts) => resolveMyAxisCustom(ctx, opts) },
+  };
+  ```
+- [ ] Add the key to the `AXIS_KEYS` tuple (a test asserts it equals `Object.keys(AXIS_REGISTRY)`).
+
+**Consumers** read the axis through the registry, with a context from `buildCascadeContext(...)` (`domain/cascadeContext.ts`):
+  ```typescript
+  const { value, tier, ladder } = resolveCascade("myAxis", cascadeCtx);
   ```
 
-  Choose the signature style matching your axis type and match the parameter order exactly.
-
-- [ ] If the axis is **weighted-roll**, also add a `getActiveMyAxis` function that loads season state (since seasons enable/disable at runtime). **Use this verified signature from `src/plugins/trivia/domain/promptMediums.ts` line 46:**
-  ```typescript
-  export async function getActivePromptMedium(
-    scoped: ScopedTriviaDataLayer,
-    triviaConfig: TriviaConfig | null,
-    now: number,
-    game: TriviaGame | null,
-  ): Promise<PromptMediumWeights> {
-    const seasonsEnabled = triviaConfig?.seasons?.enabled ?? false;
-    let current: SeasonEntry | null = null;
-    if (seasonsEnabled) {
-      const state: SeasonsState | null = await scoped.loadSeasonsState();
-      current = findCurrentSeason(state, now);
-    }
-    return resolvePromptMedium(current, null, game, triviaConfig);
-  }
-  ```
-
-- [ ] Add unit tests in `<axisnamen>.test.ts` covering:
-  - Slot precedence (when season has a format and slot sets the axis).
-  - Season precedence (when season is active and sets the axis, game/workspace fall through).
+- [ ] Add cases to `src/plugins/trivia/domain/resolveCascade.test.ts` covering:
+  - Slot precedence (`seasonSlot` over `seasonPhase` over `season` over `gameSlot`).
+  - Season precedence (game/workspace fall through).
   - Game → workspace → default cascade.
-  - Empty/null cases (season is null, no format, etc.) — should fall through gracefully.
-  - For weighted-roll: verify `getActiveMyAxis` correctly enables/disables seasons.
+  - Empty/null tiers (no season, no format) — fall through to the default.
 
 ### Layer 3: Config Parser and Validator
 
 **File: `src/plugins/trivia/core/configParsers/axes.ts`**
 
-**CRITICAL BRANCHING RULE:** Weighted-roll axes that flow through `parseTriviaAxisBag` belong in `TriviaAxisBag` + the apply loop. **Flat axes (like `hint` and `judgeLeniency`) are handled separately and MUST NOT be added to `TriviaAxisBag`.** The real `TriviaAxisBag` interface (line 484) contains only: `answersFormat`, `questionType`, `promptMedium`, `freeformAnswerShape`, `contexts`, `difficulty`, `difficultyRatio`. Flat axes are resolved by standalone functions and validated/saved directly by management tools.
+**CRITICAL BRANCHING RULE:** Weighted-roll axes that flow through `parseTriviaAxisBag` belong in `TriviaAxisBag` + the apply loop. **Flat axes (like `hint` and `judgeLeniency`) are handled separately and MUST NOT be added to `TriviaAxisBag`.** The real `TriviaAxisBag` interface (line 484) contains only: `answersFormat`, `questionType`, `promptMedium`, `freeformAnswerShape`, `contexts`, `difficulty`, `difficultyRatio`. This rule is about PARSING only: flat axes are resolved through `AXIS_REGISTRY` / `resolveCascade` like every other axis (Layer 2), but each has its own validator + zod schema that the tier parsers and management tools call directly.
 
 **For weighted-roll axes only:**
 
@@ -232,8 +202,8 @@ Before starting the checklist, decide your axis's **resolution strategy**:
 
 **For flat axes only (e.g., `hint`, `judgeLeniency`):**
 
-- [ ] Add the **validation function** mirroring `validateHintConfig` (does NOT go in `parseTriviaAxisBag` — management tools call it directly).
-- [ ] Add the **zod schema** to `axisFieldsZod` so management tools can shape-check Claude input (e.g., `triviaJudgeLenencyZod`).
+- [ ] Add the **validation function** mirroring `validateHintConfig` / `validateJudgeLeniency` (does NOT go in `parseTriviaAxisBag` — the tier parsers and management tools call it directly).
+- [ ] Export a **zod schema** so management tools can shape-check Claude input (e.g., `triviaHintZod`, `triviaJudgeLeniencyZod`).
 - [ ] Do NOT add the axis to `TriviaAxisBag` or the `apply` loop.
 
 - [ ] Add tests in `src/plugins/trivia/core/configParsers/myAxis.test.ts` covering:
@@ -347,14 +317,9 @@ Only for **weighted-roll axes**. Skip this layer for flat axes.
 
 **File: `src/plugins/trivia/tools/questions/getIdeas.ts`**
 
-- [ ] Import the axis's domain resolver:
+- [ ] Inside the tool implementation, resolve the weights through the registry, using the tool's existing cascade context (built by `buildCascadeContext`):
   ```typescript
-  import { getActiveMyAxis } from "../../domain/myAxis.js";
-  ```
-
-- [ ] Inside the tool implementation, call the resolver to get weights:
-  ```typescript
-  const myAxisWeights = await getActiveMyAxis(scoped, triviaConfig, now, gameEntry);
+  const myAxisWeights = resolveCascade("myAxis", cascadeCtx).value;
   ```
 
 - [ ] Roll a suggestion using `weightedPick`:
@@ -496,102 +461,116 @@ After implementing all layers:
 
 ## Worked Example: Adding `judgeLeniency`
 
-Suppose we're adding a new **flat-axis** `judgeLeniency` that controls how strictly the reveal-time judge scores freeform answers. The value is a bare `string` enum (`"strict"` | `"strict-with-typos"` | `"lenient"`), cascades slot → season → game → workspace → `"strict-with-typos"` default (whole-value replace per tier), is resolved-and-stamped at `save_question` time (no `get_ideas` roll needed), and affects reveal-time scoring.
+`judgeLeniency` controls how the reveal-time judge scores freeform answers. The value is a bare `string` enum (`"strict"` | `"strict-with-typos"` | `"lenient"` | `"evaluate"`). It is a **uniform first-wins `CascadeAxes` member**: registered in `AXIS_REGISTRY` with `makeFirstWins`, resolved only through `resolveCascade`, cascading `seasonSlot → seasonPhase → season → gameSlot → game → workspace → "strict-with-typos"` (whole-value replace per tier). It is resolved-and-stamped at `save_question` time (no `get_ideas` roll) and read from the stamp by the reveal-time judge. There is **no standalone `domain/judgeLeniency.ts` resolver** — the registry entry is the resolver.
 
-### Types (`configTypes.ts`)
+### Types (`core/configTypes.ts`)
 ```typescript
-export type JudgeLeniency = "strict" | "strict-with-typos" | "lenient";
+export type JudgeLeniency = "strict" | "strict-with-typos" | "lenient" | "evaluate";
 
-export const JUDGE_LENIENCY_KEYS = ["strict", "strict-with-typos", "lenient"] as const;
+/** The four accepted `judgeLeniency` values, for zod/validator reuse. */
+export const JUDGE_LENIENCY_KEYS = ["strict", "strict-with-typos", "lenient", "evaluate"] as const;
 
+/** Built-in fallback when no `judgeLeniency` is set at any cascade tier. */
 export const DEFAULT_JUDGE_LENIENCY: JudgeLeniency = "strict-with-typos";
-
-// Add to SeasonFormatSlot, SeasonEntry, TriviaGame, TriviaConfig:
-judgeLeniency?: JudgeLeniency;
 ```
 
-### Resolver (`domain/judgeLeniency.ts`)
+Do NOT add the field to the tier types by hand. `SeasonFormatSlot`, `PhaseSlice`, `SeasonEntry`, `TriviaGame`, and `TriviaConfig` all `extend CascadeAxes`, so they inherit it from the one declaration below.
+
+### Cascade membership (`core/cascadeAxes.ts`)
 ```typescript
-export function resolveJudgeLeniency(
-  slotIndex: number | null,
-  currentSeason: SeasonEntry | null,
-  game: TriviaGame | null,
-  workspace: TriviaConfig | null,
-): JudgeLeniency {
-  if (slotIndex !== null && currentSeason?.format) {
-    const slot = currentSeason.format.questions[slotIndex];
-    if (slot?.judgeLeniency !== undefined) return slot.judgeLeniency;
-  }
-  if (currentSeason?.judgeLeniency !== undefined) return currentSeason.judgeLeniency;
-  if (game?.judgeLeniency !== undefined) return game.judgeLeniency;
-  if (workspace?.judgeLeniency !== undefined) return workspace.judgeLeniency;
-  return DEFAULT_JUDGE_LENIENCY;
+export interface CascadeAxes {
+  // --- Uniform first-wins (whole-value replace per tier) ---
+  // ... existing
+  judgeLeniency?: JudgeLeniency;
+  // ...
 }
 ```
 
-### Parser (`configParsers/axes.ts`)
+`ResolvedAxisValue<"judgeLeniency">` falls into the default branch (`NonNullable<CascadeAxes[K]>`), so no extra type work is needed. Update the membership count in the file header.
+
+### Registry entry (`domain/resolveCascade.ts`)
 ```typescript
-export function validateJudgeLeniency(raw: unknown, fieldLabel: string): Result<JudgeLeniency> {
-  if (typeof raw !== "string") {
-    return { ok: false, error: `'${fieldLabel}' must be a string` };
-  }
-  if (!(JUDGE_LENIENCY_KEYS as readonly string[]).includes(raw)) {
-    return {
-      ok: false,
-      error: `'${fieldLabel}' must be one of ${JUDGE_LENIENCY_KEYS.join(", ")} (got "${raw}")`,
-    };
-  }
-  return { ok: true, value: raw as JudgeLeniency };
-}
-
-// In axisFieldsZod (do NOT add to TriviaAxisBag):
-export const judgeLeniencyZod = z.enum(JUDGE_LENIENCY_KEYS as readonly [JudgeLeniency, ...JudgeLeniency[]]);
-
-export const axisFieldsZod = {
-  // ... existing weighted axes
-  judgeLeniency: judgeLeniencyZod,
-} as const;
-```
-
-### Write Tools (example: `upsertGame.ts`)
-```typescript
-import { judgeLeniencyZod, validateJudgeLeniency } from "../../core/configParsers/axes.js";
-
-// In zod schema:
-judgeLeniency: judgeLeniencyZod.nullable().optional().describe("Judge leniency mode for freeform answers..."),
-
-// In mutation logic:
-if (args.judgeLeniency !== undefined && args.judgeLeniency !== null) {
-  const result = validateJudgeLeniency(args.judgeLeniency, "judgeLeniency");
-  if (!result.ok) return errorResult(result.error);
-  updatedGame.judgeLeniency = result.value;
-}
-```
-
-### Stamp at Save (`saveQuestion.ts`)
-```typescript
-// Inside save_question: resolve the axis from the cascade and stamp on the record
-const resolvedJudgeLeniency = resolveJudgeLeniency(slotIndexForResolution, currentSeasonEntry, gameEntry, config);
-
-const finalQuestion = {
-  ...outcome.question,
-  judgeLeniency: resolvedJudgeLeniency,
-  // ... other stamped fields
+export const AXIS_REGISTRY: AxisRegistry = {
+  // ... existing
+  judgeLeniency: makeFirstWins("judgeLeniency", DEFAULT_JUDGE_LENIENCY),
+  // ...
 };
 
-await scoped.saveQuestion(finalQuestion);
+export const AXIS_KEYS: readonly (keyof CascadeAxes)[] = [
+  // ... existing
+  "judgeLeniency",
+  // ...
+];
 ```
 
-### Read Tools (`listGames.ts` and `findPreviousQuestions.ts`)
-```typescript
-// In AxisOverrides and workspaceDefaults (per Layer 5):
-...(g.judgeLeniency !== undefined ? { judgeLeniency: g.judgeLeniency } : {}),
+`AxisRegistry` is a mapped type over `keyof CascadeAxes`, so the `CascadeAxes` field without this entry (or the reverse) is a compile error. `makeFirstWins` builds the generic walk over `CASCADE_TIER_ORDER`; nothing else resolves the axis. `list_games` and `explain_cascade` iterate `AXIS_KEYS`, so they surface the axis with no further code.
 
-// In findPreviousQuestions toSearchResult (per Layer 8, because judgeLeniency affects scoring):
+### Parser (`core/configParsers/axes.ts`)
+```typescript
+const judgeLeniencySchema: z.ZodType<JudgeLeniency> = schemaFromChecker(
+  (raw) => enumCheck(raw, JUDGE_LENIENCY_KEYS),
+  (raw) => raw as JudgeLeniency,
+);
+
+export function validateJudgeLeniency(raw: unknown, fieldLabel: string): Result<JudgeLeniency> {
+  return safeParseToResult(judgeLeniencySchema, raw, fieldLabel);
+}
+
+/** Shared zod schema for the `judgeLeniency` axis (structural; semantics in `validateJudgeLeniency`). */
+export const triviaJudgeLeniencyZod = z.enum(
+  JUDGE_LENIENCY_KEYS as readonly [JudgeLeniency, ...JudgeLeniency[]],
+);
+```
+
+Every tier's config parser must accept the field (workspace in `configBridge.ts`, game in `configParsers/games.ts`, slot in `configParsers/format.ts`, phase in `configParsers/phases.ts`); `core/configParsers/cascadeParity.test.ts` fails until they do. It is not a weighted axis, so it stays out of `TriviaAxisBag`.
+
+### Write Tools (example: `tools/games/upsertGame.ts`)
+```typescript
+import { triviaJudgeLeniencyZod } from "../../core/configParsers/axes.js";
+
+// In the zod input schema:
+judgeLeniency: triviaJudgeLeniencyZod.nullable().optional().describe("..."),
+
+// In the merge (omit-to-keep / null-to-clear):
+if (args.judgeLeniency === null) delete mergedStructural.judgeLeniency;
+else if (args.judgeLeniency !== undefined) mergedStructural.judgeLeniency = args.judgeLeniency;
+```
+
+`upsert_season` takes the same field at its season, slot, and phase tiers; `set_workspace_config` at the workspace tier.
+
+### Resolve and stamp at save (`tools/questions/saveQuestion.ts` + `answerTypes/freeform.ts`)
+```typescript
+// save_question resolves through the registry and hands the value to the handler —
+// it does not branch on the answer format.
+const resolvedJudgeLeniency = resolveCascade("judgeLeniency", cascadeCtx).value;
+
+// The freeform answer-type handler decides whether to stamp (non-default only):
+question: {
+  ...base,
+  freeformAnswerShape: args.freeformAnswerShape,
+  ...(ctx.resolvedJudgeLeniency !== DEFAULT_JUDGE_LENIENCY
+    ? { judgeLeniency: ctx.resolvedJudgeLeniency }
+    : {}),
+},
+```
+
+`cascadeCtx` comes from `buildCascadeContext(...)` (`domain/cascadeContext.ts`), the one place that builds the slot and phase tiers. The handler also lists the axis in `reprocessReStampAxes`, so `compute_answers` reprocess mode re-stamps it from the live cascade before re-judging.
+
+### Consumer (`freeform/judge.ts`)
+
+The judge reads the STAMP (`question.judgeLeniency ?? DEFAULT_JUDGE_LENIENCY`), never live config. Per-preset behavior lives in exhaustive `Record<JudgeLeniency, …>` tables, so adding a preset value is a compile error until every table handles it.
+
+### Read Tools
+```typescript
+// list_games / explain_cascade: nothing to add — both iterate AXIS_KEYS.
+
+// list_seasons hand-lists its fields: add the axis to the season entry and to mapSlot().
+
+// findPreviousQuestions toSearchResult (per Layer 8, because judgeLeniency affects scoring):
 if (q.judgeLeniency !== undefined) result.judgeLeniency = q.judgeLeniency;
 ```
 
-### Question Record Type (`types.ts`)
+### Question Record Type (`core/types.ts`)
 ```typescript
 export interface TriviaQuestion {
   // ... existing fields
@@ -601,13 +580,13 @@ export interface TriviaQuestion {
 
 ### Tests
 
-Create test files mirroring Layer 2–8, covering cascade, validation, stamp-on-save, and read/write surfaces.
+Per-axis test files: `core/configParsers/judgeLeniency.test.ts` (validator), a `resolveCascade.test.ts` case (tier precedence + default), `saveQuestion.judgeLeniency.test.ts` (stamp-on-save, non-default only), per-tool write/read tests, and `freeform/judge.test.ts` (prompt content per preset).
 
 ### CLAUDE.md
 
-Add a note under "Trivia question generation: four-axis composition":
+Add an axis paragraph under "Trivia question generation: four-axis composition" and add the axis to the member list in "Trivia cascade registry":
 ```
-**`judgeLeniency`** — controls how strictly the reveal-time judge scores freeform answers. Cascades `slot.judgeLeniency → season.judgeLeniency → game.judgeLeniency → workspace.judgeLeniency → "strict-with-typos"` (preserves current behavior). Values: `"strict"` (exact/near-exact only), `"strict-with-typos"` (default — tolerates minor typos), `"lenient"` (semantic variants OK). Flat axis (not in TriviaAxisBag). Resolved and stamped at `save_question` time; the reveal-time judge reads the stamp. Does not affect generation.
+**Judge-leniency axis (optional, freeform only).** `judgeLeniency?: "strict" | "strict-with-typos" | "lenient" | "evaluate"` is a first-wins `CascadeAxes` member cascading `seasonSlot → seasonPhase → season → gameSlot → game → workspace → "strict-with-typos"` with whole-value replace per tier. `"strict"` / `"strict-with-typos"` (default) / `"lenient"` judge against the answer key with increasing forgiveness; `"evaluate"` also accepts a correct answer outside the key. Resolved at `save_question` time and stamped on the freeform question record; the reveal-time judge reads the stamp. Does not affect generation.
 ```
 
 ---
@@ -616,7 +595,7 @@ Add a note under "Trivia question generation: four-axis composition":
 
 - **Empty vs absent**: In JSON, omitted fields read as `undefined` in TypeScript. Always check `field !== undefined` before considering a tier, not just `field` (which is falsy for `0`, `false`, `null`).
 - **Format presence**: When an axis is per-slot-overridable, ALWAYS check `currentSeason.format !== undefined` before accessing `currentSeason.format.questions[slotIndex]` — format may not exist.
-- **Zod vs validator**: The zod schema (`triviaJudgeLenencyZod`) shape-checks Claude's JSON input. The validator function (`validateJudgeLenencyConfig`) enforces semantic rules (enum membership, required fields, range bounds). Both are needed; both layers are called.
+- **Zod vs validator**: The zod schema (`triviaJudgeLeniencyZod`) shape-checks Claude's JSON input. The validator function (`validateJudgeLeniency`) enforces semantic rules (enum membership, required fields, range bounds). Both are needed; both layers are called.
 - **Tool description length**: Keep descriptions concise but complete. Tool descriptions are read by Claude, not humans — prioritize clarity for an AI reader. Refer to existing axes for tone.
 - **Test file naming**: Match the existing convention exactly. `<axis>.test.ts` for domain, `configParsers/<axis>.test.ts` for parser, `tools/<layer>.<axis>.test.ts` for tool layers.
 - **Don't over-test fields**: Test the happy path, error cases, and cascade behavior. Don't test the entire question-save flow just because the axis is new — mock dependencies aggressively to keep tests focused.
@@ -628,9 +607,9 @@ Add a note under "Trivia question generation: four-axis composition":
 | Problem | Solution |
 |---------|----------|
 | "Type 'undefined' is not assignable to type 'TriviaMyAxisConfig'" | Check that your field is marked as `?:` (optional) on the type, not mandatory. |
-| "Cannot find module '../domain/myAxis.js'" | Verify the file is created and the import path matches the file location exactly (including `.js` extension). |
+| "Cannot find module '../domain/myAxis.js'" | There is no per-axis resolver module. Import `resolveCascade` from `domain/resolveCascade.js` and call `resolveCascade("myAxis", ctx)`. |
 | "Zod schema keys don't match validator keys" | The zod schema shape and the `*_KEYS` const must have the same keys. Use `satisfies` to enforce this (`as const satisfies Record<K, ...>`). |
 | "listGames doesn't surface my axis on games" | Ensure you added it to BOTH the `AxisOverrides` interface AND the mapping logic (the `...(g.myAxis !== undefined ? ... : {})` spread). |
 | "Test fails: 'myAxis is not a known field'" | Check that you added the field to `TriviaAxisBag` in `axes.ts`, and that `parseTriviaAxisBag` includes an `apply` call for it. |
-| "tsc errors about missing game/season/workspace parameters" | Verify your resolver function signature matches the pattern exactly: `(season, slotIndex, game, workspace): Type`, with the exact parameter names and types. |
+| "tsc error: property 'myAxis' is missing in type … `AxisRegistry`" | `CascadeAxes` and `AXIS_REGISTRY` are out of sync. Add the missing `AXIS_REGISTRY` entry (or the missing `CascadeAxes` field) and the `AXIS_KEYS` tuple entry. |
 

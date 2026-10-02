@@ -10,6 +10,9 @@ import type { TeamBucketEntry, TeamVoterBuckets, Voter, VoterBuckets } from "./t
  * nowhere). Members are absorbed into the team; free agents pass through as
  * individual `Voter`s. Freeform member `answerText`s (present under
  * `revealResponses: "yes"` only) are collected UNATTRIBUTED onto the team entry.
+ * A team with a member whose answer was accepted as an alternate solve carries
+ * `alternateSolve: true`, plus the accepted texts in `alternateAnswerTexts`
+ * whenever the mode exposes answer text; free agents keep their own flag.
  *
  * Returns undefined for the `"no"` variant (no participation data to group).
  * Under `"just-winners"` only the correct bucket is grouped — misser texts and
@@ -28,12 +31,16 @@ export function groupVotersByTeam(
     correct: boolean;
     reacted: boolean;
     answerTexts: string[];
+    alternateSolve: boolean;
+    alternateAnswerTexts: string[];
   }
   const perTeam: TeamAccumulator[] = roster.map(() => ({
     answered: false,
     correct: false,
     reacted: false,
     answerTexts: [],
+    alternateSolve: false,
+    alternateAnswerTexts: [],
   }));
 
   function absorb(bucket: readonly Voter[], kind: "correct" | "incorrect" | "noAnswer"): Voter[] {
@@ -52,6 +59,10 @@ export function groupVotersByTeam(
       acc.answered = true;
       if (kind === "correct") acc.correct = true;
       if (voter.answerText !== undefined) acc.answerTexts.push(voter.answerText);
+      if (voter.alternateSolve === true) {
+        acc.alternateSolve = true;
+        if (voter.answerText !== undefined) acc.alternateAnswerTexts.push(voter.answerText);
+      }
     }
     return freeAgents;
   }
@@ -61,6 +72,10 @@ export function groupVotersByTeam(
     return {
       team: roster[index].name,
       ...(acc.answerTexts.length > 0 ? { answerTexts: acc.answerTexts } : {}),
+      ...(acc.alternateSolve ? { alternateSolve: true as const } : {}),
+      ...(acc.alternateAnswerTexts.length > 0
+        ? { alternateAnswerTexts: acc.alternateAnswerTexts }
+        : {}),
     };
   }
 

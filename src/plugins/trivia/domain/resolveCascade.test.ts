@@ -246,6 +246,65 @@ describe("resolveCascade — custom provenance", () => {
     expect(resolveCascade("additionalInstructions", ctx(null, null, game, null)).tier).toBe("game");
   });
 
+  it("judgeInstructions resolves to null at the default tier when no tier sets it", () => {
+    const r = resolveCascade("judgeInstructions", ctx(null, null, baseGame, {}));
+    expect(r.value).toBeNull();
+    expect(r.tier).toBe("default");
+    expect(r.ladder.every((rung) => !rung.present && !rung.winner)).toBe(true);
+  });
+
+  it("judgeInstructions reports the single contributing tier, labelled", () => {
+    const game: TriviaGame = { ...baseGame, judgeInstructions: "Accept French or English." };
+    const r = resolveCascade("judgeInstructions", ctx(null, null, game, null));
+    expect(r.value).toBe("[Game] Accept French or English.");
+    expect(r.tier).toBe("game");
+    expect(r.ladder.filter((rung) => rung.winner).map((rung) => rung.tier)).toEqual(["game"]);
+  });
+
+  it("judgeInstructions stacks every tier broadest-first with tier labels", () => {
+    const config: TriviaConfig = { judgeInstructions: "ws" };
+    const game: TriviaGame = {
+      ...baseGame,
+      judgeInstructions: "game",
+      format: { questions: [{ judgeInstructions: "game-slot" }] },
+    };
+    const s = season({
+      judgeInstructions: "season",
+      slotOverrides: { 0: { judgeInstructions: "season-slot" } },
+    });
+    const r = resolveCascade("judgeInstructions", ctx(s, 0, game, config));
+    expect(r.value).toBe(
+      "[Workspace] ws\n\n[Game] game\n\n[Game Slot 0] game-slot\n\n[Season] season\n\n[Season Slot 0] season-slot",
+    );
+    expect(r.tier).toBe("merged");
+    expect(r.ladder.find((rung) => rung.tier === "season")).toEqual({
+      tier: "season",
+      value: "season",
+      present: true,
+      winner: true,
+    });
+    expect(r.ladder.find((rung) => rung.tier === "seasonPhase")?.present).toBe(false);
+  });
+
+  it("judgeInstructions and additionalInstructions resolve independently", () => {
+    const game: TriviaGame = {
+      ...baseGame,
+      judgeInstructions: "for the judge",
+      additionalInstructions: "for the author",
+    };
+    const c = ctx(null, null, game, null);
+    expect(resolveCascade("judgeInstructions", c).value).toBe("[Game] for the judge");
+    expect(resolveCascade("additionalInstructions", c).value).toBe("[Game] for the author");
+  });
+
+  it("judgeInstructions ignores a whitespace-only tier", () => {
+    const config: TriviaConfig = { judgeInstructions: "   " };
+    const game: TriviaGame = { ...baseGame, judgeInstructions: "game" };
+    const r = resolveCascade("judgeInstructions", ctx(null, null, game, config));
+    expect(r.value).toBe("[Game] game");
+    expect(r.tier).toBe("game");
+  });
+
   it("difficulty value comes from the same tier the ladder reports (value ≡ ladder)", () => {
     const config: TriviaConfig = { difficulty: { boolean: { easy: [1, 2] } } };
     const game: TriviaGame = { ...baseGame, difficulty: { boolean: { hard: [9, 10] } } };
@@ -296,6 +355,7 @@ describe("AXIS_REGISTRY", () => {
     expect(resolveCascade("revealResponses", empty).value).toBe("yes");
     expect(resolveCascade("contexts", empty).value).toBeNull();
     expect(resolveCascade("instructions", empty).value).toBeNull();
+    expect(resolveCascade("judgeInstructions", empty).value).toBeNull();
     expect(resolveCascade("difficulty", empty, { answersFormat: "boolean" }).value).toEqual(
       DEFAULT_DIFFICULTY_RANGES.boolean,
     );
@@ -322,7 +382,7 @@ describe("AXIS_REGISTRY", () => {
     ).toEqual({ easy: 7, medium: 2, hard: 1 });
   });
 
-  it("has exactly the 16 cascade-axis keys", () => {
+  it("has exactly the 17 cascade-axis keys", () => {
     expect(Object.keys(AXIS_REGISTRY).sort()).toEqual(
       [
         "additionalInstructions",
@@ -335,6 +395,7 @@ describe("AXIS_REGISTRY", () => {
         "freeformAnswerShape",
         "hint",
         "instructions",
+        "judgeInstructions",
         "judgeLeniency",
         "liveAnswersVisible",
         "points",

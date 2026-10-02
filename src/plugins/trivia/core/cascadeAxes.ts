@@ -14,7 +14,7 @@
  * `seasonSlot` in precedence, so a slot-set axis is pinned against phase movement
  * — the phase can only win where the slot leaves the axis unset.
  *
- * Membership (16), per the rule above:
+ * Membership (17), per the rule above:
  *   - Uniform first-wins (13): answersFormat, questionType, promptMedium,
  *     freeformAnswerShape, contexts, hint, judgeLeniency, choices,
  *     choiceEmojiStyle, points, instructions, liveAnswersVisible, revealResponses.
@@ -26,8 +26,9 @@
  *     prefixes — cosmetic only. `points` is the `{ max, guidance? }` variable-
  *     points bound: unlike the weighted axes it is never server-rolled — Claude
  *     picks the value within the resolved cap at generation time.)
- *   - Custom (3): difficulty (per-field merge), difficultyRatio (answersFormat-
- *     keyed), additionalInstructions (CUMULATIVE concat across tiers).
+ *   - Custom (4): difficulty (per-field merge), difficultyRatio (answersFormat-
+ *     keyed), additionalInstructions and judgeInstructions (CUMULATIVE concat
+ *     across tiers; judgeInstructions is resolved at reveal for the freeform judge).
  *
  * Deliberately EXCLUDED (not per-question cascades): `format`, `categories`,
  * `theme` (structural-special), `allTimeRow` (game+workspace only). These keep
@@ -79,11 +80,13 @@ export interface CascadeAxes {
   difficulty?: TriviaDifficultyConfig;
   difficultyRatio?: TriviaDifficultyRatioConfig;
   additionalInstructions?: string;
+  judgeInstructions?: string;
 }
 
 /**
  * The tier a resolved value came from. `"merged"` is reported only by custom
- * axes (`difficulty` per-field merge, `additionalInstructions` cumulative concat)
+ * axes (`difficulty` per-field merge, `additionalInstructions` / `judgeInstructions`
+ * cumulative concat)
  * when the result spans more than one tier.
  */
 export type CascadeTier =
@@ -143,7 +146,8 @@ export function tierObjects(ctx: CascadeContext): Record<ConcreteTier, CascadeAx
  * `ctx.gameSlot?.[key]`, etc. Neither slot is re-derived from `season.format` inside a
  * resolver — `buildCascadeContext` is the single place that decides slot sourcing.
  *
- * `slotIndex` is carried for the `additionalInstructions` tier labels (`[Slot N]`).
+ * `slotIndex` is carried for the cumulative axes' tier labels (`[Game Slot N]` /
+ * `[Season Slot N]`).
  */
 export interface CascadeContext {
   seasonSlot: SeasonFormatSlot | null;
@@ -187,14 +191,14 @@ export interface CascadeResolution<K extends keyof CascadeAxes> {
  * field type get an explicit branch:
  *   - `difficulty` / `difficultyRatio` are stored as per-answersFormat maps but resolve
  *     to a single format's slice (`DifficultyRanges` / `DifficultyBucketWeights`).
- *   - `contexts` / `instructions` / `additionalInstructions` resolve to `null` when no
- *     tier sets them.
+ *   - `contexts` / `instructions` / `additionalInstructions` / `judgeInstructions`
+ *     resolve to `null` when no tier sets them.
  */
 export type ResolvedAxisValue<K extends keyof CascadeAxes> = K extends "difficulty"
   ? DifficultyRanges
   : K extends "difficultyRatio"
     ? DifficultyBucketWeights
-    : K extends "contexts" | "instructions" | "additionalInstructions"
+    : K extends "contexts" | "instructions" | "additionalInstructions" | "judgeInstructions"
       ? NonNullable<CascadeAxes[K]> | null
       : NonNullable<CascadeAxes[K]>;
 

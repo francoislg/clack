@@ -423,7 +423,8 @@ describe("validateJudgeLeniency", () => {
       {
         name: "bad value",
         input: "loose",
-        error: "'judgeLeniency' must be one of strict, strict-with-typos, lenient (got \"loose\")",
+        error:
+          "'judgeLeniency' must be one of strict, strict-with-typos, lenient, evaluate (got \"loose\")",
       },
     ],
   );

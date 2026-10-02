@@ -8,49 +8,14 @@ import {
 } from "../../testHelpers.js";
 import { createFakeSdk, primeTriviaConfig } from "../../testHelpers.fakeSdk.js";
 import { createUpsertSeasonTool } from "./upsertSeason.js";
+import { upsertSeasonArgs, type UpsertSeasonArgs } from "./upsertSeason.testHelpers.js";
 import { parseToolResult } from "../../../../plugins-sdk/testHelpers.js";
 
 const SESSION = { sessionId: "test" };
 const DAY = 24 * 60 * 60 * 1000;
 
-type UpsertArgs = Parameters<ReturnType<typeof createUpsertSeasonTool>["handler"]>[0];
-
-function makeArgs(overrides: Partial<UpsertArgs>): UpsertArgs {
-  return {
-    game: FIXTURE_GAME_NAME,
-    slug: "s1",
-    startedAt: undefined,
-    expectedEndAt: undefined,
-    endedAt: undefined,
-    categories: undefined,
-    answersFormat: undefined,
-    questionType: undefined,
-    promptMedium: undefined,
-    freeformAnswerShape: undefined,
-    contexts: undefined,
-    difficulty: undefined,
-    difficultyRatio: undefined,
-    theme: undefined,
-    format: undefined,
-    slotOverrides: undefined,
-    liveAnswersVisible: undefined,
-    revealResponses: undefined,
-    instructions: undefined,
-    additionalInstructions: undefined,
-    hint: undefined,
-    judgeLeniency: undefined,
-    choices: undefined,
-    choiceEmojiStyle: undefined,
-    points: undefined,
-    teams: undefined,
-    teamsEnabled: undefined,
-    teamsFinaleIndividuals: undefined,
-    teamsScoring: undefined,
-    answeringType: undefined,
-    perfectRoundsAward: undefined,
-    phases: undefined,
-    ...overrides,
-  };
+function makeArgs(overrides: Partial<UpsertSeasonArgs>): UpsertSeasonArgs {
+  return upsertSeasonArgs({ game: FIXTURE_GAME_NAME, slug: "s1", ...overrides });
 }
 
 describe("upsert_season — choices argument", () => {

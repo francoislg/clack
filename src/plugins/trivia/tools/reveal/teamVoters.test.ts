@@ -99,6 +99,94 @@ describe("groupVotersByTeam", () => {
     });
   });
 
+  describe("alternate solves", () => {
+    const alternate = (userId: string, answerText?: string): Voter => ({
+      ...voter(userId, answerText),
+      alternateSolve: true,
+    });
+
+    it("flags a correct team and lists its accepted alternate texts, unattributed", () => {
+      const grouped = groupVotersByTeam(
+        yesBuckets({
+          correct: [alternate("U1", "Credit"), voter("U2", "hole")],
+          incorrect: [voter("U3", "shadow")],
+        }),
+        ROSTER,
+      );
+      expect(grouped?.correctTeams).toEqual([
+        {
+          team: "Red",
+          answerTexts: ["Credit", "hole", "shadow"],
+          alternateSolve: true,
+          alternateAnswerTexts: ["Credit"],
+        },
+      ]);
+    });
+
+    it("leaves a team whose correct answers were all on-key unflagged", () => {
+      const grouped = groupVotersByTeam(
+        yesBuckets({ correct: [voter("U1", "hole"), alternate("U4", "Credit")] }),
+        ROSTER,
+      );
+      expect(grouped?.correctTeams).toEqual([
+        { team: "Red", answerTexts: ["hole"] },
+        {
+          team: "Blue",
+          answerTexts: ["Credit"],
+          alternateSolve: true,
+          alternateAnswerTexts: ["Credit"],
+        },
+      ]);
+    });
+
+    it("keeps the flag without any text in just-correctness mode", () => {
+      const grouped = groupVotersByTeam(
+        {
+          revealResponses: "just-correctness",
+          correct: [alternate("U1")],
+          incorrect: [],
+          noAnswer: [],
+          reactions: [],
+        },
+        ROSTER,
+      );
+      expect(grouped?.correctTeams).toEqual([{ team: "Red", alternateSolve: true }]);
+    });
+
+    it("keeps the flag and the text in just-winners mode", () => {
+      const grouped = groupVotersByTeam(
+        {
+          revealResponses: "just-winners",
+          correct: [alternate("U1", "Credit")],
+          incorrectCount: 0,
+          noAnswerCount: 0,
+          reactions: [],
+        },
+        ROSTER,
+      );
+      expect(grouped).toEqual({
+        correctTeams: [
+          {
+            team: "Red",
+            answerTexts: ["Credit"],
+            alternateSolve: true,
+            alternateAnswerTexts: ["Credit"],
+          },
+        ],
+        correctFreeAgents: [],
+      });
+    });
+
+    it("passes a free agent's flag through on the individual voter", () => {
+      const grouped = groupVotersByTeam(
+        yesBuckets({ correct: [alternate("UFREE", "Credit")] }),
+        ROSTER,
+      );
+      expect(grouped?.correctFreeAgents).toEqual([alternate("UFREE", "Credit")]);
+      expect(grouped?.correctTeams).toEqual([]);
+    });
+  });
+
   it("returns undefined for the no variant", () => {
     expect(groupVotersByTeam({ revealResponses: "no", reactions: [] }, ROSTER)).toBeUndefined();
   });

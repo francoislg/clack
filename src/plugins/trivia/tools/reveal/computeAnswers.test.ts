@@ -1,7 +1,8 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import assert from "node:assert/strict";
 import { createComputeAnswersTool } from "./computeAnswers.js";
 import { resolveLastFireOfSeason } from "../../domain/seasonStatus.js";
+import { judgeSubmissions } from "../../freeform/judge.js";
 import {
   createFakeSdk,
   createFakeRevealSlackDeps,
@@ -19,6 +20,11 @@ import type { TriviaQuestion } from "../../core/types.js";
 vi.mock("../../domain/seasonStatus.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../domain/seasonStatus.js")>();
   return { ...actual, resolveLastFireOfSeason: vi.fn(actual.resolveLastFireOfSeason) };
+});
+
+vi.mock("../../freeform/judge.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../freeform/judge.js")>();
+  return { ...actual, judgeSubmissions: vi.fn(actual.judgeSubmissions) };
 });
 
 /**
@@ -39,6 +45,23 @@ function makeQuestion(overrides: Partial<TriviaQuestion>): TriviaQuestion {
     answersFormat: "boolean",
     questionType: "fact",
     isTrue: true,
+    emojis: ["🎯"],
+    createdAt: 0,
+    postedAt: 1000,
+    messageLink: "https://x.slack.com/archives/C100000000/p1700000000000000",
+    revealResponses: "yes",
+    ...overrides,
+  };
+}
+
+function makeFreeformQuestion(overrides: Partial<TriviaQuestion>): TriviaQuestion {
+  return {
+    id: "f",
+    category: "C",
+    statement: "Capital of France?",
+    answersFormat: "freeform",
+    questionType: "fact",
+    expectedAnswer: "Paris",
     emojis: ["🎯"],
     createdAt: 0,
     postedAt: 1000,
@@ -1182,6 +1205,26 @@ describe("compute_answers — reprocess re-applies current config", () => {
     assert.equal(stored?.judgeLeniency, "lenient", "judgeLeniency re-stamped from the game tier");
   });
 
+  it("re-stamps the evaluate preset on a freeform question from the current cascade", async () => {
+    const { sdk, dataLayer: data } = makeData();
+    const scoped = data.forGame(FIXTURE_GAME_NAME);
+    await scoped.saveQuestion(
+      makeFreeformQuestion({ id: "f1", judgeLeniency: "lenient", processedAt: 9_000 }),
+    );
+    const getGames = () =>
+      fixtureGetGames().map((g) =>
+        g.name === FIXTURE_GAME_NAME ? { ...g, judgeLeniency: "evaluate" as const } : g,
+      );
+    const tool = createComputeAnswersTool(data, sdk, getGames, createFakeRevealSlackDeps());
+
+    await tool.handler(
+      { game: FIXTURE_GAME_NAME, reprocessQuestionIds: ["f1"], reprocessBatchId: undefined },
+      SESSION,
+    );
+    const stored = (await scoped.loadQuestions()).find((q) => q.id === "f1");
+    assert.equal(stored?.judgeLeniency, "evaluate");
+  });
+
   it("falls back to a legacy question's id when reprocessBatchId matches no batchId", async () => {
     const { sdk, dataLayer: data } = makeData();
     const scoped = data.forGame(FIXTURE_GAME_NAME);
@@ -1242,6 +1285,207 @@ describe("compute_answers — reprocess re-applies current config", () => {
       res.errors?.some((e: { questionId: string }) => e.questionId === "boom"),
       "failed question surfaced in errors",
     );
+  });
+});
+
+describe("compute_answers — judgeInstructions", () => {
+  const DEFAULT_ARGS = {
+    game: FIXTURE_GAME_NAME,
+    reprocessQuestionIds: undefined,
+    reprocessBatchId: undefined,
+  };
+
+  beforeEach(() => {
+    vi.mocked(judgeSubmissions).mockClear();
+  });
+
+  /** The `judgeInstructions` the judge was handed for one question. */
+  function judgeInstructionsFor(questionId: string): string | undefined {
+    const call = vi.mocked(judgeSubmissions).mock.calls.find(([, q]) => q.id === questionId);
+    assert.ok(call, `judge was not called for ${questionId}`);
+    return call[3]?.judgeInstructions;
+  }
+
+  /** A pending submission matching the key exactly, so the judge needs no model call. */
+  async function seedSubmission(data: FakeTriviaDataLayer, questionId: string): Promise<void> {
+    await data.forGame(FIXTURE_GAME_NAME).saveAnswer({
+      userId: "U1",
+      questionId,
+      answerText: "Paris",
+      timestamp: 500,
+    });
+  }
+
+  it("resolves from the question's own stamped season and phase, not the ones active at reveal", async () => {
+    const { sdk, dataLayer: data } = makeData();
+    const now = Date.now();
+    const scoped = data.forGame(FIXTURE_GAME_NAME);
+    await scoped.saveSeasonsState({
+      seasons: [
+        {
+          slug: "autumn",
+          startedAt: now - 30 * DAY,
+          expectedEndAt: now - 5 * DAY,
+          endedAt: now - 5 * DAY,
+          judgeInstructions: "AUTUMN-SEASON",
+          phases: [
+            { slug: "ramp", days: 1, judgeInstructions: "AUTUMN-RAMP" },
+            { slug: "gauntlet", judgeInstructions: "AUTUMN-GAUNTLET" },
+          ],
+        },
+        {
+          slug: "winter",
+          startedAt: now - 4 * DAY,
+          expectedEndAt: now + 20 * DAY,
+          judgeInstructions: "WINTER-SEASON",
+          phases: [{ slug: "ramp", judgeInstructions: "WINTER-RAMP" }],
+        },
+      ],
+    });
+    await scoped.saveQuestion(makeFreeformQuestion({ id: "f1", season: "autumn", phase: "ramp" }));
+    await seedSubmission(data, "f1");
+    const tool = createComputeAnswersTool(
+      data,
+      sdk,
+      fixtureGetGames,
+      createFakeRevealSlackDeps(),
+      () => ({}),
+    );
+
+    await tool.handler(DEFAULT_ARGS, SESSION);
+
+    assert.equal(judgeInstructionsFor("f1"), "[Season] AUTUMN-SEASON\n\n[Phase] AUTUMN-RAMP");
+  });
+
+  it("hands a slot-tier value to its own slot's question only, within one batch", async () => {
+    const { sdk, dataLayer: data } = makeData();
+    const scoped = data.forGame(FIXTURE_GAME_NAME);
+    await scoped.saveQuestion(
+      makeFreeformQuestion({ id: "f0", batchId: "B", postedAt: 1_000, slot: { index: 0 } }),
+    );
+    await scoped.saveQuestion(
+      makeFreeformQuestion({ id: "f2", batchId: "B", postedAt: 2_000, slot: { index: 2 } }),
+    );
+    await seedSubmission(data, "f0");
+    await seedSubmission(data, "f2");
+    const getGames = () =>
+      fixtureGetGames().map((g) =>
+        g.name === FIXTURE_GAME_NAME
+          ? { ...g, format: { questions: [{}, {}, { judgeInstructions: "SLOT-TWO" }] } }
+          : g,
+      );
+    const tool = createComputeAnswersTool(data, sdk, getGames, createFakeRevealSlackDeps(), () => ({
+      judgeInstructions: "WORKSPACE",
+    }));
+
+    await tool.handler(DEFAULT_ARGS, SESSION);
+
+    assert.equal(judgeInstructionsFor("f0"), "[Workspace] WORKSPACE");
+    assert.equal(judgeInstructionsFor("f2"), "[Workspace] WORKSPACE\n\n[Game Slot 2] SLOT-TWO");
+  });
+
+  it("hands the judge no instructions when no tier sets the axis", async () => {
+    const { sdk, dataLayer: data } = makeData();
+    await data.forGame(FIXTURE_GAME_NAME).saveQuestion(makeFreeformQuestion({ id: "f1" }));
+    await seedSubmission(data, "f1");
+    const tool = createComputeAnswersTool(
+      data,
+      sdk,
+      fixtureGetGames,
+      createFakeRevealSlackDeps(),
+      () => ({}),
+    );
+
+    await tool.handler(DEFAULT_ARGS, SESSION);
+
+    assert.equal(judgeInstructionsFor("f1"), undefined);
+  });
+
+  it("reprocess hands the judge the current value", async () => {
+    const { sdk, dataLayer: data } = makeData();
+    const scoped = data.forGame(FIXTURE_GAME_NAME);
+    await scoped.saveQuestion(makeFreeformQuestion({ id: "f1", processedAt: 9_000 }));
+    await scoped.saveAnswer({
+      userId: "U1",
+      questionId: "f1",
+      answerText: "Paris",
+      correct: true,
+      timestamp: 500,
+    });
+    const getGames = () =>
+      fixtureGetGames().map((g) =>
+        g.name === FIXTURE_GAME_NAME ? { ...g, judgeInstructions: "CURRENT" } : g,
+      );
+    const tool = createComputeAnswersTool(
+      data,
+      sdk,
+      getGames,
+      createFakeRevealSlackDeps(),
+      () => ({}),
+    );
+
+    await tool.handler(
+      { game: FIXTURE_GAME_NAME, reprocessQuestionIds: ["f1"], reprocessBatchId: undefined },
+      SESSION,
+    );
+
+    assert.equal(judgeInstructionsFor("f1"), "[Game] CURRENT");
+  });
+});
+
+describe("compute_answers — alternateSolve stays freeform-only", () => {
+  it("never puts alternateSolve on a boolean or choice voter", async () => {
+    const { sdk, dataLayer: data } = makeData();
+    const scoped = data.forGame(FIXTURE_GAME_NAME);
+    await scoped.saveQuestion(makeQuestion({ id: "b1", batchId: "B", postedAt: 1_000 }));
+    await scoped.saveQuestion({
+      id: "c1",
+      category: "C",
+      statement: "Capital of France?",
+      answersFormat: "choice",
+      questionType: "fact",
+      choices: ["Paris", "Lyon", "Nice", "Lille"],
+      correctIndex: 0,
+      emojis: ["🎯"],
+      createdAt: 0,
+      postedAt: 2_000,
+      messageLink: "https://x.slack.com/archives/C100000000/p1700000000000001",
+      revealResponses: "yes",
+      batchId: "B",
+    });
+    await scoped.saveAnswer({
+      userId: "U1",
+      questionId: "b1",
+      answer: true,
+      correct: true,
+      judgeReason: "alternate-solve",
+      timestamp: 500,
+    });
+    await scoped.saveAnswer({
+      userId: "U1",
+      questionId: "c1",
+      answerIndex: 0,
+      correct: true,
+      judgeReason: "alternate-solve",
+      timestamp: 600,
+    });
+    const tool = createComputeAnswersTool(data, sdk, fixtureGetGames, createFakeRevealSlackDeps());
+
+    const res = parseToolResult(
+      await tool.handler(
+        { game: FIXTURE_GAME_NAME, reprocessQuestionIds: undefined, reprocessBatchId: undefined },
+        SESSION,
+      ),
+    );
+
+    assert.equal(res.reveals.length, 2);
+    for (const reveal of res.reveals) {
+      assert.deepEqual(
+        reveal.voters.correct.map((v: { userId: string }) => v.userId),
+        ["U1"],
+      );
+      assert.equal(JSON.stringify(reveal.voters).includes("alternateSolve"), false);
+    }
   });
 });
 

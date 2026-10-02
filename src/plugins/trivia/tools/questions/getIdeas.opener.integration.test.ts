@@ -9,6 +9,7 @@ import {
 import { createFakeSdk, primeTriviaConfig } from "../../testHelpers.fakeSdk.js";
 import { createGetIdeasTool } from "./getIdeas.js";
 import { createUpsertSeasonTool } from "../seasons/upsertSeason.js";
+import { upsertSeasonArgs } from "../seasons/upsertSeason.testHelpers.js";
 import { parseToolResult } from "../../../../plugins-sdk/testHelpers.js";
 import type { TriviaConfig } from "../../core/configTypes.js";
 
@@ -47,40 +48,11 @@ describe("get_ideas + upsert_season cross-tool flow", () => {
     const upsert = createUpsertSeasonTool(data, fixtureGetGames);
     const upsertRes = parseToolResult(
       await upsert.handler(
-        {
+        upsertSeasonArgs({
           game: FIXTURE_GAME_NAME,
           slug: "active-2026",
-          startedAt: undefined,
-          expectedEndAt: undefined,
-          endedAt: undefined,
-          categories: undefined,
           theme: "Halloween Spooktacular",
-          answersFormat: undefined,
-          questionType: undefined,
-          promptMedium: undefined,
-          freeformAnswerShape: undefined,
-          contexts: undefined,
-          difficulty: undefined,
-          difficultyRatio: undefined,
-          format: undefined,
-          slotOverrides: undefined,
-          liveAnswersVisible: undefined,
-          revealResponses: undefined,
-          instructions: undefined,
-          additionalInstructions: undefined,
-          hint: undefined,
-          judgeLeniency: undefined,
-          choices: undefined,
-          choiceEmojiStyle: undefined,
-          points: undefined,
-          teams: undefined,
-          teamsEnabled: undefined,
-          teamsFinaleIndividuals: undefined,
-          teamsScoring: undefined,
-          answeringType: undefined,
-          perfectRoundsAward: undefined,
-          phases: undefined,
-        },
+        }),
         SESSION,
       ),
     );

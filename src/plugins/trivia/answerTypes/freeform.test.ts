@@ -1,13 +1,19 @@
-import { describe, it } from "vitest";
+import { beforeEach, describe, it, vi } from "vitest";
 import assert from "node:assert/strict";
 import { freeformAnswerHandler } from "./freeform.js";
+import { judgeSubmissions } from "../freeform/judge.js";
 import { isClickableHandler } from "./registry.js";
 import { composeWithKey } from "../questionTypes/compose.js";
 import { createTriviaDataLayer, FIXTURE_GAME_NAME } from "../testHelpers.js";
 import { createIndividualAnswering } from "../answering/individual.js";
 import { createFakeSdk, primeTriviaConfig } from "../testHelpers.fakeSdk.js";
 import type { TriviaQuestion } from "../core/types.js";
-import type { ProcessRevealDeps } from "./types.js";
+import type { ProcessRevealDeps, ProjectRevealDeps } from "./types.js";
+
+vi.mock("../freeform/judge.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../freeform/judge.js")>();
+  return { ...actual, judgeSubmissions: vi.fn(actual.judgeSubmissions) };
+});
 
 const actionIdFn = (k: string): string => `plugin:trivia:${k}`;
 
@@ -188,6 +194,10 @@ describe("freeformAnswerHandler", () => {
   });
 
   describe("processReveal", () => {
+    beforeEach(() => {
+      vi.mocked(judgeSubmissions).mockClear();
+    });
+
     function makeDeps(
       judge: string | ((answerText: string) => string) = (a) =>
         JSON.stringify(a.toLowerCase() === "paris" ? { correct: true } : { correct: false }),
@@ -220,6 +230,42 @@ describe("freeformAnswerHandler", () => {
         ...overrides,
       };
     }
+
+    it("passes deps.judgeInstructions to the judge", async () => {
+      const deps = makeDeps('{"correct":true}', { judgeInstructions: "[Game] Accept French." });
+      const question = makeQuestion();
+      await deps.scoped.saveQuestion(question);
+      await deps.scoped.saveAnswer({
+        userId: "U1",
+        questionId: question.id,
+        answerText: "Lyon",
+        timestamp: 100,
+      });
+
+      await freeformAnswerHandler.processReveal(question, deps);
+
+      const calls = vi.mocked(judgeSubmissions).mock.calls;
+      assert.equal(calls.length, 1);
+      assert.equal(calls[0][3]?.judgeInstructions, "[Game] Accept French.");
+    });
+
+    it("passes no judgeInstructions to the judge when the deps carry none", async () => {
+      const deps = makeDeps('{"correct":true}');
+      const question = makeQuestion();
+      await deps.scoped.saveQuestion(question);
+      await deps.scoped.saveAnswer({
+        userId: "U1",
+        questionId: question.id,
+        answerText: "Lyon",
+        timestamp: 100,
+      });
+
+      await freeformAnswerHandler.processReveal(question, deps);
+
+      const calls = vi.mocked(judgeSubmissions).mock.calls;
+      assert.equal(calls.length, 1);
+      assert.equal(calls[0][3]?.judgeInstructions, undefined);
+    });
 
     it("reprocess re-judges an already-judged answer, overwriting its verdict in place", async () => {
       const deps = makeDeps('{"correct":true}', { isReprocessMode: true });
@@ -420,6 +466,137 @@ describe("freeformAnswerHandler", () => {
       // processedAt is NOT stamped, so the question is eligible for re-reveal.
       const q = (await deps.scoped.loadQuestions()).find((x) => x.id === question.id);
       assert.equal(q?.processedAt, undefined);
+    });
+  });
+
+  describe("projectReveal — alternate solves", () => {
+    function makeDeps(): ProjectRevealDeps {
+      const { sdk } = createFakeSdk();
+      primeTriviaConfig(sdk);
+      const { dataLayer: data } = createTriviaDataLayer(sdk);
+      const scoped = data.forGame(FIXTURE_GAME_NAME);
+      return {
+        scoped,
+        strategy: createIndividualAnswering(scoped, data),
+        users: new Map(),
+        botUserId: "",
+        fetchMessageReactions: async () => [],
+      };
+    }
+
+    /** Three scored rows: an off-key acceptance, an exact match, and a miss. */
+    async function seedScoredRows(deps: ProjectRevealDeps, question: TriviaQuestion) {
+      await deps.scoped.saveQuestion(question);
+      await deps.scoped.saveAnswer({
+        userId: "U1",
+        questionId: question.id,
+        answerText: "Credit",
+        correct: true,
+        judgeReason: "alternate-solve",
+        timestamp: 1,
+      });
+      await deps.scoped.saveAnswer({
+        userId: "U2",
+        questionId: question.id,
+        answerText: "hole",
+        correct: true,
+        judgeReason: "exact-match",
+        timestamp: 2,
+      });
+      await deps.scoped.saveAnswer({
+        userId: "U3",
+        questionId: question.id,
+        answerText: "a pit",
+        correct: true,
+        timestamp: 3,
+      });
+      await deps.scoped.saveAnswer({
+        userId: "U4",
+        questionId: question.id,
+        answerText: "shadow",
+        correct: false,
+        judgeReason: "alternate-solve",
+        timestamp: 4,
+      });
+    }
+
+    const riddle = (overrides: Partial<TriviaQuestion> = {}): TriviaQuestion =>
+      makeQuestion({
+        statement: "The more you take from me, the bigger I grow.",
+        expectedAnswer: "hole",
+        judgeLeniency: "evaluate",
+        ...overrides,
+      });
+
+    it("flags an alternate solve and leaves on-key correct voters unflagged", async () => {
+      const deps = makeDeps();
+      const question = riddle({ revealResponses: "yes" });
+      await seedScoredRows(deps, question);
+
+      const result = await freeformAnswerHandler.projectReveal(question, deps);
+      assert.ok(result.ok);
+      assert.deepEqual(result.entry.voters, {
+        revealResponses: "yes",
+        correct: [
+          { userId: "U1", displayName: "U1", answerText: "Credit", alternateSolve: true },
+          { userId: "U2", displayName: "U2", answerText: "hole" },
+          { userId: "U3", displayName: "U3", answerText: "a pit" },
+        ],
+        incorrect: [{ userId: "U4", displayName: "U4", answerText: "shadow" }],
+        noAnswer: [],
+        reactions: [],
+      });
+    });
+
+    it("keeps the flag in 'just-correctness' mode, where answerText is withheld", async () => {
+      const deps = makeDeps();
+      const question = riddle({ revealResponses: "just-correctness" });
+      await seedScoredRows(deps, question);
+
+      const result = await freeformAnswerHandler.projectReveal(question, deps);
+      assert.ok(result.ok);
+      assert.deepEqual(result.entry.voters, {
+        revealResponses: "just-correctness",
+        correct: [
+          { userId: "U1", displayName: "U1", alternateSolve: true },
+          { userId: "U2", displayName: "U2" },
+          { userId: "U3", displayName: "U3" },
+        ],
+        incorrect: [{ userId: "U4", displayName: "U4" }],
+        noAnswer: [],
+        reactions: [],
+      });
+    });
+
+    it("keeps the flag on a named winner in 'just-winners' mode", async () => {
+      const deps = makeDeps();
+      const question = riddle({ revealResponses: "just-winners" });
+      await seedScoredRows(deps, question);
+
+      const result = await freeformAnswerHandler.projectReveal(question, deps);
+      assert.ok(result.ok);
+      assert.deepEqual(result.entry.voters, {
+        revealResponses: "just-winners",
+        correct: [
+          { userId: "U1", displayName: "U1", answerText: "Credit", alternateSolve: true },
+          { userId: "U2", displayName: "U2", answerText: "hole" },
+          { userId: "U3", displayName: "U3", answerText: "a pit" },
+        ],
+        incorrectCount: 1,
+        noAnswerCount: 0,
+        reactions: [],
+      });
+    });
+
+    it("carries no buckets and no flag in 'no' mode", async () => {
+      const deps = makeDeps();
+      const question = riddle({ revealResponses: "no" });
+      await seedScoredRows(deps, question);
+
+      const result = await freeformAnswerHandler.projectReveal(question, deps);
+      assert.ok(result.ok);
+      assert.deepEqual(result.entry.voters, { revealResponses: "no", reactions: [] });
+      assert.equal(JSON.stringify(result).includes("alternateSolve"), false);
     });
   });
 

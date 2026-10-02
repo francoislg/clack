@@ -427,16 +427,33 @@ The cascade is first-non-empty-wins, so a write at tier N is INERT for any field
 
 This applies to every cascading axis (\`answersFormat\`, \`questionType\`, \`freeformAnswerShape\`, \`contexts\`, \`difficulty\`, \`difficultyRatio\`) and to \`categories\` on seasons. \`list_games\` surfaces per-game \`axisOverrides\`; \`list_seasons\` surfaces per-season axis fields and \`format.questions[i]\` slot overrides — read both before mutating game or workspace tiers if you're not already sure what's set upstream.
 
+## Judging levers (freeform answers)
+
+A separate reveal-time judge scores typed (freeform) answers. Exactly two settings reach it — both cascade through every tier and are set via \`upsert_game\` / \`upsert_season\` (season, slot, and phase tiers) / \`set_workspace_config\`:
+
+- \`judgeLeniency\` — the preset, first-wins per tier, default \`"strict-with-typos"\`. Four values:
+  - \`"strict"\` — matches the answer key; forgives only case, numeral↔word, decade form, and singular/plural.
+  - \`"strict-with-typos"\` — adds 1–2 character typos and loose writing (spacing, punctuation, accents, homophones).
+  - \`"lenient"\` — accepts any rendering that unmistakably shows the player knew the expected answer.
+  - \`"evaluate"\` — the ONLY preset that accepts a correct answer OUTSIDE the answer key. The expected answer is a reference solution: an answer counts when it matches the key OR, as a single committed answer, satisfies EVERY clue of the question as stated (a partial fit, a stretch, or a bare category is rejected). Judged by a stronger model. An accepted off-key answer is labeled \`alternate-solve\` and named at reveal. Suits riddles and open-ended questions with more than one valid solution.
+- \`judgeInstructions\` — the ONLY free-text channel that reaches the freeform judge. Cumulative: every non-empty tier stacks, concatenated with tier labels. Under \`"evaluate"\` it can widen or narrow what counts as a fit; under the other three presets it only refines which forms of the expected answer are accepted and never overrides the answer key. To make the judge accept an off-key answer, set \`judgeLeniency: "evaluate"\` — instructions alone cannot.
+
+\`additionalInstructions\` does NOT reach the judge. It feeds question generation and the reveal post only — put anything the judge must honor in \`judgeInstructions\`.
+
+Under every preset, an answer hedging between distinct guesses is rejected, and no instruction can switch that off.
+
 ## Correcting an already-posted batch
 
 A config edit via \`upsert_game\` / \`upsert_season\` / \`set_workspace_config\` takes effect for FUTURE batches ONLY. \`revealResponses\` and \`judgeLeniency\` are STAMPED on each question when it is posted, so changing them afterward does NOT change a batch already on the board — and that is the DEFAULT, intended behavior. After a normal config edit, do NOT reprocess anything. At most, note in one line that the change applies to future batches, and offer to update the already-posted batch only if they want it.
+
+\`judgeInstructions\` is the exception: it is NOT stamped. It is resolved when a question is revealed, so an edit reaches every not-yet-revealed question by itself — including one already on the board — with no reprocess. Only an ALREADY-REVEALED question needs a \`compute_answers\` reprocess to be re-judged under the edited instructions, and that reprocess stays the explicit, admin-initiated action described below.
 
 Reprocessing an already-posted batch is a SEPARATE, EXPLICIT, admin-initiated action. Only do it when the admin clearly asks to update / fix / re-apply something to questions that are ALREADY posted — e.g. "update the previous answers", "fix the last batch's reveal", "re-apply this to what's already posted", "reprocess today's questions". **Never reprocess on your own initiative, never as an automatic follow-up to a config change, and never just to be helpful** — a freeform re-judge can flip a borderline verdict, so it stays opt-in by design.
 
 When the admin DOES explicitly ask to update an already-posted batch:
 
 1. Make the config edit at the right tier first (usually \`upsert_game\`), if it isn't already set.
-2. Call \`compute_answers({ game, reprocessQuestionIds: [...] })\` with the ids of the questions to re-apply it to. Reprocess re-resolves the current \`revealResponses\` / \`judgeLeniency\` from the cascade, re-stamps them on those questions, re-derives boolean/choice verdicts from the current key, and RE-JUDGES freeform answers under the new leniency. Find the ids via \`find_previous_questions\` (e.g. \`recentBatchFromNow: 1\` for the last batch, which returns each question's \`id\`) if you don't already have them.
+2. Call \`compute_answers({ game, reprocessQuestionIds: [...] })\` with the ids of the questions to re-apply it to. Reprocess re-resolves the current \`revealResponses\` / \`judgeLeniency\` from the cascade, re-stamps them on those questions, re-derives boolean/choice verdicts from the current key, and RE-JUDGES freeform answers under the new leniency and the current \`judgeInstructions\`. Find the ids via \`find_previous_questions\` (e.g. \`recentBatchFromNow: 1\` for the last batch, which returns each question's \`id\`) if you don't already have them.
 3. RE-AUTHOR THE PER-CARD NARRATIVE — branch on the payload's \`includeRevealInQuestions\` (do this AFTER step 2, BEFORE step 4), exactly as the reveal flow does:
    - \`"yes"\`: for EACH reprocessed question in \`reveals\`, call \`set_reveal_narrative({ game, questionId, revealBlocks: [...] })\` with freshly authored narrative. You MUST re-author rather than leave the old blocks: reprocess can have changed what the card shows — a new \`revealResponses\` mode may now hide a typed answer the old narrative quoted, and a re-judge may have flipped a verdict the old narrative asserted. Conform the new narrative to that question's CURRENT \`voters.revealResponses\` (never quote a typed answer a non-\`"yes"\` mode hides) and to the re-derived verdicts. Author every reprocessed card's narrative BEFORE step 4.
    - \`"no"\`: do NOT call \`set_reveal_narrative\` — cards stay facts-only.
@@ -477,6 +494,8 @@ The five cascading axes:
 - \`difficulty\` — per-format \`{ easy: [min, max], medium: …, hard: … }\` ranges (defines what each bucket MEANS on the 1–10 scale). Per-sub-field merge (you can override just \`freeform.hard\` without restating the rest). The rolled bucket's range IS the strict accept bound at the DIFFICULTY GATE — there is no separate threshold.
 - \`difficultyRatio\` — per-format \`{ easy: N, medium: N, hard: N }\` bucket-roll weights (controls how often each bucket is rolled, NOT what each bucket means). Whole-object replace per tier (slot/season/game/workspace each either supplies a full triple for the format or cascades through). Defaults: \`{ easy: 3, medium: 6, hard: 1 }\` for boolean/choice (preserves the prior 30/60/10), \`{ easy: 5, medium: 4, hard: 1 }\` for freeform (skewed easier in tandem with the softer freeform ranges).
 - \`hint\` — optional \`{ mode: "none" | "button" | "inline", minDifficulty?: "easy" | "medium" | "hard" }\`. Whole-object replace per tier; defaults to \`{ mode: "none" }\`. When \`mode\` is non-\`"none"\` AND the rolled difficulty bucket meets \`minDifficulty\` (or no threshold is set), \`get_ideas\` returns \`suggestedHintMode\` and Claude drafts a hint via the HINT DRAFTING GATE. **\`"button"\` and \`"inline"\` are different game-design choices, not just UI variants** — \`button\` is a per-player opt-in safety net (each player chooses whether to consume the hint via an ephemeral message); \`inline\` is a room-wide difficulty floor adjustment (every player sees the hint immediately as a context block above the answer buttons). Pick deliberately — flipping a workspace from \`button\` to \`inline\` effectively lowers difficulty for the whole room.
+- \`judgeLeniency\` — \`"strict"\` / \`"strict-with-typos"\` / \`"lenient"\` / \`"evaluate"\`; whole-value replace per tier, defaults to \`"strict-with-typos"\`. Freeform-only. See "Judging levers" above.
+- \`judgeInstructions\` — free text for the freeform judge. CUMULATIVE rather than first-wins: every non-empty tier stacks. Freeform-only. See "Judging levers" above.
 
 Reveal-display config that is GAME + WORKSPACE only (NOT a per-question axis — no slot/season tier):
 
@@ -522,7 +541,7 @@ Facts worth relaying when relevant:
 
 ### Workspace-tier defaults
 
-- \`set_workspace_config({ … })\` — Update any subset of workspace-tier fields. Omit to keep, \`null\` to clear. Fields: the 5 cascading axes (same shapes as \`upsert_game\`), \`choices: { min, max }\` (workspace-only — choice-question option-count bounds), \`offDays: [{ date, label }]\` (workspace-only — shared off-days; full-list replacement), \`seasons: { enabled, prompt }\` (workspace-only — seasons feature flag + author prompt).
+- \`set_workspace_config({ … })\` — Update any subset of workspace-tier fields. Omit to keep, \`null\` to clear. Fields: the 5 cascading axes (same shapes as \`upsert_game\`), \`judgeLeniency\` and \`judgeInstructions\` (the freeform judging levers), \`choices: { min, max }\` (workspace-only — choice-question option-count bounds), \`offDays: [{ date, label }]\` (workspace-only — shared off-days; full-list replacement), \`seasons: { enabled, prompt }\` (workspace-only — seasons feature flag + author prompt).
 
 ## Admin: optional pre-staging schedule (\`prepCron\`)
 

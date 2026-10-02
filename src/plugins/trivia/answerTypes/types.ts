@@ -97,6 +97,13 @@ export interface ProcessRevealDeps extends ProjectRevealDeps {
   askClaude: ClackSdk["askClaude"];
   now: number;
   isReprocessMode: boolean;
+  /**
+   * The cumulative `judgeInstructions` axis, resolved per question by the reveal
+   * processor from the question's own stamped season, slot, and phase. Supplied
+   * for every answer format; only the freeform handler reads it (handing it to
+   * the judge). Absent when no tier sets the axis.
+   */
+  judgeInstructions?: string;
 }
 
 /**

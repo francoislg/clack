@@ -315,7 +315,13 @@ export function createUpsertSeasonTool(
         .nullable()
         .optional()
         .describe(
-          'Per-season tier of the cumulative-cascade `additionalInstructions` axis (e.g. "Favor spooky angles."). Every non-empty tier stacks — workspace + game + season + slot all apply. Surfaced verbatim to Claude via the `get_ideas` and `process_reveal_answers` payloads. On UPDATE: passing `null` clears this tier (other tiers keep theirs). Mid-season mutation permitted.',
+          'Per-season tier of the cumulative-cascade `additionalInstructions` axis (e.g. "Favor spooky angles."). Every non-empty tier stacks — workspace + game + season + slot all apply. Surfaced verbatim to Claude via the `get_ideas` and `process_reveal_answers` payloads. Does NOT reach the freeform reveal judge — use `judgeInstructions` for anything the judge must honor. On UPDATE: passing `null` clears this tier (other tiers keep theirs). Mid-season mutation permitted.',
+        ),
+      judgeInstructions: triviaAdditionalInstructionsZod
+        .nullable()
+        .optional()
+        .describe(
+          'Per-season tier of the cumulative-cascade `judgeInstructions` axis (e.g. "Accept French or English answers."). The ONLY free-text channel that reaches the freeform reveal judge. Every non-empty tier stacks, concatenated tier-labeled. Under `judgeLeniency: "evaluate"` it can widen or narrow what counts as a correct answer; under the other presets it only refines accepted forms and never overrides the expected answer. Not stamped on questions: resolved at reveal, so an edit reaches every not-yet-revealed question and any reprocess. On UPDATE: passing `null` clears this tier (other tiers keep theirs). Empty / whitespace-only strings are rejected. Also settable per slot (`format` / `slotOverrides`) and per phase (`phases`). Mid-season mutation permitted.',
         ),
       hint: triviaHintZod
         .nullable()
@@ -327,7 +333,7 @@ export function createUpsertSeasonTool(
         .nullable()
         .optional()
         .describe(
-          'Per-season tier of the reveal-judge leniency axis for freeform answers. One of `"strict"` | `"strict-with-typos"` | `"lenient"`. `"strict"` forgives only case, numeral↔word substitution, decade-form, and singular/plural; `"strict-with-typos"` (the workspace default) adds typo + loose-writing tolerance; `"lenient"` accepts any rendering that unmistakably shows the player knew the answer. Resolved at save time and stamped on each freeform question. Cascade: `slot → season → game → workspace → "strict-with-typos"`. Whole-value replace per tier. On UPDATE: passing `null` clears the field. Mid-season mutation permitted.',
+          'Per-season tier of the reveal-judge leniency axis for freeform answers. One of `"strict"` | `"strict-with-typos"` | `"lenient"` | `"evaluate"`. `"strict"` forgives only case, numeral↔word substitution, decade-form, and singular/plural; `"strict-with-typos"` (the workspace default) adds typo + loose-writing tolerance; `"lenient"` accepts any rendering that unmistakably shows the player knew the answer; `"evaluate"` is the ONLY preset that accepts a correct answer OUTSIDE the answer key (the expected answer is a reference solution; a single committed answer that satisfies every clue of the question is accepted). Resolved at save time and stamped on each freeform question. Cascade: `slot → season → game → workspace → "strict-with-typos"`. Whole-value replace per tier. On UPDATE: passing `null` clears the field. Mid-season mutation permitted.',
         ),
       choices: triviaChoicesZod
         .nullable()
@@ -533,6 +539,16 @@ export function createUpsertSeasonTool(
           additionalInstructions = normalized.value;
         }
 
+        let judgeInstructions: string | undefined;
+        if (args.judgeInstructions !== undefined && args.judgeInstructions !== null) {
+          const normalized = normalizeAdditionalInstructions(
+            args.judgeInstructions,
+            "judgeInstructions",
+          );
+          if (!normalized.ok) return errorResult(normalized.error);
+          judgeInstructions = normalized.value;
+        }
+
         let hint: TriviaHintConfig | undefined;
         if (args.hint !== undefined && args.hint !== null) {
           const validated = validateHintConfig(args.hint, "hint");
@@ -629,6 +645,7 @@ export function createUpsertSeasonTool(
           ...(revealResponses !== undefined ? { revealResponses } : {}),
           ...(instructions !== undefined ? { instructions } : {}),
           ...(additionalInstructions !== undefined ? { additionalInstructions } : {}),
+          ...(judgeInstructions !== undefined ? { judgeInstructions } : {}),
           ...(hint !== undefined ? { hint } : {}),
           ...(judgeLeniency !== undefined ? { judgeLeniency } : {}),
           ...(choices !== undefined ? { choices } : {}),
@@ -677,6 +694,7 @@ export function createUpsertSeasonTool(
           hasRevealResponses: entry.revealResponses !== undefined,
           hasInstructions: entry.instructions !== undefined,
           hasAdditionalInstructions: entry.additionalInstructions !== undefined,
+          hasJudgeInstructions: entry.judgeInstructions !== undefined,
           hasHint: entry.hint !== undefined,
           hasJudgeLeniency: entry.judgeLeniency !== undefined,
           hasChoices: entry.choices !== undefined,
@@ -864,6 +882,18 @@ export function createUpsertSeasonTool(
         updatedAdditionalInstructions = normalized.value;
       }
 
+      let updatedJudgeInstructions: string | undefined = existing.judgeInstructions;
+      if (args.judgeInstructions === null) {
+        updatedJudgeInstructions = undefined;
+      } else if (args.judgeInstructions !== undefined) {
+        const normalized = normalizeAdditionalInstructions(
+          args.judgeInstructions,
+          "judgeInstructions",
+        );
+        if (!normalized.ok) return errorResult(normalized.error);
+        updatedJudgeInstructions = normalized.value;
+      }
+
       let updatedHint: TriviaHintConfig | undefined = existing.hint;
       if (args.hint === null) {
         updatedHint = undefined;
@@ -984,6 +1014,9 @@ export function createUpsertSeasonTool(
         ...(updatedAdditionalInstructions !== undefined
           ? { additionalInstructions: updatedAdditionalInstructions }
           : {}),
+        ...(updatedJudgeInstructions !== undefined
+          ? { judgeInstructions: updatedJudgeInstructions }
+          : {}),
         ...(updatedHint !== undefined ? { hint: updatedHint } : {}),
         ...(updatedJudgeLeniency !== undefined ? { judgeLeniency: updatedJudgeLeniency } : {}),
         ...(updatedChoices !== undefined ? { choices: updatedChoices } : {}),
@@ -1048,6 +1081,7 @@ export function createUpsertSeasonTool(
         hasRevealResponses: updated.revealResponses !== undefined,
         hasInstructions: updated.instructions !== undefined,
         hasAdditionalInstructions: updated.additionalInstructions !== undefined,
+        hasJudgeInstructions: updated.judgeInstructions !== undefined,
         hasHint: updated.hint !== undefined,
         hasJudgeLeniency: updated.judgeLeniency !== undefined,
         hasChoices: updated.choices !== undefined,

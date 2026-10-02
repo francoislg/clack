@@ -41,7 +41,7 @@ import {
   validateTriviaChoicesConfig,
   type ParseIssue,
 } from "./axes.js";
-import { validateFormat } from "./format.js";
+import { parseCumulativeInstructions, validateFormat } from "./format.js";
 import { validateTeamsRoster, validateTeamsScoring, validateAnsweringType } from "./teams.js";
 
 /** Game-name format: filesystem-safe kebab-case, 1–32 chars. */
@@ -268,17 +268,16 @@ export function parseTriviaGame(
 
   let additionalInstructions: string | undefined;
   if (e.additionalInstructions !== undefined && e.additionalInstructions !== null) {
-    const field = `${fieldPrefix}.additionalInstructions`;
-    if (typeof e.additionalInstructions !== "string") {
-      issues.push({ field, error: "must be a string" });
-    } else {
-      const trimmed = e.additionalInstructions.trim();
-      if (trimmed.length === 0) {
-        issues.push({ field, error: "must be non-empty after trim" });
-      } else {
-        additionalInstructions = trimmed;
-      }
-    }
+    const r = parseCumulativeInstructions(e.additionalInstructions);
+    if (r.ok) additionalInstructions = r.value;
+    else issues.push({ field: `${fieldPrefix}.additionalInstructions`, error: r.error });
+  }
+
+  let judgeInstructions: string | undefined;
+  if (e.judgeInstructions !== undefined && e.judgeInstructions !== null) {
+    const r = parseCumulativeInstructions(e.judgeInstructions);
+    if (r.ok) judgeInstructions = r.value;
+    else issues.push({ field: `${fieldPrefix}.judgeInstructions`, error: r.error });
   }
 
   let liveAnswersVisible: boolean | undefined;
@@ -476,6 +475,7 @@ export function parseTriviaGame(
       ...(theme ? { theme } : {}),
       ...(instructions ? { instructions } : {}),
       ...(additionalInstructions ? { additionalInstructions } : {}),
+      ...(judgeInstructions ? { judgeInstructions } : {}),
       ...(liveAnswersVisible !== undefined ? { liveAnswersVisible } : {}),
       ...(revealResponses !== undefined ? { revealResponses } : {}),
       ...(hint !== undefined ? { hint } : {}),

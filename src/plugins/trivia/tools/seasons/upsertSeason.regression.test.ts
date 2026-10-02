@@ -25,6 +25,7 @@ import {
 } from "../../testHelpers.js";
 import { createFakeSdk, primeTriviaConfig } from "../../testHelpers.fakeSdk.js";
 import { createUpsertSeasonTool } from "./upsertSeason.js";
+import { upsertSeasonArgs } from "./upsertSeason.testHelpers.js";
 import { parseToolResult } from "../../../../plugins-sdk/testHelpers.js";
 
 const SESSION = { sessionId: "test" };
@@ -45,40 +46,13 @@ describe("upsert_season — schema unification regressions", () => {
     const tool = createUpsertSeasonTool(data, fixtureGetGames);
     const future = Date.now() + 30 * DAY;
     const result = await tool.handler(
-      {
+      upsertSeasonArgs({
         game: FIXTURE_GAME_NAME,
         slug: "countable-shape",
         startedAt: future,
         expectedEndAt: future + 30 * DAY,
-        endedAt: undefined,
-        categories: undefined,
-        answersFormat: undefined,
-        questionType: undefined,
-        promptMedium: undefined,
         freeformAnswerShape: { name: 1, countable: 3, other: 0 },
-        contexts: undefined,
-        difficulty: undefined,
-        difficultyRatio: undefined,
-        theme: undefined,
-        format: undefined,
-        slotOverrides: undefined,
-        liveAnswersVisible: undefined,
-        revealResponses: undefined,
-        instructions: undefined,
-        additionalInstructions: undefined,
-        hint: undefined,
-        judgeLeniency: undefined,
-        choices: undefined,
-        choiceEmojiStyle: undefined,
-        points: undefined,
-        teams: undefined,
-        teamsEnabled: undefined,
-        teamsFinaleIndividuals: undefined,
-        teamsScoring: undefined,
-        answeringType: undefined,
-        perfectRoundsAward: undefined,
-        phases: undefined,
-      },
+      }),
       SESSION,
     );
     const parsed = parseToolResult(result);
@@ -97,40 +71,13 @@ describe("upsert_season — schema unification regressions", () => {
     const tool = createUpsertSeasonTool(data, fixtureGetGames);
     const future = Date.now() + 30 * DAY;
     const result = await tool.handler(
-      {
+      upsertSeasonArgs({
         game: FIXTURE_GAME_NAME,
         slug: "freeform-heavy",
         startedAt: future,
         expectedEndAt: future + 30 * DAY,
-        endedAt: undefined,
-        categories: undefined,
         answersFormat: { boolean: 0, choice: 1, freeform: 5 },
-        questionType: undefined,
-        promptMedium: undefined,
-        freeformAnswerShape: undefined,
-        contexts: undefined,
-        difficulty: undefined,
-        difficultyRatio: undefined,
-        theme: undefined,
-        format: undefined,
-        slotOverrides: undefined,
-        liveAnswersVisible: undefined,
-        revealResponses: undefined,
-        instructions: undefined,
-        additionalInstructions: undefined,
-        hint: undefined,
-        judgeLeniency: undefined,
-        choices: undefined,
-        choiceEmojiStyle: undefined,
-        points: undefined,
-        teams: undefined,
-        teamsEnabled: undefined,
-        teamsFinaleIndividuals: undefined,
-        teamsScoring: undefined,
-        answeringType: undefined,
-        perfectRoundsAward: undefined,
-        phases: undefined,
-      },
+      }),
       SESSION,
     );
     const parsed = parseToolResult(result);
@@ -147,78 +94,22 @@ describe("upsert_season — schema unification regressions", () => {
     const future = Date.now() + 30 * DAY;
     // First create with a different distribution.
     await tool.handler(
-      {
+      upsertSeasonArgs({
         game: FIXTURE_GAME_NAME,
         slug: "shift-to-freeform",
         startedAt: future,
         expectedEndAt: future + 30 * DAY,
-        endedAt: undefined,
-        categories: undefined,
         answersFormat: { boolean: 1, choice: 1, freeform: 0 },
-        questionType: undefined,
-        promptMedium: undefined,
-        freeformAnswerShape: undefined,
-        contexts: undefined,
-        difficulty: undefined,
-        difficultyRatio: undefined,
-        theme: undefined,
-        format: undefined,
-        slotOverrides: undefined,
-        liveAnswersVisible: undefined,
-        revealResponses: undefined,
-        instructions: undefined,
-        additionalInstructions: undefined,
-        hint: undefined,
-        judgeLeniency: undefined,
-        choices: undefined,
-        choiceEmojiStyle: undefined,
-        points: undefined,
-        teams: undefined,
-        teamsEnabled: undefined,
-        teamsFinaleIndividuals: undefined,
-        teamsScoring: undefined,
-        answeringType: undefined,
-        perfectRoundsAward: undefined,
-        phases: undefined,
-      },
+      }),
       SESSION,
     );
     // Then update to a freeform-only distribution.
     await tool.handler(
-      {
+      upsertSeasonArgs({
         game: FIXTURE_GAME_NAME,
         slug: "shift-to-freeform",
-        startedAt: undefined,
-        expectedEndAt: undefined,
-        endedAt: undefined,
-        categories: undefined,
         answersFormat: { boolean: 0, choice: 0, freeform: 3 },
-        questionType: undefined,
-        promptMedium: undefined,
-        freeformAnswerShape: undefined,
-        contexts: undefined,
-        difficulty: undefined,
-        difficultyRatio: undefined,
-        theme: undefined,
-        format: undefined,
-        slotOverrides: undefined,
-        liveAnswersVisible: undefined,
-        revealResponses: undefined,
-        instructions: undefined,
-        additionalInstructions: undefined,
-        hint: undefined,
-        judgeLeniency: undefined,
-        choices: undefined,
-        choiceEmojiStyle: undefined,
-        points: undefined,
-        teams: undefined,
-        teamsEnabled: undefined,
-        teamsFinaleIndividuals: undefined,
-        teamsScoring: undefined,
-        answeringType: undefined,
-        perfectRoundsAward: undefined,
-        phases: undefined,
-      },
+      }),
       SESSION,
     );
 

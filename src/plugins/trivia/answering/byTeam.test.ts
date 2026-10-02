@@ -143,6 +143,32 @@ describe("ByTeamAnswering", () => {
       ]);
     });
 
+    it("getFinalAnswers projects a team slot's judgeReason onto its synthetic row", async () => {
+      scoped.loadAnswers.mockResolvedValue([]);
+      scoped.loadTeamAnswers.mockResolvedValue([
+        {
+          teamName: "Red",
+          questionId: "Q1",
+          answerText: "Credit",
+          correct: true,
+          judgeReason: "alternate-solve",
+          lastAnsweredBy: "U2",
+          timestamp: 4,
+        },
+      ]);
+
+      expect(await strategy.getFinalAnswers("Q1")).toEqual([
+        {
+          userId: "team:Red",
+          questionId: "Q1",
+          answerText: "Credit",
+          correct: true,
+          judgeReason: "alternate-solve",
+          timestamp: 4,
+        },
+      ]);
+    });
+
     it("getAllScoredAnswers returns raw rows plus every slot projected", async () => {
       scoped.loadAnswers.mockResolvedValue([
         { userId: "U9", questionId: "Q1", answer: true, timestamp: 1 },
@@ -186,6 +212,33 @@ describe("ByTeamAnswering", () => {
         timestamp: 4,
         correct: true,
         judgeReason: "exact",
+      });
+    });
+
+    it("persists an alternate-solve judgeReason on the team slot", async () => {
+      scoped.loadTeamAnswers.mockResolvedValue([
+        {
+          teamName: "Red",
+          questionId: "Q1",
+          answerText: "Credit",
+          lastAnsweredBy: "U1",
+          timestamp: 4,
+        },
+      ]);
+
+      await strategy.applyVerdict("team:Red", "Q1", {
+        correct: true,
+        judgeReason: "alternate-solve",
+      });
+
+      expect(scoped.upsertTeamAnswer).toHaveBeenCalledWith({
+        teamName: "Red",
+        questionId: "Q1",
+        answerText: "Credit",
+        lastAnsweredBy: "U1",
+        timestamp: 4,
+        correct: true,
+        judgeReason: "alternate-solve",
       });
     });
 

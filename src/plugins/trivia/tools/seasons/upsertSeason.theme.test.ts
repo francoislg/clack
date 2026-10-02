@@ -8,46 +8,19 @@ import {
 } from "../../testHelpers.js";
 import { createFakeSdk, primeTriviaConfig } from "../../testHelpers.fakeSdk.js";
 import { createUpsertSeasonTool } from "./upsertSeason.js";
+import { upsertSeasonArgs } from "./upsertSeason.testHelpers.js";
 import { parseToolResult } from "../../../../plugins-sdk/testHelpers.js";
 
 const SESSION = { sessionId: "test" };
 const DAY = 24 * 60 * 60 * 1000;
 
 function baseArgs(slug: string, future: number) {
-  return {
+  return upsertSeasonArgs({
     game: FIXTURE_GAME_NAME,
     slug,
     startedAt: future,
     expectedEndAt: future + 30 * DAY,
-    endedAt: undefined,
-    categories: undefined,
-    theme: undefined,
-    answersFormat: undefined,
-    questionType: undefined,
-    promptMedium: undefined,
-    freeformAnswerShape: undefined,
-    contexts: undefined,
-    difficulty: undefined,
-    difficultyRatio: undefined,
-    format: undefined,
-    slotOverrides: undefined,
-    phases: undefined,
-    liveAnswersVisible: undefined,
-    revealResponses: undefined,
-    instructions: undefined,
-    additionalInstructions: undefined,
-    hint: undefined,
-    judgeLeniency: undefined,
-    choices: undefined,
-    choiceEmojiStyle: undefined,
-    points: undefined,
-    teams: undefined,
-    teamsEnabled: undefined,
-    teamsFinaleIndividuals: undefined,
-    teamsScoring: undefined,
-    answeringType: undefined,
-    perfectRoundsAward: undefined,
-  };
+  });
 }
 
 describe("upsert_season — theme argument", () => {

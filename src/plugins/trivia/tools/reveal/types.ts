@@ -17,6 +17,14 @@ export interface Voter {
    * (typed text stays anonymous) and absent for boolean/choice voter entries.
    */
   answerText?: string;
+  /**
+   * Set (`true`) on a freeform `correct` voter whose stored `judgeReason` is
+   * `"alternate-solve"` — the judge accepted an answer outside the answer key.
+   * Present in every mode that exposes the `correct` bucket, including
+   * `"just-correctness"` (where `answerText` is withheld). Omitted for on-key
+   * answers and for boolean/choice voter entries.
+   */
+  alternateSolve?: true;
 }
 
 export interface ReactorEntry {
@@ -81,6 +89,17 @@ export interface TeamBucketEntry {
    * no mapping back to which member typed which.
    */
   answerTexts?: string[];
+  /**
+   * Set (`true`) on a correct team when at least one member's answer was
+   * accepted as an alternate solve (outside the answer key). Present in every
+   * mode that groups the correct bucket; omitted otherwise.
+   */
+  alternateSolve?: true;
+  /**
+   * The accepted alternate answers, unattributed — the subset of `answerTexts`
+   * that were alternate solves. Present only when the mode exposes answer text.
+   */
+  alternateAnswerTexts?: string[];
 }
 
 /**

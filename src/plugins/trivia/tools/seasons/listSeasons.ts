@@ -8,6 +8,7 @@ import { buildCascadeContext } from "../../domain/cascadeContext.js";
 import { derivePhaseWindows, selectActivePhase } from "../../domain/seasonPhases.js";
 import type { TriviaDataLayer, SeasonEntry } from "../../core/types.js";
 import type {
+  JudgeLeniency,
   SeasonFormatSlot,
   TriviaAnswersFormatWeights,
   TriviaQuestionTypeWeights,
@@ -33,6 +34,8 @@ interface ListSeasonsSlotEntry {
   revealResponses?: "no" | "just-winners" | "just-correctness" | "yes";
   instructions?: string;
   additionalInstructions?: string;
+  judgeInstructions?: string;
+  judgeLeniency?: JudgeLeniency;
 }
 
 function statusOf(entry: SeasonEntry, now: number): Status {
@@ -62,6 +65,8 @@ function mapSlot(slot: SeasonFormatSlot): ListSeasonsSlotEntry {
     ...(slot.additionalInstructions !== undefined
       ? { additionalInstructions: slot.additionalInstructions }
       : {}),
+    ...(slot.judgeInstructions !== undefined ? { judgeInstructions: slot.judgeInstructions } : {}),
+    ...(slot.judgeLeniency !== undefined ? { judgeLeniency: slot.judgeLeniency } : {}),
   };
 }
 
@@ -90,7 +95,7 @@ function buildPhaseTimeline(entry: SeasonEntry, now: number): ListSeasonsPhaseWi
   }));
 }
 
-const DESCRIPTION = `List every season on a specific game's trivia timeline with full details — slug, dates, status flag ("past" | "current" | "future"), and the season's explicitly-set axis configuration (theme, answersFormat, questionType, freeformAnswerShape, contexts, difficulty, difficultyRatio, format, slotOverrides).
+const DESCRIPTION = `List every season on a specific game's trivia timeline with full details — slug, dates, status flag ("past" | "current" | "future"), and the season's explicitly-set axis configuration (theme, answersFormat, questionType, freeformAnswerShape, contexts, difficulty, difficultyRatio, instructions, additionalInstructions, judgeInstructions, judgeLeniency, format, slotOverrides). \`judgeLeniency\` (season and slot tiers) is one of four presets — \`"strict"\`, \`"strict-with-typos"\`, \`"lenient"\`, \`"evaluate"\` (the only one that accepts a correct answer outside the answer key); \`judgeInstructions\` (season and slot tiers) is the only free text that reaches the freeform reveal judge.
 
 A season that declares \`phases\` (duration-chained rules windows) also carries a \`phases\` array where each entry is the slice's \`slug\` plus its DERIVED \`start\`/\`end\` (Unix-ms, chained from the season's startedAt — never stored on disk) and an \`active\` flag marking the one slice whose window contains now. This is the only surface that shows when a phase actually flips. Seasons with no phases carry no \`phases\` key.
 
@@ -175,6 +180,10 @@ export function createListSeasonsTool(
           ...(entry.additionalInstructions !== undefined
             ? { additionalInstructions: entry.additionalInstructions }
             : {}),
+          ...(entry.judgeInstructions !== undefined
+            ? { judgeInstructions: entry.judgeInstructions }
+            : {}),
+          ...(entry.judgeLeniency !== undefined ? { judgeLeniency: entry.judgeLeniency } : {}),
           ...(entry.teams !== undefined ? { teams: entry.teams } : {}),
           ...(entry.teamsEnabled !== undefined ? { teamsEnabled: entry.teamsEnabled } : {}),
           ...(entry.teamsFinaleIndividuals !== undefined

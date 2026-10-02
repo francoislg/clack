@@ -26,6 +26,7 @@ import {
   validateTriviaChoicesConfig,
   type ParseIssue,
 } from "./configParsers/axes.js";
+import { parseCumulativeInstructions } from "./configParsers/format.js";
 import { parseOffDays, parseTriviaGames } from "./configParsers/games.js";
 import {
   validateTeamsRoster,
@@ -301,22 +302,15 @@ function parseTriviaConfigObject(raw: JsonObject, logger: PluginLogger): TriviaC
   }
 
   if (raw.additionalInstructions !== undefined && raw.additionalInstructions !== null) {
-    if (typeof raw.additionalInstructions !== "string") {
-      allIssues.push({
-        field: "trivia.additionalInstructions",
-        error: `must be a string (got ${typeof raw.additionalInstructions})`,
-      });
-    } else {
-      const trimmed = raw.additionalInstructions.trim();
-      if (trimmed.length === 0) {
-        allIssues.push({
-          field: "trivia.additionalInstructions",
-          error: "must be non-empty after trim",
-        });
-      } else {
-        out.additionalInstructions = trimmed;
-      }
-    }
+    const r = parseCumulativeInstructions(raw.additionalInstructions);
+    if (r.ok) out.additionalInstructions = r.value;
+    else allIssues.push({ field: "trivia.additionalInstructions", error: r.error });
+  }
+
+  if (raw.judgeInstructions !== undefined && raw.judgeInstructions !== null) {
+    const r = parseCumulativeInstructions(raw.judgeInstructions);
+    if (r.ok) out.judgeInstructions = r.value;
+    else allIssues.push({ field: "trivia.judgeInstructions", error: r.error });
   }
 
   // seasons block: { enabled, prompt }. The enabled-but-no-prompt case

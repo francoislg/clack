@@ -74,16 +74,34 @@ export function normalizeInstructions(raw: string): Result<string> {
   return { ok: true, value: trimmed };
 }
 
+/** The cumulative-cascade free-text fields, which share one normalizer and zod schema. */
+export type CumulativeInstructionsField = "additionalInstructions" | "judgeInstructions";
+
 /**
- * Validate the per-tier `additionalInstructions` field (cumulative-cascade axis
- * defined in the `trivia-prompt-instructions` capability). Trims, rejects empty /
- * whitespace-only.
+ * Validate a per-tier cumulative-cascade free-text field (`additionalInstructions`,
+ * `judgeInstructions`). Trims, rejects empty / whitespace-only. `field` names the
+ * field in the error message.
  */
-export function normalizeAdditionalInstructions(raw: string): Result<string> {
+export function normalizeAdditionalInstructions(
+  raw: string,
+  field: CumulativeInstructionsField = "additionalInstructions",
+): Result<string> {
   const trimmed = raw.trim();
   if (trimmed.length === 0) {
-    return { ok: false, error: "additionalInstructions must be non-empty (pass null to clear)." };
+    return { ok: false, error: `${field} must be non-empty (pass null to clear).` };
   }
+  return { ok: true, value: trimmed };
+}
+
+/**
+ * Parse a cumulative-cascade free-text field read from disk/config as `unknown`:
+ * must be a string that is non-empty after trim. Errors are bare ("must be a string",
+ * "must be non-empty after trim") so each caller prefixes its own field path.
+ */
+export function parseCumulativeInstructions(raw: unknown): Result<string> {
+  if (typeof raw !== "string") return { ok: false, error: "must be a string" };
+  const trimmed = raw.trim();
+  if (trimmed.length === 0) return { ok: false, error: "must be non-empty after trim" };
   return { ok: true, value: trimmed };
 }
 
@@ -110,6 +128,11 @@ export function normalizeCategories(raw: string[]): Result<string[]> {
  * `JsonObject`), and each field is validated by a checker that already accepts
  * `unknown`.
  */
+const CUMULATIVE_INSTRUCTIONS_FIELDS: readonly CumulativeInstructionsField[] = [
+  "additionalInstructions",
+  "judgeInstructions",
+];
+
 export interface RawSlot {
   label?: unknown;
   categories?: unknown;
@@ -124,6 +147,7 @@ export interface RawSlot {
   revealResponses?: unknown;
   instructions?: unknown;
   additionalInstructions?: unknown;
+  judgeInstructions?: unknown;
   hint?: unknown;
   judgeLeniency?: unknown;
   choices?: unknown;
@@ -296,23 +320,12 @@ export function collectSlotFieldIssues(
       }
     }
   }
-  if (slot.additionalInstructions !== undefined && slot.additionalInstructions !== null) {
-    if (typeof slot.additionalInstructions !== "string") {
-      issues.push({
-        field: "additionalInstructions",
-        error: `'${slotLabel}.additionalInstructions' must be a string`,
-      });
-    } else {
-      const trimmed = slot.additionalInstructions.trim();
-      if (trimmed.length === 0) {
-        issues.push({
-          field: "additionalInstructions",
-          error: `'${slotLabel}.additionalInstructions' must be non-empty after trim`,
-        });
-      } else {
-        out.additionalInstructions = trimmed;
-      }
-    }
+  for (const field of CUMULATIVE_INSTRUCTIONS_FIELDS) {
+    const raw = slot[field];
+    if (raw === undefined || raw === null) continue;
+    const parsed = parseCumulativeInstructions(raw);
+    if (parsed.ok) out[field] = parsed.value;
+    else issues.push({ field, error: `'${slotLabel}.${field}' ${parsed.error}` });
   }
   if (slot.hint !== undefined && slot.hint !== null) {
     const validated = validateHintConfig(slot.hint, `${slotLabel}.hint`);
@@ -386,7 +399,7 @@ export function validateSlotOverrides(
 /**
  * The full per-tier axis bag carried by a format slot / season `slotOverrides` entry.
  * Structural shape-check only — deep per-axis semantics live in `validateSlotConfig`.
- * Exported so `phases.ts` reuses the identical 16-axis set (a phase is the temporal
+ * Exported so `phases.ts` reuses the identical axis set (a phase is the temporal
  * twin of a slot) rather than rebuilding it.
  */
 export const seasonFormatSlotZod = z.object({
@@ -405,6 +418,7 @@ export const seasonFormatSlotZod = z.object({
     .optional(),
   instructions: z.string().optional(),
   additionalInstructions: z.string().optional(),
+  judgeInstructions: z.string().optional(),
   hint: triviaHintZod.optional(),
   judgeLeniency: triviaJudgeLeniencyZod.optional(),
   choices: triviaChoicesZod.optional(),
@@ -431,5 +445,8 @@ export const triviaThemeZod = z.string();
 /** Shared zod schema for the per-tier `instructions` field (replace cascade). */
 export const triviaInstructionsZod = z.string();
 
-/** Shared zod schema for the per-tier `additionalInstructions` field (cumulative cascade). */
+/**
+ * Shared zod schema for a per-tier cumulative-cascade free-text field
+ * (`additionalInstructions`, `judgeInstructions`).
+ */
 export const triviaAdditionalInstructionsZod = z.string();

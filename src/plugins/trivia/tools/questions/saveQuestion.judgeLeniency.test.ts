@@ -66,6 +66,14 @@ describe("save_question — judgeLeniency stamping", () => {
     assert.equal(parsed.question.judgeLeniency, "lenient");
   });
 
+  it("stamps the evaluate preset on a freeform question", async () => {
+    const config: TriviaConfig = { judgeLeniency: "evaluate" };
+    const tool = createSaveQuestionTool(data, () => config, fixtureGetGames);
+    const parsed = parseToolResult(await tool.handler(FREEFORM_ARGS, SESSION));
+    assert.equal(parsed.saved, true);
+    assert.equal(parsed.question.judgeLeniency, "evaluate");
+  });
+
   it("omits the stamp when the resolved preset is the default (absence reads as strict-with-typos)", async () => {
     const config: TriviaConfig = { judgeLeniency: "strict-with-typos" };
     const tool = createSaveQuestionTool(data, () => config, fixtureGetGames);

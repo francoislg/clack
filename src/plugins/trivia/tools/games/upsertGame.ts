@@ -167,7 +167,13 @@ const structuralFieldsSchema = {
     .nullable()
     .optional()
     .describe(
-      'Per-game tier of the cumulative-cascade `additionalInstructions` axis (e.g. "Be concise."). Every non-empty tier stacks — workspace + game + season + slot all apply, concatenated tier-labeled. Surfaced verbatim to Claude via the `get_ideas` and `process_reveal_answers` payloads. On UPDATE: explicit null clears this tier (other tiers keep theirs).',
+      'Per-game tier of the cumulative-cascade `additionalInstructions` axis (e.g. "Be concise."). Every non-empty tier stacks — workspace + game + season + slot all apply, concatenated tier-labeled. Surfaced verbatim to Claude via the `get_ideas` and `process_reveal_answers` payloads. Does NOT reach the freeform reveal judge — use `judgeInstructions` for anything the judge must honor. On UPDATE: explicit null clears this tier (other tiers keep theirs).',
+    ),
+  judgeInstructions: triviaAdditionalInstructionsZod
+    .nullable()
+    .optional()
+    .describe(
+      'Per-game tier of the cumulative-cascade `judgeInstructions` axis (e.g. "Accept French or English answers."). The ONLY free-text channel that reaches the freeform reveal judge. Every non-empty tier stacks, concatenated tier-labeled. Under `judgeLeniency: "evaluate"` it can widen or narrow what counts as a correct answer; under the other presets it only refines accepted forms and never overrides the expected answer. Not stamped on questions: resolved at reveal, so an edit reaches every not-yet-revealed question and any reprocess. On UPDATE: explicit null clears this tier (other tiers keep theirs). Empty / whitespace-only strings are rejected.',
     ),
   hint: triviaHintZod
     .nullable()
@@ -218,7 +224,7 @@ const structuralFieldsSchema = {
     .nullable()
     .optional()
     .describe(
-      'Per-game tier of the reveal-judge leniency axis for freeform answers. One of `"strict"` | `"strict-with-typos"` | `"lenient"`. `"strict"` forgives only case, numeral↔word substitution, decade-form, and singular/plural; `"strict-with-typos"` (the workspace default) adds typo + loose-writing tolerance; `"lenient"` accepts any rendering that unmistakably shows the player knew the answer. Resolved at save time and stamped on each freeform question. Cascade: `slot → season → game → workspace → "strict-with-typos"`. Whole-value replace per tier. On UPDATE: explicit null clears the field.',
+      'Per-game tier of the reveal-judge leniency axis for freeform answers. One of `"strict"` | `"strict-with-typos"` | `"lenient"` | `"evaluate"`. `"strict"` forgives only case, numeral↔word substitution, decade-form, and singular/plural; `"strict-with-typos"` (the workspace default) adds typo + loose-writing tolerance; `"lenient"` accepts any rendering that unmistakably shows the player knew the answer; `"evaluate"` is the ONLY preset that accepts a correct answer OUTSIDE the answer key (the expected answer is a reference solution; a single committed answer that satisfies every clue of the question is accepted). Resolved at save time and stamped on each freeform question. Cascade: `slot → season → game → workspace → "strict-with-typos"`. Whole-value replace per tier. On UPDATE: explicit null clears the field.',
     ),
   choiceEmojiStyle: triviaChoiceEmojiStyleZod
     .nullable()
@@ -519,6 +525,12 @@ export function createUpsertGameTool(
         if (!r.ok) issues.push({ field: "additionalInstructions", error: r.error });
         else parsedAdditionalInstructions = r.value;
       }
+      let parsedJudgeInstructions: string | undefined;
+      if (args.judgeInstructions !== undefined && args.judgeInstructions !== null) {
+        const r = normalizeAdditionalInstructions(args.judgeInstructions, "judgeInstructions");
+        if (!r.ok) issues.push({ field: "judgeInstructions", error: r.error });
+        else parsedJudgeInstructions = r.value;
+      }
       let parsedHint: TriviaHintConfig | undefined;
       if (args.hint !== undefined && args.hint !== null) {
         const r = validateHintConfig(args.hint, "hint");
@@ -619,6 +631,9 @@ export function createUpsertGameTool(
         ...(existing?.additionalInstructions !== undefined
           ? { additionalInstructions: existing.additionalInstructions }
           : {}),
+        ...(existing?.judgeInstructions !== undefined
+          ? { judgeInstructions: existing.judgeInstructions }
+          : {}),
         ...(existing?.liveAnswersVisible !== undefined
           ? { liveAnswersVisible: existing.liveAnswersVisible }
           : {}),
@@ -667,6 +682,9 @@ export function createUpsertGameTool(
       if (args.additionalInstructions === null) delete mergedStructural.additionalInstructions;
       else if (parsedAdditionalInstructions !== undefined)
         mergedStructural.additionalInstructions = parsedAdditionalInstructions;
+      if (args.judgeInstructions === null) delete mergedStructural.judgeInstructions;
+      else if (parsedJudgeInstructions !== undefined)
+        mergedStructural.judgeInstructions = parsedJudgeInstructions;
       if (args.liveAnswersVisible === null) delete mergedStructural.liveAnswersVisible;
       else if (args.liveAnswersVisible !== undefined)
         mergedStructural.liveAnswersVisible = args.liveAnswersVisible;
@@ -752,6 +770,7 @@ export function createUpsertGameTool(
       if (wrote(args.points)) writtenFields.push("points");
       if (wrote(args.instructions)) writtenFields.push("instructions");
       if (wrote(args.additionalInstructions)) writtenFields.push("additionalInstructions");
+      if (wrote(args.judgeInstructions)) writtenFields.push("judgeInstructions");
       if (wrote(args.liveAnswersVisible)) writtenFields.push("liveAnswersVisible");
       if (wrote(args.revealResponses)) writtenFields.push("revealResponses");
       if (wrote(args.format)) writtenFields.push("format");
@@ -783,6 +802,7 @@ export function createUpsertGameTool(
         hasTheme: mergedStructural.theme !== undefined,
         hasInstructions: mergedStructural.instructions !== undefined,
         hasAdditionalInstructions: mergedStructural.additionalInstructions !== undefined,
+        hasJudgeInstructions: mergedStructural.judgeInstructions !== undefined,
         hasLiveAnswersVisible: mergedStructural.liveAnswersVisible !== undefined,
         hasRevealResponses: mergedStructural.revealResponses !== undefined,
         hasHint: mergedStructural.hint !== undefined,

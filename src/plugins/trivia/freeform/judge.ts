@@ -2,7 +2,7 @@ import type { ClackSdk } from "../../../plugins-sdk/sdk.js";
 import type { JudgeLeniency, TriviaFreeformAnswerShape } from "../core/configTypes.js";
 import { DEFAULT_JUDGE_LENIENCY } from "../core/configTypes.js";
 import type { TriviaQuestion } from "../core/types.js";
-import { isExactMatch } from "./normalize.js";
+import { isExactMatch, normalizeAnswer } from "./normalize.js";
 
 /** One pending free-form submission to be judged. */
 export interface JudgeSubmission {
@@ -12,14 +12,18 @@ export interface JudgeSubmission {
 }
 
 /**
- * The judge's decision for ONE submission. Unlike the old batch protocol there
- * is no `key` — each submission is judged by its own call, so the verdict maps
- * to the submission positionally. A verdict is ALWAYS a clean boolean; the
- * "missing verdict" failure mode is gone (see `judgeAnswer`).
+ * The judge's decision for ONE distinct answer. There is no echoed `key` — each
+ * distinct answer is judged by its own call and the verdict is paired with its
+ * submissions by `judgeSubmissions`. A verdict is ALWAYS a clean boolean (see
+ * `judgeAnswer`).
  */
 export interface JudgeVerdict {
   correct: boolean;
-  /** Optional short label the model can use, e.g. "multiple-guess" / "out-of-tolerance". */
+  /**
+   * Optional short label: a rejection cause ("multiple-guess", "out-of-tolerance"),
+   * "exact-match" for the deterministic pre-check, or "alternate-solve" when the
+   * `evaluate` preset accepts an answer outside the answer key.
+   */
   reason?: string;
 }
 
@@ -47,15 +51,52 @@ export const JUDGE_MAX_ATTEMPTS = 4;
 /** Cap on concurrent judge calls when judging a question's submissions. */
 export const JUDGE_CONCURRENCY = 6;
 
-const SHARED_RULES = `You are a strict but fair trivia judge. You are given ONE trivia question, its expected answer, and ONE player's typed answer. Decide whether that single answer is correct.
+/** Sonnet-tier model id used for questions stamped `judgeLeniency: "evaluate"`. */
+export const EVALUATE_JUDGE_MODEL = "claude-sonnet-5-5";
 
-Universal rules (apply to every question):
-- Matching is case- and punctuation-insensitive.
-- A single answer carrying a qualifier or parenthetical is fine (e.g. "Tokyo, Japan", "Paris (France)", "rock and roll").
-- REJECT (reason: "multiple-guess") any answer that hedges between two or more distinct guesses — "Paris or London", "either A or B", "A | B | C" — EVEN IF one of them is correct. The player must commit to ONE answer.
-- ACCEPT (correct: true) when the typed answer is the expected answer expressed differently; REJECT (correct: false) when it is materially different.
-- When "Acceptable variants" are listed, treat each as an additional fully-correct answer.
-- "Notes" (when present) refine your judgment — honor any explicit tolerance or accepted-form guidance there STRICTLY. They never override the expected answer; they only clarify accepted forms.`;
+const JUDGE_INTRO =
+  "You are a strict but fair trivia judge. You are given ONE trivia question, its expected answer, and ONE player's typed answer. Decide whether that single answer is correct.";
+
+// ── Universal integrity rules ────────────────────────────────────────────────
+// Carried by every preset; no judging basis, forgiveness fragment, or admin
+// instruction relaxes them.
+const UNIVERSAL_RULES_HEADER = "Universal rules (apply to every question):";
+const UNIVERSAL_INTEGRITY_RULES = [
+  "- Matching is case- and punctuation-insensitive.",
+  '- A single answer carrying a qualifier or parenthetical is fine (e.g. "Tokyo, Japan", "Paris (France)", "rock and roll").',
+  '- REJECT (reason: "multiple-guess") any answer that hedges between two or more distinct guesses — "Paris or London", "either A or B", "A | B | C" — EVEN IF one of them is correct. The player must commit to ONE answer.',
+];
+const ACCEPTABLE_VARIANTS_RULE =
+  '- When "Acceptable variants" are listed, treat each as an additional fully-correct answer.';
+
+// ── Judging basis ────────────────────────────────────────────────────────────
+// What makes an answer correct. The key-match basis measures the typed answer
+// against the answer key; the evaluate basis treats the key as one reference
+// solution and also accepts an answer that solves the question on its own.
+const KEY_MATCH_BASIS = [
+  "- ACCEPT (correct: true) when the typed answer is the expected answer expressed differently; REJECT (correct: false) when it is materially different.",
+  ACCEPTABLE_VARIANTS_RULE,
+  '- "Notes" (when present) refine your judgment — honor any explicit tolerance or accepted-form guidance there STRICTLY. They never override the expected answer; they only clarify accepted forms.',
+];
+
+const EVALUATE_ONE_IDEA_RULE =
+  '- ONE IDEA vs HEDGE: near-synonyms naming ONE idea ("Credit/Loan") are ONE answer, not a hedge. Two DISTINCT ideas ("hole or debt") are a hedge — REJECT (reason: "multiple-guess").';
+
+const EVALUATE_BASIS = [
+  "Judging basis — the expected answer is a REFERENCE SOLUTION, not the only correct answer. The typed answer is correct when EITHER test passes:",
+  '- KEY MATCH: ACCEPT (correct: true) when the typed answer is the expected answer or an acceptable variant, as decided by the "Matching forgiveness" rule below. That rule decides key matches only.',
+  '- ALTERNATE SOLVE: ACCEPT (correct: true, reason: "alternate-solve") when the single committed answer is NOT a key match but independently satisfies EVERY clue of the question as stated.',
+  '- REJECT (reason: "clue-fails") when ANY clue of the question fails for the typed answer — a partial fit is not a solve.',
+  '- REJECT (reason: "stretch") when the fit depends on a stretch: a strained reading of a clue, an unusual sense of a word, or an assumption the question does not state.',
+  '- REJECT (reason: "too-broad") when the answer names a category rather than an answer.',
+  ACCEPTABLE_VARIANTS_RULE,
+  '- "Notes" (when present) refine your judgment — honor any explicit tolerance or accepted-form guidance there STRICTLY.',
+].join("\n");
+
+// Under the evaluate basis the shape block describes key matches only, so its
+// REJECT clauses are scoped before the block is stated.
+const EVALUATE_SHAPE_SCOPE =
+  "Answer-type rules — these apply to the KEY MATCH test ONLY. Every ACCEPT / REJECT below decides whether the typed answer matches the expected one; a REJECT below never overrides an ALTERNATE SOLVE acceptance.";
 
 const NAMED_ENTITY_RULES = `This answer names a SPECIFIC ENTITY (a person, character, brand, organization, species, place, or creative work).
 - Accept common synonyms, alternative spellings, and reasonable variants.
@@ -67,9 +108,8 @@ const NAMED_ENTITY_RULES = `This answer names a SPECIFIC ENTITY (a person, chara
 // `judgeLeniency` preset selects which fragments the judge prompt carries; they
 // govern only HOW LOOSELY a typed answer may match the expected one. They are
 // orthogonal to the shape block (which governs value semantics) and never
-// override the universal integrity guards in SHARED_RULES (multi-guess,
-// too-broad, materially-different). Case- and punctuation-insensitivity is
-// already universal in SHARED_RULES, so it is not repeated here.
+// override the universal integrity rules or the judging basis. Case- and
+// punctuation-insensitivity is already universal, so it is not repeated here.
 const SUBSTITUTION_RULE =
   '- Accept interchangeable renderings of the SAME value: a numeral for its spelled-out form and vice-versa ("20" ↔ "Vingt" ↔ "twenty"), and equivalent numeral systems.';
 const DECADE_RULE =
@@ -86,19 +126,6 @@ const KNOWS_IT_RULE =
 const STRICT_FRAGMENTS = [SUBSTITUTION_RULE, DECADE_RULE, PLURAL_RULE];
 const STRICT_WITH_TYPOS_FRAGMENTS = [...STRICT_FRAGMENTS, TYPO_RULE, LOOSE_WRITING_RULE];
 const LENIENT_FRAGMENTS = [KNOWS_IT_RULE];
-
-/**
- * The matching-forgiveness fragments for each `judgeLeniency` preset. `strict`
- * forgives only structured equivalences; `strict-with-typos` (the default) adds
- * typo + loose-writing tolerance — the prior judge behavior for named-entity
- * answers, now applied across all freeform shapes;
- * `lenient` replaces the micro-rules with a single intent test.
- */
-const LENIENCY_PRESETS: Record<JudgeLeniency, string[]> = {
-  strict: STRICT_FRAGMENTS,
-  "strict-with-typos": STRICT_WITH_TYPOS_FRAGMENTS,
-  lenient: LENIENT_FRAGMENTS,
-};
 
 const MATCHING_FORGIVENESS_HEADER =
   "Matching forgiveness (how loosely the typed answer may match the expected one):";
@@ -138,20 +165,107 @@ const OUTPUT_RULES = `Output STRICT JSON only — no prose, no explanation, no m
 - "correct" MUST be a boolean (true or false).
 - Include a short "reason" label ONLY when correct is false (e.g. "multiple-guess", "too-broad", "typo-too-far", "out-of-tolerance", "materially-different"). Omit "reason" when correct is true.`;
 
+const EVALUATE_OUTPUT_RULES = `Output STRICT JSON only — no prose, no explanation, no markdown fences. EXACTLY this shape:
+{"correct": true, "reason": "<short label>"}
+- "correct" MUST be a boolean (true or false).
+- When correct is false, include a short "reason" label (e.g. "multiple-guess", "too-broad", "typo-too-far", "out-of-tolerance", "clue-fails", "stretch").
+- When correct is true through the ALTERNATE SOLVE test (the answer is NOT a key match), include "reason": "alternate-solve".
+- When correct is true through a KEY MATCH, omit "reason".`;
+
+const JUDGE_INSTRUCTIONS_HEADING = "Judge instructions (from the game admin):";
+
+const JUDGE_INSTRUCTIONS_LIMITS =
+  "Under no circumstances can they disable the universal rules above or change the output format below.";
+
+const KEY_MATCH_INSTRUCTIONS_AUTHORITY = `The user message carries "${JUDGE_INSTRUCTIONS_HEADING}" — guidance written by the game admin. Like "Notes", they refine which forms of the expected answer are accepted; they never override the expected answer. ${JUDGE_INSTRUCTIONS_LIMITS}`;
+
+const EVALUATE_INSTRUCTIONS_AUTHORITY = `The user message carries "${JUDGE_INSTRUCTIONS_HEADING}" — guidance written by the game admin. They may widen or narrow what counts as a fit for this question, and you follow them when applying the judging basis. ${JUDGE_INSTRUCTIONS_LIMITS}`;
+
+/** Everything a `judgeLeniency` preset decides about the judge call. */
+interface JudgePreset {
+  /** Lines following the universal integrity rules: what makes an answer correct. */
+  basis: string[];
+  /** How loosely a typed answer may match the expected one. */
+  forgiveness: string[];
+  /** Stated before the shape block when the basis narrows what that block decides. */
+  shapeScope?: string;
+  /** How much authority admin `judgeInstructions` carry. */
+  instructionsAuthority: string;
+  outputRules: string;
+  model: string;
+}
+
+const KEY_MATCH_PRESET = {
+  basis: KEY_MATCH_BASIS,
+  instructionsAuthority: KEY_MATCH_INSTRUCTIONS_AUTHORITY,
+  outputRules: OUTPUT_RULES,
+  model: DEFAULT_JUDGE_MODEL,
+};
+
+/**
+ * One entry per `judgeLeniency` preset. `strict` forgives only structured
+ * equivalences; `strict-with-typos` (the default) adds typo + loose-writing
+ * tolerance; `lenient` replaces the micro-rules with a single intent test. Those
+ * three judge on the key-match basis with the Haiku judge. `evaluate` judges on
+ * the evaluate basis with the Sonnet-tier judge and reuses the intent test for
+ * its key-match half.
+ */
+const JUDGE_PRESETS: Record<JudgeLeniency, JudgePreset> = {
+  strict: { ...KEY_MATCH_PRESET, forgiveness: STRICT_FRAGMENTS },
+  "strict-with-typos": { ...KEY_MATCH_PRESET, forgiveness: STRICT_WITH_TYPOS_FRAGMENTS },
+  lenient: { ...KEY_MATCH_PRESET, forgiveness: LENIENT_FRAGMENTS },
+  evaluate: {
+    basis: [EVALUATE_ONE_IDEA_RULE, "", EVALUATE_BASIS],
+    forgiveness: LENIENT_FRAGMENTS,
+    shapeScope: EVALUATE_SHAPE_SCOPE,
+    instructionsAuthority: EVALUATE_INSTRUCTIONS_AUTHORITY,
+    outputRules: EVALUATE_OUTPUT_RULES,
+    model: EVALUATE_JUDGE_MODEL,
+  },
+};
+
+function presetFor(question: TriviaQuestion): JudgePreset {
+  return JUDGE_PRESETS[question.judgeLeniency ?? DEFAULT_JUDGE_LENIENCY];
+}
+
 /**
  * Build the per-answer judge prompt, tailored to the question's freeform shape
  * AND its resolved `judgeLeniency` preset. The preset (read from the question's
- * stamp, defaulting to `strict-with-typos` when absent) selects the
- * matching-forgiveness block; the shape selects the value-semantics block. The
- * two are orthogonal and both compose under the universal SHARED_RULES.
+ * stamp, defaulting to `strict-with-typos` when absent) selects the judging
+ * basis and the matching-forgiveness block; the shape selects the
+ * value-semantics block. All compose under the universal integrity rules.
+ *
+ * `judgeInstructions` (admin-authored, resolved by the caller) go in the user
+ * message under a labeled heading, and the system prompt states how much
+ * authority they carry under the active preset.
  */
-export function buildSingleJudgePrompt(question: TriviaQuestion, answerText: string): JudgePrompt {
+export function buildSingleJudgePrompt(
+  question: TriviaQuestion,
+  answerText: string,
+  judgeInstructions?: string,
+): JudgePrompt {
   const shapeRules = question.freeformAnswerShape
     ? SHAPE_RULES[question.freeformAnswerShape]
     : NAMED_ENTITY_RULES;
-  const leniency = question.judgeLeniency ?? DEFAULT_JUDGE_LENIENCY;
-  const forgiveness = [MATCHING_FORGIVENESS_HEADER, ...LENIENCY_PRESETS[leniency]].join("\n");
-  const system = [SHARED_RULES, "", forgiveness, "", shapeRules, "", OUTPUT_RULES].join("\n");
+  const preset = presetFor(question);
+  const instructions = judgeInstructions?.trim() ?? "";
+  const systemParts = [
+    JUDGE_INTRO,
+    "",
+    UNIVERSAL_RULES_HEADER,
+    ...UNIVERSAL_INTEGRITY_RULES,
+    ...preset.basis,
+    "",
+    MATCHING_FORGIVENESS_HEADER,
+    ...preset.forgiveness,
+    "",
+    ...(preset.shapeScope !== undefined ? [preset.shapeScope] : []),
+    shapeRules,
+    "",
+  ];
+  if (instructions.length > 0) systemParts.push(preset.instructionsAuthority, "");
+  systemParts.push(preset.outputRules);
+  const system = systemParts.join("\n");
 
   const lines: string[] = [
     `Question: ${question.statement}`,
@@ -162,6 +276,9 @@ export function buildSingleJudgePrompt(question: TriviaQuestion, answerText: str
   }
   if (question.gradingNotes && question.gradingNotes.length > 0) {
     lines.push(`Notes: ${question.gradingNotes}`);
+  }
+  if (instructions.length > 0) {
+    lines.push(JUDGE_INSTRUCTIONS_HEADING, instructions);
   }
   lines.push(`Player's typed answer: ${JSON.stringify(answerText)}`);
   lines.push("");
@@ -199,7 +316,11 @@ export async function judgeAnswer(
   askClaude: ClackSdk["askClaude"],
   question: TriviaQuestion,
   answerText: string,
-  opts: { maxAttempts?: number; logger?: { warn: (msg: string) => void } } = {},
+  opts: {
+    maxAttempts?: number;
+    judgeInstructions?: string;
+    logger?: { warn: (msg: string) => void };
+  } = {},
 ): Promise<JudgeVerdict> {
   // Deterministic exact-match short-circuit: an answer that normalizes equal to
   // the expected answer (or any acceptable variant) is unambiguously correct, so
@@ -209,12 +330,13 @@ export async function judgeAnswer(
     return { correct: true, reason: "exact-match" };
   }
   const maxAttempts = opts.maxAttempts ?? JUDGE_MAX_ATTEMPTS;
-  const prompt = buildSingleJudgePrompt(question, answerText);
+  const prompt = buildSingleJudgePrompt(question, answerText, opts.judgeInstructions);
+  const { model } = presetFor(question);
   let lastError = "unknown";
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
       const response = await askClaude({
-        model: DEFAULT_JUDGE_MODEL,
+        model,
         system: prompt.system,
         messages: prompt.messages,
       });
@@ -230,10 +352,13 @@ export async function judgeAnswer(
 }
 
 /**
- * Judge every submission for one question, each via its own `judgeAnswer` call,
- * with bounded concurrency. A submission whose retries are all exhausted comes
- * back with `verdict: null` (the caller leaves it pending) — one stuck row never
- * blocks the rest.
+ * Judge every submission for one question with bounded concurrency. Submissions
+ * are grouped by normalized answer text and each DISTINCT answer gets one
+ * `judgeAnswer` call, whose verdict is shared by the whole group — the same
+ * answer always gets the same verdict within a question. A group whose retries
+ * are all exhausted comes back with `verdict: null` on every member (the caller
+ * leaves those rows pending) — one stuck group never blocks the rest. The
+ * result holds one entry per submission, in input order.
  */
 export async function judgeSubmissions(
   askClaude: ClackSdk["askClaude"],
@@ -242,25 +367,45 @@ export async function judgeSubmissions(
   opts: {
     maxAttempts?: number;
     concurrency?: number;
+    judgeInstructions?: string;
     logger?: { warn: (msg: string) => void };
   } = {},
 ): Promise<JudgedSubmission[]> {
   const concurrency = opts.concurrency ?? JUDGE_CONCURRENCY;
-  return mapWithConcurrency(submissions, concurrency, async (submission) => {
-    try {
-      const verdict = await judgeAnswer(askClaude, question, submission.answerText, {
-        maxAttempts: opts.maxAttempts,
-        logger: opts.logger,
-      });
-      return { submission, verdict };
-    } catch (err) {
-      opts.logger?.warn(
-        `[trivia:freeform] judge gave up on submission from ${submission.userId}: ${
-          err instanceof Error ? err.message : String(err)
-        }`,
-      );
-      return { submission, verdict: null };
-    }
+  const groups = new Map<string, JudgeSubmission[]>();
+  for (const submission of submissions) {
+    const key = normalizeAnswer(submission.answerText);
+    const group = groups.get(key);
+    if (group) group.push(submission);
+    else groups.set(key, [submission]);
+  }
+
+  const groupVerdicts = await mapWithConcurrency(
+    [...groups.entries()],
+    concurrency,
+    async ([key, group]): Promise<[string, JudgeVerdict | null]> => {
+      try {
+        const verdict = await judgeAnswer(askClaude, question, group[0].answerText, {
+          maxAttempts: opts.maxAttempts,
+          judgeInstructions: opts.judgeInstructions,
+          logger: opts.logger,
+        });
+        return [key, verdict];
+      } catch (err) {
+        opts.logger?.warn(
+          `[trivia:freeform] judge gave up on submission from ${group
+            .map((s) => s.userId)
+            .join(", ")}: ${err instanceof Error ? err.message : String(err)}`,
+        );
+        return [key, null];
+      }
+    },
+  );
+
+  const verdictByKey = new Map(groupVerdicts);
+  return submissions.map((submission) => {
+    const verdict = verdictByKey.get(normalizeAnswer(submission.answerText)) ?? null;
+    return { submission, verdict: verdict ? { ...verdict } : null };
   });
 }
 

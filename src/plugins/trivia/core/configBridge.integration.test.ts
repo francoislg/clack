@@ -35,6 +35,8 @@ import {
 import { createUpsertGameTool } from "../tools/games/upsertGame.js";
 import { createDeleteGameTool } from "../tools/games/deleteGame.js";
 import { createSetWorkspaceConfigTool } from "../tools/games/setWorkspaceConfig.js";
+import { upsertGameArgs } from "../tools/games/upsertGame.testHelpers.js";
+import { setWorkspaceConfigArgs } from "../tools/games/setWorkspaceConfig.testHelpers.js";
 import { parseToolResult } from "../../../plugins-sdk/testHelpers.js";
 import type { ClackSdk } from "../../../plugins-sdk/sdk.js";
 
@@ -150,48 +152,14 @@ describe("trivia config relocation — end-to-end smoke", () => {
     const upsertGame = createUpsertGameTool(defaultGetGames);
     const upsertResult = parseToolResult(
       await upsertGame.handler(
-        {
+        upsertGameArgs({
           name: "engineering",
           channel: "C200000000",
           questionCron: "0 10 * * *",
           revealCron: "0 18 * * *",
-          prepCron: undefined,
-          lockCron: undefined,
           timezone: "America/New_York",
-          enabled: undefined,
           answersFormat: { boolean: 0, choice: 1 },
-          questionType: undefined,
-          freeformAnswerShape: undefined,
-          contexts: undefined,
-          difficulty: undefined,
-          difficultyRatio: undefined,
-          format: undefined,
-          categories: undefined,
-          theme: undefined,
-          liveAnswersVisible: undefined,
-          revealResponses: undefined,
-          instructions: undefined,
-          additionalInstructions: undefined,
-          hint: undefined,
-          allTimeRow: undefined,
-          tagPlayers: undefined,
-          scrollToTop: undefined,
-          disableAfterRound: undefined,
-          includeRevealInQuestions: undefined,
-          finalRevealSummary: undefined,
-          judgeLeniency: undefined,
-          tellMeMore: undefined,
-          choices: undefined,
-          choiceEmojiStyle: undefined,
-          points: undefined,
-          teams: undefined,
-          teamsEnabled: undefined,
-          teamsFinaleIndividuals: undefined,
-          teamsScoring: undefined,
-          answeringType: undefined,
-          perfectRoundsAward: undefined,
-          initialSeason: undefined,
-        },
+        }),
         SESSION,
       ),
     );
@@ -206,37 +174,7 @@ describe("trivia config relocation — end-to-end smoke", () => {
     // 5. set_workspace_config flips seasons on.
     const setWorkspaceConfig = createSetWorkspaceConfigTool();
     await setWorkspaceConfig.handler(
-      {
-        answersFormat: undefined,
-        questionType: undefined,
-        freeformAnswerShape: undefined,
-        contexts: undefined,
-        difficulty: undefined,
-        difficultyRatio: undefined,
-        choices: undefined,
-        choiceEmojiStyle: undefined,
-        points: undefined,
-        teams: undefined,
-        teamsEnabled: undefined,
-        teamsFinaleIndividuals: undefined,
-        teamsScoring: undefined,
-        answeringType: undefined,
-        perfectRoundsAward: undefined,
-        offDays: undefined,
-        seasons: { enabled: true, prompt: "Monthly" },
-        liveAnswersVisible: undefined,
-        revealResponses: undefined,
-        instructions: undefined,
-        additionalInstructions: undefined,
-        hint: undefined,
-        allTimeRow: undefined,
-        tagPlayers: undefined,
-        scrollToTop: undefined,
-        includeRevealInQuestions: undefined,
-        finalRevealSummary: undefined,
-        judgeLeniency: undefined,
-        tellMeMore: undefined,
-      },
+      setWorkspaceConfigArgs({ seasons: { enabled: true, prompt: "Monthly" } }),
       SESSION,
     );
     const afterSeasons = readPluginConfig(pluginDataDir);

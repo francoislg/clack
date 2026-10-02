@@ -8,6 +8,9 @@ import type { TriviaQuestion } from "../core/types.js";
  * strings can only normalize equal when they are the same answer. (Stripping
  * punctuation would wrongly fold `C` into `C++` or `5` into `$5`; folding accents
  * would fold `cafe` into `café`.)
+ *
+ * Also the grouping key `judgeSubmissions` uses: answers that normalize equal
+ * are one distinct answer and share one verdict.
  */
 export function normalizeAnswer(s: string): string {
   return s.trim().toLowerCase().replace(/\s+/g, " ");

@@ -300,6 +300,30 @@ describe("list_games — per-game entries", () => {
     assert.equal("judgeLeniency" in without.games[0], false);
   });
 
+  it("surfaces the evaluate judgeLeniency preset on the game entry and workspaceDefaults", async () => {
+    const games: readonly TriviaGame[] = [
+      {
+        name: "riddles",
+        channel: "C400000001",
+        questionCron: "0 9 * * 1-5",
+        revealCron: "0 17 * * 1-5",
+        timezone: "UTC",
+        enabled: true,
+        judgeLeniency: "evaluate",
+      },
+    ];
+    const cfg: TriviaConfig = { judgeLeniency: "evaluate" };
+    const parsed = parseToolResult(
+      await createListGamesTool(
+        () => games,
+        () => cfg,
+      ).handler({ includeDisabled: undefined }, SESSION),
+    );
+    assert.equal(parsed.games[0].judgeLeniency, "evaluate");
+    assert.equal(parsed.games[0].axisOverrides.judgeLeniency, "evaluate");
+    assert.equal(parsed.workspaceDefaults.judgeLeniency, "evaluate");
+  });
+
   it("surfaces per-game choices in axisOverrides when set, omits it when absent", async () => {
     const games: readonly TriviaGame[] = [
       {
@@ -642,6 +666,54 @@ describe("list_games — instructions and additionalInstructions surfaces", () =
     const parsed = parseToolResult(await tool.handler({ includeDisabled: undefined }, SESSION));
     assert.equal(parsed.workspaceDefaults.instructions, "Workspace baseline.");
     assert.equal(parsed.workspaceDefaults.additionalInstructions, "Workspace stack.");
+  });
+});
+
+describe("list_games — judgeInstructions surface", () => {
+  it("present-iff-set in the per-game axisOverrides block", async () => {
+    const games: readonly TriviaGame[] = [
+      {
+        name: "with-judge-instructions",
+        channel: "C200000001",
+        questionCron: "0 9 * * 1-5",
+        revealCron: "0 17 * * 1-5",
+        timezone: "UTC",
+        enabled: true,
+        judgeInstructions: "Accept French or English.",
+      },
+      {
+        name: "without",
+        channel: "C300000001",
+        questionCron: "0 9 * * 1-5",
+        revealCron: "0 17 * * 1-5",
+        timezone: "UTC",
+        enabled: true,
+      },
+    ];
+    const tool = createListGamesTool(() => games, emptyTriviaConfig);
+    const parsed = parseToolResult(await tool.handler({ includeDisabled: undefined }, SESSION));
+    const withValue = parsed.games.find(
+      (g: { name: string }) => g.name === "with-judge-instructions",
+    );
+    const without = parsed.games.find((g: { name: string }) => g.name === "without");
+    assert.equal(withValue.axisOverrides.judgeInstructions, "Accept French or English.");
+    assert.equal("judgeInstructions" in without.axisOverrides, false);
+  });
+
+  it("surfaces the workspace-tier value on workspaceDefaults", async () => {
+    const cfg: TriviaConfig = { judgeInstructions: "Metaphorical solves count." };
+    const tool = createListGamesTool(
+      () => FIXTURE_GAMES,
+      () => cfg,
+    );
+    const parsed = parseToolResult(await tool.handler({ includeDisabled: undefined }, SESSION));
+    assert.equal(parsed.workspaceDefaults.judgeInstructions, "Metaphorical solves count.");
+  });
+
+  it("is absent from workspaceDefaults when the workspace tier does not set it", async () => {
+    const tool = createListGamesTool(() => FIXTURE_GAMES, emptyTriviaConfig);
+    const parsed = parseToolResult(await tool.handler({ includeDisabled: undefined }, SESSION));
+    assert.equal("judgeInstructions" in parsed.workspaceDefaults, false);
   });
 });
 

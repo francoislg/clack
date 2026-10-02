@@ -13,6 +13,7 @@ import {
   type FakeSdk,
 } from "./testHelpers.fakeSdk.js";
 import { createUpsertSeasonTool } from "./tools/seasons/upsertSeason.js";
+import { upsertSeasonArgs } from "./tools/seasons/upsertSeason.testHelpers.js";
 import { createGetIdeasTool } from "./tools/questions/getIdeas.js";
 import { createSaveQuestionTool } from "./tools/questions/saveQuestion.js";
 import {
@@ -67,45 +68,16 @@ describe("Trivia question-format end-to-end flow", () => {
     const upsert = createUpsertSeasonTool(data, fixtureGetGames);
     const upsertRes = parseToolResult(
       await upsert.handler(
-        {
+        upsertSeasonArgs({
           game: FIXTURE_GAME_NAME,
           slug: "active",
-          startedAt: undefined,
-          expectedEndAt: undefined,
-          endedAt: undefined,
-          categories: undefined,
-          answersFormat: undefined,
-          questionType: undefined,
-          promptMedium: undefined,
-          freeformAnswerShape: undefined,
-          contexts: undefined,
-          difficulty: undefined,
-          difficultyRatio: undefined,
-          theme: undefined,
           format: {
             questions: [
               { label: "GK Boolean" },
               { label: "History Choice", categories: ["History"] },
             ],
           },
-          slotOverrides: undefined,
-          liveAnswersVisible: undefined,
-          revealResponses: undefined,
-          instructions: undefined,
-          additionalInstructions: undefined,
-          hint: undefined,
-          judgeLeniency: undefined,
-          choices: undefined,
-          choiceEmojiStyle: undefined,
-          points: undefined,
-          teams: undefined,
-          teamsEnabled: undefined,
-          teamsFinaleIndividuals: undefined,
-          teamsScoring: undefined,
-          answeringType: undefined,
-          perfectRoundsAward: undefined,
-          phases: undefined,
-        },
+        }),
         SESSION,
       ),
     );

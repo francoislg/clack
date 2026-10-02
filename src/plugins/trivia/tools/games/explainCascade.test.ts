@@ -66,6 +66,72 @@ describe("explain_cascade", () => {
     assert.equal(wsRung.winner, false);
   });
 
+  it("shows both contributing tiers and the merged judgeInstructions value", async () => {
+    const now = Date.now();
+    await data.forGame("g").saveSeasonsState({
+      seasons: [
+        {
+          slug: "s1",
+          startedAt: now - 86_400_000,
+          expectedEndAt: now + 86_400_000,
+          judgeInstructions: "Riddles: metaphorical solves count.",
+        },
+      ],
+    });
+    const config: TriviaConfig = {
+      seasons: { enabled: true, prompt: "p" },
+      judgeInstructions: "Accept French or English.",
+    };
+    const tool = createExplainCascadeTool(
+      data,
+      () => config,
+      () => [baseGame],
+    );
+    const parsed = parseToolResult(
+      await tool.handler({ game: "g", slot: undefined, answersFormat: undefined }, SESSION),
+    );
+
+    const ji = parsed.coordinates[0].axes.judgeInstructions;
+    assert.equal(
+      ji.value,
+      "[Workspace] Accept French or English.\n\n[Season] Riddles: metaphorical solves count.",
+    );
+    assert.equal(ji.tier, "merged");
+    const contributing = ji.ladder
+      .filter((r: { winner: boolean }) => r.winner)
+      .map((r: { tier: string }) => r.tier);
+    assert.deepEqual(contributing, ["season", "workspace"]);
+  });
+
+  it("reports judgeInstructions as unset at the default tier when no tier sets it", async () => {
+    const tool = createExplainCascadeTool(
+      data,
+      () => null,
+      () => [baseGame],
+    );
+    const parsed = parseToolResult(
+      await tool.handler({ game: "g", slot: undefined, answersFormat: undefined }, SESSION),
+    );
+    const ji = parsed.coordinates[0].axes.judgeInstructions;
+    assert.equal(ji.value, null);
+    assert.equal(ji.tier, "default");
+  });
+
+  it("explains the evaluate judgeLeniency preset at the tier that set it", async () => {
+    const game: TriviaGame = { ...baseGame, judgeLeniency: "evaluate" };
+    const tool = createExplainCascadeTool(
+      data,
+      () => null,
+      () => [game],
+    );
+    const parsed = parseToolResult(
+      await tool.handler({ game: "g", slot: undefined, answersFormat: undefined }, SESSION),
+    );
+    const jl = parsed.coordinates[0].axes.judgeLeniency;
+    assert.equal(jl.value, "evaluate");
+    assert.equal(jl.tier, "game");
+  });
+
   it("renders difficulty per answersFormat by default, focused when one is supplied", async () => {
     const tool = createExplainCascadeTool(
       data,

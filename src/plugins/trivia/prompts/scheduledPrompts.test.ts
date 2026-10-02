@@ -504,6 +504,22 @@ describe("PROCESS_REVEAL_INSTRUCTIONS — renderer brief", () => {
     assert.match(PROCESS_REVEAL_INSTRUCTIONS, /DO NOT invent or speculate/);
   });
 
+  it("directs the renderer to name accepted alternate answers, or mention them unquoted when the text is withheld", () => {
+    assert.match(PROCESS_REVEAL_INSTRUCTIONS, /`alternateSolve: true`/);
+    assert.match(
+      PROCESS_REVEAL_INSTRUCTIONS,
+      /when it carries `answerText`, NAME the accepted alternate answer/,
+    );
+    assert.match(
+      PROCESS_REVEAL_INSTRUCTIONS,
+      /when it carries NO `answerText`[^.]*say that an alternate answer was accepted WITHOUT quoting/,
+    );
+    assert.match(
+      PROCESS_REVEAL_INSTRUCTIONS,
+      /`correctTeams\[\]` entry with `alternateSolve: true`[^.]*`alternateAnswerTexts`[^.]*credited to the TEAM and never to a member/,
+    );
+  });
+
   it("describes 'no' mode as no per-bucket sections, reactions/closer/leaderboard only", () => {
     assert.match(PROCESS_REVEAL_INSTRUCTIONS, /`?"no"`?\s+mode/);
     assert.match(PROCESS_REVEAL_INSTRUCTIONS, /render NO per-bucket sections/);

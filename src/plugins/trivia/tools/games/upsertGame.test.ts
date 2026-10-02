@@ -1,6 +1,7 @@
 import { describe, it, beforeEach } from "vitest";
 import assert from "node:assert/strict";
 import { createUpsertGameTool } from "./upsertGame.js";
+import { upsertGameArgs, type UpsertGameArgs } from "./upsertGame.testHelpers.js";
 import { _resetTriviaConfigBridge, loadTriviaConfig } from "../../core/configBridge.js";
 import { parseToolResult } from "../../../../plugins-sdk/testHelpers.js";
 import { createTriviaDataLayer } from "../../testHelpers.js";
@@ -18,60 +19,6 @@ const baseGame: TriviaGame = {
   enabled: true,
 };
 
-/**
- * Tool handlers are fully typed, so every field has to be present on every
- * call (zod treats missing keys as undefined, but TS doesn't). This helper
- * defaults every field to `undefined` so individual tests only spell out what
- * they're actually exercising — keeps the assertions readable and means
- * adding new optional fields to the tool doesn't ripple into every call site.
- */
-type UpsertGameArgs = Parameters<ReturnType<typeof createUpsertGameTool>["handler"]>[0];
-
-function args(overrides: Partial<UpsertGameArgs> & Pick<UpsertGameArgs, "name">): UpsertGameArgs {
-  return {
-    channel: undefined,
-    questionCron: undefined,
-    revealCron: undefined,
-    prepCron: undefined,
-    lockCron: undefined,
-    timezone: undefined,
-    enabled: undefined,
-    answersFormat: undefined,
-    questionType: undefined,
-    freeformAnswerShape: undefined,
-    contexts: undefined,
-    difficulty: undefined,
-    difficultyRatio: undefined,
-    format: undefined,
-    categories: undefined,
-    theme: undefined,
-    liveAnswersVisible: undefined,
-    revealResponses: undefined,
-    instructions: undefined,
-    additionalInstructions: undefined,
-    hint: undefined,
-    allTimeRow: undefined,
-    tagPlayers: undefined,
-    scrollToTop: undefined,
-    disableAfterRound: undefined,
-    includeRevealInQuestions: undefined,
-    finalRevealSummary: undefined,
-    judgeLeniency: undefined,
-    choiceEmojiStyle: undefined,
-    points: undefined,
-    tellMeMore: undefined,
-    choices: undefined,
-    teams: undefined,
-    teamsEnabled: undefined,
-    teamsFinaleIndividuals: undefined,
-    teamsScoring: undefined,
-    answeringType: undefined,
-    perfectRoundsAward: undefined,
-    initialSeason: undefined,
-    ...overrides,
-  };
-}
-
 describe("upsert_game — create branch", () => {
   beforeEach(() => {
     _resetTriviaConfigBridge();
@@ -83,7 +30,7 @@ describe("upsert_game — create branch", () => {
     const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
     const result = parseToolResult(
       await tool.handler(
-        args({
+        upsertGameArgs({
           name: "engineering",
           channel: "C999",
           questionCron: "0 9 * * 1-5",
@@ -110,7 +57,7 @@ describe("upsert_game — create branch", () => {
     const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
     const result = parseToolResult(
       await tool.handler(
-        args({
+        upsertGameArgs({
           name: "engineering",
           channel: "C1",
           questionCron: "0 9 * * *",
@@ -132,7 +79,7 @@ describe("upsert_game — create branch", () => {
     const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
     const result = parseToolResult(
       await tool.handler(
-        args({
+        upsertGameArgs({
           name: "engineering",
           channel: "C1",
           questionCron: "0 9 * * *",
@@ -151,7 +98,7 @@ describe("upsert_game — create branch", () => {
     const { sdk } = createFakeSdk();
     primeTriviaConfig(sdk, { games: [{ ...baseGame, tellMeMore: { enabled: true } }] });
     const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
-    await tool.handler(args({ name: "main", tellMeMore: null }), SESSION);
+    await tool.handler(upsertGameArgs({ name: "main", tellMeMore: null }), SESSION);
     assert.equal(loadTriviaConfig()?.games?.[0]?.tellMeMore, undefined);
   });
 
@@ -161,7 +108,7 @@ describe("upsert_game — create branch", () => {
     const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
     const result = parseToolResult(
       await tool.handler(
-        args({
+        upsertGameArgs({
           name: "engineering",
           channel: "C1",
           questionCron: "0 9 * * *",
@@ -175,7 +122,10 @@ describe("upsert_game — create branch", () => {
     assert.equal(result.hasIncludeRevealInQuestions, true);
     assert.equal(loadTriviaConfig()?.games?.[0]?.includeRevealInQuestions, "yes");
 
-    await tool.handler(args({ name: "engineering", includeRevealInQuestions: null }), SESSION);
+    await tool.handler(
+      upsertGameArgs({ name: "engineering", includeRevealInQuestions: null }),
+      SESSION,
+    );
     assert.equal(loadTriviaConfig()?.games?.[0]?.includeRevealInQuestions, undefined);
   });
 
@@ -185,7 +135,7 @@ describe("upsert_game — create branch", () => {
     const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
     const result = parseToolResult(
       await tool.handler(
-        args({
+        upsertGameArgs({
           name: "engineering",
           channel: "C1",
           questionCron: "0 9 * * *",
@@ -199,7 +149,7 @@ describe("upsert_game — create branch", () => {
     assert.equal(result.hasTagPlayers, true);
     assert.equal(loadTriviaConfig()?.games?.[0]?.tagPlayers, false);
 
-    await tool.handler(args({ name: "engineering", tagPlayers: null }), SESSION);
+    await tool.handler(upsertGameArgs({ name: "engineering", tagPlayers: null }), SESSION);
     assert.equal(loadTriviaConfig()?.games?.[0]?.tagPlayers, undefined);
     assert.equal("tagPlayers" in (loadTriviaConfig()?.games?.[0] ?? {}), false);
   });
@@ -210,7 +160,7 @@ describe("upsert_game — create branch", () => {
     const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
     const result = parseToolResult(
       await tool.handler(
-        args({
+        upsertGameArgs({
           name: "engineering",
           channel: "C1",
           questionCron: "0 9 * * *",
@@ -224,10 +174,10 @@ describe("upsert_game — create branch", () => {
     assert.equal(result.hasDisableAfterRound, true);
     assert.equal(loadTriviaConfig()?.games?.[0]?.disableAfterRound, true);
 
-    await tool.handler(args({ name: "engineering", theme: "space" }), SESSION);
+    await tool.handler(upsertGameArgs({ name: "engineering", theme: "space" }), SESSION);
     assert.equal(loadTriviaConfig()?.games?.[0]?.disableAfterRound, true, "omit keeps the flag");
 
-    await tool.handler(args({ name: "engineering", disableAfterRound: null }), SESSION);
+    await tool.handler(upsertGameArgs({ name: "engineering", disableAfterRound: null }), SESSION);
     assert.equal(loadTriviaConfig()?.games?.[0]?.disableAfterRound, undefined);
     assert.equal("disableAfterRound" in (loadTriviaConfig()?.games?.[0] ?? {}), false);
   });
@@ -238,7 +188,7 @@ describe("upsert_game — create branch", () => {
     const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
     const result = parseToolResult(
       await tool.handler(
-        args({
+        upsertGameArgs({
           name: "engineering",
           channel: "C1",
           questionCron: "0 9 * * *",
@@ -252,7 +202,7 @@ describe("upsert_game — create branch", () => {
     assert.equal(result.hasFinalRevealSummary, true);
     assert.equal(loadTriviaConfig()?.games?.[0]?.finalRevealSummary, "in-thread");
 
-    await tool.handler(args({ name: "engineering", finalRevealSummary: null }), SESSION);
+    await tool.handler(upsertGameArgs({ name: "engineering", finalRevealSummary: null }), SESSION);
     assert.equal(loadTriviaConfig()?.games?.[0]?.finalRevealSummary, undefined);
   });
 
@@ -261,7 +211,7 @@ describe("upsert_game — create branch", () => {
     primeTriviaConfig(sdk, { games: [] });
     const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
     const result = parseToolResult(
-      await tool.handler(args({ name: "incomplete", channel: "C1" }), SESSION),
+      await tool.handler(upsertGameArgs({ name: "incomplete", channel: "C1" }), SESSION),
     );
     assert.match(result.error, /Creating a new game requires/);
   });
@@ -272,7 +222,7 @@ describe("upsert_game — create branch", () => {
     const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
     const result = parseToolResult(
       await tool.handler(
-        args({
+        upsertGameArgs({
           name: "badcron",
           channel: "C1",
           questionCron: "not a cron",
@@ -291,7 +241,7 @@ describe("upsert_game — create branch", () => {
     const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
     const result = parseToolResult(
       await tool.handler(
-        args({
+        upsertGameArgs({
           name: "Bad Name!",
           channel: "C1",
           questionCron: "0 9 * * *",
@@ -310,7 +260,7 @@ describe("upsert_game — create branch", () => {
     const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
     const result = parseToolResult(
       await tool.handler(
-        args({
+        upsertGameArgs({
           name: "test",
           channel: "C1",
           questionCron: "0 9 * * *",
@@ -330,7 +280,7 @@ describe("upsert_game — create branch", () => {
     const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
     const result = parseToolResult(
       await tool.handler(
-        args({
+        upsertGameArgs({
           name: "engineering",
           channel: "C1",
           questionCron: "0 9 * * *",
@@ -360,7 +310,7 @@ describe("upsert_game — create branch", () => {
     primeTriviaConfig(sdk, { games: [] });
     const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
     await tool.handler(
-      args({
+      upsertGameArgs({
         name: "engineering",
         channel: "C1",
         questionCron: "0 9 * * *",
@@ -380,7 +330,7 @@ describe("upsert_game — create branch", () => {
     const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
     const result = parseToolResult(
       await tool.handler(
-        args({
+        upsertGameArgs({
           name: "engineering",
           channel: "C1",
           questionCron: "0 9 * * *",
@@ -400,7 +350,7 @@ describe("upsert_game — create branch", () => {
     const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
     const result = parseToolResult(
       await tool.handler(
-        args({
+        upsertGameArgs({
           name: "engineering",
           channel: "C1",
           questionCron: "0 9 * * *",
@@ -420,7 +370,7 @@ describe("upsert_game — create branch", () => {
     const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
     const result = parseToolResult(
       await tool.handler(
-        args({
+        upsertGameArgs({
           name: "engineering",
           channel: "C1",
           questionCron: "0 9 * * *",
@@ -445,7 +395,7 @@ describe("upsert_game — update branch", () => {
     primeTriviaConfig(sdk, { games: [baseGame] });
     const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
     const result = parseToolResult(
-      await tool.handler(args({ name: "main", questionCron: "0 10 * * *" }), SESSION),
+      await tool.handler(upsertGameArgs({ name: "main", questionCron: "0 10 * * *" }), SESSION),
     );
     assert.equal(result.action, "updated");
     const game = loadTriviaConfig()?.games?.[0];
@@ -458,7 +408,10 @@ describe("upsert_game — update branch", () => {
     const { sdk } = createFakeSdk();
     primeTriviaConfig(sdk, { games: [baseGame] });
     const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
-    await tool.handler(args({ name: "main", answersFormat: { boolean: 1, choice: 1 } }), SESSION);
+    await tool.handler(
+      upsertGameArgs({ name: "main", answersFormat: { boolean: 1, choice: 1 } }),
+      SESSION,
+    );
     const game = loadTriviaConfig()?.games?.[0];
     assert.deepEqual(game?.answersFormat, { boolean: 1, choice: 1, freeform: 0 });
   });
@@ -469,7 +422,7 @@ describe("upsert_game — update branch", () => {
       games: [{ ...baseGame, answersFormat: { boolean: 1, choice: 1, freeform: 0 } }],
     });
     const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
-    await tool.handler(args({ name: "main", answersFormat: null }), SESSION);
+    await tool.handler(upsertGameArgs({ name: "main", answersFormat: null }), SESSION);
     const game = loadTriviaConfig()?.games?.[0];
     assert.equal(game?.answersFormat, undefined);
   });
@@ -486,7 +439,10 @@ describe("upsert_game — update branch", () => {
       ],
     });
     const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
-    await tool.handler(args({ name: "main", questionType: { fact: 0, topical: 1 } }), SESSION);
+    await tool.handler(
+      upsertGameArgs({ name: "main", questionType: { fact: 0, topical: 1 } }),
+      SESSION,
+    );
     const game = loadTriviaConfig()?.games?.[0];
     assert.deepEqual(game?.answersFormat, { boolean: 1, choice: 1, freeform: 0 });
     assert.deepEqual(game?.questionType, { fact: 0, topical: 1, prediction: 0 });
@@ -496,7 +452,7 @@ describe("upsert_game — update branch", () => {
     const { sdk } = createFakeSdk();
     primeTriviaConfig(sdk, { games: [baseGame] });
     const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
-    await tool.handler(args({ name: "main", enabled: false }), SESSION);
+    await tool.handler(upsertGameArgs({ name: "main", enabled: false }), SESSION);
     const game = loadTriviaConfig()?.games?.[0];
     assert.equal(game?.enabled, false);
   });
@@ -506,7 +462,7 @@ describe("upsert_game — update branch", () => {
     primeTriviaConfig(sdk, { games: [baseGame] });
     const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
     await tool.handler(
-      args({
+      upsertGameArgs({
         name: "main",
         format: { questions: [{ label: "A" }, { label: "B" }, { label: "C" }] },
         categories: ["Sports", "History"],
@@ -534,7 +490,7 @@ describe("upsert_game — update branch", () => {
     });
     const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
     await tool.handler(
-      args({ name: "main", format: null, categories: null, theme: null }),
+      upsertGameArgs({ name: "main", format: null, categories: null, theme: null }),
       SESSION,
     );
     const game = loadTriviaConfig()?.games?.[0];
@@ -556,7 +512,7 @@ describe("upsert_game — update branch", () => {
       ],
     });
     const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
-    await tool.handler(args({ name: "main", theme: "Replaced" }), SESSION);
+    await tool.handler(upsertGameArgs({ name: "main", theme: "Replaced" }), SESSION);
     const game = loadTriviaConfig()?.games?.[0];
     assert.equal(game?.format?.questions.length, 1);
     assert.deepEqual(game?.categories, ["Science"]);
@@ -570,7 +526,7 @@ describe("upsert_game — update branch", () => {
     primeTriviaConfig(sdk, { games: [baseGame] });
     const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
     await tool.handler(
-      args({
+      upsertGameArgs({
         name: "main",
         freeformAnswerShape: { name: 1, countable: 2 },
       }),
@@ -593,7 +549,7 @@ describe("upsert_game — instructions and additionalInstructions", () => {
     const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
     const result = parseToolResult(
       await tool.handler(
-        args({
+        upsertGameArgs({
           name: "main",
           channel: "C123",
           questionCron: "0 9 * * 1-5",
@@ -619,7 +575,7 @@ describe("upsert_game — instructions and additionalInstructions", () => {
       games: [{ ...baseGame, instructions: "Be dry.", additionalInstructions: "Avoid politics." }],
     });
     const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
-    await tool.handler(args({ name: "main", instructions: null }), SESSION);
+    await tool.handler(upsertGameArgs({ name: "main", instructions: null }), SESSION);
     const game = loadTriviaConfig()?.games?.[0];
     assert.equal(game?.instructions, undefined);
     assert.equal(game?.additionalInstructions, "Avoid politics.");
@@ -631,7 +587,7 @@ describe("upsert_game — instructions and additionalInstructions", () => {
       games: [{ ...baseGame, instructions: "Be dry.", additionalInstructions: "Avoid politics." }],
     });
     const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
-    await tool.handler(args({ name: "main", enabled: false }), SESSION);
+    await tool.handler(upsertGameArgs({ name: "main", enabled: false }), SESSION);
     const game = loadTriviaConfig()?.games?.[0];
     assert.equal(game?.instructions, "Be dry.");
     assert.equal(game?.additionalInstructions, "Avoid politics.");
@@ -643,7 +599,7 @@ describe("upsert_game — instructions and additionalInstructions", () => {
     primeTriviaConfig(sdk, { games: [{ ...baseGame }] });
     const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
     const result = parseToolResult(
-      await tool.handler(args({ name: "main", instructions: "   " }), SESSION),
+      await tool.handler(upsertGameArgs({ name: "main", instructions: "   " }), SESSION),
     );
     assert.match(result.error ?? "", /instructions.*non-empty/);
   });
@@ -653,7 +609,10 @@ describe("upsert_game — instructions and additionalInstructions", () => {
     primeTriviaConfig(sdk, { games: [{ ...baseGame, instructions: "Be dry." }] });
     const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
     const result = parseToolResult(
-      await tool.handler(args({ name: "main", additionalInstructions: "Stack me." }), SESSION),
+      await tool.handler(
+        upsertGameArgs({ name: "main", additionalInstructions: "Stack me." }),
+        SESSION,
+      ),
     );
     assert.equal(result.action, "updated");
     assert.equal(result.hasInstructions, true);
@@ -672,7 +631,7 @@ describe("upsert_game — prepCron", () => {
     const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
     const result = parseToolResult(
       await tool.handler(
-        args({
+        upsertGameArgs({
           name: "main",
           channel: "C123",
           questionCron: "0 9 * * 1-5",
@@ -692,7 +651,7 @@ describe("upsert_game — prepCron", () => {
     const { sdk } = createFakeSdk();
     primeTriviaConfig(sdk, { games: [{ ...baseGame }] });
     const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
-    await tool.handler(args({ name: "main", prepCron: "30 8 * * 1-5" }), SESSION);
+    await tool.handler(upsertGameArgs({ name: "main", prepCron: "30 8 * * 1-5" }), SESSION);
     const game = loadTriviaConfig()?.games?.[0];
     assert.equal(game?.prepCron, "30 8 * * 1-5");
     // Other fields preserved
@@ -704,7 +663,7 @@ describe("upsert_game — prepCron", () => {
     const { sdk } = createFakeSdk();
     primeTriviaConfig(sdk, { games: [{ ...baseGame, prepCron: "30 8 * * 1-5" }] });
     const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
-    await tool.handler(args({ name: "main", enabled: false }), SESSION);
+    await tool.handler(upsertGameArgs({ name: "main", enabled: false }), SESSION);
     const game = loadTriviaConfig()?.games?.[0];
     assert.equal(game?.prepCron, "30 8 * * 1-5");
     assert.equal(game?.enabled, false);
@@ -714,7 +673,7 @@ describe("upsert_game — prepCron", () => {
     const { sdk } = createFakeSdk();
     primeTriviaConfig(sdk, { games: [{ ...baseGame, prepCron: "30 8 * * 1-5" }] });
     const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
-    await tool.handler(args({ name: "main", prepCron: null }), SESSION);
+    await tool.handler(upsertGameArgs({ name: "main", prepCron: null }), SESSION);
     const game = loadTriviaConfig()?.games?.[0];
     assert.equal(game?.prepCron, undefined);
   });
@@ -725,7 +684,7 @@ describe("upsert_game — prepCron", () => {
     const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
     const result = parseToolResult(
       await tool.handler(
-        args({
+        upsertGameArgs({
           name: "main",
           channel: "C123",
           questionCron: "0 9 * * 1-5",
@@ -745,7 +704,7 @@ describe("upsert_game — prepCron", () => {
     const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
     const result = parseToolResult(
       await tool.handler(
-        args({
+        upsertGameArgs({
           name: "main",
           channel: "C123",
           questionCron: "0 9 * * 1-5",
@@ -766,13 +725,24 @@ describe("upsert_game — judgeLeniency", () => {
     _resetTriviaConfigBridge();
   });
 
+  it("sets the evaluate preset on an existing game", async () => {
+    const { sdk } = createFakeSdk();
+    primeTriviaConfig(sdk, { games: [{ ...baseGame }] });
+    const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
+    const result = parseToolResult(
+      await tool.handler(upsertGameArgs({ name: "main", judgeLeniency: "evaluate" }), SESSION),
+    );
+    assert.equal(result.hasJudgeLeniency, true);
+    assert.equal(loadTriviaConfig()?.games?.[0]?.judgeLeniency, "evaluate");
+  });
+
   it("creates a game carrying a judgeLeniency override", async () => {
     const { sdk } = createFakeSdk();
     primeTriviaConfig(sdk, { games: [] });
     const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
     const result = parseToolResult(
       await tool.handler(
-        args({
+        upsertGameArgs({
           name: "lenient-game",
           channel: "C1",
           questionCron: "0 9 * * *",
@@ -804,11 +774,11 @@ describe("upsert_game — judgeLeniency", () => {
     });
     const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
 
-    await tool.handler(args({ name: "g", judgeLeniency: "lenient" }), SESSION);
+    await tool.handler(upsertGameArgs({ name: "g", judgeLeniency: "lenient" }), SESSION);
     assert.equal(loadTriviaConfig()?.games?.[0]?.judgeLeniency, "lenient");
 
     const cleared = parseToolResult(
-      await tool.handler(args({ name: "g", judgeLeniency: null }), SESSION),
+      await tool.handler(upsertGameArgs({ name: "g", judgeLeniency: null }), SESSION),
     );
     assert.equal(cleared.hasJudgeLeniency, false);
     assert.equal(loadTriviaConfig()?.games?.[0]?.judgeLeniency, undefined);
@@ -826,7 +796,7 @@ describe("upsert_game — choices", () => {
     const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
     const result = parseToolResult(
       await tool.handler(
-        args({
+        upsertGameArgs({
           name: "narrow-game",
           channel: "C1",
           questionCron: "0 9 * * *",
@@ -847,7 +817,7 @@ describe("upsert_game — choices", () => {
     const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
     const result = parseToolResult(
       await tool.handler(
-        args({
+        upsertGameArgs({
           name: "bad-game",
           channel: "C1",
           questionCron: "0 9 * * *",
@@ -878,11 +848,11 @@ describe("upsert_game — choices", () => {
     });
     const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
 
-    await tool.handler(args({ name: "g", choices: { min: 3, max: 4 } }), SESSION);
+    await tool.handler(upsertGameArgs({ name: "g", choices: { min: 3, max: 4 } }), SESSION);
     assert.deepEqual(loadTriviaConfig()?.games?.[0]?.choices, { min: 3, max: 4 });
 
     const cleared = parseToolResult(
-      await tool.handler(args({ name: "g", choices: null }), SESSION),
+      await tool.handler(upsertGameArgs({ name: "g", choices: null }), SESSION),
     );
     assert.equal(cleared.hasChoices, false);
     assert.equal(loadTriviaConfig()?.games?.[0]?.choices, undefined);
@@ -900,7 +870,7 @@ describe("upsert_game — points", () => {
     const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
     const result = parseToolResult(
       await tool.handler(
-        args({
+        upsertGameArgs({
           name: "stakes-game",
           channel: "C1",
           questionCron: "0 9 * * *",
@@ -924,7 +894,7 @@ describe("upsert_game — points", () => {
     const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
     const result = parseToolResult(
       await tool.handler(
-        args({
+        upsertGameArgs({
           name: "allowance-game",
           channel: "C1",
           questionCron: "0 9 * * *",
@@ -945,7 +915,7 @@ describe("upsert_game — points", () => {
     const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
     const result = parseToolResult(
       await tool.handler(
-        args({
+        upsertGameArgs({
           name: "bad-game",
           channel: "C1",
           questionCron: "0 9 * * *",
@@ -976,14 +946,16 @@ describe("upsert_game — points", () => {
     });
     const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
 
-    await tool.handler(args({ name: "g", points: { max: 4 } }), SESSION);
+    await tool.handler(upsertGameArgs({ name: "g", points: { max: 4 } }), SESSION);
     assert.deepEqual(
       loadTriviaConfig()?.games?.[0]?.points,
       { max: 4 },
       "whole-object replace — the old guidance does not survive",
     );
 
-    const cleared = parseToolResult(await tool.handler(args({ name: "g", points: null }), SESSION));
+    const cleared = parseToolResult(
+      await tool.handler(upsertGameArgs({ name: "g", points: null }), SESSION),
+    );
     assert.equal(cleared.hasPoints, false);
     assert.equal(loadTriviaConfig()?.games?.[0]?.points, undefined);
   });
@@ -1014,7 +986,7 @@ describe("upsert_game — shadowing detection", () => {
     const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? [], data);
     const result = parseToolResult(
       await tool.handler(
-        args({ name: "main", answersFormat: { boolean: 0, choice: 1, freeform: 0 } }),
+        upsertGameArgs({ name: "main", answersFormat: { boolean: 0, choice: 1, freeform: 0 } }),
         SESSION,
       ),
     );
@@ -1032,7 +1004,7 @@ describe("upsert_game — shadowing detection", () => {
     const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? [], data);
     const result = parseToolResult(
       await tool.handler(
-        args({ name: "main", answersFormat: { boolean: 0, choice: 1, freeform: 0 } }),
+        upsertGameArgs({ name: "main", answersFormat: { boolean: 0, choice: 1, freeform: 0 } }),
         SESSION,
       ),
     );
@@ -1048,7 +1020,7 @@ describe("upsert_game — initialSeason (seasons enabled)", () => {
   });
 
   function createArgs(extra: Partial<UpsertGameArgs> = {}): UpsertGameArgs {
-    return args({
+    return upsertGameArgs({
       name: "engineering",
       channel: "C1",
       questionCron: "0 9 * * *",
@@ -1165,7 +1137,10 @@ describe("upsert_game — initialSeason (seasons enabled)", () => {
     const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? [], data);
     const result = parseToolResult(
       await tool.handler(
-        args({ name: "main", initialSeason: { slug: "kickoff-2026", expectedEndAt: 9_000 } }),
+        upsertGameArgs({
+          name: "main",
+          initialSeason: { slug: "kickoff-2026", expectedEndAt: 9_000 },
+        }),
         SESSION,
       ),
     );
@@ -1191,7 +1166,7 @@ describe("upsert_game — teams fields", () => {
     const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
     const result = parseToolResult(
       await tool.handler(
-        args({
+        upsertGameArgs({
           name: "main",
           teams: ROSTER,
           teamsEnabled: true,
@@ -1219,7 +1194,7 @@ describe("upsert_game — teams fields", () => {
     });
     const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
     const result = parseToolResult(
-      await tool.handler(args({ name: "main", teamsEnabled: null }), SESSION),
+      await tool.handler(upsertGameArgs({ name: "main", teamsEnabled: null }), SESSION),
     );
     assert.equal(result.hasTeamsEnabled, false);
     assert.equal(result.hasTeams, true);
@@ -1233,7 +1208,7 @@ describe("upsert_game — teams fields", () => {
     const { sdk } = createFakeSdk();
     primeTriviaConfig(sdk, { games: [{ ...baseGame, teams: ROSTER, teamsEnabled: true }] });
     const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
-    await tool.handler(args({ name: "main", theme: "New" }), SESSION);
+    await tool.handler(upsertGameArgs({ name: "main", theme: "New" }), SESSION);
     const game = loadTriviaConfig()?.games?.[0];
     assert.deepEqual(game?.teams, ROSTER);
     assert.equal(game?.teamsEnabled, true);
@@ -1245,7 +1220,7 @@ describe("upsert_game — teams fields", () => {
     const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
     const result = parseToolResult(
       await tool.handler(
-        args({
+        upsertGameArgs({
           name: "main",
           teams: [
             { name: "Red", userIds: ["U1"] },
@@ -1264,7 +1239,7 @@ describe("upsert_game — teams fields", () => {
     primeTriviaConfig(sdk, { games: [baseGame] });
     const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? []);
     const result = parseToolResult(
-      await tool.handler(args({ name: "main", teamsEnabled: true }), SESSION),
+      await tool.handler(upsertGameArgs({ name: "main", teamsEnabled: true }), SESSION),
     );
     assert.equal(result.action, "updated");
     assert.equal(loadTriviaConfig()?.games?.[0].teamsEnabled, true);
@@ -1287,7 +1262,7 @@ describe("upsert_game — teams fields", () => {
     });
     const tool = createUpsertGameTool(() => loadTriviaConfig()?.games ?? [], data);
     const result = parseToolResult(
-      await tool.handler(args({ name: "main", teams: ROSTER }), SESSION),
+      await tool.handler(upsertGameArgs({ name: "main", teams: ROSTER }), SESSION),
     );
     assert.deepEqual(result.shadowedBy, { tier: "season", slug: "s1", fields: ["teams"] });
   });

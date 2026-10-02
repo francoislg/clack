@@ -47,6 +47,7 @@ describe("cascade parity — parser accepts every registry axis", () => {
       difficulty: { boolean: { easy: [1, 2], medium: [3, 4], hard: [5, 6] } },
       difficultyRatio: { boolean: { easy: 1, medium: 1, hard: 1 } },
       additionalInstructions: "also this",
+      judgeInstructions: "accept either language",
     };
 
     const { game, issues } = parseTriviaGame(raw, 0, new Set());
@@ -90,6 +91,7 @@ describe("cascade parity — parser accepts every registry axis", () => {
       difficulty: { boolean: { easy: [1, 2], medium: [3, 4], hard: [5, 6] } },
       difficultyRatio: { boolean: { easy: 1, medium: 1, hard: 1 } },
       additionalInstructions: "also this",
+      judgeInstructions: "accept either language",
     };
 
     const parsed = phaseSliceZod.parse(rawPhase);

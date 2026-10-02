@@ -314,14 +314,19 @@ export const DEFAULT_TELL_ME_MORE: TriviaTellMeMoreConfig = { enabled: false };
  *   - `"lenient"` — judge solely whether the player demonstrably knew the answer,
  *     ignoring edit distance, while still requiring the answer could not
  *     plausibly mean a different valid answer.
- * The universal integrity guards (multi-guess, too-broad, materially-different)
- * apply under every preset. Resolved at `save_question` time and stamped on the
- * question record; the reveal judge reads the stamp.
+ *   - `"evaluate"` — the expected answer is a reference solution: accept a key
+ *     match (under the `lenient` knows-it rule) OR a single committed answer that
+ *     independently satisfies every clue of the question as stated. The only
+ *     preset that accepts a correct answer outside the answer key.
+ * `strict`, `strict-with-typos`, and `lenient` judge on the key-match basis
+ * (a materially-different answer is rejected). The universal integrity guards
+ * (multi-guess, too-broad) apply under every preset. Resolved at `save_question`
+ * time and stamped on the question record; the reveal judge reads the stamp.
  */
-export type JudgeLeniency = "strict" | "strict-with-typos" | "lenient";
+export type JudgeLeniency = "strict" | "strict-with-typos" | "lenient" | "evaluate";
 
-/** The three accepted `judgeLeniency` values, for zod/validator reuse. */
-export const JUDGE_LENIENCY_KEYS = ["strict", "strict-with-typos", "lenient"] as const;
+/** The four accepted `judgeLeniency` values, for zod/validator reuse. */
+export const JUDGE_LENIENCY_KEYS = ["strict", "strict-with-typos", "lenient", "evaluate"] as const;
 
 /** Built-in fallback when no `judgeLeniency` is set at any cascade tier. */
 export const DEFAULT_JUDGE_LENIENCY: JudgeLeniency = "strict-with-typos";
