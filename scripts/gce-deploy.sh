@@ -61,7 +61,7 @@ echo "Project: $PROJECT_ID"
 echo "Instance: $INSTANCE_NAME"
 echo ""
 
-require_project
+require_settings
 if [ "$PROVISION" = true ]; then
     source "$SCRIPT_DIR/lib/gce-provision.sh"
     provision_infra
@@ -78,7 +78,7 @@ fi
 
 # Prod SHA gate: compare the running container's build-sha label with HEAD before
 # spending a build, refusing the footguns (redeploy, rollback, unstamped).
-if ! PROD_LABEL=$(gcloud compute ssh "$INSTANCE_NAME" --zone="$ZONE" --quiet --command="docker inspect clack >/dev/null 2>&1 || { echo __NOCONTAINER__; exit 0; }; docker inspect clack --format '{{index .Config.Labels \"clack.build-sha\"}}'"); then
+if ! PROD_LABEL=$(gce_ssh --command="docker inspect clack >/dev/null 2>&1 || { echo __NOCONTAINER__; exit 0; }; docker inspect clack --format '{{index .Config.Labels \"clack.build-sha\"}}'"); then
     echo -e "${RED}✗ Could not reach the VM to read prod's build SHA. Fix connectivity and retry.${NC}"
     exit 1
 fi
@@ -252,7 +252,7 @@ IDLE_MAX_WAIT="${IDLE_MAX_WAIT:-900}"
 # ============================================
 echo -e "${YELLOW}Pre-pulling new image (bot still running)...${NC}"
 
-gcloud compute ssh "$INSTANCE_NAME" --zone="$ZONE" --quiet --command="
+gce_ssh --command="
     set -e
 
     # Make sure .env is readable by the SSH user (idempotent — the --provision
@@ -323,7 +323,7 @@ fi
 DOWNTIME_START=$(date +%s)
 echo -e "${YELLOW}Draining old container in-process (docker stop -t ${DRAIN_MAX_WAIT}s)...${NC}"
 
-gcloud compute ssh "$INSTANCE_NAME" --zone="$ZONE" --quiet --command="
+gce_ssh --command="
     set -e
     TOTAL_MB=\$(free -m | grep Mem | tr -s ' ' | cut -d' ' -f2)
     CLACK_MEM_MB=\$((TOTAL_MB - $HOST_RESERVE_MB - $SIDECAR_RESERVE_MB))
@@ -362,7 +362,7 @@ if [ "$TESTER_ENABLED" = "true" ]; then
     PW_CONFIG="$BUILD_DIR/docker/clack-playwright/config.json"
     PW_HASH=$(shasum -a 256 "$PW_CONFIG" | cut -d' ' -f1)
     cat "$PW_CONFIG" \
-        | gcloud compute ssh "$INSTANCE_NAME" --zone="$ZONE" --quiet --command="
+        | gce_ssh --command="
             set -e
             sudo mkdir -p '$REMOTE_DATA_DIR/tester/recordings' '$DATA_MOUNT_POINT/clack-playwright'
             sudo chmod 777 '$REMOTE_DATA_DIR/tester/recordings'
@@ -406,7 +406,7 @@ if [ "$TESTER_ENABLED" = "true" ]; then
     # config.tester.dockerProxyUrl (http://clack-docker-proxy:2375). Clack's service
     # lifecycle is the only consumer; Claude gets no docker-facing tool.
     echo -e "${YELLOW}Ensuring docker-socket-proxy (tester services control plane)...${NC}"
-    gcloud compute ssh "$INSTANCE_NAME" --zone="$ZONE" --quiet --command="
+    gce_ssh --command="
         set -e
         PULLED=0
         if [ '$REFRESH_SIDECARS' = true ] || ! docker image inspect '$PROXY_IMAGE' >/dev/null 2>&1; then
@@ -432,7 +432,7 @@ if [ "$TESTER_ENABLED" = "true" ]; then
     "
     echo -e "${GREEN}✓ Docker proxy running (reserve: playwright ${SIDECAR_MEM_MB}m + proxy ${PROXY_MEM_MB}m + services ${SERVICES_BUDGET_MB}m)${NC}"
 else
-    gcloud compute ssh "$INSTANCE_NAME" --zone="$ZONE" --quiet --command="
+    gce_ssh --command="
         for c in clack-playwright $PROXY_CONTAINER_NAME; do
             if docker ps -a --format '{{.Names}}' | grep -q \"^\$c\$\"; then
                 docker rm -f \"\$c\"
@@ -449,7 +449,7 @@ echo ""
 echo -e "${YELLOW}Waiting for bot to reach 'Clack is ready' (up to 5 min)...${NC}"
 
 WAIT_EXIT=0
-gcloud compute ssh "$INSTANCE_NAME" --zone="$ZONE" --quiet --command='bash -s' <<'REMOTE' || WAIT_EXIT=$?
+gce_ssh --command='bash -s' <<'REMOTE' || WAIT_EXIT=$?
 timeout 300 sh -c 'while true; do
     if docker logs clack 2>&1 | grep -q "Clack is ready"; then exit 0; fi
     if ! docker ps --filter name=clack --format "{{.Status}}" | grep -q Up; then exit 3; fi
@@ -469,17 +469,17 @@ case $WAIT_EXIT in
         ;;
     3)
         echo -e "${RED}✗ Container exited or never started healthy. Logs:${NC}"
-        echo "  gcloud compute ssh $INSTANCE_NAME --zone=$ZONE --command='docker logs --tail 80 clack'"
+        echo "  gcloud compute ssh $INSTANCE_NAME --zone=$ZONE --tunnel-through-iap --command='docker logs --tail 80 clack'"
         exit 1
         ;;
     124)
         echo -e "${RED}✗ Bot did not become ready within 5 min (downtime ${DOWNTIME_MIN}m ${DOWNTIME_SEC}s). Logs:${NC}"
-        echo "  gcloud compute ssh $INSTANCE_NAME --zone=$ZONE --command='docker logs -f clack'"
+        echo "  gcloud compute ssh $INSTANCE_NAME --zone=$ZONE --tunnel-through-iap --command='docker logs -f clack'"
         exit 1
         ;;
     *)
         echo -e "${RED}✗ Readiness check failed (exit $WAIT_EXIT). Logs:${NC}"
-        echo "  gcloud compute ssh $INSTANCE_NAME --zone=$ZONE --command='docker logs --tail 80 clack'"
+        echo "  gcloud compute ssh $INSTANCE_NAME --zone=$ZONE --tunnel-through-iap --command='docker logs --tail 80 clack'"
         exit 1
         ;;
 esac
@@ -487,4 +487,4 @@ echo ""
 echo -e "${YELLOW}Reminder:${NC} this deploy only rolls out the image. Config and other data files move through scripts/gce-push.sh (preview with --dry-run)."
 echo ""
 echo -e "${YELLOW}Tail logs:${NC}"
-echo "gcloud compute ssh $INSTANCE_NAME --zone=$ZONE --command='docker logs -f clack'"
+echo "gcloud compute ssh $INSTANCE_NAME --zone=$ZONE --tunnel-through-iap --command='docker logs -f clack'"

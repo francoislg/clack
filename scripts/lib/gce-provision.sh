@@ -18,17 +18,22 @@ else
     echo -e "${GREEN}✓ Network created${NC}"
 fi
 
-# SSH firewall rule (auto-mode networks don't include one by default)
+# SSH firewall rule (auto-mode networks don't include one by default). It admits
+# only GCE_SSH_SOURCE_RANGES — the IAP range every connection tunnels through.
 if gcloud compute firewall-rules describe "$SSH_FIREWALL_RULE" &>/dev/null; then
     echo -e "${GREEN}✓ SSH firewall rule '$SSH_FIREWALL_RULE' already exists${NC}"
 else
-    echo "Creating SSH firewall rule..."
+    if [ -z "$SSH_SOURCE_RANGES" ]; then
+        echo -e "${RED}✗ GCE_SSH_SOURCE_RANGES is not set (see data/gce.env.example) — not creating an SSH rule open to everyone.${NC}"
+        exit 1
+    fi
+    echo "Creating SSH firewall rule (source: $SSH_SOURCE_RANGES)..."
     gcloud compute firewall-rules create "$SSH_FIREWALL_RULE" \
         --network="$NETWORK_NAME" \
         --direction=INGRESS \
         --action=ALLOW \
         --rules=tcp:22 \
-        --source-ranges=0.0.0.0/0 \
+        --source-ranges="$SSH_SOURCE_RANGES" \
         --target-tags=clack \
         --quiet
     echo -e "${GREEN}✓ SSH firewall rule created${NC}"
@@ -177,7 +182,7 @@ gcloud compute instances add-metadata "$INSTANCE_NAME" \
     --quiet
 
 # Run it now (via SSH) so we don't have to wait for a reboot
-gcloud compute ssh "$INSTANCE_NAME" --zone="$ZONE" --quiet --command="sudo bash -s" < "$MOUNT_SCRIPT"
+gce_ssh --command="sudo bash -s" < "$MOUNT_SCRIPT"
 
 rm -f "$MOUNT_SCRIPT"
 
@@ -187,7 +192,7 @@ echo ""
 
 seed_data_disk_if_empty() {
     local disk_state
-    disk_state=$(gcloud compute ssh "$INSTANCE_NAME" --zone="$ZONE" --quiet --command="sudo sh -c '[ -d \"$REMOTE_DATA_DIR\" ] && [ -n \"\$(ls -A \"$REMOTE_DATA_DIR\" 2>/dev/null)\" ] && echo used || echo empty'") || true
+    disk_state=$(gce_ssh --command="sudo sh -c '[ -d \"$REMOTE_DATA_DIR\" ] && [ -n \"\$(ls -A \"$REMOTE_DATA_DIR\" 2>/dev/null)\" ] && echo used || echo empty'") || true
 
     if printf '%s' "$disk_state" | grep -q used; then
         echo -e "${YELLOW}Data disk already holds data — skipping the seed. Move files with scripts/gce-push.sh.${NC}"
@@ -205,11 +210,11 @@ seed_data_disk_if_empty() {
     # default_configuration, repositories, worktrees) is synced.
 
     # Ensure the remote data dir exists and is writable, then stream the tree in.
-    gcloud compute ssh "$INSTANCE_NAME" --zone="$ZONE" --quiet \
+    gce_ssh \
         --command="sudo mkdir -p '$REMOTE_DATA_DIR' && sudo chmod a+rwx '$REMOTE_DATA_DIR'"
 
     COPYFILE_DISABLE=1 tar -C "$PROJECT_DIR" -cf - "${DATA_TAR_EXCLUDES[@]}" data \
-        | gcloud compute ssh "$INSTANCE_NAME" --zone="$ZONE" --quiet \
+        | gce_ssh \
             --command="sudo tar -C '$DATA_MOUNT_POINT' -xf - --strip-components=0"
 
     # The container runs as the 'clack' user (UID 1001 per Dockerfile). Make the
@@ -217,7 +222,7 @@ seed_data_disk_if_empty() {
     # Then loosen .env to mode 644 so the SSH user (not in the clack group) can read
     # it when invoking `docker run --env-file`. The file stays owned by UID 1001 so
     # the in-container clack user can also read it.
-    gcloud compute ssh "$INSTANCE_NAME" --zone="$ZONE" --quiet \
+    gce_ssh \
         --command="sudo chown -R 1001:1001 '$REMOTE_DATA_DIR' && sudo chmod 644 '$REMOTE_DATA_DIR/auth/.env'"
 
     echo -e "${GREEN}✓ Empty data disk seeded from ./data/${NC}"

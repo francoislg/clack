@@ -147,8 +147,19 @@ The system SHALL provide one deployment script for Google Compute Engine, `scrip
 
 #### Scenario: GCE prerequisites check
 - **WHEN** the deploy script runs
-- **THEN** it verifies the GCP project is set
+- **THEN** it verifies the GCP project and the zone are set
 - **AND** verifies the instance exists, pointing to `--provision` when it does not
+
+#### Scenario: Instance settings come from local configuration
+- **WHEN** any gce-* script needs the zone, instance, project, Artifact Registry repository, machine type, or SSH source ranges
+- **THEN** it reads `GCE_*` environment variables, falling back to the gitignored `data/gce.env`
+- **AND** no zone, region, IP range, or project name is hardcoded in the committed scripts or docs; `data/gce.env.example` carries only example values
+- **AND** a missing zone fails the run with a message naming `GCE_ZONE`
+
+#### Scenario: VM connections go through IAP
+- **WHEN** any gce-* script or the sync engine connects to the VM
+- **THEN** it runs `gcloud compute ssh --tunnel-through-iap`
+- **AND** provisioning creates the SSH firewall rule admitting only `GCE_SSH_SOURCE_RANGES`, refusing to create it when that setting is empty
 
 #### Scenario: First-time provisioning
 - **WHEN** `scripts/gce-deploy.sh --provision` runs
@@ -181,7 +192,7 @@ The deployment process SHALL provision a Google Artifact Registry Docker reposit
 
 #### Scenario: Region matches the VM zone
 - **WHEN** the Artifact Registry repository is created
-- **THEN** its location is the region derived from the VM `ZONE` by removing the trailing zone-letter suffix (e.g. `<zone>` → `<region>`)
+- **THEN** its location is the region derived from the VM `ZONE` by removing the trailing zone-letter suffix (e.g. `us-central1-a` → `us-central1`)
 - **AND** the image path region in `IMAGE_NAME` matches that location
 
 ### Requirement: Change Workflow Setup Instructions

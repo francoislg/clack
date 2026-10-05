@@ -39,16 +39,12 @@ That's it locally. Verify with a call to `geolocate_ip` (e.g. `["8.8.8.8"]` → 
 
 ## Deploying to the VM
 
-The GCE deploy (`scripts/gce-deploy.sh`) **does not touch the persistent data disk**, so the `.mmdb` is placed there **once** and survives every subsequent image deploy — no per-deploy sync, and the core deploy script stays plugin-agnostic. Push it with the same surgical SSH-tar pattern the operator uses for `worker-settings.json`:
+The GCE deploy (`scripts/gce-deploy.sh`) **does not touch the persistent data disk**, so the `.mmdb` is placed there **once** and survives every subsequent image deploy — no per-deploy sync, and the core deploy script stays plugin-agnostic. Push it like any other data file: list it in `data/.deploy-include`, then run `scripts/gce-push.sh`, which creates it on the VM and hands it to the container user:
 
 ```bash
-tar -C data/plugins/geolocation -cf - dbip-country-lite.mmdb \
-  | gcloud compute ssh clack --zone=<zone> --quiet --command="
-      set -e
-      sudo mkdir -p /mnt/disks/clack-data/data/plugins/geolocation
-      sudo tar -C /mnt/disks/clack-data/data/plugins/geolocation -xf -
-      sudo chown -R 1001:1001 /mnt/disks/clack-data/data/plugins/geolocation
-    "
+echo data/plugins/geolocation/dbip-country-lite.mmdb >> data/.deploy-include
+bash scripts/gce-push.sh --dry-run   # the .mmdb shows under "Create on VM"
+bash scripts/gce-push.sh
 ```
 
 Then add `"geolocation"` to the VM's `data/config.json` (also on the persistent disk) and restart the container.

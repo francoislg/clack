@@ -26,6 +26,7 @@ data/.debug-sessions/
 data/.npm/
 data/mcp_packages/
 data/.deploy-include
+data/gce.env
 data/.gce-sync-baseline.json
 data/.gce-sync-backups/
 data/auth/*

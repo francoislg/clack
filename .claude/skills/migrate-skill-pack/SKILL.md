@@ -40,7 +40,8 @@ catalog (built from the registry `description`) and loads a skill on demand via
 `load_skill("<pack>", "<skill>")`. Without the registry entry the pack loads *eagerly*
 (frontmatter burned into every session).
 
-Use `data/skill-plugins/acme-policies` as the reference implementation to mirror.
+Use an already-migrated pack under `data/skill-plugins/` (one with a
+`.claude-plugin/marketplace.json`) as the reference implementation to mirror.
 
 ## Steps
 
@@ -70,14 +71,14 @@ mv "$base/references" "$base/skills/<name>/references"
 
 ### 3. Add the manifest
 
-Create `<base>/.claude-plugin/marketplace.json`, mirroring
-`data/skill-plugins/acme-policies/.claude-plugin/marketplace.json`. Fill in the
+Create `<base>/.claude-plugin/marketplace.json`, mirroring the reference pack's
+`.claude-plugin/marketplace.json`. Fill in the
 pack name, descriptions, and the `skills` path:
 
 ```json
 {
   "name": "<pack>",
-  "owner": { "name": "Acme" },
+  "owner": { "name": "<owner>" },
   "metadata": {
     "description": "<one-line pack summary>",
     "version": "1.0.0"
@@ -96,7 +97,7 @@ pack name, descriptions, and the `skills` path:
 
 ### 4. Register it lazy in config.json
 
-Add to `data/config.json` → `skillPlugins` (mirror the `acme-policies` entry). The
+Add to `data/config.json` → `skillPlugins` (mirror the reference pack's entry). The
 `description` is what Claude reads in the AVAILABLE SKILL PACKS catalog to decide when to
 `load_skill`, so make it trigger-rich (list the concrete question types):
 
@@ -158,7 +159,7 @@ pulled `data/config.json`, then push again.
 
 ```
 source scripts/gce-common.sh
-gcloud compute ssh "$INSTANCE_NAME" --zone="$ZONE" --quiet --command="
+gce_ssh --command="
   sudo ls '$DATA_MOUNT_POINT/data/skill-plugins/<pack>/.claude-plugin'
   sudo ls '$DATA_MOUNT_POINT/data/skill-plugins/<pack>/skills/<name>'
   sudo grep -c '<pack>' '$DATA_MOUNT_POINT/data/config.json'

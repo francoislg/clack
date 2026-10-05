@@ -8,7 +8,7 @@
 #   scripts/gce-fetch-session.sh <channelId> <threadTs>
 #
 # Example:
-#   scripts/gce-fetch-session.sh 'https://acme.slack.com/archives/D0EXAMPLE.../p17787...?thread_ts=1778763917.894779'
+#   scripts/gce-fetch-session.sh 'https://example.slack.com/archives/D0EXAMPLE.../p17787...?thread_ts=1778763917.894779'
 
 set -e
 
@@ -47,7 +47,7 @@ echo -e "${BLUE}Channel: ${NC}$CHANNEL"
 echo -e "${BLUE}Thread:  ${NC}$THREAD_TS"
 echo ""
 
-require_project
+require_settings
 require_instance
 
 THREAD_PREFIX="${THREAD_TS/./-}"
@@ -149,7 +149,7 @@ REMOTE
 echo -e "${YELLOW}Fetching from VM...${NC}"
 
 set +e
-gcloud compute ssh "$INSTANCE_NAME" --zone="$ZONE" --quiet \
+gce_ssh \
     --command="$REMOTE_CMD" \
     | tar -C "$OUT_DIR" -xf -
 SSH_RESULT=${PIPESTATUS[0]}

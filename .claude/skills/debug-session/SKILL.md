@@ -49,7 +49,7 @@ This pulls just the matching Q&A session, worker session (if any), and the corre
 > **Reliable fallback:** SSH to the GCE instance and grep all `context.json` files for the thread root ts:
 >
 > ```
-> gcloud compute ssh clack --zone=<zone> --quiet --command='sudo grep -rlE "<threadTs>" /mnt/disks/clack-data/data/sessions/*/context.json'
+> source scripts/gce-common.sh && gce_ssh --command='sudo grep -rlE "<threadTs>" /mnt/disks/clack-data/data/sessions/*/context.json'
 > ```
 >
 > (Also useful: `sudo ls -dt /mnt/disks/clack-data/data/sessions/channelless* | head` lists recent channelless plugin sessions.) Once you have the matching directory name, read its `context.json` and SDK JSONL directly over SSH rather than relying on the channel-prefix match. Channelless sessions have `triggerType: "scheduled"` and `trigger.type: "scheduled"` with a `jobId` — that signature confirms it's a cron-driven post, not a user-triggered Q&A.

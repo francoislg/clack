@@ -10,7 +10,7 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/gce-common.sh"
 
-require_project
+require_settings
 require_instance
 
 export GCE_INSTANCE="$INSTANCE_NAME" GCE_ZONE="$ZONE" GCE_DATA_MOUNT="$DATA_MOUNT_POINT" GCE_PROJECT_DIR="$PROJECT_DIR"

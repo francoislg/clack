@@ -62,7 +62,8 @@ The endpoint renders the instruction cascade only. Session-specific additions â€
 The server lives inside the container:
 
 ```bash
-gcloud compute ssh clack --zone=<zone> --command 'docker exec clack node -e "
+source scripts/gce-common.sh
+gce_ssh --command 'docker exec clack node -e "
   const t = require(\"fs\").readFileSync(\"/app/data/auth/.env\", \"utf8\")
     .match(/^STATUS_TOKEN=(.*)$/m)[1].trim();
   fetch(\"http://127.0.0.1:8787/prompt?role=owner&topics=idler\", { headers: { \"x-status-token\": t } })

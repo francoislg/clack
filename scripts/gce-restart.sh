@@ -19,7 +19,7 @@ FORCE=0
 
 DRAIN_MAX_WAIT="${DRAIN_MAX_WAIT:-300}"
 
-require_project
+require_settings
 require_instance
 
 echo -e "${YELLOW}Draining: waiting for active runs to finish (up to ${DRAIN_MAX_WAIT}s)...${NC}"
@@ -44,12 +44,12 @@ fi
 echo -e "${YELLOW}Restarting container (downtime starts here)...${NC}"
 DOWNTIME_START=$(date +%s)
 
-gcloud compute ssh "$INSTANCE_NAME" --zone="$ZONE" --quiet --command='docker restart clack > /dev/null'
+gce_ssh --command='docker restart clack > /dev/null'
 
 echo -e "${YELLOW}Waiting for bot to reach 'Clack is ready' (up to 5 min)...${NC}"
 
 WAIT_EXIT=0
-gcloud compute ssh "$INSTANCE_NAME" --zone="$ZONE" --quiet --command='bash -s' <<'REMOTE' || WAIT_EXIT=$?
+gce_ssh --command='bash -s' <<'REMOTE' || WAIT_EXIT=$?
 timeout 300 sh -c 'start=$(docker inspect --format "{{.State.StartedAt}}" clack); while true; do
     if docker logs --since "$start" clack 2>&1 | grep -q "Clack is ready"; then exit 0; fi
     if ! docker ps --filter name=clack --format "{{.Status}}" | grep -q Up; then exit 3; fi
@@ -66,12 +66,12 @@ case $WAIT_EXIT in
         ;;
     3)
         echo -e "${RED}✗ Container exited after restart. Logs:${NC}"
-        echo "  gcloud compute ssh $INSTANCE_NAME --zone=$ZONE --command='docker logs --tail 80 clack'"
+        echo "  gcloud compute ssh $INSTANCE_NAME --zone=$ZONE --tunnel-through-iap --command='docker logs --tail 80 clack'"
         exit 1
         ;;
     *)
         echo -e "${RED}✗ Bot did not become ready within 5 min. Logs:${NC}"
-        echo "  gcloud compute ssh $INSTANCE_NAME --zone=$ZONE --command='docker logs -f clack'"
+        echo "  gcloud compute ssh $INSTANCE_NAME --zone=$ZONE --tunnel-through-iap --command='docker logs -f clack'"
         exit 1
         ;;
 esac

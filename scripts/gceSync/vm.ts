@@ -54,7 +54,7 @@ export function processError(label: string, code: number, stderr: string): Error
   return new Error(`${label} exited with code ${code}\n${lines.join("\n")}`);
 }
 
-/** Spawns `gcloud compute ssh` against `target`, running `command` on the VM. */
+/** Spawns `gcloud compute ssh` through IAP against `target`, running `command` on the VM. */
 function spawnSsh(target: VmTarget, command: string): ChildProcess {
   return spawn("gcloud", [
     "compute",
@@ -62,6 +62,7 @@ function spawnSsh(target: VmTarget, command: string): ChildProcess {
     target.instance,
     `--zone=${target.zone}`,
     "--quiet",
+    "--tunnel-through-iap",
     `--command=${command}`,
   ]);
 }

@@ -10,11 +10,35 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m'
 
-# GCP / instance config
-PROJECT_ID=$(gcloud config get-value project 2>/dev/null)
-INSTANCE_NAME="clack"
-ZONE="<zone>"
-MACHINE_TYPE="e2-standard-2"
+# Local paths (resolved relative to this file's location)
+GCE_COMMON_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_DIR="$(dirname "$GCE_COMMON_DIR")"
+DATA_DIR="$PROJECT_DIR/data"
+AUTH_DIR="$DATA_DIR/auth"
+
+# Instance settings: environment variables, else data/gce.env (gitignored; copy
+# data/gce.env.example). An environment variable wins over the file.
+GCE_ENV_FILE="$DATA_DIR/gce.env"
+if [ -f "$GCE_ENV_FILE" ]; then
+    while IFS='=' read -r key value || [ -n "$key" ]; do
+        case "$key" in
+            *[!A-Z0-9_]*) ;;
+            GCE_[A-Z0-9_]*)
+                value="${value%\"}"
+                value="${value#\"}"
+                [ -n "${!key:-}" ] || export "$key=$value"
+                ;;
+        esac
+    done < "$GCE_ENV_FILE"
+fi
+
+PROJECT_ID="${GCE_PROJECT:-$(gcloud config get-value project 2>/dev/null)}"
+INSTANCE_NAME="${GCE_INSTANCE:-clack}"
+ZONE="${GCE_ZONE:-}"
+MACHINE_TYPE="${GCE_MACHINE_TYPE:-e2-standard-2}"
+# Source ranges the SSH firewall rule admits (provisioning only): the IAP
+# TCP-forwarding range, since every connection goes through IAP.
+SSH_SOURCE_RANGES="${GCE_SSH_SOURCE_RANGES:-}"
 
 # Container memory limits. The clack container's cap is computed ON THE VM as
 # total memory minus these reserves, so a machine-type bump raises it
@@ -58,10 +82,10 @@ console.log(String(Number.isInteger(v) && v >= 0 ? v : 0));
 }
 
 # Artifact Registry: region is derived from ZONE by stripping the trailing
-# zone-letter suffix (<zone> -> <region>) so
-# the registry and the VM always live in the same region.
+# zone-letter suffix (e.g. us-central1-a -> us-central1) so the registry and the
+# VM always live in the same region.
 AR_REGION="${ZONE%-*}"
-AR_REPO="clack"
+AR_REPO="${GCE_AR_REPO:-clack}"
 IMAGE_NAME="${AR_REGION}-docker.pkg.dev/${PROJECT_ID}/${AR_REPO}/clack:latest"
 # Pinned tools base image (system deps + github-mcp-server + optional per-instance
 # overlay). The app image builds FROM a content-addressed `…/clack:tools-<hash>`
@@ -86,12 +110,6 @@ REMOTE_DATA_DIR="$DATA_MOUNT_POINT/data"
 NETWORK_NAME="clack-network"
 SSH_FIREWALL_RULE="clack-allow-ssh"
 
-# Local paths (resolved relative to this file's location)
-GCE_COMMON_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_DIR="$(dirname "$GCE_COMMON_DIR")"
-DATA_DIR="$PROJECT_DIR/data"
-AUTH_DIR="$DATA_DIR/auth"
-
 # Caches and locally-regeneratable artifacts. Skipped by both upload and download.
 DATA_TAR_EXCLUDES=(
     --exclude='data/.npm'
@@ -103,9 +121,19 @@ DATA_TAR_EXCLUDES=(
     --exclude='.DS_Store'
 )
 
-require_project() {
+# Runs `gcloud compute ssh` on the VM through IAP; the SSH firewall rule admits
+# only the IAP range. Pass the remaining flags, e.g. gce_ssh --command="...".
+gce_ssh() {
+    gcloud compute ssh "$INSTANCE_NAME" --zone="$ZONE" --quiet --tunnel-through-iap "$@"
+}
+
+require_settings() {
     if [ -z "$PROJECT_ID" ]; then
-        echo -e "${RED}✗ No GCP project set. Run: gcloud config set project YOUR_PROJECT${NC}"
+        echo -e "${RED}✗ No GCP project set. Set GCE_PROJECT in data/gce.env, or run: gcloud config set project YOUR_PROJECT${NC}"
+        exit 1
+    fi
+    if [ -z "$ZONE" ]; then
+        echo -e "${RED}✗ No zone set. Set GCE_ZONE in data/gce.env (see data/gce.env.example).${NC}"
         exit 1
     fi
 }
@@ -143,7 +171,7 @@ require_ar_repo() {
 # to wait on or read (no running clack container, unreachable endpoint,
 # unexpected payload, invalid <max-secs>), and any other code when ssh fails.
 wait_for_idle() {
-    gcloud compute ssh "$INSTANCE_NAME" --zone="$ZONE" --quiet --command="
+    gce_ssh --command="
         docker ps --format '{{.Names}}' | grep -qx clack || { echo 'Idle wait: clack container not running'; exit 11; }
         docker exec -i -e IDLE_MAX_WAIT=$1 clack node --input-type=module -" <<'JS'
 const capMs = Number(process.env.IDLE_MAX_WAIT) * 1000;

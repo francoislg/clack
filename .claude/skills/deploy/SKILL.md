@@ -176,6 +176,10 @@ near-instant.
 
 ## Gotchas
 
+- **Instance settings live in `data/gce.env`** (gitignored; `data/gce.env.example`
+  lists the keys). A "No zone set" error means that file is missing or lacks
+  `GCE_ZONE` — ask the user for the values; never guess a zone or project.
+
 - **The skill is image-only** — it never pushes `config.json`, `mcp.json`,
   `worker-settings.json`, or `default_configuration/`. Those move only through
   `scripts/gce-push.sh` (see Step 5).
