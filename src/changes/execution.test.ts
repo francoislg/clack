@@ -257,22 +257,22 @@ describe("runClaude — model selection", () => {
 
   it("uses claudeCode.workerModel when set", async () => {
     const { deps, getOptions } = captureOptionsWithConfig({
-      claudeCode: { model: "claude-sonnet-5", workerModel: "claude-opus-4-8" },
+      claudeCode: { model: "sonnet", workerModel: "opus" },
     });
 
     await runClaude({ prompt: "go", cwd: "/tmp", _deps: deps });
 
-    assert.equal(getOptions()?.model, "claude-opus-4-8");
+    assert.equal(getOptions()?.model, "opus");
   });
 
   it("falls back to claudeCode.model when workerModel is unset", async () => {
     const { deps, getOptions } = captureOptionsWithConfig({
-      claudeCode: { model: "claude-sonnet-5" },
+      claudeCode: { model: "sonnet" },
     });
 
     await runClaude({ prompt: "go", cwd: "/tmp", _deps: deps });
 
-    assert.equal(getOptions()?.model, "claude-sonnet-5");
+    assert.equal(getOptions()?.model, "sonnet");
   });
 
   it("passes undefined when neither model is configured", async () => {

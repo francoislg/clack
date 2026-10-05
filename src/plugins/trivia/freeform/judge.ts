@@ -43,7 +43,7 @@ export interface JudgePrompt {
  * Default Haiku model id used by `process_reveal_answers` for the freeform judge.
  * Centralized here so tests can reference the same constant.
  */
-export const DEFAULT_JUDGE_MODEL = "claude-haiku-4-5-20251001";
+export const DEFAULT_JUDGE_MODEL = "haiku";
 
 /** Re-ask budget: how many times to call the judge for ONE answer before giving up. */
 export const JUDGE_MAX_ATTEMPTS = 4;
@@ -52,7 +52,7 @@ export const JUDGE_MAX_ATTEMPTS = 4;
 export const JUDGE_CONCURRENCY = 6;
 
 /** Sonnet-tier model id used for questions stamped `judgeLeniency: "evaluate"`. */
-export const EVALUATE_JUDGE_MODEL = "claude-sonnet-5-5";
+export const EVALUATE_JUDGE_MODEL = "sonnet";
 
 const JUDGE_INTRO =
   "You are a strict but fair trivia judge. You are given ONE trivia question, its expected answer, and ONE player's typed answer. Decide whether that single answer is correct.";

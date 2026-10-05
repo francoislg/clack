@@ -1560,7 +1560,7 @@ describe("ClackSdk", () => {
       const { sdk } = makeSdk("trivia", { clackQuery: fakeClackQuery });
 
       const out = await sdk.askClaude({
-        model: "claude-haiku-4-5-20251001",
+        model: "haiku",
         system: "You are a strict judge.",
         messages: [{ role: "user", content: "What is the capital of France?" }],
         max_tokens: 100,
@@ -1570,7 +1570,7 @@ describe("ClackSdk", () => {
       assert.equal(out.stopReason, "end_turn");
       assert.equal(out.usage.inputTokens, 12);
       assert.equal(out.usage.outputTokens, 3);
-      assert.equal(capturedModel, "claude-haiku-4-5-20251001");
+      assert.equal(capturedModel, "haiku");
       assert.match(capturedPrompt ?? "", /strict judge/);
       assert.match(capturedPrompt ?? "", /capital of France/);
     });

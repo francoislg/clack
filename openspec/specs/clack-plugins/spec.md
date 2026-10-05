@@ -438,7 +438,7 @@ The Clack plugin SDK SHALL expose `sdk.askClaude(opts)` allowing a plugin to inv
 
 #### Scenario: Plugin invokes a single-turn Claude call
 
-- **WHEN** a plugin calls `sdk.askClaude({ model: "claude-haiku-4-5-20251001", messages: [{ role: "user", content: "Hello" }], max_tokens: 100 })`
+- **WHEN** a plugin calls `sdk.askClaude({ model: "haiku", messages: [{ role: "user", content: "Hello" }], max_tokens: 100 })`
 - **THEN** the SDK invokes the Anthropic SDK's `messages.create` with the supplied parameters using the existing `ANTHROPIC_API_KEY`
 - **AND** returns the response's first content block as `{ text, stopReason, usage }`
 

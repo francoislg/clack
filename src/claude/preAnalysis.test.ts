@@ -295,10 +295,10 @@ describe("runPreAnalysis", () => {
       undefined,
       undefined,
       undefined,
-      { ...makeDeps(), resolveModel: () => "claude-haiku-4-5" },
+      { ...makeDeps(), resolveModel: () => "haiku" },
     );
 
-    assert.equal(capturedOptions?.model, "claude-haiku-4-5");
+    assert.equal(capturedOptions?.model, "haiku");
   });
 
   it("falls back to the default model when config resolution throws", async () => {
@@ -342,11 +342,11 @@ describe("runPreAnalysis", () => {
       undefined,
       undefined,
       undefined,
-      { ...makeDeps(), resolveModel: () => "claude-haiku-4-5" },
+      { ...makeDeps(), resolveModel: () => "haiku" },
     );
 
     assert.ok(
-      info.mock.calls.some((call) => String(call[0]).includes("model=claude-haiku-4-5")),
+      info.mock.calls.some((call) => String(call[0]).includes("model=haiku")),
       `expected a verdict log naming the model, got: ${JSON.stringify(info.mock.calls)}`,
     );
   });
@@ -1157,11 +1157,11 @@ describe("runInvestigationPreAnalysis", () => {
       undefined,
       undefined,
       undefined,
-      { ...makeDeps(), resolveModel: () => "claude-haiku-4-5" },
+      { ...makeDeps(), resolveModel: () => "haiku" },
     );
 
     assert.ok(
-      info.mock.calls.some((call) => String(call[0]).includes("model=claude-haiku-4-5")),
+      info.mock.calls.some((call) => String(call[0]).includes("model=haiku")),
       `expected a verdict log naming the model, got: ${JSON.stringify(info.mock.calls)}`,
     );
   });

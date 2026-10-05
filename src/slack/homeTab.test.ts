@@ -184,7 +184,7 @@ function defaultConfig(): Config {
     ],
     git: { pullIntervalMinutes: 60, shallowClone: true, cloneDepth: 1 },
     sessions: { cleanupIntervalMinutes: 60 },
-    claudeCode: { model: "claude-opus" },
+    claudeCode: { model: "opus" },
     // Existing tests assume user-facing scheduled messages render; set the flag here
     // so they keep doing so. Tests for the "hidden when off" path override this.
     cron: { enabled: true, userSchedules: true },
