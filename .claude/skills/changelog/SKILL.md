@@ -190,7 +190,7 @@ Section order is always Features → Improvements → Internal Changes. The **Op
 ### 7. Sanity checks before output
 
 - Every card has a title, a **leading** emoji, and description.
-- No card describes something trivial (typo, dep bump, lint fix, graphify/openspec housekeeping, test-only or style-only commits).
+- No card describes something trivial (typo, dep bump, lint fix, openspec housekeeping, test-only or style-only commits).
 - **Every card reads at user altitude** — a regular Slack user could follow it and see why they'd care. No commit-speak, no bare subsystem/file names as the headline.
 - **Admin/operator items are compressed, not headlined** — they belong in the Operations & polish bucket (one line each) or the Internal Changes section (framed for user impact), never as a marquee Feature.
 - Each card sits under the right section: **Features** only for genuinely new capabilities, **Improvements** for enhancements to things that already existed. If a "Feature" card describes tuning/polish/reliability of an existing thing, move it to Improvements.

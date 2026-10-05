@@ -47,4 +47,3 @@
 - [x] 7.1 `npx tsc`, `npx oxlint`, `npx oxfmt --check` clean on all touched files.
 - [x] 7.2 `npm test` green.
 - [~] 7.3 Manual end-to-end against a real workspace: enable the flag, regenerate the manifest, reinstall, then search for a known keyword from a DM and from an @mention; confirm a reaction-triggered session shows the degraded tool. **BLOCKED — needs a live workspace + reinstall; carries the still-open `:bob:` tokenization probe (0.1).**
-- [x] 7.4 Run `graphify update .` and commit the regenerated graph alongside the code.

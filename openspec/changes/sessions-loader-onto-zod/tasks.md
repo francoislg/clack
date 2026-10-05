@@ -25,4 +25,3 @@
 - [ ] 5.1 `npx tsc` clean
 - [ ] 5.2 `npx oxlint` + `npx oxfmt` clean on changed files
 - [ ] 5.3 `npm test` (vitest) green — characterization gate + existing session + query-tool tests
-- [ ] 5.4 `graphify update .` (coordinate timing with concurrent sessions before staging `graphify-out/`)

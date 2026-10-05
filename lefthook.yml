@@ -6,18 +6,7 @@ pre-commit:
       run: npx oxlint {staged_files}
     format:
       glob: "*.{ts,js,json}"
-      exclude: "graphify-out/**"
       run: npx oxfmt --check {staged_files}
     test:
       glob: "*.ts"
       run: npm test
-    # One-commit cycle: when code changes, refresh the graphify graph (AST-only,
-    # no LLM) and stage it so graph.json rides in the SAME commit — a checkout of
-    # any commit gets a matching, up-to-date graph. Non-blocking (|| true) so a
-    # rebuild hiccup never blocks a commit. graph.json conflicts are auto-resolved
-    # by the merge=graphify union driver (.gitattributes). Doc/spec-content changes
-    # still need a manual `/graphify --update` (LLM); community labels reset to
-    # generic names on auto-rebuild — run a full `/graphify` to restore them.
-    graphify:
-      glob: "*.{ts,tsx,js,jsx,mjs,cjs}"
-      run: GRAPHIFY_NO_BACKUP=1 graphify update . || true; git add graphify-out/
