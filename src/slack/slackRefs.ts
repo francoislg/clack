@@ -114,14 +114,16 @@ export const REF_KINDS: readonly RefKind[] = [
   {
     kind: "list",
     label: () => "Slack List",
-    matches: (facts) => facts.filetype === "list",
+    matches: (facts) =>
+      facts.filetype === "list" || facts.mimetype === "application/vnd.slack-list",
     reader: (gates) => (gates.listsMode === "off" ? null : "read_list"),
     mustOpen: false,
   },
   {
     kind: "canvas",
     label: () => "Canvas",
-    matches: (facts) => facts.filetype === "quip",
+    matches: (facts) =>
+      facts.filetype === "quip" || facts.mimetype === "application/vnd.slack-docs",
     reader: (gates) => (gates.canvasesMode === "off" ? null : "read_canvas"),
     mustOpen: false,
   },
@@ -276,6 +278,7 @@ function factsOfAttachment(file: SlackFileBase): FileFacts {
     filetype: file.filetype,
     prettyType: file.pretty_type,
     name: file.name,
+    title: file.title,
     mimetype: file.mimetype,
     size: file.size,
     urlPrivate: file.url_private,
@@ -295,11 +298,16 @@ export function fileRef(
   gates: ReaderGates,
   options: FileRefOptions,
 ): SlackFileRef {
-  const name = facts.name ?? facts.title;
+  const classification = classifyFile(facts, gates);
+  // A canvas's or List's `name` is a file-safe slug that reads like a path; its title is its name.
+  const name =
+    classification.kind === "canvas" || classification.kind === "list"
+      ? (facts.title ?? facts.name)
+      : (facts.name ?? facts.title);
   return {
     type: "file",
     id,
-    ...classifyFile(facts, gates),
+    ...classification,
     ...(name !== undefined && { name }),
     facts,
     ...(options.itemId !== undefined && { itemId: options.itemId }),

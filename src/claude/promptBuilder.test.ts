@@ -637,11 +637,39 @@ describe("buildPrompt", () => {
       ),
     });
     assert.ok(prompt.includes("REFERENCED SLACK ITEMS:"));
-    assert.ok(prompt.includes("- [Slack List] F0LIST001.name (id: F0LIST001) → read_list"));
-    assert.ok(prompt.includes("- [Canvas] F0CANVAS1.name (id: F0CANVAS1) → read_canvas"));
-    assert.ok(prompt.includes("- [Image] F0IMAGE01.name (id: F0IMAGE01) → view_slack_file"));
-    assert.ok(prompt.includes("- [PDF] F0PDF0001.name (id: F0PDF0001) → view_slack_file"));
-    assert.ok(prompt.includes("- [Workflow] F0WORKFLO.name (id: F0WORKFLO) → view_slack_file"));
+    assert.ok(prompt.includes('- Slack List "F0LIST001.name" — read with read_list(F0LIST001)'));
+    assert.ok(prompt.includes('- Canvas "F0CANVAS1.name" — read with read_canvas(F0CANVAS1)'));
+    assert.ok(prompt.includes('- Image "F0IMAGE01.name" — read with view_slack_file(F0IMAGE01)'));
+    assert.ok(prompt.includes('- PDF "F0PDF0001.name" — read with view_slack_file(F0PDF0001)'));
+    assert.ok(
+      prompt.includes('- Workflow "F0WORKFLO.name" — read with view_slack_file(F0WORKFLO)'),
+    );
+  });
+
+  it("lists a canvas by its quoted title with the call that reads it", () => {
+    const prompt = buildPrompt(makeSession(), {
+      availableRefs: registry(
+        fileRef({
+          id: "F09SBU6D3FV",
+          kind: "canvas",
+          label: "Canvas",
+          reader: "read_canvas",
+          name: "Infrastructure TODO",
+        }),
+      ),
+    });
+    assert.ok(
+      prompt.includes('- Canvas "Infrastructure TODO" — read with read_canvas(F09SBU6D3FV)'),
+    );
+  });
+
+  it("lists a file without a name by its label and call only", () => {
+    const prompt = buildPrompt(makeSession(), {
+      availableRefs: registry(
+        fileRef({ id: "F0NONAME1", kind: "file", label: "Slack file", name: undefined }),
+      ),
+    });
+    assert.ok(prompt.includes("- Slack file — read with view_slack_file(F0NONAME1)"));
   });
 
   it("lists a List item id next to its List", () => {
@@ -650,14 +678,19 @@ describe("buildPrompt", () => {
         fileRef({ id: "F0LIST001", kind: "list", label: "Slack List", reader: "read_list" }),
       ),
     });
-    assert.ok(prompt.includes("(id: F0LIST001) → read_list"));
+    assert.ok(prompt.includes('- Slack List "F0LIST001.name" — read with read_list(F0LIST001)'));
+    assert.ok(!prompt.includes("(item "));
     const withItem = buildPrompt(makeSession(), {
       availableRefs: registry({
         ...fileRef({ id: "F0LIST001", kind: "list", label: "Slack List", reader: "read_list" }),
         itemId: "Rec0001",
       }),
     });
-    assert.ok(withItem.includes("(id: F0LIST001, item: Rec0001) → read_list"));
+    assert.ok(
+      withItem.includes(
+        '- Slack List "F0LIST001.name" (item Rec0001) — read with read_list(F0LIST001)',
+      ),
+    );
   });
 
   it("lists a message ref with its channel, ts and fetch_slack_message", () => {
@@ -692,7 +725,7 @@ describe("buildPrompt", () => {
     });
     assert.ok(prompt.includes("- [Image] demo.png (id: F0MOVIE01, 25.0 MB) → TOO LARGE to open"));
     assert.ok(prompt.includes("it can only be reported"));
-    assert.ok(!prompt.includes("You MUST open"));
+    assert.ok(!prompt.includes("You MUST"));
   });
 
   it("lists an inaccessible file without a name and never requires opening it", () => {
@@ -713,7 +746,7 @@ describe("buildPrompt", () => {
         "- [Slack file] (id: F0SECRET1) — the requester can't access it; say so, never guess its contents",
       ),
     );
-    assert.ok(!prompt.includes("You MUST open"));
+    assert.ok(!prompt.includes("You MUST"));
   });
 
   it("groups current-message refs first and earlier refs after, omitting an empty group", () => {
@@ -745,11 +778,63 @@ describe("buildPrompt", () => {
         fileRef({ id: "F0IMAGE01", kind: "image", label: "Image", mustOpen: true }),
       ),
     });
-    const mustOpen = prompt.split("\n").find((line) => line.startsWith("You MUST open"));
+    const mustOpen = prompt.split("\n").find((line) => line.startsWith("You MUST"));
     assert.ok(mustOpen);
     assert.ok(mustOpen.includes("F0IMAGE01"));
     assert.ok(!mustOpen.includes("F0LIST001"));
     assert.ok(prompt.includes("Read any other item only when the question needs it."));
+  });
+
+  it("lists every required read as a call on the must-open line", () => {
+    const prompt = buildPrompt(makeSession(), {
+      availableRefs: registry(
+        fileRef({ id: "F0IMAGE01", kind: "image", label: "Image", mustOpen: true }),
+        fileRef({ id: "F0IMAGE02", kind: "image", label: "Image", mustOpen: true }),
+      ),
+    });
+    assert.ok(
+      prompt.includes(
+        "You MUST make these calls before answering: view_slack_file(F0IMAGE01), view_slack_file(F0IMAGE02).",
+      ),
+    );
+  });
+
+  it("adds the PDF sentence only when a required ref is a PDF", () => {
+    const pdfSentence = "A PDF comes back as a path; it is not viewed until you Read that path.";
+    const imageOnly = buildPrompt(makeSession(), {
+      availableRefs: registry(
+        fileRef({
+          id: "F0IMAGE01",
+          kind: "image",
+          label: "Image",
+          mustOpen: true,
+          facts: { mimetype: "image/png" },
+        }),
+      ),
+    });
+    assert.ok(imageOnly.includes("You MUST make these calls before answering:"));
+    assert.ok(!imageOnly.includes(pdfSentence));
+
+    const withPdf = buildPrompt(makeSession(), {
+      availableRefs: registry(
+        fileRef({
+          id: "F0IMAGE01",
+          kind: "image",
+          label: "Image",
+          mustOpen: true,
+          facts: { mimetype: "image/png" },
+        }),
+        fileRef({
+          id: "F0PDF0001",
+          kind: "document",
+          label: "PDF",
+          mustOpen: true,
+          facts: { mimetype: "application/pdf" },
+        }),
+      ),
+    });
+    const mustOpen = withPdf.split("\n").find((line) => line.startsWith("You MUST"));
+    assert.ok(mustOpen?.endsWith(pdfSentence));
   });
 
   it("does not require opening an image from earlier in the thread", () => {
@@ -759,9 +844,8 @@ describe("buildPrompt", () => {
       ),
     });
     assert.ok(prompt.includes("Earlier in the conversation:"));
-    assert.ok(prompt.includes("(id: F0IMAGE01) → view_slack_file"));
-    assert.ok(!prompt.includes("You MUST open"));
-    assert.ok(!prompt.includes("You MUST view"));
+    assert.ok(prompt.includes("— read with view_slack_file(F0IMAGE01)"));
+    assert.ok(!prompt.includes("You MUST"));
   });
 
   it("omits the REFERENCED SLACK ITEMS section when the registry is empty or absent", () => {
@@ -790,11 +874,13 @@ describe("buildPrompt", () => {
     });
     const named = prompt.indexOf("Named in this message:");
     const earlier = prompt.indexOf("Earlier in the conversation:");
-    const list = prompt.indexOf("- [Slack List] Infra tasks (id: F0BSE12AF7Z) → read_list");
-    const canvas = prompt.indexOf("- [Canvas] Infrastructure_TODO (id: F09SBU6D3FV) → read_canvas");
+    const list = prompt.indexOf('- Slack List "Infra tasks" — read with read_list(F0BSE12AF7Z)');
+    const canvas = prompt.indexOf(
+      '- Canvas "Infrastructure_TODO" — read with read_canvas(F09SBU6D3FV)',
+    );
     assert.ok(named >= 0 && list > named && list < earlier);
     assert.ok(canvas > earlier);
-    assert.ok(!prompt.includes("You MUST open"));
+    assert.ok(!prompt.includes("You MUST"));
   });
 
   // ---- thread context file annotations ----

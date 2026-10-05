@@ -16,6 +16,8 @@ export interface SlackFileBase {
   filetype?: string;
   /** Slack's human-readable type label (e.g. "PDF", "Canvas"). */
   pretty_type?: string;
+  /** The file's display title (a canvas's or List's own name; `name` is a file-safe slug). */
+  title?: string;
   /**
    * Why this attachment cannot be opened. Oversized files stay in the list so
    * Claude can tell the user the attachment exists and was not read, rather
@@ -45,16 +47,18 @@ export const slackFileZod = z.object({
   url_private: z.string().min(1),
   filetype: z.string().optional().catch(undefined),
   pretty_type: z.string().optional().catch(undefined),
+  title: z.string().optional().catch(undefined),
 });
 
 function toSlackFile(raw: unknown): SlackFileBase | null {
   const parsed = slackFileZod.safeParse(raw);
   if (!parsed.success) return null;
-  const { filetype, pretty_type, ...required } = parsed.data;
+  const { filetype, pretty_type, title, ...required } = parsed.data;
   return {
     ...required,
     ...(filetype !== undefined && { filetype }),
     ...(pretty_type !== undefined && { pretty_type }),
+    ...(title !== undefined && { title }),
     ...(required.size > MAX_FILE_SIZE && { unavailable: "too_large" as const }),
   };
 }

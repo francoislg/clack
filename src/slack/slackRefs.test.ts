@@ -328,6 +328,59 @@ describe("resolveSlackRefs", () => {
     expect(refs).toMatchObject([{ kind: "canvas", reader: "read_canvas" }]);
   });
 
+  it("names a canvas resolved from text by its title", async () => {
+    vi.mocked(checkFileAccess).mockResolvedValue(
+      allow({ filetype: "quip", name: "Infrastructure_TODO", title: "Infrastructure TODO" }),
+    );
+    const refs = await resolveSlackRefs(req, {
+      text: "F09SBU6D3FV",
+      fromCurrentMessage: true,
+      gates: ALL_ON,
+    });
+    expect(refs).toMatchObject([{ kind: "canvas", name: "Infrastructure TODO" }]);
+  });
+
+  it("names an attached List by its title", async () => {
+    const refs = await resolveSlackRefs(req, {
+      files: [
+        attached({
+          id: "F0BSE12AF7Z",
+          name: "Infra_tasks",
+          title: "Infra tasks",
+          mimetype: "application/vnd.slack-list",
+          filetype: "list",
+        }),
+      ],
+      fromCurrentMessage: true,
+      gates: ALL_ON,
+    });
+    expect(refs).toMatchObject([{ kind: "list", name: "Infra tasks" }]);
+  });
+
+  it("keeps an attached image's file name over its title", async () => {
+    const refs = await resolveSlackRefs(req, {
+      files: [attached({ title: "Screenshot of the dashboard" })],
+      fromCurrentMessage: true,
+      gates: ALL_ON,
+    });
+    expect(refs).toMatchObject([{ kind: "image", name: "shot.png" }]);
+  });
+
+  it.each([
+    ["application/vnd.slack-docs", "canvas", "read_canvas"],
+    ["application/vnd.slack-list", "list", "read_list"],
+  ])(
+    "classifies an attachment with mimetype %s and no filetype as %s",
+    async (mimetype, kind, reader) => {
+      const refs = await resolveSlackRefs(req, {
+        files: [attached({ id: "F0NOFTYPE", name: "untyped", mimetype })],
+        fromCurrentMessage: true,
+        gates: ALL_ON,
+      });
+      expect(refs).toMatchObject([{ kind, reader }]);
+    },
+  );
+
   it("resolves a text ref through checkFileAccess and classifies it from the facts", async () => {
     const access = allow(LIST_FACTS);
     vi.mocked(checkFileAccess).mockResolvedValue(access);

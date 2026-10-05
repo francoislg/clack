@@ -522,8 +522,9 @@ function referencedItemLine(ref: SlackRef): string {
     const size = ref.facts?.size === undefined ? "" : `, ${formatFileSize(ref.facts.size)}`;
     return `- [${ref.label}]${name} (id: ${ref.id}${size}) → TOO LARGE to open; it can only be reported, so say so rather than guessing its contents`;
   }
-  const item = ref.itemId === undefined ? "" : `, item: ${ref.itemId}`;
-  return `- [${ref.label}]${name} (id: ${ref.id}${item}) → ${ref.reader}`;
+  const title = ref.name === undefined ? "" : ` "${ref.name}"`;
+  const item = ref.itemId === undefined ? "" : ` (item ${ref.itemId})`;
+  return `- ${ref.label}${title}${item} — read with ${ref.reader}(${ref.id})`;
 }
 
 /** A current-message ref Claude must open before answering. */
@@ -559,11 +560,12 @@ export function renderReferencedSlackItems(registry: Map<string, SlackRef> | und
 
   const required = current.filter(mustOpenNow);
   if (required.length > 0) {
-    const names = required
-      .map((ref) => (ref.type === "file" && ref.name ? `${ref.name} (${ref.id})` : ref.id))
-      .join(", ");
+    const calls = required.map((ref) => `${ref.reader}(${ref.id})`).join(", ");
+    const hasPdf = required.some(
+      (ref) => ref.type === "file" && ref.facts?.mimetype === "application/pdf",
+    );
     lines.push(
-      `You MUST open these before answering, with the tool on their line: ${names}. A PDF comes back as a path; it is not viewed until you Read that path.`,
+      `You MUST make these calls before answering: ${calls}.${hasPdf ? " A PDF comes back as a path; it is not viewed until you Read that path." : ""}`,
     );
   }
   lines.push(

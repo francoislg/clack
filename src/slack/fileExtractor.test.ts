@@ -63,6 +63,21 @@ describe("extractAttachments", () => {
     assert.equal(result.files?.[0].pretty_type, undefined);
   });
 
+  it("keeps a file's title when present and omits it otherwise", () => {
+    const result = extractAttachments([
+      raw("F1", "application/vnd.slack-docs", { title: "Infrastructure TODO" }),
+      raw("F2", "image/png"),
+    ]);
+    assert.equal(result.files?.[0].title, "Infrastructure TODO");
+    assert.equal("title" in (result.files?.[1] ?? {}), false);
+  });
+
+  it("keeps a file whose title is malformed, without it", () => {
+    const result = extractAttachments([raw("F1", "application/pdf", { title: 7 })]);
+    assert.equal(result.files?.length, 1);
+    assert.equal("title" in (result.files?.[0] ?? {}), false);
+  });
+
   it("skips malformed file objects", () => {
     const result = extractAttachments([
       null,
