@@ -70,21 +70,15 @@ inside the environment the worker runs in** — for the Docker/GCE deployment th
 is *inside the container*, not on your laptop — along with any prerequisites the
 hook needs (e.g. `jq`, `bash`). See below.
 
-## Deployment: the settings file travels with every deploy
+## Deployment: push the settings file with gce-push.sh
 
-`data/worker-settings.json` is part of the **standard deployment flow** — no
-extra provisioning step. `scripts/gce-update-image.sh` (what `/deploy` runs)
-pushes the local file to the VM's persistent disk on every deploy, right after
-the image pre-pull:
+`data/worker-settings.json` reaches the VM through `scripts/gce-push.sh` — list
+`data/worker-settings.json` in `data/.deploy-include`; push creates it when
+missing and replaces it only with `--overwrite data/worker-settings.json`. The
+local copy is the source of truth: the file is operator-owned and never edited
+VM-side. To actually disable the hook, delete the file on the VM's data disk.
 
-- **Present locally** → pushed to the VM (chowned to the container UID `1001`).
-  The local copy is the source of truth: the file is operator-owned and never
-  edited VM-side, so this is always safe.
-- **Absent locally** → the VM copy (if any) is deliberately **left untouched**,
-  so deploying from a fresh checkout doesn't silently disable guardrails. To
-  actually disable the hook, delete the file on the VM's data disk.
-
-Edit the file locally → deploy → the next worker run picks it up (the path is
+Edit the file locally → push → the next worker run picks it up (the path is
 checked at each worker start, not at boot).
 
 ## Installing a hook (operator): the image overlay
@@ -102,7 +96,7 @@ exist inside the runtime environment. They ship via the optional
    user yet (the app stage creates it), so do not add a `USER clack` switch.
 2. Write `data/worker-settings.json` pointing at those in-image paths.
 3. Deploy normally. When `data/docker/Dockerfile.custom` exists,
-   `scripts/gce-update-image.sh` builds the generic tools image as
+   `scripts/gce-deploy.sh` builds the generic tools image as
    `clack:tools-base`, then builds your overlay on top and pushes it as the
    content-addressed `clack:tools-<hash>`; the app image builds `FROM` that.
    Without the file, the generic tools image *is* `clack:tools-<hash>`.

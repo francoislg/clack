@@ -72,7 +72,7 @@ is acquired — a tester silently missing its database wastes the whole run.
 
 Containers are managed through `clack-docker-proxy`
 ([`tecnativa/docker-socket-proxy`](https://github.com/Tecnativa/docker-socket-proxy)),
-deployed by `scripts/gce-update-image.sh` beside `clack-playwright` when
+deployed by `scripts/gce-deploy.sh` beside `clack-playwright` when
 `tester.enabled` is true (and removed when disabled). Defense in depth:
 
 - The proxy exposes ONLY container + image endpoints (`CONTAINERS=1 POST=1 IMAGES=1`) —
@@ -104,7 +104,7 @@ When the tester is enabled, the clack container's cap becomes
 `total − 384 (host) − 896 (playwright) − 64 (proxy) − servicesBudgetMb`. On an
 e2-standard-2 with a 512 MB budget that is ~6.0 GB — mind bundler spikes inside the
 clack container; keep repo instructions sequencing heavy builds before service-backed
-app boots. Changing `servicesBudgetMb` requires a redeploy (`gce-update-image.sh`) so
+app boots. Changing `servicesBudgetMb` requires a redeploy (`gce-deploy.sh`) so
 the reserve tracks the budget.
 
 **Rollout ordering**: the new config keys are rejected by older builds (fail-fast

@@ -2,7 +2,7 @@
 #
 # Carries the slow, rarely-changing system layer so the application image can
 # build FROM it and a normal code deploy rebuilds only npm ci + tsc + copy.
-# Rebuilt only when its inputs change — see scripts/gce-update-image.sh, which
+# Rebuilt only when its inputs change — see scripts/gce-deploy.sh, which
 # hashes this file (+ any data/docker/ overlay) and skips the build when the
 # hash already exists in Artifact Registry.
 FROM node:22-alpine

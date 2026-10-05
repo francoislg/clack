@@ -2,7 +2,7 @@
 #
 # Copy to data/docker/Dockerfile.custom (gitignored) to layer instance-specific
 # installs into the pinned tools image. When that file exists,
-# scripts/gce-update-image.sh builds the generic tools image as
+# scripts/gce-deploy.sh builds the generic tools image as
 # `clack:tools-base`, then builds this overlay (build context: data/docker/) and
 # pushes IT as `clack:tools`; the app image then builds FROM `clack:tools`.
 # Without the file, `clack:tools` is just the generic tools image — zero-config

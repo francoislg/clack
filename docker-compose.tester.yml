@@ -5,7 +5,7 @@
 #
 # Works in both deployments:
 #  - GCP VM (Clack in Docker): do NOT use this file — COS has no docker compose.
-#    scripts/gce-update-image.sh mirrors it as a plain `docker run` whenever the
+#    scripts/gce-deploy.sh mirrors it as a plain `docker run` whenever the
 #    local config has tester.enabled, joining both containers to a shared `clack`
 #    docker network. Set config.tester.appHost to the main container's name
 #    (default "clack") and sidecarUrl to "http://clack-playwright:8931/mcp".

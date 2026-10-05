@@ -52,7 +52,7 @@ import { readFileSync } from 'node:fs';
 const c = JSON.parse(readFileSync('$DATA_DIR/config.json', 'utf-8'));
 const v = c.tester?.servicesBudgetMb;
 // String() so a number arg isn't ANSI-colorized under FORCE_COLOR (which would
-// break the `$(( ))` reserve arithmetic in gce-update-image.sh).
+// break the `$(( ))` reserve arithmetic in gce-deploy.sh).
 console.log(String(Number.isInteger(v) && v >= 0 ? v : 0));
 " 2>/dev/null || echo 0
 }
@@ -65,7 +65,7 @@ AR_REPO="clack"
 IMAGE_NAME="${AR_REGION}-docker.pkg.dev/${PROJECT_ID}/${AR_REPO}/clack:latest"
 # Pinned tools base image (system deps + github-mcp-server + optional per-instance
 # overlay). The app image builds FROM a content-addressed `…/clack:tools-<hash>`
-# derived in gce-update-image.sh, so it is rebuilt only when its inputs change.
+# derived in gce-deploy.sh, so it is rebuilt only when its inputs change.
 # TOOLS_IMAGE_NAME is the `…/clack:tools` PREFIX the hash suffix is appended to (no
 # mutable `:tools` tag is pushed). TOOLS_BASE_IMAGE_NAME is the mutable base the
 # per-instance overlay builds FROM when data/docker/Dockerfile.custom exists.
@@ -113,7 +113,7 @@ require_project() {
 require_instance() {
     if ! gcloud compute instances describe "$INSTANCE_NAME" --zone="$ZONE" &>/dev/null; then
         echo -e "${RED}✗ Instance '$INSTANCE_NAME' not found in zone '$ZONE'.${NC}"
-        echo "  Run scripts/gce-deploy.sh first to create it."
+        echo "  Run scripts/gce-deploy.sh --provision first to create it."
         exit 1
     fi
 }
@@ -132,52 +132,6 @@ require_ar_repo() {
         --description="Clack container images" \
         --quiet
     echo -e "${GREEN}✓ Artifact Registry repo ready${NC}"
-}
-
-# Verify the container user (clack, uid 1001) can actually READ the given paths.
-# A push/sync can "succeed" yet leave files the app can't read — a source file in
-# a restrictive mode, or ownership the container uid doesn't match — which then
-# surfaces as an EACCES at prompt-build time (e.g. a cron fire failing hours
-# later). This checks read+traverse access as the container user itself, so it
-# catches the problem at deploy time regardless of cause.
-#
-# Args are CONTAINER-absolute paths (the data disk mounts at /app/data), e.g.
-#   verify_container_reads /app/data/config.json /app/data/default_configuration
-# Returns non-zero and lists the offenders if anything is unreadable. If the
-# container isn't running there is nothing to validate against, so it passes with
-# a note. The image is alpine/busybox, so this uses POSIX test, not `find -readable`.
-verify_container_reads() {
-    local paths="$*"
-    [ -z "$paths" ] && return 0
-
-    local out
-    out=$(gcloud compute ssh "$INSTANCE_NAME" --zone="$ZONE" --quiet --command="
-        docker ps --format '{{.Names}}' | grep -q '^clack\$' || { echo '__NOCONTAINER__'; exit 0; }
-        docker exec clack sh -c '
-            for p in $paths; do
-                [ -e \"\$p\" ] || continue
-                find \"\$p\" 2>/dev/null | while IFS= read -r e; do
-                    if [ -d \"\$e\" ]; then
-                        { [ -r \"\$e\" ] && [ -x \"\$e\" ]; } || echo \"\$e\"
-                    else
-                        [ -r \"\$e\" ] || echo \"\$e\"
-                    fi
-                done
-            done
-        '
-    " 2>/dev/null)
-
-    if printf '%s' "$out" | grep -q '__NOCONTAINER__'; then
-        echo -e "${YELLOW}  (clack container not running — skipped read-access check)${NC}"
-        return 0
-    fi
-    if [ -n "$out" ]; then
-        echo -e "${RED}  ✗ container user (uid 1001) cannot read these pushed paths:${NC}"
-        printf '%s\n' "$out" | while IFS= read -r line; do echo "      $line"; done
-        return 1
-    fi
-    echo -e "${GREEN}  ✓ container read-access verified${NC}"
-    return 0
 }
 
 # Wait, with the bot still running and accepting everything, until its /status

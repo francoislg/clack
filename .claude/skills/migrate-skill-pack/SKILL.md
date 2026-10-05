@@ -125,7 +125,7 @@ node -e "JSON.parse(require('fs').readFileSync('data/skill-plugins/<pack>/.claud
 ### 7. Deploy to the GCE VM
 
 The pack lives under `data/` (gitignored, VM-persistent) — it does **not** ship in the
-Docker image. It reaches the VM via `scripts/gce-push-config.sh`, driven by the
+Docker image. It reaches the VM via `scripts/gce-push.sh`, driven by the
 `data/.deploy-include` manifest.
 
 **a.** Add the pack path to `data/.deploy-include` (once per pack, so future pushes are
@@ -135,33 +135,24 @@ declarative):
 data/skill-plugins/<pack>
 ```
 
-**b.** Before pushing, check local↔VM divergence on the manifest paths — the script's
-non-interactive guard aborts on ANY diff, and `config.json`/`mcp.json` often differ only
-by `—` vs literal `—` JSON encoding (cosmetic, same string). Confirm the only *real*
-delta is your intended change, then it's safe to `--force`:
+**b.** Preview the push — it lists every file it would create and every differing
+file it would leave alone:
 
 ```
-source scripts/gce-common.sh
-tmp=$(mktemp -d)
-gcloud compute ssh "$INSTANCE_NAME" --zone="$ZONE" --quiet \
-  --command="sudo tar -C '$DATA_MOUNT_POINT' -cf - data/config.json data/mcp.json 2>/dev/null" 2>/dev/null | tar -C "$tmp" -xf -
-# Normalize unicode escapes so only real content diffs show:
-python3 -c "import json;print(json.dumps(json.load(open('data/config.json')),ensure_ascii=False,sort_keys=True,indent=2))" > "$tmp/l.json"
-python3 -c "import json;print(json.dumps(json.load(open('$tmp/data/config.json')),ensure_ascii=False,sort_keys=True,indent=2))" > "$tmp/v.json"
-diff "$tmp/l.json" "$tmp/v.json"   # expect ONLY your new skillPlugins entry
-rm -rf "$tmp"
+bash scripts/gce-push.sh --dry-run
 ```
 
-If the only real diff is your change, push:
+The pack's files show under "Create on VM". `data/config.json` (with your new
+`skillPlugins` entry) shows under "Not pushed — differs": if its reason is "only
+local changed", push both in one run, naming only config.json:
 
 ```
-bash scripts/gce-push-config.sh --force
+bash scripts/gce-push.sh --overwrite data/config.json
 ```
 
-(Without `--force` the script aborts non-interactively on the cosmetic encoding diff.
-Only use `--force` after you've confirmed divergence is cosmetic + your intended change —
-otherwise reconcile the VM's version first, since `config.json`/`mcp.json` can be edited
-from the bot's Home Tab.)
+If the reason says the VM changed, the VM copy was edited (the Home Tab writes
+it): run `bash scripts/gce-pull.sh`, re-add your `skillPlugins` entry to the
+pulled `data/config.json`, then push again.
 
 ### 8. Verify on the VM
 
@@ -176,7 +167,7 @@ gcloud compute ssh "$INSTANCE_NAME" --zone="$ZONE" --quiet --command="
 ```
 
 Expect: `marketplace.json` present, `SKILL.md` + `references` present, config grep ≥ 1,
-ownership `1001:1001` (the container user — `gce-push-config.sh` chowns pushed paths).
+ownership `1001:1001` (the container user — `gce-push.sh` chowns what it writes).
 
 **No container restart needed.** `config.json` hot-reloads via the file watcher, and
 `discoverSkillPluginInfo()` runs at each session start, so the next new session picks up

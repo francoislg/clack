@@ -16,7 +16,7 @@ Always available, no auth. Returns a JSON snapshot of runtime state:
 }
 ```
 
-`busy` is the union of active query runs and executing Changes-Workflow runs. The deploy script's drain phase (`scripts/gce-update-image.sh`) polls this endpoint to wait for in-flight work before swapping containers — which is why it stays unauthenticated.
+`busy` is the union of active query runs and executing Changes-Workflow runs. The deploy script's drain phase (`scripts/gce-deploy.sh`) polls this endpoint to wait for in-flight work before swapping containers — which is why it stays unauthenticated.
 
 ## `GET /prompt`
 

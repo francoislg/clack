@@ -39,7 +39,7 @@ That's it locally. Verify with a call to `geolocate_ip` (e.g. `["8.8.8.8"]` → 
 
 ## Deploying to the VM
 
-The GCE deploy (`scripts/gce-update-image.sh`) **does not touch the persistent data disk**, so the `.mmdb` is placed there **once** and survives every subsequent image deploy — no per-deploy sync, and the core deploy script stays plugin-agnostic. Push it with the same surgical SSH-tar pattern the operator uses for `worker-settings.json`:
+The GCE deploy (`scripts/gce-deploy.sh`) **does not touch the persistent data disk**, so the `.mmdb` is placed there **once** and survives every subsequent image deploy — no per-deploy sync, and the core deploy script stays plugin-agnostic. Push it with the same surgical SSH-tar pattern the operator uses for `worker-settings.json`:
 
 ```bash
 tar -C data/plugins/geolocation -cf - dbip-country-lite.mmdb \

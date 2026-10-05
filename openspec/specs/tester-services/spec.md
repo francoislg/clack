@@ -3,9 +3,7 @@
 ## Purpose
 
 Per-repo service containers for tester ("test this PR") runs: a repository declares the backing services its tests need (MySQL, Redis, …) in a `tester_services.json` file, and Clack provisions them for the run through a restricted docker-socket-proxy control plane — guarded by an image allowlist, a memory budget, and a container-name namespace — then tears them down when the run ends. Fully inert until both an operator configures the control plane and a repo declares services.
-
 ## Requirements
-
 ### Requirement: Per-repo service declaration file
 
 A repository MAY declare service containers its tester runs need in `data/configuration/<repo>/tester_services.json` (or the `default_configuration` tier), resolved through the two-tier instruction chain. The file SHALL be validated with a zod schema: `services` is an array of entries with required `name` (`/^[a-z0-9-]+$/`, unique within the file), `image` (non-empty string), `memoryMb` (positive integer), `port` (1–65535), and optional `env` (string→string map), `args` (string array), `tmpfs` (string array of absolute container paths, each starting with `/`).
@@ -133,12 +131,17 @@ When services were provisioned, the tester system prompt SHALL include a TEST SE
 
 ### Requirement: Deploy provisions the proxy and reserves the services budget
 
-`scripts/gce-update-image.sh` SHALL, when `tester.enabled` is true in the local config, deploy the `docker-socket-proxy` sidecar (fixed memory cap, socket mounted read-only, `clack` network, no host port) alongside the Playwright sidecar, and SHALL remove it when the tester is disabled. The clack container's memory cap formula SHALL subtract the proxy reserve and `tester.servicesBudgetMb` in addition to the existing host and Playwright reserves.
+`scripts/gce-deploy.sh` SHALL, when `tester.enabled` is true in the local config, ensure the `docker-socket-proxy` sidecar (fixed memory cap, socket mounted read-only, `clack` network, no host port) runs alongside the Playwright sidecar, creating it only when it is missing, and SHALL remove it when the tester is disabled. The clack container's memory cap formula SHALL subtract the proxy reserve and `tester.servicesBudgetMb` in addition to the existing host and Playwright reserves.
 
 #### Scenario: Tester enabled with a budget
 
 - **WHEN** the deploy runs with `tester.enabled: true` and `tester.servicesBudgetMb: 512`
 - **THEN** the proxy container is running with its cap, and the clack container's cap equals total − host reserve − Playwright reserve − proxy reserve − 512
+
+#### Scenario: Proxy already running
+
+- **WHEN** the deploy runs with the tester enabled and the proxy container is already running
+- **THEN** the proxy container is left running and its image is not re-pulled
 
 #### Scenario: Tester disabled
 
@@ -153,3 +156,4 @@ With no `tester_services.json` files and none of the new config keys set, tester
 
 - **WHEN** an instance upgrades to this version without touching config or data files
 - **THEN** tester runs behave exactly as before and config validation passes
+

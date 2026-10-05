@@ -1,7 +1,13 @@
-# Paths under the project root that travel with deploys.
-# Used by scripts/gce-push-config.sh to overwrite the corresponding files on
-# the VM's persistent data disk. State files (sessions, state, repositories,
-# trivia plugin, etc.) are NOT in this list and stay untouched on the VM.
+# Paths under the project root that travel between this clone and the VM's
+# persistent data disk. scripts/gce-push.sh and scripts/gce-pull.sh sync these,
+# one file at a time:
+#   - push creates files missing on the VM, and replaces an existing VM file
+#     only when it is named with --overwrite <path> and its VM copy is unchanged
+#     since the last sync; it never deletes
+#   - pull replaces local files the VM changed since the last sync
+#
+# Runtime-owned paths (data/state, data/sessions, data/repositories, …) are
+# rejected here: the running bot owns them.
 #
 # Copy this file to data/.deploy-include (gitignored) and edit it to match
 # your instance:
@@ -10,21 +16,20 @@
 # Format: one path per line, relative to the repo root. Lines starting with
 # `#` and blank lines are ignored.
 
-# Universal project-class paths (every Clack instance should push these)
+# Universal project-class paths (every Clack instance should list these)
 data/config.json
 data/mcp.json
 data/default_configuration
 
+# Operator-provided worker guardrails (see docs/worker-settings.md); a path
+# that doesn't exist locally is simply skipped.
+data/worker-settings.json
+
 # Per-instance project paths — uncomment / add lines below as needed.
 # Plugins that ship code (an index.js + assets, no persistent state) go here.
-# Plugins that have local state on the VM (e.g. trivia's question/score JSON)
-# must NOT be listed here, or you will clobber their state on every push.
+# Plugins that keep state on the VM (e.g. trivia's question/score JSON) must
+# NOT be listed: their files change on the VM between syncs.
 #
 # Examples:
 # data/plugins/my-org-plugin
 # data/plugins/another-code-only-plugin
-
-# NOTE: worker guardrail hooks need no entries here — the standard deploy
-# (scripts/gce-update-image.sh) pushes data/worker-settings.json automatically,
-# and hook binaries are baked into the image via data/docker/Dockerfile.custom.
-# Full guide: docs/worker-settings.md

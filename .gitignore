@@ -26,6 +26,8 @@ data/.debug-sessions/
 data/.npm/
 data/mcp_packages/
 data/.deploy-include
+data/.gce-sync-baseline.json
+data/.gce-sync-backups/
 data/auth/*
 !data/auth/.gitkeep
 !data/auth/slack.example.json
