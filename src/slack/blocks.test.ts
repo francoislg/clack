@@ -109,6 +109,16 @@ describe("getResponseActionBlocks", () => {
     const button = block.elements[0] as Button;
     assert.equal(button.style, "primary");
   });
+
+  it("renders a list_items_delete action as a danger confirm button carrying its ref", () => {
+    const actions: Action[] = [{ type: "list_items_delete", ref: "ref-9" }];
+    const [block] = getResponseActionBlocks(actions, "s1");
+    const button = block.elements[0] as Button;
+    assert.equal(button.text.text, "Delete Items");
+    assert.equal(button.style, "danger");
+    assert.equal(button.action_id, "clack_list_items_delete_0");
+    assert.deepEqual(JSON.parse(button.value ?? ""), { s: "s1", r: "ref-9" });
+  });
 });
 
 // ============================================================================
@@ -341,6 +351,7 @@ const ACTION_TYPES_WITH_DEFAULT_LABELS: Action["type"][] = [
   "skill_disable",
   "skill_restore",
   "skill_delete",
+  "list_items_delete",
 ];
 
 // Builder for a minimal `Action` per type that elides the explicit label so the renderer
@@ -363,6 +374,7 @@ function actionWithDefaultLabel(type: Action["type"]): Action {
     case "skill_disable":
     case "skill_restore":
     case "skill_delete":
+    case "list_items_delete":
       return { type, ref: "ref-1" };
   }
 }

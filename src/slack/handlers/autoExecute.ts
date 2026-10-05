@@ -504,7 +504,8 @@ export async function handleAutoExecuteActions(
         case "review":
         case "merge":
         case "close":
-        case "spinoff": {
+        case "spinoff":
+        case "list_items_delete": {
           logger.warn(
             `Auto-execute: intent type "${intent.type}" is not supported for auto-execution`,
           );

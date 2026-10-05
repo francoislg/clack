@@ -309,7 +309,8 @@ export type StagedIntentType =
   | "skill_update"
   | "skill_disable"
   | "skill_restore"
-  | "skill_delete";
+  | "skill_delete"
+  | "list_items_delete";
 
 export interface StagedChangeIntent {
   type: "change";
@@ -345,6 +346,13 @@ export type StagedConfigUpdateIntent =
       operation: "delete";
       file: string;
     };
+
+/** A deletion of List items awaiting a confirm click. `label` is each item's primary-column text. */
+export interface StagedListItemsDeleteIntent {
+  type: "list_items_delete";
+  listId: string;
+  items: Array<{ id: string; label: string }>;
+}
 
 export interface StagedUpdateIntent {
   type: "update";
@@ -427,7 +435,8 @@ export type StagedIntent =
   | StagedSkillUpdateIntent
   | StagedSkillDisableIntent
   | StagedSkillRestoreIntent
-  | StagedSkillDeleteIntent;
+  | StagedSkillDeleteIntent
+  | StagedListItemsDeleteIntent;
 
 // ============================================================================
 // submit_response Payload
@@ -514,7 +523,8 @@ export interface PostToAction {
   chart?: AuthoredChartBlock;
   /**
    * Optional interactive buttons rendered on the cross-posted message. Same
-   * action types as top-level (followup, choice, change, config_update, update).
+   * action types as top-level (followup, choice, change, config_update, update,
+   * list_items_delete).
    * Nested `post_to` is rejected. Click handlers route back to the original
    * session, so ref-based actions resolve against the original intentStore.
    */
@@ -622,6 +632,13 @@ export interface SkillDeleteAction {
   auto?: boolean;
 }
 
+/** Confirm button for a staged List-item deletion. Carries no `auto`: a deletion always needs the click. */
+export interface ListItemsDeleteAction {
+  type: "list_items_delete";
+  ref: string;
+  label?: string;
+}
+
 export type Action =
   | FollowupAction
   | ChoiceAction
@@ -633,7 +650,8 @@ export type Action =
   | SkillUpdateAction
   | SkillDisableAction
   | SkillRestoreAction
-  | SkillDeleteAction;
+  | SkillDeleteAction
+  | ListItemsDeleteAction;
 
 export type ActionType = Action["type"];
 

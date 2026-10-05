@@ -1119,6 +1119,26 @@ export async function getStagedIntent(
 }
 
 /**
+ * Remove a staged intent and return it, under the session lock, so that of two concurrent
+ * callers for the same ref exactly one gets the intent and the other gets null.
+ */
+export async function consumeStagedIntent(
+  sessionId: string,
+  ref: string,
+): Promise<StagedIntent | null> {
+  return withSessionLock(sessionId, async () => {
+    const session = await getSession(sessionId);
+    const intent = session?.stagedIntents?.[ref];
+    if (!session?.stagedIntents || !intent) return null;
+    const remaining = Object.fromEntries(
+      Object.entries(session.stagedIntents).filter(([key]) => key !== ref),
+    );
+    await updateSessionUnlocked(sessionId, { stagedIntents: remaining });
+    return intent;
+  });
+}
+
+/**
  * Merge new staged intents into session.stagedIntents under the session lock.
  * Used by submit_response (write-through before delivering the button-bearing
  * message) and by persistResponseState (defense-in-depth at turn end). Existing

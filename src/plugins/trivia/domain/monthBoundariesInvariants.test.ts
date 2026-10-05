@@ -56,7 +56,8 @@ function eachMonth(visit: (year: number, month: number, zone: string) => void): 
   }
 }
 
-describe("month boundary invariants across DST-awkward zones", () => {
+// Each case sweeps 768 zone-months; under a loaded full-suite run that can pass the 5s default.
+describe("month boundary invariants across DST-awkward zones", { timeout: 30_000 }, () => {
   it("starts each month on its local first day", () => {
     eachMonth((year, month, zone) => {
       const { day } = parts(startOfMonthInZone({ year, month }, zone), zone);

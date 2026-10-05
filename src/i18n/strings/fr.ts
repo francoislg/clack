@@ -420,6 +420,7 @@ export const fr: Partial<Record<StringKey, string>> = {
   "blocks.action_label_config_update": "Appliquer la modification",
   "blocks.action_label_config_revert": "Retirer la personnalisation",
   "blocks.action_label_config_delete": "Supprimer le fichier",
+  "blocks.action_label_list_items_delete": "Supprimer les éléments",
   "blocks.action_label_update": "Mettre à jour",
   "blocks.data_table_default_caption": "Tableau",
 
@@ -691,6 +692,16 @@ export const fr: Partial<Record<StringKey, string>> = {
     "Vous n'avez pas la permission de modifier la configuration. Rôle admin ou supérieur requis.",
   "errors.config_update_request_expired":
     "Désolé, cette demande de mise à jour de configuration a expiré. Veuillez réessayer.",
+  "errors.list_delete_permission_denied":
+    "Vous n'avez pas la permission de supprimer des éléments de liste. Rôle {role} ou supérieur requis.",
+  "errors.list_delete_access_denied":
+    "Vous n'avez pas accès à cette liste, vous ne pouvez donc pas confirmer cette suppression.",
+  "errors.list_delete_request_expired":
+    "Désolé, cette demande de suppression a expiré. Veuillez la refaire.",
+  "errors.list_delete_unavailable":
+    "La modification des listes est désactivée, rien n'a donc été supprimé.",
+  "errors.list_items_deleted": "{count} élément(s) supprimé(s) de la liste : {items}",
+  "errors.list_delete_failed": "Impossible de supprimer les éléments : {error}",
   "errors.message_read_failed":
     "Désolé, je n'ai pas pu lire le message. Assurez-vous que je suis invité dans ce canal.",
 

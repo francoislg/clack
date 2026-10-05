@@ -243,7 +243,7 @@ const postToActionSchema = z.object({
     )
     .optional()
     .describe(
-      "Optional interactive buttons rendered on the cross-posted message. Same action types as top-level (followup, choice, change, config_update, update). Nested `post_to` is rejected. Click handlers route back to the original session, so ref-based actions resolve against the original intentStore.",
+      "Optional interactive buttons rendered on the cross-posted message. Same action types as top-level (followup, choice, change, config_update, update, list_items_delete). Nested `post_to` is rejected. Click handlers route back to the original session, so ref-based actions resolve against the original intentStore.",
     ),
   // Multi-message support for post_to publishing. `z.lazy` because `messagePayloadSchema`
   // is declared after this object (it depends on `actionSchema`, which depends on this).
@@ -311,6 +311,17 @@ const configUpdateActionSchema = refActionSchema({
   autoDescription: EXECUTE_ON_CLICK,
 });
 
+// Declared without `refActionSchema` so it has no `auto` key: a deletion always needs the click.
+const listItemsDeleteActionSchema = z.object({
+  type: z.literal("list_items_delete"),
+  ref: z.string().describe("Ref ID from delete_list_items"),
+  label: buttonLabelSchema
+    .optional()
+    .describe(
+      `Custom button label (default: 'Delete Items'). MAX ${SLACK_BUTTON_LABEL_MAX} characters.`,
+    ),
+});
+
 const updateActionSchema = refActionSchema({
   type: "update",
   refDescription: "Ref ID from request_update",
@@ -366,6 +377,7 @@ const ALLOWED_ACTION_TYPES = [
   "skill_disable",
   "skill_restore",
   "skill_delete",
+  "list_items_delete",
 ] as const;
 
 type ActionInput =
@@ -406,6 +418,7 @@ export const actionSchema = z
       skillDisableActionSchema,
       skillRestoreActionSchema,
       skillDeleteActionSchema,
+      listItemsDeleteActionSchema,
     ],
     {
       error: (issue) => {

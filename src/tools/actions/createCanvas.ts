@@ -4,46 +4,7 @@ import type { QueryToolContext } from "../types.js";
 import { textResult, errorResult } from "../helpers.js";
 import { canvasErrorMessage, defaultCanvasApi, type CanvasApi } from "../../slack/canvases.js";
 import { recordGrant } from "../../slack/requesterAccess.js";
-import { errorMessage } from "../../errors.js";
-import { logger } from "../../logger.js";
-
-type SlackClient = NonNullable<QueryToolContext["slackClient"]>;
-
-interface ShareOutcome {
-  sharedWith?: string;
-  warning?: string;
-}
-
-/** Shares the canvas read-only with the session's channel, unless that conversation is a DM or
- *  group DM. A failure is reported as a warning. */
-async function shareWithSessionChannel(
-  api: CanvasApi,
-  client: SlackClient,
-  canvasId: string,
-  channelId: string,
-): Promise<ShareOutcome> {
-  if (!channelId) return {};
-  try {
-    if (await api.isDirectConversation(client, channelId)) return {};
-    await api.shareCanvasWithChannel(client, canvasId, channelId);
-    return { sharedWith: channelId };
-  } catch (error) {
-    return { warning: canvasErrorMessage("share", error) };
-  }
-}
-
-async function permalinkOrUndefined(
-  api: CanvasApi,
-  client: SlackClient,
-  canvasId: string,
-): Promise<string | undefined> {
-  try {
-    return await api.canvasPermalink(client, canvasId);
-  } catch (error) {
-    logger.warn(`create_canvas: permalink lookup failed for ${canvasId}: ${errorMessage(error)}`);
-    return undefined;
-  }
-}
+import { permalinkOrUndefined, shareWithSessionChannel } from "../fileCreation.js";
 
 /** `create_canvas` — creates a canvas, shares it with the session's channel, and records the
  *  requester's access to it on the session. */
@@ -68,19 +29,24 @@ export function createCreateCanvasTool(ctx: QueryToolContext, api: CanvasApi = d
         return errorResult(canvasErrorMessage("create", error));
       }
 
-      const { sharedWith, warning } = await shareWithSessionChannel(
-        api,
+      const { sharedWith, warning } = await shareWithSessionChannel({
         client,
-        canvasId,
-        ctx.session.channelId,
-      );
+        fileId: canvasId,
+        channelId: ctx.session.channelId,
+        isDirectConversation: api.isDirectConversation,
+        share: api.shareCanvasWithChannel,
+        errorMessage: canvasErrorMessage,
+      });
 
       await recordGrant(
         { client, userId: ctx.userId, role: ctx.role, session: ctx.session },
         canvasId,
       );
 
-      const permalink = await permalinkOrUndefined(api, client, canvasId);
+      const permalink = await permalinkOrUndefined(
+        () => api.canvasPermalink(client, canvasId),
+        `create_canvas ${canvasId}`,
+      );
 
       return textResult({
         canvas_id: canvasId,

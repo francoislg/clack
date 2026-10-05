@@ -624,59 +624,70 @@ export const investigationsZod = z
     return { enabled: obj.enabled, emoji };
   });
 
-export const CANVAS_MODES = ["off", "read", "write"] as const;
-export type CanvasMode = (typeof CANVAS_MODES)[number];
-export const CANVAS_WRITE_ROLES = ["member", "dev", "admin", "owner"] as const;
-export type CanvasWriteRole = (typeof CANVAS_WRITE_ROLES)[number];
+export const SLACK_FILE_MODES = ["off", "read", "write"] as const;
+export type SlackFileMode = (typeof SLACK_FILE_MODES)[number];
+export const SLACK_FILE_WRITE_ROLES = ["member", "dev", "admin", "owner"] as const;
+export type SlackFileWriteRole = (typeof SLACK_FILE_WRITE_ROLES)[number];
+export const DEFAULT_SLACK_FILE_WRITE_ROLE: SlackFileWriteRole = "dev";
 
-export interface CanvasesConfig {
-  mode: CanvasMode;
-  writeRole?: CanvasWriteRole;
+export interface SlackFileFeatureConfig {
+  mode: SlackFileMode;
+  writeRole?: SlackFileWriteRole;
 }
 
-const isCanvasMode = (value: JsonValue | undefined): value is CanvasMode =>
-  CANVAS_MODES.some((mode) => mode === value);
-const isCanvasWriteRole = (value: JsonValue | undefined): value is CanvasWriteRole =>
-  CANVAS_WRITE_ROLES.some((role) => role === value);
+/** The lowest role allowed to write through a Slack file feature. */
+export function slackFileWriteRole(feature: SlackFileFeatureConfig): SlackFileWriteRole {
+  return feature.writeRole ?? DEFAULT_SLACK_FILE_WRITE_ROLE;
+}
+
+const isSlackFileMode = (value: JsonValue | undefined): value is SlackFileMode =>
+  SLACK_FILE_MODES.some((mode) => mode === value);
+const isSlackFileWriteRole = (value: JsonValue | undefined): value is SlackFileWriteRole =>
+  SLACK_FILE_WRITE_ROLES.some((role) => role === value);
 
 /**
- * Fail-fast `canvases` block. Absent → undefined (callers treat as mode `"off"`). `mode` picks
- * the canvas scopes and tools; `writeRole` is the lowest role allowed to create and edit.
+ * Fail-fast block shared by the Slack file features (`canvases`, `lists`). Absent → undefined
+ * (callers treat as mode `"off"`). `mode` picks the feature's scopes and tools; `writeRole` is
+ * the lowest role allowed to write.
  */
-export const canvasesZod = z.unknown().transform((raw, ctx): CanvasesConfig | undefined => {
-  if (raw === undefined) return undefined;
-  if (!isPlainObject(raw as JsonValue)) {
-    ctx.addIssue({ code: "custom", message: "Config 'canvases' must be an object" });
-    return z.NEVER;
-  }
-  const obj = raw as JsonObject;
-  for (const key of Object.keys(obj)) {
-    if (key !== "mode" && key !== "writeRole") {
+const slackFileFeatureZod = (key: "canvases" | "lists") =>
+  z.unknown().transform((raw, ctx): SlackFileFeatureConfig | undefined => {
+    if (raw === undefined) return undefined;
+    if (!isPlainObject(raw as JsonValue)) {
+      ctx.addIssue({ code: "custom", message: `Config '${key}' must be an object` });
+      return z.NEVER;
+    }
+    const obj = raw as JsonObject;
+    for (const unknownKey of Object.keys(obj)) {
+      if (unknownKey !== "mode" && unknownKey !== "writeRole") {
+        ctx.addIssue({
+          code: "custom",
+          message: `Config '${key}' contains unknown key '${unknownKey}'`,
+        });
+        return z.NEVER;
+      }
+    }
+    const { mode, writeRole } = obj;
+    if (!isSlackFileMode(mode)) {
       ctx.addIssue({
         code: "custom",
-        message: `Config 'canvases' contains unknown key '${key}'`,
+        message: `Config '${key}.mode' must be one of: ${SLACK_FILE_MODES.join(", ")}`,
       });
       return z.NEVER;
     }
-  }
-  const { mode, writeRole } = obj;
-  if (!isCanvasMode(mode)) {
-    ctx.addIssue({
-      code: "custom",
-      message: `Config 'canvases.mode' must be one of: ${CANVAS_MODES.join(", ")}`,
-    });
-    return z.NEVER;
-  }
-  if (writeRole === undefined) return { mode };
-  if (!isCanvasWriteRole(writeRole)) {
-    ctx.addIssue({
-      code: "custom",
-      message: `Config 'canvases.writeRole' must be one of: ${CANVAS_WRITE_ROLES.join(", ")}`,
-    });
-    return z.NEVER;
-  }
-  return { mode, writeRole };
-});
+    if (writeRole === undefined) return { mode };
+    if (!isSlackFileWriteRole(writeRole)) {
+      ctx.addIssue({
+        code: "custom",
+        message: `Config '${key}.writeRole' must be one of: ${SLACK_FILE_WRITE_ROLES.join(", ")}`,
+      });
+      return z.NEVER;
+    }
+    return { mode, writeRole };
+  });
+
+export const canvasesZod = slackFileFeatureZod("canvases");
+export const listsZod = slackFileFeatureZod("lists");
 
 export const cronCatchUpZod = z.unknown().transform((raw, ctx): CronConfig["catchUp"] => {
   if (raw === undefined) return undefined;
@@ -938,6 +949,7 @@ export const manifestConfigZod = z.object(
     allowPublicSearch: allowPublicSearchZod,
     investigations: investigationsZod.optional(),
     canvases: canvasesZod.optional(),
+    lists: listsZod.optional(),
   },
   { error: "Config must be an object" },
 );

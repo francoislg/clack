@@ -75,6 +75,7 @@ const mockRegisterChoiceHandler = vi.fn(() => {});
 const mockRegisterFollowupHandler = vi.fn(() => {});
 const mockRegisterChangeActionHandler = vi.fn(() => {});
 const mockRegisterConfigUpdateActionHandler = vi.fn(() => {});
+const mockRegisterListItemsDeleteActionHandler = vi.fn(() => {});
 const mockRegisterSkillActionHandler = vi.fn(() => {});
 const mockRegisterUserSkillsHomeActions = vi.fn(() => {});
 const mockRegisterChangeThreadActionHandlers = vi.fn(() => {});
@@ -100,6 +101,7 @@ function makeDeps(): AppDeps {
     registerFollowupHandler: mockRegisterFollowupHandler,
     registerChangeActionHandler: mockRegisterChangeActionHandler,
     registerConfigUpdateActionHandler: mockRegisterConfigUpdateActionHandler,
+    registerListItemsDeleteActionHandler: mockRegisterListItemsDeleteActionHandler,
     registerSkillActionHandler: mockRegisterSkillActionHandler,
     registerUserSkillsHomeActions: mockRegisterUserSkillsHomeActions,
     registerChangeThreadActionHandlers: mockRegisterChangeThreadActionHandlers,
@@ -128,6 +130,7 @@ function resetAllMocks() {
   mockRegisterFollowupHandler.mockClear();
   mockRegisterChangeActionHandler.mockClear();
   mockRegisterConfigUpdateActionHandler.mockClear();
+  mockRegisterListItemsDeleteActionHandler.mockClear();
   mockRegisterChangeThreadActionHandlers.mockClear();
   mockRegisterDmActionHandlers.mockClear();
   mockRegisterMessageChangedHandler.mockClear();
@@ -183,6 +186,7 @@ describe("createSlackApp", () => {
     assert.equal(mockRegisterFollowupHandler.mock.calls.length, 1);
     assert.equal(mockRegisterChangeActionHandler.mock.calls.length, 1);
     assert.equal(mockRegisterConfigUpdateActionHandler.mock.calls.length, 1);
+    assert.equal(mockRegisterListItemsDeleteActionHandler.mock.calls.length, 1);
     assert.equal(mockRegisterChangeThreadActionHandlers.mock.calls.length, 1);
     assert.equal(mockRegisterDmActionHandlers.mock.calls.length, 1);
   });

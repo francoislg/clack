@@ -404,6 +404,7 @@ export const en = {
   "blocks.action_label_config_update": "Apply Update",
   "blocks.action_label_config_revert": "Remove Override",
   "blocks.action_label_config_delete": "Delete File",
+  "blocks.action_label_list_items_delete": "Delete Items",
   "blocks.action_label_update": "Update",
   "blocks.data_table_default_caption": "Table",
 
@@ -669,6 +670,15 @@ export const en = {
     "You don't have permission to update configuration. Requires admin role or higher.",
   "errors.config_update_request_expired":
     "Sorry, this config update request has expired. Please try again.",
+  "errors.list_delete_permission_denied":
+    "You don't have permission to delete List items. Requires the {role} role or higher.",
+  "errors.list_delete_access_denied":
+    "You don't have access to that List, so you can't confirm this deletion.",
+  "errors.list_delete_request_expired":
+    "Sorry, this deletion request has expired. Please ask again.",
+  "errors.list_delete_unavailable": "List editing is turned off, so nothing was deleted.",
+  "errors.list_items_deleted": "Deleted {count} item(s) from the List: {items}",
+  "errors.list_delete_failed": "Couldn't delete the items: {error}",
   "errors.message_read_failed":
     "Sorry, I couldn't read the message. Make sure I'm invited to this channel.",
 

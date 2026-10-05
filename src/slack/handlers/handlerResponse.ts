@@ -10,7 +10,12 @@ import type { SessionInfo } from "../activeSessions.js";
 import type { SessionContext } from "../../sessions.js";
 import { errorMessage as toErrorMessage } from "../../errors.js";
 import type { AskClaudeOptions, ClaudeResponse } from "../../claude/index.js";
-import type { DeliverFn, DeliveryControl, ToolCallRecord } from "../../tools/types.js";
+import type {
+  DeliverFn,
+  DeliveryControl,
+  StagedIntentType,
+  ToolCallRecord,
+} from "../../tools/types.js";
 import type { DeliveryHandler } from "./delivery/types.js";
 import { StreamingDelivery } from "./delivery/streamingDelivery.js";
 import { SilentDelivery } from "./delivery/silentDelivery.js";
@@ -658,7 +663,12 @@ async function handleSuccess(ctx: DeliveryContext, response: ClaudeResponse): Pr
   await maybeEscalateToOwner(ctx, response);
 }
 
-const ORPHANABLE_INTENT_TYPES = new Set(["change", "update", "config_update"]);
+const ORPHANABLE_INTENT_TYPES: ReadonlySet<StagedIntentType> = new Set([
+  "change",
+  "update",
+  "config_update",
+  "list_items_delete",
+]);
 
 async function warnOnOrphanStagedIntents(
   ctx: DeliveryContext,

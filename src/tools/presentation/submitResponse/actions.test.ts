@@ -169,3 +169,64 @@ describe("collectActionErrors - followed-thread blocking", () => {
     expect(errors).toHaveLength(0);
   });
 });
+
+describe("collectActionErrors - list_items_delete", () => {
+  function stageDeletion(intentStore: ReturnType<typeof createIntentStore>): string {
+    return intentStore.stage({
+      type: "list_items_delete",
+      listId: "F0456ABC",
+      items: [{ id: "Rec1", label: "Buy milk" }],
+    });
+  }
+
+  it("accepts an action whose ref resolves to a staged deletion", () => {
+    const intentStore = createIntentStore();
+    const ref = stageDeletion(intentStore);
+
+    const { errors } = collectActionErrors(
+      { actions: [{ type: "list_items_delete", ref }] },
+      intentStore,
+      undefined,
+      undefined,
+    );
+
+    expect(errors).toEqual([]);
+  });
+
+  it("rejects an action with an unknown ref", () => {
+    const { errors } = collectActionErrors(
+      { actions: [{ type: "list_items_delete", ref: "nope" }] },
+      createIntentStore(),
+      undefined,
+      undefined,
+    );
+
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toContain('Action type "list_items_delete" references unknown ref "nope"');
+  });
+
+  it("rejects a ref staged as another intent type", () => {
+    const intentStore = createIntentStore();
+    const ref = intentStore.stage({ type: "update", sessionId: "s1", instructions: "go" });
+
+    const { errors } = collectActionErrors(
+      { actions: [{ type: "list_items_delete", ref }] },
+      intentStore,
+      undefined,
+      undefined,
+    );
+
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toContain('is a "update" intent but action type is "list_items_delete"');
+  });
+
+  it("rejects a staged deletion that no action references", () => {
+    const intentStore = createIntentStore();
+    const ref = stageDeletion(intentStore);
+
+    const { errors } = collectActionErrors({ actions: [] }, intentStore, undefined, undefined);
+
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toContain(`You staged a "list_items_delete" intent (ref: ${ref})`);
+  });
+});

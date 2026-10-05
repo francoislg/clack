@@ -823,6 +823,80 @@ describe("buildClackTools — canvas tools gating", () => {
 });
 
 // ---------------------------------------------------------------------------
+// List tool registration gating (lists.mode + lists.writeRole)
+// ---------------------------------------------------------------------------
+
+describe("buildClackTools — List tools gating", () => {
+  beforeEach(() => {
+    setLoadedPlugins({ results: [] });
+  });
+  afterEach(() => {
+    setLoadedPlugins({ results: [] });
+  });
+
+  const READ_TOOLS = ["read_list", "get_list_item"];
+  const LIST_TOOLS = [
+    ...READ_TOOLS,
+    "add_list_items",
+    "update_list_items",
+    "delete_list_items",
+    "create_list",
+  ];
+
+  const registered = (
+    lists: Config["lists"],
+    role: UserRole,
+    slackClient: WebClient | undefined = new WebClient("xoxb-test"),
+  ): string[] => {
+    const ctx = makeQueryCtx({
+      config: Object.assign({} as Config, { lists }),
+      role,
+      slackClient,
+    });
+    const { toolNames } = buildClackTools(ctx);
+    return LIST_TOOLS.filter((name) => toolNames.includes(name));
+  };
+
+  it("registers no List tool when the block is absent", () => {
+    assert.deepEqual(registered(undefined, "owner"), []);
+  });
+
+  it("registers no List tool in off mode", () => {
+    assert.deepEqual(registered({ mode: "off" }, "owner"), []);
+  });
+
+  it("registers only the read tools in read mode, even for an owner", () => {
+    assert.deepEqual(registered({ mode: "read" }, "owner"), READ_TOOLS);
+  });
+
+  it("registers only the read tools in write mode below the default dev threshold", () => {
+    assert.deepEqual(registered({ mode: "write" }, "member"), READ_TOOLS);
+  });
+
+  it("registers the write tools in write mode at the default dev threshold", () => {
+    assert.deepEqual(registered({ mode: "write" }, "dev"), LIST_TOOLS);
+  });
+
+  it("honors a configured writeRole", () => {
+    assert.deepEqual(registered({ mode: "write", writeRole: "admin" }, "dev"), READ_TOOLS);
+    assert.deepEqual(registered({ mode: "write", writeRole: "admin" }, "admin"), LIST_TOOLS);
+    assert.deepEqual(registered({ mode: "write", writeRole: "member" }, "member"), LIST_TOOLS);
+  });
+
+  it("registers no List tool without a Slack client", () => {
+    const ctx = makeQueryCtx({
+      config: Object.assign({} as Config, { lists: { mode: "write" } }),
+      role: "owner",
+    });
+    const { toolNames } = buildClackTools(ctx);
+    assert.deepEqual(
+      LIST_TOOLS.filter((name) => toolNames.includes(name)),
+      [],
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
 // search_messages registration gating (allowPublicSearch)
 // ---------------------------------------------------------------------------
 

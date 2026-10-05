@@ -6,7 +6,7 @@
 
 import type { Manifest } from "@slack/web-api/dist/types/request/manifest.js";
 import type { DmType } from "../config.js";
-import type { CanvasMode } from "../configSchemas.js";
+import type { SlackFileMode } from "../configSchemas.js";
 
 type ManifestBotScopes = NonNullable<
   NonNullable<NonNullable<Manifest["oauth_config"]>["scopes"]>["bot"]
@@ -20,7 +20,9 @@ type UntypedBotScope =
   | "assistant:write"
   | "search:read.public"
   | "canvases:read"
-  | "canvases:write";
+  | "canvases:write"
+  | "lists:read"
+  | "lists:write";
 
 export type BotScope = ManifestBotScopes[number] | UntypedBotScope;
 export type ManifestEvent = ManifestBotEvents[number];
@@ -50,7 +52,8 @@ export interface ManifestFeatures {
   autoRespond: boolean;
   publicSearch: boolean;
   investigations: boolean;
-  canvases: CanvasMode;
+  canvases: SlackFileMode;
+  lists: SlackFileMode;
 }
 
 /**
@@ -63,7 +66,8 @@ export interface ManifestFeatureSource {
   autoRespond?: { enabled?: boolean };
   allowPublicSearch?: boolean;
   investigations?: { enabled?: boolean };
-  canvases?: { mode?: CanvasMode };
+  canvases?: { mode?: SlackFileMode };
+  lists?: { mode?: SlackFileMode };
 }
 
 export function manifestFeatures(source: ManifestFeatureSource): ManifestFeatures {
@@ -75,6 +79,7 @@ export function manifestFeatures(source: ManifestFeatureSource): ManifestFeature
     publicSearch: source.allowPublicSearch ?? false,
     investigations: source.investigations?.enabled ?? false,
     canvases: source.canvases?.mode ?? "off",
+    lists: source.lists?.mode ?? "off",
   };
 }
 
@@ -104,6 +109,12 @@ export function requiredBotScopes(features: ManifestFeatures): BotScope[] {
   if (features.canvases !== "off") {
     scopes.push("canvases:read");
     if (features.canvases === "write") scopes.push("canvases:write");
+  }
+
+  // List tools. "read" opens Lists; "write" also creates them and changes their items. No bot events.
+  if (features.lists !== "off") {
+    scopes.push("lists:read");
+    if (features.lists === "write") scopes.push("lists:write");
   }
 
   if (features.investigations) {

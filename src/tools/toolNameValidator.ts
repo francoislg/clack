@@ -28,6 +28,12 @@ export const CLACK_CORE_TOOL_NAMES: readonly string[] = [
   "read_canvas",
   "create_canvas",
   "edit_canvas",
+  "read_list",
+  "get_list_item",
+  "add_list_items",
+  "update_list_items",
+  "delete_list_items",
+  "create_list",
   "view_slack_image",
   "view_slack_file",
   // Read-only query tools

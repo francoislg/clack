@@ -1073,6 +1073,32 @@ describe("handleAutoExecuteActions — update intent", () => {
 // Error handling
 // ============================================================================
 
+describe("handleAutoExecuteActions — list_items_delete", () => {
+  it("never executes a List-item deletion, even when the action carries auto: true", async () => {
+    const action = { type: "list_items_delete" as const, ref: "l1", auto: true };
+    const params = makeBaseParams({
+      response: makeResponseWithActions(
+        { blocks: [], actions: [action] },
+        {
+          l1: {
+            type: "list_items_delete",
+            listId: "F0456ABC",
+            items: [{ id: "Rec1", label: "Buy milk" }],
+          },
+        },
+      ),
+    });
+
+    await handleAutoExecuteActions(params, makeDeps());
+
+    assert.equal(mockPostMessageFn.mock.calls.length, 0);
+    assert.equal(mockWriteInstructionFile.mock.calls.length, 0);
+    assert.equal(mockDeleteInstructionFile.mock.calls.length, 0);
+    assert.equal(mockTriggerChangeWorkflow.mock.calls.length, 0);
+    assert.equal(mockTriggerFollowUp.mock.calls.length, 0);
+  });
+});
+
 describe("handleAutoExecuteActions — error handling", () => {
   it("posts error to thread when triggerChangeWorkflow throws", async () => {
     mockTriggerChangeWorkflow.mockImplementation(async () => {

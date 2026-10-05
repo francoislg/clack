@@ -7,10 +7,10 @@ import {
   editCanvas,
   findSections,
   getCanvasMarkdown,
-  isDirectConversation,
   parseCanvasRef,
   shareCanvasWithChannel,
 } from "./canvases.js";
+import { isDirectConversation } from "./fileRef.js";
 import { slackError } from "./testCanvasApi.js";
 import { createSlackClientMock, type MockSlackClient } from "./testSlackClient.js";
 
@@ -123,33 +123,6 @@ describe("canvas API calls", () => {
         access_level: "read",
         channel_ids: ["C123"],
       });
-    });
-  });
-
-  describe("isDirectConversation", () => {
-    it("is true for a DM", async () => {
-      client.conversations.info.mockResolvedValue({ ok: true, channel: { id: "D1", is_im: true } });
-
-      await expect(isDirectConversation(client, "D1")).resolves.toBe(true);
-      expect(client.conversations.info).toHaveBeenCalledWith({ channel: "D1" });
-    });
-
-    it("is true for a group DM", async () => {
-      client.conversations.info.mockResolvedValue({
-        ok: true,
-        channel: { id: "G1", is_mpim: true },
-      });
-
-      await expect(isDirectConversation(client, "G1")).resolves.toBe(true);
-    });
-
-    it("is false for a channel", async () => {
-      client.conversations.info.mockResolvedValue({
-        ok: true,
-        channel: { id: "C1", is_channel: true, is_im: false, is_mpim: false },
-      });
-
-      await expect(isDirectConversation(client, "C1")).resolves.toBe(false);
     });
   });
 

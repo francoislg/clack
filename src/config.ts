@@ -3,7 +3,11 @@ import { resolve } from "node:path";
 import type { UserRole } from "./roles.js";
 import { type Lang } from "./i18n/languages.js";
 import { validateConfig } from "./configZod.js";
-import type { CanvasesConfig, SlackAccessMode, TASK_CARD_TRANSPORTS } from "./configSchemas.js";
+import type {
+  SlackAccessMode,
+  SlackFileFeatureConfig,
+  TASK_CARD_TRANSPORTS,
+} from "./configSchemas.js";
 
 export interface SlackAuthConfig {
   botToken: string;
@@ -475,7 +479,14 @@ export interface Config {
    * `edit_canvas` for roles at or above `writeRole`. Absent or `"off"` → fully inert. Changing
    * the mode requires re-uploading the manifest AND reinstalling the app to the workspace.
    */
-  canvases?: CanvasesConfig;
+  canvases?: SlackFileFeatureConfig;
+  /**
+   * Slack Lists. `mode: "read"` requests the `lists:read` bot scope and registers `read_list`
+   * and `get_list_item`; `"write"` also requests `lists:write` and registers the List write
+   * tools for roles at or above `writeRole`. Absent or `"off"` → fully inert. Changing the mode
+   * requires re-uploading the manifest AND reinstalling the app to the workspace.
+   */
+  lists?: SlackFileFeatureConfig;
   /**
    * Workspace-global user-facing language. BCP-47 short code. When absent or `"en"`,
    * the bot behaves identically to its pre-localization state. When set to `"fr"`,

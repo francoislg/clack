@@ -632,6 +632,37 @@ describe("executeAndDeliver — success handling", () => {
     assert.match(warning!.text!, /update/);
   });
 
+  it("warns when a staged List-item deletion was never delivered", async () => {
+    mockAskClaude.mockImplementation(async () => ({
+      success: true,
+      answer: "Ready to remove those items",
+      stagedIntents: {
+        r1: {
+          type: "list_items_delete" as const,
+          listId: "F0456ABC",
+          items: [{ id: "Rec1", label: "Buy milk" }],
+        },
+      },
+    }));
+
+    const client = makeClient();
+
+    await executeAndDeliver({
+      client,
+      session: makeSession(),
+      sessionInfo: makeSessionInfo(),
+      claudeOptions: makeClaudeOptions(),
+      deps,
+    });
+
+    const postMessage = getPostMessageMock(client);
+    const warning = postMessage.mock.calls
+      .map((c) => c[0] as { text?: string })
+      .find((m) => m.text?.includes("didn't deliver"));
+    assert.ok(warning, "expected an orphan-intent warning to be posted");
+    assert.match(warning!.text!, /list_items_delete/);
+  });
+
   it("does not warn when no actionable intents are staged", async () => {
     mockAskClaude.mockImplementation(async () => ({
       success: true,

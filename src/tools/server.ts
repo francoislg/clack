@@ -19,6 +19,7 @@ import { postAnswerToChannel } from "../slack/handlers/dmActions.js";
 import { extractDisplayText } from "../slack/blockText.js";
 import { errorMessage } from "../errors.js";
 import { meetsMinimumRole } from "../permissions.js";
+import { slackFileWriteRole } from "../configSchemas.js";
 import { getLoadedPlugins } from "../plugins-core/state.js";
 import { logger } from "../logger.js";
 import type { McpSdkServerConfigWithInstance } from "@anthropic-ai/claude-agent-sdk";
@@ -65,6 +66,12 @@ import { createSearchMessagesTool } from "./query/searchMessages.js";
 import { createReadCanvasTool } from "./query/readCanvas.js";
 import { createCreateCanvasTool } from "./actions/createCanvas.js";
 import { createEditCanvasTool } from "./actions/editCanvas.js";
+import { createReadListTool } from "./query/readList.js";
+import { createGetListItemTool } from "./query/getListItem.js";
+import { createAddListItemsTool } from "./actions/addListItems.js";
+import { createUpdateListItemsTool } from "./actions/updateListItems.js";
+import { createDeleteListItemsTool } from "./actions/deleteListItems.js";
+import { createCreateListTool } from "./actions/createList.js";
 import { createRemoveReactionTool } from "./query/removeReaction.js";
 import { createGetSessionTraceTool } from "./query/getSessionTrace.js";
 import { createAttachIntegrationTool } from "./query/attachIntegration.js";
@@ -468,9 +475,23 @@ function buildQueryTools(ctx: QueryToolContext): ClackQueryToolsResult {
     const canvases = ctx.config.canvases;
     if (canvases && canvases.mode !== "off") {
       tools.push(createReadCanvasTool(ctx));
-      if (canvases.mode === "write" && meetsMinimumRole(ctx.role, canvases.writeRole ?? "dev")) {
+      if (canvases.mode === "write" && meetsMinimumRole(ctx.role, slackFileWriteRole(canvases))) {
         tools.push(createCreateCanvasTool(ctx));
         tools.push(createEditCanvasTool(ctx));
+      }
+    }
+
+    // Slack Lists. "read" opens Lists for every role; "write" also creates Lists and changes
+    // their items for roles at or above `lists.writeRole`.
+    const lists = ctx.config.lists;
+    if (lists && lists.mode !== "off") {
+      tools.push(createReadListTool(ctx));
+      tools.push(createGetListItemTool(ctx));
+      if (lists.mode === "write" && meetsMinimumRole(ctx.role, slackFileWriteRole(lists))) {
+        tools.push(createAddListItemsTool(ctx));
+        tools.push(createUpdateListItemsTool(ctx));
+        tools.push(createDeleteListItemsTool(ctx, intentStore));
+        tools.push(createCreateListTool(ctx));
       }
     }
   }

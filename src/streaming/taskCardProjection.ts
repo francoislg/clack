@@ -1,4 +1,5 @@
-import type { PlanBlock, RichTextBlock, TaskCardBlock, TaskUpdateChunk } from "@slack/types";
+import type { PlanBlock, TaskCardBlock, TaskUpdateChunk } from "@slack/types";
+import { toRichText } from "../slack/richText.js";
 
 /** Slack's cap on the number of task cards in one plan block. */
 export const PLAN_BLOCK_MAX_TASKS = 50;
@@ -43,11 +44,4 @@ function toTaskCard(id: string, task: ProjectedTask): TaskCardBlock {
   };
   if (task.details.trim() !== "") card.details = toRichText(task.details.replace(/^\n+/, ""));
   return card;
-}
-
-function toRichText(text: string): RichTextBlock {
-  return {
-    type: "rich_text",
-    elements: [{ type: "rich_text_section", elements: [{ type: "text", text }] }],
-  };
 }

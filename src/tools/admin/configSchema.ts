@@ -1,9 +1,10 @@
 import type { Config, ThinkingFeedbackConfig, TriggerChangesWorkflowConfig } from "../../config.js";
 import type { SchemaFor } from "./configSchemaTypes.js";
 import {
-  CANVAS_MODES,
-  CANVAS_WRITE_ROLES,
+  DEFAULT_SLACK_FILE_WRITE_ROLE,
   SLACK_ACCESS_MODES,
+  SLACK_FILE_MODES,
+  SLACK_FILE_WRITE_ROLES,
   TASK_CARD_TRANSPORTS,
 } from "../../configSchemas.js";
 
@@ -679,15 +680,36 @@ export const CONFIG_SCHEMA: SchemaFor<Config> = {
       fields: {
         mode: {
           type: "enum",
-          enum: CANVAS_MODES,
+          enum: SLACK_FILE_MODES,
           description: "Which canvas scopes and tools are available.",
           default: "off",
         },
         writeRole: {
           type: "enum",
-          enum: CANVAS_WRITE_ROLES,
+          enum: SLACK_FILE_WRITE_ROLES,
           description: "Lowest role allowed to create and edit canvases.",
-          default: "dev",
+          default: DEFAULT_SLACK_FILE_WRITE_ROLE,
+          required: false,
+        },
+      },
+    },
+    lists: {
+      type: "object",
+      description:
+        "Slack Lists. mode 'read' adds the lists:read bot scope and the read_list / get_list_item tools; 'write' also adds lists:write and the add_list_items / update_list_items / delete_list_items / create_list tools for roles at or above writeRole. Changing the mode requires re-uploading the manifest AND reinstalling the app to the workspace.",
+      required: false,
+      fields: {
+        mode: {
+          type: "enum",
+          enum: SLACK_FILE_MODES,
+          description: "Which List scopes and tools are available.",
+          default: "off",
+        },
+        writeRole: {
+          type: "enum",
+          enum: SLACK_FILE_WRITE_ROLES,
+          description: "Lowest role allowed to create Lists and to add, update and delete items.",
+          default: DEFAULT_SLACK_FILE_WRITE_ROLE,
           required: false,
         },
       },

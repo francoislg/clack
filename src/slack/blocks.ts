@@ -49,6 +49,8 @@ function defaultActionLabel(actionType: Action["type"]): string {
       return t("userSkills.restore_button");
     case "skill_delete":
       return t("userSkills.delete_button");
+    case "list_items_delete":
+      return t("blocks.action_label_list_items_delete");
   }
 }
 
@@ -57,6 +59,7 @@ const ACTION_STYLES: Record<string, "primary" | "danger" | undefined> = {
   post_to: "primary",
   change: "primary",
   skill_delete: "danger",
+  list_items_delete: "danger",
 };
 
 /** Map action type to Slack action_id */
@@ -100,6 +103,7 @@ function encodeActionValue(sessionId: string, action: Action): string {
     case "skill_disable":
     case "skill_restore":
     case "skill_delete":
+    case "list_items_delete":
       return JSON.stringify({ s: sessionId, r: action.ref });
   }
 }

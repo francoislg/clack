@@ -18,6 +18,7 @@ const NO_FEATURES: ManifestFeatures = {
   publicSearch: false,
   investigations: false,
   canvases: "off",
+  lists: "off",
 };
 
 const DM_CORE_SCOPES = ["im:history", "im:read", "mpim:history", "mpim:read"];
@@ -36,6 +37,7 @@ describe("manifestFeatures", () => {
         allowPublicSearch: true,
         investigations: { enabled: true },
         canvases: { mode: "write" },
+        lists: { mode: "write" },
       }),
     ).toEqual({
       directMessages: true,
@@ -45,6 +47,7 @@ describe("manifestFeatures", () => {
       publicSearch: true,
       investigations: true,
       canvases: "write",
+      lists: "write",
     });
   });
 
@@ -121,6 +124,25 @@ describe("requiredBotScopes", () => {
     }
   });
 
+  it("adds only lists:read for lists mode read", () => {
+    const scopes = requiredBotScopes({ ...NO_FEATURES, lists: "read" });
+    expect(scopes).toContain("lists:read");
+    expect(scopes).not.toContain("lists:write");
+  });
+
+  it("adds lists:read and lists:write for lists mode write", () => {
+    const scopes = requiredBotScopes({ ...NO_FEATURES, lists: "write" });
+    expect(scopes).toEqual(expect.arrayContaining(["lists:read", "lists:write"]));
+  });
+
+  it("adds no list scope when lists is off or absent", () => {
+    for (const features of [NO_FEATURES, manifestFeatures({})]) {
+      const scopes = requiredBotScopes(features);
+      expect(scopes).not.toContain("lists:read");
+      expect(scopes).not.toContain("lists:write");
+    }
+  });
+
   it("adds no scope for autoRespond", () => {
     expect(requiredBotScopes({ ...NO_FEATURES, autoRespond: true })).toEqual(
       requiredBotScopes(NO_FEATURES),
@@ -136,6 +158,7 @@ describe("requiredBotScopes", () => {
       publicSearch: true,
       investigations: true,
       canvases: "write",
+      lists: "write",
     });
     expect(new Set(scopes).size).toBe(scopes.length);
     expect(scopes).toEqual([...scopes].sort((a, b) => a.localeCompare(b)));
@@ -182,6 +205,12 @@ describe("requiredBotEvents", () => {
 
   it("adds no event for canvases", () => {
     expect(requiredBotEvents({ ...NO_FEATURES, canvases: "write" })).toEqual(
+      requiredBotEvents(NO_FEATURES),
+    );
+  });
+
+  it("adds no event for lists", () => {
+    expect(requiredBotEvents({ ...NO_FEATURES, lists: "write" })).toEqual(
       requiredBotEvents(NO_FEATURES),
     );
   });

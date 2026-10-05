@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CANVAS_MODES, canvasesZod, manifestConfigZod } from "./configSchemas.js";
+import { SLACK_FILE_MODES, canvasesZod, listsZod, manifestConfigZod } from "./configSchemas.js";
 
 function issueMessages(raw: unknown): string[] {
   const result = manifestConfigZod.safeParse(raw);
@@ -88,6 +88,12 @@ describe("manifestConfigZod", () => {
     ]);
   });
 
+  it("rejects an unsupported lists.mode, naming the key", () => {
+    expect(issueMessages({ lists: { mode: "edit" } })).toEqual([
+      "Config 'lists.mode' must be one of: off, read, write",
+    ]);
+  });
+
   it("ignores an unknown top-level key", () => {
     const result = manifestConfigZod.safeParse({ mentions: { enabled: true }, somethingElse: 42 });
 
@@ -115,48 +121,51 @@ describe("manifestConfigZod", () => {
   });
 });
 
-describe("canvasesZod", () => {
-  const canvasIssues = (raw: unknown): string[] =>
-    canvasesZod.safeParse(raw).error?.issues.map((issue) => issue.message) ?? [];
+describe.each([
+  ["canvases", canvasesZod],
+  ["lists", listsZod],
+] as const)("%sZod", (key, schema) => {
+  const issues = (raw: unknown): string[] =>
+    schema.safeParse(raw).error?.issues.map((issue) => issue.message) ?? [];
 
   it("parses an absent block as undefined", () => {
-    expect(canvasesZod.parse(undefined)).toBeUndefined();
+    expect(schema.parse(undefined)).toBeUndefined();
   });
 
-  it.each(CANVAS_MODES)("parses mode %s", (mode) => {
-    expect(canvasesZod.parse({ mode })).toEqual({ mode });
+  it.each(SLACK_FILE_MODES)("parses mode %s", (mode) => {
+    expect(schema.parse({ mode })).toEqual({ mode });
   });
 
   it("accepts a writeRole", () => {
-    expect(canvasesZod.parse({ mode: "write", writeRole: "admin" })).toEqual({
+    expect(schema.parse({ mode: "write", writeRole: "admin" })).toEqual({
       mode: "write",
       writeRole: "admin",
     });
   });
 
   it("rejects an unsupported mode, naming the key and listing the values", () => {
-    expect(canvasIssues({ mode: "edit" })).toEqual([
-      "Config 'canvases.mode' must be one of: off, read, write",
+    expect(issues({ mode: "edit" })).toEqual([
+      `Config '${key}.mode' must be one of: off, read, write`,
     ]);
   });
 
   it("rejects a missing mode, naming the key", () => {
-    expect(canvasIssues({})).toEqual(["Config 'canvases.mode' must be one of: off, read, write"]);
+    expect(issues({})).toEqual([`Config '${key}.mode' must be one of: off, read, write`]);
   });
 
   it("rejects an unsupported writeRole, naming the key and listing the values", () => {
-    expect(canvasIssues({ mode: "write", writeRole: "system" })).toEqual([
-      "Config 'canvases.writeRole' must be one of: member, dev, admin, owner",
+    expect(issues({ mode: "write", writeRole: "system" })).toEqual([
+      `Config '${key}.writeRole' must be one of: member, dev, admin, owner`,
     ]);
   });
 
   it("rejects an unknown key, naming the key", () => {
-    expect(canvasIssues({ mode: "read", channel: "C123" })).toEqual([
-      "Config 'canvases' contains unknown key 'channel'",
+    expect(issues({ mode: "read", channel: "C123" })).toEqual([
+      `Config '${key}' contains unknown key 'channel'`,
     ]);
   });
 
   it("rejects a non-object block", () => {
-    expect(canvasIssues("read")).toEqual(["Config 'canvases' must be an object"]);
+    expect(issues("read")).toEqual([`Config '${key}' must be an object`]);
   });
 });

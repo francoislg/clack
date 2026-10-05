@@ -1,8 +1,7 @@
 import type { App } from "@slack/bolt";
 import { z } from "zod";
-import { errorMessage } from "../errors.js";
-import { logger } from "../logger.js";
-import { slackErrorCode } from "../slackErrors.js";
+import { isDirectConversation, SLACK_FILE_ID_PATTERN, slackUrlSegments } from "./fileRef.js";
+import { createSlackErrorMessage, type SlackErrorFormatter } from "./slackErrorMessage.js";
 
 /**
  * Slack calls for canvases. Every function lets the WebClient's thrown error propagate;
@@ -11,29 +10,22 @@ import { slackErrorCode } from "../slackErrors.js";
 
 type SlackClient = App["client"];
 
-const CANVAS_ID_PATTERN = /^F[A-Z0-9]{6,}$/;
-
 const canvasContentSchema = z.object({ content: z.string() });
 
-function isSlackHost(hostname: string): boolean {
-  return hostname === "slack.com" || hostname.endsWith(".slack.com");
-}
-
 function canvasIdFromUrl(ref: string): string | undefined {
-  if (!URL.canParse(ref)) return undefined;
-  const url = new URL(ref);
-  if (!isSlackHost(url.hostname)) return undefined;
+  const parsed = slackUrlSegments(ref);
+  if (parsed === undefined) return undefined;
 
-  const segments = url.pathname.split("/").filter((segment) => segment.length > 0);
+  const { segments } = parsed;
   const candidate =
     segments[0] === "docs" ? segments[2] : segments[0] === "canvas" ? segments[1] : undefined;
-  return candidate !== undefined && CANVAS_ID_PATTERN.test(candidate) ? candidate : undefined;
+  return candidate !== undefined && SLACK_FILE_ID_PATTERN.test(candidate) ? candidate : undefined;
 }
 
 /** The canvas file id (`F…`) from a canvas id or a Slack canvas URL; undefined for anything else. */
 export function parseCanvasRef(ref: string): string | undefined {
   const trimmed = ref.trim();
-  if (CANVAS_ID_PATTERN.test(trimmed)) return trimmed;
+  if (SLACK_FILE_ID_PATTERN.test(trimmed)) return trimmed;
   return canvasIdFromUrl(trimmed);
 }
 
@@ -71,16 +63,6 @@ export async function shareCanvasWithChannel(
     access_level: "read",
     channel_ids: [channelId],
   });
-}
-
-/** Whether a conversation is a DM or group DM (canvases cannot be shared to those). */
-export async function isDirectConversation(
-  client: SlackClient,
-  channelId: string,
-): Promise<boolean> {
-  const response = await client.conversations.info({ channel: channelId });
-  const channel = response?.channel;
-  return channel?.is_im === true || channel?.is_mpim === true;
 }
 
 export async function findSections(
@@ -179,18 +161,16 @@ export async function canvasPermalink(
   return response?.file?.permalink;
 }
 
-type CanvasErrorFormatter = (operation: string) => string;
-
-const missingScope: CanvasErrorFormatter = (operation) =>
+const missingScope: SlackErrorFormatter = (operation) =>
   `Slack rejected ${operation}: the app is missing a canvas scope. An admin must re-upload the app manifest and reinstall the app to the workspace.`;
-const paidPlanRequired: CanvasErrorFormatter = (operation) =>
+const paidPlanRequired: SlackErrorFormatter = (operation) =>
   `Slack rejected ${operation}: canvases need a paid Slack plan.`;
-const notFound: CanvasErrorFormatter = (operation) =>
+const notFound: SlackErrorFormatter = (operation) =>
   `Slack could not find that canvas (${operation}). It may be deleted, not a canvas, or not shared with Clack.`;
-const notAllowed: CanvasErrorFormatter = (operation) =>
+const notAllowed: SlackErrorFormatter = (operation) =>
   `Slack did not permit Clack to ${operation} the canvas. Reading or editing needs the canvas shared with a channel Clack is in (with edit access for edits); creating or sharing may be blocked by a workspace canvas restriction.`;
 
-const CANVAS_ERROR_MESSAGES: ReadonlyMap<string, CanvasErrorFormatter> = new Map([
+const CANVAS_ERROR_MESSAGES: ReadonlyMap<string, SlackErrorFormatter> = new Map([
   ["missing_scope", missingScope],
   ["free_teams_cannot_create_standalone_canvases", paidPlanRequired],
   ["free_teams_cannot_edit_standalone_canvases", paidPlanRequired],
@@ -214,13 +194,7 @@ const CANVAS_ERROR_MESSAGES: ReadonlyMap<string, CanvasErrorFormatter> = new Map
 ]);
 
 /** Claude-facing English message for a failed canvas operation. Logs the failure. */
-export function canvasErrorMessage(operation: string, error: unknown): string {
-  logger.warn(`canvases: ${operation} failed: ${errorMessage(error)}`);
-  const code = slackErrorCode(error instanceof Error ? error : undefined);
-  if (code === undefined) return `${operation} failed: ${errorMessage(error)}`;
-  const format = CANVAS_ERROR_MESSAGES.get(code);
-  return format ? format(operation) : `Slack rejected ${operation}: ${code}.`;
-}
+export const canvasErrorMessage = createSlackErrorMessage("canvases", CANVAS_ERROR_MESSAGES);
 
 export interface CanvasApi {
   getCanvasMarkdown: typeof getCanvasMarkdown;

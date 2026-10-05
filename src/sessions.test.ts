@@ -12,6 +12,7 @@ import {
   appendAssistantMessage,
   appendStagedIntents,
   getStagedIntent,
+  consumeStagedIntent,
   getSession,
   getSessionPath,
   addSessionUsage,
@@ -651,6 +652,58 @@ describe("appendStagedIntents", () => {
 
     const got = await getStagedIntent(session.sessionId, "ref-x");
     assert.deepEqual(got, v2);
+  });
+});
+
+describe("consumeStagedIntent", () => {
+  const deletion: StagedIntent = {
+    type: "list_items_delete",
+    listId: "F0LIST123",
+    items: [{ id: "Rec1", label: "Buy milk" }],
+  };
+  const other: StagedIntent = {
+    type: "change",
+    branch: "feat/keep",
+    description: "keep",
+    repo: "r",
+  };
+
+  async function sessionWithIntents(channelId: string, ts: string) {
+    const session = await createSession({
+      channelId,
+      messageTs: ts,
+      threadTs: ts,
+      userId: "UHHH",
+      trigger: { type: "mentions", userId: "UHHH", messageTs: ts, messageText: "consume test" },
+    });
+    await appendStagedIntents(session.sessionId, { "ref-del": deletion, "ref-keep": other });
+    return session;
+  }
+
+  it("returns the intent once and removes only that ref", async () => {
+    const session = await sessionWithIntents("C503", "5003.0005");
+
+    assert.deepEqual(await consumeStagedIntent(session.sessionId, "ref-del"), deletion);
+    assert.equal(await getStagedIntent(session.sessionId, "ref-del"), null);
+    assert.deepEqual(await getStagedIntent(session.sessionId, "ref-keep"), other);
+  });
+
+  it("gives the intent to exactly one of two concurrent callers", async () => {
+    const session = await sessionWithIntents("C504", "5004.0005");
+
+    const results = await Promise.all([
+      consumeStagedIntent(session.sessionId, "ref-del"),
+      consumeStagedIntent(session.sessionId, "ref-del"),
+    ]);
+
+    assert.equal(results.filter((result) => result !== null).length, 1);
+  });
+
+  it("returns null for an unknown ref or session", async () => {
+    const session = await sessionWithIntents("C505", "5005.0005");
+
+    assert.equal(await consumeStagedIntent(session.sessionId, "ref-missing"), null);
+    assert.equal(await consumeStagedIntent("no-such-session", "ref-del"), null);
   });
 });
 

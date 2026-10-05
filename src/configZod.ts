@@ -16,6 +16,7 @@ import {
   slackAccessModeZod,
   investigationsZod,
   canvasesZod,
+  listsZod,
   mcpServersZod,
   skillPluginsZod,
   userSkillsZod,
@@ -279,6 +280,7 @@ export function validateConfig(config: unknown, slackAuth: SlackAuthConfig): Con
     streaming: parseOrThrow(streamingZod, c.streaming),
     investigations: parseOrThrow(investigationsZod, c.investigations),
     canvases: parseOrThrow(canvasesZod.optional(), c.canvases),
+    lists: parseOrThrow(listsZod.optional(), c.lists),
     language: isSupportedLanguage(c.language) ? c.language : undefined,
   };
 

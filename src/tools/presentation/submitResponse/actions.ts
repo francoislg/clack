@@ -19,6 +19,7 @@ export const REF_ACTION_TYPES = new Set([
   "skill_disable",
   "skill_restore",
   "skill_delete",
+  "list_items_delete",
 ]);
 
 /**

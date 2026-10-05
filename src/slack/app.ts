@@ -19,6 +19,7 @@ import { registerChoiceHandler } from "./handlers/choice.js";
 import { registerFollowupHandler } from "./handlers/followup.js";
 import { registerChangeActionHandler } from "./handlers/changeAction.js";
 import { registerConfigUpdateActionHandler } from "./handlers/configUpdateAction.js";
+import { registerListItemsDeleteActionHandler } from "./handlers/listItemsDeleteAction.js";
 import { registerSkillActionHandler } from "./handlers/skillAction.js";
 import { registerUserSkillsHomeActions } from "./handlers/userSkillsHomeActions.js";
 import { registerChangeThreadActionHandlers } from "./handlers/changeThreadActions.js";
@@ -48,6 +49,7 @@ export interface AppDeps {
   registerFollowupHandler: typeof registerFollowupHandler;
   registerChangeActionHandler: typeof registerChangeActionHandler;
   registerConfigUpdateActionHandler: typeof registerConfigUpdateActionHandler;
+  registerListItemsDeleteActionHandler: typeof registerListItemsDeleteActionHandler;
   registerSkillActionHandler: typeof registerSkillActionHandler;
   registerUserSkillsHomeActions: typeof registerUserSkillsHomeActions;
   registerChangeThreadActionHandlers: typeof registerChangeThreadActionHandlers;
@@ -75,6 +77,7 @@ export const defaultAppDeps: AppDeps = {
   registerFollowupHandler,
   registerChangeActionHandler,
   registerConfigUpdateActionHandler,
+  registerListItemsDeleteActionHandler,
   registerSkillActionHandler,
   registerUserSkillsHomeActions,
   registerChangeThreadActionHandlers,
@@ -117,6 +120,7 @@ export function createSlackApp(deps: AppDeps = defaultAppDeps): App {
   deps.registerFollowupHandler(app);
   deps.registerChangeActionHandler(app);
   deps.registerConfigUpdateActionHandler(app);
+  deps.registerListItemsDeleteActionHandler(app);
   deps.registerSkillActionHandler(app);
   deps.registerUserSkillsHomeActions(app);
   deps.registerChangeThreadActionHandlers(app);
