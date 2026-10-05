@@ -5,7 +5,7 @@ import { textResult, errorResult } from "../helpers.js";
 import { listRefField, openList } from "../listTools.js";
 import { defaultListApi, listErrorMessage, type ListApi } from "../../slack/lists.js";
 import { fromFields } from "../../slack/listCells.js";
-import { parseListRef } from "../../slack/listRef.js";
+import { parseSlackRef } from "../../slack/slackRefs.js";
 
 export const NO_ITEM_ID_MESSAGE = "No item id. Pass item_id, or a List URL that carries record_id.";
 
@@ -22,12 +22,17 @@ export function createGetListItemTool(ctx: QueryToolContext, api: ListApi = defa
         .describe("Item id (Rec…). Optional when the List URL carries record_id"),
     },
     async (args) => {
-      const itemId = args.item_id?.trim() || parseListRef(args.list)?.itemId;
-      if (!itemId) return errorResult(NO_ITEM_ID_MESSAGE);
+      const explicitItemId = args.item_id?.trim();
+      const parsed = parseSlackRef(args.list);
+      if (!explicitItemId && parsed?.type === "file" && parsed.itemId === undefined) {
+        return errorResult(NO_ITEM_ID_MESSAGE);
+      }
 
       const opened = await openList(ctx, args.list, "read");
       if (!opened.ok) return opened.error;
       const { client, listId } = opened;
+      const itemId = explicitItemId || opened.itemId;
+      if (!itemId) return errorResult(NO_ITEM_ID_MESSAGE);
 
       try {
         const [info, item] = await Promise.all([

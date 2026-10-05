@@ -31,7 +31,8 @@ const optionalNumbers = z.array(z.number()).optional().catch(undefined);
 const columnSchema = z.object({
   id: z.string(),
   key: z.string(),
-  name: z.string(),
+  // Slack sends no name on the built-in todo columns (todo_completed, …); the key stands in.
+  name: optionalString,
   type: z.string(),
   is_primary_column: z.boolean().optional().catch(undefined),
   options: z
@@ -98,7 +99,7 @@ function parseColumn(raw: unknown): ListColumn | undefined {
   return {
     id,
     key,
-    name,
+    name: name ?? key,
     type,
     isPrimary: is_primary_column === true,
     choices,

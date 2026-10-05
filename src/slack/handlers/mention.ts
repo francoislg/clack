@@ -4,6 +4,7 @@ import { logger } from "../../logger.js";
 import { t } from "../../i18n/t.js";
 import { resolveChannelLabel, resolveUserLabel, slackLink } from "../logContext.js";
 import { extractAttachments } from "../fileExtractor.js";
+import { isImageFile } from "../slackRefs.js";
 import { processMessage } from "./core.js";
 import { findSessionByThread, setAttentionLevel, isEngaged } from "../../sessions.js";
 import { matchesInlineStopEmoji } from "../stopEmoji.js";
@@ -65,7 +66,7 @@ export function registerMentionHandler(app: App, deps: MentionDeps = defaultMent
 
     const rawFiles = "files" in event && Array.isArray(event.files) ? event.files : undefined;
     const attachments = extractAttachments(rawFiles);
-    const hasImages = !!attachments.imageFiles?.length;
+    const hasImages = !!attachments.files?.some(isImageFile);
 
     if (!messageText && !event.thread_ts && !hasImages) {
       // No message content, no images, and not in a thread — nothing to work with

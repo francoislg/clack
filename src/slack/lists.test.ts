@@ -14,6 +14,13 @@ import {
 } from "./lists.js";
 import { isDirectConversation } from "./fileRef.js";
 import { slackError } from "./testCanvasApi.js";
+import {
+  REAL_SHAPE_LIST_ID,
+  realShapeListInfo,
+  realShapeListItems,
+  realShapeListSchema,
+  realShapeParsedItems,
+} from "./testListApi.js";
 import { createSlackClientMock, type MockSlackClient } from "./testSlackClient.js";
 
 const LIST_ID = "F0LIST123";
@@ -147,6 +154,31 @@ describe("list API calls", () => {
 
       await expect(getListInfo(client, LIST_ID)).rejects.toThrow("That file is not a Slack List");
       await expect(getListInfo(client, LIST_ID)).rejects.toThrow("That file is not a Slack List");
+    });
+
+    it("parses a live todo List's schema, naming the nameless todo columns by key", async () => {
+      client.files.info.mockResolvedValue({
+        ok: true,
+        file: {
+          filetype: "list",
+          title: "Todo",
+          permalink: `https://acme.slack.com/lists/T0123/${REAL_SHAPE_LIST_ID}`,
+          list_metadata: { schema: realShapeListSchema() },
+        },
+      });
+
+      await expect(getListInfo(client, REAL_SHAPE_LIST_ID)).resolves.toEqual(realShapeListInfo());
+    });
+  });
+
+  describe("listItems on a live List's items", () => {
+    it("parses an empty name as empty text and an unchecked todo as false", async () => {
+      client.slackLists.items.list.mockResolvedValue({ ok: true, items: realShapeListItems() });
+
+      await expect(listItems(client, REAL_SHAPE_LIST_ID, { limit: 50 })).resolves.toEqual({
+        items: realShapeParsedItems(),
+        nextCursor: undefined,
+      });
     });
   });
 

@@ -4,6 +4,7 @@ import type { ClaudeRunDriver, ClaudeRunHandle } from "./runHandle.js";
 import {
   register as registerActiveRun,
   unregister as unregisterActiveRun,
+  attachRunRefs,
 } from "../slack/activeRuns.js";
 import { getConfig, getRepositoriesDir } from "../config.js";
 import {
@@ -37,7 +38,7 @@ import type {
 } from "../tools/types.js";
 import { McpServerManager, prepareMcpSession, completeSessionStart } from "./mcpServerManager.js";
 import type { StreamEvent } from "../streaming/types.js";
-import type { SlackImageFile, SlackFile } from "../slack/slackFileBase.js";
+import type { SlackRef } from "../slack/slackRefs.js";
 import type { SlackBlocks } from "../slack/blocks.js";
 import { extractDisplayText } from "../slack/blockText.js";
 import { buildQueryContext } from "../tools/context.js";
@@ -117,10 +118,8 @@ export interface AskClaudeOptions {
   /** Mid-run delivery-mode switch handle — when provided, the `switch_delivery_context` tool
    *  becomes available (interactive turns only). Absent in channelless cron / worker contexts. */
   deliveryControl?: DeliveryControl;
-  /** Available Slack images keyed by file ID */
-  availableImages?: Map<string, SlackImageFile>;
-  /** Available non-image Slack files keyed by file ID */
-  availableFiles?: Map<string, SlackFile>;
+  /** The run's registry of resolved Slack references, keyed by ref id */
+  availableRefs?: Map<string, SlackRef>;
   /** User's IANA timezone (e.g., "America/New_York") for time-aware prompts */
   userTimezone?: string;
   /**
@@ -307,8 +306,7 @@ export async function buildQuerySetup(
     actionToken: options?.actionToken,
     deliver: wrapDeliverWithDeliveredMark(options?.deliver, markDelivered),
     deliveryControl: options?.deliveryControl,
-    availableImages: options?.availableImages,
-    availableFiles: options?.availableFiles,
+    availableRefs: options?.availableRefs,
     requiredTools: options?.requiredTools,
     skipConditions: options?.skipConditions,
     submitResponseMode: options?.submitResponseMode,
@@ -577,6 +575,10 @@ export async function askClaude(
   // the `onTerminal` hook above when the run settles or stops.
   if (registerActiveRun({ channelId: session.channelId, threadTs: session.threadTs }, run)) {
     registeredHandle = run;
+    // Messages queued onto this run register their refs into the run's own registry.
+    if (options?.availableRefs) {
+      attachRunRefs(run, { refs: options.availableRefs, session });
+    }
   } else {
     // A registration collision means another run already owns this thread. Proceeding would
     // run a second SDK query that resumes the SAME `sdkSessionId` concurrently — corrupting

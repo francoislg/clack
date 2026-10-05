@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { createAddListItemsTool, MAX_ITEMS_PER_ADD } from "./addListItems.js";
 import { parseToolResult } from "../testHelpers.js";
 import type { QueryToolContext } from "../types.js";
-import { LIST_READ_ONLY_MESSAGE, NOT_A_LIST_REF_MESSAGE } from "../listTools.js";
+import { LIST_READ_ONLY_MESSAGE } from "../listTools.js";
 import { checkFileAccess, FILE_ACCESS_DENIED_MESSAGE } from "../../slack/requesterAccess.js";
 import { toRichText } from "../../slack/richText.js";
 import { slackError } from "../../slack/testCanvasApi.js";
@@ -35,7 +35,7 @@ function makeCtx(slackClient: MockSlackClient | undefined): QueryToolContext {
       lastActivity: Date.now(),
       createdAt: Date.now(),
     },
-    config: { repositories: [] },
+    config: { repositories: [], lists: { mode: "write" } },
     changesWorkflowEnabled: false,
     cronUserSchedules: false,
     slackClient,
@@ -65,6 +65,7 @@ describe("add_list_items", () => {
       allowed: true,
       botAccess: "write",
       creator: undefined,
+      facts: { filetype: "list" },
     });
   });
 
@@ -154,6 +155,7 @@ describe("add_list_items", () => {
       allowed: true,
       botAccess: "read",
       creator: undefined,
+      facts: { filetype: "list" },
     });
 
     const result = await createAddListItemsTool(ctx, api).handler(
@@ -239,14 +241,14 @@ describe("add_list_items", () => {
     expect(api.createItem).not.toHaveBeenCalled();
   });
 
-  it("rejects a reference that is not a List", async () => {
+  it("refuses a value that is no Slack reference without a Slack call", async () => {
     const result = await createAddListItemsTool(ctx, api).handler(
       { list: "not a list", items: [titled("A")] },
       extra,
     );
 
     expect(result.isError).toBe(true);
-    expect(parseToolResult(result).error).toBe(NOT_A_LIST_REF_MESSAGE);
+    expect(parseToolResult(result).error).toMatch(/is not a Slack reference/);
     expect(checkFileAccess).not.toHaveBeenCalled();
     expect(api.createItem).not.toHaveBeenCalled();
   });

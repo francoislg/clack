@@ -5,9 +5,30 @@ import {
   renderAdminClaimContext,
   messageClaimsAdmin,
   shouldOmitSkillCatalogs,
+  formatReferencedTag,
 } from "./promptBuilder.js";
 import type { SessionContext } from "../sessions.js";
 import type { TriggerType } from "../changes/types.js";
+import type { SlackFileRef, SlackRef } from "../slack/slackRefs.js";
+
+/** A registered file ref; current-message unless `fromCurrentMessage` is false. */
+function fileRef(
+  fields: Pick<SlackFileRef, "id" | "kind" | "label"> & Partial<SlackFileRef>,
+  fromCurrentMessage = true,
+): SlackFileRef {
+  return {
+    type: "file",
+    name: `${fields.id}.name`,
+    reader: "view_slack_file",
+    mustOpen: false,
+    fromCurrentMessage,
+    ...fields,
+  };
+}
+
+function registry(...refs: SlackRef[]): Map<string, SlackRef> {
+  return new Map(refs.map((ref) => [ref.id, ref]));
+}
 
 /**
  * Build a minimal SessionContext for testing. Only the fields
@@ -61,7 +82,7 @@ describe("buildPrompt", () => {
     assert.ok(prompt.includes("Alice"));
   });
 
-  it("annotates thread messages that have image attachments", () => {
+  it("tags a thread message's files in one referenced tag, without a registry", () => {
     const session = makeSession({
       threadContext: [
         {
@@ -71,7 +92,7 @@ describe("buildPrompt", () => {
           text: "Here's the screenshot",
           isBot: false,
           ts: "1234567890.000100",
-          imageFiles: [
+          files: [
             {
               id: "F001",
               name: "screenshot.png",
@@ -79,12 +100,24 @@ describe("buildPrompt", () => {
               size: 1024,
               url_private: "https://example.com/img",
             },
+            {
+              id: "F002",
+              name: "report.pdf",
+              mimetype: "application/pdf",
+              size: 2048,
+              url_private: "https://example.com/pdf",
+            },
           ],
         },
       ],
     });
     const prompt = buildPrompt(session);
-    assert.ok(prompt.includes("[attached images: screenshot.png (file_id: F001)]"));
+    const tag = prompt.split("\n").find((line) => line.startsWith("[referenced: "));
+    assert.ok(tag);
+    assert.ok(tag.includes("screenshot.png (F001)"));
+    assert.ok(tag.includes("report.pdf (F002)"));
+    assert.ok(!prompt.includes("[attached images:"));
+    assert.ok(!prompt.includes("[attached files:"));
   });
 
   it("annotates thread messages that have reactions with usernames", () => {
@@ -593,113 +626,179 @@ describe("buildPrompt", () => {
   });
 
   // ---- attachment metadata ----
-  it("includes ATTACHED FILES section with images when availableImages is provided", () => {
-    const availableImages = new Map([
-      [
-        "F123",
-        {
-          id: "F123",
-          name: "screenshot.png",
-          mimetype: "image/png",
-          size: 1024,
-          url_private: "https://example.com/img",
-        },
-      ],
-    ]);
-    const prompt = buildPrompt(makeSession(), { availableImages });
-    assert.ok(prompt.includes("ATTACHED FILES:"));
-    assert.ok(prompt.includes("[image] screenshot.png (file_id: F123)"));
-    assert.ok(prompt.includes("view_slack_image"));
-  });
-
-  it("includes ATTACHED FILES section with non-image files", () => {
-    const availableFiles = new Map([
-      [
-        "F456",
-        {
-          id: "F456",
-          name: "report.pdf",
-          mimetype: "application/pdf",
-          size: 2048,
-          url_private: "https://example.com/pdf",
-        },
-      ],
-    ]);
-    const prompt = buildPrompt(makeSession(), { availableFiles });
-    assert.ok(prompt.includes("ATTACHED FILES:"));
-    assert.ok(prompt.includes("[file] report.pdf (file_id: F456, type: application/pdf)"));
-    assert.ok(prompt.includes("view_slack_file"));
-  });
-
-  it("lists an oversized file as unopenable instead of omitting it", () => {
-    const availableFiles = new Map([
-      [
-        "F789",
-        {
-          id: "F789",
-          name: "demo.mov",
-          mimetype: "video/quicktime",
-          size: 25 * 1024 * 1024,
-          url_private: "https://example.com/mov",
-          unavailable: "too_large" as const,
-        },
-      ],
-    ]);
-    const prompt = buildPrompt(makeSession(), { availableFiles });
-    assert.ok(prompt.includes("demo.mov"));
-    assert.ok(prompt.includes("TOO LARGE to open"));
-    assert.ok(!prompt.includes("demo.mov (file_id: F789"));
-  });
-
-  it("includes both images and files in unified section", () => {
-    const availableImages = new Map([
-      [
-        "F1",
-        {
-          id: "F1",
-          name: "photo.jpg",
-          mimetype: "image/jpeg",
-          size: 1024,
-          url_private: "https://example.com/img",
-        },
-      ],
-    ]);
-    const availableFiles = new Map([
-      [
-        "F2",
-        {
-          id: "F2",
-          name: "data.csv",
-          mimetype: "text/csv",
-          size: 512,
-          url_private: "https://example.com/csv",
-        },
-      ],
-    ]);
+  it("lists each kind on its own line with its label, name, id and reader", () => {
     const prompt = buildPrompt(makeSession(), {
-      availableImages,
-      availableFiles,
+      availableRefs: registry(
+        fileRef({ id: "F0LIST001", kind: "list", label: "Slack List", reader: "read_list" }),
+        fileRef({ id: "F0CANVAS1", kind: "canvas", label: "Canvas", reader: "read_canvas" }),
+        fileRef({ id: "F0IMAGE01", kind: "image", label: "Image", mustOpen: true }),
+        fileRef({ id: "F0PDF0001", kind: "document", label: "PDF", mustOpen: true }),
+        fileRef({ id: "F0WORKFLO", kind: "file", label: "Workflow" }),
+      ),
     });
-    assert.ok(prompt.includes("ATTACHED FILES:"));
-    assert.ok(prompt.includes("[image] photo.jpg"));
-    assert.ok(prompt.includes("[file] data.csv"));
+    assert.ok(prompt.includes("REFERENCED SLACK ITEMS:"));
+    assert.ok(prompt.includes("- [Slack List] F0LIST001.name (id: F0LIST001) → read_list"));
+    assert.ok(prompt.includes("- [Canvas] F0CANVAS1.name (id: F0CANVAS1) → read_canvas"));
+    assert.ok(prompt.includes("- [Image] F0IMAGE01.name (id: F0IMAGE01) → view_slack_file"));
+    assert.ok(prompt.includes("- [PDF] F0PDF0001.name (id: F0PDF0001) → view_slack_file"));
+    assert.ok(prompt.includes("- [Workflow] F0WORKFLO.name (id: F0WORKFLO) → view_slack_file"));
   });
 
-  it("omits ATTACHED FILES section when no attachments", () => {
-    const prompt = buildPrompt(makeSession());
-    assert.ok(!prompt.includes("ATTACHED FILES"));
-  });
-
-  it("omits ATTACHED FILES section when both maps are empty", () => {
+  it("lists a List item id next to its List", () => {
     const prompt = buildPrompt(makeSession(), {
-      availableImages: new Map(),
-      availableFiles: new Map(),
+      availableRefs: registry(
+        fileRef({ id: "F0LIST001", kind: "list", label: "Slack List", reader: "read_list" }),
+      ),
     });
-    assert.ok(!prompt.includes("ATTACHED FILES"));
+    assert.ok(prompt.includes("(id: F0LIST001) → read_list"));
+    const withItem = buildPrompt(makeSession(), {
+      availableRefs: registry({
+        ...fileRef({ id: "F0LIST001", kind: "list", label: "Slack List", reader: "read_list" }),
+        itemId: "Rec0001",
+      }),
+    });
+    assert.ok(withItem.includes("(id: F0LIST001, item: Rec0001) → read_list"));
+  });
+
+  it("lists a message ref with its channel, ts and fetch_slack_message", () => {
+    const message: SlackRef = {
+      type: "message",
+      id: "C123:1700000000.123456",
+      kind: "message",
+      label: "Slack message",
+      reader: "fetch_slack_message",
+      mustOpen: false,
+      fromCurrentMessage: true,
+      channelId: "C123",
+      ts: "1700000000.123456",
+      threadTs: "1700000000.000100",
+    };
+    const prompt = buildPrompt(makeSession(), { availableRefs: registry(message) });
+    assert.ok(
+      prompt.includes(
+        "- [Slack message] channel C123, ts 1700000000.123456, thread ts 1700000000.000100 (id: C123:1700000000.123456) → fetch_slack_message",
+      ),
+    );
+  });
+
+  it("lists an oversized file as unopenable and never requires opening it", () => {
+    const prompt = buildPrompt(makeSession(), {
+      availableRefs: registry({
+        ...fileRef({ id: "F0MOVIE01", kind: "image", label: "Image", mustOpen: true }),
+        name: "demo.png",
+        facts: { size: 25 * 1024 * 1024 },
+        tooLarge: true,
+      }),
+    });
+    assert.ok(prompt.includes("- [Image] demo.png (id: F0MOVIE01, 25.0 MB) → TOO LARGE to open"));
+    assert.ok(prompt.includes("it can only be reported"));
+    assert.ok(!prompt.includes("You MUST open"));
+  });
+
+  it("lists an inaccessible file without a name and never requires opening it", () => {
+    const prompt = buildPrompt(makeSession(), {
+      availableRefs: registry({
+        type: "file",
+        id: "F0SECRET1",
+        kind: "file",
+        label: "Slack file",
+        reader: "view_slack_file",
+        mustOpen: false,
+        fromCurrentMessage: true,
+        inaccessible: true,
+      }),
+    });
+    assert.ok(
+      prompt.includes(
+        "- [Slack file] (id: F0SECRET1) — the requester can't access it; say so, never guess its contents",
+      ),
+    );
+    assert.ok(!prompt.includes("You MUST open"));
+  });
+
+  it("groups current-message refs first and earlier refs after, omitting an empty group", () => {
+    const both = buildPrompt(makeSession(), {
+      availableRefs: registry(
+        fileRef({ id: "F0EARLIER", kind: "canvas", label: "Canvas", reader: "read_canvas" }, false),
+        fileRef({ id: "F0CURRENT", kind: "list", label: "Slack List", reader: "read_list" }),
+      ),
+    });
+    const named = both.indexOf("Named in this message:");
+    const earlier = both.indexOf("Earlier in the conversation:");
+    assert.ok(named >= 0 && earlier > named);
+    assert.ok(both.indexOf("F0CURRENT") > named && both.indexOf("F0CURRENT") < earlier);
+    assert.ok(both.indexOf("F0EARLIER") > earlier);
+
+    const onlyEarlier = buildPrompt(makeSession(), {
+      availableRefs: registry(
+        fileRef({ id: "F0EARLIER", kind: "canvas", label: "Canvas", reader: "read_canvas" }, false),
+      ),
+    });
+    assert.ok(!onlyEarlier.includes("Named in this message:"));
+    assert.ok(onlyEarlier.includes("Earlier in the conversation:"));
+  });
+
+  it("requires opening only current-message refs of a must-open kind", () => {
+    const prompt = buildPrompt(makeSession(), {
+      availableRefs: registry(
+        fileRef({ id: "F0LIST001", kind: "list", label: "Slack List", reader: "read_list" }),
+        fileRef({ id: "F0IMAGE01", kind: "image", label: "Image", mustOpen: true }),
+      ),
+    });
+    const mustOpen = prompt.split("\n").find((line) => line.startsWith("You MUST open"));
+    assert.ok(mustOpen);
+    assert.ok(mustOpen.includes("F0IMAGE01"));
+    assert.ok(!mustOpen.includes("F0LIST001"));
+    assert.ok(prompt.includes("Read any other item only when the question needs it."));
+  });
+
+  it("does not require opening an image from earlier in the thread", () => {
+    const prompt = buildPrompt(makeSession(), {
+      availableRefs: registry(
+        fileRef({ id: "F0IMAGE01", kind: "image", label: "Image", mustOpen: true }, false),
+      ),
+    });
+    assert.ok(prompt.includes("Earlier in the conversation:"));
+    assert.ok(prompt.includes("(id: F0IMAGE01) → view_slack_file"));
+    assert.ok(!prompt.includes("You MUST open"));
+    assert.ok(!prompt.includes("You MUST view"));
+  });
+
+  it("omits the REFERENCED SLACK ITEMS section when the registry is empty or absent", () => {
+    assert.ok(!buildPrompt(makeSession()).includes("REFERENCED SLACK ITEMS"));
+    assert.ok(
+      !buildPrompt(makeSession(), { availableRefs: new Map() }).includes("REFERENCED SLACK ITEMS"),
+    );
+  });
+
+  // DM D0EXAMPLE04: a follow-up names a List while the thread's first message attached a canvas.
+  it("lists the follow-up's List first and the earlier canvas after, forcing neither", () => {
+    const prompt = buildPrompt(makeSession(), {
+      availableRefs: registry(
+        {
+          ...fileRef(
+            { id: "F09SBU6D3FV", kind: "canvas", label: "Canvas", reader: "read_canvas" },
+            false,
+          ),
+          name: "Infrastructure_TODO",
+        },
+        {
+          ...fileRef({ id: "F0BSE12AF7Z", kind: "list", label: "Slack List", reader: "read_list" }),
+          name: "Infra tasks",
+        },
+      ),
+    });
+    const named = prompt.indexOf("Named in this message:");
+    const earlier = prompt.indexOf("Earlier in the conversation:");
+    const list = prompt.indexOf("- [Slack List] Infra tasks (id: F0BSE12AF7Z) → read_list");
+    const canvas = prompt.indexOf("- [Canvas] Infrastructure_TODO (id: F09SBU6D3FV) → read_canvas");
+    assert.ok(named >= 0 && list > named && list < earlier);
+    assert.ok(canvas > earlier);
+    assert.ok(!prompt.includes("You MUST open"));
   });
 
   // ---- thread context file annotations ----
-  it("annotates thread messages with file attachments", () => {
+  it("tags a thread message's files with the registry's labels", () => {
     const session = makeSession({
       threadContext: [
         {
@@ -721,10 +820,13 @@ describe("buildPrompt", () => {
         },
       ],
     });
-    const prompt = buildPrompt(session);
-    assert.ok(
-      prompt.includes("[attached files: report.pdf (file_id: F789, type: application/pdf)]"),
-    );
+    const prompt = buildPrompt(session, {
+      availableRefs: registry(
+        fileRef({ id: "F789", kind: "document", label: "PDF", mustOpen: true }, false),
+      ),
+    });
+    assert.ok(prompt.includes("[referenced: PDF report.pdf (F789)]"));
+    assert.ok(!prompt.includes("[attached files:"));
   });
 
   // ---- delta thread context on resume ----
@@ -1311,5 +1413,21 @@ describe("buildPrompt — requester attribution", () => {
     );
     assert.ok(!line.includes("Alice"));
     assert.ok(!line.includes("@alice"));
+  });
+});
+
+describe("formatReferencedTag", () => {
+  it("names each ref by label, name and id", () => {
+    assert.equal(
+      formatReferencedTag([
+        { id: "F1", label: "Image", name: "shot.png" },
+        { id: "C1:1.0", label: "Slack message" },
+      ]),
+      "[referenced: Image shot.png (F1), Slack message (C1:1.0)]",
+    );
+  });
+
+  it("is empty when there is nothing to name", () => {
+    assert.equal(formatReferencedTag([]), "");
   });
 });

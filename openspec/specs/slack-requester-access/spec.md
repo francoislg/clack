@@ -126,7 +126,7 @@ The system SHALL classify a requester as guest or external when Slack reports th
 
 ### Requirement: File access rule
 
-The system SHALL allow access to a Slack file (including canvases and lists) only when at least one of the following holds: the requester created the file; the file's per-user access list names the requester; the requester passes the conversation access rule for a conversation the file is shared to. The system SHALL deny in every other case, including when the file's info cannot be fetched. The check SHALL fetch the file's info itself from the file's id. The file's editor list, its workspace-wide access level and its private-channel count SHALL NOT grant access. An allowed verdict SHALL carry the bot's own access level on the file.
+The system SHALL allow access to a Slack file (including canvases and lists) only when at least one of the following holds: the requester created the file; the file's per-user access list names the requester; the requester passes the conversation access rule for a conversation the file is shared to. The system SHALL deny in every other case, including when the file's info cannot be fetched. The check SHALL fetch the file's info itself from the file's id. The file's editor list, its workspace-wide access level and its private-channel count SHALL NOT grant access. An allowed verdict SHALL carry the bot's own access level on the file, and the file's facts read from the same fetch. A denied verdict SHALL carry no facts.
 
 #### Scenario: Creator
 
@@ -172,6 +172,17 @@ The system SHALL allow access to a Slack file (including canvases and lists) onl
 
 - **WHEN** the check allows access to a file the bot can write
 - **THEN** the verdict reports the bot's access level as `write`
+
+#### Scenario: Facts on an allowance
+
+- **WHEN** the check allows access to a file
+- **THEN** the verdict carries the file's `filetype`, `pretty_type`, `name`, `title`, `mimetype`, `size` and `url_private`, each when present
+- **AND** a malformed field is reported as absent rather than failing the check
+
+#### Scenario: No facts on a denial
+
+- **WHEN** the check denies access to a file
+- **THEN** the verdict carries only the reason
 
 #### Scenario: No requester
 

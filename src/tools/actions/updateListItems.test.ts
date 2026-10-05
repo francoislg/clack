@@ -36,7 +36,7 @@ function makeCtx(slackClient: MockSlackClient | undefined): QueryToolContext {
       lastActivity: Date.now(),
       createdAt: Date.now(),
     },
-    config: { repositories: [] },
+    config: { repositories: [], lists: { mode: "write" } },
     changesWorkflowEnabled: false,
     cronUserSchedules: false,
     slackClient,
@@ -67,6 +67,7 @@ describe("update_list_items", () => {
       allowed: true,
       botAccess: "write",
       creator: undefined,
+      facts: { filetype: "list" },
     });
   });
 
@@ -158,7 +159,12 @@ describe("update_list_items", () => {
     },
     {
       name: "the bot can only read the List",
-      verdict: { allowed: true, botAccess: "read", creator: undefined },
+      verdict: {
+        allowed: true,
+        botAccess: "read",
+        creator: undefined,
+        facts: { filetype: "list" },
+      },
       message: LIST_READ_ONLY_MESSAGE,
     },
   ];

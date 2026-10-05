@@ -7,7 +7,6 @@ import {
   editCanvas,
   findSections,
   getCanvasMarkdown,
-  parseCanvasRef,
   shareCanvasWithChannel,
 } from "./canvases.js";
 import { isDirectConversation } from "./fileRef.js";
@@ -15,53 +14,6 @@ import { slackError } from "./testCanvasApi.js";
 import { createSlackClientMock, type MockSlackClient } from "./testSlackClient.js";
 
 const CANVAS_ID = "F0456ABC";
-
-describe("parseCanvasRef", () => {
-  it("accepts a bare canvas id", () => {
-    expect(parseCanvasRef("F0456ABC")).toBe("F0456ABC");
-  });
-
-  it("trims surrounding whitespace", () => {
-    expect(parseCanvasRef("  F0456ABC\n")).toBe("F0456ABC");
-  });
-
-  it("extracts the id from a /docs/<team>/<id> URL", () => {
-    expect(parseCanvasRef("https://acme.slack.com/docs/T0123/F0456ABC")).toBe("F0456ABC");
-  });
-
-  it("extracts the id from a /canvas/<id> URL", () => {
-    expect(parseCanvasRef("https://acme.slack.com/canvas/F0456ABC")).toBe("F0456ABC");
-  });
-
-  it("extracts the id from a URL with a query string", () => {
-    expect(parseCanvasRef("https://acme.slack.com/docs/T0123/F0456ABC?focus_section_id=temp")).toBe(
-      "F0456ABC",
-    );
-  });
-
-  it("extracts the id from a URL with trailing segments", () => {
-    expect(parseCanvasRef("https://acme.slack.com/canvas/F0456ABC/edit")).toBe("F0456ABC");
-  });
-
-  it("rejects a message permalink", () => {
-    expect(
-      parseCanvasRef("https://acme.slack.com/archives/C0123ABCD/p1700000000000100"),
-    ).toBeUndefined();
-  });
-
-  it("rejects a non-slack host", () => {
-    expect(parseCanvasRef("https://example.com/docs/T0123/F0456ABC")).toBeUndefined();
-    expect(parseCanvasRef("https://notslack.com/canvas/F0456ABC")).toBeUndefined();
-  });
-
-  it("rejects an empty string", () => {
-    expect(parseCanvasRef("")).toBeUndefined();
-  });
-
-  it("rejects a channel id", () => {
-    expect(parseCanvasRef("C0456ABC")).toBeUndefined();
-  });
-});
 
 describe("canvas API calls", () => {
   let client: MockSlackClient;

@@ -11,7 +11,7 @@ import type {
   ResponseSnapshot,
   StagedIntent,
 } from "./tools/types.js";
-import type { SlackImageFile, SlackFile } from "./slack/slackFileBase.js";
+import { slackFileZod, type SlackFileBase } from "./slack/slackFileBase.js";
 import type { ChangeStatus, TriggerType } from "./changes/types.js";
 import type { ActiveChangeState } from "./changes/activeState.js";
 import { getActiveChange, clearActiveChange } from "./changes/activeState.js";
@@ -45,6 +45,40 @@ const accessGrantedZod = z.array(z.string());
 function sanitizeAccessGranted(raw: unknown): string[] | undefined {
   const parsed = accessGrantedZod.safeParse(raw);
   return parsed.success ? parsed.data : undefined;
+}
+
+/** Graceful validator for one persisted attachment entry. */
+const persistedSlackFileZod = slackFileZod.extend({
+  unavailable: z.literal("too_large").optional().catch(undefined),
+});
+
+/** Merge a legacy `imageFiles` list into `files`, deduped by id. Malformed legacy entries are
+ *  dropped; existing `files` are kept as they are. */
+function mergeLegacyImageFiles(
+  files: SlackFileBase[] | undefined,
+  legacy: unknown,
+): SlackFileBase[] | undefined {
+  if (!Array.isArray(legacy)) return files;
+  const merged = [...(files ?? [])];
+  const seen = new Set(merged.map((f) => f.id));
+  for (const entry of legacy) {
+    const parsed = persistedSlackFileZod.safeParse(entry);
+    if (!parsed.success || seen.has(parsed.data.id)) continue;
+    seen.add(parsed.data.id);
+    merged.push(parsed.data);
+  }
+  return merged.length > 0 ? merged : files;
+}
+
+/** Read a persisted holder's legacy `imageFiles` into its `files` and clear the legacy key, so
+ *  the next write carries only `files`. */
+export function readLegacyImageFiles(holder: {
+  files?: SlackFileBase[];
+  imageFiles?: unknown;
+}): void {
+  if (holder.imageFiles === undefined) return;
+  holder.files = mergeLegacyImageFiles(holder.files, holder.imageFiles);
+  holder.imageFiles = undefined;
 }
 
 export interface SlackAttachmentField {
@@ -86,10 +120,8 @@ export interface ThreadMessage {
   blocks?: SlackBlock[];
   /** Legacy attachments from the Slack message */
   attachments?: SlackAttachment[];
-  /** Uploaded image files attached to this message */
-  imageFiles?: SlackImageFile[];
-  /** Non-image file attachments (PDFs, text files, etc.) */
-  files?: SlackFile[];
+  /** Files of every kind attached to this message */
+  files?: SlackFileBase[];
   /** Emoji reactions on this message */
   reactions?: MessageReaction[];
 }
@@ -115,21 +147,21 @@ export type SessionTrigger =
       emoji: string;
       messageTs: string;
       messageText: string;
-      imageFiles?: SlackImageFile[];
+      files?: SlackFileBase[];
     }
   | {
       type: "mentions";
       userId: string;
       messageTs: string;
       messageText: string;
-      imageFiles?: SlackImageFile[];
+      files?: SlackFileBase[];
     }
   | {
       type: "directMessages";
       userId: string;
       messageTs: string;
       messageText: string;
-      imageFiles?: SlackImageFile[];
+      files?: SlackFileBase[];
     }
   | {
       type: "autoRespond";
@@ -137,7 +169,7 @@ export type SessionTrigger =
       messageTs: string;
       messageText: string;
       ruleName?: string;
-      imageFiles?: SlackImageFile[];
+      files?: SlackFileBase[];
       /** Pre-analysis verdict that decided the session should be created. */
       preAnalysis?: string;
     }
@@ -429,7 +461,8 @@ export interface LegacySessionShape {
   lastAnswer?: string;
   lastResponse?: SubmitResponsePayload;
   toolCallHistory?: ToolCallRecord[];
-  imageFiles?: SlackImageFile[];
+  /** Legacy image-only attachment list, read into the trigger's `files`. */
+  imageFiles?: unknown;
   createdAt: number;
   lastActivity: number;
 }
@@ -466,7 +499,7 @@ export function synthesizeMessagesFromLegacy(input: SynthesizeInput): Synthesize
 
   // Derive the triggering text — messages[0] wins over legacy originalQuestion.
   let triggerText = input.originalQuestion ?? "";
-  let triggerImages = input.imageFiles;
+  let triggerImages: unknown = input.imageFiles;
   let firstWaveInitialTs: number | undefined;
   const firstWaveUserMessages: SessionUserMessage[] = [];
   const firstWaveAssistantMessages: SessionAssistantMessage[] = [];
@@ -475,7 +508,7 @@ export function synthesizeMessagesFromLegacy(input: SynthesizeInput): Synthesize
     for (const msg of input.messages) {
       if (msg.role === "user") {
         // Widen the runtime shape so we can recognize legacy "initial"/"refinement" values.
-        const asLegacy = msg as SessionUserMessage & { imageFiles?: SlackImageFile[] };
+        const asLegacy = msg as SessionUserMessage & { imageFiles?: unknown };
         const legacySource: string = asLegacy.source;
         if (legacySource === "initial" && !firstWaveInitialTs) {
           triggerText = asLegacy.text;
@@ -505,7 +538,7 @@ export function synthesizeMessagesFromLegacy(input: SynthesizeInput): Synthesize
     userId,
     messageTs: input.messageTs ?? "",
     messageText: triggerText,
-    imageFiles: triggerImages,
+    files: mergeLegacyImageFiles(undefined, triggerImages),
   });
 
   // Merge first-wave messages in original order. If we split them above by role, we lose
@@ -564,7 +597,7 @@ function buildSynthesizedTrigger(input: {
   userId: string;
   messageTs: string;
   messageText: string;
-  imageFiles?: SlackImageFile[];
+  files?: SlackFileBase[];
 }): SessionTrigger {
   switch (input.triggerType) {
     case "scheduled":
@@ -577,7 +610,7 @@ function buildSynthesizedTrigger(input: {
         emoji: "",
         messageTs: input.messageTs,
         messageText: input.messageText,
-        ...(input.imageFiles !== undefined ? { imageFiles: input.imageFiles } : {}),
+        ...(input.files !== undefined ? { files: input.files } : {}),
       };
     case "autoRespond":
     case "threadReply":
@@ -588,7 +621,7 @@ function buildSynthesizedTrigger(input: {
         userId: input.userId,
         messageTs: input.messageTs,
         messageText: input.messageText,
-        ...(input.imageFiles !== undefined ? { imageFiles: input.imageFiles } : {}),
+        ...(input.files !== undefined ? { files: input.files } : {}),
       };
     case "mentions":
     case "directMessages":
@@ -598,7 +631,7 @@ function buildSynthesizedTrigger(input: {
         userId: input.userId,
         messageTs: input.messageTs,
         messageText: input.messageText,
-        ...(input.imageFiles !== undefined ? { imageFiles: input.imageFiles } : {}),
+        ...(input.files !== undefined ? { files: input.files } : {}),
       };
   }
 }
@@ -808,6 +841,8 @@ export async function getSession(sessionId: string): Promise<SessionContext | nu
       if (!session.triggerType) session.triggerType = synth.trigger.type;
     }
     if (!session.messages) session.messages = [];
+    if (session.trigger.type !== "scheduled") readLegacyImageFiles(session.trigger);
+    for (const msg of session.threadContext) readLegacyImageFiles(msg);
 
     // Graceful: keep only well-formed followed-thread entries; a malformed array drops to
     // undefined (session behaves as a non-investigation) rather than failing the load.

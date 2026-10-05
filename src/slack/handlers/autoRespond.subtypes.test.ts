@@ -181,6 +181,18 @@ describe("resolveAutoRespondContext — standing-rule path with attachments", ()
     assert.equal(context?.triggerType, "autoRespond");
   });
 
+  it("names only the images of a mixed attachment list in the synthesized text", async () => {
+    const preAnalysis = vi.fn<typeof runPreAnalysis>(async () => "respond" as const);
+    const deps = makeDeps({ preAnalysis });
+
+    await callTopLevel(deps, "", [
+      { id: "F2", name: "a.pdf", mimetype: "application/pdf", size: 10, url_private: "u" },
+      imageFile("F1"),
+    ]);
+
+    assert.equal(preAnalysis.mock.calls[0]?.[0], "[attached images: screenshot.png (file_id: F1)]");
+  });
+
   it("still drops a message with neither text nor attachments", async () => {
     const preAnalysis = vi.fn<typeof runPreAnalysis>(async () => "respond" as const);
     const deps = makeDeps({ preAnalysis });

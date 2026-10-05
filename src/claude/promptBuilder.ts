@@ -7,7 +7,8 @@ import { isChannellessChannelId } from "../channelless.js";
 import type { TriggerType } from "../changes/types.js";
 import type { SessionContext } from "../sessions.js";
 import { triggerText, userContinuations } from "../sessions/selectors.js";
-import { formatFileSize, type SlackImageFile, type SlackFile } from "../slack/slackFileBase.js";
+import { formatFileSize, type SlackFileBase } from "../slack/slackFileBase.js";
+import { classifyFile, type ReaderGates, type SlackRef } from "../slack/slackRefs.js";
 import { DISMISSAL_PHRASES_INLINE } from "./dismissalPhrases.js";
 import { buildIntegrationsCatalog } from "./integrationsCatalog.js";
 import { buildSkillPacksCatalog, type UserSkillCatalogEntry } from "./skillPacksCatalog.js";
@@ -118,8 +119,8 @@ export interface PromptOptions {
    * Computed async at the call site (the store read is async); omit or pass `""` to inject nothing.
    */
   trackedMemoryKinds?: string;
-  availableImages?: Map<string, SlackImageFile>;
-  availableFiles?: Map<string, SlackFile>;
+  /** The run's registry of resolved Slack references, rendered as REFERENCED SLACK ITEMS. */
+  availableRefs?: Map<string, SlackRef>;
   userTimezone?: string;
   /**
    * Free-form operator-supplied conditions for a scheduled run. When non-empty and the session's
@@ -236,7 +237,47 @@ function formatSpeaker(msg: { userId: string; username?: string; displayName?: s
   return `[${slackIdentityInner(msg.userId, msg.username, msg.displayName)}]`;
 }
 
-function formatThreadContext(messages: SessionContext["threadContext"]): string {
+/** One entry of a `[referenced: …]` tag. A message ref carries no name. */
+export interface TaggedRef {
+  id: string;
+  label: string;
+  name?: string;
+}
+
+/** `[referenced: <label> <name> (<id>), …]`, or `""` when there is nothing to name. */
+export function formatReferencedTag(refs: readonly TaggedRef[]): string {
+  if (refs.length === 0) return "";
+  const entries = refs.map((ref) =>
+    ref.name === undefined ? `${ref.label} (${ref.id})` : `${ref.label} ${ref.name} (${ref.id})`,
+  );
+  return `[referenced: ${entries.join(", ")}]`;
+}
+
+/** Gates for a file the registry doesn't hold: no optional reader is assumed registered. */
+const UNREGISTERED_FILE_GATES: ReaderGates = { listsMode: "off", canvasesMode: "off" };
+
+/** A message's attached files as tag entries, preferring the registry's classification. */
+function attachedFileTags(
+  files: readonly SlackFileBase[],
+  registry: Map<string, SlackRef> | undefined,
+): TaggedRef[] {
+  return files.map((file) => {
+    const registered = registry?.get(file.id);
+    if (registered !== undefined) {
+      return { id: registered.id, label: registered.label, name: file.name };
+    }
+    const { label } = classifyFile(
+      { filetype: file.filetype, prettyType: file.pretty_type, mimetype: file.mimetype },
+      UNREGISTERED_FILE_GATES,
+    );
+    return { id: file.id, label, name: file.name };
+  });
+}
+
+function formatThreadContext(
+  messages: SessionContext["threadContext"],
+  registry: Map<string, SlackRef> | undefined,
+): string {
   if (messages.length === 0) return "";
   return messages
     .map((msg) => {
@@ -249,16 +290,8 @@ function formatThreadContext(messages: SessionContext["threadContext"]): string 
           line += `\n[attachments: ${parts.join("; ")}]`;
         }
       }
-      if (msg.imageFiles?.length) {
-        const tags = msg.imageFiles.map((f) => `${f.name} (file_id: ${f.id})`).join(", ");
-        line += `\n[attached images: ${tags}]`;
-      }
-      if (msg.files?.length) {
-        const tags = msg.files
-          .map((f) => `${f.name} (file_id: ${f.id}, type: ${f.mimetype})`)
-          .join(", ");
-        line += `\n[attached files: ${tags}]`;
-      }
+      const referencedTag = formatReferencedTag(attachedFileTags(msg.files ?? [], registry));
+      if (referencedTag) line += `\n${referencedTag}`;
       if (msg.reactions?.length) {
         const parts = msg.reactions.map((r) => {
           const humanUsers: string[] = [];
@@ -476,6 +509,70 @@ function buildDeliveryContext(session: SessionContext): string | null {
   return lines.join("\n");
 }
 
+function referencedItemLine(ref: SlackRef): string {
+  if (ref.type === "message") {
+    const thread = ref.threadTs === undefined ? "" : `, thread ts ${ref.threadTs}`;
+    return `- [${ref.label}] channel ${ref.channelId}, ts ${ref.ts}${thread} (id: ${ref.id}) → ${ref.reader}`;
+  }
+  if (ref.inaccessible) {
+    return `- [Slack file] (id: ${ref.id}) — the requester can't access it; say so, never guess its contents`;
+  }
+  const name = ref.name === undefined ? "" : ` ${ref.name}`;
+  if (ref.tooLarge) {
+    const size = ref.facts?.size === undefined ? "" : `, ${formatFileSize(ref.facts.size)}`;
+    return `- [${ref.label}]${name} (id: ${ref.id}${size}) → TOO LARGE to open; it can only be reported, so say so rather than guessing its contents`;
+  }
+  const item = ref.itemId === undefined ? "" : `, item: ${ref.itemId}`;
+  return `- [${ref.label}]${name} (id: ${ref.id}${item}) → ${ref.reader}`;
+}
+
+/** A current-message ref Claude must open before answering. */
+function mustOpenNow(ref: SlackRef): boolean {
+  return (
+    ref.fromCurrentMessage &&
+    ref.mustOpen &&
+    !(ref.type === "file" && (ref.inaccessible === true || ref.tooLarge === true))
+  );
+}
+
+/**
+ * The REFERENCED SLACK ITEMS section: one line per registered ref, the current message's refs
+ * first. Only current-message refs of a must-open kind are required reading; everything else is
+ * read when the question needs it. `""` when the registry is empty.
+ */
+export function renderReferencedSlackItems(registry: Map<string, SlackRef> | undefined): string {
+  if (!registry?.size) return "";
+  const refs = [...registry.values()];
+  const current = refs.filter((ref) => ref.fromCurrentMessage);
+  const earlier = refs.filter((ref) => !ref.fromCurrentMessage);
+
+  const lines = [
+    "REFERENCED SLACK ITEMS:",
+    "Slack files, Lists, canvases and messages referenced in this conversation. Each line names the tool that reads it.",
+  ];
+  if (current.length > 0) {
+    lines.push("Named in this message:", ...current.map(referencedItemLine));
+  }
+  if (earlier.length > 0) {
+    lines.push("Earlier in the conversation:", ...earlier.map(referencedItemLine));
+  }
+
+  const required = current.filter(mustOpenNow);
+  if (required.length > 0) {
+    const names = required
+      .map((ref) => (ref.type === "file" && ref.name ? `${ref.name} (${ref.id})` : ref.id))
+      .join(", ");
+    lines.push(
+      `You MUST open these before answering, with the tool on their line: ${names}. A PDF comes back as a path; it is not viewed until you Read that path.`,
+    );
+  }
+  lines.push(
+    "Read any other item only when the question needs it.",
+    "Messages you fetch (fetch_slack_message, fetch_channel_messages) list their own referenced files, with the tool that reads each.",
+  );
+  return lines.join("\n");
+}
+
 export function buildPrompt(session: SessionContext, options?: PromptOptions): string {
   const parts: string[] = [];
 
@@ -492,7 +589,7 @@ export function buildPrompt(session: SessionContext, options?: PromptOptions): s
 Messages may be attributed to specific users by name (e.g., [John Doe]) or as [User] if names are not available.
 Messages marked [Clack Bot] are previous answers from you (this bot).
 Use this context to understand the conversation flow and provide relevant answers.\n`;
-    parts.push(contextIntro + formatThreadContext(threadMessages));
+    parts.push(contextIntro + formatThreadContext(threadMessages, options?.availableRefs));
   }
 
   // Delivery context — derived from session state (triggerType, dmChannel, etc.)
@@ -614,37 +711,8 @@ Use this context to understand the conversation flow and provide relevant answer
   }
   parts.push(tzParts.join("\n"));
 
-  // Attachment metadata — let Claude know what images and files are available
-  const hasImages = !!options?.availableImages?.size;
-  const hasFiles = !!options?.availableFiles?.size;
-  if (hasImages || hasFiles) {
-    const lines = [
-      "ATTACHED FILES:",
-      "The following file(s) are available from the current message or thread. You MUST view each attachment listed below BEFORE answering — do not skip or summarize without viewing first.",
-      "Use `view_slack_image` for images and `view_slack_file` for other files (PDFs, text, etc.).",
-      "`view_slack_file` returns text files inline, but a PDF comes back as a path — that attachment is not viewed until you Read that path.",
-      "Note: When you fetch Slack messages (via fetch_slack_message or fetch_channel_messages), those results may also contain attachments — use the appropriate viewing tool on their file_id.",
-    ];
-    if (hasImages) {
-      for (const [fileId, img] of options!.availableImages!) {
-        lines.push(
-          img.unavailable === "too_large"
-            ? `- [image] ${img.name} (${formatFileSize(img.size)}) → TOO LARGE to open; say so rather than guessing what it shows`
-            : `- [image] ${img.name} (file_id: ${fileId}) → use view_slack_image`,
-        );
-      }
-    }
-    if (hasFiles) {
-      for (const [fileId, file] of options!.availableFiles!) {
-        lines.push(
-          file.unavailable === "too_large"
-            ? `- [file] ${file.name} (type: ${file.mimetype}, ${formatFileSize(file.size)}) → TOO LARGE to open; say so rather than guessing its contents`
-            : `- [file] ${file.name} (file_id: ${fileId}, type: ${file.mimetype}) → use view_slack_file`,
-        );
-      }
-    }
-    parts.push(lines.join("\n"));
-  }
+  const referencedItems = renderReferencedSlackItems(options?.availableRefs);
+  if (referencedItems) parts.push(referencedItems);
 
   if (options?.mcpRegistry) {
     const catalog = buildIntegrationsCatalog(options.mcpRegistry);

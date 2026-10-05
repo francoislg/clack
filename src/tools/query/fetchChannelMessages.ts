@@ -12,12 +12,22 @@ import {
   type SlackMessage,
   type ToolMessageEntry,
 } from "../../slack/messageBuilder.js";
-import type { SlackFile } from "../../slack/slackFileBase.js";
+import {
+  readerGatesOf,
+  resolveRefsInto,
+  resolveSlackRefs,
+  type SlackRef,
+} from "../../slack/slackRefs.js";
+import type { ThreadMessage } from "../../sessions.js";
 import { resolveUsers, transformUserMentions } from "../../slack/userCache.js";
 import { getChannelInfo } from "../../slack/channelCache.js";
 import { slackLink } from "../../slack/logContext.js";
 import { errorMessage } from "../../errors.js";
-import { ACCESS_DENIED_MESSAGE, checkConversationAccess } from "../../slack/requesterAccess.js";
+import {
+  ACCESS_DENIED_MESSAGE,
+  accessRequestFrom,
+  checkConversationAccess,
+} from "../../slack/requesterAccess.js";
 
 type SlackClient = NonNullable<QueryToolContext["slackClient"]>;
 type UserInfoMap = Awaited<ReturnType<typeof resolveUsers>>;
@@ -65,6 +75,7 @@ export interface FetchChannelMessagesDeps {
   transformUserMentions: typeof transformUserMentions;
   getChannelInfo: typeof getChannelInfo;
   slackLink: typeof slackLink;
+  resolveSlackRefs: typeof resolveSlackRefs;
 }
 
 function normalizeSlackTimestamp(input: string): string | { error: string } {
@@ -86,6 +97,7 @@ export const defaultFetchChannelMessagesDeps: FetchChannelMessagesDeps = {
   transformUserMentions,
   getChannelInfo,
   slackLink,
+  resolveSlackRefs,
 };
 
 async function resolveReplyUserName(
@@ -144,16 +156,19 @@ async function fetchLastReply(
   }
 }
 
-async function formatMessage(
+interface PreparedMessage {
+  msg: SlackMessage;
+  threadMsg: ThreadMessage;
+  /** The message text with mentions transformed, before truncation. */
+  fullText: string;
+}
+
+async function prepareMessage(
   deps: FetchChannelMessagesDeps,
   client: SlackClient,
   msg: SlackMessage,
-  channelId: string,
   userInfoMap: UserInfoMap,
-  includeThreads: boolean,
-  availableImages?: Map<string, import("../../slack/slackFileBase.js").SlackImageFile>,
-  availableFiles?: Map<string, SlackFile>,
-): Promise<MessageEntry | null> {
+): Promise<PreparedMessage | null> {
   // botUserId not available in tool context — bot detection relies on bot_id field
   const threadMsg = deps.buildThreadMessage(msg, "");
   if (!threadMsg) return null;
@@ -169,16 +184,21 @@ async function formatMessage(
     resolveReactionUsernames(threadMsg.reactions, userInfoMap);
   }
 
-  // Transform <@USERID> mentions in message text
-  threadMsg.text = truncateText(await deps.transformUserMentions(client, threadMsg.text));
+  // Transform <@USERID> mentions in message text; refs are resolved from the untruncated text
+  const fullText = await deps.transformUserMentions(client, threadMsg.text);
+  return { msg, threadMsg, fullText };
+}
 
-  // Register images and files in context maps
-  if (threadMsg.imageFiles) {
-    for (const img of threadMsg.imageFiles) availableImages?.set(img.id, img);
-  }
-  if (threadMsg.files) {
-    for (const f of threadMsg.files) availableFiles?.set(f.id, f);
-  }
+async function formatMessage(
+  deps: FetchChannelMessagesDeps,
+  client: SlackClient,
+  { msg, threadMsg, fullText }: PreparedMessage,
+  refs: SlackRef[],
+  channelId: string,
+  userInfoMap: UserInfoMap,
+  includeThreads: boolean,
+): Promise<MessageEntry> {
+  threadMsg.text = truncateText(fullText);
 
   // Raw Block Kit / attachment JSON is the single biggest contributor to output bloat
   // (a trivia post alone can be many KB) and is redundant with `text` for reading a channel.
@@ -186,7 +206,7 @@ async function formatMessage(
   threadMsg.blocks = undefined;
   threadMsg.attachments = undefined;
 
-  const entry: MessageEntry = { ...threadMessageToToolOutput(threadMsg) };
+  const entry: MessageEntry = { ...threadMessageToToolOutput(threadMsg, refs) };
   entry.at_iso = epochToIso(entry.ts);
 
   // Permalink on every message: the dig handle for fetch_slack_message, whether the model
@@ -285,10 +305,8 @@ export function createFetchChannelMessagesTool(
         windowEcho.latest_iso = new Date(parseFloat(normalizedLatest) * 1000).toISOString();
       }
 
-      const access = await checkConversationAccess(
-        { client, userId: ctx.userId, role: ctx.role, session: ctx.session },
-        args.channel_id,
-      );
+      const req = accessRequestFrom({ ...ctx, slackClient: client });
+      const access = await checkConversationAccess(req, args.channel_id);
       if (!access.allowed) {
         return errorResult(ACCESS_DENIED_MESSAGE);
       }
@@ -328,19 +346,37 @@ export function createFetchChannelMessagesTool(
         }
         const userInfoMap = await deps.resolveUsers(client, allUserIds);
 
-        const messages = [];
+        // Each message's references (attached files and refs in text) join the run's registry
+        const prepared: PreparedMessage[] = [];
         for (const msg of [...result.messages].reverse()) {
-          const entry = await formatMessage(
-            deps,
-            client,
-            msg,
-            args.channel_id,
-            userInfoMap,
-            !!args.include_threads,
-            ctx.availableImages,
-            ctx.availableFiles,
+          const entry = await prepareMessage(deps, client, msg, userInfoMap);
+          if (entry) prepared.push(entry);
+        }
+        const messageRefs = await resolveRefsInto(
+          req,
+          readerGatesOf(ctx.config),
+          prepared.map((p) => ({
+            text: p.fullText,
+            files: p.threadMsg.files,
+            fromCurrentMessage: false,
+          })),
+          ctx.availableRefs ?? new Map(),
+          deps,
+        );
+
+        const messages = [];
+        for (const [i, entry] of prepared.entries()) {
+          messages.push(
+            await formatMessage(
+              deps,
+              client,
+              entry,
+              messageRefs[i] ?? [],
+              args.channel_id,
+              userInfoMap,
+              !!args.include_threads,
+            ),
           );
-          if (entry) messages.push(entry);
         }
 
         // Reference clock so the model can judge recency ("within the last 2 hours")

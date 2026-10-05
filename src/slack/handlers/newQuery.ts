@@ -6,6 +6,7 @@ import { isDev } from "../../roles.js";
 import { resolveChannelLabel, resolveUserLabel, slackLink } from "../logContext.js";
 import { extractMessageText } from "../messageBuilder.js";
 import { extractAttachments, type ExtractedAttachments } from "../fileExtractor.js";
+import { isImageFile } from "../slackRefs.js";
 import { processMessage } from "./core.js";
 import { t } from "../../i18n/t.js";
 
@@ -162,7 +163,7 @@ export function registerNewQueryHandler(app: App, deps: NewQueryDeps = defaultNe
     const resolved = await resolveReactedMessage(client, channel, ts, deps);
 
     const hasText = !!resolved?.text;
-    const hasImages = !!resolved?.imageFiles?.length;
+    const hasImages = !!resolved?.files?.some(isImageFile);
 
     if (!hasText && !hasImages) {
       await client.chat.postEphemeral({
@@ -190,7 +191,6 @@ export function registerNewQueryHandler(app: App, deps: NewQueryDeps = defaultNe
       threadTs: resolved?.threadTs,
       triggerType: "reactions",
       workMode,
-      ...(resolved?.imageFiles && { imageFiles: resolved.imageFiles }),
       ...(resolved?.files && { files: resolved.files }),
     });
   });

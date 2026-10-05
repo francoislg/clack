@@ -2,7 +2,7 @@ import type { App } from "@slack/bolt";
 import type { UserRole } from "../roles.js";
 import type { SessionContext } from "../sessions.js";
 import type { Config } from "../config.js";
-import type { SlackImageFile, SlackFile } from "../slack/slackFileBase.js";
+import type { SlackRef } from "../slack/slackRefs.js";
 import type { QueryToolContext, WorkerToolContext, DeliverFn, DeliveryControl } from "./types.js";
 import type { McpServerManager } from "../claude/mcpServerManager.js";
 import type { SkillsManager } from "../claude/skillsManager.js";
@@ -22,8 +22,7 @@ export interface BuildQueryContextParams {
   /** Mid-run delivery-mode switch handle. Present only on interactive turns; enables the
    *  `switch_delivery_context` tool. */
   deliveryControl?: DeliveryControl;
-  availableImages?: Map<string, SlackImageFile>;
-  availableFiles?: Map<string, SlackFile>;
+  availableRefs?: Map<string, SlackRef>;
   requiredTools?: string[];
   skipConditions?: string;
   /**

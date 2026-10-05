@@ -1,4 +1,4 @@
-import { describe, it, vi, beforeEach } from "vitest";
+import { describe, it, vi, beforeEach, expect } from "vitest";
 import assert from "node:assert/strict";
 import {
   createFetchChannelMessagesTool,
@@ -7,6 +7,7 @@ import {
 import { parseToolResult } from "../testHelpers.js";
 import type { QueryToolContext } from "../types.js";
 import type { ThreadMessage } from "../../sessions.js";
+import type { SlackRef } from "../../slack/slackRefs.js";
 import type { EmojiCache } from "../../slack/emojiCache.js";
 import { buildLoreHint } from "../../emojiLore.js";
 import { ACCESS_DENIED_MESSAGE, checkConversationAccess } from "../../slack/requesterAccess.js";
@@ -97,6 +98,7 @@ function makeDeps(overrides: Partial<FetchChannelMessagesDeps> = {}): FetchChann
       id: "C123",
       name: "general",
     })) as FetchChannelMessagesDeps["getChannelInfo"],
+    resolveSlackRefs: vi.fn<FetchChannelMessagesDeps["resolveSlackRefs"]>(async () => []),
     slackLink: async (_client, channelId, ts) =>
       ` https://test.slack.com/archives/${channelId}/p${(ts ?? "").replace(".", "")}`,
     ...overrides,
@@ -122,10 +124,9 @@ function makeSlackClient(
  */
 function makeCtx(overrides?: {
   slackClient?: MockSlackClient;
-  availableImages?: QueryToolContext["availableImages"];
-  availableFiles?: QueryToolContext["availableFiles"];
+  availableRefs?: QueryToolContext["availableRefs"];
 }): QueryToolContext {
-  // fetchChannelMessages only uses slackClient, availableImages, availableFiles from ctx.
+  // fetchChannelMessages only uses slackClient and availableRefs from ctx.
   // Other fields satisfy the QueryToolContext interface but are unused by this tool.
   const ctx: QueryToolContext = Object.assign(Object.create(null), {
     mode: "query",
@@ -148,11 +149,94 @@ function makeCtx(overrides?: {
     changesWorkflowEnabled: false,
     cronUserSchedules: false,
     slackClient: overrides?.slackClient,
-    availableImages: overrides?.availableImages,
-    availableFiles: overrides?.availableFiles,
+    availableRefs: overrides?.availableRefs,
   });
   return ctx;
 }
+
+// ---------------------------------------------------------------------------
+// Reference registration
+// ---------------------------------------------------------------------------
+
+describe("fetchChannelMessages reference registration", () => {
+  const args = {
+    channel_id: "C123",
+    limit: undefined,
+    oldest: undefined,
+    latest: undefined,
+    include_threads: undefined,
+  };
+
+  function canvasRef(): SlackRef {
+    return {
+      type: "file",
+      id: "F0CANVAS1",
+      name: "Roadmap",
+      kind: "canvas",
+      label: "Canvas",
+      reader: "read_canvas",
+      mustOpen: false,
+      fromCurrentMessage: false,
+    };
+  }
+
+  it("resolves a message's text and files and registers the refs", async () => {
+    const pdf = {
+      id: "F0PDF0001",
+      name: "plan.pdf",
+      mimetype: "application/pdf",
+      size: 10,
+      url_private: "https://example.com/plan.pdf",
+    };
+    const client = makeSlackClient({
+      messages: [{ ts: "1.0", user: "U1", text: "see https://acme.slack.com/docs/T1/F0CANVAS1" }],
+    });
+    const deps = makeDeps({
+      buildThreadMessage: vi.fn<FetchChannelMessagesDeps["buildThreadMessage"]>(() => ({
+        text: "see https://acme.slack.com/docs/T1/F0CANVAS1",
+        userId: "U1",
+        isBot: false,
+        ts: "1.0",
+        files: [pdf],
+      })),
+    });
+    const ref = canvasRef();
+    vi.mocked(deps.resolveSlackRefs).mockResolvedValue([ref]);
+    const availableRefs = new Map<string, SlackRef>();
+    const ctx = makeCtx({ slackClient: client, availableRefs });
+    const toolDef = createFetchChannelMessagesTool(ctx, deps);
+
+    const result = await toolDef.handler(args, { sessionId: "test" });
+
+    expect(deps.resolveSlackRefs).toHaveBeenCalledWith(
+      { client, userId: "U123", role: "dev", session: ctx.session },
+      {
+        text: "see https://acme.slack.com/docs/T1/F0CANVAS1",
+        files: [pdf],
+        fromCurrentMessage: false,
+        gates: { listsMode: "off", canvasesMode: "off" },
+      },
+    );
+    assert.equal(availableRefs.get("F0CANVAS1"), ref);
+    assert.deepEqual(parseToolResult(result).messages[0].files, [
+      { file_id: "F0CANVAS1", name: "Roadmap", kind: "canvas", reader: "read_canvas" },
+    ]);
+  });
+
+  it("resolves refs from the full text, not the truncated one", async () => {
+    const longText = `${"x".repeat(700)} F0CANVAS1`;
+    const client = makeSlackClient({ messages: [{ ts: "1.0", user: "U1", text: longText }] });
+    const deps = makeDeps();
+    const toolDef = createFetchChannelMessagesTool(makeCtx({ slackClient: client }), deps);
+
+    await toolDef.handler(args, { sessionId: "test" });
+
+    expect(deps.resolveSlackRefs).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ text: longText }),
+    );
+  });
+});
 
 function historyCallArgs(client: MockSlackClient, callIndex = 0) {
   return client.conversations.history.mock.calls[callIndex][0] as {

@@ -9,8 +9,11 @@ import { createSlackClientMock } from "../testSlackClient.js";
 import {
   withThreadLock,
   register as registerActiveRun,
+  attachRunRefs,
   _resetForTesting as resetActiveRuns,
 } from "../activeRuns.js";
+import type { SlackFileBase } from "../slackFileBase.js";
+import type { SlackFileRef, SlackRef } from "../slackRefs.js";
 import { beginQuiesce, _resetForTesting as resetShutdown } from "../../shutdown.js";
 import type { ClaudeRunHandle } from "../../claude/runHandle.js";
 import type { SessionInfo } from "../activeSessions.js";
@@ -115,6 +118,8 @@ const mockStoreDmCoordinates =
 const mockExecuteAndDeliver = vi.fn<CoreDeps["executeAndDeliver"]>();
 const mockAppendUserMessage = vi.fn<CoreDeps["appendUserMessage"]>(async () => null);
 const mockTrackQueuedAck = vi.fn<CoreDeps["trackQueuedAck"]>();
+const mockGetRole = vi.fn<CoreDeps["getRole"]>();
+const mockResolveSlackRefs = vi.fn<CoreDeps["resolveSlackRefs"]>();
 
 function makeDeps(): CoreDeps {
   return {
@@ -140,6 +145,8 @@ function makeDeps(): CoreDeps {
     appendUserMessage: mockAppendUserMessage,
     withThreadLock,
     trackQueuedAck: mockTrackQueuedAck,
+    getRole: mockGetRole,
+    resolveSlackRefs: mockResolveSlackRefs,
   };
 }
 
@@ -164,8 +171,12 @@ function resetAllMocks() {
   mockStoreDmCoordinates.mockClear();
   mockExecuteAndDeliver.mockClear();
   mockTrackQueuedAck.mockClear();
+  mockGetRole.mockClear();
+  mockResolveSlackRefs.mockClear();
 
   // Reset to defaults
+  mockGetRole.mockImplementation(async () => "dev");
+  mockResolveSlackRefs.mockImplementation(async () => []);
   mockFindSessionByThread.mockImplementation(async () => null);
   mockCreateSession.mockImplementation(async () => makeSession());
   mockGetSession.mockImplementation(async () => makeSession());
@@ -702,6 +713,206 @@ describe("processMessage — concurrent same-thread dedup", () => {
     assert.equal(result.skipped, true);
     expect(sendUpdate).toHaveBeenCalledTimes(1);
     expect(mockExecuteAndDeliver).not.toHaveBeenCalled();
+  });
+});
+
+// ============================================================================
+// Slack reference registry
+// ============================================================================
+
+function slackFile(id: string, name: string, mimetype: string): SlackFileBase {
+  return { id, name, mimetype, size: 10, url_private: `https://files.example.com/${id}` };
+}
+
+function resolvedRef(id: string, label: string, fromCurrentMessage: boolean): SlackFileRef {
+  return {
+    type: "file",
+    id,
+    name: `${id}.name`,
+    kind: "file",
+    label,
+    reader: "view_slack_file",
+    mustOpen: false,
+    fromCurrentMessage,
+  };
+}
+
+describe("processMessage — Slack reference registry", () => {
+  beforeEach(() => {
+    resetAllMocks();
+    resetActiveRuns();
+  });
+
+  afterEach(() => {
+    resetShutdown();
+  });
+
+  it("resolves the current message, the original trigger and the thread context", async () => {
+    const triggerCanvas = slackFile(
+      "F0CANVAS1",
+      "Infrastructure_TODO",
+      "application/vnd.slack-docs",
+    );
+    const threadImage = slackFile("F0IMAGE01", "shot.png", "image/png");
+    const lateList = slackFile("F0BSE12AF7Z", "Infra tasks", "application/vnd.slack-list");
+    const session = makeSession({
+      trigger: {
+        type: "directMessages",
+        userId: "U001",
+        messageTs: "1.0",
+        messageText: "see the canvas",
+        files: [triggerCanvas],
+      },
+      threadContext: [
+        { text: "see the canvas", userId: "U001", isBot: false, ts: "1.0", files: [triggerCanvas] },
+        { text: "a screenshot", userId: "U002", isBot: false, ts: "2.0", files: [threadImage] },
+        { text: "read F0BSE12AF7Z", userId: "U001", isBot: false, ts: "3.0", files: [lateList] },
+      ],
+    });
+    mockFindSessionByThread.mockImplementation(async () => session);
+    mockUpdateThreadContext.mockImplementation(async () => session);
+    mockGetSession.mockImplementation(async () => session);
+    mockUpdateSession.mockImplementation(async () => session);
+    const gatedConfig = stub<ReturnType<CoreDeps["getConfig"]>>({
+      slack: { fetchAndStoreUsername: false },
+      lists: { mode: "read" },
+      canvases: { mode: "write" },
+    });
+    mockGetConfig.mockImplementation(() => gatedConfig);
+    const currentRef = resolvedRef("F0BSE12AF7Z", "Slack List", true);
+    const earlierRef = resolvedRef("F0IMAGE01", "Image", false);
+    mockResolveSlackRefs.mockImplementation(async (_req, input) =>
+      input.fromCurrentMessage && input.text !== undefined ? [currentRef] : [earlierRef],
+    );
+
+    const client = makeClient();
+    await processMessage(
+      makeParams({
+        client,
+        triggerType: "directMessages",
+        threadTs: "1.0",
+        messageTs: "3.0",
+        messageText: "Can you read this list: F0BSE12AF7Z",
+      }),
+      makeDeps(),
+    );
+
+    const gates = { listsMode: "read", canvasesMode: "write" };
+    const req = { client, userId: "U001", role: "dev", session };
+    expect(mockResolveSlackRefs.mock.calls).toEqual([
+      [
+        req,
+        {
+          text: "Can you read this list: F0BSE12AF7Z",
+          files: undefined,
+          fromCurrentMessage: true,
+          gates,
+        },
+      ],
+      [req, { text: "see the canvas", files: [triggerCanvas], fromCurrentMessage: false, gates }],
+      [req, { files: [triggerCanvas], fromCurrentMessage: false, gates }],
+      [req, { text: "a screenshot", files: [threadImage], fromCurrentMessage: false, gates }],
+      [req, { files: [lateList], fromCurrentMessage: true, gates }],
+    ]);
+    const availableRefs = mockExecuteAndDeliver.mock.calls[0]![0].claudeOptions.availableRefs;
+    expect(availableRefs?.get("F0BSE12AF7Z")).toBe(currentRef);
+    expect(availableRefs?.get("F0IMAGE01")).toEqual(earlierRef);
+  });
+
+  it("defaults the reader gates to off when lists and canvases are unset", async () => {
+    await processMessage(makeParams({ triggerType: "directMessages" }), makeDeps());
+
+    expect(mockResolveSlackRefs).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ gates: { listsMode: "off", canvasesMode: "off" } }),
+    );
+  });
+
+  it("resolves a scheduled trigger's attachments but not its prompt text", async () => {
+    const attached = slackFile("F0REPORT1", "report.pdf", "application/pdf");
+    mockCreateSession.mockImplementation(async () =>
+      makeSession({ trigger: { type: "scheduled", prompt: "Summarize F0EXAMPLE1" } }),
+    );
+
+    await processMessage(
+      makeParams({
+        triggerType: "scheduled",
+        messageText: "Summarize F0EXAMPLE1",
+        files: [attached],
+      }),
+      makeDeps(),
+    );
+
+    expect(mockResolveSlackRefs).toHaveBeenCalledTimes(1);
+    const [, input] = mockResolveSlackRefs.mock.calls[0]!;
+    expect(input).toEqual({
+      files: [attached],
+      fromCurrentMessage: true,
+      gates: { listsMode: "off", canvasesMode: "off" },
+    });
+    expect("text" in input).toBe(false);
+  });
+
+  it("registers a queued message's attachment in the live run and names it in the pushed text", async () => {
+    const THREAD = "1700000000.000222";
+    const sendUpdate = vi.fn<(text: string) => Promise<void>>(async () => {});
+    const handle = fakeRunHandle(sendUpdate);
+    registerActiveRun({ channelId: "C001", threadTs: THREAD }, handle);
+    const liveSession = makeSession({ sessionId: "live" });
+    const liveRefs = new Map<string, SlackRef>();
+    attachRunRefs(handle, { refs: liveRefs, session: liveSession });
+    const image = slackFile("F0IMAGE01", "shot.png", "image/png");
+    const imageRef: SlackRef = {
+      ...resolvedRef("F0IMAGE01", "Image", true),
+      name: "shot.png",
+      kind: "image",
+      mustOpen: true,
+    };
+    mockResolveSlackRefs.mockResolvedValue([imageRef]);
+    const client = makeClient();
+
+    const result = await processMessage(
+      makeParams({
+        client,
+        triggerType: "directMessages",
+        threadTs: THREAD,
+        messageTs: "1700000000.000223",
+        messageText: "and this one?",
+        files: [image],
+      }),
+      makeDeps(),
+    );
+
+    assert.equal(result.skipped, true);
+    expect(mockGetRole).toHaveBeenCalledWith("U001");
+    expect(mockResolveSlackRefs).toHaveBeenCalledWith(
+      { client, userId: "U001", role: "dev", session: liveSession },
+      {
+        text: "and this one?",
+        files: [image],
+        fromCurrentMessage: true,
+        gates: { listsMode: "off", canvasesMode: "off" },
+      },
+    );
+    expect(liveRefs.get("F0IMAGE01")).toBe(imageRef);
+    expect(sendUpdate).toHaveBeenCalledWith(
+      "and this one?\n[referenced: Image shot.png (F0IMAGE01)]",
+    );
+    expect(mockExecuteAndDeliver).not.toHaveBeenCalled();
+  });
+
+  it("pushes a queued message unchanged onto a run with no attached registry", async () => {
+    const THREAD = "1700000000.000333";
+    const sendUpdate = vi.fn<(text: string) => Promise<void>>(async () => {});
+    registerActiveRun({ channelId: "C001", threadTs: THREAD }, fakeRunHandle(sendUpdate));
+
+    await processMessage(
+      makeParams({ triggerType: "directMessages", threadTs: THREAD, messageText: "more" }),
+      makeDeps(),
+    );
+
+    expect(mockResolveSlackRefs).not.toHaveBeenCalled();
+    expect(sendUpdate).toHaveBeenCalledWith("more");
   });
 });
 

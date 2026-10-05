@@ -34,7 +34,6 @@ export const CLACK_CORE_TOOL_NAMES: readonly string[] = [
   "update_list_items",
   "delete_list_items",
   "create_list",
-  "view_slack_image",
   "view_slack_file",
   // Read-only query tools
   "find_recent_interactions",

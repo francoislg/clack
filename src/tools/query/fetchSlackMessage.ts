@@ -4,45 +4,43 @@ import type { QueryToolContext } from "../types.js";
 import { textResult, errorResult } from "../helpers.js";
 import { fetchThreadContext } from "../../slack/messagesApi.js";
 import { threadMessageToToolOutput } from "../../slack/messageBuilder.js";
+import {
+  parseSlackRef,
+  readerGatesOf,
+  resolveRefsInto,
+  resolveSlackRefs,
+} from "../../slack/slackRefs.js";
+import { resolveRefForReader } from "../resolveRefForReader.js";
 import { getChannelInfo } from "../../slack/channelCache.js";
 import type { EmojiCache } from "../../slack/emojiCache.js";
 import { buildLoreHint, collectEmojiNames } from "../../emojiLore.js";
-import { ACCESS_DENIED_MESSAGE, checkConversationAccess } from "../../slack/requesterAccess.js";
+import {
+  ACCESS_DENIED_MESSAGE,
+  accessRequestFrom,
+  checkConversationAccess,
+} from "../../slack/requesterAccess.js";
 
 export interface FetchSlackMessageDeps {
   fetchThreadContext: typeof fetchThreadContext;
   getChannelInfo: typeof getChannelInfo;
+  resolveSlackRefs: typeof resolveSlackRefs;
 }
 
 export const defaultFetchSlackMessageDeps: FetchSlackMessageDeps = {
   fetchThreadContext,
   getChannelInfo,
+  resolveSlackRefs,
 };
 
-const SLACK_URL_PATTERN = /^https:\/\/[^/]+\.slack\.com\/archives\/([A-Z0-9]+)\/p(\d+)$/;
 const MAX_FETCH = 200;
 
+/** A Slack message permalink's channel, message ts and thread ts; null for anything else. */
 export function parseSlackMessageUrl(
   url: string,
 ): { channelId: string; messageTs: string; threadTs?: string } | null {
-  let urlObj: URL;
-  try {
-    urlObj = new URL(url);
-  } catch {
-    return null;
-  }
-
-  const pathMatch = `${urlObj.origin}${urlObj.pathname}`.match(SLACK_URL_PATTERN);
-  if (!pathMatch) return null;
-
-  const channelId = pathMatch[1];
-  const rawTs = pathMatch[2];
-  // Convert p1234567890123456 → 1234567890.123456 (dot after 10th char)
-  const messageTs = rawTs.slice(0, 10) + "." + rawTs.slice(10);
-
-  const threadTs = urlObj.searchParams.get("thread_ts") ?? undefined;
-
-  return { channelId, messageTs, threadTs };
+  const parsed = parseSlackRef(url);
+  if (parsed?.type !== "message") return null;
+  return { channelId: parsed.channelId, messageTs: parsed.ts, threadTs: parsed.threadTs };
 }
 
 export function createFetchSlackMessageTool(
@@ -63,12 +61,15 @@ export function createFetchSlackMessageTool(
       limit: z.number().optional().describe("Messages per page (default: 5)"),
     },
     async (args) => {
-      const parsed = parseSlackMessageUrl(args.url);
-      if (!parsed) {
+      const resolved = await resolveRefForReader(ctx, args.url, ["message"], {
+        alwaysCheckAccess: false,
+      });
+      if (!resolved.ok) return resolved.error;
+      if (resolved.ref.type !== "message") {
         return errorResult("Invalid Slack message URL format");
       }
 
-      const { channelId, messageTs, threadTs } = parsed;
+      const { channelId, ts: messageTs, threadTs } = resolved.ref;
       if (!ctx.slackClient) {
         return errorResult("Slack client is not available in this context");
       }
@@ -81,10 +82,8 @@ export function createFetchSlackMessageTool(
         return errorResult(`Requested range exceeds maximum fetch cap of ${MAX_FETCH} messages`);
       }
 
-      const access = await checkConversationAccess(
-        { client: ctx.slackClient, userId: ctx.userId, role: ctx.role, session: ctx.session },
-        channelId,
-      );
+      const req = accessRequestFrom({ ...ctx, slackClient: ctx.slackClient });
+      const access = await checkConversationAccess(req, channelId);
       if (!access.allowed) {
         return errorResult(ACCESS_DENIED_MESSAGE);
       }
@@ -106,21 +105,20 @@ export function createFetchSlackMessageTool(
       const pageMessages = messages.slice(start, start + limit);
       const hasMore = messages.length > start + limit;
 
-      // Register discovered images and files from the page
-      for (const m of pageMessages) {
-        if (m.imageFiles) {
-          for (const img of m.imageFiles) ctx.availableImages?.set(img.id, img);
-        }
-        if (m.files) {
-          for (const f of m.files) ctx.availableFiles?.set(f.id, f);
-        }
-      }
+      // Resolve the page's references (attached files and refs in text) into the run's registry
+      const pageRefs = await resolveRefsInto(
+        req,
+        readerGatesOf(ctx.config),
+        pageMessages.map((m) => ({ text: m.text, files: m.files, fromCurrentMessage: false })),
+        ctx.availableRefs ?? new Map(),
+        deps,
+      );
 
       const channelInfo = ctx.slackClient
         ? await deps.getChannelInfo(ctx.slackClient, channelId)
         : undefined;
 
-      const output = pageMessages.map(threadMessageToToolOutput);
+      const output = pageMessages.map((m, i) => threadMessageToToolOutput(m, pageRefs[i]));
       const loreHint = emojiCache
         ? await buildLoreHint(collectEmojiNames(output), emojiCache)
         : null;

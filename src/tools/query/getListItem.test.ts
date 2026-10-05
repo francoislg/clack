@@ -31,7 +31,7 @@ function makeCtx(slackClient: MockSlackClient | undefined): QueryToolContext {
       lastActivity: Date.now(),
       createdAt: Date.now(),
     },
-    config: { repositories: [] },
+    config: { repositories: [], lists: { mode: "write" } },
     changesWorkflowEnabled: false,
     cronUserSchedules: false,
     slackClient,
@@ -84,6 +84,7 @@ describe("get_list_item", () => {
       allowed: true,
       botAccess: "read",
       creator: "U1",
+      facts: { filetype: "list" },
     });
   });
 

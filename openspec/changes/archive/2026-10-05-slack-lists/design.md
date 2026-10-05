@@ -4,7 +4,7 @@ Slack Lists are files (`F…` ids, `filetype: "list"`). The bot token sees a Lis
 
 Slack API facts the design rests on:
 
-- A List's columns live on its file object: `files.info` → `file.list_metadata.schema[]`, each `{ id, key, name, type, is_primary_column?, options? }`. Select columns carry `options.choices[] { value, label, color }`. There is no `slackLists.info` and no method that enumerates Lists, so Clack acts only on a List someone names.
+- A List's columns live on its file object: `files.info` → `file.list_metadata.schema[]`, each `{ id, key, name?, type, is_primary_column?, options? }`. The built-in to-do columns (`todo_completed`, `todo_assignee`, `todo_due_date`, ids `Col00`–`Col02`) carry no `name`, so their `key` stands in. A custom column's `key` can differ from its `id`, and writes address cells by `id`. An empty cell is omitted from an item's `fields`, and a present text cell can carry `value: null`. Select columns carry `options.choices[] { value, label, color }`. There is no `slackLists.info` and no method that enumerates Lists, so Clack acts only on a List someone names.
 - `slackLists.items.list { list_id, limit, cursor, archived }` returns `items[]`, each with `fields[] { key, column_id, text, <typed value> }`. `text` is a plain-text rendering of the cell.
 - Cells are typed per column: `rich_text` (text columns), `select` (option values, not labels), `user`, `channel`, `date` (`YYYY-MM-DD`), `number`, `checkbox`, `rating`, `email`, `phone`, `link`, `timestamp`, `attachment`, `reference`, `message`.
 - `slackLists.items.create { list_id, initial_fields }` creates one item per call. `slackLists.items.update { list_id, cells }` takes cells for any number of rows, each `{ row_id, column_id, <typed value> }`.

@@ -234,13 +234,48 @@ describe("registerNewQueryHandler", () => {
     assert.equal(mockPostEphemeralFn.mock.calls.length, 0);
     interface ProcessMessageArg {
       messageText: string;
-      imageFiles?: Array<{ id: string }>;
+      files?: Array<{ id: string }>;
     }
     const args = mockProcessMessage.mock.calls[0]![0] as ProcessMessageArg;
     assert.ok(args.messageText.includes("A user reacted to this message"));
     assert.ok(args.messageText.includes("attached image"));
-    assert.equal(args.imageFiles?.length, 1);
-    assert.equal(args.imageFiles?.[0].id, "F1");
+    assert.equal(args.files?.length, 1);
+    assert.equal(args.files?.[0].id, "F1");
+  });
+
+  it("treats a reacted message with no text and only a non-image file as unreadable", async () => {
+    const client = makeClient();
+    mockExtractMessageText.mockImplementation(() => "");
+    mockRepliesFn.mockImplementation(async () => ({
+      messages: [
+        {
+          ts: "1700000000.000001",
+          text: "",
+          thread_ts: "1700000000.000001",
+          files: [
+            {
+              id: "F2",
+              name: "report.pdf",
+              mimetype: "application/pdf",
+              size: 1024,
+              url_private: "https://files.slack.com/F2",
+            },
+          ],
+        },
+      ],
+    }));
+
+    await capturedHandler({
+      event: {
+        reaction: "robot_face",
+        user: "U001",
+        item: { type: "message", channel: "C001", ts: "1700000000.000001" },
+      },
+      client,
+    });
+
+    assert.equal(mockProcessMessage.mock.calls.length, 0);
+    assert.equal(mockPostEphemeralFn.mock.calls.length, 1);
   });
 
   it("falls back to conversations.history when replies fails", async () => {

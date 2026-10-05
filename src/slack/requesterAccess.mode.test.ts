@@ -74,6 +74,7 @@ describe("requesterAccess: slackAccessMode", () => {
         allowed: true,
         botAccess: "write",
         creator: "U_OTHER",
+        facts: {},
       });
       expect(client.conversations.members).not.toHaveBeenCalled();
       expect(addAccessGrant).not.toHaveBeenCalled();

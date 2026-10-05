@@ -1,18 +1,24 @@
 # session-management Specification
 
 ## Purpose
+
 TBD - created by archiving change add-slack-reaction-bot. Update Purpose after archive.
+
 ## Requirements
+
 ### Requirement: Session Creation
+
 The system SHALL create a unique session for each triggered reaction.
 
 #### Scenario: New session on trigger
+
 - **WHEN** a user adds the trigger reaction to a message
 - **THEN** the system creates a new session with a unique ID
 - **AND** creates a directory at `data/sessions/{session-id}/`
 - **AND** initializes session state in `context.json`
 
 #### Scenario: Session ID format
+
 - **WHEN** a session is created
 - **THEN** the session ID includes the Slack channel, message timestamp, and user ID
 - **AND** ensures uniqueness across concurrent requests
@@ -25,10 +31,16 @@ The system SHALL persist a session's conversation as a structured **`trigger`** 
 
 - **WHEN** a session is persisted
 - **THEN** `context.json` includes a `trigger` object whose `type` is one of `"reactions"`, `"mentions"`, `"directMessages"`, `"autoRespond"`, or `"scheduled"`
-- **AND** for `"reactions"`, `trigger` includes `userId`, `emoji`, `messageTs`, `messageText`, and optional `imageFiles`
-- **AND** for `"mentions"`, `"directMessages"`, `"autoRespond"`, `trigger` includes `userId`, `messageTs`, `messageText`, and optional `imageFiles`; `"autoRespond"` additionally carries optional `ruleName` and optional `preAnalysis`
+- **AND** for `"reactions"`, `trigger` includes `userId`, `emoji`, `messageTs`, `messageText`, and optional `files`
+- **AND** for `"mentions"`, `"directMessages"`, `"autoRespond"`, `trigger` includes `userId`, `messageTs`, `messageText`, and optional `files`; `"autoRespond"` additionally carries optional `ruleName` and optional `preAnalysis`
 - **AND** for `"scheduled"`, `trigger` includes `prompt`, optional `jobId`, and optional `preAnalysis`; no `userId` / `messageTs` / `messageText` fields
 - **AND** `messageTs` on the trigger is the Slack timestamp of the triggering message (for user-first types)
+
+#### Scenario: Legacy trigger image list
+
+- **WHEN** a persisted trigger carries a legacy `imageFiles` list
+- **THEN** the session reader merges its entries into the trigger's `files`
+- **AND** a session written afterwards carries only `files`
 
 #### Scenario: Messages array shape
 
@@ -99,7 +111,6 @@ The system SHALL persist a session's conversation as a structured **`trigger`** 
 - **THEN** a `SessionUserMessage` with `source: "reply"` is appended with the new message text
 - **AND** the trigger's `messageText` is NOT mutated
 - **AND** `messages[0]` is NOT mutated
-
 
 ### Requirement: Thread Context Delta Tracking
 
@@ -230,34 +241,42 @@ The system SHALL maintain an in-memory index mapping `channel:threadTs` to sessi
 - **THEN** the index is populated lazily on first lookup or eagerly from existing sessions
 
 ### Requirement: Session Identification
+
 The system SHALL identify sessions by the originating message and user. Sessions are no longer identified via ephemeral message interactions.
 
 #### Scenario: Same message, same user continues session
+
 - **WHEN** a user interacts with buttons on a streamed response
 - **THEN** the system looks up the existing session for that message and user
 
 #### Scenario: Different user creates new session
+
 - **WHEN** a different user adds the trigger reaction to the same message
 - **THEN** the system creates a separate session for that user
 - **AND** each user has an independent conversation
 
 ### Requirement: Session Storage Directory
+
 The system SHALL store all sessions under `data/sessions/`.
 
 #### Scenario: Sessions directory creation
+
 - **WHEN** the system starts
 - **THEN** it creates `data/sessions/` if it does not exist
 - **AND** ensures proper permissions for the directory
 
 #### Scenario: Session directory contents
+
 - **WHEN** a session is active
 - **THEN** its directory contains at minimum `context.json`
 - **AND** may contain additional files created by Claude Code
 
 ### Requirement: Session Restoration
+
 The system SHALL restore sessions from disk when needed after an app restart. Session restoration no longer involves ephemeral-specific handling.
 
 #### Scenario: Lazy session restoration
+
 - **WHEN** a user clicks a button (choice, followup, change action) after an app restart
 - **AND** the session is not in memory
 - **THEN** the system loads the session from `data/sessions/{session-id}/context.json`
@@ -266,24 +285,29 @@ The system SHALL restore sessions from disk when needed after an app restart. Se
 - **AND** continues processing the action normally
 
 #### Scenario: Session info reconstruction from sessionId
+
 - **WHEN** a user clicks a button after an app restart
 - **AND** the session cannot be found on disk (expired or deleted)
 - **THEN** the system parses the sessionId to extract channelId, messageTs, and userId
 - **AND** reconstructs minimal session info to enable button handling
 
 ### Requirement: Expired Session Recreation
+
 The system SHALL recreate expired sessions from Slack context when possible. Expired session scenarios no longer reference ephemeral messages.
 
 #### Scenario: Choice or followup with expired session
+
 - **WHEN** a user clicks a choice or followup button on an expired session
 - **THEN** the system fetches the original message and thread context from Slack
 - **AND** creates a new session with the fetched data
 - **AND** injects the choice value or followup prompt into the new query
 
 ### Requirement: Thread Message Structure
+
 The system SHALL store thread messages with optional user identity fields and optional reaction data.
 
 #### Scenario: Thread message with user names
+
 - **WHEN** `fetchUserNames` is enabled
 - **AND** thread context is captured
 - **THEN** each `ThreadMessage` includes:
@@ -297,16 +321,19 @@ The system SHALL store thread messages with optional user identity fields and op
 - **AND** each `MessageReaction` includes `emoji` (string), `userIds` (string array), and `usernames` (string array, resolved from user cache)
 
 #### Scenario: Thread message without user names
+
 - **WHEN** `fetchUserNames` is disabled
 - **THEN** `ThreadMessage` does not include `username` or `displayName` fields
 - **AND** `reactions` may still be present but without resolved `usernames`
 - **AND** existing behavior is preserved
 
 #### Scenario: Thread message with no reactions
+
 - **WHEN** a message has no reactions in the Slack API response
 - **THEN** the `reactions` field is omitted from the `ThreadMessage`
 
 #### Scenario: Reactions formatted in thread context prompt
+
 - **WHEN** thread context is formatted for the system prompt
 - **AND** a message has reactions
 - **THEN** a `[reactions: ...]` line is appended after the message text
@@ -314,19 +341,23 @@ The system SHALL store thread messages with optional user identity fields and op
 - **AND** multiple reactions are separated by semicolons
 
 #### Scenario: No reactions line for unreacted messages
+
 - **WHEN** thread context is formatted for the system prompt
 - **AND** a message has no reactions
 - **THEN** no `[reactions: ...]` line is appended
 
 ### Requirement: Channel Post Tracking
+
 The system SHALL track the message timestamp of answers posted to the original channel thread.
 
 #### Scenario: Channel post timestamp stored
+
 - **WHEN** a synthesized answer is accepted and posted to the original channel thread
 - **THEN** the session stores the channel message timestamp as `channelPostTs`
 - **AND** this enables future "Update original post" actions via `chat.update`
 
 #### Scenario: Channel post timestamp updated on re-post
+
 - **WHEN** a user posts a new reply to the channel after a post-accept refinement
 - **THEN** the session updates `channelPostTs` to the new message timestamp
 
@@ -335,26 +366,31 @@ The system SHALL track the message timestamp of answers posted to the original c
 The system SHALL support sessions with a synthetic user identity for auto-respond triggers when no real user ID is available.
 
 #### Scenario: Session created with synthetic user ID
+
 - **WHEN** an auto-respond rule triggers on a message with no `user` field
 - **THEN** the session is created with `userId` set to `"auto-respond"`
 
 #### Scenario: Role resolution for synthetic user
+
 - **WHEN** the system resolves the role for user ID `"auto-respond"`
 - **THEN** role resolution returns `"member"` (no entry in roles)
 - **AND** user-tier instructions apply
 
 #### Scenario: User info lookup gracefully handles synthetic user
+
 - **WHEN** the system attempts to fetch Slack user info for `"auto-respond"`
 - **THEN** `getUserInfo()` SHALL detect the synthetic user ID and return `{ userId: "auto-respond", displayName: "Auto-Respond", username: undefined }`
 - **AND** it does NOT call the Slack API (`users.info` or `bots.info`)
 - **AND** the fallback is cached like any other user info entry
 
 #### Scenario: Active workers display for auto-respond sessions
+
 - **WHEN** an auto-respond session is active
 - **AND** the Home Tab shows active workers
 - **THEN** the worker displays "Auto-Respond" as plain text instead of a `<@userId>` Slack mention
 
 #### Scenario: Session ID parsing for synthetic user
+
 - **WHEN** `parseSessionId()` is called for an auto-respond session with synthetic user ID
 - **THEN** the regex MAY fail to extract the userId (since `"auto-respond"` does not match the `U[A-Z0-9]+` pattern)
 - **AND** this is a known limitation affecting only the last-resort session restoration fallback
@@ -379,4 +415,3 @@ The system SHALL support sessions with a synthetic user identity for auto-respon
 - **WHEN** an investigation round runs on a session with a stored `sdkSessionId`
 - **THEN** the Claude conversation resumes from prior context
 - **AND** the injected deltas appear as new turn context, not as a fresh conversation
-

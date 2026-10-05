@@ -100,7 +100,7 @@ describe("classic DM filter", () => {
 
   it("admits a file_share DM and forwards its attachments", async () => {
     mockExtractAttachments.mockReturnValueOnce({
-      imageFiles: [
+      files: [
         { id: "F1", name: "a.png", mimetype: "image/png", size: 100, url_private: "https://x" },
       ],
     });
@@ -119,7 +119,7 @@ describe("classic DM filter", () => {
     );
     const call = mockProcessMessage.mock.calls[0][0];
     assert.equal(call.messageText, "why did this fail?");
-    assert.equal(call.imageFiles?.length, 1);
+    assert.equal(call.files?.length, 1);
   });
 
   it("admits thread_broadcast and me_message DMs", async () => {
@@ -231,7 +231,7 @@ describe("classic DM routing", () => {
 
   it("uses the image-only fallback prompt when text is empty but files are present", async () => {
     mockExtractAttachments.mockReturnValueOnce({
-      imageFiles: [
+      files: [
         {
           id: "F1",
           name: "a.png",
@@ -256,7 +256,34 @@ describe("classic DM routing", () => {
     const call = mockProcessMessage.mock.calls[0][0];
     assert.ok(call.messageText.length > 0);
     assert.notEqual(call.messageText, "");
-    assert.equal(call.imageFiles?.length, 1);
+    assert.equal(call.files?.length, 1);
+  });
+
+  it("ignores a DM with no text whose only file is not an image", async () => {
+    mockExtractAttachments.mockReturnValueOnce({
+      files: [
+        {
+          id: "F2",
+          name: "a.pdf",
+          mimetype: "application/pdf",
+          size: 100,
+          url_private: "https://x",
+        },
+      ],
+    });
+    await handleClassicDmEvent(
+      {
+        channel_type: "im",
+        channel: "D001",
+        ts: "1.0",
+        user: "U1",
+        subtype: "file_share",
+        files: [{ id: "F2" }],
+      },
+      FAKE_CLIENT,
+      makeDeps(),
+    );
+    assert.equal(mockProcessMessage.mock.calls.length, 0);
   });
 });
 

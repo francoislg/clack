@@ -199,11 +199,6 @@
       "group": "messages",
       "itemDetail": { "en": "<{url}|Slack message>", "fr": "<{url}|message Slack>" }
     },
-    "view_slack_image": {
-      "label": { "en": "Viewing image {file_id}", "fr": "Affichage de l'image {file_id}" },
-      "group": "files",
-      "itemDetail": { "en": "View image {file_id}", "fr": "Voir l'image {file_id}" }
-    },
     "view_slack_file": {
       "label": { "en": "Viewing file {file_id}", "fr": "Affichage du fichier {file_id}" },
       "group": "files",

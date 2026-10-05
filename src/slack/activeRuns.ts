@@ -1,5 +1,7 @@
 import { logger } from "../logger.js";
 import type { ClaudeRunHandle } from "../claude/runHandle.js";
+import type { SessionContext } from "../sessions.js";
+import type { SlackRef } from "./slackRefs.js";
 
 /**
  * In-memory registry of active `ClaudeRunHandle`s, keyed by `(channelId, threadTs)`.
@@ -130,6 +132,25 @@ export function takeQueuedAcks(handle: ClaudeRunHandle): QueuedAck[] {
   const acks = queuedAcks.get(handle) ?? [];
   queuedAcks.delete(handle);
   return acks;
+}
+
+/** A run's Slack-reference registry and the session its access checks consult. */
+export interface RunRefRegistry {
+  refs: Map<string, SlackRef>;
+  session: SessionContext;
+}
+
+/** Keyed by the handle reference, like the queued acks, so a forgotten handle drops it. */
+const runRefRegistries = new WeakMap<ClaudeRunHandle, RunRefRegistry>();
+
+/** Expose `handle`'s ref registry so a message queued onto the run can add to it. */
+export function attachRunRefs(handle: ClaudeRunHandle, registry: RunRefRegistry): void {
+  runRefRegistries.set(handle, registry);
+}
+
+/** The ref registry of a live run, or `undefined` when none was attached. */
+export function getRunRefs(handle: ClaudeRunHandle): RunRefRegistry | undefined {
+  return runRefRegistries.get(handle);
 }
 
 /**

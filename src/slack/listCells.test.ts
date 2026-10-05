@@ -8,6 +8,7 @@ import {
 } from "./listCells.js";
 import type { ListColumn, ListFieldValue } from "./listTypes.js";
 import { toRichText } from "./richText.js";
+import { realShapeListInfo, realShapeParsedItems } from "./testListApi.js";
 
 function column(overrides: Partial<ListColumn> & Pick<ListColumn, "name" | "type">): ListColumn {
   return {
@@ -422,5 +423,31 @@ describe("fromFields", () => {
       { column: "Title", value: "first" },
       { column: "Due", value: "2026-10-02" },
     ]);
+  });
+});
+
+describe("a live todo List", () => {
+  it("renders an empty name as empty and an unchecked todo as false", () => {
+    const { columns } = realShapeListInfo();
+    const [empty, filled] = realShapeParsedItems();
+
+    expect(fromFields(columns, empty.fields)).toEqual([
+      { column: "Name", value: "" },
+      { column: "todo_completed", value: false },
+    ]);
+    expect(fromFields(columns, filled.fields)).toEqual([
+      { column: "Name", value: "Ship it" },
+      { column: "todo_completed", value: false },
+      { column: "Details", value: "Before Friday" },
+    ]);
+  });
+
+  it("addresses a write to the custom column by its id, not its key", () => {
+    const { columns } = realShapeListInfo();
+
+    expect(toCells(columns, [{ column: "Details", value: "Before Friday" }])).toEqual({
+      ok: true,
+      cells: [{ column_id: "Col0BSVF85HFU", rich_text: [toRichText("Before Friday")] }],
+    });
   });
 });

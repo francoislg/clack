@@ -7,7 +7,6 @@ import {
 } from "./readList.js";
 import { parseToolResult } from "../testHelpers.js";
 import type { QueryToolContext } from "../types.js";
-import { NOT_A_LIST_REF_MESSAGE } from "../listTools.js";
 import type { ListInfo } from "../../slack/lists.js";
 import type { ListItem } from "../../slack/listTypes.js";
 import { checkFileAccess, FILE_ACCESS_DENIED_MESSAGE } from "../../slack/requesterAccess.js";
@@ -37,7 +36,7 @@ function makeCtx(slackClient: MockSlackClient | undefined): QueryToolContext {
       lastActivity: Date.now(),
       createdAt: Date.now(),
     },
-    config: { repositories: [] },
+    config: { repositories: [], lists: { mode: "write" } },
     changesWorkflowEnabled: false,
     cronUserSchedules: false,
     slackClient,
@@ -104,6 +103,7 @@ describe("read_list", () => {
       allowed: true,
       botAccess: "read",
       creator: "U1",
+      facts: { filetype: "list" },
     });
   });
 
@@ -200,14 +200,15 @@ describe("read_list", () => {
     expect(parseToolResult(result).list_id).toBe(LIST_ID);
   });
 
-  it("rejects a non-List reference without calling the List api", async () => {
+  it("redirects a message permalink to fetch_slack_message without a Slack call", async () => {
     const result = await createReadListTool(ctx, api).handler(
       { list: "https://acme.slack.com/archives/C123/p1700000000000100", ...NO_OPTIONS },
       extra,
     );
 
     expect(result.isError).toBe(true);
-    expect(parseToolResult(result).error).toBe(NOT_A_LIST_REF_MESSAGE);
+    expect(parseToolResult(result).error).toMatch(/is a Slack message: use fetch_slack_message/);
+    expect(checkFileAccess).not.toHaveBeenCalled();
     expect(api.getListInfo).not.toHaveBeenCalled();
     expect(api.listItems).not.toHaveBeenCalled();
   });

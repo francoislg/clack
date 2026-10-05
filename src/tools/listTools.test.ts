@@ -1,13 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import {
-  LIST_READ_ONLY_MESSAGE,
-  loadListInfo,
-  NOT_A_LIST_REF_MESSAGE,
-  openList,
-} from "./listTools.js";
+import { LIST_READ_ONLY_MESSAGE, loadListInfo, openList } from "./listTools.js";
 import { parseToolResult } from "./testHelpers.js";
 import type { QueryToolContext } from "./types.js";
-import { checkFileAccess, FILE_ACCESS_DENIED_MESSAGE } from "../slack/requesterAccess.js";
+import {
+  checkFileAccess,
+  FILE_ACCESS_DENIED_MESSAGE,
+  type FileFacts,
+} from "../slack/requesterAccess.js";
+import type { SlackFileRef, SlackRef } from "../slack/slackRefs.js";
 import { listErrorMessage } from "../slack/lists.js";
 import { slackError } from "../slack/testCanvasApi.js";
 import { createListApiMock, createTasksListInfo, type MockListApi } from "../slack/testListApi.js";
@@ -41,16 +41,36 @@ function makeCtx(slackClient: MockSlackClient | undefined): QueryToolContext {
       lastActivity: Date.now(),
       createdAt: Date.now(),
     },
-    config: { repositories: [] },
+    config: { repositories: [], lists: { mode: "write" }, canvases: { mode: "read" } },
     changesWorkflowEnabled: false,
     cronUserSchedules: false,
     slackClient,
+    availableRefs: new Map<string, SlackRef>(),
   });
   return ctx;
 }
 
-function allow(botAccess: "read" | "write" | undefined): void {
-  vi.mocked(checkFileAccess).mockResolvedValue({ allowed: true, botAccess, creator: "U1" });
+const LIST_FACTS: FileFacts = { filetype: "list", prettyType: "List" };
+
+function allow(botAccess: "read" | "write" | undefined, facts: FileFacts = LIST_FACTS): void {
+  vi.mocked(checkFileAccess).mockResolvedValue({
+    allowed: true,
+    botAccess,
+    creator: "U1",
+    facts,
+  });
+}
+
+function registeredList(id: string): SlackFileRef {
+  return {
+    type: "file",
+    id,
+    kind: "list",
+    label: "Slack List",
+    reader: "read_list",
+    mustOpen: false,
+    fromCurrentMessage: true,
+  };
 }
 
 describe("openList", () => {
@@ -73,7 +93,7 @@ describe("openList", () => {
     expect(checkFileAccess).not.toHaveBeenCalled();
   });
 
-  it("rejects a message permalink, before any access check", async () => {
+  it("redirects a message permalink to fetch_slack_message, before any access check", async () => {
     const opened = await openList(
       ctx,
       "https://acme.slack.com/archives/C123/p1700000000000100",
@@ -82,8 +102,59 @@ describe("openList", () => {
 
     expect(opened.ok).toBe(false);
     if (opened.ok) return;
-    expect(parseToolResult(opened.error).error).toBe(NOT_A_LIST_REF_MESSAGE);
+    expect(parseToolResult(opened.error).error).toMatch(
+      /is a Slack message: use fetch_slack_message/,
+    );
     expect(checkFileAccess).not.toHaveBeenCalled();
+  });
+
+  it("refuses a value that is no Slack reference, before any access check", async () => {
+    const opened = await openList(ctx, "hello world", "read");
+
+    expect(opened.ok).toBe(false);
+    if (opened.ok) return;
+    expect(parseToolResult(opened.error).error).toMatch(/is not a Slack reference/);
+    expect(checkFileAccess).not.toHaveBeenCalled();
+  });
+
+  it("redirects a canvas to read_canvas", async () => {
+    allow("write", { filetype: "quip", prettyType: "Canvas" });
+
+    const opened = await openList(ctx, "F0456ABC", "read");
+
+    expect(opened.ok).toBe(false);
+    if (opened.ok) return;
+    expect(parseToolResult(opened.error).error).toBe('"F0456ABC" is a Canvas: use read_canvas');
+  });
+
+  it("registers an unregistered List it opens", async () => {
+    await openList(ctx, "F0456ABC", "read");
+
+    expect(ctx.availableRefs?.get("F0456ABC")).toMatchObject({
+      kind: "list",
+      fromCurrentMessage: false,
+    });
+  });
+
+  it("still checks access on a registered List", async () => {
+    ctx.availableRefs?.set("F0456ABC", registeredList("F0456ABC"));
+
+    const opened = await openList(ctx, "F0456ABC", "read");
+
+    expect(checkFileAccess).toHaveBeenCalledTimes(1);
+    expect(opened.ok).toBe(true);
+  });
+
+  it("refuses a write on a registered List when the bot can only read it", async () => {
+    ctx.availableRefs?.set("F0456ABC", registeredList("F0456ABC"));
+    allow("read");
+
+    const opened = await openList(ctx, "F0456ABC", "write");
+
+    expect(checkFileAccess).toHaveBeenCalledTimes(1);
+    expect(opened.ok).toBe(false);
+    if (opened.ok) return;
+    expect(parseToolResult(opened.error).error).toBe(LIST_READ_ONLY_MESSAGE);
   });
 
   it("refuses a List the requester cannot see", async () => {

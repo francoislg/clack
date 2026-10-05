@@ -14,7 +14,7 @@ import type { SessionContext, AttentionLevel, DeliveryMode } from "../sessions.j
 import type { Config } from "../config.js";
 import type { McpServerManager } from "../claude/mcpServerManager.js";
 import type { SkillsManager } from "../claude/skillsManager.js";
-import type { SlackImageFile, SlackFile } from "../slack/slackFileBase.js";
+import type { SlackRef } from "../slack/slackRefs.js";
 import type { SpinoffIntentData } from "../changes/spinoff.js";
 import type { ChangeKind } from "../changes/types.js";
 
@@ -175,10 +175,13 @@ export interface QueryToolContext {
   /** Mid-run delivery-mode switch handle. Present only on interactive turns; enables the
    *  `switch_delivery_context` tool. Absent in channelless cron / worker contexts. */
   deliveryControl?: DeliveryControl;
-  /** Available Slack images (from triggering message + thread) keyed by file ID */
-  availableImages?: Map<string, SlackImageFile>;
-  /** Available Slack files (non-image: PDFs, text, etc.) keyed by file ID */
-  availableFiles?: Map<string, SlackFile>;
+  /**
+   * The run's registry of resolved Slack references (files, Lists, canvases, message
+   * permalinks), keyed by ref id. Filled at run start from the current message, the session's
+   * original trigger and the thread context, and during the run by queued messages and the
+   * fetch tools.
+   */
+  availableRefs?: Map<string, SlackRef>;
   /**
    * Fully-qualified MCP tool names (e.g., `mcp__trivia__submit_answers`) that must be called
    * during this run before `submit_response` will be accepted. Populated by callers like the

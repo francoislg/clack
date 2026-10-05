@@ -1087,3 +1087,106 @@ describe("accessGranted persistence", () => {
     });
   });
 });
+
+// ---------------------------------------------------------------------------
+// Legacy `imageFiles` read into the one `files` list on load
+// ---------------------------------------------------------------------------
+describe("legacy imageFiles on load", () => {
+  const tmpBase = resolve(tmpdir(), `sessions-legacy-images-${process.pid}`);
+  const sessionsDir = join(tmpBase, "data", "sessions");
+  const originalCwd = process.cwd();
+
+  beforeEach(() => {
+    if (existsSync(tmpBase)) rmSync(tmpBase, { recursive: true });
+    mkdirSync(sessionsDir, { recursive: true });
+    process.chdir(tmpBase);
+  });
+
+  afterEach(() => {
+    process.chdir(originalCwd);
+    if (existsSync(tmpBase)) rmSync(tmpBase, { recursive: true });
+  });
+
+  function file(id: string, mimetype: string) {
+    return { id, name: `${id}.bin`, mimetype, size: 10, url_private: `https://files/${id}` };
+  }
+
+  function writeColdSession(sessionId: string, record: object): void {
+    const dir = join(sessionsDir, sessionId);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "context.json"), JSON.stringify(record), "utf-8");
+  }
+
+  function coldRecord(sessionId: string, messageTs: string, extra: object): object {
+    return {
+      sessionId,
+      channelId: "CMAIN",
+      messageTs,
+      threadTs: messageTs,
+      userId: "UOWN",
+      messages: [],
+      ...extra,
+    };
+  }
+
+  it("merges a trigger's legacy imageFiles into its files, deduped by id", async () => {
+    const id = "C900-9000-0001-UOWN-9000000000001";
+    writeColdSession(
+      id,
+      coldRecord(id, "9000.0001", {
+        trigger: {
+          type: "mentions",
+          userId: "UOWN",
+          messageTs: "9000.0001",
+          messageText: "look",
+          files: [file("F1", "application/pdf"), file("F2", "image/png")],
+          imageFiles: [file("F2", "image/png"), file("F3", "image/jpeg"), { id: "F4" }],
+        },
+      }),
+    );
+
+    const loaded = await getSession(id);
+    assert.ok(loaded && loaded.trigger.type === "mentions");
+    assert.deepEqual(
+      loaded.trigger.files?.map((f) => f.id),
+      ["F1", "F2", "F3"],
+    );
+
+    await updateSession(id, { lastActivity: 1 });
+    const onDisk: unknown = JSON.parse(
+      readFileSync(join(sessionsDir, id, "context.json"), "utf-8"),
+    );
+    assert.ok(typeof onDisk === "object" && onDisk !== null && "trigger" in onDisk);
+    const trigger = onDisk.trigger;
+    assert.ok(typeof trigger === "object" && trigger !== null);
+    assert.equal("imageFiles" in trigger, false);
+    assert.ok("files" in trigger && Array.isArray(trigger.files));
+    assert.equal(trigger.files.length, 3);
+  });
+
+  it("merges a thread message's legacy imageFiles into its files", async () => {
+    const id = "C901-9000-0002-UOWN-9000000000002";
+    writeColdSession(
+      id,
+      coldRecord(id, "9000.0002", {
+        trigger: { type: "mentions", userId: "UOWN", messageTs: "9000.0002", messageText: "x" },
+        threadContext: [
+          {
+            text: "screenshot",
+            userId: "U2",
+            isBot: false,
+            ts: "9000.0003",
+            imageFiles: [file("F5", "image/png")],
+          },
+        ],
+      }),
+    );
+
+    const loaded = await getSession(id);
+    assert.ok(loaded);
+    assert.deepEqual(
+      loaded.threadContext[0].files?.map((f) => f.id),
+      ["F5"],
+    );
+  });
+});

@@ -2,13 +2,8 @@ import { z } from "zod";
 import { tool } from "@anthropic-ai/claude-agent-sdk";
 import type { QueryToolContext } from "../types.js";
 import { textResult, errorResult } from "../helpers.js";
-import {
-  canvasErrorMessage,
-  defaultCanvasApi,
-  parseCanvasRef,
-  type CanvasApi,
-} from "../../slack/canvases.js";
-import { checkFileAccess, FILE_ACCESS_DENIED_MESSAGE } from "../../slack/requesterAccess.js";
+import { canvasErrorMessage, defaultCanvasApi, type CanvasApi } from "../../slack/canvases.js";
+import { resolveRefForReader } from "../resolveRefForReader.js";
 
 /** Longest canvas markdown returned in one result; longer canvases are cut to this length. */
 export const MAX_CANVAS_CHARS = 100_000;
@@ -27,18 +22,11 @@ export function createReadCanvasTool(ctx: QueryToolContext, api: CanvasApi = def
       }
       const client = ctx.slackClient;
 
-      const canvasId = parseCanvasRef(args.canvas);
-      if (canvasId === undefined) {
-        return errorResult("Not a canvas reference. Pass a canvas id (F…) or a Slack canvas URL.");
-      }
-
-      const access = await checkFileAccess(
-        { client, userId: ctx.userId, role: ctx.role, session: ctx.session },
-        canvasId,
-      );
-      if (!access.allowed) {
-        return errorResult(FILE_ACCESS_DENIED_MESSAGE);
-      }
+      const resolved = await resolveRefForReader(ctx, args.canvas, ["canvas"], {
+        alwaysCheckAccess: true,
+      });
+      if (!resolved.ok) return resolved.error;
+      const canvasId = resolved.ref.id;
 
       let markdown: string;
       try {

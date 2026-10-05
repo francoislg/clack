@@ -8,8 +8,7 @@ import { getSessionsDir } from "../../config.js";
 import { fileExists } from "../../fs.js";
 import { getChannelInfo } from "../../slack/channelCache.js";
 import type { SessionMessage, SessionTrigger } from "../../sessions.js";
-import { synthesizeMessagesFromLegacy } from "../../sessions.js";
-import type { SlackImageFile } from "../../slack/slackFileBase.js";
+import { readLegacyImageFiles, synthesizeMessagesFromLegacy } from "../../sessions.js";
 import type { TriggerType } from "../../changes/types.js";
 
 export interface FindSessionTranscriptDeps {
@@ -48,7 +47,7 @@ interface PersistedSession {
   lastAnswer?: string;
   lastResponse?: SubmitResponsePayload;
   toolCallHistory?: ToolCallRecord[];
-  imageFiles?: SlackImageFile[];
+  imageFiles?: unknown;
 }
 
 export interface TranscriptResult {
@@ -100,6 +99,7 @@ function resolveTriggerAndMessages(session: PersistedSession): {
   messages: SessionMessage[];
 } {
   if (session.trigger) {
+    if (session.trigger.type !== "scheduled") readLegacyImageFiles(session.trigger);
     return { trigger: session.trigger, messages: session.messages ?? [] };
   }
   return synthesizeMessagesFromLegacy({

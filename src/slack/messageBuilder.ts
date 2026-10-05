@@ -3,6 +3,7 @@ import type { KnownBlock, RichTextBlockElement, RichTextElement } from "@slack/t
 import type { ThreadMessage, SlackAttachment, SlackBlock, MessageReaction } from "../sessions.js";
 import type { UserInfo } from "./userCache.js";
 import { extractAttachments } from "./fileExtractor.js";
+import type { SlackFileRef, SlackRef, SlackRefKind } from "./slackRefs.js";
 
 export type SlackMessage = NonNullable<ConversationsRepliesResponse["messages"]>[number];
 
@@ -216,12 +217,36 @@ export interface ToolMessageEntry {
   is_bot: boolean;
   blocks?: SlackBlock[];
   attachments?: SlackAttachment[];
-  images?: Array<{ file_id: string; name: string }>;
-  files?: Array<{ file_id: string; name: string; type: string }>;
+  files?: ToolFileEntry[];
   reactions?: ToolReactionEntry[];
 }
 
-export function threadMessageToToolOutput(m: ThreadMessage): ToolMessageEntry {
+/** A file the message attaches or names, with the tool that reads it. */
+export interface ToolFileEntry {
+  file_id: string;
+  name?: string;
+  kind: SlackRefKind;
+  reader: string;
+  /** The requester can't see this file; it is never readable. */
+  inaccessible?: true;
+}
+
+function toolFileEntry(ref: SlackFileRef): ToolFileEntry {
+  return {
+    file_id: ref.id,
+    ...(ref.name !== undefined && { name: ref.name }),
+    kind: ref.kind,
+    reader: ref.reader,
+    ...(ref.inaccessible && { inaccessible: true as const }),
+  };
+}
+
+/** `refs` are the message's resolved references; its file refs become the `files` array. */
+export function threadMessageToToolOutput(
+  m: ThreadMessage,
+  refs: readonly SlackRef[] = [],
+): ToolMessageEntry {
+  const files = refs.filter((ref): ref is SlackFileRef => ref.type === "file");
   return {
     user: m.displayName ?? m.username ?? m.userId,
     text: m.text,
@@ -229,16 +254,7 @@ export function threadMessageToToolOutput(m: ThreadMessage): ToolMessageEntry {
     is_bot: m.isBot,
     ...(m.blocks?.length && { blocks: m.blocks }),
     ...(m.attachments?.length && { attachments: m.attachments }),
-    ...(m.imageFiles?.length && {
-      images: m.imageFiles.map((f) => ({ file_id: f.id, name: f.name })),
-    }),
-    ...(m.files?.length && {
-      files: m.files.map((f) => ({
-        file_id: f.id,
-        name: f.name,
-        type: f.mimetype,
-      })),
-    }),
+    ...(files.length > 0 && { files: files.map(toolFileEntry) }),
     ...(m.reactions?.length && {
       reactions: m.reactions.map((r) => {
         const users: string[] = [];

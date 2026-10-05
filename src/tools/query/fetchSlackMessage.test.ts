@@ -1,13 +1,17 @@
-import { describe, it, vi, beforeEach } from "vitest";
+import { describe, it, vi, beforeEach, expect } from "vitest";
 import assert from "node:assert/strict";
 import { createFetchSlackMessageTool, type FetchSlackMessageDeps } from "./fetchSlackMessage.js";
 import { parseToolResult } from "../testHelpers.js";
 import type { QueryToolContext } from "../types.js";
-import type { SlackImageFile } from "../../slack/slackFileBase.js";
+import type { SlackFileRef, SlackRef } from "../../slack/slackRefs.js";
 import type { EmojiCache } from "../../slack/emojiCache.js";
 import { buildLoreHint } from "../../emojiLore.js";
 import { stub } from "../../testStubs.js";
-import { ACCESS_DENIED_MESSAGE, checkConversationAccess } from "../../slack/requesterAccess.js";
+import {
+  ACCESS_DENIED_MESSAGE,
+  checkConversationAccess,
+  checkFileAccess,
+} from "../../slack/requesterAccess.js";
 
 // The lore store is an outside dependency: stub the hint builder and assert the wiring.
 vi.mock("../../emojiLore.js", async (importOriginal) => {
@@ -18,10 +22,11 @@ vi.mock("../../emojiLore.js", async (importOriginal) => {
 // The requester access check is an outside dependency: stub the verdict and assert the wiring.
 vi.mock("../../slack/requesterAccess.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../slack/requesterAccess.js")>();
-  return { ...actual, checkConversationAccess: vi.fn() };
+  return { ...actual, checkConversationAccess: vi.fn(), checkFileAccess: vi.fn() };
 });
 
 beforeEach(() => {
+  vi.mocked(checkFileAccess).mockReset();
   vi.mocked(checkConversationAccess).mockReset();
   vi.mocked(checkConversationAccess).mockResolvedValue({ allowed: true });
 });
@@ -37,7 +42,27 @@ function makeDeps(overrides: Partial<FetchSlackMessageDeps> = {}): FetchSlackMes
       id: "C0123ABC",
       name: "general",
     })) as FetchSlackMessageDeps["getChannelInfo"],
+    resolveSlackRefs: vi.fn<FetchSlackMessageDeps["resolveSlackRefs"]>(async () => []),
     ...overrides,
+  };
+}
+
+/** A resolved file ref, as the resolver would return it for a fetched message. */
+function fileRef(
+  id: string,
+  name: string,
+  kind: SlackFileRef["kind"],
+  reader: string,
+): SlackFileRef {
+  return {
+    type: "file",
+    id,
+    name,
+    kind,
+    label: kind,
+    reader,
+    mustOpen: kind === "image",
+    fromCurrentMessage: false,
   };
 }
 
@@ -65,8 +90,7 @@ function makeCtx(overrides?: Partial<QueryToolContext>): QueryToolContext {
     changesWorkflowEnabled: false,
     cronUserSchedules: false,
     slackClient: stub<NonNullable<QueryToolContext["slackClient"]>>({}),
-    availableImages: new Map(),
-    availableFiles: new Map(),
+    availableRefs: new Map(),
     ...overrides,
   };
 }
@@ -88,53 +112,90 @@ function makeThreadMessages(count: number) {
 describe("fetchSlackMessage tool", () => {
   // --- URL parsing ---
 
-  it("returns error for invalid URL format", async () => {
-    const ctx = makeCtx();
-    const toolDef = createFetchSlackMessageTool(ctx, makeDeps());
+  it("refuses a value that is no Slack reference without a Slack call", async () => {
+    const deps = makeDeps();
+    const toolDef = createFetchSlackMessageTool(makeCtx(), deps);
 
     const result = await toolDef.handler(
       { url: "not-a-url", page: undefined, limit: undefined },
       { sessionId: "test" },
     );
 
-    const parsed = parseToolResult(result);
-    assert.ok(parsed.error);
-    assert.ok(parsed.error.includes("Invalid Slack message URL"));
     assert.equal(result.isError, true);
+    assert.ok(parseToolResult(result).error.includes("is not a Slack reference"));
+    expect(checkFileAccess).not.toHaveBeenCalled();
+    expect(deps.fetchThreadContext).not.toHaveBeenCalled();
   });
 
-  it("returns error for non-Slack URL", async () => {
-    const ctx = makeCtx();
-    const toolDef = createFetchSlackMessageTool(ctx, makeDeps());
+  it("refuses a non-Slack URL", async () => {
+    const toolDef = createFetchSlackMessageTool(makeCtx(), makeDeps());
 
     const result = await toolDef.handler(
       { url: "https://example.com/page", page: undefined, limit: undefined },
       { sessionId: "test" },
     );
 
-    const parsed = parseToolResult(result);
-    assert.ok(parsed.error);
-    assert.ok(parsed.error.includes("Invalid Slack message URL"));
     assert.equal(result.isError, true);
+    assert.ok(parseToolResult(result).error.includes("is not a Slack reference"));
   });
 
-  it("returns error for slack.com URL without workspace subdomain", async () => {
-    const ctx = makeCtx();
-    const toolDef = createFetchSlackMessageTool(ctx, makeDeps());
+  it("redirects a file id to its reader without reading messages", async () => {
+    vi.mocked(checkFileAccess).mockResolvedValue({
+      allowed: true,
+      botAccess: "read",
+      creator: "U1",
+      facts: { mimetype: "image/png" },
+    });
+    const deps = makeDeps();
+    const toolDef = createFetchSlackMessageTool(makeCtx(), deps);
 
     const result = await toolDef.handler(
+      { url: "F0IMAGE01", page: undefined, limit: undefined },
+      { sessionId: "test" },
+    );
+
+    assert.equal(result.isError, true);
+    expect(parseToolResult(result).error).toBe('"F0IMAGE01" is an Image: use view_slack_file');
+    expect(deps.fetchThreadContext).not.toHaveBeenCalled();
+  });
+
+  it("uses a registered permalink with no file access check", async () => {
+    const deps = makeDeps({
+      fetchThreadContext: vi.fn(async () =>
+        makeThreadMessages(1),
+      ) as FetchSlackMessageDeps["fetchThreadContext"],
+    });
+    const ctx = makeCtx();
+    ctx.availableRefs?.set("C0123ABC:1234567890.123456", {
+      type: "message",
+      id: "C0123ABC:1234567890.123456",
+      kind: "message",
+      label: "Slack message",
+      reader: "fetch_slack_message",
+      mustOpen: false,
+      channelId: "C0123ABC",
+      ts: "1234567890.123456",
+      fromCurrentMessage: true,
+    });
+    const toolDef = createFetchSlackMessageTool(ctx, deps);
+
+    await toolDef.handler(
       {
-        url: "https://slack.com/archives/C0123ABC/p1234567890123456",
+        url: "https://workspace.slack.com/archives/C0123ABC/p1234567890123456",
         page: undefined,
         limit: undefined,
       },
       { sessionId: "test" },
     );
 
-    const parsed = parseToolResult(result);
-    assert.ok(parsed.error);
-    assert.ok(parsed.error.includes("Invalid Slack message URL"));
-    assert.equal(result.isError, true);
+    expect(checkFileAccess).not.toHaveBeenCalled();
+    expect(deps.fetchThreadContext).toHaveBeenCalledWith(
+      ctx.slackClient,
+      "C0123ABC",
+      "1234567890.123456",
+      "",
+      expect.anything(),
+    );
   });
 
   // --- slackClient absent ---
@@ -490,7 +551,7 @@ describe("fetchSlackMessage tool", () => {
         ts: "1.0",
         isBot: false,
         displayName: "Alice",
-        imageFiles: [imageFile],
+        files: [imageFile],
       },
     ];
     const deps = makeDeps({
@@ -499,8 +560,10 @@ describe("fetchSlackMessage tool", () => {
       ) as FetchSlackMessageDeps["fetchThreadContext"],
     });
 
-    const availableImages = new Map<string, SlackImageFile>();
-    const ctx = makeCtx({ availableImages });
+    const imageRef = fileRef("F123", "screenshot.png", "image", "view_slack_file");
+    vi.mocked(deps.resolveSlackRefs).mockResolvedValue([imageRef]);
+    const availableRefs = new Map<string, SlackRef>();
+    const ctx = makeCtx({ availableRefs });
     const toolDef = createFetchSlackMessageTool(ctx, deps);
 
     const result = await toolDef.handler(
@@ -512,9 +575,64 @@ describe("fetchSlackMessage tool", () => {
       { sessionId: "test" },
     );
 
+    expect(deps.resolveSlackRefs).toHaveBeenCalledWith(
+      { client: ctx.slackClient, userId: "U123", role: "dev", session: ctx.session },
+      {
+        text: "Check this",
+        files: [imageFile],
+        fromCurrentMessage: false,
+        gates: { listsMode: "off", canvasesMode: "off" },
+      },
+    );
     const parsed = parseToolResult(result);
-    assert.equal(parsed.messages[0].images[0].file_id, "F123");
-    assert.ok(availableImages.has("F123"));
+    assert.deepEqual(parsed.messages[0].files, [
+      { file_id: "F123", name: "screenshot.png", kind: "image", reader: "view_slack_file" },
+    ]);
+    assert.equal("images" in parsed.messages[0], false);
+    assert.equal(availableRefs.get("F123"), imageRef);
+  });
+
+  it("registers a ref found in a fetched message's text", async () => {
+    const messages = [
+      {
+        text: "Notes in https://acme.slack.com/docs/T0123/F0CANVAS1",
+        userId: "U1",
+        ts: "1.0",
+        isBot: false,
+        displayName: "Alice",
+      },
+    ];
+    const deps = makeDeps({
+      fetchThreadContext: vi.fn<FetchSlackMessageDeps["fetchThreadContext"]>(async () => messages),
+    });
+    const canvasRef = fileRef("F0CANVAS1", "Notes", "canvas", "read_canvas");
+    vi.mocked(deps.resolveSlackRefs).mockResolvedValue([canvasRef]);
+    const availableRefs = new Map<string, SlackRef>();
+    const ctx = makeCtx({
+      availableRefs,
+      config: stub<QueryToolContext["config"]>({ repositories: [], canvases: { mode: "read" } }),
+    });
+    const toolDef = createFetchSlackMessageTool(ctx, deps);
+
+    const result = await toolDef.handler(
+      {
+        url: "https://workspace.slack.com/archives/C0123ABC/p1234567890123456",
+        page: undefined,
+        limit: undefined,
+      },
+      { sessionId: "test" },
+    );
+
+    expect(deps.resolveSlackRefs).toHaveBeenCalledWith(expect.anything(), {
+      text: "Notes in https://acme.slack.com/docs/T0123/F0CANVAS1",
+      files: undefined,
+      fromCurrentMessage: false,
+      gates: { listsMode: "off", canvasesMode: "read" },
+    });
+    assert.equal(availableRefs.get("F0CANVAS1"), canvasRef);
+    assert.deepEqual(parseToolResult(result).messages[0].files, [
+      { file_id: "F0CANVAS1", name: "Notes", kind: "canvas", reader: "read_canvas" },
+    ]);
   });
 
   it("registers files from paginated messages", async () => {
@@ -541,8 +659,10 @@ describe("fetchSlackMessage tool", () => {
       ) as FetchSlackMessageDeps["fetchThreadContext"],
     });
 
-    const availableFiles = new Map();
-    const ctx = makeCtx({ availableFiles });
+    const pdfRef = fileRef("F456", "doc.pdf", "document", "view_slack_file");
+    vi.mocked(deps.resolveSlackRefs).mockResolvedValue([pdfRef]);
+    const availableRefs = new Map<string, SlackRef>();
+    const ctx = makeCtx({ availableRefs });
     const toolDef = createFetchSlackMessageTool(ctx, deps);
 
     const result = await toolDef.handler(
@@ -554,9 +674,15 @@ describe("fetchSlackMessage tool", () => {
       { sessionId: "test" },
     );
 
+    expect(deps.resolveSlackRefs).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ files: [file], fromCurrentMessage: false }),
+    );
     const parsed = parseToolResult(result);
-    assert.equal(parsed.messages[0].files[0].file_id, "F456");
-    assert.ok(availableFiles.has("F456"));
+    assert.deepEqual(parsed.messages[0].files, [
+      { file_id: "F456", name: "doc.pdf", kind: "document", reader: "view_slack_file" },
+    ]);
+    assert.equal(availableRefs.get("F456"), pdfRef);
   });
 
   it("only registers images from current page, not overfetch messages", async () => {
@@ -581,7 +707,7 @@ describe("fetchSlackMessage tool", () => {
         ts: "0.0",
         isBot: false,
         displayName: "A",
-        imageFiles: [page0Image],
+        files: [page0Image],
       },
       {
         text: "Msg 1",
@@ -596,7 +722,7 @@ describe("fetchSlackMessage tool", () => {
         ts: "2.0",
         isBot: false,
         displayName: "C",
-        imageFiles: [page1Image],
+        files: [page1Image],
       },
     ];
     const deps = makeDeps({
@@ -605,8 +731,7 @@ describe("fetchSlackMessage tool", () => {
       ) as FetchSlackMessageDeps["fetchThreadContext"],
     });
 
-    const availableImages = new Map<string, SlackImageFile>();
-    const ctx = makeCtx({ availableImages });
+    const ctx = makeCtx();
     const toolDef = createFetchSlackMessageTool(ctx, deps);
 
     // Request page 1 with limit 1 — only message at index 1 should be in the page
@@ -619,9 +744,12 @@ describe("fetchSlackMessage tool", () => {
       { sessionId: "test" },
     );
 
-    // Page 0 image should NOT be registered, page 1 message has no image
-    assert.equal(availableImages.has("F_PAGE0"), false);
-    assert.equal(availableImages.has("F_PAGE1"), false);
+    // Only the page's one message (no files) is resolved; the overfetched ones are not
+    expect(deps.resolveSlackRefs).toHaveBeenCalledTimes(1);
+    expect(deps.resolveSlackRefs).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ text: "Msg 1", files: undefined }),
+    );
   });
 
   // --- User display name fallback ---
@@ -676,7 +804,7 @@ describe("fetchSlackMessage tool", () => {
 
   // --- Optional context maps ---
 
-  it("works when availableImages and availableFiles are undefined", async () => {
+  it("works when availableRefs is undefined", async () => {
     const imageFile = {
       id: "F1",
       name: "img.png",
@@ -691,7 +819,7 @@ describe("fetchSlackMessage tool", () => {
         ts: "1.0",
         isBot: false,
         displayName: "A",
-        imageFiles: [imageFile],
+        files: [imageFile],
       },
     ];
     const deps = makeDeps({
@@ -700,10 +828,7 @@ describe("fetchSlackMessage tool", () => {
       ) as FetchSlackMessageDeps["fetchThreadContext"],
     });
 
-    const ctx = makeCtx({
-      availableImages: undefined,
-      availableFiles: undefined,
-    });
+    const ctx = makeCtx({ availableRefs: undefined });
     const toolDef = createFetchSlackMessageTool(ctx, deps);
 
     const result = await toolDef.handler(
@@ -723,7 +848,7 @@ describe("fetchSlackMessage tool", () => {
 
   // --- Output shape ---
 
-  it("omits images and files keys when message has no attachments", async () => {
+  it("omits the files key when message has no references", async () => {
     const messages = makeThreadMessages(1);
     const deps = makeDeps({
       fetchThreadContext: vi.fn(

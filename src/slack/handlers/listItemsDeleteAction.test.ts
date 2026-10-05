@@ -78,6 +78,7 @@ function makeDeps(): MockedDeps {
       allowed: true,
       botAccess: "write",
       creator: "U001",
+      facts: {},
     })),
     deleteItems: vi.fn<ListItemsDeleteActionDeps["deleteItems"]>(async () => {}),
     stripClickedButton: vi.fn<ListItemsDeleteActionDeps["stripClickedButton"]>(stripClickedButton),

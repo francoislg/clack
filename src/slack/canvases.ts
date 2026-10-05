@@ -1,6 +1,6 @@
 import type { App } from "@slack/bolt";
 import { z } from "zod";
-import { isDirectConversation, SLACK_FILE_ID_PATTERN, slackUrlSegments } from "./fileRef.js";
+import { isDirectConversation } from "./fileRef.js";
 import { createSlackErrorMessage, type SlackErrorFormatter } from "./slackErrorMessage.js";
 
 /**
@@ -11,23 +11,6 @@ import { createSlackErrorMessage, type SlackErrorFormatter } from "./slackErrorM
 type SlackClient = App["client"];
 
 const canvasContentSchema = z.object({ content: z.string() });
-
-function canvasIdFromUrl(ref: string): string | undefined {
-  const parsed = slackUrlSegments(ref);
-  if (parsed === undefined) return undefined;
-
-  const { segments } = parsed;
-  const candidate =
-    segments[0] === "docs" ? segments[2] : segments[0] === "canvas" ? segments[1] : undefined;
-  return candidate !== undefined && SLACK_FILE_ID_PATTERN.test(candidate) ? candidate : undefined;
-}
-
-/** The canvas file id (`F…`) from a canvas id or a Slack canvas URL; undefined for anything else. */
-export function parseCanvasRef(ref: string): string | undefined {
-  const trimmed = ref.trim();
-  if (SLACK_FILE_ID_PATTERN.test(trimmed)) return trimmed;
-  return canvasIdFromUrl(trimmed);
-}
 
 export async function getCanvasMarkdown(client: SlackClient, canvasId: string): Promise<string> {
   // `canvases.getContent` has no typed method in @slack/web-api.

@@ -69,6 +69,7 @@ describe("requesterAccess: files", () => {
         allowed: true,
         botAccess: "read",
         creator: "U_ALICE",
+        facts: {},
       });
       expect(client.files.info).toHaveBeenCalledWith({ file: "F1" });
       expect(client.conversations.members).not.toHaveBeenCalled();
@@ -164,6 +165,7 @@ describe("requesterAccess: files", () => {
         allowed: true,
         botAccess: "read",
         creator: "U_ALICE",
+        facts: {},
       });
     });
 
@@ -174,11 +176,12 @@ describe("requesterAccess: files", () => {
         allowed: true,
         botAccess: "write",
         creator: "U_ALICE",
+        facts: {},
       });
     });
 
     it("reports no bot access level when Slack returns none or an unknown one", async () => {
-      const noLevel = { allowed: true, botAccess: undefined, creator: "U_ALICE" };
+      const noLevel = { allowed: true, botAccess: undefined, creator: "U_ALICE", facts: {} };
 
       setFile(client, { user: "U_ALICE" });
       expect(await checkFileAccess(request(), "F1")).toEqual(noLevel);
@@ -200,7 +203,71 @@ describe("requesterAccess: files", () => {
 
       const verdict = await checkFileAccess(request(), "F1");
 
-      expect(verdict).toStrictEqual({ allowed: true, botAccess: undefined, creator: undefined });
+      expect(verdict).toStrictEqual({
+        allowed: true,
+        botAccess: undefined,
+        creator: undefined,
+        facts: {
+          filetype: undefined,
+          prettyType: undefined,
+          name: undefined,
+          title: undefined,
+          mimetype: undefined,
+          size: undefined,
+          urlPrivate: undefined,
+        },
+      });
+    });
+
+    it("reports the file's facts on an allowance", async () => {
+      setFile(client, {
+        user: "U_ALICE",
+        filetype: "quip",
+        pretty_type: "Canvas",
+        name: "notes",
+        title: "Team notes",
+        mimetype: "application/vnd.slack-docs",
+        size: 1234,
+        url_private: "https://files.slack.com/files-pri/T1-F1/notes",
+      });
+
+      const verdict = await checkFileAccess(request(), "F1");
+
+      expect(verdict).toEqual({
+        allowed: true,
+        botAccess: undefined,
+        creator: "U_ALICE",
+        facts: {
+          filetype: "quip",
+          prettyType: "Canvas",
+          name: "notes",
+          title: "Team notes",
+          mimetype: "application/vnd.slack-docs",
+          size: 1234,
+          urlPrivate: "https://files.slack.com/files-pri/T1-F1/notes",
+        },
+      });
+    });
+
+    it("reports no facts on a denial", async () => {
+      setFile(client, { user: "U_OTHER", filetype: "quip", title: "Secret", size: 10 });
+
+      const verdict = await checkFileAccess(request(), "F1");
+
+      expect(verdict).toStrictEqual({ allowed: false, reason: "no_evidence" });
+    });
+
+    it("drops a malformed fact and still allows the file", async () => {
+      client.files.info.mockResolvedValue({
+        ok: true,
+        file: JSON.parse('{"id":"F1","user":"U_ALICE","title":"Team notes","size":"big"}'),
+      });
+
+      const verdict = await checkFileAccess(request(), "F1");
+
+      expect(verdict).toMatchObject({ allowed: true, creator: "U_ALICE" });
+      expect(verdict.allowed && verdict.facts.size).toBeUndefined();
+      expect(verdict.allowed && verdict.facts.title).toBe("Team notes");
     });
 
     it("denies a run with no requester a file shared only to private channels", async () => {
@@ -249,6 +316,7 @@ describe("requesterAccess: files", () => {
         allowed: true,
         botAccess: "write",
         creator: "U_ALICE",
+        facts: {},
       });
       expect(client.files.info).toHaveBeenCalledTimes(2);
       expect(addAccessGrant).toHaveBeenCalledTimes(1);

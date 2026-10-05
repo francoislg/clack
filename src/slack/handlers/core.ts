@@ -33,14 +33,26 @@ import {
   getForChannelMessage as getActiveRunForChannelMessage,
   withThreadLock,
   trackQueuedAck,
+  getRunRefs,
 } from "../activeRuns.js";
 import { addDeliveryReactions } from "../messageReactions.js";
 import { storeDmCoordinates } from "../dmResponse.js";
 import { executeAndDeliver } from "./handlerResponse.js";
 import { isProactiveTrigger, type TriggerType } from "../../changes/types.js";
-import type { SlackImageFile, SlackFile } from "../slackFileBase.js";
+import type { SlackFileBase } from "../slackFileBase.js";
+import {
+  readerGatesOf,
+  resolveRefsInto,
+  resolveSlackRefs,
+  type ReaderGates,
+  type RefSource,
+  type SlackRef,
+} from "../slackRefs.js";
+import { accessRequestFrom, type AccessRequest } from "../requesterAccess.js";
+import { getRole } from "../../roles.js";
+import type { ClaudeRunHandle } from "../../claude/runHandle.js";
 import type { AskClaudeOptions, ClaudeResponse } from "../../claude/index.js";
-import type { RequesterIdentity } from "../../claude/promptBuilder.js";
+import { formatReferencedTag, type RequesterIdentity } from "../../claude/promptBuilder.js";
 import type { SessionInfo } from "../activeSessions.js";
 import type { UserRole } from "../../roles.js";
 
@@ -123,6 +135,8 @@ export interface CoreDeps {
   appendUserMessage: typeof appendUserMessage;
   withThreadLock: typeof withThreadLock;
   trackQueuedAck: typeof trackQueuedAck;
+  getRole: typeof getRole;
+  resolveSlackRefs: typeof resolveSlackRefs;
 }
 
 export const defaultCoreDeps: CoreDeps = {
@@ -148,7 +162,89 @@ export const defaultCoreDeps: CoreDeps = {
   appendUserMessage,
   withThreadLock,
   trackQueuedAck,
+  getRole,
+  resolveSlackRefs,
 };
+
+/**
+ * The sources of a run's registry: the current message, the session's original trigger, and
+ * every thread-context message. A scheduled trigger contributes its attachments, never its
+ * prompt text. A message already resolved as a source (the current message, the original
+ * trigger) contributes only the files of its thread-context copy, since Slack can attach an
+ * unfurled canvas or List after the event; its text is not resolved twice.
+ */
+function runRefSources(params: ProcessMessageParams, session: SessionContext): RefSource[] {
+  const sources: RefSource[] = [
+    {
+      ...(params.triggerType !== "scheduled" && { text: params.messageText }),
+      files: params.files,
+      fromCurrentMessage: true,
+    },
+  ];
+  const trigger = session.trigger;
+  const triggerTs = trigger.type === "scheduled" ? undefined : trigger.messageTs;
+  if (trigger.type !== "scheduled" && trigger.messageTs !== params.messageTs) {
+    sources.push({ text: trigger.messageText, files: trigger.files, fromCurrentMessage: false });
+  }
+  for (const msg of session.threadContext) {
+    if (msg.ts === params.messageTs) {
+      sources.push({ files: msg.files, fromCurrentMessage: true });
+    } else if (msg.ts === triggerTs) {
+      sources.push({ files: msg.files, fromCurrentMessage: false });
+    } else {
+      sources.push({ text: msg.text, files: msg.files, fromCurrentMessage: false });
+    }
+  }
+  return sources;
+}
+
+/** Resolve every source concurrently and merge them, in source order, into one registry. */
+async function buildRunRefs(
+  req: AccessRequest,
+  gates: ReaderGates,
+  sources: readonly RefSource[],
+  deps: CoreDeps,
+): Promise<Map<string, SlackRef>> {
+  const registry = new Map<string, SlackRef>();
+  await resolveRefsInto(req, gates, sources, registry, deps);
+  return registry;
+}
+
+/**
+ * Resolve a message queued onto a live run into that run's registry, as current-message refs,
+ * and return the text to push: the message plus a `[referenced: …]` tag naming what it
+ * references. A run with no attached registry gets the message unchanged.
+ */
+async function registerQueuedRefs(
+  run: ClaudeRunHandle,
+  params: ProcessMessageParams,
+  config: Config,
+  deps: CoreDeps,
+): Promise<string> {
+  const live = getRunRefs(run);
+  if (!live) return params.messageText;
+  const role = params.roleOverride ?? (await deps.getRole(params.userId));
+  const [refs = []] = await resolveRefsInto(
+    accessRequestFrom({
+      slackClient: params.client,
+      userId: params.userId,
+      role,
+      session: live.session,
+    }),
+    readerGatesOf(config),
+    [
+      {
+        ...(params.triggerType !== "scheduled" && { text: params.messageText }),
+        files: params.files,
+        fromCurrentMessage: true,
+      },
+    ],
+    live.refs,
+    deps,
+  );
+  const tag = formatReferencedTag(refs);
+  return tag ? `${params.messageText}\n${tag}` : params.messageText;
+}
 
 /**
  * Optional per-round hook for split investigations: when a session follows threads, this
@@ -192,10 +288,8 @@ export interface ProcessMessageParams {
    * triggers. Threaded onto the Claude options, never persisted to the session.
    */
   actionToken?: string;
-  /** Image files from the triggering message */
-  imageFiles?: SlackImageFile[];
-  /** Non-image file attachments from the triggering message */
-  files?: SlackFile[];
+  /** Files of every kind attached to the triggering message */
+  files?: SlackFileBase[];
   /** Extra context from the auto-respond rule */
   additionalSystemPrompt?: string;
   /** When true, skip streaming UX and post the final result directly */
@@ -304,8 +398,8 @@ interface ProcessingContext {
   readonly silent?: boolean;
   /** Effective "now" for time-sensitive tools (replay support). Threaded into Claude options. */
   readonly asOf?: Date;
-  /** Image files from the triggering Slack message (stored on the trigger). */
-  readonly imageFiles?: SlackImageFile[];
+  /** Files of every kind from the triggering Slack message (stored on the trigger). */
+  readonly files?: SlackFileBase[];
   /** Pre-analysis verdict from the autoRespond gate. Stamped onto the session's trigger
    *  at creation (autoRespond only) AND onto each assistant message appended during this run. */
   readonly preAnalysis?: string;
@@ -337,7 +431,7 @@ function buildTriggerFromParams(params: {
   userId: string;
   messageTs: string;
   messageText: string;
-  imageFiles?: SlackImageFile[];
+  files?: SlackFileBase[];
   preAnalysis?: string;
   jobId?: string;
   reactionEmoji?: string;
@@ -358,7 +452,7 @@ function buildTriggerFromParams(params: {
         emoji: params.reactionEmoji ?? "",
         messageTs: params.messageTs,
         messageText: params.messageText,
-        ...(params.imageFiles !== undefined ? { imageFiles: params.imageFiles } : {}),
+        ...(params.files !== undefined ? { files: params.files } : {}),
       };
     case "autoRespond":
     case "threadReply":
@@ -375,7 +469,7 @@ function buildTriggerFromParams(params: {
         ...(params.autoRespondRuleName !== undefined
           ? { ruleName: params.autoRespondRuleName }
           : {}),
-        ...(params.imageFiles !== undefined ? { imageFiles: params.imageFiles } : {}),
+        ...(params.files !== undefined ? { files: params.files } : {}),
         ...(params.preAnalysis !== undefined ? { preAnalysis: params.preAnalysis } : {}),
       };
     case "directMessages":
@@ -384,7 +478,7 @@ function buildTriggerFromParams(params: {
         userId: params.userId,
         messageTs: params.messageTs,
         messageText: params.messageText,
-        ...(params.imageFiles !== undefined ? { imageFiles: params.imageFiles } : {}),
+        ...(params.files !== undefined ? { files: params.files } : {}),
       };
     case "mentions":
     default:
@@ -393,7 +487,7 @@ function buildTriggerFromParams(params: {
         userId: params.userId,
         messageTs: params.messageTs,
         messageText: params.messageText,
-        ...(params.imageFiles !== undefined ? { imageFiles: params.imageFiles } : {}),
+        ...(params.files !== undefined ? { files: params.files } : {}),
       };
   }
 }
@@ -463,7 +557,7 @@ async function setupSession(
       userId,
       messageTs,
       messageText: processedMessageText,
-      imageFiles: ctx.imageFiles,
+      files: ctx.files,
       preAnalysis: ctx.preAnalysis,
     });
     session = await deps.createSession({
@@ -668,9 +762,10 @@ export async function processMessage(
     // Skip empty/whitespace text — pushing "" into the live SDK stream is not useful.
     const existingRun = getActiveRunForChannelMessage(channelId, effectiveThreadTs, userId);
     if (existingRun && messageText.trim().length > 0) {
+      const pushedText = await registerQueuedRefs(existingRun, params, config, deps);
       let queued = false;
       try {
-        await existingRun.sendUpdate(messageText);
+        await existingRun.sendUpdate(pushedText);
         queued = true;
       } catch (err) {
         logger.debug(
@@ -725,7 +820,7 @@ export async function processMessage(
       submitResponseMode: params.submitResponseMode,
       silent: params.silent,
       asOf: params.asOf,
-      imageFiles: params.imageFiles,
+      files: params.files,
       preAnalysis: params.preAnalysis,
       attentionLevel: params.attentionLevel,
       jobId: params.jobId,
@@ -772,33 +867,27 @@ export async function processMessage(
     };
     deps.setSessionInfo(session.sessionId, sessionInfo);
 
-    // 5. Collect available images + files from triggering message + thread context
-    const imageMap = new Map<string, SlackImageFile>();
-    if (params.imageFiles) {
-      for (const img of params.imageFiles) imageMap.set(img.id, img);
-    }
-    const fileMap = new Map<string, SlackFile>();
-    if (params.files) {
-      for (const f of params.files) fileMap.set(f.id, f);
-    }
-    for (const msg of session.threadContext) {
-      if (msg.imageFiles) {
-        for (const img of msg.imageFiles) imageMap.set(img.id, img);
-      }
-      if (msg.files) {
-        for (const f of msg.files) fileMap.set(f.id, f);
-      }
-    }
-    const availableImages = imageMap;
-    const availableFiles = fileMap;
-
-    // 6. Build Claude options and execute. The active-runs registry replaces the previous
+    // 5. Build Claude options and execute. The active-runs registry replaces the previous
     // in-flight tracking wrapper — `askClaude` registers itself under (channelId, threadTs)
     // when the run is constructed and deregisters via the handle's `onTerminal` hook.
     const claudeOptions = await deps.getClaudeOptions(userId, triggerType, {
       channelId,
       roleOverride: ctx.roleOverride,
     });
+
+    // 6. Resolve the Slack references of the current message, the original trigger and the
+    // thread context into the run's one registry.
+    const availableRefs = await buildRunRefs(
+      accessRequestFrom({
+        slackClient: client,
+        userId,
+        role: claudeOptions.role ?? "member",
+        session,
+      }),
+      readerGatesOf(config),
+      runRefSources(params, session),
+      deps,
+    );
     const abortController = new AbortController();
 
     return deps.executeAndDeliver({
@@ -808,8 +897,7 @@ export async function processMessage(
       claudeOptions: {
         ...claudeOptions,
         workMode,
-        availableImages,
-        availableFiles,
+        availableRefs,
         actionToken: ctx.actionToken,
         requiredTools: ctx.requiredTools,
         ...(requester && { requester }),

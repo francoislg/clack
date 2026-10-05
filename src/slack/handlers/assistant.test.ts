@@ -16,7 +16,6 @@ interface CapturedProcessArgs {
   threadTs?: string;
   triggerType: string;
   assistantChannelId?: string;
-  imageFiles?: Array<{ id: string; name: string; mimetype: string }>;
   files?: Array<{ id: string; name: string; mimetype: string }>;
 }
 
@@ -334,7 +333,7 @@ describe("assistant userMessage", () => {
     registerAssistant(app, {
       ...makeDeps(),
       extractAttachments: () => ({
-        imageFiles: [
+        files: [
           {
             id: "F1",
             name: "screenshot.png",
@@ -362,9 +361,42 @@ describe("assistant userMessage", () => {
     assert.equal(mockProcessMessage.mock.calls.length, 1);
     const args = mockProcessMessage.mock.calls[0][0] as CapturedProcessArgs;
     assert.equal(args.messageText, "Answer based on the attached image(s).");
-    assert.ok(args.imageFiles);
-    assert.equal(args.imageFiles.length, 1);
-    assert.equal(args.imageFiles[0].id, "F1");
+    assert.ok(args.files);
+    assert.equal(args.files.length, 1);
+    assert.equal(args.files[0].id, "F1");
+  });
+
+  it("ignores a DM with no text whose only file is not an image", async () => {
+    const app = makeApp();
+    registerAssistant(app, {
+      ...makeDeps(),
+      extractAttachments: () => ({
+        files: [
+          {
+            id: "F2",
+            name: "report.pdf",
+            mimetype: "application/pdf",
+            size: 1024,
+            url_private: "https://files.slack.com/F2",
+          },
+        ],
+      }),
+    });
+
+    await capturedAssistantHandlers!.userMessage({
+      event: {
+        user: "U001",
+        channel: "D001",
+        ts: "1700000000.000003",
+        files: [{ id: "F2", mimetype: "application/pdf" }],
+      },
+      client: makeClient(),
+      setStatus: makeMockSetStatus(),
+      setTitle: makeMockSetTitle(),
+      getThreadContext: makeMockGetThreadContext(),
+    });
+
+    assert.equal(mockProcessMessage.mock.calls.length, 0);
   });
 
   it("calls processMessage with correct parameters", async () => {

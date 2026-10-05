@@ -21,6 +21,7 @@ import { makeWorkerCtx } from "./worker/testCtx.js";
 import type { Config } from "../config.js";
 import type { UserRole } from "../roles.js";
 import type { SessionContext } from "../sessions.js";
+import type { SlackRef } from "../slack/slackRefs.js";
 import { setLoadedPlugins } from "../plugins-core/state.js";
 import type { PluginLoadResult, RegisteredTool } from "../plugins-sdk/sdk.js";
 import { logger } from "../logger.js";
@@ -893,6 +894,51 @@ describe("buildClackTools — List tools gating", () => {
       LIST_TOOLS.filter((name) => toolNames.includes(name)),
       [],
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// view_slack_file registration gating (registry or Slack client)
+// ---------------------------------------------------------------------------
+
+describe("buildClackTools — view_slack_file gating", () => {
+  beforeEach(() => {
+    setLoadedPlugins({ results: [] });
+  });
+  afterEach(() => {
+    setLoadedPlugins({ results: [] });
+  });
+
+  const registryWithOneImage = (): Map<string, SlackRef> =>
+    new Map<string, SlackRef>([
+      [
+        "F1",
+        {
+          type: "file",
+          id: "F1",
+          kind: "image",
+          label: "Image",
+          reader: "view_slack_file",
+          mustOpen: true,
+          fromCurrentMessage: true,
+          name: "shot.png",
+        },
+      ],
+    ]);
+
+  it("registers view_slack_file with a non-empty registry and no Slack client", () => {
+    const ctx = makeQueryCtx({ availableRefs: registryWithOneImage(), slackClient: undefined });
+    assert.ok(buildClackTools(ctx).toolNames.includes("view_slack_file"));
+  });
+
+  it("registers view_slack_file with a Slack client and an empty registry", () => {
+    const ctx = makeQueryCtx({ availableRefs: new Map(), slackClient: new WebClient("xoxb-test") });
+    assert.ok(buildClackTools(ctx).toolNames.includes("view_slack_file"));
+  });
+
+  it("omits view_slack_file with neither a registry entry nor a Slack client", () => {
+    const ctx = makeQueryCtx({ availableRefs: new Map(), slackClient: undefined });
+    assert.equal(buildClackTools(ctx).toolNames.includes("view_slack_file"), false);
   });
 });
 

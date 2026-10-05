@@ -31,6 +31,16 @@ export interface AccessRequest {
   session?: SessionContext;
 }
 
+/** The access request of a tool or run context that carries a Slack client. */
+export function accessRequestFrom(ctx: {
+  slackClient: App["client"];
+  userId: string;
+  role: UserRole;
+  session?: SessionContext;
+}): AccessRequest {
+  return { client: ctx.slackClient, userId: ctx.userId, role: ctx.role, session: ctx.session };
+}
+
 export type AccessDenialReason =
   | "no_requester"
   | "not_member"
@@ -42,7 +52,12 @@ export type AccessDenialReason =
 export type ConversationAccess = { allowed: true } | { allowed: false; reason: AccessDenialReason };
 
 export type FileAccess =
-  | { allowed: true; botAccess: "read" | "write" | undefined; creator: string | undefined }
+  | {
+      allowed: true;
+      botAccess: "read" | "write" | undefined;
+      creator: string | undefined;
+      facts: FileFacts;
+    }
   | { allowed: false; reason: AccessDenialReason };
 
 export const ACCESS_DENIED_MESSAGE =
@@ -95,9 +110,39 @@ const fileEvidenceZod = z.object({
     .array(z.object({ user_id: z.string().optional().catch(undefined) }))
     .optional()
     .catch(undefined),
+  filetype: z.string().optional().catch(undefined),
+  pretty_type: z.string().optional().catch(undefined),
+  name: z.string().optional().catch(undefined),
+  title: z.string().optional().catch(undefined),
+  mimetype: z.string().optional().catch(undefined),
+  size: z.number().optional().catch(undefined),
+  url_private: z.string().optional().catch(undefined),
 });
 
 type FileEvidence = z.infer<typeof fileEvidenceZod>;
+
+/** Descriptive facts about a file, read from the same `files.info` call as the access evidence. */
+export type FileFacts = {
+  filetype?: string;
+  prettyType?: string;
+  name?: string;
+  title?: string;
+  mimetype?: string;
+  size?: number;
+  urlPrivate?: string;
+};
+
+function factsOf(file: FileEvidence): FileFacts {
+  return {
+    filetype: file.filetype,
+    prettyType: file.pretty_type,
+    name: file.name,
+    title: file.title,
+    mimetype: file.mimetype,
+    size: file.size,
+    urlPrivate: file.url_private,
+  };
+}
 
 /** The `conversations.info` channel fields the access rule reads. Each field degrades to
  *  absent on a malformed value, so a surprising shape never reads as a public channel. */
@@ -387,6 +432,7 @@ export async function checkFileAccess(req: AccessRequest, fileId: string): Promi
     allowed: true,
     botAccess: botAccessOf(file),
     creator: file.user,
+    facts: factsOf(file),
   };
   if (getSlackAccessMode() === "bot" || isSessionGranted(req, fileId)) return allowed;
   try {

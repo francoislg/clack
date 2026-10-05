@@ -5,6 +5,7 @@ import { logger } from "../../logger.js";
 import { t } from "../../i18n/t.js";
 import { findSessionByThread, updateSession, type SessionContext } from "../../sessions.js";
 import { extractAttachments, type ExtractedAttachments } from "../fileExtractor.js";
+import { isImageFile } from "../slackRefs.js";
 import { PerThreadContextStore } from "./assistantContextStore.js";
 import { processMessage } from "./core.js";
 import { matchesInlineStopEmoji } from "../stopEmoji.js";
@@ -210,7 +211,7 @@ export function registerAssistant(app: App, deps: AssistantDeps = defaultAssista
 
       const attachments = deps.extractAttachments(msg.files);
       const hasText = !!msg.text;
-      const hasImages = !!attachments.imageFiles?.length;
+      const hasImages = !!attachments.files?.some(isImageFile);
       if (!hasText && !hasImages) return;
 
       const config = deps.getConfig();

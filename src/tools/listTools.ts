@@ -2,14 +2,12 @@ import { z } from "zod";
 import type { QueryToolContext } from "./types.js";
 import { errorResult } from "./helpers.js";
 import { listErrorMessage, type ListApi, type ListInfo } from "../slack/lists.js";
-import { parseListRef } from "../slack/listRef.js";
-import { checkFileAccess, FILE_ACCESS_DENIED_MESSAGE } from "../slack/requesterAccess.js";
+import { FILE_ACCESS_DENIED_MESSAGE } from "../slack/requesterAccess.js";
+import { resolveRefForReader } from "./resolveRefForReader.js";
 
 type SlackClient = NonNullable<QueryToolContext["slackClient"]>;
 type ToolError = ReturnType<typeof errorResult>;
 
-export const NOT_A_LIST_REF_MESSAGE =
-  "Not a List reference. Pass a List id (F…) or a Slack List URL.";
 export const LIST_READ_ONLY_MESSAGE =
   "Clack can only read that List. It must be shared with edit access to a channel Clack is in.";
 
@@ -47,18 +45,16 @@ export async function openList(
   }
   const client = ctx.slackClient;
 
-  const parsed = parseListRef(ref);
-  if (parsed === undefined) return { ok: false, error: errorResult(NOT_A_LIST_REF_MESSAGE) };
-
-  const verdict = await checkFileAccess(
-    { client, userId: ctx.userId, role: ctx.role, session: ctx.session },
-    parsed.listId,
-  );
-  if (!verdict.allowed) return { ok: false, error: errorResult(FILE_ACCESS_DENIED_MESSAGE) };
+  const resolved = await resolveRefForReader(ctx, ref, ["list"], { alwaysCheckAccess: true });
+  if (!resolved.ok) return { ok: false, error: resolved.error };
+  const verdict = resolved.access;
+  if (verdict === undefined) {
+    return { ok: false, error: errorResult(FILE_ACCESS_DENIED_MESSAGE) };
+  }
   if (access === "write" && verdict.botAccess === "read") {
     return { ok: false, error: errorResult(LIST_READ_ONLY_MESSAGE) };
   }
-  return { ok: true, client, listId: parsed.listId, itemId: parsed.itemId };
+  return { ok: true, client, listId: resolved.ref.id, itemId: resolved.itemId };
 }
 
 export type LoadedListInfo = { ok: true; info: ListInfo } | { ok: false; error: ToolError };

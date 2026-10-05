@@ -275,12 +275,12 @@ describe("registerMentionHandler", () => {
     assert.equal(mockProcessMessage.mock.calls.length, 1);
     interface ProcessMessageArg {
       messageText: string;
-      imageFiles?: Array<{ id: string }>;
+      files?: Array<{ id: string }>;
     }
     const args = mockProcessMessage.mock.calls[0]![0] as ProcessMessageArg;
     assert.equal(args.messageText, "Answer based on the attached image(s).");
-    assert.equal(args.imageFiles?.length, 1);
-    assert.equal(args.imageFiles?.[0].id, "F1");
+    assert.equal(args.files?.length, 1);
+    assert.equal(args.files?.[0].id, "F1");
   });
 
   it("uses thread fallback prompt for in-thread image-only @mention and forwards images", async () => {
@@ -309,12 +309,12 @@ describe("registerMentionHandler", () => {
     assert.equal(mockProcessMessage.mock.calls.length, 1);
     interface ProcessMessageArg {
       messageText: string;
-      imageFiles?: Array<{ id: string }>;
+      files?: Array<{ id: string }>;
     }
     const args = mockProcessMessage.mock.calls[0]![0] as ProcessMessageArg;
     assert.ok(args.messageText.includes("Read the conversation above"));
-    assert.equal(args.imageFiles?.length, 1);
-    assert.equal(args.imageFiles?.[0].id, "F2");
+    assert.equal(args.files?.length, 1);
+    assert.equal(args.files?.[0].id, "F2");
   });
 
   it("posts help message when empty text and no images and not in thread", async () => {
@@ -326,6 +326,31 @@ describe("registerMentionHandler", () => {
         channel: "C001",
         text: "<@B001>",
         ts: "1700000000.000001",
+      },
+      client,
+    });
+
+    assert.equal(mockProcessMessage.mock.calls.length, 0);
+  });
+
+  it("treats a top-level @mention whose only file is not an image as empty", async () => {
+    const client = makeClient("B001");
+
+    await capturedHandler({
+      event: {
+        user: "U001",
+        channel: "C001",
+        text: "<@B001>",
+        ts: "1700000000.000001",
+        files: [
+          {
+            id: "F3",
+            name: "report.pdf",
+            mimetype: "application/pdf",
+            size: 1024,
+            url_private: "https://files.slack.com/F3",
+          },
+        ],
       },
       client,
     });

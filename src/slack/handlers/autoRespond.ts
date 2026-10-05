@@ -28,6 +28,7 @@ import { resolveUsers } from "../userCache.js";
 import { getChannelInfo } from "../channelCache.js";
 import { resolveChannelLabel, resolveUserLabel, slackLink } from "../logContext.js";
 import { extractAttachments } from "../fileExtractor.js";
+import { isImageFile } from "../slackRefs.js";
 import { buildImageOnlyPreAnalysisText } from "../imageFormatting.js";
 import { processMessage } from "./core.js";
 import { matchesInlineStopEmoji } from "../stopEmoji.js";
@@ -172,8 +173,8 @@ function resolveAnalysisText(
 ): string | null {
   const trimmed = rawText?.trim();
   if (trimmed) return trimmed;
-  const { imageFiles } = extractAttachments(rawFiles);
-  return imageFiles?.length ? buildImageOnlyPreAnalysisText(imageFiles) : null;
+  const images = extractAttachments(rawFiles).files?.filter(isImageFile) ?? [];
+  return images.length ? buildImageOnlyPreAnalysisText(images) : null;
 }
 
 interface AutoRespondContext {
@@ -785,7 +786,7 @@ async function respond(
   let messageText: string;
   if (trimmedText) {
     messageText = trimmedText;
-  } else if (attachments.imageFiles?.length) {
+  } else if (attachments.files?.some(isImageFile)) {
     messageText = "Answer based on the attached image(s).";
   } else {
     messageText = "Respond to this message";

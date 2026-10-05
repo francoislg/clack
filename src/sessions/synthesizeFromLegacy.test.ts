@@ -98,7 +98,7 @@ describe("synthesizeMessagesFromLegacy", () => {
     assert.equal(messages[0].role, "user");
   });
 
-  it("carries imageFiles onto the trigger (not onto messages[])", () => {
+  it("reads a legacy imageFiles list into the trigger's files (not onto messages[])", () => {
     const { trigger } = synthesizeMessagesFromLegacy(
       makeLegacy({
         triggerType: "mentions",
@@ -117,7 +117,21 @@ describe("synthesizeMessagesFromLegacy", () => {
     if (trigger.type === "scheduled") {
       assert.fail("expected user-first trigger");
     }
-    assert.equal(trigger.imageFiles?.length, 1);
+    assert.deepEqual(
+      trigger.files?.map((f) => f.id),
+      ["F1"],
+    );
+    assert.equal("imageFiles" in trigger, false);
+  });
+
+  it("drops malformed legacy imageFiles entries", () => {
+    const { trigger } = synthesizeMessagesFromLegacy(
+      makeLegacy({ triggerType: "mentions", userId: "U1", imageFiles: [{ id: "F1" }, "junk"] }),
+    );
+    if (trigger.type === "scheduled") {
+      assert.fail("expected user-first trigger");
+    }
+    assert.equal(trigger.files, undefined);
   });
 
   it("produces a complete message list for a fully-populated legacy session (trigger holds the first user message, messages[] starts at refinement #1)", () => {

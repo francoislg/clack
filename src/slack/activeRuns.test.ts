@@ -12,9 +12,14 @@ import {
   withThreadLock,
   trackQueuedAck,
   takeQueuedAcks,
+  attachRunRefs,
+  getRunRefs,
   _resetForTesting,
 } from "./activeRuns.js";
 import { makeFakeRunHandle } from "../claude/runHandle.testFixtures.js";
+import type { SessionContext } from "../sessions.js";
+import type { SlackRef } from "./slackRefs.js";
+import { stub } from "../testStubs.js";
 
 /** A manually-resolvable promise, for ordering assertions without real timers. */
 function deferred<T = void>(): { promise: Promise<T>; resolve: (v: T) => void } {
@@ -286,6 +291,29 @@ describe("activeRuns snapshot", () => {
     // The slot is still held — snapshot only observes.
     assert.equal(size(), 1);
     assert.ok(getByThread("C1", "T1"));
+  });
+});
+
+describe("run ref registries", () => {
+  function registry() {
+    return { refs: new Map<string, SlackRef>(), session: stub<SessionContext>({}) };
+  }
+
+  it("returns undefined before a registry is attached", () => {
+    assert.equal(getRunRefs(fakeHandle("a")), undefined);
+  });
+
+  it("returns the attached registry itself", () => {
+    const h = fakeHandle("a");
+    const attached = registry();
+    attachRunRefs(h, attached);
+    assert.equal(getRunRefs(h), attached);
+  });
+
+  it("keeps registries for two handles independent", () => {
+    const a = fakeHandle("a");
+    attachRunRefs(a, registry());
+    assert.equal(getRunRefs(fakeHandle("b")), undefined);
   });
 });
 

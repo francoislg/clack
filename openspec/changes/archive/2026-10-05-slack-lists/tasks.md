@@ -1,6 +1,6 @@
 ## 1. Live shape check
 
-- [ ] 1.1 Get from the coordinator a captured `files.info` response for one real List (`list_metadata.schema`, select `options.choices`, `access`) and one `slackLists.items.list` page, and save them redacted as test fixtures for §4 and §5. If a shape contradicts the facts in `design.md`'s Context, stop and correct `design.md` before starting §4; §2 and §3 do not depend on this
+- [x] 1.1 Get from the coordinator a captured `files.info` response for one real List (`list_metadata.schema`, select `options.choices`, `access`) and one `slackLists.items.list` page, and save them redacted as test fixtures for §4 and §5. If a shape contradicts the facts in `design.md`'s Context, stop and correct `design.md` before starting §4; §2 and §3 do not depend on this
 
 ## 2. Config gate
 

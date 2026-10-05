@@ -10,6 +10,7 @@ vi.mock("../sessions.js", () => ({
 import {
   ACCESS_DENIED_MESSAGE,
   FILE_ACCESS_DENIED_MESSAGE,
+  accessRequestFrom,
   checkConversationAccess,
   clearRequesterAccessCache,
   type AccessRequest,
@@ -27,6 +28,7 @@ import {
   PRIVATE,
   PUBLIC,
   makeRequest,
+  makeSession,
   setConversations,
   setDmUser,
   setMembers,
@@ -356,5 +358,22 @@ describe("requesterAccess: conversations", () => {
       expect(await checkConversationAccess(request(), PUBLIC)).toEqual({ allowed: true });
       expect(client.conversations.members).toHaveBeenCalledTimes(1);
     });
+  });
+});
+
+describe("accessRequestFrom", () => {
+  it("maps a context's Slack client, requester, role and session onto a request", () => {
+    const client = createSlackClientMock();
+    const session = makeSession();
+    expect(
+      accessRequestFrom({ slackClient: client, userId: "U_ALICE", role: "dev", session }),
+    ).toEqual({ client, userId: "U_ALICE", role: "dev", session });
+  });
+
+  it("leaves the session undefined when the context has none", () => {
+    const client = createSlackClientMock();
+    const req = accessRequestFrom({ slackClient: client, userId: "U_ALICE", role: "member" });
+    expect(req.client).toBe(client);
+    expect(req.session).toBeUndefined();
   });
 });

@@ -1,4 +1,10 @@
-## ADDED Requirements
+# slack-lists Specification
+
+## Purpose
+
+Read, add to, update, delete items of, and create Slack Lists on a requester's behalf, behind `config.lists.mode`, with requester access checked before every List call.
+
+## Requirements
 
 ### Requirement: Lists config gate
 
@@ -52,7 +58,7 @@ In `read` mode the tool server SHALL register `read_list` and `get_list_item` fo
 
 ### Requirement: List reference parsing
 
-Every List tool acting on an existing List SHALL accept a List file id or a Slack List URL and SHALL resolve it to the List file id. A URL carrying a `record_id` SHALL also yield that item id. Any other value SHALL be refused without a Slack call.
+Every List tool acting on an existing List SHALL accept a List file id or a Slack List URL and SHALL resolve it to the List file id. A URL carrying a `record_id` SHALL also yield that item id. A Slack reference of another kind (a canvas, an image, another file, or a message permalink) SHALL return an error naming its kind and its reader tool, e.g. "is a Slack canvas: use read_canvas"; a file id SHALL learn its kind through a lookup that runs the requester access check. A value that is no Slack reference SHALL be refused without a Slack call.
 
 #### Scenario: List URL
 
@@ -67,7 +73,19 @@ Every List tool acting on an existing List SHALL accept a List file id or a Slac
 #### Scenario: Not a List reference
 
 - **WHEN** the list argument is a message permalink
-- **THEN** the tool returns an error and makes no Slack call
+- **THEN** the tool returns an error saying it is a Slack message and naming `fetch_slack_message`
+- **AND** makes no Slack call
+
+#### Scenario: No Slack reference
+
+- **WHEN** the list argument is a value that is no Slack reference, such as `hello world`
+- **THEN** the tool refuses it with an error and makes no Slack call
+
+#### Scenario: Canvas id passed to read_list
+
+- **WHEN** `read_list` is given the file id of a Slack canvas the requester can see
+- **THEN** it returns an error saying the id is a Slack canvas and to use `read_canvas`
+- **AND** `slackLists.items.list` is not called
 
 ### Requirement: Requester access before every List call
 

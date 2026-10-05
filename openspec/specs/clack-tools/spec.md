@@ -1,8 +1,11 @@
 # clack-tools Specification
 
 ## Purpose
+
 In-process MCP tool server providing query, action, and presentation tools to Claude during Slack bot queries. Tools are built per-query with closure-captured context and gated by user role.
+
 ## Requirements
+
 ### Requirement: In-Process MCP Tool Server
 
 The system SHALL provide in-process MCP tool servers using the Agent SDK's `createSdkMcpServer()` function. In query mode the assembly returns a `Record<string, McpServerConfig>` containing one `clack` server for core tools plus one dedicated server per loaded plugin (keyed by plugin name). In worker mode the assembly returns a single `clack` server instance. This is a breaking change from the prior single-server query-mode return shape.
@@ -69,11 +72,11 @@ The system SHALL provide active change information as prompt context, not as too
 - **THEN** the context includes a Slack `WebClient` instance
 - **AND** tools that require Slack API access (such as `find_user`) use this client
 
-#### Scenario: Context includes available images
+#### Scenario: Context includes referenced Slack items
 
 - **WHEN** the tool builder is called in query mode
-- **AND** image files were extracted from the triggering message or thread context
-- **THEN** the context includes `availableImages` — a Map of Slack file ID to image metadata (name, mimetype, size, url_private)
+- **THEN** the context includes `availableRefs`, a Map of reference id to resolved Slack reference (kind, reader, facts, and whether it came from the current message)
+- **AND** it holds the references resolved from the current message, the session's original trigger and the thread context
 
 #### Scenario: Worker context includes worktree and session info
 
@@ -133,11 +136,13 @@ The system SHALL register tools based on the user's role, workflow configuration
 The system SHALL register admin config tools (`admin_read_file`, `admin_write_file`, `admin_restart_app`) for users with admin or owner role.
 
 #### Scenario: Admin tools registered for admin users
+
 - **WHEN** the tool server is built in query mode
 - **AND** the user has admin or owner role
 - **THEN** `admin_read_file`, `admin_write_file`, and `admin_restart_app` are registered
 
 #### Scenario: Admin tools not registered for non-admin users
+
 - **WHEN** the tool server is built in query mode
 - **AND** the user has member or dev role
 - **THEN** `admin_read_file`, `admin_write_file`, and `admin_restart_app` are NOT registered
@@ -147,11 +152,13 @@ The system SHALL register admin config tools (`admin_read_file`, `admin_write_fi
 The system SHALL register admin env tools (`admin_set_env`, `admin_list_env`) for users with admin or owner role.
 
 #### Scenario: Admin env tools registered for admin users
+
 - **WHEN** the tool server is built in query mode
 - **AND** the user has admin or owner role
 - **THEN** `admin_set_env` and `admin_list_env` are registered
 
 #### Scenario: Admin env tools not registered for non-admin users
+
 - **WHEN** the tool server is built in query mode
 - **AND** the user has member or dev role
 - **THEN** `admin_set_env` and `admin_list_env` are NOT registered
@@ -161,11 +168,13 @@ The system SHALL register admin env tools (`admin_set_env`, `admin_list_env`) fo
 The system SHALL register `admin_set_role` for users with admin or owner role.
 
 #### Scenario: Admin role tool registered for admin users
+
 - **WHEN** the tool server is built in query mode
 - **AND** the user has admin or owner role
 - **THEN** `admin_set_role` is registered
 
 #### Scenario: Admin role tool not registered for non-admin users
+
 - **WHEN** the tool server is built in query mode
 - **AND** the user has member or dev role
 - **THEN** `admin_set_role` is NOT registered
@@ -175,60 +184,72 @@ The system SHALL register `admin_set_role` for users with admin or owner role.
 The system SHALL provide read-only query tools for discovering system state.
 
 #### Scenario: list_repositories tool
+
 - **WHEN** Claude calls `list_repositories`
 - **THEN** the tool returns only repositories the current user has read access to
 - **AND** each entry includes name, description, and whether the user has write access
 - **AND** repositories below the user's read threshold are omitted entirely
 
 #### Scenario: find_sessions tool
+
 - **WHEN** Claude calls `find_sessions` with optional filters (status, repo, branch)
 - **THEN** the tool returns matching change sessions only for repositories the user can read
 - **AND** sessions for invisible repositories are omitted
 
 #### Scenario: find_changes tool
+
 - **WHEN** Claude calls `find_changes` with optional filters (repo, status)
 - **THEN** the tool returns active change requests only for repositories the user can read
 - **AND** changes for invisible repositories are omitted
 
 #### Scenario: find_pull_requests tool
+
 - **WHEN** Claude calls `find_pull_requests` with required `repo` and optional `branch` filter
 - **THEN** the tool queries GitHub for open PRs on that repository
 - **AND** returns PR summaries only for repositories the user can read
 - **AND** PRs for invisible repositories are not queryable
 
 #### Scenario: find_user tool
+
 - **WHEN** Claude calls `find_user` with a `query` array of search terms
 - **THEN** the tool searches workspace members using the `UsersCache` abstraction
 - **AND** returns matching users with userId, username, and displayName
 
 #### Scenario: find_emoji tool
+
 - **WHEN** Claude calls `find_emoji` with a `query` string
 - **THEN** the tool searches custom workspace emojis using the `EmojiCache` abstraction
 - **AND** returns matching emojis with name, URL, and optional alias information
 
 #### Scenario: git_log tool
+
 - **WHEN** Claude calls `git_log` with required `repo` and optional `args` array
 - **THEN** the tool executes `git log` on the local repository clone
 - **AND** returns raw output with shallow-clone metadata
 - **AND** only queries repositories the user has read access to
 
 #### Scenario: deepen_history tool
+
 - **WHEN** Claude calls `deepen_history` with required `repo` and optional `commits` or `full` parameters
 - **THEN** the tool fetches additional commit history for the local repository clone
 - **AND** only operates on repositories the user has read access to
 
 #### Scenario: list_config_files tool
+
 - **WHEN** Claude calls `list_config_files`
 - **THEN** the tool returns the list of known instruction files with filename and status (customized, default, or not created)
 
 ### Requirement: find_recent_interactions Tool Registration
+
 The system SHALL register the `find_recent_interactions` tool in the query tool set, available to all user roles.
 
 #### Scenario: Tool available to all roles
+
 - **WHEN** `buildQueryTools` assembles the tool list
 - **THEN** `find_recent_interactions` is included regardless of the user's role (member, dev, admin, owner)
 
 #### Scenario: Tool not available in worker mode
+
 - **WHEN** `buildWorkerTools` assembles the tool list
 - **THEN** `find_recent_interactions` is NOT included (worker mode has no need for session history)
 
@@ -344,7 +365,7 @@ The system SHALL provide a `fetch_slack_message` query tool that fetches a Slack
 - **WHEN** the tool returns messages
 - **THEN** each message includes: user display name, text, timestamp, and bot flag
 - **AND** `<@USERID>` mentions in message text are resolved to readable display names
-- **AND** images and files attached to messages are registered in `ctx.availableImages` and `ctx.availableFiles`
+- **AND** files attached to or referenced in each message are registered in `ctx.availableRefs` and listed in that message's `files` entry with their kind and reader tool
 - **AND** reactions are included as a structured array with emoji name and resolved usernames, omitted when no reactions exist
 - **AND** the response includes `channel`, `thread_ts`, `message_count`, `page`, `limit`, and `has_more`
 
@@ -358,9 +379,14 @@ The system SHALL provide a `fetch_slack_message` query tool that fetches a Slack
 - **WHEN** Claude calls `fetch_slack_message` with `page` and `limit` values where `(page + 1) * limit` exceeds 200
 - **THEN** the tool returns an error result indicating the requested range exceeds the maximum fetch cap
 
+#### Scenario: A file reference instead of a message link
+
+- **WHEN** Claude calls `fetch_slack_message` with a Slack file id or file URL
+- **THEN** the tool returns an error naming the file's kind and its reader tool
+
 #### Scenario: Invalid Slack message URL
 
-- **WHEN** Claude calls `fetch_slack_message` with a URL that does not match the Slack message URL pattern
+- **WHEN** Claude calls `fetch_slack_message` with a value that is no Slack reference
 - **THEN** the tool returns an error result indicating invalid URL format
 
 #### Scenario: Slack client not available
@@ -373,56 +399,12 @@ The system SHALL provide a `fetch_slack_message` query tool that fetches a Slack
 - **WHEN** the Slack API returns no messages for the given timestamp
 - **THEN** the tool returns an error result indicating the message or thread was not found
 
-### Requirement: view_slack_image Query Tool
-
-The system SHALL provide a `view_slack_image` query tool that downloads and returns Slack image content on-demand, gated on image availability.
-
-#### Scenario: Tool registered when images available
-
-- **WHEN** the tool server is built in query mode
-- **AND** `ctx.availableImages` contains one or more image entries
-- **THEN** the tool server registers the `view_slack_image` tool
-
-#### Scenario: Tool not registered when no images
-
-- **WHEN** the tool server is built in query mode
-- **AND** `ctx.availableImages` is empty or undefined
-- **THEN** the tool server does NOT register the `view_slack_image` tool
-
-#### Scenario: View image by file ID
-
-- **WHEN** Claude calls `view_slack_image` with a valid `file_id`
-- **AND** the file ID exists in `ctx.availableImages`
-- **THEN** the tool checks the disk cache first
-- **AND** on cache miss, downloads the image from Slack using `url_private` with `Authorization: Bearer {botToken}`
-- **AND** caches the image to disk
-- **AND** returns the image as MCP `ImageContent` (type: "image", base64-encoded data, mimeType)
-
-#### Scenario: View cached image
-
-- **WHEN** Claude calls `view_slack_image` with a `file_id` that is already cached
-- **THEN** the tool returns the cached image as MCP `ImageContent` without making a Slack API call
-
-#### Scenario: Unknown file ID
-
-- **WHEN** Claude calls `view_slack_image` with a `file_id` not in `ctx.availableImages`
-- **THEN** the tool returns an error result listing the available file IDs
-
-#### Scenario: Download failure
-
-- **WHEN** the image download from Slack fails (network error, expired URL, etc.)
-- **THEN** the tool returns an error result with a descriptive message
-
-#### Scenario: Tool not available in worker mode
-
-- **WHEN** the tool server is built in worker mode
-- **THEN** the `view_slack_image` tool is NOT registered (regardless of context)
-
 ### Requirement: Action Tools
 
 The system SHALL provide action tools that validate intent and return staged references.
 
 #### Scenario: propose_change tool validates and stages
+
 - **WHEN** Claude calls `propose_change` with branch, description, and repo
 - **THEN** the tool validates: branch follows `clack/{type}/{name}` convention, repo exists in configuration, user has write access to the repo
 - **AND** checks for existing worktrees on the same branch
@@ -430,11 +412,13 @@ The system SHALL provide action tools that validate intent and return staged ref
 - **AND** on failure, returns an error message Claude can use to retry
 
 #### Scenario: propose_change rejects insufficient write access
+
 - **GIVEN** a user's role is below the repo's `access.write` threshold
 - **WHEN** Claude calls `propose_change` targeting that repo
 - **THEN** the tool returns an error indicating the user does not have write access to this repository
 
 #### Scenario: propose_change detects existing worktree
+
 - **GIVEN** a worktree already exists for the specified branch and repo
 - **WHEN** Claude calls `propose_change`
 - **THEN** the tool returns the existing worktree info (branch, status, last activity) alongside the ref ID
@@ -466,6 +450,7 @@ The system SHALL provide action tools that validate intent and return staged ref
 The system SHALL provide a `create_scheduled_message` tool for creating cron jobs through conversation.
 
 #### Scenario: Create a recurring dynamic job
+
 - **WHEN** Claude calls `create_scheduled_message` with `channel`, `cronExpression`, `prompt`, and `timezone`
 - **THEN** the tool resolves the channel name to an ID (if needed)
 - **AND** validates the cron expression using `cron-parser`
@@ -473,14 +458,17 @@ The system SHALL provide a `create_scheduled_message` tool for creating cron job
 - **AND** returns the job ID, next run time, and human-readable schedule
 
 #### Scenario: Create a static job
+
 - **WHEN** Claude calls `create_scheduled_message` with `channel`, `cronExpression`, `staticMessage`, and `timezone`
 - **THEN** the tool creates a cron job that posts the static message directly (no Claude session)
 
 #### Scenario: Create a one-shot job
+
 - **WHEN** Claude calls `create_scheduled_message` with `oneShot: true`
 - **THEN** the tool creates a job that auto-deletes after its first execution
 
 #### Scenario: Create with skipConditions
+
 - **WHEN** Claude calls `create_scheduled_message` with a non-empty `skipConditions` string
 - **THEN** the tool stores the conditions on the cron job verbatim
 - **AND** subsequent runs of the job evaluate the conditions and may skip delivery
@@ -506,19 +494,23 @@ The system SHALL provide a `create_scheduled_message` tool for creating cron job
 - **AND** no cron job is created
 
 #### Scenario: Specify repositories for dynamic jobs
+
 - **WHEN** Claude calls `create_scheduled_message` with `repositories` array
 - **THEN** the tool validates that the creator has read access to the specified repositories
 - **AND** stores them on the job for use during execution
 
 #### Scenario: Invalid cron expression
+
 - **WHEN** Claude calls `create_scheduled_message` with an unparseable cron expression
 - **THEN** the tool returns an error describing the issue
 
 #### Scenario: Channel resolution failure
+
 - **WHEN** the specified channel cannot be found or the bot is not a member
 - **THEN** the tool returns an error indicating the channel issue
 
 #### Scenario: Tool gating
+
 - **WHEN** the tool server is built
 - **AND** `allowScheduledMessages` is enabled in config
 - **AND** a Slack client is available
@@ -589,23 +581,28 @@ The previously-supported `all: true` argument SHALL be removed. The replacement 
 The system SHALL provide a `cancel_scheduled_message` tool for deleting cron jobs.
 
 #### Scenario: Cancel by ID
+
 - **WHEN** Claude calls `cancel_scheduled_message` with a job `id`
 - **THEN** the tool deletes the cron job
 - **AND** returns confirmation
 
 #### Scenario: Cancel own job
+
 - **WHEN** a non-admin user cancels a job they created
 - **THEN** the tool deletes the job
 
 #### Scenario: Admin cancels any job
+
 - **WHEN** an admin or owner cancels any job
 - **THEN** the tool deletes the job regardless of creator
 
 #### Scenario: Cancel non-owned job as non-admin
+
 - **WHEN** a non-admin user attempts to cancel a job created by another user
 - **THEN** the tool returns an error indicating insufficient permissions
 
 #### Scenario: Cancel non-existent job
+
 - **WHEN** Claude calls `cancel_scheduled_message` with an ID that does not exist
 - **THEN** the tool returns an error indicating the job was not found
 
@@ -614,27 +611,32 @@ The system SHALL provide a `cancel_scheduled_message` tool for deleting cron job
 The existing `update_scheduled_message` tool SHALL accept an optional `skipConditions` parameter that sets, replaces, or clears the stored value on the target cron job. Edit permissions SHALL match the existing `cancel_scheduled_message` rules: the job's creator OR an admin/owner may update `skipConditions`; other users are rejected.
 
 #### Scenario: Update sets skipConditions
+
 - **WHEN** Claude calls `update_scheduled_message` with a job `id` and a non-empty `skipConditions` string
 - **AND** the calling user is the job's creator or an admin/owner
 - **THEN** the tool updates the cron job's `skipConditions` field
 - **AND** returns confirmation including the new value
 
 #### Scenario: Update clears skipConditions
+
 - **WHEN** Claude calls `update_scheduled_message` with `skipConditions: ""` (empty string)
 - **AND** the calling user is the job's creator or an admin/owner
 - **THEN** the tool removes the `skipConditions` field from the cron job
 - **AND** returns confirmation that conditions were cleared
 
 #### Scenario: Update leaves skipConditions unchanged
+
 - **WHEN** Claude calls `update_scheduled_message` without `skipConditions` in the arguments
 - **THEN** the stored field is left unchanged
 
 #### Scenario: Update by non-creator non-admin is rejected
+
 - **WHEN** a non-admin user attempts to update `skipConditions` on a job created by another user
 - **THEN** the tool returns an error indicating insufficient permissions
 - **AND** no change is persisted
 
 #### Scenario: Update a non-existent job
+
 - **WHEN** Claude calls `update_scheduled_message` with an `id` that does not match any cron job
 - **THEN** the tool returns an error indicating the job was not found
 - **AND** no job is created
@@ -644,6 +646,7 @@ The existing `update_scheduled_message` tool SHALL accept an optional `skipCondi
 The existing `get_scheduled_message_runs` tool SHALL return the `"skipped"` status on run entries (in addition to `"success"` and `"error"`).
 
 #### Scenario: Runs tool returns skipped entries
+
 - **WHEN** Claude calls `get_scheduled_message_runs` for a job whose history contains skipped runs
 - **THEN** each such entry SHALL include `status: "skipped"` and no `responseTs`
 - **AND** successful and failed entries remain unchanged
@@ -732,18 +735,21 @@ The system SHALL provide a `stop_tracking` query tool that deactivates auto-resp
 The `find_changes` tool SHALL report, for each active change, whether the change is currently **waiting for execution capacity** versus actively progressing, plus a freshness signal, so Claude can answer "is my change running or parked?" and "is it making progress?". These fields SHALL be derived from active-change runtime state only and SHALL NOT reference worker-pool implementation details (queue depth, slot ids, quarantine, setup hashes). The fields SHALL be pool-model-agnostic: in a model that never enqueues acquires (disposable pool), the waiting marker is simply never set.
 
 #### Scenario: Waiting change is flagged
+
 - **WHEN** Claude calls `find_changes` and an active change has been enqueued by the pool and not yet handed a worker
 - **THEN** the change's result entry includes `waiting: true`
 
 #### Scenario: Running change is not flagged as waiting
+
 - **WHEN** Claude calls `find_changes` and an active change has been handed a worker (or runs in a model that does not enqueue)
 - **THEN** the change's result entry reports `waiting` as `false` (or omits it)
 
 #### Scenario: Freshness fields reported
+
 - **WHEN** Claude calls `find_changes`
 - **THEN** each change entry includes `lastActivityAt` (ISO timestamp of the most recent status/PR update) and a derived `ageMs` (elapsed time since `startedAt`)
 
 #### Scenario: No pool-internal fields leak
+
 - **WHEN** Claude calls `find_changes`
 - **THEN** the result entries do NOT include queue depth, queue position, worker/slot identifiers, quarantine state, or setup-version data
-

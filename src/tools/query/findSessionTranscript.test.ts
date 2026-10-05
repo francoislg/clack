@@ -1,9 +1,18 @@
-import { describe, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import assert from "node:assert/strict";
 import { normalizePath } from "../../testUtils.js";
 import { fetchSessionTranscript, type FindSessionTranscriptDeps } from "./findSessionTranscript.js";
 import type { QueryToolContext } from "../types.js";
-import type { SessionAssistantMessage, SessionTrigger } from "../../sessions.js";
+import {
+  readLegacyImageFiles,
+  type SessionAssistantMessage,
+  type SessionTrigger,
+} from "../../sessions.js";
+
+vi.mock("../../sessions.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../sessions.js")>()),
+  readLegacyImageFiles: vi.fn<typeof readLegacyImageFiles>(),
+}));
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -117,6 +126,26 @@ describe("fetchSessionTranscript", () => {
       assert.equal(result.totalMessages, 3);
       assert.equal(result.messages.length, 3);
       assert.equal(result.trigger.type, "mentions");
+    });
+
+    it("reads a post-split trigger's legacy imageFiles through the session reader's merge", async () => {
+      const trigger: SessionTrigger = {
+        type: "mentions",
+        userId: "U001",
+        messageTs: "1.0",
+        messageText: "look",
+      };
+      const deps = makeDeps({
+        "sess-1": makeSessionFile({ trigger, messages: [{ role: "assistant", ts: 1100 }] }),
+      });
+      const result = await fetchSessionTranscript(
+        makeCtx("U001"),
+        { sessionId: "sess-1", offset: 0, limit: 20 },
+        deps,
+      );
+      assert.ok(!("error" in result));
+      expect(vi.mocked(readLegacyImageFiles)).toHaveBeenCalledWith(trigger);
+      assert.equal(vi.mocked(readLegacyImageFiles).mock.calls[0]?.[0], result.trigger);
     });
   });
 

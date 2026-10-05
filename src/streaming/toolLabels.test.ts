@@ -132,17 +132,6 @@ describe("getToolLabel", () => {
       );
     });
 
-    it("returns label for view_slack_image with file_id", () => {
-      assert.equal(
-        getToolLabel("mcp__clack__view_slack_image", { file_id: "F123ABC" }),
-        "Viewing image F123ABC",
-      );
-    });
-
-    it("returns label for view_slack_image without file_id", () => {
-      assert.equal(getToolLabel("mcp__clack__view_slack_image", {}), "Viewing image");
-    });
-
     it("returns label for view_slack_file with file_id", () => {
       assert.equal(
         getToolLabel("mcp__clack__view_slack_file", { file_id: "F456DEF" }),

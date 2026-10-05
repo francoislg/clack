@@ -1,4 +1,4 @@
-import { extractSlackFiles, IMAGE_MIME_TYPES, type SlackFileBase } from "./slackFileBase.js";
+import { extractAllSlackFiles, type SlackFileBase } from "./slackFileBase.js";
 
 /** MIME types that can be read as UTF-8 text. */
 const TEXT_MIME_PREFIXES = ["text/"];
@@ -19,30 +19,16 @@ export function classifyMimeType(mimetype: string): "pdf" | "text" | "unsupporte
   return "unsupported";
 }
 
-/**
- * Extract non-image files from a Slack message's `.files` array.
- * Captures PDFs, text-based files, and unsupported binaries (metadata-only).
- * Excludes image MIME types (handled by imageExtractor).
- */
-export function extractFiles(files?: unknown[]) {
-  return extractSlackFiles(files, (m) => !IMAGE_MIME_TYPES.has(m));
-}
-
-/** Combined extraction result for images + files from a Slack message. */
+/** Every file attached to a Slack message, of every kind. */
 export interface ExtractedAttachments {
-  imageFiles?: SlackFileBase[];
   files?: SlackFileBase[];
 }
 
 /**
- * Extract both images and non-image files from a Slack message's `.files` array.
- * Returns only non-empty arrays (omits keys when empty).
+ * Extract every file from a Slack message's `.files` array into one list.
+ * Omits `files` when the message carries none.
  */
 export function extractAttachments(rawFiles: unknown[] | undefined): ExtractedAttachments {
-  const imageFiles = extractSlackFiles(rawFiles, (m) => IMAGE_MIME_TYPES.has(m));
-  const files = extractSlackFiles(rawFiles, (m) => !IMAGE_MIME_TYPES.has(m));
-  return {
-    ...(imageFiles.length > 0 && { imageFiles }),
-    ...(files.length > 0 && { files }),
-  };
+  const files = extractAllSlackFiles(rawFiles);
+  return files.length > 0 ? { files } : {};
 }

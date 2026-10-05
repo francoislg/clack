@@ -13,6 +13,8 @@ import { createSlackClientMock, type MockSlackClient } from "../../slack/testSla
 import { createListApiMock, type MockListApi } from "../../slack/testListApi.js";
 import type { ListInfo } from "../../slack/lists.js";
 import type { ListItem } from "../../slack/listTypes.js";
+import type { QueryToolContext } from "../types.js";
+import { stub } from "../../testStubs.js";
 
 // The requester access check is an outside dependency: stub the verdict and assert the wiring.
 vi.mock("../../slack/requesterAccess.js", async (importOriginal) => {
@@ -58,6 +60,7 @@ describe("delete_list_items", () => {
       allowed: true,
       botAccess: "write",
       creator: "U123",
+      facts: { filetype: "list" },
     });
     api.getListInfo.mockResolvedValue(LIST_INFO);
     api.listItems.mockResolvedValue({
@@ -67,7 +70,14 @@ describe("delete_list_items", () => {
   });
 
   async function call(itemIds: string[]) {
-    const toolDef = createDeleteListItemsTool(makeCtx({ slackClient: client }), store, api);
+    const toolDef = createDeleteListItemsTool(
+      makeCtx({
+        slackClient: client,
+        config: stub<QueryToolContext["config"]>({ lists: { mode: "write" } }),
+      }),
+      store,
+      api,
+    );
     const result = await toolDef.handler({ list: LIST_ID, item_ids: itemIds }, {});
     return { result, parsed: parseToolResult(result) };
   }
@@ -143,6 +153,7 @@ describe("delete_list_items", () => {
       allowed: true,
       botAccess: "read",
       creator: "U123",
+      facts: { filetype: "list" },
     });
 
     const { result, parsed } = await call(["Rec1"]);

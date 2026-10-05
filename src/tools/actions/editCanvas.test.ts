@@ -7,6 +7,7 @@ import { getBotUserId } from "../../slack/botIdentity.js";
 import { createCanvasApiMock, slackError, type MockCanvasApi } from "../../slack/testCanvasApi.js";
 import { createSlackClientMock } from "../../slack/testSlackClient.js";
 import { stub } from "../../testStubs.js";
+import type { SlackRef } from "../../slack/slackRefs.js";
 
 // The requester access check is an outside dependency: stub the verdict and assert the wiring.
 vi.mock("../../slack/requesterAccess.js", async (importOriginal) => {
@@ -16,6 +17,7 @@ vi.mock("../../slack/requesterAccess.js", async (importOriginal) => {
 vi.mock("../../slack/botIdentity.js");
 
 const CANVAS_ID = "F0456ABC";
+const CANVAS_FACTS = { filetype: "quip", prettyType: "Canvas" };
 const REMOVE = "delete";
 
 function makeContext(slackClient: QueryToolContext["slackClient"]): QueryToolContext {
@@ -28,10 +30,11 @@ function makeContext(slackClient: QueryToolContext["slackClient"]): QueryToolCon
       channelId: "C_DEFAULT",
       threadTs: "1234567890.000001",
     }),
-    config: stub<QueryToolContext["config"]>({}),
+    config: stub<QueryToolContext["config"]>({ canvases: { mode: "write", writeRole: "dev" } }),
     changesWorkflowEnabled: false,
     cronUserSchedules: false,
     slackClient,
+    availableRefs: new Map<string, SlackRef>(),
   };
 }
 
@@ -154,6 +157,7 @@ describe("edit_canvas", () => {
       allowed: true,
       botAccess: "write",
       creator: "U_HUMAN",
+      facts: CANVAS_FACTS,
     });
     vi.mocked(getBotUserId).mockResolvedValue("U_BOT");
   });
@@ -264,12 +268,69 @@ describe("edit_canvas", () => {
     expect(api.editCanvas).not.toHaveBeenCalled();
   });
 
-  it("refuses a reference that is not a canvas", async () => {
+  it("refuses a value that is no Slack reference without a Slack call", async () => {
     const result = await run({ canvas: "C0123456", operation: "rename", title: "Roadmap" });
 
     expect(result.isError).toBe(true);
-    expect(parseToolResult(result).error).toContain("Not a canvas reference");
+    expect(parseToolResult(result).error).toMatch(/is not a Slack reference/);
     expect(checkFileAccess).not.toHaveBeenCalled();
+    expect(api.editCanvas).not.toHaveBeenCalled();
+  });
+
+  it("redirects a message permalink to fetch_slack_message without a Slack call", async () => {
+    const result = await run({
+      canvas: "https://acme.slack.com/archives/C123/p1700000000000100",
+      operation: "rename",
+      title: "Roadmap",
+    });
+
+    expect(parseToolResult(result).error).toMatch(/is a Slack message: use fetch_slack_message/);
+    expect(checkFileAccess).not.toHaveBeenCalled();
+    expect(api.editCanvas).not.toHaveBeenCalled();
+  });
+
+  it("redirects a List to read_list without a canvas call", async () => {
+    vi.mocked(checkFileAccess).mockResolvedValue({
+      allowed: true,
+      botAccess: "write",
+      creator: "U_HUMAN",
+      facts: { filetype: "list" },
+    });
+    ctx = {
+      ...ctx,
+      config: stub<QueryToolContext["config"]>({
+        canvases: { mode: "write", writeRole: "dev" },
+        lists: { mode: "read", writeRole: "dev" },
+      }),
+    };
+
+    const result = await run({ operation: "rename", title: "Roadmap" });
+
+    expect(parseToolResult(result).error).toBe(`"${CANVAS_ID}" is a Slack List: use read_list`);
+    expect(api.editCanvas).not.toHaveBeenCalled();
+  });
+
+  it("still checks access on a registered canvas and refuses when Clack can only read it", async () => {
+    ctx.availableRefs?.set(CANVAS_ID, {
+      type: "file",
+      id: CANVAS_ID,
+      kind: "canvas",
+      label: "Canvas",
+      reader: "read_canvas",
+      mustOpen: false,
+      fromCurrentMessage: true,
+    });
+    vi.mocked(checkFileAccess).mockResolvedValue({
+      allowed: true,
+      botAccess: "read",
+      creator: "U_HUMAN",
+      facts: CANVAS_FACTS,
+    });
+
+    const result = await run({ operation: "rename", title: "Roadmap" });
+
+    expect(checkFileAccess).toHaveBeenCalledTimes(1);
+    expect(parseToolResult(result).error).toContain("read-only access");
     expect(api.editCanvas).not.toHaveBeenCalled();
   });
 
@@ -289,6 +350,7 @@ describe("edit_canvas", () => {
       allowed: true,
       botAccess: "read",
       creator: "U_HUMAN",
+      facts: CANVAS_FACTS,
     });
 
     const result = await run({ operation: "insert_after", anchor_text: "Goals", markdown: "new" });
@@ -304,6 +366,7 @@ describe("edit_canvas", () => {
       allowed: true,
       botAccess: undefined,
       creator: "U_HUMAN",
+      facts: CANVAS_FACTS,
     });
 
     const result = await run({ operation: "insert_at_end", markdown: "new" });
@@ -317,6 +380,7 @@ describe("edit_canvas", () => {
       allowed: true,
       botAccess: "write",
       creator: "U_BOT",
+      facts: CANVAS_FACTS,
     });
 
     const result = await run({ operation: "replace", markdown: "new" });
@@ -333,7 +397,12 @@ describe("edit_canvas", () => {
   it.each([["U_HUMAN"], [undefined]])(
     "refuses a whole replace on a canvas created by %s",
     async (creator) => {
-      vi.mocked(checkFileAccess).mockResolvedValue({ allowed: true, botAccess: "write", creator });
+      vi.mocked(checkFileAccess).mockResolvedValue({
+        allowed: true,
+        botAccess: "write",
+        creator,
+        facts: CANVAS_FACTS,
+      });
 
       const result = await run({ operation: "replace", markdown: "new" });
 
@@ -348,6 +417,7 @@ describe("edit_canvas", () => {
       allowed: true,
       botAccess: "write",
       creator: "U_BOT",
+      facts: CANVAS_FACTS,
     });
     vi.mocked(getBotUserId).mockRejectedValue(new Error("auth.test failed"));
 

@@ -5,11 +5,11 @@ import { textResult, errorResult } from "../helpers.js";
 import {
   canvasErrorMessage,
   defaultCanvasApi,
-  parseCanvasRef,
   type CanvasApi,
   type CanvasChange,
 } from "../../slack/canvases.js";
-import { checkFileAccess, FILE_ACCESS_DENIED_MESSAGE } from "../../slack/requesterAccess.js";
+import { FILE_ACCESS_DENIED_MESSAGE } from "../../slack/requesterAccess.js";
+import { resolveRefForReader } from "../resolveRefForReader.js";
 import { getBotUserId } from "../../slack/botIdentity.js";
 
 type SlackClient = NonNullable<QueryToolContext["slackClient"]>;
@@ -184,19 +184,16 @@ export function createEditCanvasTool(ctx: QueryToolContext, api: CanvasApi = def
       }
       const client = ctx.slackClient;
 
-      const canvasId = parseCanvasRef(args.canvas);
-      if (canvasId === undefined) {
-        return errorResult("Not a canvas reference. Pass a canvas id (F…) or a Slack canvas URL.");
-      }
-
       const planned = planCanvasEdit(args);
       if (!planned.ok) return errorResult(planned.error);
 
-      const access = await checkFileAccess(
-        { client, userId: ctx.userId, role: ctx.role, session: ctx.session },
-        canvasId,
-      );
-      if (!access.allowed) return errorResult(FILE_ACCESS_DENIED_MESSAGE);
+      const resolved = await resolveRefForReader(ctx, args.canvas, ["canvas"], {
+        alwaysCheckAccess: true,
+      });
+      if (!resolved.ok) return resolved.error;
+      const canvasId = resolved.ref.id;
+      const access = resolved.access;
+      if (access === undefined) return errorResult(FILE_ACCESS_DENIED_MESSAGE);
       if (access.botAccess === "read") {
         return errorResult(
           "Clack has read-only access to that canvas and cannot edit it. Ask its owner to give Clack edit access.",
