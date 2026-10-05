@@ -1,18 +1,15 @@
 import { chmod, copyFile, mkdir, readdir, rename, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
 
-import { CronExpressionParser } from "cron-parser";
-
+import {
+  createDailyScheduler,
+  type DailyJob,
+  type DailySchedulerLogger,
+} from "./dailyScheduler.js";
 import { getBackupConfig, getBackupsDir, getDataDir, type BackupConfig } from "./config.js";
 import { dateKeysInTimezone } from "./dateKeys.js";
 import { fileExists } from "./fs.js";
 import { logger } from "./logger.js";
-
-export interface BackupLogger {
-  info: (...args: unknown[]) => void;
-  warn: (...args: unknown[]) => void;
-  error: (...args: unknown[]) => void;
-}
 
 export interface StateBackupDeps {
   getBackupConfig: () => BackupConfig;
@@ -21,8 +18,10 @@ export interface StateBackupDeps {
   /** `data/backups/` — where dated snapshots and `.partial` staging dirs live. */
   backupsDir: string;
   now: () => Date;
-  logger: BackupLogger;
+  logger: DailySchedulerLogger;
 }
+
+const scheduler = createDailyScheduler("State backup");
 
 export function defaultStateBackupDeps(): StateBackupDeps {
   return {
@@ -121,84 +120,30 @@ export async function maybeBackupOnBoot(
   if (await fileExists(join(deps.backupsDir, date))) return;
 
   deps.logger.info("State backup: today's snapshot is missing at boot — running catch-up");
-  await runGuarded(deps);
+  await scheduler.runGuarded(backupJob(deps));
 }
 
-/** Next local-midnight instant in `tz` strictly after `after`, via cron-parser (DST-aware). */
-export function computeNextBackupTime(after: Date, tz: string): Date {
-  return CronExpressionParser.parse("0 0 * * *", { currentDate: after, tz }).next().toDate();
-}
-
-// ---------------------------------------------------------------------------
-// Scheduler — single module-level timer + run-in-flight guard
-// ---------------------------------------------------------------------------
-
-let timer: ReturnType<typeof setTimeout> | null = null;
-let runInFlight = false;
-// True between start and stop. Guards scheduleNext so a fire's queued `.finally(scheduleNext)`
-// cannot re-arm a timer after stop has run (stop clears the timer but can't unqueue the finally).
-let active = false;
-
-async function runGuarded(deps: StateBackupDeps): Promise<void> {
-  if (runInFlight) {
-    deps.logger.warn("State backup skipped: a run is already in flight");
-    return;
-  }
-  runInFlight = true;
-  try {
-    await runStateBackup(deps);
-  } finally {
-    runInFlight = false;
-  }
-}
-
-function scheduleNext(deps: StateBackupDeps): void {
-  if (!active) return;
-  const cfg = deps.getBackupConfig();
-  if (!cfg.enabled) return;
-
-  let fireAt: Date;
-  try {
-    fireAt = computeNextBackupTime(deps.now(), cfg.timezone);
-  } catch (error) {
-    deps.logger.error(
-      `State backup scheduler: invalid timezone "${cfg.timezone}" — not scheduling:`,
-      error,
-    );
-    return;
-  }
-
-  const delay = Math.max(0, fireAt.getTime() - deps.now().getTime());
-  timer = setTimeout(() => {
-    timer = null;
-    runGuarded(deps)
-      .catch((error) => deps.logger.error("State backup run error:", error))
-      .finally(() => scheduleNext(deps));
-  }, delay);
-  deps.logger.info(`State backup scheduled for ${fireAt.toISOString()} (${cfg.timezone})`);
+function backupJob(deps: StateBackupDeps): DailyJob {
+  return {
+    run: () => runStateBackup(deps),
+    now: deps.now,
+    timezone: () => deps.getBackupConfig().timezone,
+    enabled: () => deps.getBackupConfig().enabled,
+    logger: deps.logger,
+  };
 }
 
 export function startStateBackupScheduler(deps: StateBackupDeps = defaultStateBackupDeps()): void {
-  // Always clear any prior generation's timer first, so a double-start (e.g. two soft restarts)
-  // can never leak an orphaned timer.
-  stopStateBackupScheduler();
+  scheduler.stop();
   if (!deps.getBackupConfig().enabled) {
     deps.logger.info("State backup disabled — scheduler not started");
     return;
   }
-  active = true;
-  // Arm the next-midnight timer synchronously, then run boot catch-up independently. The
-  // run-in-flight guard and per-day idempotency keep the two from colliding.
-  scheduleNext(deps);
-  maybeBackupOnBoot(deps).catch((error) =>
-    deps.logger.error("State backup boot catch-up error:", error),
-  );
+  // The run-in-flight guard and per-day idempotency keep the boot catch-up and the
+  // next-midnight timer from colliding.
+  scheduler.start(backupJob(deps), () => maybeBackupOnBoot(deps));
 }
 
 export function stopStateBackupScheduler(): void {
-  active = false;
-  if (timer) {
-    clearTimeout(timer);
-    timer = null;
-  }
+  scheduler.stop();
 }

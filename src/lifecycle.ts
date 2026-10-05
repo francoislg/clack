@@ -19,6 +19,10 @@ import { startConfigWatcher } from "./configWatcher.js";
 import { startCronScheduler, stopCronScheduler, executeJob } from "./cronScheduler.js";
 import { startStateBackupScheduler, stopStateBackupScheduler } from "./stateBackup.js";
 import {
+  startManagedFilesSweepScheduler,
+  stopManagedFilesSweepScheduler,
+} from "./managedFiles/sweepScheduler.js";
+import {
   armDelayedBootDispatch,
   cancelDelayedBootDispatch,
   clearDelayedBootHandlers,
@@ -66,6 +70,8 @@ export interface LifecycleDeps {
   stopCronScheduler: typeof stopCronScheduler;
   startStateBackupScheduler: typeof startStateBackupScheduler;
   stopStateBackupScheduler: typeof stopStateBackupScheduler;
+  startManagedFilesSweepScheduler: typeof startManagedFilesSweepScheduler;
+  stopManagedFilesSweepScheduler: typeof stopManagedFilesSweepScheduler;
   armDelayedBootDispatch: typeof armDelayedBootDispatch;
   cancelDelayedBootDispatch: typeof cancelDelayedBootDispatch;
   clearDelayedBootHandlers: typeof clearDelayedBootHandlers;
@@ -107,6 +113,8 @@ export const defaultLifecycleDeps: LifecycleDeps = {
   stopCronScheduler,
   startStateBackupScheduler,
   stopStateBackupScheduler,
+  startManagedFilesSweepScheduler,
+  stopManagedFilesSweepScheduler,
   armDelayedBootDispatch,
   cancelDelayedBootDispatch,
   clearDelayedBootHandlers,
@@ -187,6 +195,7 @@ function startSchedulers(deps: LifecycleDeps = defaultLifecycleDeps): void {
 
   // Daily state backup runs on its own timer, independent of the cron system it protects.
   deps.startStateBackupScheduler();
+  deps.startManagedFilesSweepScheduler();
 }
 
 function stopSchedulers(deps: LifecycleDeps = defaultLifecycleDeps): void {
@@ -195,6 +204,7 @@ function stopSchedulers(deps: LifecycleDeps = defaultLifecycleDeps): void {
   deps.cancelDelayedBootDispatch();
   deps.stopCronScheduler();
   deps.stopStateBackupScheduler();
+  deps.stopManagedFilesSweepScheduler();
   deps.stopCompletionMonitor();
   deps.stopSyncScheduler();
   deps.stopCleanupScheduler();

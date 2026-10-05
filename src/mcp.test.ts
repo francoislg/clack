@@ -1,6 +1,7 @@
 import { describe, it, beforeEach, vi } from "vitest";
 import assert from "node:assert/strict";
 import { join } from "node:path";
+import { createSdkMcpServer, type McpServerConfig } from "@anthropic-ai/claude-agent-sdk";
 import type { McpDeps } from "./mcp.js";
 import {
   loadMcpServers,
@@ -9,6 +10,8 @@ import {
   getConfiguredMcpServerNames,
   resetMcpCache,
   resolveEffectiveRegistry,
+  resolveSessionPlaceholders,
+  resolveSessionPlaceholdersAll,
   DEFAULT_RESPONSE_RENDERING_REGISTRY_ENTRY,
   DEFAULT_GITHUB_REGISTRY_ENTRY,
   UNMAPPED_REGISTRY_DESCRIPTION,
@@ -425,6 +428,124 @@ describe("environment variable substitution", () => {
     assert.ok(result);
     const env = (result.myserver as { env: Record<string, string> }).env;
     assert.equal(env.PLAIN, "no-vars-here");
+  });
+
+  it("keeps ${CLACK_SESSION_DOWNLOADS_DIR} literal in env and headers without warning", async () => {
+    const warn = vi.spyOn(logger, "warn").mockImplementation(() => {});
+    setExistingPaths([mcpConfigPath()]);
+    mockReadFileSync.mockImplementation(() =>
+      JSON.stringify({
+        mcpServers: {
+          myserver: {
+            command: "server",
+            env: { OUT: "${CLACK_SESSION_DOWNLOADS_DIR}/files" },
+          },
+          remote: {
+            type: "http",
+            url: "https://example.com",
+            headers: { "X-Dir": "${CLACK_SESSION_DOWNLOADS_DIR}" },
+          },
+        },
+      }),
+    );
+
+    const result = await loadMcpServers(makeDeps());
+    assert.ok(result);
+    const env = (result.myserver as { env: Record<string, string> }).env;
+    const headers = (result.remote as { headers: Record<string, string> }).headers;
+    assert.equal(env.OUT, "${CLACK_SESSION_DOWNLOADS_DIR}/files");
+    assert.equal(headers["X-Dir"], "${CLACK_SESSION_DOWNLOADS_DIR}");
+    assert.equal(warn.mock.calls.length, 0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// resolveSessionPlaceholders
+// ---------------------------------------------------------------------------
+
+describe("resolveSessionPlaceholders", () => {
+  it("replaces every placeholder occurrence in stdio env values", () => {
+    const config: McpServerConfig = {
+      type: "stdio",
+      command: "server",
+      args: ["${CLACK_SESSION_DOWNLOADS_DIR}"],
+      env: {
+        OUT: "${CLACK_SESSION_DOWNLOADS_DIR}/a:${CLACK_SESSION_DOWNLOADS_DIR}/b",
+        OTHER: "keep",
+      },
+    };
+
+    const resolved = resolveSessionPlaceholders(config, "/dl/s1");
+
+    assert.deepEqual(resolved, {
+      type: "stdio",
+      command: "server",
+      args: ["${CLACK_SESSION_DOWNLOADS_DIR}"],
+      env: { OUT: "/dl/s1/a:/dl/s1/b", OTHER: "keep" },
+    });
+    assert.equal(
+      config.env?.OUT,
+      "${CLACK_SESSION_DOWNLOADS_DIR}/a:${CLACK_SESSION_DOWNLOADS_DIR}/b",
+    );
+  });
+
+  it("replaces the placeholder in a type-less stdio config's env", () => {
+    const config: McpServerConfig = {
+      command: "server",
+      env: { OUT: "${CLACK_SESSION_DOWNLOADS_DIR}" },
+    };
+    assert.deepEqual(resolveSessionPlaceholders(config, "/dl"), {
+      command: "server",
+      env: { OUT: "/dl" },
+    });
+  });
+
+  it("replaces the placeholder in http and sse headers", () => {
+    const http: McpServerConfig = {
+      type: "http",
+      url: "https://x",
+      headers: { "X-Dir": "${CLACK_SESSION_DOWNLOADS_DIR}", Authorization: "Bearer t" },
+    };
+    const sse: McpServerConfig = {
+      type: "sse",
+      url: "https://y",
+      headers: { "X-Dir": "${CLACK_SESSION_DOWNLOADS_DIR}" },
+    };
+
+    assert.deepEqual(resolveSessionPlaceholders(http, "/dl"), {
+      type: "http",
+      url: "https://x",
+      headers: { "X-Dir": "/dl", Authorization: "Bearer t" },
+    });
+    assert.deepEqual(resolveSessionPlaceholders(sse, "/dl"), {
+      type: "sse",
+      url: "https://y",
+      headers: { "X-Dir": "/dl" },
+    });
+  });
+
+  it("returns the same object when there is nothing to replace", () => {
+    const stdio: McpServerConfig = { type: "stdio", command: "server", env: { A: "b" } };
+    const noEnv: McpServerConfig = { type: "stdio", command: "server" };
+    const http: McpServerConfig = { type: "http", url: "https://x" };
+    assert.equal(resolveSessionPlaceholders(stdio, "/dl"), stdio);
+    assert.equal(resolveSessionPlaceholders(noEnv, "/dl"), noEnv);
+    assert.equal(resolveSessionPlaceholders(http, "/dl"), http);
+  });
+
+  it("returns other config types unchanged", () => {
+    const sdk: McpServerConfig = createSdkMcpServer({ name: "clack", tools: [] });
+    assert.equal(resolveSessionPlaceholders(sdk, "/dl"), sdk);
+  });
+
+  it("resolveSessionPlaceholdersAll resolves every entry", () => {
+    const plain: McpServerConfig = { type: "http", url: "https://x" };
+    const result = resolveSessionPlaceholdersAll(
+      { a: { command: "s", env: { D: "${CLACK_SESSION_DOWNLOADS_DIR}" } }, b: plain },
+      "/dl",
+    );
+    assert.deepEqual(result, { a: { command: "s", env: { D: "/dl" } }, b: plain });
+    assert.equal(result.b, plain);
   });
 });
 

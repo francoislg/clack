@@ -7,6 +7,7 @@ import type {
   ClackSdkUserData,
   ClackSdkUsers,
   ClackSdkMemory,
+  ClackSdkFiles,
   ClackSdkPreferences,
   ClackUser,
   PluginLogger,
@@ -97,6 +98,12 @@ export type FakeSdkMemory = {
   onBeforeExpire: Mock<ClackSdkMemory["onBeforeExpire"]>;
 } & ClackSdkMemory;
 
+/** `ClackSdkFiles` with both members observable; they resolve a fake path and write nothing. */
+export type FakeSdkFiles = {
+  create: Mock<ClackSdkFiles["create"]>;
+  reservePath: Mock<ClackSdkFiles["reservePath"]>;
+};
+
 /**
  * `ClackSdkPreferences` — preferences surface. The generic `get` method is not mocked
  * since vi.fn does not preserve generic type parameters; tests override get by calling
@@ -123,6 +130,7 @@ export type FakeSdk = {
   mcpServer: FakeMcpServer;
   users: FakeSdkUsers;
   memory: FakeSdkMemory;
+  files: FakeSdkFiles;
   preferences: FakeSdkPreferences;
 } & { [K in MockedSdkKeys]: Mock<Extract<ClackSdk[K], AnyFn>> } & ClackSdk;
 
@@ -357,6 +365,12 @@ export function createFakeSdk(overrides: FakeSdkOverrides = {}): {
       vars === undefined ? key : `${key}:${Object.values(vars).join(":")}`,
     users: createFakeSdkUsers(identities, userStore),
     memory: createFakeSdkMemory(memoryStore),
+    files: {
+      create: vi.fn<ClackSdkFiles["create"]>(async (name) => `/test-downloads/plugin:test/${name}`),
+      reservePath: vi.fn<ClackSdkFiles["reservePath"]>(
+        async (name) => `/test-downloads/plugin:test/${name}`,
+      ),
+    },
     preferences: createFakeSdkPreferences(preferencesStore),
     registerPreferences: vi.fn<ClackSdk["registerPreferences"]>(
       overrides.registerPreferences ?? (() => {}),

@@ -324,6 +324,17 @@ export interface BackupConfig {
 export const DEFAULT_BACKUP_TIMEZONE = "America/New_York";
 export const DEFAULT_BACKUP_FOLDERS: readonly string[] = ["state"];
 
+export type ManagedRootName = "downloads" | "recordings";
+
+export interface RetentionWindow {
+  keepUploadedHours: number;
+  keepUnuploadedHours: number;
+}
+
+export interface ManagedFilesConfig {
+  retention: Record<ManagedRootName, RetentionWindow>;
+}
+
 /**
  * Tester feature ("test this PR" runs). Fully inert when absent or `enabled: false`:
  * the `run_test` action tool is not registered, no tester toolbelt exists, and no
@@ -405,6 +416,11 @@ export interface Config {
   cron?: CronConfig;
   /** Daily state-backup settings. Always populated by validateConfig; see {@link BackupConfig}. */
   backup?: BackupConfig;
+  /**
+   * Retention windows for managed transient files (downloads, tester recordings).
+   * Always resolved; defaults when absent.
+   */
+  managedFiles?: ManagedFilesConfig;
   /** Auto-respond to thread replies in existing sessions (default: true) */
   threadAutoRespond?: boolean;
   /** Disengage thread auto-respond if the triggering message is older than this many minutes (default: 60) */
@@ -637,6 +653,11 @@ export function getWorktreesDir(): string {
   return resolve(getDataDir(), "worktrees");
 }
 
+/** Clack's downloads folder: per-session transient output files (`<sessionId>/`). */
+export function getDownloadsDir(): string {
+  return resolve(getDataDir(), "downloads");
+}
+
 /**
  * Absolute path to the optional operator-provided worker settings file. It is a native
  * Claude Code `settings.json` (pure SDK shape, a sibling of `data/mcp.json`) forwarded to
@@ -671,6 +692,11 @@ export function getWorktreeSessionsDir(): string {
 
 export function getStateDir(): string {
   return resolve(getDataDir(), "state");
+}
+
+/** Ledger of managed transient files. */
+export function getFileLedgerPath(): string {
+  return resolve(getStateDir(), "file-ledger.json");
 }
 
 export function getBackupsDir(): string {

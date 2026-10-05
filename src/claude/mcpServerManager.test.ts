@@ -1,6 +1,6 @@
-import { beforeEach, describe, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import assert from "node:assert/strict";
-import type { McpServerConfig } from "@anthropic-ai/claude-agent-sdk";
+import type { McpServerConfig, McpStdioServerConfig } from "@anthropic-ai/claude-agent-sdk";
 import {
   McpServerManager,
   prepareMcpSession,
@@ -9,7 +9,8 @@ import {
 } from "./mcpServerManager.js";
 import type { McpServerStatusFn, SetMcpServersFn } from "../tools/types.js";
 import type { McpServerStatus } from "@anthropic-ai/claude-agent-sdk";
-import type { Config, McpServerRegistry } from "../config.js";
+import { join } from "node:path";
+import { getDownloadsDir, type Config, type McpServerRegistry } from "../config.js";
 import { resolveEffectiveRegistry } from "../mcp.js";
 import { getLoadedPluginIntegrations } from "../plugins-core/state.js";
 import { logger } from "../logger.js";
@@ -145,6 +146,60 @@ describe("McpServerManager", () => {
     });
   });
 
+  describe("attach — session downloads placeholder", () => {
+    const PLACEHOLDER_CFG: McpServerConfig = {
+      type: "stdio",
+      command: "files-mcp",
+      args: [],
+      env: { OUT: "${CLACK_SESSION_DOWNLOADS_DIR}/out" },
+    };
+
+    it("sends and stores the config resolved against the session downloads dir", async () => {
+      const setMcpServers = okSetMcpServers();
+      const manager = new McpServerManager({}, makeRegistry(), "/dl/s1");
+      manager.bind(setMcpServers);
+
+      await manager.attach("metabase", PLACEHOLDER_CFG);
+
+      const expected = { ...PLACEHOLDER_CFG, env: { OUT: "/dl/s1/out" } };
+      assert.deepEqual(setMcpServers.mock.calls[0]?.[0], { metabase: expected });
+
+      await manager.attach("monday", METABASE_CFG);
+      assert.deepEqual(setMcpServers.mock.calls[1]?.[0].metabase, expected);
+    });
+
+    it("resolves differently for managers with different downloads dirs", async () => {
+      const setA = okSetMcpServers();
+      const setB = okSetMcpServers();
+      const a = new McpServerManager({}, makeRegistry(), "/dl/a");
+      const b = new McpServerManager({}, makeRegistry(), "/dl/b");
+      a.bind(setA);
+      b.bind(setB);
+
+      await a.attach("metabase", PLACEHOLDER_CFG);
+      await b.attach("metabase", PLACEHOLDER_CFG);
+
+      assert.deepEqual(setA.mock.calls[0]?.[0].metabase, {
+        ...PLACEHOLDER_CFG,
+        env: { OUT: "/dl/a/out" },
+      });
+      assert.deepEqual(setB.mock.calls[0]?.[0].metabase, {
+        ...PLACEHOLDER_CFG,
+        env: { OUT: "/dl/b/out" },
+      });
+    });
+
+    it("leaves the placeholder untouched when no downloads dir is set", async () => {
+      const setMcpServers = okSetMcpServers();
+      const manager = new McpServerManager({}, makeRegistry());
+      manager.bind(setMcpServers);
+
+      await manager.attach("metabase", PLACEHOLDER_CFG);
+
+      assert.equal(setMcpServers.mock.calls[0]?.[0].metabase, PLACEHOLDER_CFG);
+    });
+  });
+
   describe("isInSessionStart", () => {
     it("is true for names in the session-start baseline and false otherwise", () => {
       const manager = new McpServerManager(
@@ -257,6 +312,7 @@ describe("prepareMcpSession + completeSessionStart — pre-attached topic server
       loadMcpServer: vi.fn(async (name: string) =>
         name === "metabase" || name === "sentry" ? stdioCfg(name) : undefined,
       ),
+      ensureSessionDownloadsDir: vi.fn(async (id: string) => `/downloads/${id}`),
       ...overrides,
     };
   }
@@ -344,5 +400,83 @@ describe("prepareMcpSession + completeSessionStart — pre-attached topic server
     const result = completeSessionStart(setup, { clack: BASELINE_CLACK });
 
     assert.deepEqual(Object.keys(result), ["github", "sentry", "metabase", "clack"]);
+  });
+
+  it("resolves the session downloads placeholder in always-on, resumed and pre-attached configs", async () => {
+    function placeholderCfg(name: string): McpStdioServerConfig {
+      return {
+        type: "stdio",
+        command: `${name}-mcp`,
+        args: [],
+        env: { OUT: "${CLACK_SESSION_DOWNLOADS_DIR}" },
+      };
+    }
+    const deps = makeDeps({
+      loadAlwaysOnMcpServers: vi.fn(async () => ({ github: placeholderCfg("github") })),
+      loadMcpServer: vi.fn(async (name: string) => placeholderCfg(name)),
+    });
+    const setup = await prepareMcpSession(
+      makeSetupSession({ sessionId: "sess-9", attachedIntegrations: ["sentry"] }),
+      config,
+      ["metabase"],
+      deps,
+    );
+
+    expect(deps.ensureSessionDownloadsDir).toHaveBeenCalledWith("sess-9");
+    const resolved = (name: string): McpServerConfig => ({
+      ...placeholderCfg(name),
+      env: { OUT: "/downloads/sess-9" },
+    });
+    assert.deepEqual(setup.alwaysOnExternals, { github: resolved("github") });
+    assert.deepEqual(setup.resumedAttached, { sentry: resolved("sentry") });
+    assert.deepEqual(setup.preAttached, { metabase: resolved("metabase") });
+  });
+
+  it("still resolves the placeholder, with a warning, when the session folder can't be created", async () => {
+    const deps = makeDeps({
+      loadAlwaysOnMcpServers: vi.fn(async () => ({
+        github: { ...stdioCfg("github"), env: { OUT: "${CLACK_SESSION_DOWNLOADS_DIR}" } },
+      })),
+      ensureSessionDownloadsDir: vi.fn(async () => {
+        throw new Error("ENOSPC");
+      }),
+    });
+    const warn = vi.spyOn(logger, "warn").mockImplementation(() => {});
+    const setup = await prepareMcpSession(
+      makeSetupSession({ sessionId: "sess-9" }),
+      config,
+      [],
+      deps,
+    );
+
+    const expected = join(getDownloadsDir(), "sess-9");
+    assert.deepEqual(setup.alwaysOnExternals, {
+      github: { ...stdioCfg("github"), env: { OUT: expected } },
+    });
+    assert.ok(warn.mock.calls.some((c) => String(c[0]).includes("ENOSPC")));
+  });
+
+  it("gives the manager the session downloads dir for later attaches", async () => {
+    const deps = makeDeps();
+    const setup = await prepareMcpSession(
+      makeSetupSession({ sessionId: "sess-2" }),
+      config,
+      [],
+      deps,
+    );
+    const setMcpServers = okSetMcpServers();
+    setup.manager.bind(setMcpServers);
+
+    await setup.manager.attach("metabase", {
+      type: "http",
+      url: "https://x",
+      headers: { "X-Dir": "${CLACK_SESSION_DOWNLOADS_DIR}" },
+    });
+
+    assert.deepEqual(setMcpServers.mock.calls[0]?.[0].metabase, {
+      type: "http",
+      url: "https://x",
+      headers: { "X-Dir": "/downloads/sess-2" },
+    });
   });
 });

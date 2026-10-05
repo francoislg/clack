@@ -46,6 +46,8 @@ export function createTestClackSdk(
     openDmChannel: async () => null,
     clackQuery: emptyClackQuery,
     requestSoftRestart: () => {},
+    createFile: async ({ owner, name }) => `/test-downloads/${owner}/${name}`,
+    reservePath: async ({ owner, name }) => `/test-downloads/${owner}/${name}`,
     ...overrides,
   });
 }

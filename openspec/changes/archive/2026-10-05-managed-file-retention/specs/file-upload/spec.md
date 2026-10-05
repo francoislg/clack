@@ -1,10 +1,4 @@
-# file-upload Specification
-
-## Purpose
-
-MCP query tool that uploads Claude-generated text content to Slack as a file attachment, enabling delivery of CSVs, reports, code snippets, and other structured data that doesn't fit in a chat message.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Upload Content to Slack
 

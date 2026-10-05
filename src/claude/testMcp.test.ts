@@ -58,6 +58,7 @@ function makeDeps(): TestMcpDeps {
     getConfiguredMcpServerNames: mockGetConfiguredMcpServerNames,
     buildQueryContext: mockBuildQueryContext,
     buildClackTools: mockBuildClackTools,
+    ensureSystemDownloadsDir: vi.fn(async () => "/downloads/_system"),
   };
 }
 
@@ -319,6 +320,34 @@ describe("testMCP", () => {
         "Read",
         "Write",
       ]);
+    });
+  });
+
+  describe("when an external server env uses the session downloads placeholder", () => {
+    it("resolves it to the system downloads dir before handing servers to the query", async () => {
+      mockLoadMcpServers.mockImplementation(async () => ({
+        github: {
+          type: "stdio",
+          command: "github-mcp-server",
+          args: [],
+          env: { OUT: "${CLACK_SESSION_DOWNLOADS_DIR}" },
+        },
+      }));
+      mockGetConfiguredMcpServerNames.mockImplementation(() => ["github"]);
+      mockClackQuery.mockImplementation(() =>
+        asyncIterableOf([{ type: "system", subtype: "init", tools: [], mcp_servers: [] }]),
+      );
+      const ensureSystemDownloadsDir = vi.fn<TestMcpDeps["ensureSystemDownloadsDir"]>(
+        async () => "/downloads/_system",
+      );
+
+      await testMCP({ ...makeDeps(), ensureSystemDownloadsDir });
+
+      assert.equal(ensureSystemDownloadsDir.mock.calls.length, 1);
+      assert.equal(mockClackQuery.mock.calls.length, 1);
+      const github = mockClackQuery.mock.calls[0]![0].options?.mcpServers?.github;
+      assert.ok(github && "command" in github);
+      assert.equal(github.env?.OUT, "/downloads/_system");
     });
   });
 

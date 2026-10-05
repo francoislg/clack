@@ -82,6 +82,7 @@ function makeDeps(
     discoverEagerSkillPlugins: () => [],
     discoverSkillPluginInfo: () => [],
     prepareSkillsSession: defaultBaselineSmokeDeps.prepareSkillsSession,
+    ensureSystemDownloadsDir: vi.fn(async () => "/downloads/_system"),
     logger: makeLogger(calls),
   };
 }
@@ -201,6 +202,33 @@ describe("runBaselineSmoke", () => {
     const warns = calls.filter((c) => c.level === "warn");
     assert.equal(warns.length, 1);
     assert.match(warns[0].message, /baseline\.tokens\.failed stage=load-mcp error=mcp boom/);
+  });
+
+  it("resolves the session-less downloads placeholder before handing servers onward", async () => {
+    mockQuery.mockImplementation(() => asyncIterableOf([fakeAssistantMessage(1000)]));
+    const ensureSystemDownloadsDir = vi.fn<BaselineSmokeDeps["ensureSystemDownloadsDir"]>(
+      async () => "/downloads/_system",
+    );
+
+    const calls: LogCall[] = [];
+    const deps: BaselineSmokeDeps = {
+      ...makeDeps(mockQuery, calls, async () => ({
+        github: {
+          type: "stdio",
+          command: "github-mcp-server",
+          args: [],
+          env: { OUT: "${CLACK_SESSION_DOWNLOADS_DIR}" },
+        },
+      })),
+      ensureSystemDownloadsDir,
+    };
+    await runBaselineSmoke(makeConfig(), { timeoutMs: 5000 }, deps);
+
+    assert.equal(ensureSystemDownloadsDir.mock.calls.length, 1);
+    assert.equal(mockQuery.mock.calls.length, 3);
+    const github = mockQuery.mock.calls[0]![0].options?.mcpServers?.github;
+    assert.ok(github && "command" in github);
+    assert.equal(github.env?.OUT, "/downloads/_system");
   });
 
   it("passes a different systemPrompt for each role", async () => {

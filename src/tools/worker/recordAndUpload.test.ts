@@ -1,4 +1,4 @@
-import { describe, it, beforeEach, afterEach, vi } from "vitest";
+import { describe, it, beforeEach, afterEach, expect, vi } from "vitest";
 import assert from "node:assert/strict";
 import { mkdirSync, rmSync, writeFileSync, utimesSync } from "node:fs";
 import { join, resolve } from "node:path";
@@ -10,6 +10,7 @@ import {
   type RecordAndUploadDeps,
 } from "./recordAndUpload.js";
 import { parseToolResult } from "../testHelpers.js";
+import { logger } from "../../logger.js";
 import { makeWorkerCtx, makeWorkerConfig } from "./testCtx.js";
 import type { WorkerToolContext } from "../types.js";
 
@@ -44,7 +45,9 @@ function makeDeps(overrides?: Partial<RecordAndUploadDeps>): RecordAndUploadDeps
       },
     }),
     findLatestRecording: vi.fn(() => join(tmpBase, "session.webm")),
-    transcodeToMp4: vi.fn(async (webm: string) => webm.replace(/\.webm$/, ".mp4")),
+    transcodeToMp4: vi.fn(async () => {}),
+    reservePath: vi.fn(async (opts: { name: string }) => join(tmpBase, opts.name)),
+    markUploaded: vi.fn(async () => {}),
     ...overrides,
   };
   return Object.assign(deps, { uploads });
@@ -168,7 +171,7 @@ describe("record_and_upload tool", () => {
   it("accepts an explicit video_file nested inside the recordings directory", async () => {
     mkdirSync(join(tmpBase, "session-1"), { recursive: true });
     writeFileSync(join(tmpBase, "session-1", "run.webm"), "video-bytes");
-    writeFileSync(join(tmpBase, "session-1", "run.mp4"), "mp4-bytes");
+    writeFileSync(join(tmpBase, "run.mp4"), "mp4-bytes");
     const deps = makeDeps();
     const toolDef = createRecordAndUploadTool(makeTesterCtx(), deps);
 
@@ -237,6 +240,113 @@ describe("record_and_upload tool", () => {
     const parsed = parseToolResult(result);
     assert.equal(result.isError, true);
     assert.ok(parsed.error.includes("NOT delivered"));
+  });
+
+  it("reserves a tester-owned mp4 path and transcodes + uploads to it", async () => {
+    const reserved = join(tmpBase, "session.mp4");
+    const deps = makeDeps({ reservePath: vi.fn(async () => reserved) });
+    const toolDef = createRecordAndUploadTool(makeTesterCtx(), deps);
+
+    const result = await toolDef.handler(
+      { title: undefined, video_file: undefined, target: undefined },
+      { sessionId: "t" },
+    );
+
+    assert.equal(parseToolResult(result).success, true);
+    expect(deps.reservePath).toHaveBeenCalledWith({
+      root: "recordings",
+      owner: "tester",
+      name: "session.mp4",
+    });
+    expect(deps.transcodeToMp4).toHaveBeenCalledWith(join(tmpBase, "session.webm"), reserved);
+    expect(deps.markUploaded).toHaveBeenCalledWith(reserved, expect.anything());
+    assert.equal(deps.uploads.length, 1);
+  });
+
+  it("errors without transcoding when the output path cannot be reserved", async () => {
+    const deps = makeDeps({
+      reservePath: vi.fn(async () => {
+        throw new Error("ledger locked");
+      }),
+    });
+    const toolDef = createRecordAndUploadTool(makeTesterCtx(), deps);
+
+    const result = await toolDef.handler(
+      { title: undefined, video_file: undefined, target: undefined },
+      { sessionId: "t" },
+    );
+
+    const parsed = parseToolResult(result);
+    assert.equal(result.isError, true);
+    assert.ok(parsed.error.includes("Could not reserve the recording output path: ledger locked"));
+    expect(deps.transcodeToMp4).not.toHaveBeenCalled();
+    assert.equal(deps.uploads.length, 0);
+  });
+
+  it("marks the recording uploaded with the Slack file id, permalink, channel and thread", async () => {
+    const deps = makeDeps();
+    deps.getSlackClient = () => ({
+      filesUploadV2: async () => ({
+        ok: true,
+        files: [{ files: [{ id: "F42", permalink: "https://slack/F42" }] }],
+      }),
+    });
+    const toolDef = createRecordAndUploadTool(makeTesterCtx(), deps);
+
+    const result = await toolDef.handler(
+      { title: undefined, video_file: undefined, target: undefined },
+      { sessionId: "t" },
+    );
+
+    assert.equal(parseToolResult(result).success, true);
+    expect(deps.markUploaded).toHaveBeenCalledWith(join(tmpBase, "session.mp4"), {
+      fileId: "F42",
+      permalink: "https://slack/F42",
+      channel: "C123",
+      threadTs: "1.0",
+    });
+  });
+
+  it("does not mark the recording uploaded when the Slack upload fails", async () => {
+    const deps = makeDeps();
+    deps.getSlackClient = () => ({
+      filesUploadV2: async () => {
+        throw new Error("upload_error");
+      },
+    });
+    const toolDef = createRecordAndUploadTool(makeTesterCtx(), deps);
+
+    const result = await toolDef.handler(
+      { title: undefined, video_file: undefined, target: undefined },
+      { sessionId: "t" },
+    );
+
+    assert.equal(result.isError, true);
+    expect(deps.markUploaded).not.toHaveBeenCalled();
+  });
+
+  it("still reports success, with a warning, when marking the upload fails", async () => {
+    const error = new Error("ledger write failed");
+    const deps = makeDeps({
+      markUploaded: vi.fn(async () => {
+        throw error;
+      }),
+    });
+    const warn = vi.spyOn(logger, "warn").mockImplementation(() => {});
+    const toolDef = createRecordAndUploadTool(makeTesterCtx(), deps);
+
+    const result = await toolDef.handler(
+      { title: undefined, video_file: undefined, target: undefined },
+      { sessionId: "t" },
+    );
+
+    assert.notEqual(result.isError, true);
+    assert.equal(parseToolResult(result).success, true);
+    expect(deps.markUploaded).toHaveBeenCalled();
+    expect(warn).toHaveBeenCalledWith(
+      "Failed to record uploaded recording in the managed-files ledger:",
+      error,
+    );
   });
 
   it("errors when the recordings dir is not configured", async () => {

@@ -30,6 +30,8 @@ import { registerDelayedBootHandler, computeMissedRuns } from "../../cronCatchUp
 import { registerThreadSession } from "../../sessions.js";
 import { clackQuery as defaultClackQuery } from "../../claude/query.js";
 import { getConfig } from "../../config.js";
+import { createFile, reservePath } from "../../managedFiles/files.js";
+import { pluginOwner } from "../../managedFiles/roots.js";
 import type { Lang } from "../../i18n/languages.js";
 import type { App } from "@slack/bolt";
 import type {
@@ -74,6 +76,8 @@ export const defaultClackSdkDeps: ClackSdkDeps = {
   registerDelayedBootHandler,
   computeMissedRuns,
   clackQuery: defaultClackQuery,
+  createFile,
+  reservePath,
 };
 
 const WATCH_DEBOUNCE_MS = 500;
@@ -348,6 +352,22 @@ export function createClackSdk(
     users: createUsersSurface(deps, pluginName, (message) => logger.warn(message)),
 
     memory: createMemorySurface({}, pluginName, (message) => logger.warn(message)),
+
+    files: {
+      create: (name, data) =>
+        deps.createFile({
+          root: "downloads",
+          owner: pluginOwner(pluginName),
+          name,
+          data,
+        }),
+      reservePath: (name) =>
+        deps.reservePath({
+          root: "downloads",
+          owner: pluginOwner(pluginName),
+          name,
+        }),
+    },
 
     preferences: createPreferencesSurface({}, pluginName, (message) => logger.warn(message)),
 

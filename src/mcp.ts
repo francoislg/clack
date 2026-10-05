@@ -356,6 +356,60 @@ export function resolveEffectiveRegistry(
 }
 
 /**
+ * Placeholder name for the per-session downloads folder. `${CLACK_SESSION_DOWNLOADS_DIR}`
+ * in an mcp.json `env` / `headers` value survives parsing literally and is resolved per
+ * session (or to the `_system` folder outside a session) by `resolveSessionPlaceholders`.
+ */
+export const SESSION_DOWNLOADS_PLACEHOLDER = "CLACK_SESSION_DOWNLOADS_DIR";
+
+const SESSION_DOWNLOADS_TOKEN = `\${${SESSION_DOWNLOADS_PLACEHOLDER}}`;
+
+function replaceSessionPlaceholders(
+  values: Record<string, string> | undefined,
+  downloadsDir: string,
+): Record<string, string> | undefined {
+  if (!values || !Object.values(values).some((v) => v.includes(SESSION_DOWNLOADS_TOKEN))) {
+    return undefined;
+  }
+  const result: Record<string, string> = {};
+  for (const [key, value] of Object.entries(values)) {
+    result[key] = value.split(SESSION_DOWNLOADS_TOKEN).join(downloadsDir);
+  }
+  return result;
+}
+
+/**
+ * Returns a copy of `config` with every `${CLACK_SESSION_DOWNLOADS_DIR}` in stdio `env`
+ * values or sse/http `headers` values replaced by `downloadsDir`. Returns `config`
+ * itself when there is nothing to replace.
+ */
+export function resolveSessionPlaceholders(
+  config: McpServerConfig,
+  downloadsDir: string,
+): McpServerConfig {
+  if (config.type === undefined || config.type === "stdio") {
+    const env = replaceSessionPlaceholders(config.env, downloadsDir);
+    return env ? { ...config, env } : config;
+  }
+  if (config.type === "sse" || config.type === "http") {
+    const headers = replaceSessionPlaceholders(config.headers, downloadsDir);
+    return headers ? { ...config, headers } : config;
+  }
+  return config;
+}
+
+export function resolveSessionPlaceholdersAll(
+  configs: Record<string, McpServerConfig>,
+  downloadsDir: string,
+): Record<string, McpServerConfig> {
+  const result: Record<string, McpServerConfig> = {};
+  for (const [name, config] of Object.entries(configs)) {
+    result[name] = resolveSessionPlaceholders(config, downloadsDir);
+  }
+  return result;
+}
+
+/**
  * Substitutes environment variables in config values
  * Supports ${VAR_NAME} syntax
  */
@@ -364,7 +418,9 @@ function substituteEnvVars(env?: Record<string, string>): Record<string, string>
 
   const result: Record<string, string> = {};
   for (const [key, value] of Object.entries(env)) {
-    result[key] = value.replace(/\$\{(\w+)\}/g, (_, varName) => {
+    result[key] = value.replace(/\$\{(\w+)\}/g, (match, varName) => {
+      // Session-scoped placeholder: resolved per session by resolveSessionPlaceholders.
+      if (varName === SESSION_DOWNLOADS_PLACEHOLDER) return match;
       const envValue = process.env[varName];
       if (!envValue) {
         logger.warn(`Environment variable ${varName} is not set (used in MCP config)`);

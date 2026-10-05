@@ -2,12 +2,15 @@ import { z } from "zod";
 import { tool } from "@anthropic-ai/claude-agent-sdk";
 import { execFile } from "node:child_process";
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
-import { isAbsolute, join, relative, resolve } from "node:path";
+import { basename, isAbsolute, join, relative, resolve } from "node:path";
 import { promisify } from "node:util";
 import type { WorkerToolContext } from "../types.js";
 import { textResult, errorResult } from "../helpers.js";
 import { getSlackClient } from "../../slack/app.js";
 import { errorMessage } from "../../errors.js";
+import { logger } from "../../logger.js";
+import { markUploaded, reservePath, type UploadedFileInfo } from "../../managedFiles/files.js";
+import { TESTER_OWNER } from "../../managedFiles/roots.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -55,10 +58,8 @@ export function buildTranscodeArgs(webmPath: string, mp4Path: string): string[] 
   ];
 }
 
-async function transcodeToMp4(webmPath: string): Promise<string> {
-  const mp4Path = webmPath.replace(/\.webm$/, ".mp4");
+async function transcodeToMp4(webmPath: string, mp4Path: string): Promise<void> {
   await execFileAsync("ffmpeg", buildTranscodeArgs(webmPath, mp4Path));
-  return mp4Path;
 }
 
 /** The one Slack surface this tool touches — lets tests stub uploads without a full client. */
@@ -69,19 +70,26 @@ export interface RecordingUploader {
     file: Buffer;
     filename: string;
     title?: string;
-  }): Promise<{ ok?: boolean }>;
+  }): Promise<{
+    ok?: boolean;
+    files?: Array<{ files?: Array<{ id?: string; permalink?: string }> }>;
+  }>;
 }
 
 export interface RecordAndUploadDeps {
   getSlackClient: () => RecordingUploader | null;
   findLatestRecording: (dir: string) => string | null;
-  transcodeToMp4: (webmPath: string) => Promise<string>;
+  transcodeToMp4: (webmPath: string, mp4Path: string) => Promise<void>;
+  reservePath: (opts: { root: "recordings"; owner: string; name: string }) => Promise<string>;
+  markUploaded: (absPath: string, info: UploadedFileInfo) => Promise<void>;
 }
 
 export const defaultRecordAndUploadDeps: RecordAndUploadDeps = {
   getSlackClient,
   findLatestRecording,
   transcodeToMp4,
+  reservePath: (opts) => reservePath(opts),
+  markUploaded: (absPath, info) => markUploaded(absPath, info),
 };
 
 export function createRecordAndUploadTool(
@@ -138,7 +146,17 @@ export function createRecordAndUploadTool(
 
       let mp4Path: string;
       try {
-        mp4Path = await deps.transcodeToMp4(webmPath);
+        mp4Path = await deps.reservePath({
+          root: "recordings",
+          owner: TESTER_OWNER,
+          name: basename(webmPath).replace(/\.webm$/, ".mp4"),
+        });
+      } catch (error) {
+        return errorResult(`Could not reserve the recording output path: ${errorMessage(error)}`);
+      }
+
+      try {
+        await deps.transcodeToMp4(webmPath, mp4Path);
       } catch (error) {
         return errorResult(
           `webm→mp4 transcode failed (nothing was uploaded): ${errorMessage(error)}`,
@@ -151,18 +169,32 @@ export function createRecordAndUploadTool(
       }
 
       const filename = `test-recording-${ctx.branchName.replace(/\//g, "-")}.mp4`;
+      let uploaded: { id?: string; permalink?: string } | undefined;
       try {
-        await client.filesUploadV2({
+        const result = await client.filesUploadV2({
           channel_id: ctx.channelId,
           thread_ts: ctx.threadTs,
           file: readFileSync(mp4Path),
           filename,
           ...(args.title && { title: args.title }),
         });
+        uploaded = result.files?.[0]?.files?.[0];
       } catch (error) {
         return errorResult(
           `Slack upload failed — the recording was NOT delivered (local file kept at ${mp4Path}): ${errorMessage(error)}`,
         );
+      }
+
+      try {
+        await deps.markUploaded(mp4Path, {
+          fileId: uploaded?.id,
+          permalink: uploaded?.permalink,
+          channel: ctx.channelId,
+          threadTs: ctx.threadTs,
+        });
+      } catch (error) {
+        // Ledger bookkeeping only — the recording was delivered, so the tool still succeeds.
+        logger.warn("Failed to record uploaded recording in the managed-files ledger:", error);
       }
 
       return textResult({

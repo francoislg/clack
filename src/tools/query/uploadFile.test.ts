@@ -1,11 +1,12 @@
-import { describe, it, vi, type Mock } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import assert from "node:assert/strict";
-import { WebClient } from "@slack/web-api";
-import { createUploadFileTool } from "./uploadFile.js";
+import { createUploadFileTool, type UploadFileDeps } from "./uploadFile.js";
 import type { QueryToolContext } from "../types.js";
+import { logger } from "../../logger.js";
+import { createSlackClientMock, type MockSlackClient } from "../../slack/testSlackClient.js";
 
-type UploadV2 = WebClient["filesUploadV2"];
-type UploadV2Result = Awaited<ReturnType<UploadV2>>;
+type UploadV2Mock = MockSlackClient["filesUploadV2"];
+type UploadV2Result = Awaited<ReturnType<UploadV2Mock>>;
 
 interface ObservedUploadArgs {
   channel_id?: string;
@@ -13,6 +14,7 @@ interface ObservedUploadArgs {
   filename?: string;
   title?: string;
   content?: string;
+  file?: Buffer;
 }
 
 const DEFAULT_UPLOAD_RESULT: UploadV2Result = {
@@ -45,12 +47,12 @@ function makeContext(overrides?: Partial<QueryToolContext>): QueryToolContext {
 }
 
 function makeSlackClient(uploadResult: UploadV2Result = DEFAULT_UPLOAD_RESULT): {
-  client: WebClient;
-  uploadV2: Mock<UploadV2>;
+  client: MockSlackClient;
+  uploadV2: UploadV2Mock;
 } {
-  const client = new WebClient();
-  const uploadV2 = vi.spyOn(client, "filesUploadV2").mockImplementation(async () => uploadResult);
-  return { client, uploadV2 };
+  const client = createSlackClientMock();
+  client.filesUploadV2.mockResolvedValue(uploadResult);
+  return { client, uploadV2: client.filesUploadV2 };
 }
 
 type UploadArgs = Parameters<ReturnType<typeof createUploadFileTool>["handler"]>[0];
@@ -58,6 +60,7 @@ type UploadArgs = Parameters<ReturnType<typeof createUploadFileTool>["handler"]>
 function uploadArgs(overrides?: Partial<UploadArgs>): UploadArgs {
   return {
     content: "data",
+    file_path: undefined,
     filename: "test.txt",
     title: undefined,
     channel: undefined,
@@ -66,7 +69,42 @@ function uploadArgs(overrides?: Partial<UploadArgs>): UploadArgs {
   };
 }
 
-function firstCallArgs(uploadV2: Mock<UploadV2>): ObservedUploadArgs {
+interface FakeStat {
+  isFile(): boolean;
+  size: number;
+}
+
+function makeDeps(fileStat: FakeStat = { isFile: () => true, size: 12 }) {
+  const deps = {
+    resolveOwnedFile: vi.fn<UploadFileDeps["resolveOwnedFile"]>(),
+    markUploaded: vi.fn<UploadFileDeps["markUploaded"]>(),
+    stat: vi.fn<UploadFileDeps["stat"]>(),
+    readFile: vi.fn<UploadFileDeps["readFile"]>(),
+  };
+  deps.resolveOwnedFile.mockResolvedValue({
+    ok: true,
+    path: "/data/downloads/test-session/export.csv",
+  });
+  deps.markUploaded.mockResolvedValue(undefined);
+  deps.stat.mockResolvedValue(fileStat);
+  deps.readFile.mockResolvedValue(Buffer.from("a,b\n1,2\n"));
+  return deps;
+}
+
+function fileArgs(overrides?: Partial<UploadArgs>): UploadArgs {
+  return uploadArgs({
+    content: undefined,
+    filename: undefined,
+    file_path: "export.csv",
+    ...overrides,
+  });
+}
+
+function errorText(result: { content: unknown[] }): string {
+  return (result.content[0] as { text: string }).text;
+}
+
+function firstCallArgs(uploadV2: UploadV2Mock): ObservedUploadArgs {
   const args = uploadV2.mock.calls[0][0];
   if (!args || typeof args !== "object") {
     throw new Error("Expected uploadV2 to be called with an options object");
@@ -96,13 +134,14 @@ describe("createUploadFileTool", () => {
     assert.ok(text.includes("non-empty"));
   });
 
-  it("returns error for content exceeding 500KB", async () => {
+  it("returns error for content exceeding 64KB", async () => {
     const tool = createUploadFileTool(makeContext({ slackClient: makeSlackClient().client }));
-    const largeContent = "x".repeat(500 * 1024 + 1);
+    const largeContent = "x".repeat(64 * 1024 + 1);
     const result = await tool.handler(uploadArgs({ content: largeContent }), {});
     assert.ok(result.isError);
     const text = (result.content[0] as { text: string }).text;
     assert.ok(text.includes("too large"));
+    assert.ok(text.includes("file_path"));
   });
 
   it("uploads to current thread by default", async () => {
@@ -181,14 +220,152 @@ describe("createUploadFileTool", () => {
   });
 
   it("returns error on Slack API failure", async () => {
-    const client = new WebClient();
-    vi.spyOn(client, "filesUploadV2").mockImplementation(async () => {
-      throw new Error("channel_not_found");
-    });
+    const client = createSlackClientMock();
+    client.filesUploadV2.mockRejectedValue(new Error("channel_not_found"));
     const tool = createUploadFileTool(makeContext({ slackClient: client }));
     const result = await tool.handler(uploadArgs(), {});
     assert.ok(result.isError);
     const text = (result.content[0] as { text: string }).text;
     assert.ok(text.includes("channel_not_found"));
+  });
+
+  it("rejects passing both content and file_path", async () => {
+    const { client, uploadV2 } = makeSlackClient();
+    const tool = createUploadFileTool(makeContext({ slackClient: client }), makeDeps());
+    const result = await tool.handler(uploadArgs({ file_path: "export.csv" }), {});
+    assert.ok(result.isError);
+    assert.ok(errorText(result).includes("exactly one of content or file_path"));
+    assert.equal(uploadV2.mock.calls.length, 0);
+  });
+
+  it("rejects passing neither content nor file_path", async () => {
+    const { client, uploadV2 } = makeSlackClient();
+    const tool = createUploadFileTool(makeContext({ slackClient: client }), makeDeps());
+    const result = await tool.handler(uploadArgs({ content: undefined }), {});
+    assert.ok(result.isError);
+    assert.ok(errorText(result).includes("exactly one of content or file_path"));
+    assert.equal(uploadV2.mock.calls.length, 0);
+  });
+
+  it("requires filename with content", async () => {
+    const { client, uploadV2 } = makeSlackClient();
+    const tool = createUploadFileTool(makeContext({ slackClient: client }), makeDeps());
+    const result = await tool.handler(uploadArgs({ filename: undefined }), {});
+    assert.ok(result.isError);
+    assert.ok(errorText(result).includes("filename is required with content"));
+    assert.equal(uploadV2.mock.calls.length, 0);
+  });
+
+  it("uploads a session file by file_path and records the upload", async () => {
+    const { client, uploadV2 } = makeSlackClient();
+    const deps = makeDeps();
+    const tool = createUploadFileTool(makeContext({ slackClient: client }), deps);
+    const result = await tool.handler(fileArgs(), {});
+
+    assert.ok(!result.isError);
+    const parsed = JSON.parse(errorText(result));
+    assert.equal(parsed.file_id, "F123");
+
+    expect(deps.resolveOwnedFile).toHaveBeenCalledWith({
+      owner: "test-session",
+      path: "export.csv",
+    });
+    const bytes = await deps.readFile.mock.results[0].value;
+    const callArgs = firstCallArgs(uploadV2);
+    assert.equal(callArgs.file, bytes);
+    assert.equal(callArgs.content, undefined);
+    assert.equal(callArgs.filename, "export.csv");
+    assert.equal(callArgs.title, "export.csv");
+    assert.equal(callArgs.channel_id, "C_DEFAULT");
+    assert.equal(callArgs.thread_ts, "1234567890.000001");
+    expect(deps.markUploaded).toHaveBeenCalledWith("/data/downloads/test-session/export.csv", {
+      fileId: "F123",
+      permalink: "https://slack.com/files/F123",
+      channel: "C_DEFAULT",
+      threadTs: "1234567890.000001",
+    });
+  });
+
+  it("passes through a resolveOwnedFile error without reading", async () => {
+    const { client, uploadV2 } = makeSlackClient();
+    const deps = makeDeps();
+    deps.resolveOwnedFile.mockResolvedValue({ ok: false, error: "File not found: export.csv" });
+    const tool = createUploadFileTool(makeContext({ slackClient: client }), deps);
+    const result = await tool.handler(fileArgs(), {});
+    assert.ok(result.isError);
+    assert.ok(errorText(result).includes("File not found: export.csv"));
+    assert.equal(deps.stat.mock.calls.length, 0);
+    assert.equal(deps.readFile.mock.calls.length, 0);
+    assert.equal(uploadV2.mock.calls.length, 0);
+  });
+
+  it.each([
+    ["a directory", { isFile: () => false, size: 64 }, "Not a file: export.csv"],
+    ["an empty file", { isFile: () => true, size: 0 }, "File is empty: export.csv"],
+    [
+      "a file over 50MB",
+      { isFile: () => true, size: 50 * 1024 * 1024 + 1 },
+      "Maximum is 50MB. Export a narrower query.",
+    ],
+  ])("rejects %s without reading it", async (_label, fileStat, expected) => {
+    const { client, uploadV2 } = makeSlackClient();
+    const deps = makeDeps(fileStat);
+    const tool = createUploadFileTool(makeContext({ slackClient: client }), deps);
+    const result = await tool.handler(fileArgs(), {});
+    assert.ok(result.isError);
+    assert.ok(errorText(result).includes(expected));
+    expect(deps.stat).toHaveBeenCalledWith("/data/downloads/test-session/export.csv");
+    assert.equal(deps.readFile.mock.calls.length, 0);
+    assert.equal(uploadV2.mock.calls.length, 0);
+  });
+
+  it("does not record the upload when Slack fails", async () => {
+    const client = createSlackClientMock();
+    client.filesUploadV2.mockRejectedValue(new Error("channel_not_found"));
+    const deps = makeDeps();
+    const tool = createUploadFileTool(makeContext({ slackClient: client }), deps);
+    const result = await tool.handler(fileArgs(), {});
+    assert.ok(result.isError);
+    assert.ok(errorText(result).includes("channel_not_found"));
+    assert.equal(deps.markUploaded.mock.calls.length, 0);
+  });
+
+  it("returns a read error when stat fails", async () => {
+    vi.spyOn(logger, "error").mockImplementation(() => {});
+    const { client, uploadV2 } = makeSlackClient();
+    const deps = makeDeps();
+    deps.resolveOwnedFile.mockResolvedValue({ ok: true, path: "/data/downloads/S1/x.csv" });
+    deps.stat.mockRejectedValue(new Error("ENOENT"));
+    const tool = createUploadFileTool(makeContext({ slackClient: client }), deps);
+    const result = await tool.handler(fileArgs({ file_path: "x.csv" }), {});
+    assert.ok(result.isError);
+    assert.ok(errorText(result).includes("Could not read file: x.csv"));
+    expect(uploadV2).not.toHaveBeenCalled();
+    expect(deps.markUploaded).not.toHaveBeenCalled();
+  });
+
+  it("returns a read error when readFile fails", async () => {
+    vi.spyOn(logger, "error").mockImplementation(() => {});
+    const { client, uploadV2 } = makeSlackClient();
+    const deps = makeDeps({ isFile: () => true, size: 10 });
+    deps.resolveOwnedFile.mockResolvedValue({ ok: true, path: "/data/downloads/S1/x.csv" });
+    deps.readFile.mockRejectedValue(new Error("EIO"));
+    const tool = createUploadFileTool(makeContext({ slackClient: client }), deps);
+    const result = await tool.handler(fileArgs({ file_path: "x.csv" }), {});
+    assert.ok(result.isError);
+    assert.ok(errorText(result).includes("Could not read file: x.csv"));
+    expect(uploadV2).not.toHaveBeenCalled();
+    expect(deps.markUploaded).not.toHaveBeenCalled();
+  });
+
+  it("still succeeds when recording the upload fails", async () => {
+    const { client } = makeSlackClient();
+    const deps = makeDeps();
+    deps.markUploaded.mockRejectedValue(new Error("ledger write failed"));
+    const tool = createUploadFileTool(makeContext({ slackClient: client }), deps);
+    const result = await tool.handler(fileArgs(), {});
+    assert.ok(!result.isError);
+    assert.equal(JSON.parse(errorText(result)).file_id, "F123");
+    expect(deps.markUploaded).toHaveBeenCalledTimes(1);
   });
 });

@@ -6,6 +6,9 @@ import type {
   CronConfig,
   BackupConfig,
   InvestigationsConfig,
+  ManagedFilesConfig,
+  ManagedRootName,
+  RetentionWindow,
   JsonObject,
   JsonValue,
   ThinkingFeedbackConfig,
@@ -823,6 +826,93 @@ export const backupZod = z.unknown().transform((raw, ctx): BackupConfig => {
   }
 
   return { enabled, folders, timezone };
+});
+
+export const MANAGED_FILES_DEFAULT_RETENTION: Readonly<
+  Record<ManagedRootName, Readonly<RetentionWindow>>
+> = {
+  downloads: { keepUploadedHours: 168, keepUnuploadedHours: 24 },
+  recordings: { keepUploadedHours: 336, keepUnuploadedHours: 24 },
+};
+
+const MANAGED_ROOT_NAMES: readonly ManagedRootName[] = ["downloads", "recordings"];
+const RETENTION_WINDOW_FIELDS: readonly (keyof RetentionWindow)[] = [
+  "keepUploadedHours",
+  "keepUnuploadedHours",
+];
+
+function isManagedRootName(key: string): key is ManagedRootName {
+  return (MANAGED_ROOT_NAMES as readonly string[]).includes(key);
+}
+
+function isRetentionWindowField(key: string): key is keyof RetentionWindow {
+  return (RETENTION_WINDOW_FIELDS as readonly string[]).includes(key);
+}
+
+export const managedFilesZod = z.unknown().transform((raw, ctx): ManagedFilesConfig => {
+  const retention: Record<ManagedRootName, RetentionWindow> = {
+    downloads: { ...MANAGED_FILES_DEFAULT_RETENTION.downloads },
+    recordings: { ...MANAGED_FILES_DEFAULT_RETENTION.recordings },
+  };
+  if (raw === undefined) return { retention };
+  if (!isPlainObject(raw as JsonValue)) {
+    ctx.addIssue({ code: "custom", message: "Config 'managedFiles' must be an object" });
+    return z.NEVER;
+  }
+  const obj = raw as JsonObject;
+  for (const key of Object.keys(obj)) {
+    if (key !== "retention") {
+      ctx.addIssue({
+        code: "custom",
+        message: `Config 'managedFiles' contains unknown key '${key}'`,
+      });
+      return z.NEVER;
+    }
+  }
+  if (obj.retention === undefined) return { retention };
+  if (!isPlainObject(obj.retention)) {
+    ctx.addIssue({
+      code: "custom",
+      message: "Config 'managedFiles.retention' must be an object",
+    });
+    return z.NEVER;
+  }
+
+  for (const [root, rawWindow] of Object.entries(obj.retention)) {
+    if (!isManagedRootName(root)) {
+      ctx.addIssue({
+        code: "custom",
+        message: `Config 'managedFiles.retention' contains unknown key '${root}'`,
+      });
+      return z.NEVER;
+    }
+    if (rawWindow === undefined) continue;
+    const path = `managedFiles.retention.${root}`;
+    if (!isPlainObject(rawWindow)) {
+      ctx.addIssue({ code: "custom", message: `Config '${path}' must be an object` });
+      return z.NEVER;
+    }
+    for (const [field, value] of Object.entries(rawWindow)) {
+      if (!isRetentionWindowField(field)) {
+        ctx.addIssue({
+          code: "custom",
+          message: `Config '${path}' contains unknown key '${field}'`,
+        });
+        return z.NEVER;
+      }
+      if (value === undefined) continue;
+      if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
+        ctx.addIssue({
+          code: "custom",
+          message: `Config '${path}.${field}' must be a positive number`,
+        });
+        return z.NEVER;
+      }
+      retention[root][field] = value;
+    }
+  }
+
+  return { retention };
 });
 
 export const submitResponseZod = z.unknown().transform((raw, ctx): Config["submitResponse"] => {

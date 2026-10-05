@@ -297,6 +297,10 @@ All three are settable via `upsert_game` (and `format`/`categories` also via `up
 
 The 60s scheduler tick only matches slots in the last minute — a slot passing while the process is down (deploys included) is silently lost. The catch-up layer recovers those: `cron.catchUp.delayMinutes` (fail-fast zod, default 3) after the cron scheduler starts, core dispatches every plugin handler registered via **`sdk.onDelayedBoot(handler)`** — on EVERY boot, sequentially, errors isolated per handler; soft restarts clear and re-collect registrations. Plugins decide in code what to do using two owner-scoped SDK members: **`sdk.missedRuns(specKey)`** → `{ lastExpectedRuns: Date[] }` (canonical slots since `max(lastRunAt ?? createdAt, now − 14d)`, capped at 100; disabled jobs report none) and **`sdk.runCronJobNow(specKey)`** (plain fire-now, NO `asOf` replay — routes through `executeJob` so skipDates, `markJobStarted` double-fire protection, and run history apply). The **trivia** handler (`src/plugins/trivia/catchUp.ts`) walks each enabled game in round chronology `:lock` → `:reveal` → `:question` (each fire awaited; `:prep` never caught up): lock/reveal fire unconditionally when missed (both prompts are self-guarding), while a missed question fires ONLY IF no upcoming regular question fire covers the round AND ≥2h remain before the next lock/reveal deadline — otherwise the day is skipped (never backfilled, one fire max per game per boot) and the owner is DMed (`catchup.quiz_lost`). User-created jobs get no catch-up.
 
+### Managed files
+
+Transient output files live only in **managed roots** — `data/downloads/` (always) and the tester recordings folder (whenever `config.tester.recordingsDir` is set) — and are tracked in `data/state/file-ledger.json` (`createArrayStore`: per-entry quarantine). Code lives in `src/managedFiles/`. Every internal tool creates files through `createFile` / `reservePath` (plugins: `sdk.files.create` / `sdk.files.reservePath`, owner `plugin:<name>`), which writes into the owner's folder and tags the file at creation; files written by external processes (MCP servers, the Playwright sidecar) are tagged when the sweep or an upload first sees them (`createdAt` = mtime). Each session gets `data/downloads/<sessionId>/`; `mcp.json` env/header values can use `${CLACK_SESSION_DOWNLOADS_DIR}`, resolved per session (and to `data/downloads/_system/` at boot) — e.g. metabase `EXPORT_DIRECTORY`. `upload_file` takes `content` (≤64KB) or `file_path` (a file in the session's own folder, symlinks resolved, size checked before reading, ≤50MB) and records `uploadedAt` / `fileId` / `permalink` in the ledger. A daily sweep at local midnight (`backup.timezone`) plus one at boot deletes files past `managedFiles.retention.<root>` (fail-fast zod; defaults downloads 168h uploaded / 24h never uploaded, recordings 336h / 24h), never outside a root and never for an owner with a live run.
+
 ### Data Directory Layout
 
 All runtime data lives in `data/` (mostly gitignored):
@@ -307,7 +311,8 @@ All runtime data lives in `data/` (mostly gitignored):
 - `sessions/` — persisted Q&A sessions
 - `worktrees/` — git worktrees for Changes Workflow (`<repo>/<branch>/` in disposable mode, `<repo>/worker-N/` in reusable mode)
 - `worktree-sessions/` — persisted change sessions
-- `state/` — roles, user preferences, migration version, `workers.json` (reusable pool state)
+- `state/` — roles, user preferences, migration version, `workers.json` (reusable pool state), `file-ledger.json` (managed files)
+- `downloads/` — per-session transient output files (`<sessionId>/`, plus `_system/` and `plugin:<name>/`); see "Managed files"
 - `default_configuration/` — shipped instruction defaults
 - `configuration/` — user instruction overrides (gitignored)
 - `backups/` — daily state snapshots at `backups/{YYYY-MM-DD}/state/*.json`, written at local midnight by the state-backup scheduler (`src/stateBackup.ts`, config `backup.{enabled,folders,timezone}`). Additive (never pruned); restore by copying a dated `state/` back over `data/state/` (stop the process first). Which folders are captured is config-driven (`backup.folders`, default `["state"]`).

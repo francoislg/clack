@@ -1,5 +1,6 @@
+import { join } from "node:path";
 import type { McpServerConfig } from "@anthropic-ai/claude-agent-sdk";
-import type { Config, McpServerRegistry } from "../config.js";
+import { getDownloadsDir, type Config, type McpServerRegistry } from "../config.js";
 import type { McpServerStatusFn, SetMcpServersFn } from "../tools/types.js";
 import { logger } from "../logger.js";
 import { errorMessage } from "../errors.js";
@@ -8,7 +9,10 @@ import {
   loadAlwaysOnMcpServers as defaultLoadAlwaysOnMcpServers,
   loadMcpServer as defaultLoadMcpServer,
   resolveEffectiveRegistry,
+  resolveSessionPlaceholders,
+  resolveSessionPlaceholdersAll,
 } from "../mcp.js";
+import { ensureOwnerFolder } from "../managedFiles/files.js";
 import { getLoadedPluginIntegrations } from "../plugins-core/state.js";
 import { updateSession as defaultUpdateSession } from "../sessions.js";
 import type { SessionContext } from "../sessions.js";
@@ -60,6 +64,8 @@ export class McpServerManager {
     /** Effective MCP registry for this session. Public because callers need to
      *  inspect `registry[name].description` when rendering errors. */
     public readonly registry: McpServerRegistry,
+    /** Per-session downloads folder substituted into dynamically attached configs. */
+    private readonly sessionDownloadsDir?: string,
   ) {}
 
   /**
@@ -163,8 +169,13 @@ export class McpServerManager {
    * Attach `name` dynamically. Idempotent — if the name is already attached,
    * returns ok without calling setMcpServers.
    */
-  async attach(name: string, config: McpServerConfig): Promise<AttachResult> {
+  async attach(name: string, rawConfig: McpServerConfig): Promise<AttachResult> {
     if (this.isAttached(name)) return { ok: true };
+
+    const config =
+      this.sessionDownloadsDir === undefined
+        ? rawConfig
+        : resolveSessionPlaceholders(rawConfig, this.sessionDownloadsDir);
 
     const fn = this.setMcpServersFn;
     if (!fn) {
@@ -210,6 +221,7 @@ export interface McpSessionSetupDeps {
   loadAlwaysOnMcpServers: typeof defaultLoadAlwaysOnMcpServers;
   loadMcpServer: typeof defaultLoadMcpServer;
   updateSession: typeof defaultUpdateSession;
+  ensureSessionDownloadsDir: (sessionId: string) => Promise<string>;
 }
 
 export const defaultMcpSessionSetupDeps: McpSessionSetupDeps = {
@@ -217,6 +229,7 @@ export const defaultMcpSessionSetupDeps: McpSessionSetupDeps = {
   loadAlwaysOnMcpServers: defaultLoadAlwaysOnMcpServers,
   loadMcpServer: defaultLoadMcpServer,
   updateSession: defaultUpdateSession,
+  ensureSessionDownloadsDir: (id) => ensureOwnerFolder("downloads", id),
 };
 
 export interface McpSessionSetup {
@@ -264,7 +277,20 @@ export async function prepareMcpSession(
     pluginIntegrations: getLoadedPluginIntegrations(),
   });
 
-  const alwaysOnExternals = (await deps.loadAlwaysOnMcpServers(registry)) ?? {};
+  let downloadsDir: string;
+  try {
+    downloadsDir = await deps.ensureSessionDownloadsDir(session.sessionId);
+  } catch (error) {
+    // A missing folder only affects servers that write exports; never block the session on it.
+    downloadsDir = join(getDownloadsDir(), session.sessionId);
+    logger.warn(
+      `Could not create the session downloads folder ${downloadsDir}: ${errorMessage(error)}`,
+    );
+  }
+  const alwaysOnExternals = resolveSessionPlaceholdersAll(
+    (await deps.loadAlwaysOnMcpServers(registry)) ?? {},
+    downloadsDir,
+  );
 
   // Pre-load persisted attachments so they land in `options.mcpServers` at session
   // start. This avoids a delta between the CLI's restored session state and the
@@ -281,7 +307,7 @@ export async function prepareMcpSession(
     }
     try {
       const cfg = await deps.loadMcpServer(name);
-      if (cfg) resumedAttached[name] = cfg;
+      if (cfg) resumedAttached[name] = resolveSessionPlaceholders(cfg, downloadsDir);
       kept.push(name);
     } catch (error) {
       logger.warn(
@@ -306,7 +332,7 @@ export async function prepareMcpSession(
     if (!(name in registry) || name in alwaysOnExternals || name in resumedAttached) continue;
     try {
       const cfg = await deps.loadMcpServer(name);
-      if (cfg) preAttached[name] = cfg;
+      if (cfg) preAttached[name] = resolveSessionPlaceholders(cfg, downloadsDir);
     } catch (error) {
       logger.warn(
         `Failed to pre-load MCP server for pre-attached topic '${name}': ${errorMessage(error)}`,
@@ -314,7 +340,7 @@ export async function prepareMcpSession(
     }
   }
 
-  const manager = new McpServerManager({}, registry);
+  const manager = new McpServerManager({}, registry, downloadsDir);
 
   // Seed attached set from resume so isAttached(…) is truthful and Claude's
   // idempotent attach_integration calls short-circuit correctly.

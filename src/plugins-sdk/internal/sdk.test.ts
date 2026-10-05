@@ -71,6 +71,40 @@ describe("ClackSdk", () => {
     return createTestClackSdk(pluginName, dataDir, deps);
   }
 
+  describe("files", () => {
+    it("create writes through createFile in the plugin's downloads folder", async () => {
+      const createFile = vi.fn<NonNullable<ClackSdkDeps["createFile"]>>();
+      createFile.mockResolvedValue("/downloads/plugin:charts/a-1.png");
+      const { sdk } = makeSdk("charts", { createFile });
+      const buf = Buffer.from("png");
+
+      const result = await sdk.files.create("a.png", buf);
+
+      expect(createFile).toHaveBeenCalledWith({
+        root: "downloads",
+        owner: "plugin:charts",
+        name: "a.png",
+        data: buf,
+      });
+      expect(result).toBe("/downloads/plugin:charts/a-1.png");
+    });
+
+    it("reservePath reserves through reservePath in the plugin's downloads folder", async () => {
+      const reservePath = vi.fn<NonNullable<ClackSdkDeps["reservePath"]>>();
+      reservePath.mockResolvedValue("/downloads/plugin:charts/out.mp4");
+      const { sdk } = makeSdk("charts", { reservePath });
+
+      const result = await sdk.files.reservePath("out.mp4");
+
+      expect(reservePath).toHaveBeenCalledWith({
+        root: "downloads",
+        owner: "plugin:charts",
+        name: "out.mp4",
+      });
+      expect(result).toBe("/downloads/plugin:charts/out.mp4");
+    });
+  });
+
   describe("path traversal validation", () => {
     it("rejects ../ in readFile", async () => {
       const { sdk } = makeSdk();

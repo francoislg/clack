@@ -37,7 +37,13 @@ import { startAll, stopAll, requestSoftRestart } from "./lifecycle.js";
 import { executeJob } from "./cronScheduler.js";
 import { addFailedMcpServers } from "./mcpStatus.js";
 import { diagnoseMcpServer, type DiagnosableConfig } from "./mcpDiagnose.js";
-import { getPinnedEntries, loadMcpServers, resolveEffectiveRegistry } from "./mcp.js";
+import {
+  getPinnedEntries,
+  loadMcpServers,
+  resolveEffectiveRegistry,
+  resolveSessionPlaceholdersAll,
+} from "./mcp.js";
+import { ensureSystemDownloadsDir } from "./managedFiles/files.js";
 import { getLoadedPluginIntegrations } from "./plugins-core/state.js";
 import { installAllPinnedMcpServers } from "./mcpInstaller.js";
 import { runBaselineSmoke } from "./startupBaselineSmoke.js";
@@ -182,7 +188,10 @@ async function main(): Promise<void> {
         logger.info(`MCP tools discovered: ${mcpResult.mcpTools.length}`);
       }
       if (mcpResult.failedServers.length > 0) {
-        const configs = (await loadMcpServers()) ?? {};
+        const configs = resolveSessionPlaceholdersAll(
+          (await loadMcpServers()) ?? {},
+          await ensureSystemDownloadsDir(),
+        );
         for (const server of mcpResult.failedServers) {
           const cfg = configs[server.name] as DiagnosableConfig | undefined;
           const detail = cfg ? await diagnoseMcpServer(cfg) : "no config found";

@@ -16,11 +16,8 @@ import { join } from "node:path";
 import {
   runStateBackup,
   maybeBackupOnBoot,
-  computeNextBackupTime,
-  startStateBackupScheduler,
   stopStateBackupScheduler,
   type StateBackupDeps,
-  type BackupLogger,
 } from "./stateBackup.js";
 import type { BackupConfig } from "./config.js";
 
@@ -48,7 +45,7 @@ function makeDeps(cfg: Partial<BackupConfig>, nowIso: string, log = makeLogger()
     dataDir,
     backupsDir: join(dataDir, "backups"),
     now: () => new Date(nowIso),
-    logger: log as BackupLogger,
+    logger: log,
   };
 }
 
@@ -246,122 +243,5 @@ describe("maybeBackupOnBoot", () => {
     await maybeBackupOnBoot(deps);
 
     expect(await readdir(finalState)).toEqual(["sentinel.json"]);
-  });
-});
-
-describe("computeNextBackupTime", () => {
-  it("returns the next local midnight strictly after the given instant", () => {
-    const next = computeNextBackupTime(new Date("2026-07-10T12:00:00-04:00"), "America/New_York");
-    expect(next.toISOString()).toBe(new Date("2026-07-11T00:00:00-04:00").toISOString());
-  });
-
-  it("fires once across a spring-forward DST day (no missed/duplicate midnight)", () => {
-    const beforeDst = computeNextBackupTime(
-      new Date("2026-03-07T12:00:00-05:00"),
-      "America/New_York",
-    );
-    expect(beforeDst.toISOString()).toBe(new Date("2026-03-08T00:00:00-05:00").toISOString());
-    const afterMidnight = computeNextBackupTime(beforeDst, "America/New_York");
-    expect(afterMidnight.toISOString()).toBe(new Date("2026-03-09T00:00:00-04:00").toISOString());
-  });
-
-  it("fires once across a fall-back DST day (no missed/duplicate midnight)", () => {
-    // New York fall-back: 2026-11-01 02:00 -> 01:00. Midnight is unaffected; the day is 25h.
-    const beforeFallback = computeNextBackupTime(
-      new Date("2026-10-31T12:00:00-04:00"),
-      "America/New_York",
-    );
-    expect(beforeFallback.toISOString()).toBe(new Date("2026-11-01T00:00:00-04:00").toISOString());
-    const afterMidnight = computeNextBackupTime(beforeFallback, "America/New_York");
-    expect(afterMidnight.toISOString()).toBe(new Date("2026-11-02T00:00:00-05:00").toISOString());
-  });
-});
-
-describe("run-in-flight guard", () => {
-  it("skips a concurrent run with a warning and produces exactly one backup", async () => {
-    await seedState({ "roles.json": "{}" });
-    const log = makeLogger();
-    const deps = makeDeps({}, "2026-07-10T12:00:00-04:00", log);
-
-    // Two concurrent boot catch-ups: both pass the missing-dir check, but the second reaches
-    // runGuarded while the first is still in flight, so it is skipped.
-    await Promise.all([maybeBackupOnBoot(deps), maybeBackupOnBoot(deps)]);
-
-    expect(log.warn).toHaveBeenCalledWith(expect.stringContaining("already in flight"));
-    expect(await exists(join(deps.backupsDir, "2026-07-10", "state", "roles.json"))).toBe(true);
-  });
-});
-
-describe("scheduler wiring", () => {
-  it("arms a single timer when enabled and clears it on stop", async () => {
-    vi.useFakeTimers();
-    try {
-      vi.setSystemTime(new Date("2026-07-10T12:00:00-04:00"));
-      const deps = makeDeps({}, "2026-07-10T12:00:00-04:00");
-      // Pre-create today's dir so the background boot catch-up is a fast no-op.
-      await mkdir(join(deps.backupsDir, "2026-07-10"), { recursive: true });
-      deps.now = () => new Date();
-
-      startStateBackupScheduler(deps);
-      // The next-midnight timer is armed synchronously (boot catch-up runs independently).
-      expect(vi.getTimerCount()).toBe(1);
-
-      stopStateBackupScheduler();
-      expect(vi.getTimerCount()).toBe(0);
-      // Flush the background catch-up promise so it settles before teardown.
-      await vi.advanceTimersByTimeAsync(0);
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it("does not arm a timer when disabled", async () => {
-    vi.useFakeTimers();
-    try {
-      vi.setSystemTime(new Date("2026-07-10T12:00:00-04:00"));
-      const deps = makeDeps({ enabled: false }, "2026-07-10T12:00:00-04:00");
-      startStateBackupScheduler(deps);
-      await vi.advanceTimersByTimeAsync(0);
-      expect(vi.getTimerCount()).toBe(0);
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it("a double-start does not leak a timer (idempotent)", async () => {
-    vi.useFakeTimers();
-    try {
-      vi.setSystemTime(new Date("2026-07-10T12:00:00-04:00"));
-      const deps = makeDeps({}, "2026-07-10T12:00:00-04:00");
-      await mkdir(join(deps.backupsDir, "2026-07-10"), { recursive: true });
-      deps.now = () => new Date();
-
-      startStateBackupScheduler(deps);
-      startStateBackupScheduler(deps);
-      expect(vi.getTimerCount()).toBe(1);
-
-      stopStateBackupScheduler();
-      expect(vi.getTimerCount()).toBe(0);
-      await vi.advanceTimersByTimeAsync(0);
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it("does not arm a timer when the timezone is invalid, and logs an error", async () => {
-    vi.useFakeTimers();
-    try {
-      vi.setSystemTime(new Date("2026-07-10T12:00:00-04:00"));
-      const log = makeLogger();
-      const deps = makeDeps({ timezone: "Not/AZone" }, "2026-07-10T12:00:00-04:00", log);
-      deps.now = () => new Date();
-
-      startStateBackupScheduler(deps);
-      expect(vi.getTimerCount()).toBe(0);
-      expect(log.error).toHaveBeenCalled();
-      await vi.advanceTimersByTimeAsync(0);
-    } finally {
-      vi.useRealTimers();
-    }
   });
 });

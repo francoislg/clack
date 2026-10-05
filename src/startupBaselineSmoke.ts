@@ -26,7 +26,9 @@ import {
   getConfiguredMcpServerNames as defaultGetConfiguredMcpServerNames,
   loadAlwaysOnMcpServers as defaultLoadAlwaysOnMcpServers,
   resolveEffectiveRegistry,
+  resolveSessionPlaceholdersAll,
 } from "./mcp.js";
+import { ensureSystemDownloadsDir } from "./managedFiles/files.js";
 import { buildQueryContext as defaultBuildQueryContext } from "./tools/context.js";
 import { buildClackTools as defaultBuildClackTools } from "./tools/server.js";
 import { getLoadedPluginIntegrations } from "./plugins-core/state.js";
@@ -79,6 +81,7 @@ export interface BaselineSmokeDeps {
   discoverSkillPluginInfo: typeof defaultDiscoverSkillPluginInfo;
   prepareSkillsSession: typeof defaultPrepareSkillsSession;
   discoverUserSkills: typeof defaultDiscoverUserSkills;
+  ensureSystemDownloadsDir: () => Promise<string>;
   logger: BaselineSmokeLogger;
 }
 
@@ -94,6 +97,7 @@ export const defaultBaselineSmokeDeps: BaselineSmokeDeps = {
   discoverSkillPluginInfo: defaultDiscoverSkillPluginInfo,
   prepareSkillsSession: defaultPrepareSkillsSession,
   discoverUserSkills: defaultDiscoverUserSkills,
+  ensureSystemDownloadsDir: () => ensureSystemDownloadsDir(),
   logger: defaultLogger,
 };
 
@@ -128,7 +132,9 @@ export async function runBaselineSmoke(
       pluginIntegrations: getLoadedPluginIntegrations(),
     });
     mcpRegistry = resolved.registry;
-    mcpServers = await deps.loadAlwaysOnMcpServers(mcpRegistry);
+    const loaded = await deps.loadAlwaysOnMcpServers(mcpRegistry);
+    mcpServers =
+      loaded && resolveSessionPlaceholdersAll(loaded, await deps.ensureSystemDownloadsDir());
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     deps.logger.warn(`baseline.tokens.failed stage=load-mcp error=${message}`);

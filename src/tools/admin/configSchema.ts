@@ -1,7 +1,13 @@
-import type { Config, ThinkingFeedbackConfig, TriggerChangesWorkflowConfig } from "../../config.js";
+import type {
+  Config,
+  RetentionWindow,
+  ThinkingFeedbackConfig,
+  TriggerChangesWorkflowConfig,
+} from "../../config.js";
 import type { SchemaFor } from "./configSchemaTypes.js";
 import {
   DEFAULT_SLACK_FILE_WRITE_ROLE,
+  MANAGED_FILES_DEFAULT_RETENTION,
   SLACK_ACCESS_MODES,
   SLACK_FILE_MODES,
   SLACK_FILE_WRITE_ROLES,
@@ -23,6 +29,29 @@ const triggerCwBlock = (where: string): SchemaFor<TriggerChangesWorkflowConfig> 
   description: `Per-trigger Changes Workflow gate for ${where}.`,
   required: false,
   fields: { enabled: { type: "boolean", description: "Allow Changes Workflow via this trigger." } },
+});
+
+const retentionWindowBlock = (
+  what: string,
+  defaults: RetentionWindow,
+): SchemaFor<RetentionWindow> => ({
+  type: "object",
+  description: `Retention window for ${what}.`,
+  required: false,
+  fields: {
+    keepUploadedHours: {
+      type: "number",
+      description: "Hours to keep a file after it was uploaded to Slack. Must be > 0.",
+      default: defaults.keepUploadedHours,
+      required: false,
+    },
+    keepUnuploadedHours: {
+      type: "number",
+      description: "Hours to keep a file that was never uploaded to Slack. Must be > 0.",
+      default: defaults.keepUnuploadedHours,
+      required: false,
+    },
+  },
 });
 
 export const CONFIG_SCHEMA: SchemaFor<Config> = {
@@ -446,6 +475,29 @@ export const CONFIG_SCHEMA: SchemaFor<Config> = {
             "IANA timezone for the midnight fire and the {date} label. Invalid zones fail boot.",
           default: "America/New_York",
           required: false,
+        },
+      },
+    },
+    managedFiles: {
+      type: "object",
+      description:
+        "Retention windows for managed transient files (per-session downloads, tester recordings).",
+      required: false,
+      fields: {
+        retention: {
+          type: "object",
+          description: "Per-root retention windows. Omitted roots and fields use their defaults.",
+          required: false,
+          fields: {
+            downloads: retentionWindowBlock(
+              "data/downloads/<sessionId>/ files",
+              MANAGED_FILES_DEFAULT_RETENTION.downloads,
+            ),
+            recordings: retentionWindowBlock(
+              "tester recordings",
+              MANAGED_FILES_DEFAULT_RETENTION.recordings,
+            ),
+          },
         },
       },
     },

@@ -55,6 +55,7 @@ import type {
 } from "../sessions.js";
 export type { SettableAttentionLevel, AttentionLevel, ThreadEngagementOrigin };
 import type { clackQuery as defaultClackQuery } from "../claude/query.js";
+import type { createFile, reservePath } from "../managedFiles/files.js";
 
 // ============================================================================
 // Types
@@ -426,6 +427,14 @@ export interface ClackSdkMemory {
   onBeforeExpire(fn: BeforeExpireHook): void;
 }
 
+/** Transient output files a plugin produces (charts, exports, media). They live in Clack's managed downloads folder, are tagged when created, and are deleted by the retention sweep — never keep state here. */
+export interface ClackSdkFiles {
+  /** Write `data` to a new file named `name` (basename only; a numeric suffix avoids collisions). Returns its absolute path. */
+  create(name: string, data: string | Buffer): Promise<string>;
+  /** Reserve a new, tagged path for an external process (e.g. ffmpeg) to write. Nothing is written. */
+  reservePath(name: string): Promise<string>;
+}
+
 export interface ClackSdk {
   /**
    * Plugin-scoped logger. Prefixes every line with `[<pluginName>]` for filterability.
@@ -632,6 +641,8 @@ export interface ClackSdk {
    * `onBeforeExpire` registers a pre-expire veto hook. See {@link ClackSdkMemory}.
    */
   memory: ClackSdkMemory;
+  /** Transient output files (charts, exports, media) in the managed downloads folder. See {@link ClackSdkFiles}. */
+  files: ClackSdkFiles;
   /**
    * Per-user preferences surfaced in the Home Tab settings modal. Read this plugin's slice.
    */
@@ -827,6 +838,10 @@ export interface ClackSdkDeps {
    */
   executeCronJob?: (job: CronJob, client: App["client"]) => Promise<void>;
   clackQuery: typeof defaultClackQuery;
+  /** Backs `sdk.files.create`. */
+  createFile: typeof createFile;
+  /** Backs `sdk.files.reservePath`. */
+  reservePath: typeof reservePath;
   /**
    * Backs `sdk.startThreadConversation`. Bound at the `loadAndInstallPlugins` call
    * sites to a closure over core's `processMessage` (which isn't reachable at SDK

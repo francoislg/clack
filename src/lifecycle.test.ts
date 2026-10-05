@@ -60,6 +60,10 @@ function createMockDeps() {
   );
   const mockCheckServedToolServers = vi.fn<LifecycleDeps["checkServedToolServers"]>(async () => []);
   const mockCheckTokenScopes = vi.fn<LifecycleDeps["checkTokenScopes"]>(async () => []);
+  const mockStartManagedFilesSweepScheduler =
+    vi.fn<LifecycleDeps["startManagedFilesSweepScheduler"]>();
+  const mockStopManagedFilesSweepScheduler =
+    vi.fn<LifecycleDeps["stopManagedFilesSweepScheduler"]>();
 
   const mocks = {
     mockLoadConfig,
@@ -96,6 +100,8 @@ function createMockDeps() {
     mockLoadAndInstallPlugins,
     mockCheckServedToolServers,
     mockCheckTokenScopes,
+    mockStartManagedFilesSweepScheduler,
+    mockStopManagedFilesSweepScheduler,
   };
 
   const deps: LifecycleDeps = {
@@ -122,6 +128,8 @@ function createMockDeps() {
     stopCronScheduler: mockStopCronScheduler,
     startStateBackupScheduler: () => {},
     stopStateBackupScheduler: () => {},
+    startManagedFilesSweepScheduler: mockStartManagedFilesSweepScheduler,
+    stopManagedFilesSweepScheduler: mockStopManagedFilesSweepScheduler,
     armDelayedBootDispatch: mockArmDelayedBootDispatch,
     cancelDelayedBootDispatch: mockCancelDelayedBootDispatch,
     clearDelayedBootHandlers: mockClearDelayedBootHandlers,
@@ -201,6 +209,20 @@ describe("restartAll", () => {
       mocks.mockArmDelayedBootDispatch.mock.invocationCallOrder[0]! >
         mocks.mockStartCronScheduler.mock.invocationCallOrder[0]!,
       "arm must happen after the scheduler starts",
+    );
+  });
+
+  it("stops and restarts the managed-files sweep scheduler", async () => {
+    const { deps, mocks } = createMockDeps();
+
+    await restartAll(deps);
+
+    assert.equal(mocks.mockStopManagedFilesSweepScheduler.mock.calls.length, 1);
+    assert.equal(mocks.mockStartManagedFilesSweepScheduler.mock.calls.length, 1);
+    assert.ok(
+      mocks.mockStopManagedFilesSweepScheduler.mock.invocationCallOrder[0]! <
+        mocks.mockStartManagedFilesSweepScheduler.mock.invocationCallOrder[0]!,
+      "the old scheduler stops before the new one starts",
     );
   });
 

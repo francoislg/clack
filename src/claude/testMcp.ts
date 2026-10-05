@@ -5,7 +5,9 @@ import { errorMessage as _errorMessage } from "../errors.js";
 import {
   loadMcpServers as _loadMcpServers,
   getConfiguredMcpServerNames as _getConfiguredMcpServerNames,
+  resolveSessionPlaceholdersAll,
 } from "../mcp.js";
+import { ensureSystemDownloadsDir } from "../managedFiles/files.js";
 import type { SessionContext } from "../sessions.js";
 import { buildQueryContext as _buildQueryContext } from "../tools/context.js";
 import { buildClackTools as _buildClackTools } from "../tools/server.js";
@@ -25,6 +27,7 @@ export interface TestMcpDeps {
   buildQueryContext: typeof _buildQueryContext;
   // testMCP only uses query mode; narrow the signature so test mocks can supply the query shape.
   buildClackTools: (ctx: QueryToolContext) => ClackQueryToolsResult;
+  ensureSystemDownloadsDir: () => Promise<string>;
 }
 
 export const defaultTestMcpDeps: TestMcpDeps = {
@@ -35,6 +38,7 @@ export const defaultTestMcpDeps: TestMcpDeps = {
   getConfiguredMcpServerNames: _getConfiguredMcpServerNames,
   buildQueryContext: _buildQueryContext,
   buildClackTools: _buildClackTools,
+  ensureSystemDownloadsDir: () => ensureSystemDownloadsDir(),
 };
 
 export interface McpServerInfo {
@@ -60,7 +64,10 @@ export interface McpTestResult {
  */
 export async function testMCP(deps: TestMcpDeps = defaultTestMcpDeps): Promise<McpTestResult> {
   const config = deps.getConfig();
-  const externalMcpServers = await deps.loadMcpServers();
+  const loadedMcpServers = await deps.loadMcpServers();
+  const externalMcpServers =
+    loadedMcpServers &&
+    resolveSessionPlaceholdersAll(loadedMcpServers, await deps.ensureSystemDownloadsDir());
   const configuredServers = deps.getConfiguredMcpServerNames();
 
   // Build clack tool server with owner role to verify all tools register

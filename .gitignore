@@ -17,6 +17,7 @@ data/error-reports/
 data/worktrees/
 data/worktree-sessions/
 data/tester/
+data/downloads/
 data/state/
 data/backups/
 data/cache/
