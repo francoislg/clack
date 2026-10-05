@@ -248,12 +248,12 @@ export const en = {
     "Could not resolve the message thread. Please try again.",
   "investigations.reactor_cycle":
     "You can't investigate a thread that is already in the investigations channel.",
+  "investigations.reactor_not_in_channel":
+    "I can't investigate this thread because I'm not a member of this channel. Invite me to the channel, then try again.",
   "investigations.reactor_unconfigured":
     "Investigate mode isn't set up yet — an admin needs to pick an investigations channel from the Home Tab. The owner has been notified.",
   "investigations.owner_unconfigured":
     "{user} tried to start an investigation, but no investigations channel is configured. Pick one in the Home Tab → Investigations.",
-  "investigations.owner_degraded":
-    "An investigation started following {link}, but the bot lacks the `channels:join` scope required to join it, so it degraded to passive follow mode (no live updates; content is still picked up on each round). Re-upload the manifest and reinstall the app to grant `channels:join`, then live following resumes.",
   "investigations.home_section_title": "🔎 Investigations",
   "investigations.home_channel_label": "Investigations channel",
   "investigations.home_channel_placeholder": "Select a channel",

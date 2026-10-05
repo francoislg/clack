@@ -21,8 +21,8 @@ beforeEach(() => {
 describe("findMissingScopes", () => {
   it("returns the required scopes the token lacks, in required order", () => {
     assert.deepEqual(
-      findMissingScopes(["chat:write", "channels:join", "im:write"], ["chat:write"]),
-      ["channels:join", "im:write"],
+      findMissingScopes(["chat:write", "reactions:write", "im:write"], ["chat:write"]),
+      ["reactions:write", "im:write"],
     );
   });
 
@@ -53,16 +53,16 @@ describe("reportMissingScopes", () => {
   });
 
   it("logs each missing scope and DMs the owner once, naming all of them", async () => {
-    await reportMissingScopes(["channels:join", "search:read.public"], deps);
+    await reportMissingScopes(["reactions:write", "search:read.public"], deps);
 
     assert.equal(error.mock.calls.length, 2);
-    assert.match(String(error.mock.calls[0][0]), /channels:join/);
+    assert.match(String(error.mock.calls[0][0]), /reactions:write/);
     assert.match(String(error.mock.calls[1][0]), /search:read\.public/);
     assert.equal(deps.sendOwnerDm.mock.calls.length, 1);
     const [owner, text, options] = deps.sendOwnerDm.mock.calls[0];
     assert.equal(owner, "U_OWNER");
     assert.match(text, /missing 2 scope\(s\)/);
-    assert.match(text, /`channels:join`/);
+    assert.match(text, /`reactions:write`/);
     assert.match(text, /`search:read\.public`/);
     assert.match(text, /npm run manifest/);
     assert.deepEqual(options, { suppressUnfurls: true });
@@ -71,7 +71,7 @@ describe("reportMissingScopes", () => {
   it("logs the missing scope and attempts no DM when no owner is configured", async () => {
     deps.getOwnerUserId.mockResolvedValue(null);
 
-    await reportMissingScopes(["channels:join"], deps);
+    await reportMissingScopes(["reactions:write"], deps);
 
     assert.equal(error.mock.calls.length, 1);
     assert.equal(deps.sendOwnerDm.mock.calls.length, 0);
@@ -80,7 +80,7 @@ describe("reportMissingScopes", () => {
   it("resolves and warns when the owner DM throws", async () => {
     deps.sendOwnerDm.mockRejectedValue(new Error("channel_not_found"));
 
-    await reportMissingScopes(["channels:join"], deps);
+    await reportMissingScopes(["reactions:write"], deps);
 
     assert.equal(warn.mock.calls.length, 1);
     assert.match(String(warn.mock.calls[0][0]), /owner DM failed: channel_not_found/);
@@ -94,7 +94,7 @@ describe("checkTokenScopes", () => {
 
   beforeEach(() => {
     client = createSlackClientMock();
-    config = stub<Config>({ investigations: { enabled: true, emoji: "mag" } });
+    config = stub<Config>({ allowPublicSearch: true });
     required = requiredBotScopes(manifestFeatures(config));
     vi.mocked(getOwnerUserId).mockReset().mockResolvedValue("U_OWNER");
     vi.mocked(sendOwnerDm).mockReset().mockResolvedValue(true);
@@ -122,13 +122,13 @@ describe("checkTokenScopes", () => {
   });
 
   it("reports the scope of a feature enabled without a reinstall", async () => {
-    grant(required.filter((scope) => scope !== "channels:join"));
+    grant(required.filter((scope) => scope !== "search:read.public"));
 
-    assert.deepEqual(await checkTokenScopes(config, client), ["channels:join"]);
+    assert.deepEqual(await checkTokenScopes(config, client), ["search:read.public"]);
 
     assert.equal(error.mock.calls.length, 1);
     assert.equal(vi.mocked(sendOwnerDm).mock.calls.length, 1);
-    assert.match(vi.mocked(sendOwnerDm).mock.calls[0][1], /`channels:join`/);
+    assert.match(vi.mocked(sendOwnerDm).mock.calls[0][1], /`search:read\.public`/);
   });
 
   it("does not report a scope the config does not require", async () => {
@@ -140,7 +140,7 @@ describe("checkTokenScopes", () => {
   });
 
   it("asks auth.test again on every run", async () => {
-    grant(required.filter((scope) => scope !== "channels:join"));
+    grant(required.filter((scope) => scope !== "search:read.public"));
     await checkTokenScopes(config, client);
     grant(required);
 

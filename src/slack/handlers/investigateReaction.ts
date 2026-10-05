@@ -137,17 +137,15 @@ export async function handleInvestigateReaction(
   });
 
   switch (result.status) {
-    case "ok": {
-      // Join failed on a public origin channel → degraded to passive follow. Note the owner.
-      if (result.degraded) {
-        const ownerUserId = await deps.getOwnerUserId();
-        if (ownerUserId) {
-          await deps.sendOwnerDm(
-            ownerUserId,
-            t("investigations.owner_degraded", { link: `<#${channel}>` }),
-          );
-        }
-      }
+    case "ok":
+      break;
+
+    case "not_in_channel": {
+      await client.chat.postEphemeral({
+        channel,
+        user: userId,
+        text: t("investigations.reactor_not_in_channel"),
+      });
       break;
     }
 
@@ -190,6 +188,9 @@ export async function handleInvestigateReaction(
       logger.warn("investigations: dm surface bootstrap failed");
       break;
     }
+
+    default:
+      result satisfies never;
   }
 }
 

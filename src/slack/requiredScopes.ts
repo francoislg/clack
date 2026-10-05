@@ -117,10 +117,6 @@ export function requiredBotScopes(features: ManifestFeatures): BotScope[] {
     if (features.lists === "write") scopes.push("lists:write");
   }
 
-  if (features.investigations) {
-    scopes.push("channels:join");
-  }
-
   // Always needed for DM delivery (per-user reaction preference)
   scopes.push("im:write");
 

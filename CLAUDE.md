@@ -235,7 +235,7 @@ Two follow modes per origin thread: **`followAndInteract`** (each new side-threa
 
 Session state: `SessionContext.followedThreads[]` is the source of truth for cursors/pending; the state file holds a routing projection. Role-gated tools (all roles, enabled-gated): `start_investigation`, `follow_thread`, `unfollow_thread`, `list_followed_threads`, `close_investigation`. Home Tab has an admin-gated **Investigations** section for channel picker and open investigation list with Close buttons.
 
-**Enabling requires re-uploading the manifest AND reinstalling the app** — conditional scopes `channels:join` and `message.channels`/`message.groups` are added only when enabled (same operator note as `allowPublicSearch`). Code lives in `src/investigations/` (types, state, drain, deliveryContext, engine) with thin Slack adapters.
+**Enabling requires re-uploading the manifest** — the conditional bot events `message.channels`/`message.groups` are added only when enabled; no scope is added. Clack never joins a channel on its own: when it isn't a member of the origin channel (DMs and group DMs count as members), the bootstrap refuses and the requester is told to invite it — the 🔍 reaction via an ephemeral, `start_investigation` and `follow_thread` via their tool result. Code lives in `src/investigations/` (types, state, drain, deliveryContext, engine) with thin Slack adapters.
 
 ### Trivia plugin: optional Seasons
 

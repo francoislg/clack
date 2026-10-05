@@ -25,7 +25,11 @@ vi.mock("../../slack/requesterAccess.js", async (importOriginal) => {
   return { ...actual, checkConversationAccess: vi.fn() };
 });
 
+vi.mock("../../slack/botMembership.js");
+
 import { requireInvestigationSession } from "../investigationSession.js";
+import { isBotInConversation } from "../../slack/botMembership.js";
+import { NOT_IN_CHANNEL_MESSAGE } from "../../investigations/notInChannel.js";
 import { updateSession } from "../../sessions.js";
 import { getInvestigationsChannel, addFollowedThread } from "../../investigations/state.js";
 import { ACCESS_DENIED_MESSAGE, checkConversationAccess } from "../../slack/requesterAccess.js";
@@ -78,6 +82,30 @@ describe("follow_thread tool", () => {
     vi.mocked(getInvestigationsChannel).mockReturnValue("C_INVESTIGATIONS");
     vi.mocked(updateSession).mockResolvedValue(ctx.session);
     vi.mocked(checkConversationAccess).mockResolvedValue({ allowed: true });
+    vi.mocked(isBotInConversation).mockResolvedValue(true);
+  });
+
+  it("refuses with the not-in-channel message and changes nothing when the bot is not in the channel", async () => {
+    vi.mocked(isBotInConversation).mockResolvedValue(false);
+
+    const result = await createFollowThreadTool(ctx).handler(ARGS, { sessionId: "sess-inv" });
+
+    expect(result.isError).toBe(true);
+    expect(parseToolResult(result)).toEqual({ error: NOT_IN_CHANNEL_MESSAGE });
+    expect(vi.mocked(isBotInConversation)).toHaveBeenCalledWith(ctx.slackClient, "C_TARGET");
+    expect(vi.mocked(updateSession)).not.toHaveBeenCalled();
+    expect(vi.mocked(addFollowedThread)).not.toHaveBeenCalled();
+  });
+
+  it("follows a DM thread when the bot is in the conversation", async () => {
+    const result = await createFollowThreadTool(ctx).handler(
+      { ...ARGS, channel: "D123" },
+      { sessionId: "sess-inv" },
+    );
+
+    expect(result.isError).toBeUndefined();
+    expect(vi.mocked(isBotInConversation)).toHaveBeenCalledWith(ctx.slackClient, "D123");
+    expect(vi.mocked(addFollowedThread)).toHaveBeenCalledWith("sess-inv", "D123", "5.5");
   });
 
   it("refuses with the access-denied message and changes nothing when the requester cannot read the channel", async () => {

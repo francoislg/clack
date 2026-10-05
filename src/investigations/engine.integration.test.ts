@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { existsSync, mkdirSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import type { App } from "@slack/bolt";
@@ -58,6 +58,7 @@ import { createSession, getSession, updateSession } from "../sessions.js";
 import { runInvestigationPreAnalysis } from "../claude/preAnalysis.js";
 import { processMessage } from "../slack/handlers/core.js";
 import { getUserInfo } from "../slack/userCache.js";
+import { openDmChannel } from "../slack/channelResolver.js";
 import { setUserPreference, clearPreferencesCache } from "../userPreferences.js";
 import type { FollowedThread } from "./types.js";
 import type { ClaudeResponse } from "../claude/index.js";
@@ -79,7 +80,7 @@ function inMemoryStateDeps(): InvestigationsStateDeps {
 
 function makeClient(
   byChannel: Record<string, DrainMessage[]> = {},
-  opts: { joinError?: unknown; isMember?: boolean; infoError?: unknown } = {},
+  opts: { isMember?: boolean; infoError?: unknown; infoOk?: boolean } = {},
 ): App["client"] {
   const client = new WebClient();
   vi.spyOn(client.conversations, "replies").mockImplementation((args) => {
@@ -90,14 +91,14 @@ function makeClient(
   });
   vi.spyOn(client.conversations, "info").mockImplementation(() => {
     if (opts.infoError !== undefined) return Promise.reject(opts.infoError);
+    if (opts.infoOk === false) return Promise.resolve({ ok: false });
     return Promise.resolve({
       ok: true,
-      channel: { is_member: opts.isMember ?? false },
+      channel: { is_member: opts.isMember ?? true },
     });
   });
-  const join = vi.spyOn(client.conversations, "join");
-  if (opts.joinError !== undefined) join.mockRejectedValue(opts.joinError);
-  else join.mockResolvedValue({ ok: true });
+  vi.spyOn(client.conversations, "join").mockResolvedValue({ ok: true });
+  vi.spyOn(client.conversations, "open").mockResolvedValue({ ok: true });
   vi.spyOn(client.chat, "postMessage").mockResolvedValue({ ok: true, ts: "3000.0001" });
   vi.spyOn(client.chat, "getPermalink").mockResolvedValue({ ok: true, permalink: "https://x/p" });
   return client;
@@ -250,26 +251,7 @@ describe("investigations engine (integration)", () => {
       expect(result.status).toBe("channel_not_configured");
     });
 
-    it("degrades the origin thread to follow mode when the public join fails", async () => {
-      await setInvestigationsChannel("CINV");
-      const client = makeClient({}, { joinError: { data: { error: "restricted_action" } } });
-      const result = await bootstrapInvestigation({
-        client,
-        surface: "channel",
-        originChannel: "CSIDE",
-        originThreadTs: "1.1",
-        requester: "U1",
-        originMode: "followAndInteract",
-      });
-      expect(result.status).toBe("ok");
-      if (result.status !== "ok") throw new Error("expected ok");
-      expect(result.degraded).toBe(true);
-      const session = await getSession(result.sessionId);
-      expect(session?.followedThreads?.[0].mode).toBe("follow");
-      expect(processMessage).toHaveBeenCalledTimes(1);
-    });
-
-    it("already a member → no join, no degrade", async () => {
+    it("member origin → ok, followAndInteract, no join", async () => {
       await setInvestigationsChannel("CINV");
       const client = makeClient({}, { isMember: true });
       const result = await bootstrapInvestigation({
@@ -281,13 +263,30 @@ describe("investigations engine (integration)", () => {
       });
       expect(result.status).toBe("ok");
       if (result.status !== "ok") throw new Error("expected ok");
-      expect(result.degraded).toBe(false);
-      expect(vi.mocked(client.conversations.join).mock.calls).toHaveLength(0);
       const session = await getSession(result.sessionId);
       expect(session?.followedThreads?.[0].mode).toBe("followAndInteract");
+      expect(client.conversations.join).not.toHaveBeenCalled();
     });
 
-    it("conversations.info error falls through to join", async () => {
+    it("non-member origin → not_in_channel, nothing posted, created, or opened", async () => {
+      await setInvestigationsChannel("CINV");
+      const client = makeClient({}, { isMember: false });
+      const result = await bootstrapInvestigation({
+        client,
+        surface: "channel",
+        originChannel: "CSIDE",
+        originThreadTs: "1.1",
+        requester: "U1",
+      });
+      expect(result).toEqual({ status: "not_in_channel" });
+      expect(client.chat.postMessage).not.toHaveBeenCalled();
+      expect(readdirSync(join(tmpBase, "data", "sessions"))).toHaveLength(0);
+      expect(findInvestigationByFollowedThread("CSIDE", "1.1")).toBeUndefined();
+      expect(processMessage).not.toHaveBeenCalled();
+      expect(client.conversations.join).not.toHaveBeenCalled();
+    });
+
+    it("conversations.info rejecting → not_in_channel", async () => {
       await setInvestigationsChannel("CINV");
       const client = makeClient({}, { infoError: { data: { error: "channel_not_found" } } });
       const result = await bootstrapInvestigation({
@@ -297,10 +296,73 @@ describe("investigations engine (integration)", () => {
         originThreadTs: "1.1",
         requester: "U1",
       });
-      expect(result.status).toBe("ok");
-      if (result.status !== "ok") throw new Error("expected ok");
-      expect(result.degraded).toBe(false);
-      expect(vi.mocked(client.conversations.join).mock.calls.length).toBeGreaterThan(0);
+      expect(result).toEqual({ status: "not_in_channel" });
+      expect(client.conversations.join).not.toHaveBeenCalled();
+    });
+
+    it("conversations.info resolving ok: false → not_in_channel", async () => {
+      await setInvestigationsChannel("CINV");
+      const client = makeClient({}, { infoOk: false });
+      const result = await bootstrapInvestigation({
+        client,
+        surface: "channel",
+        originChannel: "CSIDE",
+        originThreadTs: "1.1",
+        requester: "U1",
+      });
+      expect(result).toEqual({ status: "not_in_channel" });
+      expect(client.conversations.join).not.toHaveBeenCalled();
+    });
+
+    it("DM surface with a non-member origin → not_in_channel, no DM opened", async () => {
+      vi.mocked(openDmChannel).mockClear();
+      const client = makeClient({}, { isMember: false });
+      const result = await bootstrapInvestigation({
+        client,
+        surface: "dm",
+        originChannel: "CSIDE",
+        originThreadTs: "1.1",
+        requester: "U1",
+      });
+      expect(result).toEqual({ status: "not_in_channel" });
+      expect(openDmChannel).not.toHaveBeenCalled();
+      expect(client.conversations.open).not.toHaveBeenCalled();
+      expect(client.chat.postMessage).not.toHaveBeenCalled();
+      expect(client.conversations.join).not.toHaveBeenCalled();
+    });
+
+    it("non-member origin with no investigations channel set → not_in_channel", async () => {
+      const result = await bootstrapInvestigation({
+        client: makeClient({}, { isMember: false }),
+        surface: "channel",
+        originChannel: "CSIDE",
+        originThreadTs: "1.1",
+        requester: "U1",
+      });
+      expect(result).toEqual({ status: "not_in_channel" });
+    });
+
+    it("already-investigated thread the bot is no longer in → duplicate", async () => {
+      await setInvestigationsChannel("CINV");
+      const first = await bootstrapInvestigation({
+        client: makeClient({}, { isMember: true }),
+        surface: "channel",
+        originChannel: "CSIDE",
+        originThreadTs: "1.1",
+        requester: "U1",
+      });
+      expect(first.status).toBe("ok");
+
+      const client = makeClient({}, { isMember: false });
+      const result = await bootstrapInvestigation({
+        client,
+        surface: "channel",
+        originChannel: "CSIDE",
+        originThreadTs: "1.1",
+        requester: "U1",
+      });
+      expect(result.status).toBe("duplicate");
+      expect(client.conversations.join).not.toHaveBeenCalled();
     });
 
     it("parent attributes requester as plain text when tag off (default)", async () => {

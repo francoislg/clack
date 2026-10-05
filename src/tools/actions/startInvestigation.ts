@@ -3,6 +3,7 @@ import { tool } from "@anthropic-ai/claude-agent-sdk";
 import type { QueryToolContext } from "../types.js";
 import { textResult, errorResult } from "../helpers.js";
 import { bootstrapInvestigation } from "../../investigations/engine.js";
+import { NOT_IN_CHANNEL_MESSAGE } from "../../investigations/notInChannel.js";
 import { getOwnerUserId, sendOwnerDm } from "../../slack/ownerDm.js";
 import { t } from "../../i18n/t.js";
 import { setAttentionLevel } from "../../sessions.js";
@@ -82,7 +83,6 @@ export function createStartInvestigationTool(ctx: QueryToolContext) {
           sessionId: result.sessionId,
           mainChannel: result.mainChannel,
           ...(result.permalink ? { permalink: result.permalink } : {}),
-          degraded: result.degraded,
           ...(originDisengaged ? { originDisengaged: true } : {}),
           ...(originDisengaged
             ? {
@@ -108,6 +108,10 @@ export function createStartInvestigationTool(ctx: QueryToolContext) {
 
       if (result.status === "cycle") {
         return errorResult("Cannot investigate the investigations channel itself (cycle guard).");
+      }
+
+      if (result.status === "not_in_channel") {
+        return errorResult(NOT_IN_CHANNEL_MESSAGE);
       }
 
       if (result.status === "duplicate") {

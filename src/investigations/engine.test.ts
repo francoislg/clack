@@ -45,6 +45,9 @@ vi.mock("../slack/userCache.js", () => ({
 vi.mock("../slack/channelResolver.js", () => ({
   openDmChannel: vi.fn(),
 }));
+vi.mock("../slack/botMembership.js", () => ({
+  isBotInConversation: vi.fn(),
+}));
 
 import {
   bootstrapInvestigation,
@@ -67,6 +70,7 @@ import { drainFollowedThreads } from "./drain.js";
 import { getUserPreference } from "../userPreferences.js";
 import { getUserInfo } from "../slack/userCache.js";
 import { openDmChannel } from "../slack/channelResolver.js";
+import { isBotInConversation } from "../slack/botMembership.js";
 import { createSlackClientMock } from "../slack/testSlackClient.js";
 import { stub } from "../testStubs.js";
 
@@ -155,6 +159,7 @@ describe("investigations engine (unit)", () => {
     vi.mocked(getUserPreference).mockResolvedValue(undefined);
     vi.mocked(getUserInfo).mockResolvedValue({ userId: "U1", displayName: "Requester Name" });
     vi.mocked(openDmChannel).mockResolvedValue("DMROOM");
+    vi.mocked(isBotInConversation).mockResolvedValue(true);
   });
 
   describe("runInvestigationRound", () => {
@@ -231,6 +236,22 @@ describe("investigations engine (unit)", () => {
     // The first round is launched detached; drain pending microtasks before asserting.
     await vi.waitFor(() => expect(processMessage).toHaveBeenCalled());
     expect(vi.mocked(processMessage).mock.calls[0]?.[0]).toMatchObject({ deferProgress: false });
+  });
+
+  it("bootstrapInvestigation refuses an origin the bot is not in", async () => {
+    vi.mocked(isBotInConversation).mockResolvedValue(false);
+    const client = createSlackClientMock();
+
+    const result = await bootstrapInvestigation({
+      client,
+      surface: "channel",
+      originChannel: ORIGIN.channel,
+      originThreadTs: ORIGIN.threadTs,
+      requester: "U1",
+    });
+
+    expect(result).toEqual({ status: "not_in_channel" });
+    expect(isBotInConversation).toHaveBeenCalledWith(client, ORIGIN.channel);
   });
 
   describe("bootstrapInvestigation access grants", () => {

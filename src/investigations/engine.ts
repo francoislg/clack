@@ -12,6 +12,7 @@ import { logger } from "../logger.js";
 import { t } from "../i18n/t.js";
 import { getBotIdentity } from "../slack/botIdentity.js";
 import { openDmChannel } from "../slack/channelResolver.js";
+import { isBotInConversation } from "../slack/botMembership.js";
 import {
   createSession,
   findSessionByThread,
@@ -48,17 +49,6 @@ function slackTsNow(): string {
   return (Date.now() / 1000).toFixed(6);
 }
 
-function slackErrorCode(err: unknown): string | undefined {
-  if (err && typeof err === "object" && "data" in err) {
-    const data: unknown = (err as { data?: unknown }).data;
-    if (data && typeof data === "object" && "error" in data) {
-      const code: unknown = (data as { error?: unknown }).error;
-      return typeof code === "string" ? code : undefined;
-    }
-  }
-  return undefined;
-}
-
 async function getPermalink(
   client: SlackClient,
   channel: string,
@@ -69,37 +59,6 @@ async function getPermalink(
     return res.permalink;
   } catch {
     return undefined;
-  }
-}
-
-/**
- * Check whether the bot is already a member of a channel before attempting to join.
- * Returns whether the bot can receive events: already-member channels, DMs, and
- * private channels (inherently joined or not supportable) are fine; a genuine join failure
- * means the thread degrades to `follow`.
- */
-async function ensureChannelMembership(client: SlackClient, channel: string): Promise<boolean> {
-  // Already a member (or an inherently-joined DM/MPIM) → events already flow; no join needed.
-  try {
-    const info = await client.conversations.info({ channel });
-    const ch = info.channel;
-    if (ch?.is_member || ch?.is_im || ch?.is_mpim) return true;
-  } catch (err) {
-    logger.debug(
-      `investigations: conversations.info failed for ${channel} (${slackErrorCode(err) ?? String(err)}); attempting join`,
-    );
-  }
-  // Genuinely absent from a public channel → attempt to join.
-  try {
-    await client.conversations.join({ channel });
-    return true;
-  } catch (err) {
-    const code = slackErrorCode(err);
-    if (code === "method_not_supported_for_channel_type" || code === "already_in_channel") {
-      return true;
-    }
-    logger.warn(`investigations: could not join channel ${channel} (${code ?? String(err)})`);
-    return false;
   }
 }
 
@@ -214,19 +173,30 @@ export interface BootstrapParams {
 }
 
 export type BootstrapResult =
-  | { status: "ok"; sessionId: string; mainChannel: string; permalink?: string; degraded: boolean }
+  | { status: "ok"; sessionId: string; mainChannel: string; permalink?: string }
+  | { status: "not_in_channel" }
   | { status: "channel_not_configured" }
   | { status: "cycle" }
   | { status: "duplicate"; permalink?: string }
   | { status: "dm_failed" };
 
 /**
- * The one bootstrap all three entry points funnel into: resolve the main surface, post the
- * parent, create the session following the origin, run an immediate first round over the full
- * origin history, and leave a single breadcrumb in the origin thread.
+ * The one bootstrap all three entry points funnel into: link an existing investigation of the
+ * origin (`duplicate`), refuse an origin the bot is not a member of (`not_in_channel`), resolve
+ * the main surface, post the parent, create the session following the origin, run an immediate
+ * first round over the full origin history, and leave a single breadcrumb in the origin thread.
  */
 export async function bootstrapInvestigation(params: BootstrapParams): Promise<BootstrapResult> {
   const { client, surface, originChannel, originThreadTs, requester } = params;
+
+  const existing = findInvestigationByFollowedThread(originChannel, originThreadTs);
+  if (existing) {
+    const permalink = await getPermalink(client, existing.mainChannel, existing.mainThreadTs);
+    return { status: "duplicate", ...(permalink ? { permalink } : {}) };
+  }
+
+  // Clack only follows a thread it already receives events for: it never joins a channel.
+  if (!(await isBotInConversation(client, originChannel))) return { status: "not_in_channel" };
 
   let mainChannel: string;
   if (surface === "channel") {
@@ -240,17 +210,7 @@ export async function bootstrapInvestigation(params: BootstrapParams): Promise<B
     mainChannel = dm;
   }
 
-  const existing = findInvestigationByFollowedThread(originChannel, originThreadTs);
-  if (existing) {
-    const permalink = await getPermalink(client, existing.mainChannel, existing.mainThreadTs);
-    return { status: "duplicate", ...(permalink ? { permalink } : {}) };
-  }
-
-  const canReceiveEvents =
-    surface === "dm" ? true : await ensureChannelMembership(client, originChannel);
-  const originMode: FollowMode = canReceiveEvents
-    ? (params.originMode ?? "followAndInteract")
-    : "follow";
+  const originMode: FollowMode = params.originMode ?? "followAndInteract";
 
   const [originPermalink, requesterLabel] = await Promise.all([
     getPermalink(client, originChannel, originThreadTs),
@@ -338,7 +298,6 @@ export async function bootstrapInvestigation(params: BootstrapParams): Promise<B
     sessionId: session.sessionId,
     mainChannel,
     ...(mainPermalink ? { permalink: mainPermalink } : {}),
-    degraded: !canReceiveEvents,
   };
 }
 

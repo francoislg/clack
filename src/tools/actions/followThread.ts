@@ -7,6 +7,8 @@ import { getInvestigationsChannel, addFollowedThread } from "../../investigation
 import type { FollowedThread } from "../../investigations/types.js";
 import { requireInvestigationSession } from "../investigationSession.js";
 import { ACCESS_DENIED_MESSAGE, checkConversationAccess } from "../../slack/requesterAccess.js";
+import { isBotInConversation } from "../../slack/botMembership.js";
+import { NOT_IN_CHANNEL_MESSAGE } from "../../investigations/notInChannel.js";
 
 export function createFollowThreadTool(ctx: QueryToolContext) {
   return tool(
@@ -42,6 +44,10 @@ export function createFollowThreadTool(ctx: QueryToolContext) {
         return errorResult(
           "Cannot follow threads in the investigations channel itself (cycle guard).",
         );
+      }
+
+      if (!(await isBotInConversation(ctx.slackClient, args.channel))) {
+        return errorResult(NOT_IN_CHANNEL_MESSAGE);
       }
 
       // Guard: reject already-followed threads

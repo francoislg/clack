@@ -29,6 +29,7 @@ vi.mock("../../slack/requesterAccess.js", async (importOriginal) => {
 });
 
 import { bootstrapInvestigation } from "../../investigations/engine.js";
+import { NOT_IN_CHANNEL_MESSAGE } from "../../investigations/notInChannel.js";
 import { setAttentionLevel } from "../../sessions.js";
 import { ACCESS_DENIED_MESSAGE, checkConversationAccess } from "../../slack/requesterAccess.js";
 
@@ -136,7 +137,6 @@ describe("start_investigation tool", () => {
       sessionId: "S1",
       mainChannel: "CMAIN",
       permalink: "http://...",
-      degraded: false,
     });
 
     const tool = createStartInvestigationTool(ctx);
@@ -159,7 +159,6 @@ describe("start_investigation tool", () => {
       status: "ok",
       sessionId: "S1",
       mainChannel: "CMAIN",
-      degraded: false,
     });
 
     const tool = createStartInvestigationTool(ctx);
@@ -185,7 +184,6 @@ describe("start_investigation tool", () => {
       status: "ok",
       sessionId: "S1",
       mainChannel: "CMAIN",
-      degraded: false,
     });
 
     const tool = createStartInvestigationTool(ctx);
@@ -243,6 +241,21 @@ describe("start_investigation tool", () => {
     assert.strictEqual(vi.mocked(setAttentionLevel).mock.calls.length, 0);
   });
 
+  it("returns the not-in-channel error when the bot is not in the origin channel", async () => {
+    const ctx = makeCtx();
+    vi.mocked(bootstrapInvestigation).mockResolvedValue({ status: "not_in_channel" });
+
+    const tool = createStartInvestigationTool(ctx);
+    const result = await tool.handler(
+      { surface: "channel", thread_ref: undefined, subject: undefined },
+      { sessionId: "sess-current" },
+    );
+
+    expect(result.isError).toBe(true);
+    expect(parseToolResult(result)).toEqual({ error: NOT_IN_CHANNEL_MESSAGE });
+    expect(vi.mocked(setAttentionLevel)).not.toHaveBeenCalled();
+  });
+
   it("does not disengage on channel_not_configured status", async () => {
     const ctx = makeCtx();
     vi.mocked(bootstrapInvestigation).mockResolvedValue({
@@ -283,7 +296,6 @@ describe("start_investigation tool", () => {
       status: "ok",
       sessionId: "S1",
       mainChannel: "CMAIN",
-      degraded: false,
     });
 
     const tool = createStartInvestigationTool(ctx);
@@ -303,7 +315,6 @@ describe("start_investigation tool", () => {
       status: "ok",
       sessionId: "S1",
       mainChannel: "CMAIN",
-      degraded: false,
     });
 
     const tool = createStartInvestigationTool(ctx);
@@ -323,7 +334,6 @@ describe("start_investigation tool", () => {
       status: "ok",
       sessionId: "S1",
       mainChannel: "D_DM",
-      degraded: false,
     });
 
     const tool = createStartInvestigationTool(ctx);
@@ -344,7 +354,6 @@ describe("start_investigation tool", () => {
       status: "ok",
       sessionId: "S1",
       mainChannel: "CMAIN",
-      degraded: false,
     });
     vi.mocked(setAttentionLevel).mockRejectedValue(new Error("permission denied"));
 

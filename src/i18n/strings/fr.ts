@@ -258,12 +258,12 @@ export const fr: Partial<Record<StringKey, string>> = {
     "Impossible de retrouver le fil du message. Veuillez réessayer.",
   "investigations.reactor_cycle":
     "Impossible d'enquêter sur un fil qui se trouve déjà dans le canal d'enquête.",
+  "investigations.reactor_not_in_channel":
+    "Je ne peux pas enquêter sur ce fil, car je ne suis pas membre de ce canal. Invitez-moi dans le canal, puis réessayez.",
   "investigations.reactor_unconfigured":
     "Le mode Enquête n'est pas configuré — un admin doit choisir un canal d'enquête depuis l'onglet Accueil. Le propriétaire a été notifié.",
   "investigations.owner_unconfigured":
     "{user} a tenté de lancer une enquête, mais aucun canal d'enquête n'est configuré. Choisissez-en un dans l'onglet Accueil → Enquêtes.",
-  "investigations.owner_degraded":
-    "Une enquête a démarré en suivant {link}, mais le bot n'a pas la permission `channels:join` requise pour le rejoindre ; il est donc passé en mode suivi passif (aucune mise à jour en direct ; le contenu est tout de même récupéré à chaque tour). Régénérez le manifeste et réinstallez l'application pour accorder `channels:join`, et le suivi en direct reprendra.",
   "investigations.home_section_title": "🔎 Enquêtes",
   "investigations.home_channel_label": "Canal d'enquête",
   "investigations.home_channel_placeholder": "Sélectionnez un canal",

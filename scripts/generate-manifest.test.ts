@@ -167,9 +167,9 @@ describe("generateManifest — allowPublicSearch", () => {
 });
 
 describe("generateManifest — investigations", () => {
-  it("adds channels:join scope when investigations is enabled", () => {
+  it("does not add channels:join scope when investigations is enabled", () => {
     const manifest = generateManifest({ investigations: { enabled: true } });
-    assert.ok(getScopes(manifest).includes("channels:join"));
+    assert.equal(getScopes(manifest).includes("channels:join"), false);
   });
 
   it("adds message.channels and message.groups events when investigations is enabled", () => {

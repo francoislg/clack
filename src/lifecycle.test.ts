@@ -329,7 +329,7 @@ describe("restartAll", () => {
     const { deps, mocks } = createMockDeps();
     const client = createSlackClientMock();
     mocks.mockGetSlackClient.mockImplementation(() => client);
-    mocks.mockCheckTokenScopes.mockResolvedValue(["channels:join"]);
+    mocks.mockCheckTokenScopes.mockResolvedValue(["im:write"]);
 
     const result = await restartAll(deps);
 
@@ -339,7 +339,7 @@ describe("restartAll", () => {
       client,
     ]);
     assert.ok(
-      result.warnings.includes("Bot token is missing scope channels:join"),
+      result.warnings.includes("Bot token is missing scope im:write"),
       `got: ${JSON.stringify(result.warnings)}`,
     );
     assert.equal(mocks.mockStartSyncScheduler.mock.calls.length, 1);

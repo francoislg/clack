@@ -100,9 +100,11 @@ describe("requiredBotScopes", () => {
     );
   });
 
-  it("adds channels:join for investigations", () => {
+  it("never requires channels:join, with or without investigations", () => {
     expect(requiredBotScopes(NO_FEATURES)).not.toContain("channels:join");
-    expect(requiredBotScopes({ ...NO_FEATURES, investigations: true })).toContain("channels:join");
+    expect(requiredBotScopes({ ...NO_FEATURES, investigations: true })).not.toContain(
+      "channels:join",
+    );
   });
 
   it("adds only canvases:read for canvases mode read", () => {

@@ -146,14 +146,13 @@ describe("handleInvestigateReaction", () => {
     );
   });
 
-  it("bootstrap ok status (non-degraded): does not post reactor ephemeral", async () => {
+  it("bootstrap ok status: does not post reactor ephemeral", async () => {
     const deps = makeDeps({
       bootstrapInvestigation: vi.fn(async () => ({
         status: "ok" as const,
         sessionId: "S001",
         mainChannel: "C002",
         permalink: "https://example.slack.com/archives/C002/p1234",
-        degraded: false,
       })),
     });
 
@@ -163,16 +162,13 @@ describe("handleInvestigateReaction", () => {
     expect(mockPostEphemeralFn).not.toHaveBeenCalled();
   });
 
-  it("bootstrap ok status (degraded): sends owner DM, no reactor ephemeral", async () => {
+  it("not_in_channel status: posts reactor ephemeral, no owner DM", async () => {
     const mockGetOwnerUserId = vi.fn(async () => "U_OWNER");
     const mockSendOwnerDm = vi.fn(async () => true);
 
     const deps = makeDeps({
       bootstrapInvestigation: vi.fn(async () => ({
-        status: "ok" as const,
-        sessionId: "S001",
-        mainChannel: "C002",
-        degraded: true,
+        status: "not_in_channel" as const,
       })),
       getOwnerUserId: mockGetOwnerUserId,
       sendOwnerDm: mockSendOwnerDm,
@@ -181,9 +177,12 @@ describe("handleInvestigateReaction", () => {
     const client = makeClient();
     await handleInvestigateReaction(makeEvent("mag", "U001"), client, deps);
 
-    expect(mockGetOwnerUserId).toHaveBeenCalledTimes(1);
-    expect(mockSendOwnerDm).toHaveBeenCalledWith("U_OWNER", expect.stringContaining("<#C001>"));
-    expect(mockPostEphemeralFn).not.toHaveBeenCalled();
+    expect(mockPostEphemeralFn).toHaveBeenCalledWith({
+      channel: "C001",
+      user: "U001",
+      text: "I can't investigate this thread because I'm not a member of this channel. Invite me to the channel, then try again.",
+    });
+    expect(mockSendOwnerDm).not.toHaveBeenCalled();
   });
 
   it("duplicate status: posts reactor ephemeral with permalink", async () => {

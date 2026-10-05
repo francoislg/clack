@@ -1,6 +1,7 @@
 # split-investigations Specification
 
 ## Purpose
+
 Enable autonomous investigation sessions that follow multiple threads and compose findings into a central location (channel or DM), with configurable emoji-trigger entry points and lifecycle management tools.
 
 ## Requirements
@@ -38,7 +39,7 @@ The system SHALL persist the investigations channel and the open-investigations 
 
 ### Requirement: Investigate reaction entry point
 
-When the feature is enabled, the system SHALL register a `reaction_added` handler filtering on the configured investigate emoji. Reacting on a message SHALL resolve the message's thread and invoke the shared bootstrap with the investigations-channel surface. When the reacted thread is already followed by an open investigation, the system SHALL NOT create a second investigation and SHALL send the reactor an ephemeral link to the existing one. On a **successful** start, the system SHALL NOT post any ephemeral confirmation to the reactor; ephemerals SHALL be reserved for the duplicate, unconfigured, cycle, and resolve-failure cases.
+When the feature is enabled, the system SHALL register a `reaction_added` handler filtering on the configured investigate emoji. Reacting on a message SHALL resolve the message's thread and invoke the shared bootstrap with the investigations-channel surface. When the reacted thread is already followed by an open investigation, the system SHALL NOT create a second investigation and SHALL send the reactor an ephemeral link to the existing one. On a **successful** start, the system SHALL NOT post any ephemeral confirmation to the reactor; ephemerals SHALL be reserved for the duplicate, unconfigured, cycle, not-in-channel, and resolve-failure cases.
 
 #### Scenario: Reaction starts an investigation
 
@@ -89,12 +90,11 @@ The system SHALL expose a `start_investigation` tool (all roles, query mode, ena
 - **WHEN** no investigations channel is configured and a user asks to continue in DM
 - **THEN** the DM bootstrap proceeds normally
 
-
 ### Requirement: Surface-agnostic bootstrap
 
 All entry points SHALL funnel into one bootstrap that: (1) resolves the main surface — the configured investigations channel or a DM with the requester; (2) posts the main-surface parent message (rendered via `t()`, attributing the requester per the "Requester attribution on the main-surface parent" requirement) and creates a persisted session whose `followedThreads` contains the origin thread; (3) launches a first investigation round over the full origin-thread history **detached** — the bootstrap SHALL return once stages (1)–(2) and the breadcrumb decision complete, without awaiting the round, so callers (tool handlers, reaction handlers) are never blocked on a nested Claude query; a detached-round failure SHALL be logged and SHALL NOT affect the bootstrap result; (4) posts a single breadcrumb reply in the origin thread linking the main surface, rendered via `t()`, ONLY when the requester's breadcrumb-visibility preference is "explicit" (see the user-preferences capability); when the preference is "silent" (the default) no breadcrumb is posted. Whether or not a breadcrumb is posted, the system SHALL NOT post any further messages to followed threads.
 
-Before completing, the bootstrap SHALL ensure it can receive live events for a channel-surface origin without assuming `conversations.join` is required. It SHALL first detect existing membership via `conversations.info` (`is_member`), which needs only the already-granted read scopes: when the bot is already a member — or the origin is a DM/MPIM (`is_im`/`is_mpim`, where the bot is inherently a participant) — no join is attempted and the follow stays interactive. Only when the bot is genuinely absent from a public channel SHALL the bootstrap attempt `conversations.join`; a failure there (including `missing_scope` for `channels:join`) SHALL degrade the followed thread to `follow` mode and notify the owner with a message naming the actual cause (the missing `channels:join` scope / app reinstall) rather than implying the channel could not be found.
+The system SHALL NEVER join a channel on its own: no code path SHALL call `conversations.join`. Before stage (2), whichever main surface was requested (`channel` or `dm`), the bootstrap SHALL confirm via `conversations.info` that the bot is a member of the origin conversation (`is_member`), or that the origin is a DM/MPIM (`is_im`/`is_mpim`). When the bot is not a member, or membership cannot be confirmed (the lookup throws, fails, or returns an unexpected shape), the bootstrap SHALL return a `not_in_channel` status without posting the parent message, creating a session, indexing the investigation, or posting a breadcrumb. Each entry point SHALL tell the requester that the bot cannot proceed because it is not in that channel and must be invited first: the reaction entry point via an ephemeral message rendered with `t()`, the `start_investigation` tool via an English error result.
 
 #### Scenario: Immediate first round
 
@@ -127,29 +127,47 @@ Before completing, the bootstrap SHALL ensure it can receive live events for a c
 - **THEN** no breadcrumb reply is posted in the origin thread
 - **AND** no subsequent investigation activity posts to the origin thread
 
-#### Scenario: Origin channel the bot is already in needs no join
+#### Scenario: Origin channel the bot is already in
 
 - **WHEN** the origin thread is in a channel where `conversations.info` reports `is_member: true`
-- **THEN** the bootstrap attempts no `conversations.join`
-- **AND** the followed thread stays in `followAndInteract` mode
-- **AND** no owner degrade notification is sent
+- **THEN** the bootstrap proceeds and the followed thread uses the requested mode
 
-#### Scenario: DM/MPIM origin needs no join
+#### Scenario: DM/MPIM origin
 
 - **WHEN** the origin is a DM or MPIM (`is_im`/`is_mpim`)
-- **THEN** the bootstrap attempts no `conversations.join` and does not degrade
+- **THEN** the bootstrap proceeds and the followed thread uses the requested mode
 
-#### Scenario: Genuinely-absent public channel join fails
+#### Scenario: Existing investigation of a thread the bot can no longer see
 
-- **WHEN** the origin is a public channel the bot is not a member of AND `conversations.join` fails (e.g. `missing_scope` for `channels:join`)
-- **THEN** the followed thread degrades to `follow` mode
-- **AND** the owner is notified with a message naming the missing `channels:join` scope / reinstall as the cause
+- **WHEN** an open investigation already follows the origin thread AND `conversations.info` reports `is_member: false` for its channel
+- **THEN** the bootstrap returns `duplicate` with the existing investigation's link, not `not_in_channel`
 
-#### Scenario: Membership detection fails
+#### Scenario: Channel the bot is not in
 
-- **WHEN** `conversations.info` throws or returns without confirming `is_member` for a channel-surface origin
-- **THEN** the bootstrap treats membership as unconfirmed and falls through to the `conversations.join` attempt, preserving the degrade-on-failure safety net
+- **WHEN** the origin is a channel where `conversations.info` reports `is_member: false`, for either main surface
+- **THEN** the bootstrap returns `not_in_channel`
+- **AND** `conversations.join` is not called
+- **AND** no parent message, session, investigation index entry, or breadcrumb is created
 
+#### Scenario: Membership cannot be confirmed
+
+- **WHEN** `conversations.info` throws, resolves with `ok: false`, or returns an unexpected shape for the origin
+- **THEN** the bootstrap returns `not_in_channel` and `conversations.join` is not called
+
+#### Scenario: DM relocation from a channel the bot is not in
+
+- **WHEN** `start_investigation` is called with `surface: "dm"` and the origin thread is in a channel where `conversations.info` reports `is_member: false`
+- **THEN** the bootstrap returns `not_in_channel` and no DM parent message or session is created
+
+#### Scenario: Reaction requester is told
+
+- **WHEN** the reaction entry point receives a `not_in_channel` result
+- **THEN** the reactor receives an ephemeral message, rendered via `t()`, saying the bot is not in that channel and must be invited first
+
+#### Scenario: start_investigation requester is told
+
+- **WHEN** `start_investigation` receives a `not_in_channel` result
+- **THEN** the tool returns an English error result saying the bot is not in that channel and must be invited first
 
 ### Requirement: Requester attribution on the main-surface parent
 
@@ -245,7 +263,7 @@ Every investigation round, regardless of trigger, SHALL first drain each followe
 
 ### Requirement: Lifecycle tools
 
-The system SHALL expose `follow_thread` (add a thread to the current investigation with a mode), `unfollow_thread`, `list_followed_threads`, and `close_investigation` on investigation-session tool schemas (all roles, enabled-gated). `follow_thread` SHALL reject threads located in the investigations channel (cycle guard) and threads already followed by this investigation. `close_investigation` SHALL remove the investigation from the open index, immediately stopping event routing; the session and its history remain on disk.
+The system SHALL expose `follow_thread` (add a thread to the current investigation with a mode), `unfollow_thread`, `list_followed_threads`, and `close_investigation` on investigation-session tool schemas (all roles, enabled-gated). `follow_thread` SHALL reject threads located in the investigations channel (cycle guard), threads already followed by this investigation, and threads in a channel the bot is not a member of (or whose membership cannot be confirmed via `conversations.info`; DMs and MPIMs count as joined) — the latter with an English error result saying the bot is not in that channel and must be invited first, and without calling `conversations.join`. `close_investigation` SHALL remove the investigation from the open index, immediately stopping event routing; the session and its history remain on disk.
 
 #### Scenario: Following an additional thread
 
@@ -263,6 +281,17 @@ The system SHALL expose `follow_thread` (add a thread to the current investigati
 
 - **WHEN** `follow_thread` targets a thread inside the investigations channel
 - **THEN** the tool returns an error and no follow is added
+
+#### Scenario: Following a thread in a DM or MPIM
+
+- **WHEN** `follow_thread` targets a thread where `conversations.info` reports `is_im` or `is_mpim`
+- **THEN** the thread is added without a membership refusal
+
+#### Scenario: Thread in a channel the bot is not in
+
+- **WHEN** `follow_thread` targets a thread in a channel where `conversations.info` reports `is_member: false`, or the lookup fails
+- **THEN** the tool returns an error saying the bot is not in that channel and must be invited first
+- **AND** no follow is added and `conversations.join` is not called
 
 #### Scenario: Closing an investigation
 
