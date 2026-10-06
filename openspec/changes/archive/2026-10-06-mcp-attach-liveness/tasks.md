@@ -32,5 +32,5 @@
 
 - [x] 5.1 `npx tsc --noEmit`, `npx oxlint` and `npx oxfmt --check` on changed files, `npm test`
 - [x] 5.2 `openspec validate mcp-attach-liveness --strict`
-- [ ] 5.3 Ask the coordinator for a live check: an attach of a reachable server succeeds, an attach of an unreachable one fails with its status, and a second attach reconnects rather than reporting success
-- [ ] 5.4 After deploy, ask the coordinator to compare the VM's `data/default_configuration/user/integrations.md` with the committed one and push it (`gce-push --overwrite`) if the VM copy shadows the image's
+- [x] 5.3 Ask the coordinator for a live check: an attach of a reachable server succeeds, an attach of an unreachable one fails with its status, and a second attach reconnects rather than reporting success
+- [x] 5.4 After deploy, ask the coordinator to compare the VM's `data/default_configuration/user/integrations.md` with the committed one and push it (`gce-push --overwrite`) if the VM copy shadows the image's
