@@ -1,0 +1,12 @@
+{
+  "default": { "en": "Checking BigQuery", "fr": "Consultation de BigQuery" },
+  "group": { "en": "Checking BigQuery", "fr": "Consultation de BigQuery" },
+  "argOptions": {
+    "table": { "from": "sql", "pattern": "[Ff][Rr][Oo][Mm]\\s+`?([\\w-]+\\.[\\w.-]+)" }
+  },
+  "tools": {
+    "query": {
+      "label": { "en": "Querying BigQuery {table}", "fr": "Requête BigQuery {table}" }
+    }
+  }
+}

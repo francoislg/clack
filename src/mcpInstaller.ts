@@ -185,6 +185,14 @@ export async function ensureInstalled(
   return { binPath: resolveBinPath(dir, pkg, deps) };
 }
 
+/** The `node <binPath> ...args` spawn config for an installed pinned entry. */
+export function pinnedSpawnConfig(
+  entry: PinnedEntry,
+  binPath: string,
+): { command: string; args: string[]; env?: Record<string, string> } {
+  return { command: "node", args: [binPath, ...(entry.args ?? [])], env: entry.env };
+}
+
 export interface InstallAllDeps {
   ensureInstalled: typeof ensureInstalled;
   getPinnedEntries: () => Record<string, PinnedEntry>;
@@ -209,12 +217,7 @@ export async function installAllPinnedMcpServers(
   for (const [name, entry] of Object.entries(deps.getPinnedEntries())) {
     try {
       const { binPath } = await deps.ensureInstalled(name, entry.package, entry.version);
-      deps.setPinnedSpawnConfig(name, {
-        type: "stdio",
-        command: "node",
-        args: [binPath, ...(entry.args ?? [])],
-        env: entry.env,
-      });
+      deps.setPinnedSpawnConfig(name, { type: "stdio", ...pinnedSpawnConfig(entry, binPath) });
       logger.info(`MCP install ready: ${name} (${entry.package}@${entry.version})`);
     } catch (error) {
       logger.warn(

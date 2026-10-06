@@ -52,19 +52,19 @@ function getMcpConfigPath(): string {
   return join(process.cwd(), "data", "mcp.json");
 }
 
-interface McpRemoteConfig {
+export interface McpRemoteConfig {
   type: "sse" | "http";
   url: string;
   headers?: Record<string, string>;
 }
 
-type McpServerEntry = StdioMcpEntry | McpRemoteConfig;
+export type McpServerEntry = StdioMcpEntry | McpRemoteConfig;
 
-interface McpConfig {
+export interface McpConfig {
   mcpServers?: Record<string, McpServerEntry>;
 }
 
-function isRemoteEntry(entry: McpServerEntry): entry is McpRemoteConfig {
+export function isRemoteEntry(entry: McpServerEntry): entry is McpRemoteConfig {
   return entry.type === "sse" || entry.type === "http";
 }
 

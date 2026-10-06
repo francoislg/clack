@@ -1,42 +1,293 @@
 {
-  "default": "Checking Statsig feature flags",
-  "group": "Checking Statsig feature flags",
+  "default": {
+    "en": "Checking Statsig feature flags",
+    "fr": "Consultation des feature flags Statsig"
+  },
+  "group": {
+    "en": "Checking Statsig feature flags",
+    "fr": "Consultation des feature flags Statsig"
+  },
   "argOptions": {
-    "id": { "from": "params.path_id" }
+    "id": { "from": "params.path_id" },
+    "reviewId": { "from": "params.path_reviewID" },
+    "ruleId": { "from": "params.path_ruleID" },
+    "metricId": { "from": "params.query_metricID" },
+    "logQuery": { "from": "params.query_query", "truncate": 30 },
+    "query": { "truncate": 30 }
   },
   "tools": {
-    "Get_Audit_Logs": "Reading Statsig audit logs",
-    "Get_List_of_Gates": "Listing feature gates",
-    "Get_Gate_Details_by_ID": "Reading gate {id|…}",
-    "Get_Gate_Results": "Reading gate results for {id|…}",
-    "Get_List_of_Experiments": "Listing experiments",
-    "Get_Experiment_Details_by_ID": "Reading experiment {id|…}",
-    "Get_Experiment_Results": "Reading experiment results",
-    "Get_List_of_Dynamic_Configs": "Listing dynamic configs",
-    "Get_Dynamic_Config_Details_by_ID": "Reading dynamic config {id|…}",
-    "Get_List_of_Layers": "Listing layers",
-    "Get_Layer_Details_by_ID": "Reading layer {id|…}",
-    "Get_List_of_Metrics": "Listing metrics",
-    "Get_Metric_Definition_by_ID": "Reading metric {id|…}",
-    "Get_List_of_Metric_Sources": "Listing metric sources",
-    "Get_List_of_Param_Stores": "Listing param stores",
-    "Get_Param_Store_Details_by_Id": "Reading param store {id|…}",
-    "Get_List_of_Segments": "Listing segments",
-    "Get_Segment_by_ID": "Reading segment {id|…}",
-    "GetExperimentSummaryCharts": "Reading experiment charts {id|…}",
-    "search": "Searching Statsig for \"{query}\"",
-    "fetch": "Fetching Statsig document {id}",
-    "Create_Gate": "Creating feature gate",
-    "Create_Experiment": "Creating experiment",
-    "Create_Dynamic_Config": "Creating dynamic config",
-    "Create_Layer": "Creating layer",
-    "Create_Segment": "Creating segment",
-    "Update_Gate_Entirely": "Updating gate {id}",
-    "Update_Experiment_Entirely": "Updating experiment {id}",
-    "Update_Dynamic_Config_Entirely": "Updating dynamic config {id}",
-    "Update_Layer_Entirely": "Updating layer {id}",
-    "Update_Segment": "Updating segment {id}",
-    "Start_Gate_Code_Cleanup": "Starting gate code cleanup {id}",
-    "Start_Experiment_Code_Cleanup": "Starting experiment code cleanup {id}"
+    "Get_Context": {
+      "label": { "en": "Loading Statsig context", "fr": "Chargement du contexte Statsig" }
+    },
+    "Get_Audit_Logs": {
+      "label": { "en": "Reading Statsig audit logs", "fr": "Lecture du journal d'audit Statsig" }
+    },
+    "Get_List_of_Tags": {
+      "label": { "en": "Listing Statsig tags", "fr": "Liste des étiquettes Statsig" }
+    },
+    "Get_List_of_Gates": {
+      "label": { "en": "Listing feature gates", "fr": "Liste des gates" }
+    },
+    "Get_Gate_Details_by_ID": {
+      "label": { "en": "Reading gate {id|…}", "fr": "Lecture de la gate {id|…}" }
+    },
+    "Get_Gate_Results": {
+      "label": {
+        "en": "Reading gate results {id|…} {ruleId}",
+        "fr": "Lecture des résultats de la gate {id|…} {ruleId}"
+      }
+    },
+    "Get_Gate_Version_History": {
+      "label": {
+        "en": "Reading gate history {id|…}",
+        "fr": "Lecture de l'historique de la gate {id|…}"
+      }
+    },
+    "Get_List_of_Gate_Reviews": {
+      "label": {
+        "en": "Listing reviews of gate {id|…}",
+        "fr": "Liste des revues de la gate {id|…}"
+      }
+    },
+    "Get_Gate_Review_by_ID": {
+      "label": {
+        "en": "Reading gate {id|…} review {reviewId|…}",
+        "fr": "Lecture de la revue {reviewId|…} de la gate {id|…}"
+      }
+    },
+    "Get_Gate_Eligible_Reviewers": {
+      "label": {
+        "en": "Listing reviewers of gate {id|…}",
+        "fr": "Liste des réviseurs de la gate {id|…}"
+      }
+    },
+    "Get_List_of_Experiments": {
+      "label": { "en": "Listing experiments", "fr": "Liste des expériences" }
+    },
+    "Get_Experiment_Details_by_ID": {
+      "label": { "en": "Reading experiment {id|…}", "fr": "Lecture de l'expérience {id|…}" }
+    },
+    "Get_Experiment_Overall_Results": {
+      "label": {
+        "en": "Reading experiment results {id|…}",
+        "fr": "Lecture des résultats de l'expérience {id|…}"
+      }
+    },
+    "Get_Experiment_Metric_Dimension_Results": {
+      "label": {
+        "en": "Reading experiment {id|…} metric {metricId|…}",
+        "fr": "Lecture de la métrique {metricId|…} de l'expérience {id|…}"
+      }
+    },
+    "GetExperimentSummaryCharts": {
+      "label": {
+        "en": "Reading experiment charts {id|…}",
+        "fr": "Lecture des graphiques de l'expérience {id|…}"
+      }
+    },
+    "Get_Experiment_Version_History": {
+      "label": {
+        "en": "Reading experiment history {id|…}",
+        "fr": "Lecture de l'historique de l'expérience {id|…}"
+      }
+    },
+    "Get_List_of_Experiment_Reviews": {
+      "label": {
+        "en": "Listing reviews of experiment {id|…}",
+        "fr": "Liste des revues de l'expérience {id|…}"
+      }
+    },
+    "Get_Experiment_Review_by_ID": {
+      "label": {
+        "en": "Reading experiment {id|…} review {reviewId|…}",
+        "fr": "Lecture de la revue {reviewId|…} de l'expérience {id|…}"
+      }
+    },
+    "Get_Experiment_Eligible_Reviewers": {
+      "label": {
+        "en": "Listing reviewers of experiment {id|…}",
+        "fr": "Liste des réviseurs de l'expérience {id|…}"
+      }
+    },
+    "Get_List_of_Autotune_Reviews": {
+      "label": {
+        "en": "Listing reviews of autotune {id|…}",
+        "fr": "Liste des revues de l'autotune {id|…}"
+      }
+    },
+    "Get_Autotune_Review_by_ID": {
+      "label": {
+        "en": "Reading autotune {id|…} review {reviewId|…}",
+        "fr": "Lecture de la revue {reviewId|…} de l'autotune {id|…}"
+      }
+    },
+    "Get_Autotune_Eligible_Reviewers": {
+      "label": {
+        "en": "Listing reviewers of autotune {id|…}",
+        "fr": "Liste des réviseurs de l'autotune {id|…}"
+      }
+    },
+    "Get_List_of_Dynamic_Configs": {
+      "label": { "en": "Listing dynamic configs", "fr": "Liste des configurations dynamiques" }
+    },
+    "Get_Dynamic_Config_Details_by_ID": {
+      "label": {
+        "en": "Reading dynamic config {id|…}",
+        "fr": "Lecture de la configuration dynamique {id|…}"
+      }
+    },
+    "Get_Dynamic_Config_Version_History": {
+      "label": {
+        "en": "Reading dynamic config history {id|…}",
+        "fr": "Lecture de l'historique de la configuration dynamique {id|…}"
+      }
+    },
+    "Get_List_of_Dynamic_Config_Reviews": {
+      "label": {
+        "en": "Listing reviews of dynamic config {id|…}",
+        "fr": "Liste des revues de la configuration dynamique {id|…}"
+      }
+    },
+    "Get_Dynamic_Config_Review_by_ID": {
+      "label": {
+        "en": "Reading dynamic config {id|…} review {reviewId|…}",
+        "fr": "Lecture de la revue {reviewId|…} de la configuration dynamique {id|…}"
+      }
+    },
+    "Get_Dynamic_Config_Eligible_Reviewers": {
+      "label": {
+        "en": "Listing reviewers of dynamic config {id|…}",
+        "fr": "Liste des réviseurs de la configuration dynamique {id|…}"
+      }
+    },
+    "Get_List_of_Layers": {
+      "label": { "en": "Listing layers", "fr": "Liste des couches" }
+    },
+    "Get_Layer_Details_by_ID": {
+      "label": { "en": "Reading layer {id|…}", "fr": "Lecture de la couche {id|…}" }
+    },
+    "Get_Layer_Experiments": {
+      "label": {
+        "en": "Listing experiments in layer {id|…}",
+        "fr": "Liste des expériences de la couche {id|…}"
+      }
+    },
+    "Get_Layer_Overrides": {
+      "label": {
+        "en": "Reading layer overrides {id|…}",
+        "fr": "Lecture des surcharges de la couche {id|…}"
+      }
+    },
+    "Get_List_of_Metrics": {
+      "label": { "en": "Listing metrics", "fr": "Liste des métriques" }
+    },
+    "Get_Metric_Definition_by_ID": {
+      "label": { "en": "Reading metric {id|…}", "fr": "Lecture de la métrique {id|…}" }
+    },
+    "Get_List_of_Metric_Sources": {
+      "label": { "en": "Listing metric sources", "fr": "Liste des sources de métriques" }
+    },
+    "Get_List_of_Param_Stores": {
+      "label": { "en": "Listing param stores", "fr": "Liste des param stores" }
+    },
+    "Get_Param_Store_Details_by_Id": {
+      "label": { "en": "Reading param store {id|…}", "fr": "Lecture du param store {id|…}" }
+    },
+    "Get_List_of_Segments": {
+      "label": { "en": "Listing segments", "fr": "Liste des segments" }
+    },
+    "Get_Segment_by_ID": {
+      "label": { "en": "Reading segment {id|…}", "fr": "Lecture du segment {id|…}" }
+    },
+    "Get_List_of_Prompts": {
+      "label": { "en": "Listing Statsig prompts", "fr": "Liste des prompts Statsig" }
+    },
+    "Get_Prompt_Details_by_ID": {
+      "label": { "en": "Reading prompt {id|…}", "fr": "Lecture du prompt {id|…}" }
+    },
+    "Query_Logs_Explorer": {
+      "label": {
+        "en": "Querying Statsig logs \"{logQuery|…}\"",
+        "fr": "Requête des journaux Statsig « {logQuery|…} »"
+      }
+    },
+    "Cluster_Log_Patterns": {
+      "label": {
+        "en": "Clustering Statsig log patterns",
+        "fr": "Regroupement des motifs de journaux Statsig"
+      }
+    },
+    "search": {
+      "label": {
+        "en": "Searching Statsig for \"{query}\"",
+        "fr": "Recherche dans Statsig de « {query} »"
+      }
+    },
+    "fetch": {
+      "label": { "en": "Fetching Statsig document {id}", "fr": "Lecture du document Statsig {id}" }
+    },
+    "Search_Tools": {
+      "label": {
+        "en": "Searching Statsig tools for \"{query}\"",
+        "fr": "Recherche d'outils Statsig « {query} »"
+      }
+    },
+    "Get_Tool_Schema": {
+      "label": {
+        "en": "Reading Statsig tool {tool_name|…}",
+        "fr": "Lecture de l'outil Statsig {tool_name|…}"
+      }
+    },
+    "Invoke_Tool": {
+      "label": {
+        "en": "Running Statsig tool {tool_name|…}",
+        "fr": "Exécution de l'outil Statsig {tool_name|…}"
+      }
+    },
+    "Create_Gate": {
+      "label": { "en": "Creating feature gate", "fr": "Création d'une gate" }
+    },
+    "Create_Experiment": {
+      "label": { "en": "Creating experiment", "fr": "Création d'une expérience" }
+    },
+    "Create_Dynamic_Config": {
+      "label": { "en": "Creating dynamic config", "fr": "Création d'une configuration dynamique" }
+    },
+    "Create_Layer": {
+      "label": { "en": "Creating layer", "fr": "Création d'une couche" }
+    },
+    "Create_Segment": {
+      "label": { "en": "Creating segment", "fr": "Création d'un segment" }
+    },
+    "Update_Gate_Entirely": {
+      "label": { "en": "Updating gate {id}", "fr": "Mise à jour de la gate {id}" }
+    },
+    "Update_Experiment_Entirely": {
+      "label": { "en": "Updating experiment {id}", "fr": "Mise à jour de l'expérience {id}" }
+    },
+    "Update_Dynamic_Config_Entirely": {
+      "label": {
+        "en": "Updating dynamic config {id}",
+        "fr": "Mise à jour de la configuration dynamique {id}"
+      }
+    },
+    "Update_Layer_Entirely": {
+      "label": { "en": "Updating layer {id}", "fr": "Mise à jour de la couche {id}" }
+    },
+    "Update_Segment": {
+      "label": { "en": "Updating segment {id}", "fr": "Mise à jour du segment {id}" }
+    },
+    "Start_Gate_Code_Cleanup": {
+      "label": {
+        "en": "Starting gate code cleanup {id}",
+        "fr": "Lancement du nettoyage de code de la gate {id}"
+      }
+    },
+    "Start_Experiment_Code_Cleanup": {
+      "label": {
+        "en": "Starting experiment code cleanup {id}",
+        "fr": "Lancement du nettoyage de code de l'expérience {id}"
+      }
+    }
   }
 }

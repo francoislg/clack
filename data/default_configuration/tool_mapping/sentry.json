@@ -2,7 +2,8 @@
   "default": { "en": "Checking Sentry", "fr": "Consultation de Sentry" },
   "group": { "en": "Checking Sentry", "fr": "Consultation de Sentry" },
   "argOptions": {
-    "issueId": { "from": "issueUrl", "pattern": "/issues/(\\d+)" }
+    "issueId": { "from": "issueUrl", "pattern": "/issues/(\\d+)" },
+    "replayId": { "from": "replayUrl", "pattern": "/replays/([\\w-]+)" }
   },
   "tools": {
     "search_issues": {
@@ -46,6 +47,24 @@
     },
     "get_trace_details": {
       "label": { "en": "Reading trace {traceId}", "fr": "Lecture de la trace {traceId}" }
+    },
+    "get_sentry_resource": {
+      "label": {
+        "en": "Reading Sentry {resourceType|resource} <{url}|{resourceId|…}>",
+        "fr": "Lecture de la ressource Sentry {resourceType} <{url}|{resourceId|…}>"
+      }
+    },
+    "get_replay_details": {
+      "label": {
+        "en": "Reading replay <{replayUrl}|{replayId|…}>",
+        "fr": "Lecture du replay <{replayUrl}|{replayId|…}>"
+      }
+    },
+    "get_profile_details": {
+      "label": {
+        "en": "Reading profile <{profileUrl}|{profileId|profilerId|…}>",
+        "fr": "Lecture du profil <{profileUrl}|{profileId|profilerId|…}>"
+      }
     },
     "get_event_attachment": {
       "label": {
