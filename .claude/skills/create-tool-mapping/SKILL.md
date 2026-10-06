@@ -64,7 +64,7 @@ Run the dump script to get the server's tool names and input schemas:
 npx tsx scripts/dump-mcp-tools.ts <server-name>
 ```
 
-This connects to the MCP server defined in `data/mcp.json`, calls `tools/list`, and prints every tool with its parameters. Required params are marked with `*`. Use `--json` for machine-readable output.
+This connects to the MCP server defined in `data/mcp.json`, calls `tools/list`, and prints every tool with its parameters. Required params are marked with `*`. Use `--json` for machine-readable output. A pinned server (`package` + `version`) is installed into `data/mcp_packages/<server>/` on first run, the same install the app does at boot, so the listing matches the pinned version.
 
 If the server isn't running or not in `data/mcp.json`, tell the user and stop.
 
@@ -135,6 +135,18 @@ Create `data/default_configuration/tool_mapping/<server-name>.json`. If this ser
   ]
 }
 ```
+
+### Localized labels
+
+A tool entry's `label` and `itemDetail`, the file-level `group` and `default`, and a group's `title` (the object form of a `groups` entry) each take either a plain string or a per-language object. A bare-string tool entry (`"tool": "Label"`) can only be one language, so use the object form with `label`. Shipped mappings localize every label so French workspaces get French labels:
+
+```json
+"get_issue": {
+  "label": { "en": "Reading issue {id|…}", "fr": "Lecture de l'incident {id|…}" }
+}
+```
+
+Write every new label with both `en` and `fr`, using the same placeholders in each.
 
 ### Template syntax
 
