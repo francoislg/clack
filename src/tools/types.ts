@@ -32,12 +32,19 @@ export type SetMcpServersFn = (
 ) => Promise<McpSetServersResult>;
 
 /**
- * Function signature for the SDK's `Query.mcpServerStatus`. Used by the manager
- * to verify that an always-on baseline server is actually live before short-
- * circuiting `attach_integration` — if the baseline registration silently failed
- * (or is still pending), we want to fall through to a real attach as recovery.
+ * Function signature for the SDK's `Query.mcpServerStatus`. The manager reads a
+ * server's entry before every attach, and again after any SDK action it takes:
+ * only a `connected` entry counts as live, and the status picks the recovery
+ * (settle, reconnect, or fail).
  */
 export type McpServerStatusFn = () => Promise<McpServerStatus[]>;
+
+/**
+ * Function signature for the SDK's `Query.reconnectMcpServer`. The manager uses it
+ * to retry a server the SDK lists as `failed`; re-sending an unchanged config
+ * through `setMcpServers` does not retry it.
+ */
+export type ReconnectMcpServerFn = (serverName: string) => Promise<void>;
 
 // ============================================================================
 // Delivery

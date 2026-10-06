@@ -15,7 +15,9 @@ import {
   shouldAllowThreadTitle,
   computeAllowSkip,
   allowsUnacknowledgedSkip,
+  isResponseRenderingAttached,
 } from "./server.js";
+import { McpServerManager } from "../claude/mcpServerManager.js";
 import type { QueryToolContext } from "./types.js";
 import { makeWorkerCtx } from "./worker/testCtx.js";
 import type { Config } from "../config.js";
@@ -700,6 +702,37 @@ describe("shouldAllowThreadTitle", () => {
     assert.equal(shouldAllowThreadTitle("scheduled"), false);
     assert.equal(shouldAllowThreadTitle("autoRespond"), false);
     assert.equal(shouldAllowThreadTitle(undefined), false);
+  });
+});
+
+describe("isResponseRenderingAttached", () => {
+  function makeManager() {
+    return vi.mockObject(new McpServerManager({}, {}));
+  }
+
+  it("is true when response-rendering was pre-attached", () => {
+    const manager = makeManager();
+    manager.isTopicAttached.mockReturnValue(false);
+    const ctx = makeQueryCtx({ mcpManager: manager, preAttachedTopics: ["response-rendering"] });
+    assert.equal(isResponseRenderingAttached(ctx), true);
+  });
+
+  it("is true when the manager reports the topic attached mid-session", () => {
+    const manager = makeManager();
+    manager.isTopicAttached.mockReturnValue(true);
+    assert.equal(isResponseRenderingAttached(makeQueryCtx({ mcpManager: manager })), true);
+    assert.deepEqual(manager.isTopicAttached.mock.calls, [["response-rendering"]]);
+  });
+
+  it("is false when neither pre-attached nor attached mid-session", () => {
+    const manager = makeManager();
+    manager.isTopicAttached.mockReturnValue(false);
+    const ctx = makeQueryCtx({ mcpManager: manager, preAttachedTopics: ["metabase"] });
+    assert.equal(isResponseRenderingAttached(ctx), false);
+  });
+
+  it("is false with no manager", () => {
+    assert.equal(isResponseRenderingAttached(makeQueryCtx()), false);
   });
 });
 

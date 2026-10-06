@@ -1,8 +1,11 @@
 # clack-tool-response Specification
 
 ## Purpose
+
 The `submit_response` MCP tool contract defining how Claude structures user-facing responses with typed sections and interactive actions, rendered as Slack Block Kit messages.
+
 ## Requirements
+
 ### Requirement: Required Tools Gate on submit_response
 
 The `submit_response` tool SHALL refuse delivery when the current session was configured with one or more `requiredTools` and any of them has not been recorded as called at least once during the run. Required tools are identified by their full MCP-visible name (e.g., `mcp__trivia__submit_answers`). A tool counts as "called" as soon as it appears in the session's `ToolCallRecorder` history, regardless of whether that call succeeded or returned an error.
@@ -269,7 +272,7 @@ A curated `image` block SHALL carry a non-empty `alt_text` and **exactly one** i
 
 ### Requirement: Claude-Authored Block Kit Responses
 
-The `submit_response` tool SHALL accept a `blocks: Block[]` field where `Block` is a curated subset of Slack Block Kit types. Claude authors the response structure directly by selecting block types appropriate to the content. The curated subset is: `divider`, `header`, `section` (with optional `fields`), `context`, `image`, `markdown`, `card`, `carousel`. Blocks outside this subset are rejected at the tool boundary. `actions` blocks SHALL NOT appear in the `blocks` array — action buttons are driven by the structured `actions: Action[]` field on `submit_response` and rendered by Clack into Slack `actions` blocks at delivery time. Tabular content SHALL NOT appear inside `blocks`; tables are authored via the top-level `table` parameter (see *Top-Level Table Parameter*). A `card` block SHALL NOT carry an inline `actions` field in v1 — card-level interactive buttons are deferred; the top-level `actions: Action[]` field is the only path to interactive buttons.
+The `submit_response` tool SHALL accept a `blocks: Block[]` field where `Block` is a curated subset of Slack Block Kit types. Claude authors the response structure directly by selecting block types appropriate to the content. The curated subset is: `divider`, `header`, `section` (with optional `fields`), `context`, `image`, `markdown`, `card`, `carousel`. Blocks outside this subset are rejected at the tool boundary. `actions` blocks SHALL NOT appear in the `blocks` array — action buttons are driven by the structured `actions: Action[]` field on `submit_response` and rendered by Clack into Slack `actions` blocks at delivery time. Tabular content SHALL NOT appear inside `blocks`; tables are authored via the top-level `table` parameter (see _Top-Level Table Parameter_). A `card` block SHALL NOT carry an inline `actions` field in v1 — card-level interactive buttons are deferred; the top-level `actions: Action[]` field is the only path to interactive buttons.
 
 #### Scenario: submit_response accepts a valid blocks array
 
@@ -374,7 +377,7 @@ The `submit_response` tool SHALL validate every block against per-type Slack Blo
 
 - **WHEN** an `image` block has an empty or missing `alt_text`
 - **THEN** the tool returns a validation error naming the `alt_text` field
-- **AND** image-source validation (`image_url` vs `slack_file`) is governed by the *Image Block Source — Public URL or Slack File Reference* requirement
+- **AND** image-source validation (`image_url` vs `slack_file`) is governed by the _Image Block Source — Public URL or Slack File Reference_ requirement
 
 #### Scenario: card title exceeds 150 chars
 
@@ -485,7 +488,7 @@ The `reactions` field on `submit_response` SHALL continue to apply to the posted
 
 ### Requirement: Optional Slack Block Kit Fields Are Preserved
 
-The block validator SHALL preserve optional Slack Block Kit fields on allowed block types (e.g., `block_id` for uniqueness/targeting, `confirm` dialogs on buttons, `accessibility_label` on elements) rather than stripping or rejecting them. The curated-type allowlist constrains which *block types* are accepted; it does not constrain which *fields* a block carries within an allowed type. This keeps the system aligned with Decision 2 (authentic Slack Block Kit) so Claude can use Block Kit features without Clack becoming a gatekeeper on every field Slack ships.
+The block validator SHALL preserve optional Slack Block Kit fields on allowed block types (e.g., `block_id` for uniqueness/targeting, `confirm` dialogs on buttons, `accessibility_label` on elements) rather than stripping or rejecting them. The curated-type allowlist constrains which _block types_ are accepted; it does not constrain which _fields_ a block carries within an allowed type. This keeps the system aligned with Decision 2 (authentic Slack Block Kit) so Claude can use Block Kit features without Clack becoming a gatekeeper on every field Slack ships.
 
 #### Scenario: section block with block_id is preserved
 
@@ -505,7 +508,7 @@ The block validator SHALL preserve optional Slack Block Kit fields on allowed bl
 - **GIVEN** the passthrough behavior for optional fields
 - **WHEN** Claude submits a block whose `type` is outside the curated subset (e.g., `input`, `rich_text`, `file`, `video`)
 - **THEN** validation still rejects the block, as defined by the "Claude-Authored Block Kit Responses" requirement
-- **AND** passthrough applies only to optional fields *within* allowed block types, never to disallowed block types themselves
+- **AND** passthrough applies only to optional fields _within_ allowed block types, never to disallowed block types themselves
 
 #### Scenario: prepareBlocks does not recurse into passthrough fields
 
@@ -517,7 +520,7 @@ The block validator SHALL preserve optional Slack Block Kit fields on allowed bl
 
 ### Requirement: post_to Actions Carry Blocks
 
-The `post_to` action SHALL carry a `blocks: Block[]` payload representing the shareable response content. The legacy `content: string` field is removed. The action MAY additionally carry optional `actions` (rendered as buttons on the cross-posted message), `reactions` (applied to the cross-posted message after delivery), and `suppress_unfurls: boolean` (disables link/media unfurling on the cross-posted message), with semantics defined in the *post_to Carries Optional Actions*, *post_to Carries Optional Reactions*, and `link-unfurl-control` requirements. When the user clicks the `post_to` button, the stored blocks (and any persisted `actions`, `reactions`, and `suppressUnfurls` value) are prepared and posted via `chat.postMessage` with the blocks attached, reactions applied after, and unfurling disabled when the persisted flag is `true`.
+The `post_to` action SHALL carry a `blocks: Block[]` payload representing the shareable response content. The legacy `content: string` field is removed. The action MAY additionally carry optional `actions` (rendered as buttons on the cross-posted message), `reactions` (applied to the cross-posted message after delivery), and `suppress_unfurls: boolean` (disables link/media unfurling on the cross-posted message), with semantics defined in the _post_to Carries Optional Actions_, _post_to Carries Optional Reactions_, and `link-unfurl-control` requirements. When the user clicks the `post_to` button, the stored blocks (and any persisted `actions`, `reactions`, and `suppressUnfurls` value) are prepared and posted via `chat.postMessage` with the blocks attached, reactions applied after, and unfurling disabled when the persisted flag is `true`.
 
 #### Scenario: post_to action with blocks is accepted
 
@@ -764,7 +767,7 @@ The `post_to` action SHALL NOT contain a nested `post_to` action inside its `act
 
 - **WHEN** Claude submits `submit_response` with one or more top-level `post_to` actions, each carrying its own `blocks`/`actions`/`reactions`
 - **THEN** all top-level `post_to` actions are accepted
-- **AND** the recursion check applies only to actions *inside* a `post_to.actions` array
+- **AND** the recursion check applies only to actions _inside_ a `post_to.actions` array
 
 ### Requirement: Centralized Block Handling Across Outbound Surfaces
 
@@ -1050,7 +1053,7 @@ The `submit_response` tool and every `post_to` action SHALL accept an optional t
 
 ### Requirement: Multi-Message Top-Level Fields Gated To Scheduled Trigger
 
-The `submit_response` tool SHALL expose two optional fields, `additional_messages` and `thread_replies`, on the top-level schema ONLY when `SubmitResponseDeps.allowMultiMessage === true`. The scheduled (cron) trigger handler SHALL set this flag; every other trigger handler (DM, @mention, reaction, auto-respond, thread-reply, Changes Workflow worker mode) SHALL leave it unset, hiding the fields from Claude entirely. The rationale: in non-scheduled contexts the trigger channel is the user's conversation space, and `additional_messages` posts top-level to that channel — almost never what the user wants (they'd ask via a `post_to` action with an explicit `channel` instead). The `post_to.additional_messages` / `post_to.thread_replies` fields stay available everywhere (see *Multi-Message Inside post_to*).
+The `submit_response` tool SHALL expose two optional fields, `additional_messages` and `thread_replies`, on the top-level schema ONLY when `SubmitResponseDeps.allowMultiMessage === true`. The scheduled (cron) trigger handler SHALL set this flag; every other trigger handler (DM, @mention, reaction, auto-respond, thread-reply, Changes Workflow worker mode) SHALL leave it unset, hiding the fields from Claude entirely. The rationale: in non-scheduled contexts the trigger channel is the user's conversation space, and `additional_messages` posts top-level to that channel — almost never what the user wants (they'd ask via a `post_to` action with an explicit `channel` instead). The `post_to.additional_messages` / `post_to.thread_replies` fields stay available everywhere (see _Multi-Message Inside post_to_).
 
 #### Scenario: Scheduled trigger exposes both fields
 
@@ -1369,16 +1372,19 @@ The schema descriptions for `additional_messages` and `thread_replies` (both top
 `post_to` actions and `deliver_to` entries SHALL accept an optional `channel_attention_level` field (`"high" | "medium" | "low"`) that seeds an ephemeral channel-conversation rule when the destination is a top-level channel post. The schema SHALL NOT accept `"always"`. The field SHALL sit alongside the existing per-destination thread-engagement fields (`attention_level`, `creation_context`, `default_delivery_mode`), and its description SHALL contrast the two dials (destination thread vs channel window). The destination's `creation_context` (required on every `post_to` action and `deliver_to` entry per those specs) SHALL also be stored on the ephemeral rule as its `creationContext` (surfaced to both the responding turn and the pre-analysis judge).
 
 #### Scenario: Seed on top-level post_to
+
 - **WHEN** Claude issues a `post_to` action with a `channel`, a `creation_context`, no `thread_ts`, and `channel_attention_level: "medium"`
 - **AND** the post is delivered
 - **THEN** an ephemeral rule is created for that channel at `medium` carrying the `creationContext`
 
 #### Scenario: Seed on top-level deliver_to entry
+
 - **WHEN** a scheduled run's `deliver_to` entry targets a channel with no `thread_ts` and carries a `creation_context` and `channel_attention_level: "low"`
 - **AND** the entry is delivered
 - **THEN** an ephemeral rule is created for that channel at `low` carrying the `creationContext`
 
 #### Scenario: Always rejected at schema level
+
 - **WHEN** Claude passes `channel_attention_level: "always"`
 - **THEN** schema validation fails and Claude retries with a permitted level
 
@@ -1387,34 +1393,47 @@ The schema descriptions for `additional_messages` and `thread_replies` (both top
 `submit_response` SHALL expose an optional `channel_attention_level` field (`"high" | "medium" | "low" | "off"`) only on turns triggered by `channelReply`. Setting it SHALL mutate (or with `"off"`, delete) the channel's ephemeral rule; omitting it SHALL leave the rule untouched. It SHALL be independent of the existing `attention_level` field, and both SHALL be settable on the same turn.
 
 #### Scenario: Field hidden outside channel-reply turns
+
 - **WHEN** a turn is triggered by a DM, @mention, reaction, thread reply, or scheduled run
 - **THEN** the `submit_response` schema does not include `channel_attention_level`
 
 #### Scenario: Both dials on one turn
+
 - **WHEN** a `channelReply` turn submits with `attention_level: "high"` and `channel_attention_level: "low"`
 - **THEN** the anchor session's thread dial becomes `high` and the ephemeral rule's level becomes `low`
 
 ### Requirement: Formatting-Error Attach Hint
 
-When `submit_response` validation fails with at least one formatting-class error (per-message blocks, table, or length-budget errors from the single-message validator) AND the `response-rendering` topic is not attached to the session (neither pre-attached nor attached mid-session), the error result SHALL append a single hint line directing Claude to call `attach_integration("response-rendering")` to load the formatting rules before retrying. The hint SHALL NOT be appended when only action-class errors (unresolved intent refs, channel/routing errors) are present, nor when the topic is already attached.
+When `submit_response` validation fails with at least one formatting-class error (per-message blocks, table, or length-budget errors from the single-message validator) AND the `response-rendering` topic is not attached to the session (neither pre-attached nor attached mid-session), the error result SHALL append a single hint line directing Claude to call `attach_integration("response-rendering")` to load the formatting rules before retrying. The hint SHALL NOT be appended when only action-class errors (unresolved intent refs, channel/routing errors) are present, nor when the topic is already attached. A topic counts as attached mid-session once `attach_integration` succeeded for it, whether or not an MCP server backs it.
 
 #### Scenario: Formatting failure without topic hints
+
 - **GIVEN** a scheduled session without `response-rendering` attached
 - **WHEN** `submit_response` fails validation with an invalid-blocks error
 - **THEN** the error result includes the attach hint alongside the collected validation errors
 
 #### Scenario: Mixed formatting and action errors still hint
+
 - **GIVEN** a session without `response-rendering` attached
 - **WHEN** `submit_response` fails validation with both an invalid-blocks error and an unresolved action intent ref
 - **THEN** the error result includes the attach hint alongside all collected errors
 
 #### Scenario: Action-only failure never hints
+
 - **GIVEN** a session without `response-rendering` attached
 - **WHEN** `submit_response` fails validation with only an unresolved action intent ref
 - **THEN** the error result contains no attach hint
 
 #### Scenario: Attached session gets no hint
+
 - **GIVEN** a session where `response-rendering` is attached
+- **WHEN** `submit_response` fails validation with a table error
+- **THEN** the error result contains the validation errors without the attach hint
+
+#### Scenario: Topic attached mid-session gets no hint
+
+- **GIVEN** a session that did not pre-attach `response-rendering`
+- **AND** Claude called `attach_integration({ name: "response-rendering" })` successfully earlier in the session (an instructions-only topic, no MCP server)
 - **WHEN** `submit_response` fails validation with a table error
 - **THEN** the error result contains the validation errors without the attach hint
 
@@ -1453,4 +1472,3 @@ The reminder SHALL be appended uniformly on every error path, including the pend
 
 - **WHEN** `submit_response` succeeds, whether by delivering or by skipping
 - **THEN** the result contains no reminder field
-

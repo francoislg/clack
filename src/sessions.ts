@@ -1051,6 +1051,34 @@ export function addAccessGrant(
   });
 }
 
+export type McpAttachHistoryEntry = NonNullable<SessionContext["mcpAttachHistory"]>[number];
+
+/**
+ * Append an `attach_integration` attempt to a session's persisted `mcpAttachHistory` and,
+ * when `attachedName` is given, add it to `attachedIntegrations` if absent. Re-fetches the
+ * session inside the lock so several attaches in one turn don't overwrite each other.
+ * Returns null if the session no longer exists (evicted).
+ */
+export function recordMcpAttach(
+  sessionId: string,
+  entry: McpAttachHistoryEntry,
+  attachedName?: string,
+): Promise<SessionContext | null> {
+  return withSessionLock(sessionId, async () => {
+    const session = await getSession(sessionId);
+    if (!session) return null;
+    const currentList = session.attachedIntegrations ?? [];
+    const attachedIntegrations =
+      attachedName === undefined || currentList.includes(attachedName)
+        ? session.attachedIntegrations
+        : [...currentList, attachedName];
+    return updateSessionUnlocked(sessionId, {
+      attachedIntegrations,
+      mcpAttachHistory: [...(session.mcpAttachHistory ?? []), entry],
+    });
+  });
+}
+
 export async function setAttentionLevel(sessionId: string, level: AttentionLevel): Promise<void> {
   await updateSession(sessionId, { attentionLevel: level });
 }

@@ -17,6 +17,7 @@ import {
   getSessionPath,
   addSessionUsage,
   addAccessGrant,
+  recordMcpAttach,
 } from "./sessions.js";
 import type { SessionContext, SessionAssistantMessage } from "./sessions.js";
 import type { SessionUsage } from "./claude/usage.js";
@@ -1083,6 +1084,48 @@ describe("accessGranted persistence", () => {
 
     it("returns null for a missing session without throwing", async () => {
       const result = await addAccessGrant("C000-0-0-U000-0", "CPRIV");
+      assert.equal(result, null);
+    });
+  });
+
+  describe("recordMcpAttach", () => {
+    it("keeps both names and both entries across two sequential calls", async () => {
+      const session = await freshSession("8200.0101");
+      const first = { name: "metabase", outcome: "ok" as const, timestamp: 1 };
+      const second = { name: "github", outcome: "ok" as const, timestamp: 2 };
+
+      await recordMcpAttach(session.sessionId, first, "metabase");
+      const updated = await recordMcpAttach(session.sessionId, second, "github");
+
+      assert.deepEqual(updated?.attachedIntegrations, ["metabase", "github"]);
+      assert.deepEqual(updated?.mcpAttachHistory, [first, second]);
+    });
+
+    it("does not add a name that is already attached", async () => {
+      const session = await freshSession("8200.0102");
+      const first = { name: "metabase", outcome: "ok" as const, timestamp: 1 };
+      const second = { name: "metabase", outcome: "ok" as const, timestamp: 2 };
+
+      await recordMcpAttach(session.sessionId, first, "metabase");
+      const updated = await recordMcpAttach(session.sessionId, second, "metabase");
+
+      assert.deepEqual(updated?.attachedIntegrations, ["metabase"]);
+      assert.deepEqual(updated?.mcpAttachHistory, [first, second]);
+    });
+
+    it("records only the history entry when no name is given", async () => {
+      const session = await freshSession("8200.0103");
+      const entry = { name: "metabase", outcome: "failed" as const, error: "boom", timestamp: 1 };
+
+      const updated = await recordMcpAttach(session.sessionId, entry);
+
+      assert.equal(updated?.attachedIntegrations, undefined);
+      assert.deepEqual(updated?.mcpAttachHistory, [entry]);
+    });
+
+    it("returns null for a missing session without throwing", async () => {
+      const entry = { name: "metabase", outcome: "ok" as const, timestamp: 1 };
+      const result = await recordMcpAttach("C000-0-0-U000-0", entry, "metabase");
       assert.equal(result, null);
     });
   });

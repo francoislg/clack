@@ -1,4 +1,13 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+  type Mock,
+  type MockInstance,
+} from "vitest";
 import assert from "node:assert/strict";
 import type { McpServerConfig, McpStdioServerConfig } from "@anthropic-ai/claude-agent-sdk";
 import {
@@ -7,7 +16,7 @@ import {
   completeSessionStart,
   type McpSessionSetupDeps,
 } from "./mcpServerManager.js";
-import type { McpServerStatusFn, SetMcpServersFn } from "../tools/types.js";
+import type { McpServerStatusFn, ReconnectMcpServerFn, SetMcpServersFn } from "../tools/types.js";
 import type { McpServerStatus } from "@anthropic-ai/claude-agent-sdk";
 import { join } from "node:path";
 import { getDownloadsDir, type Config, type McpServerRegistry } from "../config.js";
@@ -59,7 +68,7 @@ describe("McpServerManager", () => {
 
       manager.seedAttached("metabase", METABASE_CFG);
 
-      assert.equal(manager.isAttached("metabase"), true);
+      assert.equal(manager.isRegistered("metabase"), true);
       assert.deepEqual(manager.attachedNames(), ["metabase"]);
       assert.equal(setMcpServers.mock.calls.length, 0);
     });
@@ -67,7 +76,7 @@ describe("McpServerManager", () => {
     it("is safe to call before bind(…)", () => {
       const manager = new McpServerManager({ clack: BASELINE_CLACK }, makeRegistry());
       manager.seedAttached("metabase", METABASE_CFG);
-      assert.equal(manager.isAttached("metabase"), true);
+      assert.deepEqual(manager.attachedNames(), ["metabase"]);
     });
 
     it("subsequent attach() of the same name is idempotent", async () => {
@@ -120,6 +129,7 @@ describe("McpServerManager", () => {
 
       assert.equal(result.ok, false);
       assert.match(result.ok ? "" : result.error, /connection refused/);
+      assert.equal(result.ok ? undefined : result.retryable, true);
       assert.deepEqual(manager.attachedNames(), []);
     });
 
@@ -218,47 +228,545 @@ describe("McpServerManager", () => {
     });
   });
 
-  describe("isLiveInBaseline", () => {
-    function statusFn(statuses: McpServerStatus[]): McpServerStatusFn {
-      return vi.fn<McpServerStatusFn>(async () => statuses);
+  describe("isRegistered", () => {
+    it("is true for session-start and attached servers and false otherwise", () => {
+      const manager = new McpServerManager({ clack: BASELINE_CLACK }, makeRegistry());
+      manager.seedAttached("metabase", METABASE_CFG);
+      assert.equal(manager.isRegistered("clack"), true);
+      assert.equal(manager.isRegistered("metabase"), true);
+      assert.equal(manager.isRegistered("monday"), false);
+    });
+  });
+
+  describe("topic tracking", () => {
+    it("reports only topics recorded as attached", () => {
+      const manager = new McpServerManager({ clack: BASELINE_CLACK }, makeRegistry());
+      manager.recordTopicAttached("response-rendering");
+      assert.equal(manager.isTopicAttached("response-rendering"), true);
+      assert.equal(manager.isTopicAttached("metabase"), false);
+    });
+
+    it("is independent of server registration", async () => {
+      const manager = new McpServerManager({ clack: BASELINE_CLACK }, makeRegistry());
+      manager.bind(okSetMcpServers());
+      vi.spyOn(logger, "warn").mockImplementation(() => {});
+      await manager.attach("metabase", METABASE_CFG);
+      assert.equal(manager.isRegistered("metabase"), true);
+      assert.equal(manager.isTopicAttached("metabase"), false);
+    });
+  });
+
+  describe("attach — liveness", () => {
+    const connected = (name: string): McpServerStatus => ({ name, status: "connected" });
+    const failed = (name: string, error?: string): McpServerStatus => ({
+      name,
+      status: "failed",
+      error,
+    });
+    const pending = (name: string): McpServerStatus => ({ name, status: "pending" });
+
+    function statusSequence(...reads: McpServerStatus[][]): Mock<McpServerStatusFn> {
+      const fn = vi.fn<McpServerStatusFn>();
+      for (const read of reads) fn.mockResolvedValueOnce(read);
+      return fn;
     }
 
-    it("returns true when the SDK reports the server as connected", async () => {
-      const manager = new McpServerManager({ "mongodb-prod": METABASE_CFG }, makeRegistry());
-      manager.bind(okSetMcpServers(), statusFn([{ name: "mongodb-prod", status: "connected" }]));
-      assert.equal(await manager.isLiveInBaseline("mongodb-prod"), true);
+    function okReconnect(): Mock<ReconnectMcpServerFn> {
+      return vi.fn<ReconnectMcpServerFn>(async () => {});
+    }
+
+    let warn: MockInstance<typeof logger.warn>;
+    beforeEach(() => {
+      warn = vi.spyOn(logger, "warn").mockImplementation(() => {});
     });
 
-    it("returns false for non-connected statuses", async () => {
-      const manager = new McpServerManager({ "mongodb-prod": METABASE_CFG }, makeRegistry());
+    it("connected registered server: no SDK call, alreadyLive", async () => {
+      const setMcpServers = okSetMcpServers();
+      const reconnect = okReconnect();
+      const manager = new McpServerManager({ clack: BASELINE_CLACK }, makeRegistry());
+      manager.seedAttached("metabase", METABASE_CFG);
+      manager.bind(setMcpServers, statusSequence([connected("metabase")]), reconnect);
+
+      const result = await manager.attach("metabase");
+
+      assert.deepEqual(result, { ok: true, alreadyLive: true });
+      expect(setMcpServers).not.toHaveBeenCalled();
+      expect(reconnect).not.toHaveBeenCalled();
+    });
+
+    it("connected server the manager doesn't hold: records the given config, no SDK call", async () => {
+      const setMcpServers = okSetMcpServers();
+      const manager = new McpServerManager({ clack: BASELINE_CLACK }, makeRegistry());
+      manager.bind(setMcpServers, statusSequence([connected("metabase")]), okReconnect());
+
+      const result = await manager.attach("metabase", METABASE_CFG);
+
+      assert.deepEqual(result, { ok: true, alreadyLive: true });
+      assert.deepEqual(manager.attachedNames(), ["metabase"]);
+      expect(setMcpServers).not.toHaveBeenCalled();
+    });
+
+    it("absent → setMcpServers → connected: records and succeeds", async () => {
+      const setMcpServers = okSetMcpServers();
+      const manager = new McpServerManager({ clack: BASELINE_CLACK }, makeRegistry());
+      manager.bind(setMcpServers, statusSequence([], [connected("metabase")]), okReconnect());
+
+      const result = await manager.attach("metabase", METABASE_CFG);
+
+      assert.deepEqual(result, { ok: true, alreadyLive: false });
+      expect(setMcpServers).toHaveBeenCalledWith({ clack: BASELINE_CLACK, metabase: METABASE_CFG });
+      assert.deepEqual(manager.attachedNames(), ["metabase"]);
+    });
+
+    it("absent → setMcpServers with no error → failed: retryable failure, not recorded", async () => {
+      const manager = new McpServerManager({ clack: BASELINE_CLACK }, makeRegistry());
       manager.bind(
         okSetMcpServers(),
-        statusFn([{ name: "mongodb-prod", status: "failed", error: "boom" }]),
+        statusSequence([], [failed("metabase", "connect timeout")]),
+        okReconnect(),
       );
-      assert.equal(await manager.isLiveInBaseline("mongodb-prod"), false);
+
+      const result = await manager.attach("metabase", METABASE_CFG);
+
+      assert.deepEqual(result, { ok: false, error: "failed: connect timeout", retryable: true });
+      assert.deepEqual(manager.attachedNames(), []);
     });
 
-    it("returns false when the server is not in the status list", async () => {
-      const manager = new McpServerManager({ "mongodb-prod": METABASE_CFG }, makeRegistry());
-      manager.bind(okSetMcpServers(), statusFn([]));
-      assert.equal(await manager.isLiveInBaseline("mongodb-prod"), false);
+    it("absent → setMcpServers error → needs-auth: names the status with the SDK error, not retryable", async () => {
+      const setMcpServers = vi.fn<SetMcpServersFn>(async () => ({
+        added: [],
+        removed: [],
+        errors: { monday: "auth failed" },
+      }));
+      const manager = new McpServerManager({ clack: BASELINE_CLACK }, makeRegistry());
+      manager.bind(
+        setMcpServers,
+        statusSequence([], [{ name: "monday", status: "needs-auth" }]),
+        okReconnect(),
+      );
+
+      const result = await manager.attach("monday", METABASE_CFG);
+
+      assert.deepEqual(result, { ok: false, error: "needs-auth: auth failed", retryable: false });
+      assert.deepEqual(manager.attachedNames(), []);
     });
 
-    it("returns false when the status fn isn't bound (defensive default)", async () => {
-      const manager = new McpServerManager({ "mongodb-prod": METABASE_CFG }, makeRegistry());
-      manager.bind(okSetMcpServers());
-      assert.equal(await manager.isLiveInBaseline("mongodb-prod"), false);
+    it("absent with no config anywhere: not-retryable failure, no SDK call", async () => {
+      const setMcpServers = okSetMcpServers();
+      const manager = new McpServerManager({ clack: BASELINE_CLACK }, makeRegistry());
+      manager.bind(setMcpServers, statusSequence([]), okReconnect());
+
+      const result = await manager.attach("metabase");
+
+      assert.deepEqual(result, {
+        ok: false,
+        error: "no server config for 'metabase'",
+        retryable: false,
+      });
+      expect(setMcpServers).not.toHaveBeenCalled();
     });
 
-    it("returns false when the status probe throws", async () => {
-      const manager = new McpServerManager({ "mongodb-prod": METABASE_CFG }, makeRegistry());
+    it("absent → setMcpServers ok → still absent: retryable failure, not recorded", async () => {
+      const manager = new McpServerManager({ clack: BASELINE_CLACK }, makeRegistry());
+      manager.bind(okSetMcpServers(), statusSequence([], []), okReconnect());
+
+      const result = await manager.attach("metabase", METABASE_CFG);
+
+      assert.deepEqual(result, { ok: false, error: "absent", retryable: true });
+      assert.deepEqual(manager.attachedNames(), []);
+    });
+
+    it("absent seeded server with no config: re-sends its remembered config and succeeds", async () => {
+      const setMcpServers = okSetMcpServers();
+      const manager = new McpServerManager({ clack: BASELINE_CLACK }, makeRegistry());
+      manager.seedAttached("metabase", METABASE_CFG);
+      manager.bind(setMcpServers, statusSequence([], [connected("metabase")]), okReconnect());
+
+      const result = await manager.attach("metabase");
+
+      assert.deepEqual(result, { ok: true, alreadyLive: false });
+      expect(setMcpServers).toHaveBeenCalledWith({ clack: BASELINE_CLACK, metabase: METABASE_CFG });
+      assert.ok(manager.attachedNames().includes("metabase"));
+    });
+
+    it("setMcpServers throwing is a retryable failure", async () => {
+      const setMcpServers = vi.fn<SetMcpServersFn>(async () => {
+        throw new Error("transport closed");
+      });
+      const manager = new McpServerManager({ clack: BASELINE_CLACK }, makeRegistry());
+      manager.bind(setMcpServers, statusSequence([]), okReconnect());
+
+      const result = await manager.attach("metabase", METABASE_CFG);
+
+      assert.deepEqual(result, { ok: false, error: "transport closed", retryable: true });
+      assert.deepEqual(manager.attachedNames(), []);
+    });
+
+    it("failed → reconnect → connected: succeeds without setMcpServers", async () => {
+      const setMcpServers = okSetMcpServers();
+      const reconnect = okReconnect();
+      const manager = new McpServerManager({ clack: BASELINE_CLACK }, makeRegistry());
+      manager.seedAttached("metabase", METABASE_CFG);
+      manager.bind(
+        setMcpServers,
+        statusSequence([failed("metabase", "boom")], [connected("metabase")]),
+        reconnect,
+      );
+
+      const result = await manager.attach("metabase");
+
+      assert.deepEqual(result, { ok: true, alreadyLive: false });
+      expect(reconnect).toHaveBeenCalledWith("metabase");
+      expect(setMcpServers).not.toHaveBeenCalled();
+      assert.deepEqual(manager.attachedNames(), ["metabase"]);
+    });
+
+    it("failed → reconnect → still failed: retryable failure; an attached server stays attached", async () => {
+      const manager = new McpServerManager({ clack: BASELINE_CLACK }, makeRegistry());
+      manager.seedAttached("metabase", METABASE_CFG);
       manager.bind(
         okSetMcpServers(),
-        vi.fn<McpServerStatusFn>(async () => {
-          throw new Error("transport closed");
-        }),
+        statusSequence([failed("metabase", "boom")], [failed("metabase", "still down")]),
+        okReconnect(),
       );
-      assert.equal(await manager.isLiveInBaseline("mongodb-prod"), false);
+
+      const result = await manager.attach("metabase");
+
+      assert.deepEqual(result, { ok: false, error: "failed: still down", retryable: true });
+      assert.deepEqual(manager.attachedNames(), ["metabase"]);
+    });
+
+    it("failed → reconnect throws: retryable failure carrying the thrown error", async () => {
+      const reconnect = vi.fn<ReconnectMcpServerFn>(async () => {
+        throw new Error("reconnect exploded");
+      });
+      const manager = new McpServerManager({ clack: BASELINE_CLACK }, makeRegistry());
+      manager.bind(okSetMcpServers(), statusSequence([failed("metabase", "boom")]), reconnect);
+
+      const result = await manager.attach("metabase", METABASE_CFG);
+
+      assert.deepEqual(result, { ok: false, error: "reconnect exploded", retryable: true });
+      assert.deepEqual(manager.attachedNames(), []);
+    });
+
+    it("failed with no reconnect fn bound: retryable failure", async () => {
+      const manager = new McpServerManager({ clack: BASELINE_CLACK }, makeRegistry());
+      manager.bind(okSetMcpServers(), statusSequence([failed("metabase")]));
+
+      const result = await manager.attach("metabase", METABASE_CFG);
+
+      assert.deepEqual(result, {
+        ok: false,
+        error: "reconnect not available for 'metabase'",
+        retryable: true,
+      });
+    });
+
+    it.each(["needs-auth", "disabled"] as const)(
+      "%s: not-retryable failure with no SDK call",
+      async (status) => {
+        const setMcpServers = okSetMcpServers();
+        const reconnect = okReconnect();
+        const manager = new McpServerManager({ clack: BASELINE_CLACK }, makeRegistry());
+        manager.bind(setMcpServers, statusSequence([{ name: "monday", status }]), reconnect);
+
+        const result = await manager.attach("monday", METABASE_CFG);
+
+        assert.deepEqual(result, { ok: false, error: status, retryable: false });
+        expect(setMcpServers).not.toHaveBeenCalled();
+        expect(reconnect).not.toHaveBeenCalled();
+      },
+    );
+
+    describe("pending settle", () => {
+      beforeEach(() => {
+        vi.useFakeTimers();
+      });
+      afterEach(() => {
+        vi.useRealTimers();
+      });
+
+      it("settles a pending server to connected", async () => {
+        const status = statusSequence(
+          [pending("metabase")],
+          [pending("metabase")],
+          [connected("metabase")],
+        );
+        const manager = new McpServerManager({ metabase: METABASE_CFG }, makeRegistry());
+        manager.bind(okSetMcpServers(), status, okReconnect());
+
+        const promise = manager.attach("metabase");
+        await vi.advanceTimersByTimeAsync(1000);
+
+        assert.deepEqual(await promise, { ok: true, alreadyLive: true });
+        expect(status).toHaveBeenCalledTimes(3);
+      });
+
+      it("times out a server still pending after 10 re-reads as a retryable failure", async () => {
+        const status = vi.fn<McpServerStatusFn>();
+        status.mockResolvedValue([pending("metabase")]);
+        const manager = new McpServerManager({ clack: BASELINE_CLACK }, makeRegistry());
+        manager.bind(okSetMcpServers(), status, okReconnect());
+
+        const promise = manager.attach("metabase", METABASE_CFG);
+        await vi.advanceTimersByTimeAsync(5000);
+
+        assert.deepEqual(await promise, { ok: false, error: "pending", retryable: true });
+        expect(status).toHaveBeenCalledTimes(11);
+        assert.deepEqual(manager.attachedNames(), []);
+      });
+
+      it("settles after setMcpServers before deciding", async () => {
+        const status = statusSequence([], [pending("metabase")], [connected("metabase")]);
+        const manager = new McpServerManager({ clack: BASELINE_CLACK }, makeRegistry());
+        manager.bind(okSetMcpServers(), status, okReconnect());
+
+        const promise = manager.attach("metabase", METABASE_CFG);
+        await vi.advanceTimersByTimeAsync(500);
+
+        assert.deepEqual(await promise, { ok: true, alreadyLive: false });
+        assert.deepEqual(manager.attachedNames(), ["metabase"]);
+      });
+
+      it("reconnects a pending server that settles to failed", async () => {
+        const status = statusSequence(
+          [pending("metabase")],
+          [failed("metabase", "boom")],
+          [connected("metabase")],
+        );
+        const setMcpServers = okSetMcpServers();
+        const reconnect = okReconnect();
+        const manager = new McpServerManager({ clack: BASELINE_CLACK }, makeRegistry());
+        manager.seedAttached("metabase", METABASE_CFG);
+        manager.bind(setMcpServers, status, reconnect);
+
+        const promise = manager.attach("metabase");
+        await vi.advanceTimersByTimeAsync(500);
+
+        assert.deepEqual(await promise, { ok: true, alreadyLive: false });
+        expect(reconnect).toHaveBeenCalledWith("metabase");
+        expect(setMcpServers).not.toHaveBeenCalled();
+      });
+
+      it("a registered pending server whose status read throws mid-settle succeeds with no SDK call", async () => {
+        const status = vi.fn<McpServerStatusFn>();
+        status
+          .mockResolvedValueOnce([pending("metabase")])
+          .mockRejectedValueOnce(new Error("status transport closed"));
+        const setMcpServers = okSetMcpServers();
+        const reconnect = okReconnect();
+        const manager = new McpServerManager({ metabase: METABASE_CFG }, makeRegistry());
+        manager.bind(setMcpServers, status, reconnect);
+
+        const promise = manager.attach("metabase");
+        await vi.advanceTimersByTimeAsync(500);
+
+        assert.deepEqual(await promise, { ok: true, alreadyLive: true });
+        expect(setMcpServers).not.toHaveBeenCalled();
+        expect(reconnect).not.toHaveBeenCalled();
+      });
+    });
+
+    describe("status known before, unknown after setMcpServers", () => {
+      it("a no-error setMcpServers succeeds and records", async () => {
+        const status = vi.fn<McpServerStatusFn>();
+        status
+          .mockResolvedValueOnce([])
+          .mockRejectedValueOnce(new Error("status transport closed"));
+        const manager = new McpServerManager({ clack: BASELINE_CLACK }, makeRegistry());
+        manager.bind(okSetMcpServers(), status, okReconnect());
+
+        const result = await manager.attach("metabase", METABASE_CFG);
+
+        assert.deepEqual(result, { ok: true, alreadyLive: false });
+        assert.deepEqual(manager.attachedNames(), ["metabase"]);
+      });
+
+      it("a setMcpServers error for the name is a retryable failure, not recorded", async () => {
+        const status = vi.fn<McpServerStatusFn>();
+        status
+          .mockResolvedValueOnce([])
+          .mockRejectedValueOnce(new Error("status transport closed"));
+        const setMcpServers = vi.fn<SetMcpServersFn>(async () => ({
+          added: [],
+          removed: [],
+          errors: { metabase: "connection refused" },
+        }));
+        const manager = new McpServerManager({ clack: BASELINE_CLACK }, makeRegistry());
+        manager.bind(setMcpServers, status, okReconnect());
+
+        const result = await manager.attach("metabase", METABASE_CFG);
+
+        assert.deepEqual(result, { ok: false, error: "connection refused", retryable: true });
+        assert.deepEqual(manager.attachedNames(), []);
+      });
+    });
+
+    it("serializes concurrent attaches so the second payload keeps the first server", async () => {
+      const MONDAY_CFG: McpServerConfig = {
+        type: "stdio",
+        command: "monday-mcp",
+        args: [],
+        env: {},
+      };
+      const status = statusSequence([], [connected("metabase")], [], [connected("monday")]);
+      const setMcpServers = okSetMcpServers();
+      const manager = new McpServerManager({ clack: BASELINE_CLACK }, makeRegistry());
+      manager.bind(setMcpServers, status, okReconnect());
+
+      const first = manager.attach("metabase", METABASE_CFG);
+      const second = manager.attach("monday", MONDAY_CFG);
+
+      assert.deepEqual(await first, { ok: true, alreadyLive: false });
+      assert.deepEqual(await second, { ok: true, alreadyLive: false });
+      assert.deepEqual(setMcpServers.mock.calls[1]?.[0], {
+        clack: BASELINE_CLACK,
+        metabase: METABASE_CFG,
+        monday: MONDAY_CFG,
+      });
+      assert.deepEqual(manager.attachedNames().sort(), ["metabase", "monday"]);
+    });
+
+    describe("status unknown before acting", () => {
+      function throwingStatus(): Mock<McpServerStatusFn> {
+        return vi.fn<McpServerStatusFn>(async () => {
+          throw new Error("status transport closed");
+        });
+      }
+
+      it("registered server succeeds with no SDK call and a warning", async () => {
+        const setMcpServers = okSetMcpServers();
+        const reconnect = okReconnect();
+        const manager = new McpServerManager({ metabase: METABASE_CFG }, makeRegistry());
+        manager.bind(setMcpServers, throwingStatus(), reconnect);
+
+        const result = await manager.attach("metabase");
+
+        assert.deepEqual(result, { ok: true, alreadyLive: true });
+        expect(setMcpServers).not.toHaveBeenCalled();
+        expect(reconnect).not.toHaveBeenCalled();
+        assert.ok(warn.mock.calls.some((c) => String(c[0]).includes("'metabase'")));
+      });
+
+      it("unregistered server: setMcpServers with no error succeeds and records", async () => {
+        const setMcpServers = okSetMcpServers();
+        const status = throwingStatus();
+        const manager = new McpServerManager({ clack: BASELINE_CLACK }, makeRegistry());
+        manager.bind(setMcpServers, status, okReconnect());
+
+        const result = await manager.attach("metabase", METABASE_CFG);
+
+        assert.deepEqual(result, { ok: true, alreadyLive: false });
+        expect(setMcpServers).toHaveBeenCalledTimes(1);
+        assert.deepEqual(manager.attachedNames(), ["metabase"]);
+        expect(status).toHaveBeenCalledTimes(1);
+      });
+
+      it("unregistered server: setMcpServers error is a retryable failure with its text", async () => {
+        const setMcpServers = vi.fn<SetMcpServersFn>(async () => ({
+          added: [],
+          removed: [],
+          errors: { metabase: "connection refused" },
+        }));
+        const manager = new McpServerManager({ clack: BASELINE_CLACK }, makeRegistry());
+        manager.bind(setMcpServers, throwingStatus(), okReconnect());
+
+        const result = await manager.attach("metabase", METABASE_CFG);
+
+        assert.deepEqual(result, { ok: false, error: "connection refused", retryable: true });
+        assert.deepEqual(manager.attachedNames(), []);
+      });
+    });
+
+    describe("status known before, unknown after a reconnect", () => {
+      it("a resolved reconnect succeeds with a warning", async () => {
+        const status = vi.fn<McpServerStatusFn>();
+        status
+          .mockResolvedValueOnce([failed("metabase", "boom")])
+          .mockRejectedValueOnce(new Error("status transport closed"));
+        const manager = new McpServerManager({ clack: BASELINE_CLACK }, makeRegistry());
+        manager.bind(okSetMcpServers(), status, okReconnect());
+
+        const result = await manager.attach("metabase", METABASE_CFG);
+
+        assert.deepEqual(result, { ok: true, alreadyLive: false });
+        assert.deepEqual(manager.attachedNames(), ["metabase"]);
+        assert.ok(warn.mock.calls.some((c) => String(c[0]).includes("unreadable after")));
+      });
+
+      it("a thrown reconnect is a retryable failure", async () => {
+        const status = vi.fn<McpServerStatusFn>();
+        status.mockResolvedValueOnce([failed("metabase", "boom")]);
+        const reconnect = vi.fn<ReconnectMcpServerFn>(async () => {
+          throw new Error("reconnect exploded");
+        });
+        const manager = new McpServerManager({ clack: BASELINE_CLACK }, makeRegistry());
+        manager.bind(okSetMcpServers(), status, reconnect);
+
+        const result = await manager.attach("metabase", METABASE_CFG);
+
+        assert.deepEqual(result, { ok: false, error: "reconnect exploded", retryable: true });
+        assert.deepEqual(manager.attachedNames(), []);
+      });
+    });
+
+    describe("session-start servers", () => {
+      it("are never added to attached after a reconnect", async () => {
+        const manager = new McpServerManager({ metabase: METABASE_CFG }, makeRegistry());
+        manager.bind(
+          okSetMcpServers(),
+          statusSequence([failed("metabase")], [connected("metabase")]),
+          okReconnect(),
+        );
+
+        const result = await manager.attach("metabase", METABASE_CFG);
+
+        assert.deepEqual(result, { ok: true, alreadyLive: false });
+        assert.deepEqual(manager.attachedNames(), []);
+      });
+
+      it("are re-sent with their held config and never added to attached when absent", async () => {
+        const setMcpServers = okSetMcpServers();
+        const manager = new McpServerManager({ metabase: METABASE_CFG }, makeRegistry());
+        manager.bind(setMcpServers, statusSequence([], [connected("metabase")]), okReconnect());
+
+        const result = await manager.attach("metabase");
+
+        assert.deepEqual(result, { ok: true, alreadyLive: false });
+        expect(setMcpServers).toHaveBeenCalledWith({ metabase: METABASE_CFG });
+        assert.deepEqual(manager.attachedNames(), []);
+      });
+    });
+
+    it("incident sequence: a timeout then a no-error resend that stays failed never succeeds", async () => {
+      const setMcpServers = vi.fn<SetMcpServersFn>();
+      setMcpServers.mockResolvedValueOnce({
+        added: [],
+        removed: [],
+        errors: { metabase: "connect timeout" },
+      });
+      const reconnect = okReconnect();
+      const manager = new McpServerManager({ clack: BASELINE_CLACK }, makeRegistry());
+      manager.bind(
+        setMcpServers,
+        statusSequence(
+          [],
+          [failed("metabase", "connect timeout")],
+          [failed("metabase", "connect timeout")],
+          [failed("metabase", "connect timeout")],
+        ),
+        reconnect,
+      );
+
+      const first = await manager.attach("metabase", METABASE_CFG);
+      const second = await manager.attach("metabase", METABASE_CFG);
+
+      const expected = { ok: false, error: "failed: connect timeout", retryable: true };
+      assert.deepEqual(first, expected);
+      assert.deepEqual(second, expected);
+      expect(setMcpServers).toHaveBeenCalledTimes(1);
+      expect(reconnect).toHaveBeenCalledWith("metabase");
+      assert.deepEqual(manager.attachedNames(), []);
     });
   });
 
@@ -362,6 +870,25 @@ describe("prepareMcpSession + completeSessionStart — pre-attached topic server
 
     assert.deepEqual(setup.preAttached, {});
     assert.ok(warn.mock.calls.some((c) => String(c[0]).includes("pre-attached topic 'metabase'")));
+  });
+
+  it("keeps a persisted name whose load throws when rewriting out a stale one", async () => {
+    const deps = makeDeps({
+      loadMcpServer: vi.fn(async (name: string) => {
+        if (name === "metabase") throw new Error("boom");
+        return undefined;
+      }),
+    });
+    vi.spyOn(logger, "warn").mockImplementation(() => {});
+
+    await prepareMcpSession(
+      makeSetupSession({ attachedIntegrations: ["gone", "metabase"] }),
+      config,
+      [],
+      deps,
+    );
+
+    expect(deps.updateSession).toHaveBeenCalledWith("s1", { attachedIntegrations: ["metabase"] });
   });
 
   it("does not load a pre-attached name twice when it is already resumed", async () => {
